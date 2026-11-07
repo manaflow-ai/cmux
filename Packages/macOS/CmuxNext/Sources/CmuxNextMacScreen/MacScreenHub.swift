@@ -66,7 +66,7 @@ public nonisolated enum MacScreenHubPhase: Equatable, Sendable {
     case waitingForApproval(sessionID: String, scope: SessionScope)
     /// Approved: the ticket is on its way.
     case approved(sessionID: String, scope: SessionScope)
-    /// The ticket came: the stream runs (`ScreenSession` says how far it got).
+    /// The ticket came: the stream runs (`MacScreenSession` says how far it got).
     case streaming(sessionID: String, scope: SessionScope)
     /// The stream failed (its card says why); the hub hears `failed` unless its own reason comes first.
     case streamFailed(sessionID: String, scope: SessionScope)

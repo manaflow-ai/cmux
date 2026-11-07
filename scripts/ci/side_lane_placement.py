@@ -743,7 +743,11 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
         if not (token and repo):
             continue
         try:
-            runners = pool.GitHub(token, repo, retry_cap=SIDE_RETRY_CAP_SECONDS, retries=retries).runners()
+            client = pool.GitHub(token, repo, retry_cap=SIDE_RETRY_CAP_SECONDS, retries=retries)
+            # The fallback mint grants org runner read only. Its approved org
+            # groups remain readable when repository registrations are not.
+            runners = (client.runners(include_repository=False) if name == "ROUTE_TOKEN_FALLBACK"
+                       else client.runners())
             break
         except Exception as error:  # noqa: BLE001 - fail open: keep today's route
             print(f"::warning title=side-lane placement::could not list runners with {name} ({error})")

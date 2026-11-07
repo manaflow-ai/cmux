@@ -105,6 +105,11 @@ public final class PaletteController {
     public func bindRegistryActions() {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
+        // The palette, the Settings button and `cmux settings clear-palette-history`.
+        registry.bindEffect("palette.clearSearchHistory", effect: { [weak self] _ in
+            self?.model.clearSearchHistory()
+            return .done
+        })
         // Cmd-Shift-A: Search, which adds history and agent chats to the open items
         // (search-everything-DESIGN.md section 10.1). The id predates the change; user key files name it.
         registry.bind("search.chats", invoke: { [weak self] invocation in
@@ -116,8 +121,8 @@ public final class PaletteController {
             registry.bind("goToWorkspace", invoke: { [weak self] invocation in
                 if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
                     guard let self, let source = self.sources.workspaces else { return }
-                    // An id that names no workspace is refused, never a silent success.
-                    guard source.workspaces.contains(where: { $0.id == workspace }) else {
+                    // An id that names no workspace is refused, never a silent success. One lookup, no list.
+                    guard source.hasWorkspace(id: workspace) else {
                         return self.registry.refuseNotFound(PaletteStrings.workspaceNotFound(workspace))
                     }
                     source.selectWorkspace(id: workspace)
@@ -220,7 +225,7 @@ public final class PaletteController {
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
                                        captured: capturedTargets, preview: sources.argumentPreview,
-                                       swatches: sources.argumentSwatches, ask: ask)
+                                       swatches: sources.argumentSwatches, ask: ask, creators: sources.targetCreators)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.

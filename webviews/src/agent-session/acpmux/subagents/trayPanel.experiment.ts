@@ -55,3 +55,30 @@ export const trayRowLook = defineExperiment({
   },
   defaultArm: "trailing",
 });
+
+/// A running tray line's Stop, now that the line draws no spinner and no "Running" word, only its
+/// time and Stop (Leo, 2026-11-03: "do we really need a running symbol vs just having the time and
+/// a square stop button?"). Every arm draws the filled rounded square of Claude Desktop's running
+/// rows in the same fixed Stop track; they differ only in its tone. Compare them in the gallery's
+/// `agent-pane.subagent-tray` (`running-stop-*`).
+export const trayStopLook = defineExperiment({
+  id: "subagent-tray-stop",
+  title: "Subagent tray Stop",
+  description:
+    "A running line's filled square Stop: in the text colour, muted like the time, or in a faint tinted box.",
+  arms: {
+    solid: {
+      label: "Text colour",
+      description: "The filled square in the text colour, the time muted beside it (Claude Desktop's).",
+    },
+    muted: {
+      label: "Muted",
+      description: "The filled square in the muted colour, the same tone as the time.",
+    },
+    boxed: {
+      label: "Tinted box",
+      description: "The filled square on a faint 10% box, as the Background tasks panel draws its Stop.",
+    },
+  },
+  defaultArm: "solid",
+});

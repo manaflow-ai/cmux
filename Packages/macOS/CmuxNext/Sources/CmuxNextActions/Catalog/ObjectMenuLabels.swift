@@ -40,6 +40,8 @@ nonisolated enum ObjectMenuLabels {
     static var sortByName: String { text("menu.group.sortByName", "Sort by Name") }
     static var sortByLastUsed: String { text("menu.group.sortByLastUsed", "Sort by Last Used") }
     static var sortByDirectory: String { text("menu.group.sortByDirectory", "Sort by Directory") }
+    /// The group's kept sort (Manual, Name, Recent), the group editor's Sort row.
+    static var sortOrder: String { text("menu.group.sortOrder", "Sort Order") }
 
     // Toggles, one style.
     static var togglePinScreen: String { text("menu.screen.togglePin", "Pin/Unpin Screen") }

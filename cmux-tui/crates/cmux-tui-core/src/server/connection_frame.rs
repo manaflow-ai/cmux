@@ -92,6 +92,7 @@ pub(super) fn handle_connection_frame(
     }
     #[cfg(unix)]
     if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer)
+        .or_else(|| chief_work::try_handle(mux, client, message, writer))
         .or_else(|| mobile_chat::try_handle(mux, client, message, writer))
         .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
         .or_else(|| agent_inventory::try_handle(mux, client, message, writer))
@@ -126,6 +127,19 @@ pub(super) fn handle_connection_frame(
         Err(error) => return send_bad_request(writer, message, &error),
     };
     request.remote_line = incognito_remote::line_to_recheck(mux, client, message);
+    // Key-press flows: the reader parsed the key's line. With `daemon.send.write` on the dispatcher it separates the
+    // wait in the connection's queue from the wait before the line was read (`CMUX_TRACE_FLOWS` only).
+    if let Command::Send(send) = &request.cmd
+        && let Some(flow) = send.flow
+    {
+        cmux_flow_trace::hop("daemon.send.read", flow, "");
+    }
+    // A liveness or identity ask is answered here, on the connection's reader: queued, it waited
+    // behind every slower request the connection sent before it (a Cloud start, a terminal
+    // create), and the app's read barrier and heartbeat timed out on a loaded Mac (#32724).
+    if request.cmd.answers_before_queue() {
+        return handle_request(mux, client, request, writer);
+    }
     let mut pending = Some(request);
     match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
         Some(keep_open) => keep_open,
@@ -133,6 +147,15 @@ pub(super) fn handle_connection_frame(
             Some(request) => handle_request(mux, client, request, writer),
             None => true,
         },
+    }
+}
+
+impl Command {
+    /// Commands that read nothing a request on the same connection changes, so they need not wait
+    /// for the connection's queue: `ping` and a plain `identify`. `identify` with `machine_metadata`
+    /// stays in order: the handshake sends it after `client-hello`'s proof.
+    pub(super) fn answers_before_queue(&self) -> bool {
+        matches!(self, Self::Ping | Self::Identify { machine_metadata: false, .. })
     }
 }
 
@@ -193,7 +216,16 @@ pub(super) fn handle_request_with_cancellation(
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let (mut reason, mut retryable, mut details) = (None, None, None);
-    let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
+    // Under `dx serve --hot-patch` every request runs the newest patched code.
+    #[cfg(feature = "hotpatch")]
+    let result = crate::hotpatch::call(
+        handle_command_with_cancellation,
+        (mux, client, cmd, writer, cancellation),
+    )
+    .and_then(|result| result);
+    #[cfg(not(feature = "hotpatch"))]
+    let result = handle_command_with_cancellation(mux, client, cmd, writer, cancellation);
+    let response = match result {
         Ok(data) => Response {
             id,
             ok: true,

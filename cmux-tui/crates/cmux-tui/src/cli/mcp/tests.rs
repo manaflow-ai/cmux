@@ -62,6 +62,10 @@ struct Fake {
     computer_use: Option<Value>,
     /// The card's answer to `permissions.request`; `granted` when unset.
     setup_outcome: Option<Value>,
+    /// The app's `cloud.machines` answer; an app without it answers `{ran: true}`.
+    cloud_machines: Option<Value>,
+    /// The server was started on another session (`--session`, `--socket`).
+    other_session: bool,
     /// `{method, params, thread}` of each request the app caller got.
     app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
     sent: RefCell<Vec<Value>>,
@@ -161,6 +165,10 @@ impl Fake {
 }
 
 impl Backend for Fake {
+    fn app_session(&self) -> bool {
+        !self.other_session
+    }
+
     fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
         let status = self.computer_use.clone()?;
         let outcome = self.setup_outcome.clone().unwrap_or_else(|| json!({"outcome": "granted"}));
@@ -306,6 +314,9 @@ impl Backend for Fake {
                     .topology
                     .clone()
                     .unwrap_or_else(|| json!({"topology": {"windows": [{"id": "win_a"}]}})))
+            }
+            "cloud.machines" if self.cloud_machines.is_some() => {
+                Ok(self.cloud_machines.clone().unwrap_or_default())
             }
             "feed.list" => {
                 let mut live = self.live.borrow_mut();
@@ -1327,6 +1338,14 @@ fn agents_action_tools_send_the_cli_requests_and_move_focus_only_by_purpose() {
     let list = &sent_of(&server, "app")[0];
     assert_eq!(list["method"], "feed.list");
     assert_eq!(list["params"]["pending_only"], false);
+    // A read's receipt reads the app's last snapshot: no read barrier to wait out.
+    let state = &sent_of(&server, "app")[1];
+    assert_eq!(state["method"], "snapshot.get");
+    assert_eq!(state["params"], json!({"after": 0}));
+    server.backend.sent.borrow_mut().clear();
+    call(&mut server, "agents_palette_open", json!({"idempotency_key": "palette-2"}));
+    let state = sent_of(&server, "app").into_iter().find(|s| s["method"] == "snapshot.get");
+    assert_eq!(state.expect("a change's receipt reads the app")["params"], json!({}));
 
     server.backend.sent.borrow_mut().clear();
     let result = call(
@@ -1337,7 +1356,10 @@ fn agents_action_tools_send_the_cli_requests_and_move_focus_only_by_purpose() {
     assert_eq!(result["structuredContent"]["action"], "dialog.answer", "{result}");
     let reply = &sent_of(&server, "app")[0];
     assert_eq!(reply["method"], "feed.question.reply");
-    assert_eq!(reply["params"], json!({"request_id": "request_a", "selections": ["one", "two"]}));
+    // The tool names who answers (origin, and the caller when it is an agent session).
+    assert_eq!(reply["params"]["request_id"], "request_a");
+    assert_eq!(reply["params"]["selections"], json!(["one", "two"]));
+    assert_eq!(reply["params"]["origin"], "mcp");
 }
 
 #[test]
@@ -1408,7 +1430,9 @@ fn agents_dialog_answer_only_denies_permissions_over_mcp() {
     assert_eq!(result["isError"], false, "{result}");
     let reply = &sent_of(&server, "app")[0];
     assert_eq!(reply["method"], "feed.permission.reply");
-    assert_eq!(reply["params"], json!({"request_id": "request_a", "mode": "deny"}));
+    assert_eq!(reply["params"]["request_id"], "request_a");
+    assert_eq!(reply["params"]["mode"], "deny");
+    assert_eq!(reply["params"]["origin"], "mcp");
 
     let listed =
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
@@ -1527,6 +1551,7 @@ mod agent_wait;
 
 mod caller_scope;
 mod catalog;
+mod cloud_workspace_list;
 mod machine_catalog;
 mod retained;
 mod settings;
@@ -1538,7 +1563,7 @@ fn code_mode_server(fake: Fake) -> Server<Fake> {
 }
 
 #[test]
-fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
+fn code_mode_lists_exec_and_workflow_and_a_script_reaches_every_tool() {
     let mut server = code_mode_server(Fake::with_actions());
     let initialize =
         server.handle(&json!({"jsonrpc": "2.0", "id": "i", "method": "initialize"})).unwrap();
@@ -1547,9 +1572,9 @@ fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
     let tools = listed["result"]["tools"].as_array().cloned().unwrap();
     let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>();
-    // Only cmux_exec (Lawrence 2026-10-23): a script searches with
-    // `cmux.docs(query)`, and `cmux_docs` stays callable for old prompts.
-    assert_eq!(names, ["cmux_exec"]);
+    // Scripts search the underlying catalog with cmux.docs; durable runs
+    // also have a direct lifecycle tool beside the code-mode entry point.
+    assert_eq!(names, ["cmux_exec", "cmux_workflow"]);
     let bytes = serde_json::to_vec(&tools).unwrap().len();
     assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
     let all = server.list();

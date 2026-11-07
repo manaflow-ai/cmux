@@ -6,9 +6,10 @@ public extension PageDescriptor {
     /// The Artifacts page (webviews/src/pages/artifacts): the account's synced artifacts and
     /// memories as a tree, a preview and their history, read only. Its three ops are relayed to
     /// cmux-platform's `/v1/artifacts` reads with the app's own bearer; the page never sees a token.
-    /// Saved HTML previews in passive srcdoc frames, which never navigate.
+    /// Saved HTML previews in passive srcdoc frames, which never navigate. Signed out, its one action
+    /// is the app's Sign In (the page's Sign In button).
     static let artifacts = PageDescriptor(id: "cmux.artifacts", resource: "artifacts", namespaces: ["cmux.artifacts.", "cmux.cloud."],
-                                          passiveFrames: true)
+                                          nativeOps: [PageNativeOp.actionRun], actions: ["palette.auth.signIn"], passiveFrames: true)
 }
 
 /// One authenticated GET the provider asks the app to make: `path` under the platform's base URL

@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample chats, prompts and replies), not shipped UI.
-// The app, whole: the real agent pane (acpmux/main.tsx, AcpmuxApp) at the size it has in a real
+// The app, whole: the real agent pane (acpmux/mount.tsx, AcpmuxApp) at the size it has in a real
 // cmux window (the default window frame, window.ts), in the states a person reaches by using it.
 // Leo, 2026-10-30: "we should have a faithful all-levle representation of the app through that
 // stuff" and "WE DONT NEED FUCKIGN SCREENSHOTS JUST LET ME TRY THE SHIT OUT". Each variant is a
@@ -164,8 +164,8 @@ async function openEffortLevels(ctx: PlayContext) {
   );
 }
 
-/// Session Info open beside the chat: it opens by default for a first chat; if this pane has it
-/// closed, the header's toggle opens it, as a person would.
+/// Session Info open beside the chat: a new pane starts with it closed, so the header's toggle opens
+/// it, as a person would.
 async function showSessionInfo(ctx: PlayContext) {
   const shown = () => ctx.document.querySelector(".acpmux-session-info[data-presence=shown]");
   await ctx.waitFor(() => shown() ?? ctx.document.querySelector('[aria-label="Session Info"]'), { capMs: 5000 });

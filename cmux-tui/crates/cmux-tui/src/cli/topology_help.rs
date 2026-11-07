@@ -4,6 +4,7 @@
 pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list [--order session|personal]
+  cmux --machine <cloud machine> workspace list
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--top] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
@@ -74,7 +75,11 @@ order to every caller when the session has the sidebar document; without
 the document it gives the sidebar order in the app's context (an app
 terminal or Chief addressing the app's own daemon), else the session
 order. The app's
-snapshot.get windows[].workspaces lists the order each window shows. --top-index
+snapshot.get windows[].workspaces lists the order each window shows. In the
+cmux app's session, list also gives each connected Cloud machine's
+workspaces after this Mac's, marked origin cloud with machine_id (the vm-…
+id cloud new-workspace answers), machine_name and target machine:<id>;
+--machine <vm-…|machine:vm-…|name> lists one Cloud machine's. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
 icon (one emoji, an SF Symbol name, or a stored image:sha256-<hex> or

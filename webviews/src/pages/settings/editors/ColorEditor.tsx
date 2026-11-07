@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import { inheritsWindowColor } from "../inheritance";
 import { t, text } from "../strings";
@@ -59,7 +60,7 @@ export function ColorEditor({ row, value, disabled, labelId }: EditorProps) {
         aria-labelledby={labelId}
         onChange={(event) => store.preview(row.key, normalized(event.currentTarget.value) + alpha)}
       />
-      <input
+      <Input
         className="field hex"
         type="text"
         spellCheck={false}

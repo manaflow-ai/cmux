@@ -5,18 +5,19 @@ public import Observation
 public nonisolated enum HostCommand: Equatable, Sendable {
     /// `host enroll HOST --name N --harness local --reverse --json`: every step, fixing what it can,
     /// with this Mac's agent profiles copied and the host peered back, so setup leaves no skips.
+    /// The Add click opts into recording a new SSH host key; changed keys still fail.
     case enroll(host: String, name: String)
     /// `host doctor NAME|HOST [--fix] --json`: the checks alone, or `--fix` for the failed ones plus
     /// the setup enroll does (profiles, peer-back).
     case doctor(host: String, fix: Bool)
     /// `machine doctor ID --json`: the minting end's checks of a machine that joined with a one-line
-    /// token (Labs `labs.machineJoin`). It reads the cmux access token on stdin (``needsAccount``).
+    /// token or a pair code. It reads the cmux access token on stdin (``needsAccount``).
     case joinedDoctor(id: String)
 
     /// The arguments after the `cmux-tui` binary.
     public var arguments: [String] {
         switch self {
-        case let .enroll(host, name): ["acp", "host", "enroll", host, "--name", name] + Self.setup + ["--json"]
+        case let .enroll(host, name): ["acp", "host", "enroll", host, "--name", name, "--accept-new-host-key"] + Self.setup + ["--json"]
         case let .doctor(host, fix): ["acp", "host", "doctor", host] + (fix ? ["--fix"] + Self.setup : []) + ["--json"]
         case let .joinedDoctor(id): ["machine", "doctor", id, "--json", "--cloud-token-stdin"]
         }

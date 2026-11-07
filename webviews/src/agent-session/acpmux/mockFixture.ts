@@ -40,11 +40,22 @@ export type MockSession = {
   working?: { title: string; kind: string; command?: string };
   /// A page the agent rendered before its reply (`cmux mcp`'s render tool), shown as a render card.
   render?: { title: string; html: string };
+  /// The chat's whole history, when it is a scene of its own instead of a prompt and its reply.
+  history?: (at: number) => SeedStep[];
+  /// Config options this chat offers beyond the harness's usual ones (the Options chip's).
+  extraOptions?: Record<string, unknown>[];
+  /// The agent's suggested next prompt after its last turn. acpmux sends it live only (a page
+  /// never holds it, hub/paging.rs NON_TRANSCRIPT_UPDATES), so the mock sends it when the chat opens.
+  suggestion?: string;
 };
 
 type Update = Record<string, unknown>;
 /// One seeded event, `ago` milliseconds before the fixture loads.
-export type SeedStep = ({ update: Update } | { mux: string; msg?: Record<string, unknown> }) & { ago: number };
+/// An update step's `meta` is the `_meta` acpmux writes beside it (its `acpmux.subagents` model).
+export type SeedStep = (
+  | { update: Update; meta?: Record<string, unknown> }
+  | { mux: string; msg?: Record<string, unknown> }
+) & { ago: number };
 
 export const LOCAL_HOST = "This Mac";
 
@@ -130,6 +141,34 @@ const effort = (currentValue: string) => [
 export const WORKED_SESSION = "mock-session";
 const CMUX = "~/code/cmux";
 
+/// The mock chat whose last turn left a prompt suggestion (`?mock&session=` this id).
+export const PROMPT_SUGGESTION_SESSION = "mock-prompt-suggestion";
+export const PROMPT_SUGGESTION = "Add a test for the retry backoff";
+/// acpmux's per-chat switch for Claude Code's prompt suggestions, as it offers it.
+export const PROMPT_SUGGESTIONS_OPTION = {
+  id: "prompt-suggestions",
+  name: "Prompt suggestions",
+  type: "select",
+  category: "model_config",
+  currentValue: "on",
+  options: [
+    { value: "off", name: "Off" },
+    {
+      value: "on",
+      name: "On",
+      description: "Suggests your next prompt after a turn; one extra model call per turn, which counts toward usage",
+    },
+  ],
+};
+/// The mock chat whose model the harness cannot reach and retries (`turn_retrying`).
+export const MODEL_RETRY_SESSION = "mock-model-retry";
+export const SUBAGENT_NAMES_SESSION = "mock-subagent-names";
+export const SUBAGENT_NAMES_AGENT_ID = "a6ab68f9e2c41d07b";
+export const SUBAGENT_NAMES_TASK = "Watch CI for #33005";
+/// Four background agents in mixed states (Leo, 2026-11-03, watching Claude Code Desktop run agents in
+/// parallel: "yo wtf i want this kind of feature in cmux-next too", then "Tray only, richer").
+export const PARALLEL_AGENTS_SESSION = "mock-parallel-agents";
+
 export const mockSessions: MockSession[] = [
   {
     sessionId: WORKED_SESSION,
@@ -197,6 +236,139 @@ export const mockSessions: MockSession[] = [
     pullRequest: { number: 18166, title: "Localize the changes view", state: "draft" },
     reply:
       "Added the 14 new strings to Localizable.xcstrings in all nine app locales. The Arabic layout mirrors the toolbar correctly.",
+  },
+  {
+    // A coordinator's tagged ask at the end of its turn (conversation/nextStepAsk.ts): it draws as a
+    // card with its answers as buttons (NextStepCard.tsx); a click sends one as the next prompt.
+    sessionId: "mock-next-step-ask",
+    title: "Find why the lane stalled",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 40,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply:
+      "The lane wasn't foregrounded by acpmux or cmux NEXT. It ran about 40 slow Bash calls in the foreground itself, and they stalled the turn. Separately, the activity-row timer bug went to the timer helper.\n\n[outward] Add a hook that pushes known-slow commands to the background?\n- Yes, add the hook\n- Not now\n- Fix CI first",
+  },
+  {
+    // The agent's own wrap-up call at the end of its turn (acpmux's `wrap_up` tool,
+    // conversation/wrapUp.ts): the next-step box under the answer, the recap muted on top, then the
+    // question and its two answers; a click sends one as the next prompt.
+    sessionId: "mock-wrap-up",
+    title: "Fix product grid layout shift",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 30,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Done. The grid reserves its space now.",
+    history: (at) => [
+      { ago: at + 90_000, mux: "user_message", msg: { text: "Fix the layout shift on the product grid" } },
+      { ago: at + 90_000, mux: "turn_started" },
+      { ago: at + 30_000, update: text("Done. The grid reserves its space now.") },
+      {
+        ago: at + 20_000,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "mock-wrap-up-call",
+          kind: "other",
+          title: "mcp__acpmux__wrap_up",
+          status: "completed",
+          rawInput: {
+            recap:
+              "Product images now have a width and height, and the grid reserves a 4:5 box while they load, so the product grid no longer shifts. All 14 tests pass.",
+            ask: "Should I open a PR for this?",
+            actions: ["Yes, open PR", "Not now"],
+          },
+        },
+      },
+      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
+  {
+    // A real chat's wrap-up from a code-mode script: a DEV build's SR2 Claude chat called
+    // `cmux.acpmux_wrap_up` from `cmux_exec`, and this is the call_log it recorded (code_mode.rs keeps
+    // the box as `shown`). The pane reads the box from it; a click sends an answer as the next prompt.
+    sessionId: "mock-wrap-up-code-mode",
+    title: "Look in an empty folder",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 25,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "The folder is empty. I asked in the wrap-up box whether to add a README.",
+    history: (at) => {
+      const shown = {
+        recap: "Checked the folder: it is empty.",
+        ask: "Should I add a README here?",
+        actions: ["Yes, add README", "No thanks"],
+      };
+      const log = JSON.stringify({ calls: 1, call_log: [{ name: "acpmux_wrap_up", ok: true, shown }] });
+      return [
+        { ago: at + 60_000, mux: "user_message", msg: { text: "What's in this folder?" } },
+        { ago: at + 60_000, mux: "turn_started" },
+        {
+          ago: at + 30_000,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "mock-wrap-up-exec",
+            kind: "other",
+            title: "mcp__cmux__cmux_exec",
+            status: "in_progress",
+            rawInput: { script: `await cmux.acpmux_wrap_up(${JSON.stringify(shown)})` },
+          },
+        },
+        {
+          ago: at + 29_000,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "mock-wrap-up-exec",
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: log } }],
+          },
+        },
+        { ago: at + 20_000, update: text("The folder is empty. I asked in the wrap-up box whether to add a README.") },
+        { ago: at, mux: "turn_result", msg: { status: "completed" } },
+      ];
+    },
+  },
+  {
+    // The person came back to a Claude chat after 5+ minutes away (Leo, 2026-11-03: "lkewise with
+    // teh cli summarization thing? how do those get turned on? maybe we can expose it in cmux-next
+    // too"): acpmux's `recap` record, drawn as the recap row under the last turn.
+    sessionId: "mock-session-recap",
+    title: "Make the parser tolerate missing fields",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9200,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "The parser now skips absent optional fields.",
+    history: (at) => [
+      { ago: at + 900_000, mux: "user_message", msg: { text: "Make the parser in foo.rs tolerate missing fields." } },
+      { ago: at + 900_000, mux: "turn_started" },
+      {
+        ago: at + 860_000,
+        update: text("The parser now skips absent optional fields; required ones still fail with their name."),
+      },
+      { ago: at + 860_000, mux: "turn_result", msg: { status: "completed" } },
+      {
+        ago: at,
+        mux: "recap",
+        msg: {
+          text: "Goal: make the parser in foo.rs tolerate missing fields; optional ones are done. Next: decide how required fields should fail.",
+          awayMs: 840_000,
+        },
+      },
+    ],
   },
   {
     sessionId: "mock-typing-latency",
@@ -420,11 +592,432 @@ export const mockSessions: MockSession[] = [
     hostKind: "local",
     reply: "The config now lives in dotfiles and links into ~/.config/ghostty on each machine.",
   },
+  {
+    // A background shell from an earlier page ends while a reply streams (Leo, 2026-11-03: "this
+    // chat's text stream got cut in the middle by a tool call which is weird"): its note goes after
+    // the reply, never between "once per machine," and "not once per chat."
+    sessionId: "mock-notice-mid-reply",
+    title: "How often do Cloud machines ask for a login",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9000,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Once per machine, not once per chat.",
+    history: (at) => [
+      { ago: at + 90_000, mux: "user_message", msg: { text: "How often do Cloud machines ask for a login?" } },
+      { ago: at + 90_000, mux: "turn_started" },
+      {
+        ago: at + 40_000,
+        update: text(
+          "- Codex works the same way through its device sign-in.\n- The login stays on that machine's own disk, so it's once per machine,",
+        ),
+      },
+      {
+        ago: at + 30_000,
+        update: {
+          sessionUpdate: "background_task_update",
+          taskId: "task-ci-wait",
+          toolCallId: "mock-notice-mid-reply-earlier-call",
+          command: "Wait for remote CI run",
+          state: "completed",
+        },
+      },
+      { ago: at + 20_000, update: text(" not once per chat. With one machine per workspace, that's rare.") },
+      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
+  {
+    // A background subagent whose Agent call is on a page not loaded (Leo, 2026-11-03: "why is the
+    // spacing like this it's weird", his capture reading "Subagent finished: Subagent" and "Sent to
+    // a6ab68f9"). acpmux repeats its name and task on its progress and end, and its progress says
+    // its agentId (cmux-tui/crates/acpmux), so its end line names its description and a SendMessage to its agentId reads
+    // "Sent to <description>".
+    sessionId: SUBAGENT_NAMES_SESSION,
+    title: "Watch CI for the subagent names fix",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9200,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "CI is green.",
+    history: (at) => {
+      const id = `${SUBAGENT_NAMES_SESSION}/toolu_ci_watch`;
+      const named = { name: "ci-watcher", task: SUBAGENT_NAMES_TASK };
+      const send = "mock-subagent-names-send";
+      return [
+        { ago: at + 4_400_000, mux: "user_message", msg: { text: "Keep watching CI and tell me when it is green." } },
+        { ago: at + 4_400_000, mux: "turn_started" },
+        {
+          ago: at + 4_350_000,
+          update: { sessionUpdate: "subagent_progress", subagentSessionId: id },
+          meta: {
+            acpmux: {
+              subagents: [
+                {
+                  id,
+                  parent: null,
+                  state: "running",
+                  background: true,
+                  action: "Reading the run log",
+                  agentId: SUBAGENT_NAMES_AGENT_ID,
+                  ...named,
+                },
+              ],
+            },
+          },
+        },
+        {
+          ago: at + 4_300_000,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: send,
+            title: "SendMessage",
+            kind: "other",
+            status: "pending",
+            rawInput: {
+              to: SUBAGENT_NAMES_AGENT_ID,
+              message: "Don't end turns to wait: keep watching until the run is green, then report.",
+            },
+          },
+        },
+        {
+          ago: at + 4_299_000,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: send,
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: '{"success":true}' } }],
+          },
+        },
+        {
+          ago: at + 10_000,
+          update: { sessionUpdate: "subagent_state_update", subagentSessionId: id, state: "completed" },
+          meta: { acpmux: { subagents: [{ id, parent: null, state: "completed", ...named }] } },
+        },
+        { ago: at + 5_000, update: text("CI is green.") },
+        { ago: at, mux: "turn_result", msg: { status: "completed" } },
+      ];
+    },
+  },
+  {
+    // Four background agents at once, each in its own state (PARALLEL_AGENTS_SESSION): the tray lists
+    // the running one with its latest step, the one that stopped to wait on background work of its
+    // own, and under them the transcript keeps a quiet line for each that ended, the finished one's
+    // opening to its final report and the failed one's with Retry.
+    sessionId: PARALLEL_AGENTS_SESSION,
+    title: "Audit the nightly pipeline in parallel",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9300,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Two agents are still on it; the publish step's report is in.",
+    history: (at) => {
+      const id = (name: string) => `${PARALLEL_AGENTS_SESSION}/toolu_${name}`;
+      const agent = (name: string, task: string, fields: Record<string, unknown>) => ({
+        id: id(name),
+        parent: null,
+        name,
+        task,
+        background: true,
+        ...fields,
+      });
+      const progress = (ago: number, change: Record<string, unknown>) => ({
+        ago,
+        update: { sessionUpdate: "subagent_progress", subagentSessionId: change.id },
+        meta: { acpmux: { subagents: [change] } },
+      });
+      const spawned = (ago: number, change: Record<string, unknown>) => ({
+        ago,
+        update: { sessionUpdate: "subagent_spawned", subagentSessionId: change.id },
+        meta: { acpmux: { subagents: [change] } },
+      });
+      const ended = (ago: number, change: Record<string, unknown>) => ({
+        ago,
+        update: { sessionUpdate: "subagent_state_update", subagentSessionId: change.id, state: change.state },
+        meta: { acpmux: { subagents: [change] } },
+      });
+      const cache = agent("cache", "Measure the build cache", { state: "running", action: "Read warm-sources.json" });
+      const signing = agent("signing", "Time the signing step", {
+        state: "running",
+        action: "Waiting on the notarization run",
+        lastMessage: "Started the notarization run; I'll report when it settles.",
+      });
+      const publish = agent("publish", "Check the publish step", {
+        state: "completed",
+        lastMessage: [
+          "## Publish step",
+          "The publish step spends 4m 10s re-uploading the DMG it already uploaded.",
+          "",
+          "- The upload step runs twice: once in `build-nightly-app`, once in `publish`.",
+          "- Dropping the second upload saves about 4 minutes per nightly.",
+          "",
+          "**Fix:** reuse the first upload's artifact in `publish`.",
+        ].join("\n"),
+      });
+      const compile = agent("compile", "Profile the Release compile", {
+        state: "failed",
+        error: "Agent terminated early due to an API error. The request timed out after 600s.",
+      });
+      return [
+        {
+          ago: at + 600_000,
+          mux: "user_message",
+          msg: { text: "Audit the nightly pipeline end to end, in parallel." },
+        },
+        { ago: at + 600_000, mux: "turn_started" },
+        {
+          ago: at + 590_000,
+          update: text("I'll run four agents at once: the cache, signing, publish and the compile."),
+        },
+        spawned(at + 580_000, { ...cache, action: "Read the cache keys" }),
+        spawned(at + 579_000, { ...signing, state: "running", action: "Read the signing job", lastMessage: undefined }),
+        spawned(at + 578_000, { ...publish, state: "running", action: "Read publish.yml", lastMessage: undefined }),
+        spawned(at + 577_000, { ...compile, state: "running", action: "Read the compile timings", error: undefined }),
+        { ago: at + 570_000, mux: "turn_result", msg: { status: "completed" } },
+        ended(at + 300_000, compile),
+        ended(at + 200_000, publish),
+        progress(at + 120_000, cache),
+        // The signing agent stopped while its own background run goes on: Claude Code's notification
+        // says so, and acpmux weighs that end interim (hub/background_cause.rs).
+        ended(at + 90_000, { ...signing, state: "completed" }),
+        {
+          ago: at + 89_000,
+          mux: "background_turn",
+          msg: {
+            id: "mock-parallel-interim",
+            state: "started",
+            trigger: "task",
+            cause: {
+              kind: "subagent",
+              status: "interim",
+              weight: "silent",
+              origin: id("signing"),
+              summary: "The agent is waiting on its own background work.",
+            },
+          },
+        },
+        { ago: at + 88_000, mux: "background_turn", msg: { id: "mock-parallel-interim", state: "ended", quiet: true } },
+      ];
+    },
+  },
+  {
+    // A Stop the agent never answered, with another agent's message steered in a second after it
+    // (Leo, 2026-11-03: "this is an "interesting" recovery flow... idk if it should be showing things
+    // like that"): acpmux forced the turn's end 10 s later and ran the message as the next turn's
+    // prompt, same promptId. The stopped turn reads "Stopped", the message comes after it.
+    sessionId: "mock-forced-stop",
+    title: "Migrate the parser to the new token stream",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9400,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Still on the parser: the lexer is done, the lookahead is next.",
+    history: (at) => [
+      {
+        ago: at + 120_000,
+        mux: "user_message",
+        msg: { text: "Migrate the parser to the new token stream", promptId: "mock-fs-1", turnId: "mock-fs-turn-1" },
+      },
+      { ago: at + 120_000, mux: "turn_started", msg: { turnId: "mock-fs-turn-1", promptId: "mock-fs-1" } },
+      { ago: at + 80_000, update: text("The lexer already emits the new tokens. I'm moving the lookahead over next.") },
+      { ago: at + 60_000, mux: "stopping", msg: { turnId: "mock-fs-turn-1" } },
+      {
+        ago: at + 59_000,
+        mux: "user_message",
+        msg: {
+          text: "Status check: are you still on the parser migration?",
+          promptId: "mock-fs-late",
+          turnId: "mock-fs-turn-1",
+          steer: true,
+          _meta: { provenance: { kind: "session_message", from: "mock-session", fromShortName: "coordinator" } },
+        },
+      },
+      { ago: at + 50_000, mux: "turn_end", msg: { stopReason: "cancelled", turnId: "mock-fs-turn-1" } },
+      {
+        ago: at + 50_000,
+        mux: "turn_result",
+        msg: { status: "cancelled", stopReason: "cancelled", turnId: "mock-fs-turn-1", cancelForced: true },
+      },
+      {
+        ago: at + 40_000,
+        mux: "user_message",
+        msg: {
+          text: "Status check: are you still on the parser migration?",
+          promptId: "mock-fs-late",
+          turnId: "mock-fs-turn-2",
+          _meta: { provenance: { kind: "session_message", from: "mock-session", fromShortName: "coordinator" } },
+        },
+      },
+      { ago: at + 40_000, mux: "turn_started", msg: { turnId: "mock-fs-turn-2", promptId: "mock-fs-late" } },
+      { ago: at + 10_000, update: text("Still on the parser: the lexer is done, the lookahead is next.") },
+      { ago: at, mux: "turn_result", msg: { status: "completed", turnId: "mock-fs-turn-2" } },
+    ],
+  },
+  {
+    sessionId: "mock-session-links",
+    title: "Which lanes own Session Info",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9500,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Three lanes work on Session Info.",
+    history: (at) => [
+      { ago: at + 60_000, mux: "user_message", msg: { text: "Which sessions own Session Info?" } },
+      { ago: at + 60_000, mux: "turn_started" },
+      {
+        ago: at + 10_000,
+        update: text(
+          [
+            "Three lanes work on Session Info:",
+            "",
+            `- \`${SESSION_LINK_REFS.swarm}\``,
+            `- \`${SESSION_LINK_REFS.lane}\``,
+            `- \`${SESSION_LINK_REFS.name}\``,
+            "",
+            `Earlier work was in \`${SESSION_LINK_REFS.notYours}\` and \`${SESSION_LINK_REFS.unknown}\`;` +
+              ` the panel lives under \`${SESSION_LINK_REFS.path}\`, about 3/4 done.`,
+          ].join("\n"),
+        ),
+      },
+      { ago: at + 5_000, mux: "turn_result", msg: { status: "completed" } },
+      // Two lanes' messages sent from a shell (`from: "cli"`), which name their sender only (Leo,
+      // 2026-11-05: "i can't click to go to these for some reason"): the daemon resolves the first
+      // (its chip opens that chat) and has no chat for the second (its click says so).
+      ...["review-box/session-info-lane", "mesh-relay"].map((fromName, index) => ({
+        ago: at + 2_000 - index * 1_000,
+        mux: "user_message",
+        msg: {
+          text: index === 0 ? "the hq#7125 lane is up; Session Info panel next" : "mesh relay reconnected",
+          promptId: `mock-links-msg-${index}`,
+          _meta: { provenance: { kind: "agent_message", from: "cli", fromName, msgId: `mock-links-m-${index}` } },
+        },
+      })),
+    ],
+  },
+  {
+    // Claude Code's prompt suggestions (Leo, 2026-11-03: "i know there's suggested prompts that you
+    // can right arrow/tab to do stuff with... maybe we can expose it in cmux-next too"): after the
+    // second turn acpmux sends the agent's guess at the next prompt (live, `suggestion`), which the empty composer shows
+    // as ghost text (Tab or Right-arrow takes it). acpmux also offers the chat's "Prompt
+    // suggestions" switch (claude_stdio/prompt_suggestions.rs), which the composer leaves out.
+    sessionId: PROMPT_SUGGESTION_SESSION,
+    title: "Retry flaky uploads",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9600,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Done: the uploader retries 5xx with backoff.",
+    extraOptions: [PROMPT_SUGGESTIONS_OPTION],
+    suggestion: PROMPT_SUGGESTION,
+    history: (at) => [
+      { ago: at + 120_000, mux: "user_message", msg: { text: "Why do uploads fail on the fleet?" } },
+      { ago: at + 120_000, mux: "turn_started" },
+      { ago: at + 100_000, update: text("The uploader gives up on the first 503 from the artifact store.") },
+      { ago: at + 90_000, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 60_000, mux: "user_message", msg: { text: "Retry 5xx with backoff" } },
+      { ago: at + 60_000, mux: "turn_started" },
+      { ago: at + 10_000, update: text("Done: the uploader retries 5xx with backoff.") },
+      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
+  {
+    // A chat whose model gateway is down (Leo, 2026-11-03, on "Thinking 7m 49s": "i feel like this
+    // mac session just keeps "thinking""): Claude Code retries the request every 75 s, and acpmux
+    // logs each retry as `turn_retrying` (hub/turn_retry.rs). The live line says the model cannot
+    // be reached, with the retry's count and error, never "Thinking" (`?mock&session=` this id).
+    sessionId: MODEL_RETRY_SESSION,
+    title: "Fix the flaky upload test",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "running",
+    cwd: CMUX,
+    ago: 9300,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    history: (at) => [
+      { ago: at + 470_000, mux: "user_message", msg: { text: "Fix the flaky upload test" } },
+      { ago: at + 470_000, mux: "turn_started", msg: { turnId: "mock-retry-turn" } },
+      ...[1, 2, 3, 4, 5, 6, 7].map((attempt) => ({
+        ago: at + 470_000 - attempt * 66_000,
+        mux: "turn_retrying",
+        msg: {
+          turnId: "mock-retry-turn",
+          attempt,
+          maxRetries: 10,
+          errorStatus: 503,
+          error: "server_error",
+          retryDelayMs: 75_000,
+          source: "claude",
+        },
+      })),
+    ],
+  },
 ];
+
+/// The mock chat whose reply lists other agents' sessions as an agent writes them, in inline code
+/// (Leo, 2026-11-03: "these links aren't clickable"): two agent links that name only host and
+/// session, a `HOST/NAME`, a link with a harness to a session that is not the reader's, a
+/// `HOST/NAME` no daemon knows, and code that only looks like one.
+export const SESSION_LINKS_SESSION = "mock-session-links";
+export const SESSION_LINK_REFS = {
+  swarm: "https://cmux.com/deeplink/agent?host=gcp-agent-lane-7&session=01a19ee7-0000-7de2-862f-0b255ab41dd0",
+  lane: "https://cmux.com/deeplink/agent?host=gcp-agent-lane-2&session=01a18a4b-0000-7950-b4c1-d1053077a7b7",
+  name: "gcp-agent-lane-1/opus-session-info",
+  notYours:
+    "https://cmux.com/deeplink/agent?harness=claude&session=0cfd5322-0000-4e01-b71c-aaf0edfb4de8&host=elsewhere",
+  unknown: "gcp-agent-lane-9/nobody-here",
+  path: "src/app",
+};
+/// What the mock `_acpmux/resolve` answers: each query that names a session this daemon lists,
+/// and that session (a fixture chat, so a click opens something). Any other query is not found.
+export const mockResolvable: Record<string, { sessionId: string; name: string; host: string }> = {
+  "01a19ee7-0000-7de2-862f-0b255ab41dd0": { sessionId: "mock-zsh", name: "codex-swarm-07", host: "gcp-agent-lane-7" },
+  "01a18a4b-0000-7950-b4c1-d1053077a7b7": {
+    sessionId: "mock-ghostty-config",
+    name: "lane-2",
+    host: "gcp-agent-lane-2",
+  },
+  "gcp-agent-lane-1/opus-session-info": {
+    sessionId: "mock-notice-mid-reply",
+    name: "opus-session-info",
+    host: "gcp-agent-lane-1",
+  },
+  // A lane's shell-sent message names only its sender (SESSION_LINKS_SESSION's received lines).
+  "review-box/session-info-lane": {
+    sessionId: "mock-notice-mid-reply",
+    name: "session-info-lane",
+    host: "review-box",
+  },
+};
 
 /// A session as `_acpmux/watch` and `_acpmux/attach` report it.
 export function sessionSummary(session: MockSession, now: number, turnCount: number): Record<string, unknown> {
-  const { ago, reply, permission: _permission, ...fields } = session;
+  const {
+    ago,
+    reply,
+    permission: _permission,
+    history: _history,
+    extraOptions,
+    suggestion: _suggestion,
+    ...fields
+  } = session;
   const preview = session.sessionId === WORKED_SESSION ? "Uploads now retry server errors with backoff." : reply;
   return {
     ...fields,
@@ -436,7 +1029,7 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
     turnCount,
     indicator: fixtureIndicator(session),
     modes: session.harness === "codex" ? codexModes : claudeModes,
-    configOptions: sessionOptions(session.harness === "codex"),
+    configOptions: [...sessionOptions(session.harness === "codex"), ...(extraOptions ?? [])],
   };
 }
 
@@ -736,6 +1329,7 @@ export function sampleDiagram(): string {
 /// running session's turn is still open; a session needing input waits on a permission card.
 export function sessionHistory(session: MockSession): SeedStep[] {
   const at = session.ago * MIN;
+  if (session.history) return session.history(at);
   const steps: SeedStep[] = [
     { ago: at + 90_000, mux: "user_message", msg: { text: session.title } },
     { ago: at + 90_000, mux: "turn_started" },

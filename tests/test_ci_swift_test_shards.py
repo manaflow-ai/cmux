@@ -9,6 +9,7 @@ scripts/cmux-next/swift-test-shards.py splits the selected targets by target and
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 import sys
 import tempfile
@@ -151,7 +152,8 @@ echo "✔ Test run with 1 test in 1 suite passed after 1 seconds."
 
 
 class Run(unittest.TestCase):
-    def run_shards(self, count: int, at_once: int, lock_once: bool = False) -> tuple[int, list[str], Path]:
+    def run_shards(self, count: int, at_once: int, lock_once: bool = False, left: float = 600,
+                   spill: bool = False) -> tuple[int, list[str], Path]:
         tmp = Path(tempfile.mkdtemp())
         wrapper = tmp / "fake.sh"
         wrapper.write_text(FAKE_SWIFT_TEST)
@@ -161,7 +163,8 @@ class Run(unittest.TestCase):
         if lock_once:
             env["FAKE_LOCK_ONCE"] = "1"
         with mock.patch.dict("os.environ", env), mock.patch("sys.stdout"):
-            status = shards.run(plan, at_once, str(wrapper), [], time.time() + 600)
+            status = shards.run(plan, at_once, str(wrapper), [], time.time() + left,
+                                tmp / "spilled.json" if spill else None)
         ran = (tmp / "ran").read_text().split() if (tmp / "ran").exists() else []
         return status, ran, tmp
 
@@ -175,6 +178,26 @@ class Run(unittest.TestCase):
         status, ran, _ = self.run_shards(2, 2, lock_once=True)
         self.assertEqual(status, 0)
         self.assertEqual(len(ran), 2)
+
+
+    def test_a_shard_under_its_floor_spills_and_the_next_step_runs_it(self) -> None:
+        # Run 41665450504: shard 13 took 867 s and shards 14 and 15 started with a 60 s limit and were cut short.
+        status, ran, tmp = self.run_shards(2, 1, left=shards.SHARD_FLOOR_SECONDS - 5, spill=True)
+        self.assertEqual((status, ran), (0, []))
+        spilled = json.loads((tmp / "spilled.json").read_text())
+        self.assertEqual([s["name"] for s in spilled["shards"]], ["shard 1", "shard 2"])
+        with mock.patch.dict("os.environ", {"FAKE_DIR": str(tmp), "GITHUB_STEP_SUMMARY": ""}), mock.patch("sys.stdout"):
+            status = shards.run_spilled(tmp / "spilled.json", str(tmp / "fake.sh"), time.time() + 600)
+        self.assertEqual(status, 0)
+        self.assertEqual(len((tmp / "ran").read_text().split()), 2)
+
+    def test_a_pass_with_time_left_spills_nothing_and_a_missing_spill_file_fails(self) -> None:
+        status, ran, tmp = self.run_shards(2, 1, spill=True)
+        self.assertEqual((status, len(ran)), (0, 2))
+        self.assertEqual(json.loads((tmp / "spilled.json").read_text())["shards"], [])
+        with mock.patch("sys.stdout"):
+            self.assertEqual(shards.run_spilled(tmp / "spilled.json", str(tmp / "fake.sh"), time.time() + 60), 0)
+            self.assertEqual(shards.run_spilled(tmp / "missing.json", str(tmp / "fake.sh"), time.time() + 60), 1)
 
 
 class Width(unittest.TestCase):
@@ -201,6 +224,16 @@ class Workflow(unittest.TestCase):
         self.assertIn('--targets "$SWIFT_TARGETS"', broad["run"])
         self.assertIn("--exclude CmuxNextControlTests", broad["run"])
         self.assertNotIn("swift-test-with-hang-sampler.sh --skip-build ${filter", broad["run"])
+
+    def test_the_spilled_shards_run_in_the_next_step_after_a_red_broad_pass_too(self) -> None:
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["swift-test"]["steps"]
+        names = [s.get("name", "") for s in steps]
+        broad = next(i for i, n in enumerate(names) if n.startswith("Run package tests (changed suites first"))
+        spill = steps[broad + 1]
+        self.assertEqual(steps[broad]["id"], "broad-tests")
+        self.assertIn('--spill "$RUNNER_TEMP/cmux-next-spilled-shards.json"', steps[broad]["run"])
+        self.assertIn('spilled --from "$RUNNER_TEMP/cmux-next-spilled-shards.json"', spill["run"])
+        self.assertIn("steps.broad-tests.outcome == 'failure'", spill["if"])
 
     def test_every_shard_sees_the_same_tree_the_broad_pass_started_with(self) -> None:
         # Run 40932106119: shards that started after a CmuxNextDaemonTests suite fetched the same-tree cmux-tui ran

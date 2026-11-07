@@ -62,7 +62,7 @@ enum HistoryHandlers {
         // entry is looked up from its owners, so a caller names it and never supplies its facts.
         registry.bind("history.open", run: { invocation in
             guard let id = invocation["id"]?.stringValue, !id.isEmpty else { return }
-            let newTab = invocation["new_tab"]?.boolValue ?? false
+            let newTab = invocation["newTab"]?.boolValue ?? false
             services.registry.track(Task { @MainActor in
                 guard let entry = await services.history.entry(id: id), entry.isAvailable else {
                     return ActionWorkFailure(HistoryAppStrings.entryGone)

@@ -1,12 +1,13 @@
 // Session Info's Subagents as the App draws it (model.ts): what Session Info's `subagentsSection`,
 // SubagentLimitStepper.tsx and SubagentsSection.tsx (with ChildSessionRows.tsx's started chats) show,
-// as plain rows. The running limit's line first ("Running 8 / 16 max", − and +), then the running
+// as plain rows. The running limit's line first ("Started chats: 8 of 16 at once", − and +, the chats it started and not its subagents), then the running
 // subagents and started chats (a nested subagent under its parent), past five a "Show more" row, then
 // the ended ones' row ("94 done · 1 failed"), which opens into their lines. The lists, their order and
 // their words come from the page's own helpers, so both panels say the same thing.
 import { formatDuration } from "../../conversation/turns";
 import type { PaneLanguage, Translate } from "../../i18n";
 import { isRepeatedAgentKind } from "../../subagents/AgentIdentity";
+import { agentTone } from "../../subagents/agentTones";
 import { nestAgents } from "../../subagents/AgentsPill";
 import { elapsed } from "../../subagents/SubagentGroup";
 import { subagentProgress } from "../../subagents/subagentProgress";
@@ -59,10 +60,14 @@ export type SubagentsSectionInput = {
 const TONE: Record<SubagentStatus, NativeInfoTone> = {
   running: "running",
   waiting: "waiting",
+  idle: "muted",
   done: "done",
   failed: "failed",
   stopped: "muted",
 };
+
+/// The ended list's order: a failed one first, then a stopped one, then the done ones.
+const ENDED_RANK: Record<SubagentStatus, number> = { failed: 0, stopped: 1, done: 2, running: 3, waiting: 3, idle: 3 };
 
 /// Session Info's Subagents, or undefined when the chat never had subagents or started chats and
 /// nobody set its running limit (Session Info's condition).
@@ -97,20 +102,23 @@ export function subagentsSection(
     at: number;
     open?: () => void;
   };
-  const live = (status: SubagentStatus) => status === "running" || status === "waiting";
+  const live = (status: SubagentStatus) => status === "running" || status === "waiting" || status === "idle";
+  // An idle line keeps its place among the live ones but takes no part in the running shimmer.
+  const working = (status: SubagentStatus) => status === "running" || status === "waiting";
+  const now = input.now;
   const waitsFirst = (a: Subagent, b: Subagent) =>
     Number(subagentStatus(b, waiting) === "waiting") - Number(subagentStatus(a, waiting) === "waiting") ||
     a.startedAt - b.startedAt;
   const agentLine = (agent: Subagent, depth: number): SubagentLine => {
-    const status = subagentStatus(agent, waiting);
+    const status = subagentStatus(agent, waiting, now);
     return {
       key: `agent:${agent.id}`,
       identity: agent.id,
       agent,
       name: agent.name,
-      detail: live(status) ? agent.action : undefined,
+      detail: working(status) ? agent.action : undefined,
       status,
-      state: subagentStateText(t, agent, waiting),
+      state: subagentStateText(t, agent, waiting, now),
       time: formatDuration(elapsed(agent, input.now)),
       progress: subagentProgress(t, input.language ?? "en", agent, { usage: false }).join(" · ") || undefined,
       task: agent.task && agent.task !== agent.name ? agent.task : undefined,
@@ -138,9 +146,9 @@ export function subagentsSection(
       open: input.onOpenSession && (() => input.onOpenSession!(child.sessionId)),
     };
   };
-  const runningAgents = nestAgents(agents.filter((agent) => live(subagentStatus(agent, waiting))).sort(waitsFirst)).map(
-    ({ agent, depth }) => agentLine(agent, depth),
-  );
+  const runningAgents = nestAgents(
+    agents.filter((agent) => live(subagentStatus(agent, waiting, now))).sort(waitsFirst),
+  ).map(({ agent, depth }) => agentLine(agent, depth));
   const children = orderedSessions(sessions);
   const running: SubagentLine[] = [
     ...children.filter((child) => sessionStatus(child) === "waiting").map(sessionLine),
@@ -148,14 +156,9 @@ export function subagentsSection(
     ...children.filter((child) => sessionStatus(child) === "running").map(sessionLine),
   ];
   const ended: SubagentLine[] = [
-    ...agents.filter((agent) => !live(subagentStatus(agent, waiting))).map((agent) => agentLine(agent, 0)),
+    ...agents.filter((agent) => !live(subagentStatus(agent, waiting, now))).map((agent) => agentLine(agent, 0)),
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
-  ].sort(
-    (a, b) =>
-      ({ failed: 0, stopped: 1, done: 2, running: 3, waiting: 3 } as Record<SubagentStatus, number>)[a.status] -
-        ({ failed: 0, stopped: 1, done: 2, running: 3, waiting: 3 } as Record<SubagentStatus, number>)[b.status] ||
-      b.at - a.at,
-  );
+  ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
   const endedCounts = (lines: readonly SubagentLine[]): string => {
     const count = (status: SubagentStatus) => lines.filter((line) => line.status === status).length;
     return [
@@ -174,6 +177,7 @@ export function subagentsSection(
     ...(item.progress ? { progress: item.progress } : {}),
     trailing: [item.time, item.state].filter(Boolean).join(" · "),
     tone: TONE[item.status],
+    identityTone: agentTone(item.identity),
     ...(item.working ? { working: true } : {}),
     ...(waveIndex !== undefined ? { wave: nativeInfoWave(waveIndex) } : {}),
     ...(item.depth > 0 ? { indent: Math.min(item.depth, 3) } : {}),
@@ -188,7 +192,7 @@ export function subagentsSection(
   let waveIndex = 0;
   rows.push(
     ...shown.map((item) => {
-      const index = live(item.status) ? waveIndex++ : undefined;
+      const index = working(item.status) ? waveIndex++ : undefined;
       return line(item, index);
     }),
   );
@@ -215,7 +219,7 @@ export function subagentsSection(
     });
     if (endedOpen) rows.push(...ended.map(line));
   }
-  const meta = subagentCounts(t, agents, waiting, sessions);
+  const meta = subagentCounts(t, agents, waiting, sessions, now);
   return {
     id: "subagents",
     group: "running",
@@ -227,7 +231,7 @@ export function subagentsSection(
   };
 }
 
-/// SubagentLimitStepper's line: "Running 8 / 16 max", "3 queued" while some wait, Reset when the
+/// SubagentLimitStepper's line: "Started chats: 8 of 16 at once", "3 queued" while some wait, Reset when the
 /// chat set its own, − and + one lower or higher (named `from` the limit they step).
 function limitRow(
   limits: SubsessionLimits,
@@ -271,7 +275,7 @@ function limitRow(
   return {
     id: "limit",
     symbol: "gauge.with.dots.needle.33percent",
-    title: t("sessionInfo.subagents.limit.running", { running, max }),
+    title: t("sessionInfo.subagents.limit.startedChats", { running, max }),
     ...(state === "failed"
       ? { detail: t("sessionInfo.subagents.limit.refused") }
       : queued > 0

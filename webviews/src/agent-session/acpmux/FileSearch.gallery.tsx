@@ -16,6 +16,11 @@ const files = [
   { path: "webviews/src/gallery/format.ts", matches: [] },
 ];
 const composerFiles = files.slice(0, 3);
+const longFiles = Array.from({ length: 40 }, (_, index) => ({
+  path: `src/features/module-${String(index).padStart(2, "0")}.tsx`,
+  matches: [],
+}));
+const longSearch: FileSearchSource = async () => ({ root: "/Users/you/src/cmux", results: longFiles });
 
 const search: FileSearchSource = async (query) => {
   await new Promise((resolve) => setTimeout(resolve, 12));
@@ -157,6 +162,14 @@ export default componentEntry<Props>({
     },
   },
   variants: {
+    "long-results": {
+      note: "Forty matching files scroll under soft edges without clipping the last visible row.",
+      props: { ...baseProps, search: longSearch },
+      play: async (ctx) => {
+        await ctx.type("module", field);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === longFiles.length);
+      },
+    },
     idle: { note: "The palette opens with an empty query and a quiet hint.", props: baseProps },
     matches: {
       note: "A query highlights matching characters and ArrowDown moves the active result without leaving the field.",

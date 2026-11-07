@@ -156,6 +156,13 @@ nonisolated enum TerminalActionCatalog: ActionCatalogGroup {
                 requires: [.terminalFocused], targets: [.pane], cliName: "terminal clear-resume-command"
             ),
             ActionDescriptor(
+                id: "terminal.runLastCommandAgain",
+                title: String(localized: "action.terminal.runLastCommandAgain", defaultValue: "Run Last Command Again", bundle: .module),
+                keywords: ["repeat", "rerun", "history", "again"], category: .terminal, symbol: "arrow.clockwise.circle",
+                surfaces: [.palette, .contextMenu], requires: [.terminalFocused], targets: [.pane],
+                cliName: "terminal run-last-command-again"
+            ),
+            ActionDescriptor(
                 id: "palette.terminalOpenDirectory",
                 title: String(localized: "action.palette.terminalOpenDirectory", defaultValue: "Open Current Directory In…", bundle: .module),
                 keywords: ["finder", "editor", "open in"], category: .terminal, symbol: "arrow.up.forward.app",

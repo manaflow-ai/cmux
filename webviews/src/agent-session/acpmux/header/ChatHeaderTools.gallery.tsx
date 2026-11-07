@@ -14,7 +14,9 @@ import type { NativeRowToolsHost } from "./useNativeRowTools";
 import { NeedsYouButton } from "../needsYou/NeedsYou";
 
 type HeaderToolsProps = {
-  treatment?: { size: number; gap: number };
+  /// `more`: the chat menu ⋮'s box width; the rest of the tool size stays at its trailing side.
+  /// The tools' square and gap as CSS lengths (header.css --acpmux-header-tool-size and -gap).
+  treatment?: { size: string; gap: string };
   onTerminal: (mode: "toggle" | "open") => void;
   onSplitDown?: (mode: "toggle" | "open") => void;
   onBrowser: (mode: "toggle" | "open") => void;
@@ -39,6 +41,8 @@ type HeaderToolsProps = {
   readStatus?: () => Promise<unknown>;
   onApplyWorktree?: (key: string) => Promise<unknown>;
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
+  working?: boolean;
+  motion?: "still" | "animated-cue" | "animated-spring" | "animated-morph";
 };
 
 const menuRows = (): ChatMenuItem[] => [
@@ -87,7 +91,7 @@ const menuRows = (): ChatMenuItem[] => [
 ];
 
 // The summary's panel toggle as the App passes it (summary/SummaryButton.tsx).
-const panelToggle = (shown: boolean, icon = "view.list") =>
+const panelToggle = (shown: boolean, icon = "view.list.short") =>
   createElement(PanelToggle, {
     className: "acpmux-summary-button",
     label: "Chat summary",
@@ -96,6 +100,12 @@ const panelToggle = (shown: boolean, icon = "view.list") =>
     onToggle: () => undefined,
   });
 const summary = panelToggle(false);
+const sessionInfoToggle = createElement(PanelToggle, {
+  className: "acpmux-session-info-toggle",
+  label: "Session Info",
+  shown: true,
+  onToggle: () => undefined,
+});
 
 const openMenu: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Chat actions" });
@@ -112,23 +122,46 @@ const panelsOpen: Play = async (ctx) => {
 };
 
 // Claude Code desktop's top strip (Leo 2026-10-21): no separators, the right-side panel's toggle
-// first, every button a 24px square on one 26px pitch, every glyph the same size.
+// first, every button a 24px square on one 26px pitch, every glyph the same size. The chat menu's ⋯ is
+// one of them: the horizontal ellipsis in the same square (Leo 2026-11-04: "i guess we ought to just make
+// this a horizontal ellipsis?" and "at least give our button square padding. so all those things are
+// proportional").
+const squareTools =
+  (size: number, gap: number): Play =>
+  async (ctx) => {
+    const buttons = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")];
+    if (buttons.length < 2) throw new Error("the header must show its tools");
+    for (const button of buttons) {
+      const box = button.getBoundingClientRect();
+      if (Math.round(box.width) !== size || Math.round(box.height) !== size)
+        throw new Error(
+          `header button ${button.getAttribute("aria-label")} is ${box.width}x${box.height}, not a ${size}px square`,
+        );
+      const glyph = button.querySelector("[data-icon]")?.getBoundingClientRect();
+      if (!glyph) throw new Error(`header button ${button.getAttribute("aria-label")} draws no glyph`);
+      const pads = [glyph.left - box.left, box.right - glyph.right, glyph.top - box.top, box.bottom - glyph.bottom];
+      if (Math.max(...pads) - Math.min(...pads) > 0.5)
+        throw new Error(
+          `header button ${button.getAttribute("aria-label")} pads its glyph unevenly: ${pads.join(", ")}`,
+        );
+    }
+    const lefts = buttons.map((button) => button.getBoundingClientRect().left);
+    if (lefts.slice(1).some((left, index) => Math.round(left - lefts[index]!) !== size + gap))
+      throw new Error(`header buttons are not on one ${size + gap}px pitch`);
+    const more = ctx.find({ role: "button", name: "Chat actions" });
+    if (more.querySelector("[data-icon]")?.getAttribute("data-icon") !== "action.more")
+      throw new Error("the chat menu's trigger must draw the horizontal ellipsis (action.more)");
+  };
+
 const groupedControls: Play = async (ctx) => {
   const first = ctx.document.querySelector(".acpmux-header-tools button");
   if (!first?.classList.contains("acpmux-summary-button"))
     throw new Error("the panel toggle must be the first of the header's icons");
   if (ctx.document.querySelector(".acpmux-header-tools hr, .acpmux-header-separator"))
     throw new Error("the header tools draw a separator");
-  const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")];
-  for (const button of tools) {
-    const box = button.getBoundingClientRect();
-    if (Math.round(box.width) !== 24 || Math.round(box.height) !== 24)
-      throw new Error(`header button ${button.getAttribute("aria-label")} is not a 24px square`);
-  }
-  const lefts = tools.map((button) => button.getBoundingClientRect().left);
-  if (lefts.slice(1).some((left, index) => Math.round(left - lefts[index]!) !== 26))
-    throw new Error("header buttons are not on one 26px pitch");
-  const glyphs = new Set(tools.map((button) => button.querySelector("[data-icon]")?.getBoundingClientRect().width));
+  await squareTools(24, 2)(ctx);
+  const buttons = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")];
+  const glyphs = new Set(buttons.map((button) => button.querySelector("[data-icon]")?.getBoundingClientRect().width));
   if (glyphs.size !== 1) throw new Error(`header glyphs come in several sizes: ${[...glyphs].join(", ")}`);
 };
 
@@ -150,9 +183,10 @@ const groupTreatment =
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
 // just being, you know, good"; 2026-10-31: "AND THE FUCKING BACKGROUND ON THIS FUCKING BUILD ON THESE
 // BUTTONS STILL ISN'T FUCKING REMOVESD"): with the right-side panel and Terminal's split open, Terminal
-// hovered and the chat menu open, no header tool draws a fill, a border or a shadow, pressed or not. A
-// pressed one reads as on by its lit ink alone, hovered or not, as the App's pane toolbar toggles do (Leo,
-// 2026-10-26: "why is the button not toggled?" / "i literally meant the ui depicting it as toggled or not").
+// hovered and the chat menu open, no header tool draws a border or a shadow, and none at rest draws a fill.
+// A pressed one reads as on by the filled rounded square and its lit ink, hovered or not, and the open
+// menu's trigger keeps the square too (Leo, 2026-10-26: "why is the button not toggled?"; 2026-11-02:
+// "HAVE THE ... TOGGLED HIGHLIGHT", his reference; #28962 removed only the resting fill).
 const plainIcons: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
   setHeaderState({ lit: ["splitRight"] });
@@ -162,8 +196,8 @@ const plainIcons: Play = async (ctx) => {
   const view = ctx.document.defaultView!;
   const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
   const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
-  if (!clear(view.getComputedStyle(panel).backgroundColor))
-    throw new Error("the open panel toggle draws a plate on hover");
+  if (clear(view.getComputedStyle(panel).backgroundColor))
+    throw new Error("the open panel toggle loses its filled square on hover");
   const litInk = view.getComputedStyle(panel).color;
   await ctx.hover({ role: "button", name: "Terminal" });
   await openMenu(ctx);
@@ -177,7 +211,11 @@ const plainIcons: Play = async (ctx) => {
     const style = view.getComputedStyle(tool);
     const name = tool.getAttribute("aria-label");
     const pressed = tool.getAttribute("aria-pressed") === "true";
-    if (!clear(style.backgroundColor)) throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    const lit = pressed || tool.hasAttribute("data-popup-open") || tool.matches(":hover");
+    if (lit && pressed && clear(style.backgroundColor))
+      throw new Error(`header tool ${name} is pressed without its square`);
+    if (!lit && !clear(style.backgroundColor))
+      throw new Error(`header tool ${name} draws a fill at rest: ${style.backgroundColor}`);
     if (pressed && style.color !== litInk) throw new Error(`header tool ${name} is pressed without the lit ink`);
     if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
       throw new Error(`header tool ${name} draws a border`);
@@ -188,6 +226,50 @@ const plainIcons: Play = async (ctx) => {
   if (view.getComputedStyle(on).color === view.getComputedStyle(off).color)
     throw new Error("the open panel's toggle has the same ink as a tool at rest");
 };
+
+// Session Info open: its toggle is the filled rounded square with the lit ink, and every other tool
+// has nothing behind it at rest (Leo 2026-11-02: "HAVE THE ... TOGGLED HIGHLIGHT", settled by his
+// reference of the header with its list button highlighted; #28962 removed only the resting fill).
+// `accentless` applies a dark theme with no accent first (the default neutral accent: the lit ink is the
+// primary text), where an ink-only toggle read as off.
+const sessionInfoOpen =
+  (accentless: boolean): Play =>
+  async (ctx) => {
+    if (accentless) {
+      const [{ applyAgentTheme }, { agentPaneTheme }, tokens] = await Promise.all([
+        import("../../shared/theme"),
+        import("../../../gallery/theme/web"),
+        import("../../../gallery/theme/tokens"),
+      ]);
+      const dark = tokens.deriveTokens({ ...tokens.GHOSTTY_DEFAULT, accent: "neutral" });
+      if (!dark.isDark) throw new Error("the fixture theme is not dark");
+      applyAgentTheme(agentPaneTheme(dark, false) as never);
+    }
+    await ctx.waitFor(() => ctx.document.querySelector('.acpmux-session-info-toggle[aria-pressed="true"]'));
+    const view = ctx.document.defaultView!;
+    const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
+    const toggle = ctx.find({ selector: '.acpmux-session-info-toggle[aria-pressed="true"]' });
+    const style = view.getComputedStyle(toggle);
+    if (clear(style.backgroundColor)) throw new Error("the open Session Info toggle draws no filled square");
+    // The lit ink as the page resolves it (header.css's fallbacks), read from a probe.
+    const probe = ctx.document.createElement("span");
+    probe.style.color = "var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)))";
+    toggle.parentElement!.append(probe);
+    const litInk = view.getComputedStyle(probe).color;
+    probe.remove();
+    // The tool's ink eases over its 80ms colour transition (header.css), so right after the theme
+    // changes it can still read the old theme's ink: wait for it to settle before judging it.
+    try {
+      await ctx.waitFor(() => view.getComputedStyle(toggle).color === litInk, { capMs: 1000 });
+    } catch {
+      throw new Error(`the open Session Info toggle is not lit: ${style.color} vs ${litInk}`);
+    }
+    for (const tool of ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")) {
+      if (tool === toggle || tool.matches(":hover, [data-popup-open], [aria-pressed=true]")) continue;
+      const fill = view.getComputedStyle(tool).backgroundColor;
+      if (!clear(fill)) throw new Error(`header tool ${tool.getAttribute("aria-label")} draws a fill at rest: ${fill}`);
+    }
+  };
 
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
 const pullRequestChip: Play = async (ctx) => {
@@ -383,6 +465,128 @@ const base: HeaderToolsProps = {
   onMenuOpen: async () => undefined,
 };
 
+// Thunderdome B, header icon motion (headerMotion.ts; Debug Settings agentChat.headerMotion; Leo
+// 2026-11-05: should the top-right icons be "a little more animated?"). The plays freeze each motion
+// at a frame (every running animation paused at `at` ms), so a still shows it mid-flight.
+const frozenAt =
+  (at: number): Play =>
+  async (ctx) => {
+    const view = ctx.document.defaultView!;
+    await new Promise((done) => view.requestAnimationFrame(() => done(undefined)));
+    for (const animation of ctx.document.getAnimations()) {
+      animation.pause();
+      animation.currentTime = at;
+    }
+  };
+const motionLit =
+  (lit: string[], at?: number): Play =>
+  async (ctx) => {
+    const { setHeaderState } = await import("./headerState");
+    setHeaderState({ lit: [] });
+    await new Promise((done) => setTimeout(done, 300));
+    setHeaderState({ lit });
+    await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
+    if (at !== undefined) await frozenAt(at)(ctx);
+  };
+const motionArrive =
+  (at?: number): Play =>
+  async (ctx) => {
+    const { setHeaderState } = await import("./headerState");
+    setHeaderState({ lit: [] });
+    await new Promise((done) => setTimeout(done, 300));
+    // Changes shows while its diff is open: it arrives, and Terminal and Browser make room.
+    setHeaderState({ lit: ["openDiffViewer"] });
+    await ctx.waitFor(() => ctx.document.querySelector('[data-quick-action="changes"]'));
+    if (at !== undefined) await frozenAt(at)(ctx);
+  };
+const motionMorph =
+  (at: number): Play =>
+  async (ctx) => {
+    (ctx.find({ selector: '[data-quick-action="terminal"]' }) as HTMLElement).click();
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-morph"));
+    await frozenAt(at)(ctx);
+  };
+const motionHover =
+  (name: string): Play =>
+  async (ctx) => {
+    const button = ctx.find({ role: "button", name });
+    button.dispatchEvent(new ctx.document.defaultView!.PointerEvent("pointerover", { bubbles: true }));
+    button.dispatchEvent(new ctx.document.defaultView!.PointerEvent("pointerenter", { bubbles: false }));
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-preview"), { capMs: 2000 });
+  };
+const motionBase = (motion: HeaderToolsProps["motion"]): HeaderToolsProps => ({
+  ...base,
+  motion,
+  summary: panelToggle(false),
+  hasChanges: true,
+  onChanges: () => undefined,
+  previewUrl: "http://localhost:5173/",
+  onPreview: () => undefined,
+});
+const motionVariants = {
+  "motion-still": {
+    note: "Header motion: still (the shipped default). Nothing moves; the pressed square appears at once.",
+    props: { ...motionBase("still"), working: true },
+    play: motionLit(["splitRight"]),
+  },
+  "motion-cue-working": {
+    note: "Header motion: cue. While the chat's turn runs, a crisp 6px round dot sits still on Changes (no breathing: status dots never pulse).",
+    props: { ...motionBase("animated-cue"), working: true },
+  },
+  "motion-cue-pending": {
+    note: "Header motion: cue. The turn is over and its changes wait: the dot holds still. No work, no dot.",
+    props: motionBase("animated-cue"),
+  },
+  "motion-cue-plate-60ms": {
+    note: "Header motion: cue. Terminal's split just opened: 60 ms in, its pressed plate is growing out of the glyph on the one spring (240 ms).",
+    props: motionBase("animated-cue"),
+    play: motionLit(["splitRight"], 60),
+  },
+  "motion-cue-plate-settled": {
+    note: "Header motion: cue. The plate settled: the same filled rounded square the shipped header draws.",
+    props: motionBase("animated-cue"),
+    play: motionLit(["splitRight"]),
+  },
+  "motion-spring-arrive-50ms": {
+    note: "Header motion: spring. Changes became relevant: 50 ms in, it springs up from a dot while Terminal and Browser glide right to make room (transforms only).",
+    props: { ...motionBase("animated-spring"), hasChanges: false },
+    play: motionArrive(50),
+  },
+  "motion-spring-arrive-120ms": {
+    note: "Header motion: spring. 120 ms in: Changes overshoots a touch, its neighbours nearly there.",
+    props: { ...motionBase("animated-spring"), hasChanges: false },
+    play: motionArrive(120),
+  },
+  "motion-spring-arrive-settled": {
+    note: "Header motion: spring. Settled: the same row the shipped header draws, Changes lit while its diff is open.",
+    props: { ...motionBase("animated-spring"), hasChanges: false },
+    play: motionArrive(),
+  },
+  "motion-morph-fly-90ms": {
+    note: "Header motion: morph. A click on Terminal opens its split: 90 ms in, the glyph leaves for the pane's right edge, widening into a tab.",
+    props: motionBase("animated-morph"),
+    play: motionMorph(90),
+  },
+  "motion-morph-fly-170ms": {
+    note: "Header motion: morph. 170 ms in: the glyph has become the Terminal tab where the split lands, then fades as the real pane shows.",
+    props: motionBase("animated-morph"),
+    play: motionMorph(170),
+  },
+  "motion-morph-hover-browser": {
+    note: "Header motion: morph. Resting on Browser previews what a click opens: the chat's page in the right column, with its address. It stands in for the tooltip.",
+    props: motionBase("animated-morph"),
+    play: motionHover("Browser"),
+  },
+  "motion-morph-hover-closes": {
+    note: "Header motion: morph. Resting on Terminal while its split is open: the panel draws dashed, the click closes it.",
+    props: motionBase("animated-morph"),
+    play: async (ctx) => {
+      await motionLit(["splitRight"])(ctx);
+      await motionHover("Terminal")(ctx);
+    },
+  },
+} satisfies Record<string, { note: string; props: HeaderToolsProps; play?: Play }>;
+
 export default componentEntry<HeaderToolsProps>({
   id: "agent-pane.header-tools",
   title: "Chat header tools",
@@ -399,6 +603,7 @@ export default componentEntry<HeaderToolsProps>({
     "agent-session/acpmux/header/WorktreeApply.tsx#WorktreeApply",
     "agent-session/acpmux/header/WorktreeRemove.tsx#WorktreeRemove",
     "agent-session/acpmux/header/PanelToggle.tsx#PanelToggle",
+    "agent-session/acpmux/header/HeaderToolPreview.tsx#HeaderToolPreview",
   ],
   load: () =>
     import("./ChatHeaderTools").then(
@@ -411,7 +616,7 @@ export default componentEntry<HeaderToolsProps>({
               ? createElement(
                   "style",
                   null,
-                  `.acpmux-header-tools,.acpmux-header-tool-group{gap:${treatment.gap}px}.acpmux-header-tools .acpmux-header-tool{width:${treatment.size}px;height:${treatment.size}px}`,
+                  `.acpmux-header-tools{--acpmux-header-tool-size:${treatment.size};--acpmux-header-tool-gap:${treatment.gap}}`,
                 )
               : null,
             createElement(module.ChatHeaderTools, props),
@@ -436,12 +641,13 @@ export default componentEntry<HeaderToolsProps>({
     },
   },
   variants: {
+    ...motionVariants,
     "native-row-off": {
       note: "The default web toolbar: Summary, Needs You, quick actions and the chat menu remain web controls.",
       props: { ...base, inbox },
     },
     "native-row-tools": {
-      note: "Native row tools opt-in: Summary and quick-action icons move to the native host. Needs You keeps its web button and anchored rich list; the chat menu stays web. No default changes.",
+      note: "Native row tools opt-in: Summary, quick-action icons, their customization menus and chat overflow move to the native host. Needs You keeps its web button and anchored rich list. No default changes.",
       props: {
         ...base,
         inbox,
@@ -454,7 +660,8 @@ export default componentEntry<HeaderToolsProps>({
       play: async (ctx) => {
         await ctx.waitFor(() => !ctx.document.querySelector("[data-quick-action], .acpmux-header-panel-toggle"));
         ctx.find({ selector: ".acpmux-needs-you-button" });
-        ctx.find({ role: "button", name: "Chat actions" });
+        if (ctx.document.querySelector('button[aria-label="Chat actions"]'))
+          throw new Error("native chat overflow must not leave a duplicate DOM trigger");
       },
     },
     "unified-compact": {
@@ -464,7 +671,7 @@ export default componentEntry<HeaderToolsProps>({
         hasChanges: true,
         onChanges: () => undefined,
         summary: panelToggle(true),
-        treatment: { size: 24, gap: 2 },
+        treatment: { size: "var(--grid-pill)", gap: "var(--grid-half-step)" },
       },
       play: groupTreatment(24, 2),
     },
@@ -475,7 +682,7 @@ export default componentEntry<HeaderToolsProps>({
         hasChanges: true,
         onChanges: () => undefined,
         summary: panelToggle(true),
-        treatment: { size: 28, gap: 4 },
+        treatment: { size: "28px", gap: "4px" },
       },
       play: groupTreatment(28, 4),
     },
@@ -486,9 +693,45 @@ export default componentEntry<HeaderToolsProps>({
         hasChanges: true,
         onChanges: () => undefined,
         summary: panelToggle(true),
-        treatment: { size: 24, gap: 0 },
+        treatment: { size: "24px", gap: "0px" },
       },
       play: groupTreatment(24, 0),
+    },
+    "density-compact": {
+      note: "Compact density (shipped): every tool, the ⋯ included, is the layout grid's compact highlight square (--grid-pill, 24px) with its 16px glyph centred and equal padding on every side, on an even --grid-half-step gap; the hover pill is that square with the controls' radius.",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        summary: panelToggle(false),
+        treatment: { size: "var(--grid-pill)", gap: "var(--grid-half-step)" },
+      },
+      play: async (ctx) => {
+        await squareTools(24, 2)(ctx);
+        await ctx.hover({ role: "button", name: "Chat actions" });
+      },
+    },
+    "density-comfortable": {
+      note: "Comfortable density: the same squares at the grid's comfortable highlight (--grid-pill-comfortable, 28px) on a --grid-base gap, the glyph still centred with equal padding.",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        summary: panelToggle(false),
+        treatment: { size: "var(--grid-pill-comfortable)", gap: "var(--grid-base)" },
+      },
+      play: async (ctx) => {
+        await squareTools(28, 4)(ctx);
+        await ctx.hover({ role: "button", name: "Chat actions" });
+      },
+    },
+    "more-horizontal": {
+      note: "The chat menu's trigger is the app's horizontal ellipsis (action.more, SF Symbol ellipsis) in the same square as every tool, hovered (Leo 2026-11-04: \"i guess we ought to just make this a horizontal ellipsis?\").",
+      props: { ...base, summary: panelToggle(false) },
+      play: async (ctx) => {
+        await squareTools(24, 2)(ctx);
+        await ctx.hover({ role: "button", name: "Chat actions" });
+      },
     },
     idle: {
       note: "The complete tab header: Terminal, Browser, summary, and chat actions (New tab, Files and Split Down are in it).",
@@ -507,11 +750,25 @@ export default componentEntry<HeaderToolsProps>({
       play: panelsOpen,
     },
     "panel-open": {
-      note: "Session Info is open: its toggle uses the text ink and selected glyph without a box, matching every other header control.",
+      note: "Session Info is open: its toggle is the filled rounded square with the lit ink and selected glyph; the other header controls have nothing behind them.",
       props: { ...base, summary: panelToggle(true) },
     },
+    "session-info-open": {
+      note: "Session Info open: its toggle is the filled rounded square (the hover pill's size, a subtle tint) with the lit ink; every other tool has nothing behind it at rest.",
+      props: { ...base, summary: sessionInfoToggle },
+      play: sessionInfoOpen(false),
+    },
+    "session-info-open-accentless": {
+      note: "The same in a dark theme with no accent (the lit ink is the primary text): the filled square still shows the toggle on.",
+      props: { ...base, summary: sessionInfoToggle },
+      play: sessionInfoOpen(true),
+    },
     "panel-icon-list": {
-      note: "Panel icon option: three list rows with circular markers, matching ChatGPT's session rail control; this is the shipped choice.",
+      note: 'Panel icon option: two list rows with circular markers, centred on the icon grid; this is the shipped choice (Leo 2026-11-04: "make our session info button 2 rows too").',
+      props: { ...base, summary: panelToggle(false, "view.list.short") },
+    },
+    "panel-icon-list-three": {
+      note: "Panel icon option: the earlier three-row list (view.list), shown for comparison.",
       props: { ...base, summary: panelToggle(false, "view.list") },
     },
     "panel-icon-info": {
@@ -523,7 +780,7 @@ export default componentEntry<HeaderToolsProps>({
       props: { ...base, summary: panelToggle(false, "agent.session") },
     },
     "plain-icons": {
-      note: "Plain icons: the panel and Terminal's split open, Terminal hovered, the chat menu open; no tool draws a box, and the open panel's toggle is lit by its ink.",
+      note: "Plain icons: the panel and Terminal's split open, Terminal hovered, the chat menu open; no tool at rest draws a box, and the open panel's toggle is the filled rounded square with the lit ink.",
       props: { ...base, summary: panelToggle(true) },
       play: plainIcons,
     },

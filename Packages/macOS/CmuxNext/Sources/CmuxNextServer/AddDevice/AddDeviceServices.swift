@@ -12,18 +12,24 @@ public struct AddDeviceServices {
     public var newCloudMachine: () -> Void
     public var installTailscale: () -> Void
     public var copy: (String) -> Void
-    /// The one-line join's calls, nil while Labs `labs.machineJoin` is off (the way does not show).
+    /// The one-line join's calls; nil when the app offers no join (the way does not show and ssh stays first).
     public var machineJoin: () -> MachineJoinService?
     /// Copies a secret line: plain text marked concealed and transient, so clipboard managers skip it.
     public var copyConcealed: (String) -> Void
     /// Shows the Machines sidebar section, where the joined machine is listed (Show in Machines).
     public var showMachines: () -> Void
+    /// The app's Sign In, for a join line refused signed out.
+    public var signIn: () -> Void
+    /// Opens the Pair Another Machine card; nil while signed out (the join line's ticket shows
+    /// instead). Read at each opening.
+    public var pairAnotherMachine: () -> (() -> Void)?
 
     public init(list: @escaping () async -> DeviceListing?, addComputer: @escaping (String, String) -> Void,
                 addByName: @escaping () -> Void, enterCode: @escaping () -> Void, newCloudMachine: @escaping () -> Void = {},
                 copy: @escaping (String) -> Void, installTailscale: @escaping () -> Void = {},
                 machineJoin: @escaping () -> MachineJoinService? = { nil },
-                copyConcealed: @escaping (String) -> Void = { _ in }, showMachines: @escaping () -> Void = {}) {
+                copyConcealed: @escaping (String) -> Void = { _ in }, showMachines: @escaping () -> Void = {},
+                signIn: @escaping () -> Void = {}, pairAnotherMachine: @escaping () -> (() -> Void)? = { nil }) {
         self.list = list
         self.addComputer = addComputer
         self.addByName = addByName
@@ -34,5 +40,7 @@ public struct AddDeviceServices {
         self.machineJoin = machineJoin
         self.copyConcealed = copyConcealed
         self.showMachines = showMachines
+        self.signIn = signIn
+        self.pairAnotherMachine = pairAnotherMachine
     }
 }

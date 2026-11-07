@@ -391,17 +391,19 @@ def is_binary(cmd: str, binary: str) -> bool:
     return cmd == binary or cmd.startswith(binary + " ")
 
 
-def end_processes(pids: set[int]):
-    """SIGTERM, then SIGKILL what is still there after a grace period."""
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        alive = set()
+def end_processes(pids: set[int], grace: float = 10.0, kill_grace: float = 5.0):
+    """SIGTERM every pid, then SIGKILL what is still there once `grace` s have passed for the whole set (one
+    deadline, not one per pid), waiting at most `kill_grace` s more. A child of this script that exited is
+    reaped (`gone`), so an unreaped zombie never holds the teardown."""
+    for sig, seconds in ((signal.SIGTERM, grace), (signal.SIGKILL, kill_grace)):
+        sent = set()
         for pid in pids:
             try:
                 os.kill(pid, sig)
-                alive.add(pid)
+                sent.add(pid)
             except ProcessLookupError:
                 pass
-        pids = {pid for pid in alive if not wait_gone(pid, 10)}
+        pids = still_running(sent, seconds)
         if not pids:
             return
 
@@ -446,20 +448,37 @@ def end_bundle(bundle: str):
     cleanups = {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None and is_clone_cleanup(cmd)}
     end_processes(bundle_pids(bundle) - cleanups)
     deadline = time.monotonic() + CLONE_CLEANUP_WAIT_S
-    end_processes({pid for pid in cleanups if not wait_gone(pid, max(0.0, deadline - time.monotonic()))})
+    end_processes(still_running(cleanups, max(0.0, deadline - time.monotonic())))
+
+
+def gone(pid: int) -> bool:
+    """Whether `pid` has exited. A child of this script is reaped (waitpid): kill(pid, 0) succeeds on an
+    unreaped zombie, which would read as alive until a timeout. Any other pid is probed with kill(pid, 0)."""
+    try:
+        reaped, _status = os.waitpid(pid, os.WNOHANG)
+        return reaped == pid
+    except ChildProcessError:
+        pass  # not this script's child
+    try:
+        os.kill(pid, 0)
+        return False
+    except ProcessLookupError:
+        return True
+
+
+def still_running(pids: set[int], seconds: float) -> set[int]:
+    """The pids not gone within `seconds`, one deadline for all; each is checked at least once."""
+    deadline = time.monotonic() + seconds
+    while True:
+        pids = {pid for pid in pids if not gone(pid)}
+        if not pids or time.monotonic() >= deadline:
+            return pids
+        time.sleep(0.05)  # test script: waiting for processes to exit
 
 
 def wait_gone(pid: int, seconds: float) -> bool:
     """True once `pid` is gone; it is checked at least once, also with no time left."""
-    deadline = time.monotonic() + seconds
-    while True:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(0.5)  # test script: waiting for the app to quit
+    return not still_running({pid}, seconds)
 
 
 def merged(base: dict, extra: dict) -> dict:
@@ -497,8 +516,17 @@ def exception_records(bundle: str, since: float) -> str:
         return f"\n--- {path}\n{handle.read()[:4000]}"
 
 
-def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None):
+def downloads_dir(scratch: str) -> str:
+    """The folder `launch` gives the app for its downloads (CMUX_NEXT_DOWNLOADS_DIR), in its scratch."""
+    return os.path.join(scratch, "downloads")
+
+
+def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None,
+           scratch: str | None = None):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
+
+    `scratch` relaunches into an earlier launch's scratch (its HOME and state), as a relaunch after
+    an update does (bench_relaunch_reconnect.py): that launch's daemons may still run then.
 
     Through LaunchServices (`open`), as a user's launch: the app is then the
     responsible process of its WebKit processes. A child of this script
@@ -517,17 +545,23 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     # Every process from this bundle at the end is this run's (cleanup ends
     # them all), so none may exist before: an earlier app's detached daemons
     # and terminal hosts would otherwise be ended too.
+    relaunch = scratch is not None
     running = bundle_pids(bundle)
-    if running:
+    if running and not relaunch:
         raise SystemExit(f"bench-memory: processes from {bundle} are running ({sorted(running)}); end them first")
-    scratch = tempfile.mkdtemp(prefix="bench-memory-")
+    scratch = scratch or tempfile.mkdtemp(prefix="bench-memory-")
     home = os.path.join(scratch, "home")
     os.makedirs(os.path.join(home, "Library"), exist_ok=True)
     env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.path.join(scratch, "tmp") + "/",
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
-           "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json")}
+           "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
+           # Downloads go to the scratch, never the account's real ~/Downloads (the app ignores HOME there, and
+           # macOS asks for Downloads access in a prompt that covers a fleet Mac's screen). Debug and bench
+           # builds only; a Release app ignores it (DownloadsFolder.swift).
+           "CMUX_NEXT_DOWNLOADS_DIR": downloads_dir(scratch)}
     env.update(extra_env or {})
     os.makedirs(env["TMPDIR"], exist_ok=True)
+    os.makedirs(env["CMUX_NEXT_DOWNLOADS_DIR"], exist_ok=True)
     # Sparkle would otherwise download a newer nightly into the bundle under
     # test mid-run (and its installer counts as the bundle's process).
     with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
@@ -568,7 +602,8 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
                          f"launch {'direct' if direct else 'open'})" + tail(log_path) + exception_records(bundle, launched_at))
     except BaseException:
         end_bundle(bundle)
-        shutil.rmtree(scratch, ignore_errors=True)
+        if not relaunch:
+            shutil.rmtree(scratch, ignore_errors=True)
         raise
 
 

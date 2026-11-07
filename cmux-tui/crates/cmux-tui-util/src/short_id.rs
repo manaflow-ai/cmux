@@ -27,6 +27,14 @@ pub fn assign_short_ids(ids: impl IntoIterator<Item = u64>) -> HashMap<u64, Stri
     out
 }
 
+/// The short ID [`assign_short_ids`] gives `id` in any set of IDs, when that does not depend on the
+/// other IDs: an ID below the six-character space keeps its own value. IDs are sorted first and every
+/// ID below the space takes its own slot, so none of them ever probes and no other ID can take its
+/// slot before it. `None` for an ID at or above the space (it may probe: ask the whole set).
+pub fn short_id_without_set(id: u64) -> Option<String> {
+    (id < SPACE).then(|| encode_base36(id))
+}
+
 fn encode_base36(mut n: u64) -> String {
     let mut chars = [b'0'; WIDTH];
     for slot in chars.iter_mut().rev() {
@@ -49,6 +57,18 @@ mod tests {
         assert_eq!(ids[&36], "000010");
         assert!(ids.values().all(|id| id.len() == 6));
         assert_eq!(ids, assign_short_ids([1, 2, 35, 36]));
+    }
+
+    #[test]
+    fn an_id_below_the_space_has_its_short_id_without_the_set() {
+        let set = [3, 9, SPACE + 3, SPACE + 4, 2 * SPACE + 9, 40, SPACE - 1];
+        let assigned = assign_short_ids(set);
+        for id in set {
+            if let Some(own) = short_id_without_set(id) {
+                assert_eq!(assigned[&id], own, "{id}");
+            }
+        }
+        assert_eq!(short_id_without_set(SPACE), None);
     }
 
     #[test]

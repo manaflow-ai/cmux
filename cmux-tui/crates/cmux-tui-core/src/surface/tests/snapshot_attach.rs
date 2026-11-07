@@ -137,6 +137,59 @@ fn snapshot_requests_are_throttled_per_viewer() {
     assert_eq!(gate.request(start + SNAPSHOT_REQUEST_MIN_INTERVAL), SnapshotAdmission::Accepted);
 }
 
+/// u2841 "scrollback breaks on resize": a view whose own history reflow did
+/// not match after a resize shows the READY without its scrollback and asks
+/// for READY + history. A throttled request (a full snapshot went out less
+/// than 500 ms before, as in a resize burst) must still get its snapshot when
+/// the interval ends, or the scrollback stays lost.
+#[test]
+fn throttled_snapshot_request_gets_its_snapshot_when_the_interval_ends() {
+    let lifecycle = AttachLifecycle::default();
+    let (_tap, receiver) = AttachTap::snapshot_pair(lifecycle, 16, 1 << 20);
+    let gate = SnapshotRequestGate::new(receiver.snapshot_request_handle());
+    let start = Instant::now();
+    receiver.finish_snapshot_locked();
+    gate.sent(start);
+    assert_eq!(
+        gate.request(start + Duration::from_millis(200)),
+        SnapshotAdmission::Throttled { retry_after_ms: 300 }
+    );
+    let due = start + SNAPSHOT_REQUEST_MIN_INTERVAL;
+    assert_eq!(gate.deferred_at(), Some(due));
+    // A second throttled request waits for the same snapshot.
+    assert_eq!(
+        gate.request(start + Duration::from_millis(300)),
+        SnapshotAdmission::Throttled { retry_after_ms: 200 }
+    );
+    assert!(!gate.fire_deferred(due - Duration::from_millis(1)));
+    assert!(gate.fire_deferred(due));
+    assert_eq!(gate.deferred_at(), None);
+    assert!(is_snapshot(&next_event(&receiver)));
+    receiver.finish_snapshot_locked();
+    gate.sent(due);
+    // One snapshot answered both requests.
+    assert!(!gate.fire_deferred(due + SNAPSHOT_REQUEST_MIN_INTERVAL));
+    assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
+}
+
+#[test]
+fn snapshot_sent_meanwhile_answers_a_throttled_request() {
+    let lifecycle = AttachLifecycle::default();
+    let (_tap, receiver) = AttachTap::snapshot_pair(lifecycle, 16, 1 << 20);
+    let gate = SnapshotRequestGate::new(receiver.snapshot_request_handle());
+    let start = Instant::now();
+    receiver.finish_snapshot_locked();
+    gate.sent(start);
+    assert!(matches!(
+        gate.request(start + Duration::from_millis(100)),
+        SnapshotAdmission::Throttled { .. }
+    ));
+    // A backlog or grid-change snapshot goes out before the interval ends.
+    gate.sent(start + Duration::from_millis(200));
+    assert_eq!(gate.deferred_at(), None);
+    assert!(!gate.fire_deferred(start + Duration::from_secs(5)));
+}
+
 #[test]
 fn snapshot_request_after_the_viewer_left_is_not_attached() {
     let lifecycle = AttachLifecycle::default();

@@ -31,6 +31,9 @@ package actor NativeCloudLinkChild {
     private let publisher: NativeCloudExecutable.Publisher
     private let directory: URL
     private let home: URL
+    /// The child's TMPDIR, so its socket lands in the user's private temp folder (the folder `cmux link` gets),
+    /// never the shared `/tmp/cmux-tui-<uid>` that another process may have made open to other users.
+    private let temporaryDirectory: URL?
     private let prepare: @Sendable () async throws -> NativeCloudLinkStartup
     private let reply: @Sendable (Data) async throws -> Data
     private var generation: UInt64 = 0
@@ -42,9 +45,11 @@ package actor NativeCloudLinkChild {
     private var childPID: Int32?
 
     package init(bundleURL: URL, publisher: NativeCloudExecutable.Publisher, directory: URL, home: URL,
+                 temporaryDirectory: URL? = nil,
                  prepare: @escaping @Sendable () async throws -> NativeCloudLinkStartup,
                  reply: @escaping @Sendable (Data) async throws -> Data) {
         self.bundleURL = bundleURL; self.publisher = publisher; self.directory = directory; self.home = home
+        self.temporaryDirectory = temporaryDirectory
         self.prepare = prepare; self.reply = reply
     }
 
@@ -84,11 +89,11 @@ package actor NativeCloudLinkChild {
     private func launch(epoch: UInt64) async throws -> String {
         let startup = try await prepare()
         try check(epoch)
-        guard !startup.bytes.isEmpty, startup.bytes.count <= 4096 else { throw POSIXError(.EACCES) }
+        guard !startup.bytes.isEmpty, startup.bytes.count <= 4096 else { throw NativeCloudExecutableRefusal.startupSize }
         // The signature check hashes the bundle and its binary: on the blocking lane, never the actor's executor.
         let (bundleURL, publisher, work) = (bundleURL, publisher, blockingWork)
         let executable = try await work.run(.userVisible, mayBlock: .system) {
-            guard let bundle = Bundle(url: bundleURL) else { throw POSIXError(.EACCES) }
+            guard let bundle = Bundle(url: bundleURL) else { throw NativeCloudExecutableRefusal.bundle }
             return try NativeCloudExecutable(bundle: bundle, publisher: publisher)
         }
         try check(epoch)
@@ -98,12 +103,15 @@ package actor NativeCloudLinkChild {
         defer { try? input.close() }
         let process = ChildProcess(executable: executable.binary,
             arguments: ["link", "serve", "--native-cloud-broker-fd", "0", "--state-dir", directory.path],
-            environment: ["HOME": home.path])
+            environment: ["HOME": home.path].merging(temporaryDirectory.map { ["TMPDIR": $0.path] } ?? [:]) { $1 },
+            // Its stderr (each refused dial and why) in the state folder's link.log, where `cmux link ensure`
+            // keeps the classic link's output and where a capture and `cmux cloud diagnostics` read it.
+            stderrLog: directory.appendingPathComponent("link.log", isDirectory: false))
         child = process
         do {
             try process.start(inheritedInput: input)
             try input.close()
-            guard let pid = process.pid, let started = NativeCloudProcessStart(pid: pid) else { throw POSIXError(.EACCES) }
+            guard let pid = process.pid, let started = NativeCloudProcessStart(pid: pid) else { throw NativeCloudExecutableRefusal.processStart }
             childPID = pid
             // task-owner: bounded startup task; cancellation stops the owned child and closes its peer.
             let work = blockingWork

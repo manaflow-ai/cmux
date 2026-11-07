@@ -51,6 +51,19 @@ public final class AgentChatSurface {
     public var showArtifacts = false
     /// `/status`'s sheet while it is up.
     var showStatus = false
+    /// The Copy rows' sheet (the Mac's AgentChatCopyActionCatalog).
+    public var showCopyChoices = false
+    /// Text and Width's sheet.
+    public var showDisplaySettings = false
+    /// The turn bar (Previous/Next Turn and bookmarked prompts) while it is up.
+    public var turnNavigator: ChatTurnNavigator?
+
+    /// Jump to Turn: opens the turn bar (Find in Chat's bar closes: they share the place).
+    public func openTurnNavigator() {
+        closeFind()
+        if turnNavigator == nil { turnNavigator = ChatTurnNavigator() }
+        composerFocused = false
+    }
     /// The earlier prompt in Edit and Resend's sheet (nil: closed).
     var editingEarlier: EarlierPromptEdit?
     /// What the chat's workspace tab does with it (fork into a new tab); nil for a chat
@@ -102,6 +115,7 @@ public final class AgentChatSurface {
 
     /// Find in Chat: opens the bar with its field focused (the composer gives the keyboard up).
     public func openFind() {
+        turnNavigator = nil
         if find == nil { find = AgentChatFind() }
         composerFocused = false
         findFieldFocused = true
@@ -351,9 +365,13 @@ public struct AgentChatScreen: View {
                 Button("Agent Edits", systemImage: "plus.forwardslash.minus") { surface.openAllChanges(of: store) }
                     .disabled(!AgentChatSurface.hasAgentEdits(store))
                 AgentParityMenuItems(store: store, surface: surface)
-                Button("Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id }
+                Button("Session Info", systemImage: "info.circle") { surface.parityRoute = .sessionInfo }
+                Button("Copy…", systemImage: "doc.on.doc") { surface.showCopyChoices = true }
                 Button("Find in Chat…", systemImage: "magnifyingglass") { surface.openFind() }
                     .disabled(store.turns.isEmpty)
+                Button("Jump to Turn…", systemImage: "arrow.up.arrow.down") { surface.openTurnNavigator() }
+                    .disabled(store.turns.isEmpty)
+                Button("Text and Width…", systemImage: "textformat.size") { surface.showDisplaySettings = true }
                 if !store.modes.isEmpty {
                     Section("Mode") {
                         Picker("Mode", selection: Binding(get: { store.currentModeID ?? "" }, set: { store.setMode($0) })) {
@@ -476,6 +494,10 @@ public struct AgentChatTranscript: View {
                 AgentChatFindBar(find: find, surface: surface, store: store)
                     .padding(.top, (topInset ?? 0) + 4)
                     .transition(.opacity)
+            } else if let navigator = surface.turnNavigator {
+                ChatTurnBar(navigator: navigator, store: store, surface: surface)
+                    .padding(.top, (topInset ?? 0) + 4)
+                    .transition(.opacity)
             }
         }
         // UIKit owns the native top edge and the workspace's iOS 26 gradient fallback.
@@ -499,6 +521,17 @@ public struct AgentChatTranscript: View {
         .sheet(isPresented: $surface.showStatus) {
             SessionStatusSheet(store: store)
         }
+        .sheet(isPresented: $surface.showCopyChoices) {
+            ChatCopyChoicesSheet(store: store)
+        }
+        .sheet(isPresented: $surface.showDisplaySettings) {
+            ChatDisplaySettingsSheet(summary: store.summary)
+        }
+        // The chat's bookmarks and pins, read once it shows; a chat that closes stops reading aloud.
+        .task { store.showBookmarks() }
+        // The chat left the screen (not a page pushed over it, such as Session Info): what it
+        // was reading stops.
+        .onDisappear { if surface.parityRoute == nil { ChatReadAloud.shared.stopIfReading(chat: store.summary.id) } }
         .sheet(item: $surface.editingEarlier) { edit in
             if let actions = surface.tabActions {
                 EarlierPromptEditSheet(edit: edit, actions: actions)
@@ -859,6 +892,8 @@ struct UserBubble: View {
     let editAndResend: () -> Void
     /// Edit and Resend of an earlier prompt (a fork before it), when the chat offers it.
     var editEarlier: (() -> Void)?
+    /// Bookmark and Read Aloud.
+    var polish: ChatPolishMenuButtons?
     @State private var selecting = false
 
     var body: some View {
@@ -883,6 +918,7 @@ struct UserBubble: View {
                             Button("Edit and Resend", systemImage: "pencil") { editEarlier() }
                         }
                         ShareLink(item: prompt) { Label("Share", systemImage: "square.and.arrow.up") }
+                        polish
                     }
                 }
         }
@@ -1001,6 +1037,34 @@ extension SentAttachments {
         let scale = min(1, side / min(size.width, size.height))
         return CGSize(width: size.width * scale, height: size.height * scale)
     }
+
+    /// The most a thumbnail keeps of its long side, in multiples of `side`. Its bubble fills a 4:3
+    /// or square frame (`scaledToFill`) and shows only the image's middle, which a 2:1 crop holds
+    /// whole: a 1290 x 20000 scrolling screenshot keeps 600 x 1200 px (2.9 MB), not 600 x 9300 (22 MB).
+    nonisolated static let longSideLimit: CGFloat = 2
+
+    /// `size` cut to its middle `longSideLimit * side` along its long side.
+    nonisolated static func crop(_ size: CGSize, side: CGFloat) -> CGSize {
+        let limit = side * longSideLimit
+        return CGSize(width: min(size.width, limit), height: min(size.height, limit))
+    }
+
+    /// The thumbnail of `image` its bubble draws: its short side scaled to `side`, then its long
+    /// side cut to the middle the bubble shows. Runs off the main thread.
+    nonisolated static func thumbnail(of image: UIImage, side: CGFloat) -> UIImage {
+        let size = fill(image.size, side: side)
+        let crop = crop(size, side: side)
+        let scaled = image.preparingThumbnail(of: size)
+        guard crop.width < size.width - 0.5 || crop.height < size.height - 0.5 else { return scaled ?? image }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        // 4 bytes per pixel, as the cache's cost counts them (not an extended-range 8).
+        format.preferredRange = .standard
+        // The scaled image (or, when it could not be made, the image scaled as it draws), centered.
+        let frame = CGRect(x: (crop.width - size.width) / 2, y: (crop.height - size.height) / 2, width: size.width, height: size.height)
+        return UIGraphicsImageRenderer(size: crop, format: format).image { _ in (scaled ?? image).draw(in: frame) }
+    }
 }
 
 /// Reads the bytes of an attachment a recorded prompt names (`AgentSessionSource.attachmentData`).
@@ -1058,6 +1122,8 @@ struct AnswerActionRow: View {
     /// cell places the row with that gap itself.
     var insetsTargets = true
     var retryWith: RetryModelChoice?
+    /// Pin and Read Aloud.
+    var polish: ChatPolishMenuButtons?
     let retry: () -> Void
     @State private var copied = false
 
@@ -1086,13 +1152,14 @@ struct AnswerActionRow: View {
                     Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
                     Button("Retry", systemImage: "arrow.clockwise", action: retry)
                     retryWith?.menu
+                    polish
                 }
             } label: {
                 IconActionLabel("ellipsis")
             }
             .accessibilityLabel("More")
             Spacer()
-            if let duration = turn.duration {
+            if let duration = ToolWording().shown(turn.duration) {
                 Text(ToolWording().duration(duration)).font(.footnote.monospacedDigit()).foregroundStyle(.tertiary)
                     .lineLimit(1).fixedSize()
             }

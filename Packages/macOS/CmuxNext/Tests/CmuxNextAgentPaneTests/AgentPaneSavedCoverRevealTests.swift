@@ -1,14 +1,14 @@
 import AppKit
-import CmuxNextDesign
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextTestSupport
 import Testing
 @testable import CmuxNextAgentPane
 
-/// A saved transcript stays until the live page reports its drawn frame. Chromium's separate
-/// child window ignores its native parent's alpha, so fading that parent leaves OLD text visible
-/// through the already-drawn NEW page. This checks the real paint/reveal callbacks, not pixels.
+/// A saved transcript stays until the live page reports its drawn frame, then goes in that turn,
+/// with no fade in either engine: a fade draws the chat again over itself, OLD text crossing the
+/// already-drawn NEW page (Chromium's child window ignores its native parent's alpha, so there for
+/// the whole fade). This checks the real paint/reveal callbacks, not pixels.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct AgentPaneSavedCoverRevealTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -69,18 +69,12 @@ struct AgentPaneSavedCoverRevealTests {
         _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted"]))
 
         #expect(view.model.hasPainted)
-        if chromium {
-            #expect(view.pageContent.alphaValue == 1)
-            #expect(view.loadingView.leftFading == false,
-                    "a child-window page already draws: fading its native parent cannot hide the OLD transcript")
-            #expect(saved.superview == nil, "the saved transcript remained beneath the live Chromium frame")
-            #expect(reveals == 1, "the cover handoff must complete on the paint-report turn")
-        } else {
-            #expect(view.loadingView.leftFading == true, "a cold WebKit chat keeps its existing fade")
-            if Motion.canAnimate(in: view), Motion.home.duration(.fadeIn) > 0 {
-                #expect(saved.superview != nil, "the WebKit cover must stay through its actual fade")
-            }
-        }
+        // Either engine: the saved transcript already shows the chat where it belongs, so a fade
+        // would draw it again over itself (Chromium's child window ignores its parent's alpha).
+        #expect(view.pageContent.alphaValue == 1)
+        #expect(view.loadingView.leftFading == false, "the page faded in over a saved transcript of itself")
+        #expect(saved.superview == nil, "the saved transcript remained beneath the live page's frame")
+        #expect(reveals == 1, "the cover handoff must complete on the paint-report turn")
         #expect(await revealed(view))
         #expect(view.pageContent.alphaValue == 1)
         #expect(saved.superview == nil)

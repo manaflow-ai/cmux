@@ -20,3 +20,16 @@ export const chatGlass: SeeThroughOptions = { keepUnderlayOver: composer };
 /** The Summary popover: its blocks carry data-glass-under="summary", which summary.css switches off
  * while it hides the card (Find, review, inspect), with no observer to see that happen. */
 export const summaryGlass: SeeThroughOptions = { owner: "summary", keepUnderlayOver: composer };
+
+// A hover card (a link's, a pull request's) is portaled out of the shell: it covers the stage of the
+// page's chat, and keeps its underlay over the composer. Leo, 2026-11-05: "this awkward wannabe glass
+// but kind of just opaque thing": Chromium's backdrop left the transcript's text reading through the
+// card's tint, so the card blurs what it covers in place, as the Summary popover does.
+export const chatUnderHoverCard: CoveredCandidates = (surface) =>
+  surface.ownerDocument.querySelectorAll(".acpmux-stage > *");
+
+/** A hover card's in-place blur: its blocks carry data-glass-under="hover-card" (glass.css). */
+export const hoverCardGlass: SeeThroughOptions = {
+  owner: "hover-card",
+  keepUnderlayOver: (surface) => surface.ownerDocument.querySelectorAll(".acpmux-dock"),
+};

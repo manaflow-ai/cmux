@@ -216,11 +216,12 @@ async fn native_receiver_runtime_original_handler_refuses_unsigned_hello() {
         epoch: 4,
         session_socket: &session,
         sshd: "127.0.0.1:1".parse().unwrap(),
+        desktop: std::path::Path::new("/nonexistent/cmux-rd/desktop.sock"),
     };
     let source = SocketAddr::new(IpAddr::V6(overlay_address(&policy.peers[0].install)), 40000);
     assert_eq!(
         within(serve_host_inbound(incoming, public(CLIENT), source, &*owner.verifier(), &me)).await,
-        Err(super::super::host_inbound::HostRefused::Token)
+        Err(HostRefused::Token)
     );
 }
 

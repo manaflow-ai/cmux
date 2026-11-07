@@ -247,7 +247,7 @@ import Testing
         #expect(host.names == ["lab"], "the app connects it under the Name field's name")
         // Setup does the whole job: this Mac's agent profiles and the host's way back, no skips.
         #expect(HostCommand.enroll(host: "huge-blue", name: "lab").arguments
-            == ["acp", "host", "enroll", "huge-blue", "--name", "lab", "--harness", "local", "--reverse", "--json"])
+            == ["acp", "host", "enroll", "huge-blue", "--name", "lab", "--accept-new-host-key", "--harness", "local", "--reverse", "--json"])
     }
 
     @Test func aFailedStepStaysOpenWithTryAgainAndCopyDetails() async {
@@ -705,8 +705,8 @@ import Testing
         let report = store.reports["ssh-1"]
         let row = MachineSectionRow(id: "ssh-1", name: "hb", isConnected: true, isLocal: false, health: report?.health, healthStep: report?.worstStep?.step)
         #expect(row.health == .failing)
-        #expect(row.healthHelp == AddMachineStrings.healthFailing(AddMachineStrings.step(.daemon)))
-        #expect(MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true).healthHelp == nil)
+        #expect(row.healthStep == .daemon, "the page's status mark names the step the check flagged")
+        #expect(MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true).health == nil)
     }
 
     // MARK: - The machine's name

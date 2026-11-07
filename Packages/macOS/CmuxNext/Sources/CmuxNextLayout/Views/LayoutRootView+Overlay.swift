@@ -37,8 +37,8 @@ extension LayoutRootView {
     /// Syncs the overlay when it is stale.
     func flushOverlaySync() {
         // A parked or hidden root keeps its overlay stale: nothing shows it, and it syncs once when it goes
-        // live again (`setLive`).
-        guard overlayIsStale, isLive else { return }
+        // live again (`setLive`). The frame tick's input keeps it stale for the frame's one sync (`LayoutFrameInput`).
+        guard overlayIsStale, isLive, !context.holdsPresentations else { return }
         syncOverlay()
     }
 
@@ -109,7 +109,7 @@ extension LayoutRootView {
     public var interactiveOverlayRects: [CGRect] {
         var rects: [CGRect] = []
         if let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden {
-            rects += screen.dividerLineRects.map { convert($0, from: screen) }
+            rects += ScreenDividers(screen: screen).lineRects.map { convert($0, from: screen) }
         }
         return rects
     }

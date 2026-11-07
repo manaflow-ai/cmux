@@ -607,6 +607,18 @@ fn run_response(
                             }
                         };
                     }
+                    // `--machine <Cloud machine> workspace list`: the app lists its workspaces.
+                    #[cfg(unix)]
+                    if let Some(listed) = super::cloud_workspaces::for_machine(global, plan, &error)
+                    {
+                        return match listed {
+                            Ok(result) => {
+                                key_report.succeeded();
+                                print_result(global, plan, result)
+                            }
+                            Err(error) => print_operation_error(&error, global.output),
+                        };
+                    }
                     if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
                         localize_operation_error(plan, &mut error);
                     }
@@ -640,6 +652,10 @@ fn run_response(
                             global,
                             super::cloud_machines::merge(global, result),
                         ),
+                        // The app's Cloud machines' workspaces join the daemon's list.
+                        WireOperation::Typed(
+                            cmux_tui_core::resource::ResourceOperation::WorkspaceList,
+                        ) => super::cloud_workspaces::merge(global, result),
                         _ => result,
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
@@ -859,6 +875,12 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
 fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a, Value> {
     if let Some(roster) = agent_roster::human_view(plan, result) {
         return roster;
+    }
+    if matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::SettingsList)
+    ) {
+        return std::borrow::Cow::Owned(super::command::settings_human_rows(result));
     }
     let personal = matches!(
         &plan.operation,

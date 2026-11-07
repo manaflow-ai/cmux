@@ -66,9 +66,12 @@ concurrency:
 
 env:
   # The same values as nightly.yml; nightly-next-guard.py checks every write against them.
-  NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/next
+  NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next
   NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
-  NIGHTLY_NEXT_R2_PREFIX: nightly-next/next/
+  NIGHTLY_NEXT_R2_PREFIX: nightly-next/
+  # pulled.json stays in the verdicts' folder (nightly.yml NIGHTLY_NEXT_VERDICTS_BASE), where
+  # the Channels view reads it; PulledBuildWatch reads it there for the cmux NIGHTLY feed too.
+  NIGHTLY_NEXT_PULLED_PREFIX: nightly-next/next/
   NIGHTLY_APPCAST: appcast-arm64.xml
 
 jobs:
@@ -245,7 +248,7 @@ jobs:
           SERVING: ${{ needs.rollback.outputs.serving }}
         run: |
           set -euo pipefail
-          key="${NIGHTLY_NEXT_R2_PREFIX}pulled.json"
+          key="${NIGHTLY_NEXT_PULLED_PREFIX}pulled.json"
           python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
           mkdir -p rollback
           # Read straight from R2, merge, write only while the object still holds what was read;

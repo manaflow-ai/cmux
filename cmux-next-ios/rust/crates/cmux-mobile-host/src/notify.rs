@@ -533,10 +533,12 @@ fn exposure_allows(state: &crate::control::SessionExposure, event: &NotifyEvent)
     if event.session_id.as_deref().is_some_and(|id| state.blocked.contains(id)) {
         return false;
     }
+    // The Mac app's own Feed requests (`needs_you.rs`) are Mac-wide, like a terminal's.
     if state.configured
         && event.session_id.is_none()
         && event.notification_id.is_none()
         && event.agent.as_deref() != Some("Terminal")
+        && !event.event_id.starts_with(crate::needs_you::EVENT_PREFIX)
     {
         return false;
     }
@@ -560,6 +562,7 @@ pub async fn run(
     if let Some(socket) = daemon_socket {
         tokio::spawn(crate::notify_terminal::run(socket, Arc::clone(&places), reporter.clone()));
     }
+    tokio::spawn(crate::needs_you::run(reporter.clone()));
     let mut classifier = Classifier::with_places(places);
     let mut backoff = Duration::from_secs(2);
     loop {
@@ -586,6 +589,17 @@ pub async fn run(
     }
 }
 
+/// The watch (id 2), its first page only: the rest comes by its `nextCursor`
+/// (`notify_waiting.rs` `next_page`). Asked whole, one Mac's list was 24.8 MB in one frame,
+/// past this socket's frame limit, so the watch failed and was asked again about every
+/// minute for hours (2026-11-06).
+fn watch_request() -> Value {
+    json!({"jsonrpc":"2.0","id":2,"method":"_acpmux/watch","params":{"enabled":true,"limit":WATCH_PAGE_ROWS}})
+}
+
+/// The sessions of the watch's first page.
+const WATCH_PAGE_ROWS: u64 = 200;
+
 async fn watch_once(
     reporter: &Reporter,
     acpmux: &AcpmuxTarget,
@@ -596,7 +610,7 @@ async fn watch_once(
     let (mut sink, mut source) = socket.split();
     let requests = [
         json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientInfo":{"name":"cmux-mobile-host-push","version":"1"},"clientCapabilities":{}}}),
-        json!({"jsonrpc":"2.0","id":2,"method":"_acpmux/watch","params":{"enabled":true}}),
+        watch_request(),
     ];
     for request in requests {
         sink.send(Message::Text(request.to_string().into())).await.map_err(|e| e.to_string())?;
@@ -683,6 +697,16 @@ mod tests {
     use tokio::sync::watch;
     use tokio::time::{Duration, timeout};
 
+    /// The push watch never asks acpmux for its whole list in one reply: a first page, the rest
+    /// by its cursor.
+    #[test]
+    fn the_watch_asks_for_its_first_page_only() {
+        let request = watch_request();
+        assert_eq!(request["method"], "_acpmux/watch");
+        assert_eq!(request["params"]["enabled"], true);
+        assert_eq!(request["params"]["limit"], WATCH_PAGE_ROWS);
+    }
+
     fn watch() -> Value {
         json!({"sessions":[
             {"sessionId":"s1","harness":"claude-code","cwd":"/Users/me/secret-dir/cmuxterm-hq","name":"fix the bug"},
@@ -705,6 +729,18 @@ mod tests {
 
         let terminal = NotifyEvent { agent: Some("Terminal".into()), ..NotifyEvent::default() };
         assert!(exposure_allows(&state, &terminal));
+
+        // The Mac app's own Feed request (a held PR) is Mac-wide, as a terminal's is (#33818).
+        let feed = crate::needs_you::push_event(&crate::needs_you::Request {
+            id: "fi_held".into(),
+            title: "Held for your trial".into(),
+            body: String::new(),
+            kind: "review".into(),
+            source: "GitHub".into(),
+            url: None,
+            created_at_ms: 0,
+        });
+        assert!(exposure_allows(&state, &feed));
     }
 
     #[test]

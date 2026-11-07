@@ -145,7 +145,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// every other row.
     public var stage: String?
     /// Nobody named the workspace and its title says nothing (the daemon's default name, or a
-    /// terminal in the home folder): the row reads quiet while idle (`SidebarTunables.quietUnnamedRows`).
+    /// terminal in the home folder): the row reads quiet while idle (`WorkspaceRowView.isQuiet`).
     public var isUnnamed = false
     /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
     /// draws dimmed at the end of its list (plans/cmux-next/archiving-DESIGN.md). Set by `arrange`.

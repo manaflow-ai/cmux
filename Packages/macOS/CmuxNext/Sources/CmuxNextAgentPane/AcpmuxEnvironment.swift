@@ -4,7 +4,9 @@ public import Foundation
 /// Where this app's acpmux daemon lives and how to start it.
 ///
 /// Same rule as `cmux acp` (cmux-tui `acp::build_home`), so the pane and
-/// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins, else the
+/// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins (except one naming
+/// `~/.acpmux` or another build's home for a build with a home of its own, as every
+/// agent shell exports it: ``inheritsAnotherBuildsHome(_:ownHome:root:)``, cmux#29050), else the
 /// build's own home (``BuildIdentity/acpmuxHome(userHome:)``, per-build
 /// isolation cx-is1kf): NIGHTLY keeps `~/.acpmux`, shared with a standalone
 /// `acpmux`; every other build has `~/.acpmux/builds/<key>`, so no build
@@ -14,6 +16,10 @@ public import Foundation
 /// alone (an app launched from another cmux's terminal), it is another
 /// daemon's socket.
 public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
+    /// How long the app waits for the daemon's answer to one request. A loaded daemon answers
+    /// late, not never (#28083); a 2 s bound turned its late answers into failures.
+    public static let answerDeadline: Duration = .seconds(30)
+
     public var executable: URL
     public var home: URL
     public var socketPath: String
@@ -80,6 +86,27 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// attached daemon's log (another app's home) gets no line from this app.
     public var logPath: String { (ownHome ?? home).appendingPathComponent("daemon.log").path }
 
+    /// Whether `ACPMUX_HOME` (`custom`) names another build's home while this build has a home of
+    /// its own (`ownHome` is not `root`): the shared root (NIGHTLY's `~/.acpmux`), another
+    /// `<root>/builds/<key>`, or a Chief home's acpmux (`~/.cmux/chief/<home>/acpmux`, NIGHTLY's
+    /// included; a Chief host passes its own home with no build, so it never comes here). Every
+    /// agent shell under acpmux exports its daemon's home, so a tagged
+    /// DEV app launched from one inherits it; honoring it made that app hand NIGHTLY's daemon off
+    /// to its own and every new NIGHTLY chat waited on the re-adoption (cmux#29050). Reading
+    /// another build's chats is ``attachKey``'s job, which never hands off. Any other home (a
+    /// test's, one a person names) still wins.
+    static func inheritsAnotherBuildsHome(_ custom: String, ownHome: URL, root: URL) -> Bool {
+        let rootPath = root.standardizedFileURL.path
+        let ownPath = ownHome.standardizedFileURL.path
+        guard ownPath != rootPath else { return false }
+        let path = URL(fileURLWithPath: custom, isDirectory: true).standardizedFileURL.path
+        if path == ownPath { return false }
+        let builds = rootPath + "/builds"
+        let chiefHomes = BuildIdentity.chiefHomesRoot(userHome: root.deletingLastPathComponent()).standardizedFileURL.path
+        return path == rootPath || path == builds || path.hasPrefix(builds + "/")
+            || path == chiefHomes || path.hasPrefix(chiefHomes + "/")
+    }
+
     /// `~/.acpmux` of `userHome`: NIGHTLY's home, and the root of every build home.
     static func sharedRoot(userHome: URL) -> URL {
         userHome.appendingPathComponent(".acpmux", isDirectory: true)
@@ -107,6 +134,15 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// `environment::socket_path`, tests/cases/environment.json): `configured`
     /// (`ACPMUX_SOCKET`) when set, except an absolute path past the Unix socket limit (a long
     /// TMPDIR), which maps to the short alias acpmux binds; else ``defaultSocketPath(home:uid:)``.
+    /// The socket of the acpmux daemon whose `ACPMUX_HOME` is `home`, for this user (no `ACPMUX_SOCKET`):
+    /// how Home reaches a Chief's own acpmux (``defaultSocketPath(home:uid:)``).
+    public static func socketPath(home: URL) -> String {
+        defaultSocketPath(home: home, uid: getuid())
+    }
+
+    /// The app's own acpmux home of `userHome` (`~/.acpmux`), the daemon a Chief on the app's acpmux uses.
+    public static func appHome(userHome: URL) -> URL { sharedRoot(userHome: userHome) }
+
     static func socketPath(configured: String?, home: URL, uid: UInt32) -> String {
         guard let configured else { return defaultSocketPath(home: home, uid: uid) }
         if configured.hasPrefix("/"), configured.utf8.count > maxSocketPathBytes {

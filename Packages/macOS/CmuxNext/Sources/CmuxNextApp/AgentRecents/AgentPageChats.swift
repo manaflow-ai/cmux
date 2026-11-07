@@ -35,8 +35,11 @@ final class AgentPageChats {
     var sandboxRun: (@MainActor (String, String?, String, Bool) async -> [String: Any])?
     /// The signed-in person's platform environment API, through the existing install mint and Rust transport.
     var cloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
+    var cloudReservation: (@MainActor (AgentPaneCloudReservationRequest) async -> [String: Any])?
     /// A new chat's first send in Cloud (``CloudStartChat``), one runner for every page, given the pane that sent.
     var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?
+    /// The app's Cloud account sign-in, awaited by an inline first-send recovery card.
+    var cloudSignIn: (@MainActor () async -> Bool)?
     /// Another machine picked for a Cloud chat whose first send has not run (``CloudStartChat``'s repick), given the pane.
     var cloudRepick: (@MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any])?
     /// The chats Cloud starts opened, by their tab's key, for this run of the App: a repick moves only one
@@ -105,6 +108,7 @@ final class AgentPageChats {
         view.model.onSandboxRun = sandboxRun
         view.model.sendIsIncognito = { [weak self, weak view] in view.flatMap { self?.runNotices?.sendIsIncognito($0) } ?? true }
         view.model.onCloudEnvironment = cloudEnvironment
+        view.model.onCloudReservation = cloudReservation
         if let run = handoffTurn {
             view.model.onCloudHandoffTurn = { @MainActor [weak view] (session: String) async -> [String: Any] in
                 await run(view, session)
@@ -120,6 +124,7 @@ final class AgentPageChats {
         } else {
             view.model.onCloudStartChat = nil
         }
+        view.model.onCloudSignIn = cloudSignIn
         if let run = cloudRepick {
             view.model.onCloudRepickChat = { @MainActor [weak view] (repick: AgentPaneCloudRepick) async -> [String: Any] in
                 await run(view, repick)
@@ -138,7 +143,17 @@ final class AgentPageChats {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
         tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
+        tabs.pageChats.cloudSignIn = { [weak services] in
+            guard let services else { return false }
+            return await services.cloud.auth.signIn()
+        }
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
+        tabs.pageChats.cloudReservation = { [weak services] request in
+            guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
+                                     binary: services.cloud.move.cli, configuration: services.cloud.configuration, auth: services.cloud.auth,
+                                     team: { try await services.cloud.reservationTeam() })
+        }
         tabs.pageChats.cloudEnvironment = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             return await request.run(

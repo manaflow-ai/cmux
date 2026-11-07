@@ -11,14 +11,14 @@ test("a resumed live turn counts from turn_started instead of its old prompt", (
     // direct.ts carries this timestamp from the live turn_started event in the snapshot.
     { id: "typing", version: 1, at: 100_000, kind: "typing" },
   ];
-  const shown = turnView(rows, new Set(), {
-    now: 200_000,
-    working: true,
-    liveRuns: true,
-    lineBelow: true,
-    turnStartedAtMs: 100_000,
-  });
+  const shown = turnView(rows, new Set(), { now: 200_000, working: true, turnStartedAtMs: 100_000 });
   expect(shown.find((row) => row.kind === THINKING)?.at).toBe(100_000);
+});
+
+test("a live turn with no start of its own counts from its prompt", () => {
+  const rows: AcpmuxRow[] = [user(1_000), { id: "typing", version: 1, at: 100_000, kind: "typing" }];
+  const shown = turnView(rows, new Set(), { now: 200_000, working: true });
+  expect(shown.find((row) => row.kind === THINKING)?.at).toBe(1_000);
 });
 
 test("a completed turn has no live timer row", () => {
@@ -29,12 +29,12 @@ test("a completed turn has no live timer row", () => {
       { id: "summary", version: 1, at: 6_000, kind: "turnSummary", status: "completed", durationMs: 5_000 },
     ],
     new Set(),
-    { now: 10_000, working: false },
+    { now: 10_000, working: false, turnStartedAtMs: 1_000 },
   );
   expect(shown.some((row) => row.kind === THINKING || row.kind === WORKING)).toBe(false);
 });
 
-test("the line above a completed answer keeps the live turn start", () => {
+test("the line under a streaming answer keeps the live turn start", () => {
   const shown = turnView(
     [
       user(1_000),
@@ -42,13 +42,13 @@ test("the line above a completed answer keeps the live turn start", () => {
       { id: "answer", version: 1, at: 105_000, kind: "assistant", text: "done" },
     ],
     new Set(),
-    { now: 110_000, working: true, turnStartedAtMs: 100_000, lineBelow: false },
+    { now: 110_000, working: true, turnStartedAtMs: 100_000 },
   );
-  expect(shown.find((row) => row.kind === WORKING)?.durationMs).toBe(5_000);
+  expect(shown.find((row) => row.kind === THINKING)?.at).toBe(100_000);
 });
 
 test("a rebuild for a changed background fold keeps the live turn start", () => {
-  const options = { now: 110_000, working: true, turnStartedAtMs: 100_000, lineBelow: false };
+  const options = { now: 110_000, working: true, turnStartedAtMs: 100_000 };
   const folds = new Set<string>();
   const head: AcpmuxRow[] = [
     user(1_000),
@@ -60,7 +60,7 @@ test("a rebuild for a changed background fold keeps the live turn start", () => 
     { id: "answer", version: 1, at: 105_000, kind: "assistant", text: "done" },
   ];
   const previous = turnViewFrom(head, folds, options);
-  expect(previous.rows.find((row) => row.kind === WORKING)?.at).toBe(100_000);
+  expect(previous.rows.find((row) => row.kind === THINKING)?.at).toBe(100_000);
   // A quiet background turn lands at the end: the folds change, so every turn draws again.
   const next: AcpmuxRow[] = [
     ...head,
@@ -73,5 +73,12 @@ test("a rebuild for a changed background fold keeps the live turn start", () => 
     },
   ];
   const shown = turnViewFrom(next, folds, options, previous);
-  expect(shown.rows.find((row) => row.kind === WORKING)?.at).toBe(100_000);
+  expect(shown.rows.find((row) => row.kind === THINKING)?.at).toBe(100_000);
+});
+
+test("a new turn start alone draws the live turn again", () => {
+  const rows: AcpmuxRow[] = [user(1_000), { id: "typing", version: 1, at: 100_000, kind: "typing" }];
+  const previous = turnViewFrom(rows, new Set(), { now: 200_000, working: true, turnStartedAtMs: 100_000 });
+  const shown = turnViewFrom(rows, new Set(), { now: 200_000, working: true, turnStartedAtMs: 150_000 }, previous);
+  expect(shown.rows.find((row) => row.kind === THINKING)?.at).toBe(150_000);
 });

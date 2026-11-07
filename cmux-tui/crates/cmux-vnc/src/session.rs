@@ -1,12 +1,13 @@
 //! A running RFB session: the reading half ([`Session`], one thread) and
 //! the writing half ([`Input`], cloneable, any thread). Input never blocks
-//! its caller: messages go through a bounded queue to a writer thread, and a
-//! server that stops reading until the queue fills ends the session.
+//! its caller: messages go through a bounded queue to a writer thread. Callers
+//! backpressure their input source when the queue fills; accepted input stays ordered.
 
+use std::collections::VecDeque;
 use std::io::{self, BufReader, Read, Write};
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
-use std::sync::{Mutex, PoisonError};
+use std::sync::mpsc::{self, Receiver};
+use std::sync::{Condvar, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
@@ -20,8 +21,8 @@ use crate::pixel::PixelFormat;
 use crate::transport::{Closer, Transport};
 use crate::wire::{MAX_TEXT_BYTES, WireReader, latin1, to_latin1};
 
-/// Client messages waiting for the writer thread before the session counts
-/// as stalled (a paste is one message, pointer motion one each).
+/// Resident input operations. Admission backpressures the source, never the UI.
+/// A paste owns its source string and occupies one operation.
 const WRITE_QUEUE: usize = 1024;
 /// Longest a graceful close waits for a proxy command to forward the last input.
 const DRAIN_LIMIT: Duration = Duration::from_millis(400);
@@ -223,7 +224,7 @@ impl Session {
             update.damage = full;
         }
         // Ask for the next change; after a resize, the whole new frame.
-        self.input.send(&message::update_request(!update.resized, &full))?;
+        self.input.request_frame(!update.resized, full.width, full.height)?;
         Ok(update)
     }
 
@@ -264,33 +265,148 @@ pub struct Input {
 }
 
 struct InputInner {
-    /// `None` asks the writer to send what is queued, then close.
-    queue: SyncSender<Option<Vec<u8>>>,
+    queue: Arc<InputQueue>,
     closer: Closer,
     /// Signalled when the writer thread ends.
     done: Mutex<Receiver<()>>,
 }
 
+#[derive(Default)]
+struct InputQueue {
+    state: Mutex<QueueState>,
+    ready: Condvar,
+    capacity_notifier: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+}
+
+#[derive(Default)]
+struct QueueState {
+    pending: VecDeque<PendingInput>,
+    pastes: usize,
+    /// Frame requests do not consume input slots. They may pass between paste key batches.
+    refresh: Option<(bool, u16, u16)>,
+    /// Operations queued before the first coalesced refresh request.
+    refresh_ahead: usize,
+    closing: bool,
+    closed: bool,
+}
+
+enum PendingInput {
+    Bytes(Vec<u8>),
+    Paste(String),
+}
+
+impl InputQueue {
+    fn notify_capacity(&self) {
+        let notify = self.capacity_notifier.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(notify) = notify {
+            notify();
+        }
+    }
+
+    fn write_refresh(&self, writer: &mut dyn Write, interrupt_paste: bool) -> io::Result<()> {
+        let refresh = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if state.closed {
+                return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+            }
+            if interrupt_paste || state.refresh_ahead == 0 { state.refresh.take() } else { None }
+        };
+        if let Some((incremental, width, height)) = refresh {
+            writer.write_all(&message::update_request(
+                incremental,
+                &Rect::new(0, 0, width, height),
+            ))?;
+            writer.flush()?;
+        }
+        Ok(())
+    }
+
+    fn next(&self) -> Option<PendingInput> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if state.closed {
+                return None;
+            }
+            if state.refresh_ahead == 0
+                && let Some((incremental, width, height)) = state.refresh.take()
+            {
+                return Some(PendingInput::Bytes(message::update_request(
+                    incremental,
+                    &Rect::new(0, 0, width, height),
+                )));
+            }
+            if let Some(message) = state.pending.pop_front() {
+                state.refresh_ahead = state.refresh_ahead.saturating_sub(1);
+                drop(state);
+                self.notify_capacity();
+                return Some(message);
+            }
+            if state.closing {
+                return None;
+            }
+            state = self.ready.wait(state).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
+
+impl Drop for InputInner {
+    fn drop(&mut self) {
+        self.queue.state.lock().unwrap_or_else(PoisonError::into_inner).closing = true;
+        self.queue.ready.notify_one();
+    }
+}
+
 impl Input {
-    /// Starts the writer thread. It ends when every `Input` is dropped or a
-    /// write fails; a failed write closes the transport, so the reader sees it.
+    /// Starts the writer thread. It drains when every `Input` is dropped; a
+    /// failed write closes the transport, so the reader sees the failure.
     fn spawn(mut writer: Box<dyn Write + Send>, closer: Closer) -> Result<Self> {
-        let (queue, pending) = mpsc::sync_channel::<Option<Vec<u8>>>(WRITE_QUEUE);
+        let queue = Arc::new(InputQueue::default());
+        let pending = queue.clone();
         let (done_tx, done) = mpsc::channel();
         let writer_closer = closer.clone();
         let spawned = thread::Builder::new().name("vnc-writer".into()).spawn(move || {
-            for message in pending {
-                let Some(bytes) = message else {
-                    // Everything queued is written: end the writing half
-                    // (a proxy's stdin) so the far end can take it, then close.
-                    drop(writer);
-                    writer_closer.finish(DRAIN_LIMIT);
-                    break;
+            let mut failed = false;
+            while let Some(message) = pending.next() {
+                let is_paste = matches!(&message, PendingInput::Paste(_));
+                let written = match message {
+                    PendingInput::Bytes(bytes) => writer.write_all(&bytes),
+                    PendingInput::Paste(text) => {
+                        crate::paste::write(&mut writer, &text, |writer| {
+                            pending.write_refresh(writer, true)
+                        })
+                    }
                 };
-                if writer.write_all(&bytes).and_then(|()| writer.flush()).is_err() {
-                    writer_closer.close();
+                if written
+                    .and_then(|()| pending.write_refresh(&mut writer, false))
+                    .and_then(|()| writer.flush())
+                    .is_err()
+                {
+                    let already_closed =
+                        pending.state.lock().unwrap_or_else(PoisonError::into_inner).closed;
+                    if !already_closed {
+                        writer_closer.close();
+                    }
+                    failed = true;
                     break;
                 }
+                if is_paste {
+                    let mut state = pending.state.lock().unwrap_or_else(PoisonError::into_inner);
+                    state.pastes = state.pastes.saturating_sub(1);
+                    drop(state);
+                    pending.notify_capacity();
+                }
+            }
+            let (graceful, discarded) = {
+                let mut state = pending.state.lock().unwrap_or_else(PoisonError::into_inner);
+                let graceful = !state.closed && !failed;
+                state.closed = true;
+                (graceful, std::mem::take(&mut state.pending))
+            };
+            drop(discarded);
+            pending.notify_capacity();
+            drop(writer);
+            if graceful {
+                writer_closer.finish(DRAIN_LIMIT);
             }
             let _ = done_tx.send(());
         });
@@ -301,21 +417,67 @@ impl Input {
         Ok(Self { inner: Arc::new(InputInner { queue, closer, done: Mutex::new(done) }) })
     }
 
+    /// Whether a sole input producer can admit `operations` without waiting.
+    /// Framebuffer requests use a separate coalesced slot and cannot consume this room.
+    /// A paste pauses source admission until complete, retaining only its existing
+    /// source string rather than accumulating more large pastes in the queue.
+    pub fn has_capacity(&self, operations: usize) -> bool {
+        let state = self.inner.queue.state.lock().unwrap_or_else(PoisonError::into_inner);
+        !state.closed
+            && !state.closing
+            && state.pastes == 0
+            && operations <= WRITE_QUEUE.saturating_sub(state.pending.len())
+    }
+
+    /// Wake a source that paused admission. The callback must not block.
+    /// Install before checking capacity, so a dequeue cannot lose its wakeup.
+    pub fn set_capacity_notifier(&self, notify: impl Fn() + Send + Sync + 'static) {
+        *self.inner.queue.capacity_notifier.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(Arc::new(notify));
+    }
+
     /// Queues one message without waiting for the network.
     fn send(&self, bytes: &[u8]) -> Result<()> {
-        match self.inner.queue.try_send(Some(bytes.to_vec())) {
-            Ok(()) => Ok(()),
-            Err(TrySendError::Full(_)) => {
-                self.inner.closer.close();
-                Err(VncError::Io(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "the server stopped reading input",
-                )))
-            }
-            Err(TrySendError::Disconnected(_)) => {
-                Err(VncError::Io(io::Error::from(io::ErrorKind::BrokenPipe)))
-            }
+        self.enqueue(PendingInput::Bytes(bytes.to_vec()))
+    }
+
+    fn enqueue(&self, message: PendingInput) -> Result<()> {
+        let mut state = self.inner.queue.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.closed || state.closing {
+            return Err(io::Error::from(io::ErrorKind::BrokenPipe).into());
         }
+        if state.pending.len() == WRITE_QUEUE {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "input source must wait for capacity",
+            )
+            .into());
+        }
+        if matches!(&message, PendingInput::Paste(_)) {
+            state.pastes = state.pastes.saturating_add(1);
+        }
+        state.pending.push_back(message);
+        drop(state);
+        self.inner.queue.ready.notify_one();
+        Ok(())
+    }
+
+    fn request_frame(&self, incremental: bool, width: u16, height: u16) -> Result<()> {
+        let mut state = self.inner.queue.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.closed || state.closing {
+            return Err(io::Error::from(io::ErrorKind::BrokenPipe).into());
+        }
+        // Coalescing retains the first request's place relative to input. Only
+        // an in-flight paste may service it early, between complete key batches.
+        if state.refresh.is_none() {
+            state.refresh_ahead = state.pending.len();
+        }
+        // A pending full refresh must not be downgraded to an incremental one.
+        let incremental = incremental && state.refresh.is_none_or(|(old, _, _)| old);
+        state.refresh = Some((incremental, width, height));
+        drop(state);
+        self.inner.queue.ready.notify_one();
+        Ok(())
     }
 
     /// A key press or release (`keysym` from [`crate::keysym`]).
@@ -331,6 +493,18 @@ impl Input {
         let bytes: Vec<u8> =
             keys.iter().flat_map(|&(keysym, down)| message::key_event(keysym, down)).collect();
         self.send(&bytes)
+    }
+
+    /// Types an entire paste, then mirrors it to the classic RFB clipboard.
+    ///
+    /// Takes ownership of the clipboard text without an additional full-size
+    /// copy. One ordered operation streams fixed-size key batches on the writer
+    /// thread, with socket backpressure; later input cannot split the paste.
+    /// Carriage returns are ignored, as in the terminal viewer's paste path.
+    /// RFB's clipboard length is u32; text beyond that wire field is still
+    /// typed in full, without replacing the clipboard with a truncated prefix.
+    pub fn paste(&self, text: String) -> Result<()> {
+        self.enqueue(PendingInput::Paste(text))
     }
 
     /// Pointer position and the buttons held ([`message::button`] bits).
@@ -351,28 +525,31 @@ impl Input {
 
     /// Asks for a full frame (after a local redraw lost the picture).
     pub fn refresh(&self, width: u16, height: u16) -> Result<()> {
-        self.send(&message::update_request(false, &Rect::new(0, 0, width, height)))
+        self.request_frame(false, width, height)
     }
 
     /// Ends the session now; the reading thread's `next_event` then fails.
     /// Queued input may be dropped: use [`Input::close_after_pending`] when
     /// it matters (key releases on quit).
     pub fn close(&self) {
+        self.inner.queue.state.lock().unwrap_or_else(PoisonError::into_inner).closed = true;
+        self.inner.queue.ready.notify_one();
         self.inner.closer.close();
     }
 
     /// Sends what is queued (key and button releases), then ends the
     /// session (a proxy command first forwards it, up to 400 ms). Waits at
-    /// most `limit` for the writer; past it, or when the queue is full,
-    /// closes at once.
+    /// most `limit` for the writer; past it, closes at once.
     pub fn close_after_pending(&self, limit: Duration) {
-        if self.inner.queue.try_send(None).is_err() {
-            self.close();
-            return;
-        }
+        self.inner.queue.state.lock().unwrap_or_else(PoisonError::into_inner).closing = true;
+        self.inner.queue.ready.notify_one();
         let done = self.inner.done.lock().unwrap_or_else(PoisonError::into_inner);
         if done.recv_timeout(limit).is_err() {
             self.close();
         }
     }
 }
+
+#[cfg(test)]
+#[path = "session_backpressure.rs"]
+mod backpressure_tests;

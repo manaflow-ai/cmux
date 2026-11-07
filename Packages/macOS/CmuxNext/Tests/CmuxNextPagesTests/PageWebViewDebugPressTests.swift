@@ -3,6 +3,7 @@
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
 import Foundation
+import AppKit
 import Testing
 
 /// `debug.agent_pane click` on a chat shown in Chromium: a trusted DevTools press and release at
@@ -35,6 +36,39 @@ struct PageWebViewDebugPressTests {
             #expect(press.params["button"] as? String == "left")
             #expect(press.params["clickCount"] as? Int == 1)
         }
+        view.close()
+    }
+
+    @Test func nativePressUsesTheHostsInputTargetWithoutDevToolsOrAGestureGrant() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        #expect(await view.debugPress(x: 31, y: 18, native: true) == false)
+        page.acceptsNativePress = true
+        #expect(await view.debugPress(x: 31, y: 18, native: true))
+        #expect(page.nativePresses == [NSPoint(x: 31 * view.debugPageZoom, y: 18 * view.debugPageZoom),
+                                       NSPoint(x: 31 * view.debugPageZoom, y: 18 * view.debugPageZoom)])
+        #expect(page.calls.allSatisfy { $0.method != "Input.dispatchMouseEvent" })
+        #expect(!view.debugHasRecentUserGesture)
+        view.close()
+    }
+
+    @Test func domWaitUsesADeadlineLongerThanItsDocumentTimer() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        page.answer = { method, _ in
+            method == "Runtime.evaluate" ? #"{"result":{"value":"{\"matched\":true}"}}"# : nil
+        }
+        let result = await view.debugWait(selector: ".done", timeoutMilliseconds: 30_000)
+        #expect(result["matched"] == true)
+        #expect(page.devToolsTimeouts.last == .seconds(31))
         view.close()
     }
 

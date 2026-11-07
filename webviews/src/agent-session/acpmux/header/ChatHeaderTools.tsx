@@ -19,10 +19,22 @@ import {
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
+import {
+  activityCue,
+  morphIntoTab,
+  motionCues,
+  motionMorphs,
+  useIconArrivals,
+  type HeaderMotionStyle,
+} from "./headerMotion";
+import { HeaderToolPreview, PREVIEW_INTENT_DELAY, type HeaderToolPreviewTarget } from "./HeaderToolPreview";
+import { motionMode } from "../../../ui/motion/motionMode";
 import { menuLetter, type MenuTyping } from "./menuLetters";
 import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools, type HeaderQuickTool } from "./headerQuickTools";
 import { useHeaderFold } from "./headerOverflow";
+import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
+import { HEADER_SYMBOLS } from "./headerSymbols";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
@@ -169,6 +181,8 @@ export function ChatHeaderTools({
   sessionInfo,
   inbox,
   nativeRowTools,
+  working = false,
+  motion,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -224,19 +238,19 @@ export function ChatHeaderTools({
   inbox?: ReactNode;
   /// Only the migrated icons; the host offers this opt-in while its native tab row is visible.
   nativeRowTools?: NativeRowToolsHost;
+  /// The chat's turn runs: with a motion style, Changes carries the activity dot (headerMotion.ts).
+  working?: boolean;
+  /// The motion style, when the gallery picks one; else the App's (`agentChat.headerMotion`).
+  motion?: HeaderMotionStyle;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
-  const { lit, pullRequest, browserOpensPreview } = useHeaderState();
-  // With the Debug toggle off, the default buttons are the old ones: Preview beside Browser.
-  const quick = useQuickActions();
-  const actions =
-    !browserOpensPreview && JSON.stringify(quick) === JSON.stringify(QUICK_ACTION_DEFAULTS)
-      ? withShown(quick, "preview", true)
-      : quick;
+  const { lit, pullRequest, headerMotion } = useHeaderState();
+  const style = motion ?? headerMotion;
+  const actions = useQuickActions();
   const worktree = useWorktree(folder, readStatus, statusKey);
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
@@ -308,12 +322,11 @@ export function ChatHeaderTools({
         shortcutAction: HEADER_ACTIONS.changes,
         onSelect: () => onChanges("toggle"),
       });
-    // Browser opens the chat's page itself (Debug `agentChat.browserOpensPreview`), so then Preview
-    // folds only without a Browser button.
+    // Browser opens the chat's page itself, so Preview folds only without a Browser button.
     if (
       onPreview &&
       !shownIds.has("preview") &&
-      !(shownIds.has("browser") && headerState().browserOpensPreview) &&
+      !shownIds.has("browser") &&
       (previewUrl || lit.includes(HEADER_ACTIONS.preview))
     )
       folded.push({
@@ -352,7 +365,6 @@ export function ChatHeaderTools({
     tabTools,
     sideTabs,
     lit,
-    browserOpensPreview,
     hasChanges,
     previewUrl,
     onTerminal,
@@ -364,7 +376,29 @@ export function ChatHeaderTools({
     onSideTabs,
     t,
   });
-  const native = useNativeRowTools(nativeRowTools, tools);
+  const customize = onCustomize
+    ? new Map(tools.map(({ id }) => [id, nativeCustomizeMenu(customizeItems(actions, id, onCustomize, t, true))]))
+    : undefined;
+  const chatRows = rows();
+  const chatMenu = nativeChatMenu(chatRows);
+  const native = useNativeRowTools(nativeRowTools, tools, {
+    customize,
+    extra: chatMenu
+      ? [
+          {
+            tool: {
+              id: "chat-menu",
+              symbol: HEADER_SYMBOLS["action.more"]!,
+              label: t("chatMenu.open"),
+              enabled: chatMenu.items.length > 0,
+              toggled: false,
+              menu: chatMenu.items,
+            },
+            runMenu: chatMenu.invoke,
+          },
+        ]
+      : [],
+  });
   const shortcuts: Partial<Record<QuickActionId, string | undefined>> = {
     terminal: terminalKey,
     splitDown: splitDownKey,
@@ -376,24 +410,79 @@ export function ChatHeaderTools({
   const webButtons = !native && tabTools && actions.length > 0;
   const fold = useHeaderFold(toolsRef, webButtons ? tools.length : 0);
   live.current.overflow = webButtons && fold > 0 ? tools.slice(tools.length - fold) : [];
+  const shown = webButtons ? tools.slice(0, tools.length - fold) : [];
+  const shownIds = shown.map((tool) => tool.id);
+  // Motion styles (headerMotion.ts): `still`, the default, adds nothing to the buttons.
+  useIconArrivals(toolsRef, style, shownIds);
+  const cue = motionCues(style) ? activityCue(shownIds, { working, hasChanges }) : undefined;
+  const morphs = motionMorphs(style);
+  const [preview, setPreview] = useState<HeaderToolPreviewTarget>();
+  const intent = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(intent.current), []);
+  const endPreview = () => {
+    clearTimeout(intent.current);
+    setPreview(undefined);
+  };
   const buttons =
     webButtons &&
-    tools.slice(0, tools.length - fold).map((tool) => (
-      <button
-        key={tool.id}
-        data-quick-action={tool.id}
-        type="button"
-        className="acpmux-header-tool"
-        aria-label={tool.label}
-        aria-pressed={tool.pressed}
-        {...tooltipProps(tool.title ?? tool.label, tool.title ? undefined : shortcuts[tool.id])}
-        onClick={tool.run}
-      >
-        <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
-      </button>
-    ));
+    shown.map((tool) => {
+      const shortcut = tool.title ? undefined : shortcuts[tool.id];
+      return (
+        <button
+          key={tool.id}
+          data-quick-action={tool.id}
+          type="button"
+          className="acpmux-header-tool"
+          aria-label={tool.label}
+          aria-pressed={tool.pressed}
+          // The morph's hover preview stands in for the tooltip, so the two never stack.
+          {...(morphs ? {} : tooltipProps(tool.title ?? tool.label, shortcut))}
+          onPointerEnter={
+            morphs
+              ? (event) => {
+                  const box = event.currentTarget.getBoundingClientRect();
+                  clearTimeout(intent.current);
+                  intent.current = setTimeout(
+                    () =>
+                      setPreview({
+                        id: tool.id,
+                        icon: tool.icon,
+                        label: tool.label,
+                        title: tool.title,
+                        shortcut: shortcuts[tool.id],
+                        pressed: tool.pressed,
+                        box: { left: box.left, right: box.right, bottom: box.bottom },
+                      }),
+                    PREVIEW_INTENT_DELAY,
+                  );
+                }
+              : undefined
+          }
+          onPointerLeave={morphs ? endPreview : undefined}
+          onClick={(event) => {
+            if (morphs) {
+              endPreview();
+              // Opening (not closing) sends the glyph to where its panel lands.
+              if (!tool.pressed && tool.id !== "newTab") morphIntoTab(event.currentTarget, tool.label);
+            }
+            tool.run?.();
+          }}
+        >
+          <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
+        </button>
+      );
+    });
   return (
-    <div ref={toolsRef} className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
+    <div
+      ref={toolsRef}
+      className="acpmux-header-tools"
+      onPointerEnter={onPointerEnter}
+      data-header-motion={style === "still" ? undefined : style}
+      data-motion-mode={style === "still" ? undefined : motionMode()}
+      data-activity={cue?.cue}
+      data-activity-on={cue?.on}
+    >
+      {preview && <HeaderToolPreview target={preview} />}
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
@@ -431,8 +520,17 @@ export function ChatHeaderTools({
       ) : null}
       <ChatMenu
         items={rows}
-        disabled={rows().length === 0}
+        disabled={chatRows.length === 0}
         onOpen={onMenuOpen}
+        nativeOpen={
+          native && chatMenu
+            ? (row) =>
+                nativeRowTools!.callNative("pane.tabRowTools.openMenu", {
+                  id: "chat-menu",
+                  ...(row ? { menuItemId: row } : {}),
+                })
+            : undefined
+        }
         expand={expand}
         onExpanded={onExpanded}
       />
@@ -463,6 +561,7 @@ function customizeItems(
   target: QuickActionId | undefined,
   save: (list: readonly QuickAction[]) => void,
   t: ReturnType<typeof useT>,
+  native = false,
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [];
   const index = target ? list.findIndex((action) => action.id === target) : -1;
@@ -498,8 +597,9 @@ function customizeItems(
       for (const [value, key] of modes) {
         items.push({
           id: value,
-          label: check(mode === value, t(key)),
+          label: native ? t(key) : check(mode === value, t(key)),
           ariaLabel: t(key),
+          ...(native ? { checked: mode === value } : {}),
           separatorBefore: value === "toggle",
           onSelect: () => save(withMode(list, target, value)),
         });
@@ -511,8 +611,9 @@ function customizeItems(
     const name = t(QUICK_ACTION_NAMES[id]);
     items.push({
       id: `show-${id}`,
-      label: check(shown, name),
+      label: native ? name : check(shown, name),
       ariaLabel: t(shown ? "header.quickActions.hide" : "header.quickActions.show", { name }),
+      ...(native ? { checked: shown } : {}),
       disabled: shown && !withShown(list, id, false).some((action) => ALWAYS_SHOWN.has(action.id)),
       separatorBefore: items.length > 0 && id === QUICK_ACTION_IDS[0],
       onSelect: () => save(withShown(list, id, !shown)),
@@ -532,6 +633,7 @@ export function ChatMenu({
   items,
   disabled,
   onOpen,
+  nativeOpen,
   expand,
   onExpanded,
   trigger,
@@ -544,6 +646,7 @@ export function ChatMenu({
   /// No rows yet (Quick Chat before its session): the button stays, disabled.
   disabled?: boolean;
   onOpen?: () => Promise<unknown>;
+  nativeOpen?: (row?: string) => Promise<unknown>;
   expand?: string;
   onExpanded?: () => void;
   /// Optional trigger content for another header control (ThreadTitle); the menu behavior stays shared.
@@ -556,6 +659,7 @@ export function ChatMenu({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [nativeFailed, setNativeFailed] = useState(false);
   const [rows, setRows] = useState<ChatMenuItem[]>([]);
   // Set when the palette asks for one row's children (Continue In…): the menu lists only those.
   const [only, setOnly] = useState<string>();
@@ -578,6 +682,14 @@ export function ChatMenu({
       setOnly(row);
       setOpen(true);
     };
+    if (nativeOpen && !nativeFailed) {
+      void nativeOpen(row).catch(() => {
+        if (generation !== opening.current) return;
+        setNativeFailed(true);
+        apply();
+      });
+      return;
+    }
     // Open on the press. Refresh native availability in place; a delayed response must never
     // postpone the menu or reopen it after dismissal or unmount.
     apply();
@@ -622,15 +734,16 @@ export function ChatMenu({
     onOpenChange(false);
   };
   const buttonLabel = triggerLabel ?? label;
+  if (nativeOpen && !nativeFailed) return null;
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
       <MenuButton
-        className={triggerClassName ?? "acpmux-header-tool"}
+        className={triggerClassName ?? "acpmux-header-tool acpmux-header-more"}
         label={buttonLabel}
         title={triggerTitle}
         disabled={disabled}
       >
-        {trigger ?? <HeaderIcon name="action.more.vertical" size={HEADER_GLYPH} />}
+        {trigger ?? <HeaderIcon name="action.more" size={HEADER_GLYPH} />}
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end" onKeyDown={onMenuKeyDown}>
         {children

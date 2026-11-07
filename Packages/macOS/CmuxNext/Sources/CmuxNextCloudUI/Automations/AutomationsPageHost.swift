@@ -31,6 +31,8 @@ public final class AutomationsPageHost {
 
     /// The one model every view of the page shows.
     public let model: AutomationsPage
+    /// Starts the cmux sign-in: the page's Sign In beside its signed-out Cloud line. Nil shows no button.
+    public var signIn: (@MainActor @Sendable () -> Void)?
 
     /// Makes the host.
     ///
@@ -46,7 +48,7 @@ public final class AutomationsPageHost {
     ///
     /// - Parameter tokens: The hosting window's current theme tokens (its `ThemeScope`).
     public func makeView(tokens: @escaping @MainActor () -> ThemeTokens) -> NSView {
-        AutomationsHostingView(model: model, tokens: tokens)
+        AutomationsHostingView(model: model, tokens: tokens, actions: AutomationsPageView.Actions(signIn: signIn))
     }
 
     /// The `value` of a `cloud.automation` answer as JSON bytes.

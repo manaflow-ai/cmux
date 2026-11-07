@@ -7,8 +7,9 @@
 // the gallery's widths the pane has no room for the card's inline column (summary/cardState.ts,
 // #21564), so the card is the popover the header's Summary button opens, and a click outside it
 // closes it; a pane wide enough shows the column on its own, and it stays. A list line opens that subagent's own view (the child view): a "Subagent of" pill naming its
-// parent, then its rows, nested groups included. A pane the app opened on a subagent shows it read
-// only: a line naming the chat where the composer would be (SubagentPaneFooter.tsx).
+// parent, then its rows, nested groups included. A pane the app opened on a subagent shows it with
+// its own composer (SubagentComposer.tsx): "Message <subagent>", and a line naming the chat that
+// passes the message on, where the chat's composer would be.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
@@ -52,7 +53,7 @@ const MIXED = chat(
         agent("Retry policy", 3.8, "completed", { ran: 1.2 }),
         agent("Error parsing", 3.8, "completed", { ran: 2 }),
         agent("Timeouts", 3.8, "failed", { ran: 0.6 }),
-        agent("Test coverage", 3.8, "running", { action: "bun test src/net" }),
+        agent("Test coverage", 3.8, "running", { action: "bun test src/net", agentId: "a39e817af38ddf5e7" }),
       ],
       3.8,
     ),
@@ -241,7 +242,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/subagents/SubagentGroup.tsx",
     "agent-session/acpmux/subagents/AgentsPill.tsx#AgentsPill",
-    "agent-session/acpmux/subagents/SubagentPaneFooter.tsx#SubagentPaneFooter",
+    "agent-session/acpmux/subagents/SubagentComposer.tsx#SubagentComposer",
     "agent-session/acpmux/summary/SummaryButton.tsx#SummaryButton",
     "agent-session/acpmux/summary/SummaryCard.tsx#SummaryCard",
     "agent-session/acpmux/summary/SummaryBody.tsx#SummaryBody",
@@ -412,17 +413,59 @@ export default agentPaneEntry({
         );
       },
     },
+    "child-close-hover": {
+      note: "The pill's × closes the subagent's view; hovered, its highlight covers the × alone, not the pill.",
+      height: 640,
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        await openChild("Test coverage")(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of__close"));
+        await ctx.hover({ selector: ".cv-subagent-of__close" });
+      },
+    },
+    "child-close": {
+      note: "The pill's × goes back to the chat's transcript, its group still open.",
+      height: 680,
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        await openChild("Test coverage")(ctx);
+        await ctx.click({ role: "button", name: "Close subagent" });
+        await ctx.waitFor(
+          () => !ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".cv-subagent"),
+        );
+      },
+    },
+    "child-escape": {
+      note: "Escape closes the subagent's view, as the × does.",
+      height: 680,
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        await openChild("Test coverage")(ctx);
+        (ctx.document.activeElement as HTMLElement | null)?.blur?.();
+        await ctx.press("Escape");
+        await ctx.waitFor(
+          () => !ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".cv-subagent"),
+        );
+      },
+    },
     "own-pane": {
-      note: "A pane the app opened on a subagent (a subagent: reveal): its view, read only, with a line naming the chat in place of the composer.",
+      note: 'A pane the app opened on a subagent (a subagent: reveal): its view and a composer of its own, "Message Test coverage", never "Read only"; the line under it names the chat that passes the message on, as a subagent has no session of its own.',
       height: 640,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(id: string): void } };
         page.cmuxAcpmuxBridge?.revealTurn?.(`subagent:${COVERAGE}`);
         await ctx.waitFor(
-          () => ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".cv-subagent-pane-footer"),
+          () =>
+            ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".acpmux-subagent-composer"),
         );
-        if (ctx.document.querySelector(".acpmux-composer")) throw new Error("a subagent's own pane drew the composer");
+        if (ctx.document.querySelector(".acpmux-composer:not(.acpmux-subagent-composer)"))
+          throw new Error("a subagent's own pane drew the chat's composer");
+        if (ctx.document.body.textContent?.includes("Read only"))
+          throw new Error("a subagent's own pane says Read only");
+        const field = ctx.document.querySelector(".acpmux-subagent-composer [aria-label]");
+        if (field?.getAttribute("aria-label") !== "Message Test coverage")
+          throw new Error(`the subagent's composer names ${field?.getAttribute("aria-label")}`);
       },
     },
     summary: {
@@ -535,7 +578,7 @@ export default agentPaneEntry({
       }),
     },
     "card-open-child": {
-      note: "A card row shows that subagent: its own view, its row marked current; nested ones indented.",
+      note: "With a host that opens no pane, a card row shows that subagent in the chat: its own view, its row marked current; nested ones indented. (The app opens it in a pane right of the chat.)",
       height: 640,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {

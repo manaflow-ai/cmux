@@ -21,7 +21,19 @@
 //! fromName, to}` on a prompt another session sent with none (`session_message` below), and
 //! `{kind: "task_result", from, fromName, to, taskId, state}` on the prompt that brings a task's
 //! result to the chat that gave it (`hub/tasks.rs`), and `{kind: "turn_cap", turnId, capMs}` on
-//! the one notice steered into a turn past its turn cap (`hub/turn_cap.rs`).
+//! the one notice steered into a turn past its turn cap (`hub/turn_cap.rs`), and `{kind:
+//! "who_else", ...}` with a tool notice's fields on the one notice that another live session
+//! edits the same files (`hub/touched.rs`).
+//!
+//! A tool's or reconciler's notice (`_meta.acpmux.notice`, [`notice_of`]: `acpmux send --notice`,
+//! the MCP `send` tool's `notice`) is stamped `{kind: "notice", from: "fromAgent", fromName:
+//! sender, to, notice: {sender, host?, severity, title, links?}}` ([`notice`]). Its body is the
+//! prompt's own blocks, which the client renders ([`notice_text`]) so a daemon or page that
+//! knows no notice still reads it. For delivery it is a named sender's message, as `acpmux send
+//! --from` is. It comes over the unix socket or from a peer forwarding one its own socket took;
+//! a Web client, the app's pane or a peer forwarding for its Web client is refused
+//! (`notice.origin_refused`, `remote_guard.rs`), and a bad field refuses the prompt
+//! (`notice.value_refused`, naming the field), never silently dropped.
 
 use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
@@ -264,6 +276,216 @@ pub fn named_sender(name: &str, to: &str) -> Value {
     json!({"kind": "agent_message", "from": NAMED_SENDER, "fromName": name, "to": to})
 }
 
+/// The provenance kind of a tool's notice ([`notice`]).
+pub const NOTICE_KIND: &str = "notice";
+/// A peer-carried proof that the originating connection was a verified person.
+pub const PERSON_VERIFIED: &str = "personVerified";
+/// Longest notice title, in characters.
+pub const MAX_NOTICE_TITLE_CHARS: usize = 200;
+/// Most links one notice carries.
+pub const MAX_NOTICE_LINKS: usize = 16;
+/// Longest notice link URL, in bytes.
+pub const MAX_NOTICE_URL_BYTES: usize = 2048;
+/// The severities a notice may have, quietest first.
+pub const NOTICE_SEVERITIES: &[&str] = &["info", "warn", "fire"];
+
+fn notice_refused(field: &str, need: &str) -> RpcError {
+    RpcError::invalid_params(format!("notice {field} must be {need}"))
+        .with_data(json!({"reason": "notice.value_refused", "field": field}))
+}
+
+/// The refusal for a notice from a Web client, the app's pane or a peer forwarding for its Web
+/// client: no remote text passes as a tool's fire.
+pub fn notice_origin_refused() -> RpcError {
+    refusal(
+        "notice.origin_refused",
+        "a notice is accepted only over the local unix socket or from a peer daemon",
+    )
+}
+
+/// Whether a `session/prompt`'s params carry a notice (`_meta.acpmux.notice`, not null).
+pub fn notice_present(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/notice").is_some_and(|n| !n.is_null())
+}
+
+/// One line of 1 to `max` characters with nothing [`unshown`], trimmed.
+fn one_line(value: Option<&Value>, max: usize) -> Option<String> {
+    let value = value?.as_str()?.trim();
+    (!value.is_empty() && value.chars().count() <= max && !value.chars().any(unshown))
+        .then(|| value.to_owned())
+}
+
+/// A host name as acpmux names one: 1 to 64 letters, digits, `.`, `-` or `_`.
+fn host_fits(host: &str) -> bool {
+    (1..=MAX_NAME_CHARS).contains(&host.len())
+        && host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+}
+
+/// An `https://` URL with a host, of at most [`MAX_NOTICE_URL_BYTES`], with no whitespace,
+/// control or format mark in it.
+fn https_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else { return false };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    url.len() <= MAX_NOTICE_URL_BYTES
+        && !authority.is_empty()
+        && !url.chars().any(|c| c.is_whitespace() || unshown(c))
+}
+
+/// The notice a `session/prompt`'s params carry (`_meta.acpmux.notice`), checked and with only
+/// its known fields: `None` when absent or null. Any bad field refuses the prompt
+/// (`notice.value_refused`, `field` naming it).
+pub fn notice_of(params: &Value) -> Result<Option<Value>, RpcError> {
+    let raw = match params.pointer("/_meta/acpmux/notice") {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::Object(raw)) => raw,
+        Some(_) => return Err(notice_refused("notice", "an object")),
+    };
+    let names = format!("one line of 1 to {MAX_NAME_CHARS} characters");
+    let sender = one_line(raw.get("sender"), MAX_NAME_CHARS)
+        .ok_or_else(|| notice_refused("sender", &names))?;
+    let mut out = Map::new();
+    out.insert("sender".to_owned(), json!(sender));
+    match raw.get("host") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(host)) if host_fits(host) => {
+            out.insert("host".to_owned(), json!(host));
+        }
+        Some(_) => {
+            let need = format!("1 to {MAX_NAME_CHARS} letters, digits, '.', '-' or '_'");
+            return Err(notice_refused("host", &need));
+        }
+    }
+    let severity = raw.get("severity").and_then(Value::as_str);
+    let severity = severity
+        .filter(|s| NOTICE_SEVERITIES.contains(s))
+        .ok_or_else(|| notice_refused("severity", "info, warn or fire"))?;
+    out.insert("severity".to_owned(), json!(severity));
+    let title = one_line(raw.get("title"), MAX_NOTICE_TITLE_CHARS).ok_or_else(|| {
+        notice_refused("title", &format!("one line of 1 to {MAX_NOTICE_TITLE_CHARS} characters"))
+    })?;
+    out.insert("title".to_owned(), json!(title));
+    match raw.get("links") {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(links)) if links.len() <= MAX_NOTICE_LINKS => {
+            let mut kept = Vec::with_capacity(links.len());
+            for link in links {
+                let url = link.get("url").and_then(Value::as_str).filter(|u| https_url(u));
+                let url = url.ok_or_else(|| {
+                    let need = format!("an https URL of at most {MAX_NOTICE_URL_BYTES} bytes");
+                    notice_refused("links.url", &need)
+                })?;
+                let mut one = json!({"url": url});
+                match link.get("label") {
+                    None | Some(Value::Null) => {}
+                    label => {
+                        let label = one_line(label, MAX_NAME_CHARS)
+                            .ok_or_else(|| notice_refused("links.label", &names))?;
+                        one.set("label", json!(label));
+                    }
+                }
+                kept.push(one);
+            }
+            if !kept.is_empty() {
+                out.insert("links".to_owned(), Value::Array(kept));
+            }
+        }
+        Some(_) => {
+            let need = format!("an array of at most {MAX_NOTICE_LINKS} {{url, label?}} objects");
+            return Err(notice_refused("links", &need));
+        }
+    }
+    Ok(Some(Value::Object(out)))
+}
+
+/// [`notice_of`], and a notice beside a caller's own provenance refused: a notice carries its
+/// own. Every place that admits a prompt checks it (the dispatch, `_acpmux/send_queue`, a peer
+/// forward, which drops the caller's provenance).
+pub fn notice_checked(params: &Value) -> Result<Option<Value>, RpcError> {
+    let notice = notice_of(params)?;
+    if notice.is_some() && present(params.pointer("/_meta/acpmux")) {
+        return Err(notice_refused(
+            "provenance",
+            "sent alone: a notice carries its own provenance",
+        ));
+    }
+    Ok(notice)
+}
+
+/// The provenance of a tool's notice ([`notice_of`] checked it) to session `to`: a named
+/// sender's message, as [`named_sender`] is, that carries the notice itself.
+pub fn notice(notice: &Value, to: &str) -> Value {
+    let sender = notice.get("sender").and_then(Value::as_str).unwrap_or_default();
+    json!({"kind": NOTICE_KIND, "from": NAMED_SENDER, "fromName": sender, "to": to, "notice": notice})
+}
+
+/// Whether a provenance is a tool's notice's ([`notice`]).
+pub fn is_notice(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(NOTICE_KIND)
+}
+
+/// The text a notice's prompt carries, rendered by its client (the CLI, the MCP `send` tool) so
+/// a daemon or page that knows no notice still reads it:
+/// `[notice from SENDER on HOST · FIRE] TITLE`, then the body, then `Links: URL (LABEL), URL`.
+/// Info has no severity tag; `on HOST` only with a host; the Links line only with links.
+pub fn notice_text(notice: &Value, body: &str) -> String {
+    let field = |k: &str| notice.get(k).and_then(Value::as_str).unwrap_or_default();
+    let mut head = format!("[notice from {}", field("sender"));
+    if let Some(host) = notice.get("host").and_then(Value::as_str) {
+        head.push_str(&format!(" on {host}"));
+    }
+    match field("severity") {
+        "info" | "" => {}
+        severity => head.push_str(&format!(" · {}", severity.to_uppercase())),
+    }
+    head.push_str(&format!("] {}", field("title")));
+    let body = body.trim_matches(['\n', '\r']);
+    if !body.trim().is_empty() {
+        head.push('\n');
+        head.push_str(body);
+    }
+    let links: Vec<String> = notice
+        .get("links")
+        .and_then(Value::as_array)
+        .map(|links| {
+            links
+                .iter()
+                .filter_map(|l| {
+                    let url = l.get("url")?.as_str()?;
+                    Some(match l.get("label").and_then(Value::as_str) {
+                        Some(label) => format!("{url} ({label})"),
+                        None => url.to_owned(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if !links.is_empty() {
+        head.push_str(&format!("\nLinks: {}", links.join(", ")));
+    }
+    head
+}
+
+/// A `--link` value, `URL` or `URL=LABEL`, as a notice link. With no query (`?`) before the
+/// first `=`, that `=` starts the label. In a query each `name=value` keeps its `=`, so only an
+/// `=` past them starts the label: `https://x/run?id=5` has none, `https://x/run?id=5=run 5` has
+/// one. Not checked here: [`notice_of`] checks what goes out.
+pub fn notice_link(arg: &str) -> Value {
+    let first = arg.find('=');
+    let query = arg.find('?');
+    let at = match (first, query) {
+        (Some(eq), Some(q)) if q < eq => {
+            let query_part = arg.get(q..).unwrap_or_default();
+            let params = query_part.matches('&').count() + 1;
+            (query_part.matches('=').count() > params).then(|| arg.rfind('=')).flatten()
+        }
+        (eq, _) => eq,
+    };
+    let Some(at) = at else { return json!({"url": arg}) };
+    let (url, label) = (arg.get(..at).unwrap_or(arg), arg.get(at + 1..).unwrap_or_default());
+    let label = label.trim();
+    if label.is_empty() { json!({"url": url}) } else { json!({"url": url, "label": label}) }
+}
+
 /// The machine a person's own `acpmux send` ran on (`_meta.acpmux.cliHost`, `cli/sender.rs`), when
 /// it reads as a host name: 1 to 64 letters, digits, `.`, `-` or `_`.
 pub fn cli_host(params: &Value) -> Option<&str> {
@@ -398,6 +620,10 @@ pub const FROM_SESSION_ID: &str = "fromSessionId";
 /// See [`FROM_SESSION_ID`].
 pub const FROM_HARNESS: &str = "fromHarness";
 
+/// A caller-supplied sender label kept beside authenticated provenance.  It is deliberately
+/// separate from `fromName`: the latter is the daemon's name for a proven session.
+pub const DECLARED_LABEL: &str = "declared";
+
 /// The sending session's id and harness family, as far as the daemon bound them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BoundSender {
@@ -486,6 +712,137 @@ pub fn sender_of(provenance: Option<&Value>) -> (Option<String>, Option<String>)
     (field(FROM_SESSION_ID), field(FROM_HARNESS))
 }
 
+/// The label a caller declared with `--from`/`ACPMUX_FROM`, when it survived alongside a
+/// caller-token or peer-stamped provenance.  Older named-sender records use `fromName`.
+pub fn declared_label(provenance: Option<&Value>) -> Option<String> {
+    let provenance = provenance?;
+    provenance
+        .get(DECLARED_LABEL)
+        .or_else(|| {
+            (provenance.get("from").and_then(Value::as_str) == Some(NAMED_SENDER))
+                .then(|| provenance.get("fromName"))
+                .flatten()
+        })
+        .and_then(Value::as_str)
+        .filter(|label| !label.trim().is_empty())
+        .map(str::to_owned)
+}
+
+/// Keep a caller's self-declared label when the daemon also has authenticated provenance.
+pub fn stamp_declared(mut provenance: Value, label: Option<&str>) -> Value {
+    if let Some(label) = label.filter(|label| !label.trim().is_empty()) {
+        provenance.set(DECLARED_LABEL, json!(label));
+    }
+    provenance
+}
+
+/// The additive sender projection carried by an inbox message.  `legacy_session` is the old
+/// `from`/`fromSession` value and is retained for historical records, but it never upgrades a
+/// record to authenticated.  Only `fromSessionId` (stamped by this daemon or an authenticated
+/// peer) does that.
+pub fn sender_record(
+    provenance: Option<&Value>,
+    legacy_session: Option<&str>,
+    meta: Option<&crate::store::SessionMeta>,
+) -> Value {
+    sender_record_with_auth(provenance, legacy_session, meta, false)
+}
+
+/// Sender projection with the connection proof for a human author. Agent provenance remains
+/// authenticated only through the daemon-stamped session fields; a `kind` label alone is not
+/// proof of a person.
+pub fn sender_record_with_auth(
+    provenance: Option<&Value>,
+    legacy_session: Option<&str>,
+    meta: Option<&crate::store::SessionMeta>,
+    human_authenticated: bool,
+) -> Value {
+    let empty = Value::Null;
+    let provenance = provenance.unwrap_or(&empty);
+    let (stamped_session, harness) = sender_of(Some(provenance));
+    let authenticated = stamped_session.is_some() || human_authenticated;
+    let session = stamped_session.clone().or_else(|| legacy_session.map(str::to_owned));
+    let label = declared_label(Some(provenance));
+    let verification = if authenticated {
+        "verified"
+    } else if label.is_some() {
+        "declared"
+    } else {
+        "legacy"
+    };
+    let family = harness.clone().or_else(|| meta.map(crate::web_modes::family_of));
+    let has_parent = meta.is_some_and(|m| m.lineage.is_some() || m.subsession.is_some());
+    let actor_kind = if human_authenticated {
+        "authenticated_human"
+    } else if authenticated && meta.is_some() && !has_parent {
+        "root_assistant"
+    } else if authenticated && family.as_deref().is_some_and(|f| f.eq_ignore_ascii_case("codex")) {
+        "codex_worker"
+    } else {
+        "other_agent"
+    };
+    let actor_id = stamped_session
+        .as_ref()
+        .map(|id| {
+            provenance
+                .get("peer")
+                .or_else(|| provenance.get("fromPeer"))
+                .and_then(Value::as_str)
+                .map_or_else(|| id.clone(), |peer| format!("{peer}:{id}"))
+        })
+        .or_else(|| {
+            human_authenticated
+                .then(|| provenance.get("from").and_then(Value::as_str).map(str::to_owned))
+                .flatten()
+        });
+    let parent = meta
+        .and_then(|m| m.lineage.as_ref().map(|lineage| lineage.parent.clone()))
+        .or_else(|| provenance.get("parent").and_then(Value::as_str).map(str::to_owned));
+    let delegator = meta
+        .and_then(|m| m.delegator.clone())
+        .or_else(|| provenance.get("delegator").and_then(Value::as_str).map(str::to_owned));
+
+    // A message copy records the original sender beside the authenticated forwarder.  This is
+    // additive and intentionally accepts only daemon-carried objects, never a --from string.
+    let author = provenance
+        .get("author")
+        .or_else(|| provenance.get("originalAuthor"))
+        .or_else(|| provenance.pointer("/_acpmuxMessage/sender"))
+        .cloned();
+    let forwarded_by = provenance
+        .get("forwardedBy")
+        .or_else(|| provenance.get("forwarder"))
+        .or_else(|| provenance.pointer("/_acpmuxMessage/forwardedBy"))
+        .cloned()
+        .or_else(|| {
+            author.as_ref().and_then(|author| {
+                let author_session = author
+                    .get("sessionId")
+                    .or_else(|| author.get("session"))
+                    .and_then(Value::as_str)
+                    .or_else(|| author.as_str());
+                (authenticated
+                    && author_session.is_some_and(|id| Some(id) != stamped_session.as_deref()))
+                .then(|| json!({"session": stamped_session}))
+            })
+        });
+
+    json!({
+        "session": session,
+        "authenticated": authenticated,
+        "harness": harness,
+        "label": label,
+        "labelDeclared": label.is_some(),
+        "author": author,
+        "forwardedBy": forwarded_by,
+        "actorKind": actor_kind,
+        "actorId": actor_id,
+        "parent": parent,
+        "delegator": delegator,
+        "verification": verification,
+    })
+}
+
 #[cfg(test)]
 mod sender_tests {
     use super::*;
@@ -555,6 +912,128 @@ mod sender_tests {
         drop_sender_fields(&mut params);
         assert_eq!(params, json!({"_meta": {"acpmux": {"promptId": "p"}}}));
     }
+
+    #[test]
+    fn sender_records_accept_peer_stamps_but_not_client_written_sender_fields() {
+        let raw = json!({
+            "_meta": {"acpmux": {
+                "provenance": {"kind": "agent_message", "from": "fromAgent", "fromName": "dot",
+                    "to": "target", "msgId": "m", "threadId": "t"},
+                "fromSessionId": "claimed", "fromHarness": "codex"
+            }}
+        });
+        let parsed = of(&raw, Sender::Local).unwrap().unwrap();
+        assert_eq!(sender_of(Some(&parsed)), (None, None));
+        assert_eq!(sender_record(Some(&parsed), None, None)["authenticated"], false);
+
+        let peer = json!({
+            "_meta": {"acpmux": {
+                "fromSessionId": "peer-session", "fromHarness": "codex",
+                "provenance": parsed
+            }}
+        });
+        let stamped = stamp_sender(
+            peer["_meta"]["acpmux"]["provenance"].clone(),
+            peer_sender(&peer).as_ref(),
+        );
+        let record = sender_record(Some(&stamped), None, None);
+        assert_eq!(record["session"], "peer-session");
+        assert_eq!(record["authenticated"], true);
+        assert_eq!(record["verification"], "verified");
+    }
+
+    #[test]
+    fn sender_records_keep_declared_labels_separate_from_authenticated_sessions() {
+        let declared = named_sender("dot", "target");
+        let record = sender_record(Some(&declared), None, None);
+        assert_eq!(record["session"], Value::Null);
+        assert_eq!(record["authenticated"], false);
+        assert_eq!(record["label"], "dot");
+        assert_eq!(record["labelDeclared"], true);
+        assert_eq!(record["verification"], "declared");
+
+        let authenticated = stamp_declared(
+            stamp_sender(
+                session_message("s-1", "worker", "target"),
+                Some(&BoundSender {
+                    session_id: Some("s-1".into()),
+                    harness: Some("codex".into()),
+                }),
+            ),
+            Some("dot"),
+        );
+        let record = sender_record(Some(&authenticated), None, None);
+        assert_eq!(record["session"], "s-1");
+        assert_eq!(record["authenticated"], true);
+        assert_eq!(record["label"], "dot");
+        assert_eq!(record["verification"], "verified");
+        assert_eq!(declared_label(Some(&authenticated)).as_deref(), Some("dot"));
+
+        let person =
+            json!({"kind": crate::author::PERSON_MESSAGE, "from": "user-1", "fromName": "Ana"});
+        let unproven = sender_record(Some(&person), None, None);
+        assert_eq!(unproven["authenticated"], false);
+        assert_eq!(unproven["actorId"], Value::Null);
+        let proven = sender_record_with_auth(Some(&person), None, None, true);
+        assert_eq!(proven["actorKind"], "authenticated_human");
+        assert_eq!(proven["actorId"], "user-1");
+    }
+
+    #[test]
+    fn sender_records_keep_a_relay_author_and_forwarder_distinct() {
+        let provenance = json!({
+            "kind": "agent_message", "from": "fromAgent", "fromName": "worker",
+            "fromSessionId": "forwarder", "fromHarness": "codex",
+            "_acpmuxMessage": {"sender": {"sessionId": "author", "name": "original"},
+                "forwardedBy": {"session": "forwarder"}},
+        });
+        let record = sender_record(Some(&provenance), None, None);
+        assert_eq!(record["author"]["sessionId"], "author");
+        assert_eq!(record["forwardedBy"]["session"], "forwarder");
+        assert_eq!(record["actorId"], "forwarder");
+    }
+
+    #[test]
+    fn sender_records_keep_worker_and_delegator_distinct() {
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "worker", "name": "worker",
+            "harness": "codex", "cwd": "/tmp", "status": "idle",
+            "createdAt": 1, "updatedAt": 1,
+            "lineage": {"parent": "root", "root": "root", "depth": 1},
+            "delegator": "root"
+        }))
+        .expect("session metadata");
+        let provenance = stamp_sender(
+            session_message("worker", "worker", "receiver"),
+            Some(&BoundSender { session_id: Some("worker".into()), harness: Some("codex".into()) }),
+        );
+        let record = sender_record(Some(&provenance), None, Some(&meta));
+        assert_eq!(record["actorKind"], "codex_worker");
+        assert_eq!(record["actorId"], "worker");
+        assert_eq!(record["parent"], "root");
+        assert_eq!(record["delegator"], "root");
+    }
+
+    #[test]
+    fn sender_actor_metadata_uses_the_stamped_session_not_provenance_from() {
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "worker", "name": "worker",
+            "harness": "codex", "cwd": "/tmp", "status": "idle",
+            "createdAt": 1, "updatedAt": 1,
+            "lineage": {"parent": "root", "root": "root", "depth": 1},
+            "delegator": "root"
+        }))
+        .expect("session metadata");
+        let provenance = stamp_sender(
+            json!({"kind": "session_message", "from": "acp:root", "fromName": "root", "to": "receiver"}),
+            Some(&BoundSender { session_id: Some("worker".into()), harness: Some("codex".into()) }),
+        );
+        let record = sender_record_with_auth(Some(&provenance), Some("root"), Some(&meta), false);
+        assert_eq!(record["actorId"], "worker");
+        assert_eq!(record["actorKind"], "codex_worker");
+        assert_eq!(record["parent"], "root");
+        assert_eq!(record["delegator"], "root");
+    }
 }
 
 #[cfg(test)]
@@ -594,5 +1073,150 @@ mod trigger_tests {
             json!({"kind": "trigger", "triggerId": "tr\n", "deliveryId": "d", "owner": "o", "team": "t", "machine": "m"}),
         );
         assert!(of(&malformed, Sender::Local).is_err());
+    }
+}
+
+#[cfg(test)]
+mod notice_tests {
+    use super::*;
+
+    fn params(notice: Value) -> Value {
+        json!({"_meta": {"acpmux": {"notice": notice}}})
+    }
+
+    fn fire() -> Value {
+        json!({"sender": "base-red-watch", "host": "ci-mini-3", "severity": "fire",
+               "title": "cmux-next fast tier failed on 3 PRs",
+               "links": [{"url": "https://github.com/manaflow-ai/cmux/pull/32827", "label": "#32827"}]})
+    }
+
+    fn field_of(e: &RpcError) -> (&Value, &Value) {
+        let data = e.data.as_ref().expect("refusal data");
+        (&data["reason"], &data["field"])
+    }
+
+    #[test]
+    fn a_notice_is_checked_and_keeps_only_its_known_fields() {
+        let mut sent = fire();
+        sent["extra"] = json!("dropped");
+        sent["links"][0]["extra"] = json!(1);
+        let checked = notice_of(&params(sent)).unwrap().unwrap();
+        assert_eq!(checked, fire());
+        // Only the required fields.
+        let bare = json!({"sender": "next-autoland", "severity": "info", "title": "LANDED #1"});
+        assert_eq!(notice_of(&params(bare.clone())).unwrap(), Some(bare));
+        assert_eq!(notice_of(&json!({})).unwrap(), None);
+        assert_eq!(notice_of(&params(Value::Null)).unwrap(), None);
+    }
+
+    #[test]
+    fn a_bad_notice_field_refuses_the_prompt_naming_the_field() {
+        let with = |key: &str, value: Value| {
+            let mut n = fire();
+            n[key] = value;
+            n
+        };
+        let without = |key: &str| {
+            let mut n = fire();
+            n.as_object_mut().unwrap().remove(key);
+            n
+        };
+        let link = |l: Value| with("links", json!([l]));
+        let cases = [
+            (json!("text"), "notice"),
+            (without("sender"), "sender"),
+            (with("sender", json!("a\nb")), "sender"),
+            (with("sender", json!("s".repeat(65))), "sender"),
+            (with("sender", json!("x\u{202E}y")), "sender"),
+            (with("host", json!("cosmic gray")), "host"),
+            (with("host", json!("h".repeat(65))), "host"),
+            (without("severity"), "severity"),
+            (with("severity", json!("critical")), "severity"),
+            (without("title"), "title"),
+            (with("title", json!("   ")), "title"),
+            (with("title", json!("t".repeat(201))), "title"),
+            (with("title", json!("one\ntwo")), "title"),
+            (with("links", json!("https://x")), "links"),
+            (with("links", json!(vec![json!({"url": "https://x.dev"}); 17])), "links"),
+            (link(json!({"url": "http://x.dev"})), "links.url"),
+            (link(json!({"url": "javascript:alert(1)"})), "links.url"),
+            (link(json!({"url": "https://"})), "links.url"),
+            (link(json!({"url": "https://x.dev/a b"})), "links.url"),
+            (link(json!({"label": "#1"})), "links.url"),
+            (link(json!({"url": "https://x.dev", "label": "l".repeat(65)})), "links.label"),
+            (link(json!({"url": "https://x.dev", "label": 7})), "links.label"),
+        ];
+        for (notice, field) in cases {
+            let e = notice_of(&params(notice.clone())).unwrap_err();
+            assert_eq!(field_of(&e), (&json!("notice.value_refused"), &json!(field)), "{notice}");
+        }
+        // At the bounds: accepted.
+        let longest = with("title", json!("t".repeat(200)));
+        assert!(notice_of(&params(longest)).is_ok());
+        let sixteen = with("links", json!(vec![json!({"url": "https://x.dev"}); 16]));
+        assert!(notice_of(&params(sixteen)).is_ok());
+    }
+
+    #[test]
+    fn a_notice_is_stamped_as_a_named_senders_message_that_carries_it() {
+        let checked = notice_of(&params(fire())).unwrap().unwrap();
+        let stamped = notice(&checked, "s-1");
+        assert_eq!(
+            stamped,
+            json!({"kind": "notice", "from": "fromAgent", "fromName": "base-red-watch", "to": "s-1",
+                   "notice": fire()})
+        );
+        assert!(is_notice(Some(&stamped)));
+        assert!(!is_notice(Some(&named_sender("x", "s-1"))));
+        // It survives a record: marked and read back whole.
+        let record = marked(json!({"promptId": "p"}), Some(&stamped));
+        assert_eq!(recorded(&record), Some(stamped));
+    }
+
+    #[test]
+    fn a_notice_renders_its_text_for_the_model_and_old_pages() {
+        let checked = notice_of(&params(fire())).unwrap().unwrap();
+        assert_eq!(
+            notice_text(&checked, "fast tier red on #32827, #32830, #32831\n"),
+            "[notice from base-red-watch on ci-mini-3 · FIRE] cmux-next fast tier failed on 3 PRs\n\
+             fast tier red on #32827, #32830, #32831\n\
+             Links: https://github.com/manaflow-ai/cmux/pull/32827 (#32827)"
+        );
+        let warn = json!({"sender": "s", "severity": "warn", "title": "T",
+                          "links": [{"url": "https://a.dev"}, {"url": "https://b.dev", "label": "b"}]});
+        assert_eq!(
+            notice_text(&warn, ""),
+            "[notice from s · WARN] T\nLinks: https://a.dev, https://b.dev (b)"
+        );
+        let info = json!({"sender": "s", "severity": "info", "title": "T"});
+        assert_eq!(notice_text(&info, "body"), "[notice from s] T\nbody");
+    }
+
+    #[test]
+    fn a_link_argument_splits_its_label_off_and_keeps_a_querys_equals() {
+        let pr = "https://github.com/manaflow-ai/cmux/pull/32827";
+        assert_eq!(notice_link(pr), json!({"url": pr}));
+        assert_eq!(notice_link(&format!("{pr}=#32827")), json!({"url": pr, "label": "#32827"}));
+        assert_eq!(notice_link(&format!("{pr}=")), json!({"url": pr}));
+        let run = "https://x.dev/run?id=5&attempt=2";
+        assert_eq!(notice_link(run), json!({"url": run}));
+        assert_eq!(notice_link(&format!("{run}=run 5")), json!({"url": run, "label": "run 5"}));
+    }
+
+    #[test]
+    fn a_notice_beside_a_callers_provenance_is_refused() {
+        let mut both = params(fire());
+        both["_meta"]["acpmux"]["provenance"] = json!({"kind": "agent_message"});
+        let e = notice_checked(&both).unwrap_err();
+        assert_eq!(field_of(&e), (&json!("notice.value_refused"), &json!("provenance")));
+        assert!(notice_checked(&params(fire())).unwrap().is_some());
+    }
+
+    #[test]
+    fn only_the_unix_socket_or_a_peer_may_send_a_notice() {
+        let e = notice_origin_refused();
+        assert_eq!(e.data.as_ref().unwrap()["reason"], "notice.origin_refused");
+        assert!(notice_present(&params(fire())));
+        assert!(!notice_present(&params(Value::Null)));
     }
 }

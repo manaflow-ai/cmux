@@ -319,3 +319,44 @@ fn wait_adopted(harness: &RecoveryHarness, terminal_id: &str) {
         std::thread::sleep(Duration::from_millis(25));
     }
 }
+
+/// #36625: a normal install's host has no orphan grace and outlives its
+/// daemon, but once its record directory is removed (a throwaway HOME
+/// deleted after a run) no daemon can adopt it again, so it ends its
+/// terminal instead of holding its PTY until reboot. While its daemon still
+/// serves it, the removal alone does not end it.
+#[test]
+fn a_host_whose_record_directory_is_removed_ends_once_unserved() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start_unstarted("orphan-record-root");
+    let mut command = harness.daemon_command();
+    command
+        .env("CMUX_BUNDLE_ID", "com.cmuxterm.app.rc.ptyh-test")
+        .env_remove("CMUX_TUI_HOST_ORPHAN_GRACE_SECS");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    let (_, surface, _, host_pid) = run_cat(&harness, "record-root-before");
+    let record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(record.orphan_grace_secs, None, "a normal install's host has an orphan grace");
+
+    // Served by its live daemon, the host outlives the removal.
+    fs::remove_dir_all(harness.host_root()).unwrap();
+    std::thread::sleep(Duration::from_secs(7));
+    assert!(running(host_pid), "a served host ended when its record directory was removed");
+    request(
+        &harness.socket,
+        serde_json::json!({"cmd":"send","surface":surface,"text":"still-served\n"}),
+    );
+    assert!(wait_for_screen(&harness.socket, surface, "still-served").contains("still-served"));
+
+    // Its daemon gone too, nothing can adopt it: it ends.
+    kill_daemon(&mut harness);
+    assert!(
+        wait_until_gone(host_pid, Duration::from_secs(20)),
+        "a host no daemon can adopt outlived its record directory"
+    );
+    assert!(
+        load_terminal_host_exit_records(&harness.host_root()).unwrap_or_default().is_empty(),
+        "the ended host wrote an exit record into its removed record directory"
+    );
+}

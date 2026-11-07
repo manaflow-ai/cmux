@@ -76,7 +76,8 @@ extension DaemonConnection {
 
     /// ``closeWorkspace(_:endTerminals:reason:ifEmpty:)`` answered by the daemon: its reply or refusal, the connection's
     /// end (``LineTransport`` fails every pending request on close), or `bound` (``closeReplyBound``) with no answer
-    /// (`DaemonError.timedOut`), never the 2 s client deadline. A busy daemon still commits a close it answers late (a
+    /// (`DaemonError.timedOut`), never the client request deadline (2 s then, 30 s since #35075). A busy daemon still
+    /// commits a close it answers late (a
     /// batch of 50 under load took 11.7 s), so a close that gave up on the 2 s clock called a closed workspace refused:
     /// its row came back, "The workspace could not be closed." showed, and Undo missed it. Sent once: a close waiting on
     /// a slow daemon adds no re-sends to its load.
@@ -240,9 +241,16 @@ extension DaemonConnection {
 
     /// App-rendered browser tab (`frontend-browser-tabs-v1`); `activate: false` keeps the pane's active tab, `after` puts it right after that tab.
     @discardableResult
+    /// `split` opens it in a new pane split from `pane` instead (`frontend-browser-tab-split-v1`); a daemon
+    /// without that capability gets `missingCapabilities` and no request, never a tab in `pane`.
     public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil, profileID: String? = nil,
-                                      activate: Bool? = nil, after: SurfaceID? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
-        try await NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after).send(on: self)
+                                      activate: Bool? = nil, after: SurfaceID? = nil,
+                                      split: ConversationTabSplit? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
+        if split != nil, identity?.supports(DaemonCapability.frontendBrowserTabSplit.rawValue) != true {
+            throw DaemonError.missingCapabilities([DaemonCapability.frontendBrowserTabSplit.rawValue])
+        }
+        return try await NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID,
+                                                      activate: activate, after: after, split: split).send(on: self)
     }
 
     @discardableResult

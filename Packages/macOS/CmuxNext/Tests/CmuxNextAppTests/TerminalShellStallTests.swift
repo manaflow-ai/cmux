@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 @testable import CmuxNextTerminal
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -30,12 +31,11 @@ import Testing
         _ = store.apply(DaemonEvent.decode(name: "tab-changed", line: Data(line.utf8)))
     }
 
-    /// What the terminal's status label says for the tab the store holds now.
+    /// What the terminal's status label says for the tab the store holds now (once its wait, if
+    /// any, has ended: ``aHandoffAdoptionStaysQuietUnlessItLasts`` checks the wait).
     private func label(_ store: DaemonStore) -> String? {
-        let banner = TerminalStatusBanner()
         let tab = store.tab(surface: SurfaceID(rawValue: 1))
-        banner.show(tab?.dead == true ? .exited : .connected, stall: TerminalLinkWatch.shellStall(tab))
-        return banner.isHidden ? nil : banner.accessibilityLabel()
+        return TerminalStatusBanner.text(for: tab?.dead == true ? .exited : .connected, stall: TerminalLinkWatch.shellStall(tab))
     }
 
     @Test func aShellTheDaemonCannotReachIsNeverASilentCursor() {
@@ -64,20 +64,13 @@ import Testing
         #expect(label(store) == "Process exited")
     }
 
-    /// Seconds until the banner's held label starts to fade in; nil when it shows at once.
-    private func revealWait(_ banner: TerminalStatusBanner) -> CFTimeInterval? {
-        guard let layer = banner.layer, layer.animation(forKey: TerminalStatusBanner.revealHoldKey) != nil,
-              let fade = layer.animation(forKey: TerminalStatusBanner.revealFadeKey) else { return nil }
-        return fade.beginTime - layer.convertTime(CACurrentMediaTime(), from: nil)
-    }
-
     /// After every update handoff the new daemon marks each tab `adopting`
     /// until it takes the shell's host back, and every visible terminal said
     /// "Reconnecting to the shell…" at once. A transient reconnect now waits
     /// out a grace that covers a normal adopt (a slow host: 1 s of connect
     /// retries, 2 s of handshake, after up to 2 s for the owner to say ready),
     /// and never shows if it clears within it. Lasting states show at once.
-    @Test func aHandoffAdoptionStaysQuietUnlessItLasts() throws {
+    @Test func aHandoffAdoptionStaysQuietUnlessItLasts() async throws {
         let grace = TerminalStatusBanner.reconnectingRevealDelay
         #expect(grace >= 5)
         #expect(TerminalStatusBanner.revealDelay(for: .connected, stall: .reconnecting) == grace)
@@ -92,44 +85,73 @@ import Testing
         #expect(TerminalStatusBanner.revealDelay(for: .disconnected(.turnedOffByOrganization, reconnecting: true), stall: nil) == nil)
 
         let store = store()
-        let banner = TerminalStatusBanner()
+        let clock = ManualClock()
+        let view = TerminalHostView(clock: clock)
         func show() {
             let tab = store.tab(surface: SurfaceID(rawValue: 1))
-            banner.show(tab?.dead == true ? .exited : .connected, stall: TerminalLinkWatch.shellStall(tab))
+            view.showStatus(tab?.dead == true ? .exited : .connected)
+            view.showShellStall(TerminalLinkWatch.shellStall(tab))
         }
         push(store, state: "adopting")
         show()
-        let wait = try #require(revealWait(banner), "the adopting label is held, not shown at once")
-        #expect(wait > grace - 1 && wait <= grace)
-        // Adopted within the grace: the label never showed and nothing stays held.
+        #expect(view.statusText == nil, "the adopting label waits, it does not show at once")
+        #expect(view.statusLabelWaits)
+        // Adopted within the grace: the label never showed and nothing waits.
         push(store, state: "running")
         show()
-        #expect(banner.isHidden)
-        #expect(banner.layer?.animationKeys()?.isEmpty ?? true)
+        #expect(view.statusText == nil)
+        #expect(!view.statusLabelWaits)
+
+        // An adoption that lasts past the grace shows its label.
+        push(store, state: "adopting")
+        show()
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(grace))
+        try await Self.until { view.statusText != nil }
+        #expect(view.statusText == "Reconnecting to the shell…")
 
         // A lasting failure shows at once.
+        push(store, state: "running")
+        show()
         push(store, state: "failed")
         show()
-        #expect(!banner.isHidden)
-        #expect(revealWait(banner) == nil)
-
-        // "Restoring…" turning into a reconnecting stall keeps the longer wait.
-        banner.show(.connected)
-        banner.show(.restoring)
-        let restoring = try #require(revealWait(banner))
-        #expect(restoring <= TerminalStatusBanner.restoringRevealDelay)
-        banner.show(.connected, stall: .reconnecting)
-        let stalled = try #require(revealWait(banner))
-        #expect(stalled > grace - 1)
+        #expect(view.statusText == "cmux lost its link to the shell · Still retrying")
+        #expect(!view.statusLabelWaits)
 
         // A dropped view's "Reconnecting…" waits too; its lasting "Disconnected" does not.
-        banner.show(.connected)
-        banner.show(.disconnected(.connectionLost, reconnecting: true))
-        let dropped = try #require(revealWait(banner))
-        #expect(dropped > grace - 1)
-        banner.show(.disconnected(.connectionLost, reconnecting: false))
-        #expect(revealWait(banner) == nil)
-        #expect(banner.accessibilityLabel() == "Disconnected: connection lost · Click or type to reconnect")
+        view.showShellStall(nil)
+        view.showStatus(.connected)
+        view.showStatus(.disconnected(.connectionLost, reconnecting: true))
+        #expect(view.statusText == nil)
+        #expect(view.statusLabelWaits)
+        view.showStatus(.disconnected(.connectionLost, reconnecting: false))
+        #expect(!view.statusLabelWaits)
+        #expect(view.statusText == "Disconnected: connection lost · Click or type to reconnect")
+    }
+
+    /// "Restoring…" turning into a reconnecting stall keeps the longer wait from the same start: the label
+    /// shows when the clock reaches the start plus the longer delay, not that delay after the change.
+    @Test func aLongerWaitKeepsItsStart() async throws {
+        let clock = ManualClock()
+        let view = TerminalHostView(clock: clock)
+        view.showStatus(.restoring)
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(300))
+        view.showShellStall(.reconnecting)
+        try await clock.waitForSleeper()
+        #expect(clock.sleeperDeadlines == [ManualClock.Instant(offset: .seconds(TerminalStatusBanner.reconnectingRevealDelay))],
+                "the wait ends at its first start plus the longer delay")
+        clock.advance(by: .seconds(TerminalStatusBanner.reconnectingRevealDelay) - .milliseconds(300))
+        try await Self.until { view.statusText != nil }
+        #expect(view.statusText == "Reconnecting to the shell…")
+    }
+
+    /// Waits (a few main-actor turns) until `condition` holds: the reveal runs in the task the
+    /// manual clock woke.
+    private static func until(_ condition: () -> Bool) async throws {
+        var turns = 0
+        while !condition(), turns < 10_000 { await Task.yield(); turns += 1 }
+        try #require(condition())
     }
 
     /// What the terminal offers above its label for the tab the store holds now.

@@ -56,10 +56,10 @@ const outboxNote = {
   message: queuedMessage({ text: OUTBOX_TEXT, client: "acpmux-outbox#7", promptId: "a-outbox" })!,
 };
 
-/// Opens the group of waiting messages, which shows collapsed.
+/// Opens the group of waiting messages, which shows collapsed; one waiting message is its own line.
 const openGroup: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-pending__toggle"));
-  ctx.document.querySelector<HTMLButtonElement>(".cv-pending__toggle")!.click();
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-pending__toggle, .cv-pending--one"));
+  ctx.document.querySelector<HTMLButtonElement>(".cv-pending__toggle")?.click();
   await ctx.waitFor(() => ctx.document.querySelector(".cv-received__from"));
 };
 

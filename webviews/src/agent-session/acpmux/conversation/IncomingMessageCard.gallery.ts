@@ -79,10 +79,20 @@ const FILES_HOST: ChipHostFixture = {
   },
   policy: { outsideRoots: "open", remoteImages: "click" },
 };
-/// Each received message's own line (its DisclosureRow toggle). Three in a row stay three lines, each
-/// where it arrived: nothing folds them into one card.
+/// Each received message's own line (its DisclosureRow toggle); inside an opened "Received N
+/// messages" row, each message keeps its own line.
 const RECEIVED_LINE = ".cv-received .cv-disclosure__toggle";
+/// Received lines next to each other gather in one "Received N messages" row (#32720), closed, whose
+/// lines show once it opens: opens it when the stage draws one, then waits for a line.
+const RECEIVED_ROW = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
+const openReceivedRow: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(`${RECEIVED_ROW}, .cv-received`));
+  if (ctx.document.querySelector(RECEIVED_ROW)?.getAttribute("aria-expanded") === "false")
+    await ctx.click({ selector: RECEIVED_ROW });
+  await ctx.waitFor(() => ctx.document.querySelector(RECEIVED_LINE));
+};
 const openAllLines: Play = async (ctx) => {
+  await openReceivedRow(ctx);
   for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(RECEIVED_LINE)) toggle.click();
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 2);
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text .cv-chip").length > 0);
@@ -131,8 +141,11 @@ const minimalChat = chat([
   assistant("Merged cmux/grid-fix into this branch.", 4.5),
   summary(4.5, { status: "completed" }),
 ]);
+const PREVIEW = ".cv-received__preview, .cv-received > .cv-disclosure__below";
 const linesDrawn: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__preview").length >= minimalTexts.length);
+  await openReceivedRow(ctx);
+  // A line's first line: on the line (`single`) or under it (stacked, messageLineLook.ts).
+  await ctx.waitFor(() => ctx.document.querySelectorAll(PREVIEW).length >= minimalTexts.length);
 };
 const ALT_ID = "incoming-minimal-alt";
 /// Draws a gallery-only line over the shipped one: its stylesheet, then `mark` on each line (its
@@ -147,7 +160,7 @@ const alternate =
     style.textContent = css;
     ctx.document.head.append(style);
     ctx.document.querySelectorAll<HTMLElement>(".cv-received").forEach((line, index) => {
-      const preview = line.querySelector<HTMLElement>(".cv-received__preview");
+      const preview = line.querySelector<HTMLElement>(PREVIEW);
       const name = line.querySelector(".cv-received__from")?.textContent ?? "";
       if (preview) mark(preview, minimalTexts[index] ?? "", name);
     });

@@ -53,6 +53,10 @@ type Kept = (u64, RouteFile, Value);
 /// How long a probe answer is kept for [`recent`].
 pub const KEPT_MS: u64 = 5 * 60 * 1000;
 
+// timeout: a route probe is an observational health check; bound an explicit probe so a
+// dead endpoint cannot hold its caller forever, and report the timeout as `unreachable`.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
+
 /// The most routes whose answers are kept at once; past it the oldest answers go.
 const KEPT_ROUTES: usize = 64;
 
@@ -124,6 +128,10 @@ pub async fn probe(route: &Route, home: &Path) -> Value {
 }
 
 async fn probe_once(route: &Route, home: &Path) -> Value {
+    probe_once_with_timeout(route, home, PROBE_TIMEOUT).await
+}
+
+async fn probe_once_with_timeout(route: &Route, home: &Path, timeout: Duration) -> Value {
     let started = Instant::now();
     let answer = |status: ProbeStatus, message: String| {
         json!({
@@ -177,7 +185,7 @@ async fn probe_once(route: &Route, home: &Path) -> Value {
         (None, None) => return answer(ProbeStatus::Unknown, "the route names no endpoint".into()),
     };
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = match reqwest::Client::builder().timeout(Duration::from_secs(8)).build() {
+    let client = match reqwest::Client::builder().timeout(timeout).build() {
         Ok(c) => c,
         Err(e) => return answer(ProbeStatus::Unknown, e.to_string()),
     };
@@ -289,5 +297,40 @@ mod tests {
         let mut edited = probed.clone();
         edited.file.anthropic_base_url = None;
         assert!(recent(&edited, KEPT_MS).is_none());
+    }
+
+    /// A failed health request is a route status, not an error that can fail a wake.
+    #[tokio::test]
+    async fn an_unreachable_probe_is_an_observation() {
+        let route = route(json!({
+            "kind": "custom-openai",
+            "openaiBaseUrl": "http://127.0.0.1:1"
+        }));
+        let answer = probe(&route, std::path::Path::new(".")).await;
+        assert_eq!(answer["status"], "unreachable", "{answer}");
+        assert!(answer["message"].is_string(), "{answer}");
+    }
+
+    /// A slow health endpoint times out into the same status value and remains non-fatal.
+    #[tokio::test]
+    async fn a_timed_out_probe_is_an_observation() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        });
+        let route = route(json!({
+            "kind": "custom-openai",
+            "openaiBaseUrl": format!("http://{address}")
+        }));
+        let answer = probe_once_with_timeout(
+            &route,
+            std::path::Path::new("."),
+            std::time::Duration::from_millis(20),
+        )
+        .await;
+        server.await.unwrap();
+        assert_eq!(answer["status"], "unreachable", "{answer}");
     }
 }

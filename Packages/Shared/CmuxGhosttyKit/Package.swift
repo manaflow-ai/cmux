@@ -98,6 +98,53 @@ import PackageDescription
 // break reads a compressed history row only when the pair was joined, and
 // a clear of rows (ED, DECALN) breaks the wrap across the cleared rows' edges.
 //
+// Since 34e73ba8b..635c6c12a (release/cmux-9ce9b7d0-e2, fork PRs #69 and #70):
+// each link regex is compiled once per process (#69), and, opt-in on macOS
+// (ghostty_surface_set_host_present EMBEDDER), the embedder shows a new host
+// size's frame itself with ghostty_surface_host_frame in the transaction that
+// gives the view its bounds, and reports its commit with
+// ghostty_surface_host_frame_committed (#70; cmux FRAME OWNER REFACTOR S4,
+// the frame owner).
+//
+// Since 635c6c12a..7d43bb68b (release/cmux-9ce9b7d0-e2, fork PR #71): an
+// off-main present never commits while it holds [CATransaction lock]. #70's
+// embedder mode committed under the lock and deadlocked against main's
+// commit (cmux S4 films with the switch on, STATUS 9732).
+//
+// Since 7d43bb68b..6cc749a8a (release/cmux-9ce9b7d0-e2, fork PRs #72, #73 and #75):
+// the host-frame present's lock-span rule in ghostty.h (#72), each surface's
+// thread wakes counted by source in ghostty_surface_render_counters (#73), and,
+// with the embedder presenting host sizes, a frame kept for its present that
+// the layer cannot show in its bounds wakes no main-queue block (#75; cmux
+// FRAME OWNER S4's held-key cost: one main wake per moving terminal and frame).
+//
+// Since 6cc749a8a..12ec155e1 (fork PRs #77 and #79): an off-main present begins
+// a Core Animation transaction only for a frame it shows (#79; cmux FRAME
+// OWNER S4 profile 4b41c42c: each frame that went through main committed an
+// empty transaction on the GPU completion thread), and one shared drop rule
+// with its test (#77).
+//
+// Since 12ec155e1..383b27d73 (ghostty-next main after PR #74, which merged
+// both the release line up to 12ec155e1 and its sync-line ports #76, #78,
+// #80; same source tree as 706c6963a): the fork takes upstream Ghostty main c7f68a7f4 (2026-11-03,
+// after v1.4.0) and needs Zig 0.17.0. Upstream's main-thread CVDisplayLink
+// start and stop (ffaaf5d7a) ends the freeze where ghostty_surface_free joined
+// a renderer stuck in CVDisplayLinkStop (cmux #35300). Upstream also declares
+// pointer nullability in ghostty.h (0e067ded7, assume_nonnull); the fork's
+// declarations are annotated to match, and the Swift callers follow it.
+//
+// Since 383b27d73..850bb9849 (fork PR #84, the port of #83 to main): a reflow
+// preview frame whose only change is the grid (each frame of a key resize or a
+// divider drag) re-wraps a kept copy of the terminal with no terminal lock
+// held; the live terminal is copied under the lock only when it changed. No C
+// API change (cmux-ad m18, T-REWRAP).
+//
+// Since 850bb9849..1740c4452 (fork PR #85): a resize's OSC 133 prompt clear
+// waits for the shell's next byte and runs only if the grid differs from the
+// grid the shell drew at (option PROMPT_REDRAW_WAITS_FOR_SHELL, 1028; the
+// app's surfaces turn it on in termio Manual). A size bounce the shell reads
+// as one SIGWINCH no longer leaves a new pane empty (close-then-type P0).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -121,8 +168,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-34e73ba8ba7cb8da0115caeb780065e3a12f2f62-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "32cb09bbc69510a099df9206a460cc8e7f2aba41a1a5489de98f185da07154a4"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-1740c44523895c3c0ec8f89203741abf3ca7efa3-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "ba1abb11322710dca12ebf6d07753f66e87f7475141298417421a4cd4b4ec426"
         ),
     ]
 )
