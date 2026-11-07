@@ -106,7 +106,7 @@ public final class JoinedMachineStore {
         ageTimer.schedule(after: .milliseconds(Int(delay * 1000))) { @MainActor [weak self] in await self?.ageFired() }
     }
 
-    /// A section's window came back into view (``MachineSectionView`` follows its window's
+    /// A section's window came back into view (the section's host, `MachineSectionHostView`, follows its window's
     /// occlusion): aging restarts now. A row whose heartbeat passed the window while it was covered
     /// is read at once; otherwise the deadline is the next expiry again.
     /// A section's window was covered: with every section covered the deadline stops now, so a covered
