@@ -1,4 +1,5 @@
 import { acpmuxPerf } from "./perf";
+import { chatPlace } from "./chatMachine";
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
@@ -2283,6 +2284,9 @@ export function Composer({
     locationSlotWasShown.current = false;
   }
   const keepLocationSlot = !locationVisible && locationWasVisible && ownQueue(snapshot.queue).length === 0;
+  // The page's route to its acpmux, for the machine chip's name (chatMachine.ts); ComposerContext
+  // keys its lists on the name this gives, not on this object.
+  const route = chatPlace(snapshot);
   const context = locationVisible ? (
     <ComposerContext
       projectChoices={projectChoices}
@@ -2316,6 +2320,7 @@ export function Composer({
         })
       }
       localName={localName}
+      route={route}
       onNewChat={onNewChat}
       closeOnTrustAsk={closeOnTrustAsk}
     />
