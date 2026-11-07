@@ -274,7 +274,9 @@ extension WindowManager {
     }
 
     /// Moves workspaces into an existing window and selects the first there;
-    /// a window left without workspaces closes.
+    /// a window left without workspaces closes. They keep their space, as
+    /// Merge All Windows keeps it: a window on another space switches to the
+    /// first one's space to show them, as a claim does (cmux#37366).
     /// Returns false when nothing moved (a move between an incognito
     /// window and a normal one is refused with a message).
     @discardableResult
@@ -285,6 +287,9 @@ extension WindowManager {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return false
         }
+        // Before the move, so the selection repair after it finds them shown there. A window on another space
+        // (New Window opens a new one) used to list them unseen while the window they left closed: in no sidebar.
+        if select, let state = states[windowID], let first = ids.first { enterProfile(of: first, in: state) }
         transition(select: select ? [windowID: ids] : [:]) { $0.move(ids, to: windowID) }
         return true
     }
