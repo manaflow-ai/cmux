@@ -368,7 +368,9 @@ public final class SidebarView: NSView {
         // beside the +, it hides before either one reaches the leading reserve (the toolbar band
         // sits above it there and takes the clicks), and the + takes the trailing slot alone.
         let segment = SidebarStyle.toolbarMenuSegmentWidth
-        let pairMinX = trailing - segment - button - (priorityButton.isHidden ? 0 : Metrics.space1 + button)
+        // The accessory's square icon (an incognito window's mark) keeps its room ahead of the chevron.
+        let accessoryRoom = titlebarAccessory == nil ? 0 : button + Metrics.space2
+        let pairMinX = trailing - segment - button - (priorityButton.isHidden ? 0 : Metrics.space1 + button) - accessoryRoom
         // `sidebar.showNewWorkspaceChooser` (off by default, Lawrence 2026-10-30: "by default i dont want to have
         // workspace titlebar dropdowns at all"): without it the + stands alone and its right-click menu holds the chooser.
         let showsChevron = design.sidebarSections.showNewWorkspaceChooser && pairMinX >= x

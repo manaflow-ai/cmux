@@ -36,6 +36,8 @@ import Testing
     /// A sidebar width that leaves the badge more than a button's side but less than the chip.
     func narrowWidth(_ root: WindowRootView, badge: IncognitoBadgeView) -> CGFloat {
         let sidebarView = root.sidebar.sidebarView
+        // The width below assumes the + stands alone (the defaults): no Priority bell, no chooser chevron.
+        #expect(sidebarView.priorityButton.isHidden)
         let button = SidebarStyle.toolbarButtonSize
         let room = button + 2
         #expect(room < badge.fittingSize.width)
@@ -78,7 +80,11 @@ import Testing
         defer { window.close() }
         root.sidebar.restore(width: 1, presentation: .shown)
         settle(root)
+        let sidebarView = root.sidebar.sidebarView
+        let plus = sidebarView.newButton.frame
         #expect(!badge.isHidden)
-        #expect(badge.frame.width >= SidebarStyle.toolbarButtonSize)
+        // At least the row's square icon, clear of the + (whichever the sidebar's other minimums leave).
+        #expect(badge.showsLabel || (badge.frame.width == plus.width && badge.frame.height == plus.height))
+        #expect(badge.frame.maxX + Metrics.space2 <= plus.minX)
     }
 }
