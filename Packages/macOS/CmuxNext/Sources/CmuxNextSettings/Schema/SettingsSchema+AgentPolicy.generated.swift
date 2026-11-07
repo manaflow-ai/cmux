@@ -255,8 +255,8 @@ extension SettingsSchema {
         // Display-only agent surface zoom.
         "agentPane.zoom",
         // The composer's context ring and mic (looks only).
-        "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.spellChecking",
-        "agentPane.attachmentView", "agentPane.showMachineLoadWarnings",
+        "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource",
+        "agentPane.spellChecking", "agentPane.attachmentView", "agentPane.showMachineLoadWarnings",
         // The Chief chat's bubble style and whether it shows the Feed (looks only).
         "home.chiefBubbleStyle", "home.feedInChief", "home.bubbleColors.sent", "home.bubbleColors.sentText",
         "home.bubbleColors.received", "home.bubbleColors.receivedText",
