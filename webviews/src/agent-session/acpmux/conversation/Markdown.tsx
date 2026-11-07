@@ -30,7 +30,8 @@ import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { ForeignFileRef, linkedText, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
 import { isBareFileName, ReplyFoldersContext, replyFolders } from "../chips/replyFolders";
-import { SoftBroken, softBreakNodes } from "./softBreaks";
+import { SoftBroken } from "./softBreaks";
+import { softBreakNodes } from "./softBreaksModel";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
 import { codePath, foreignFileId, isTemplatePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
@@ -54,7 +55,8 @@ import { animateScroll } from "../threadMinimap/scrollMotion";
 import { SessionRefCode } from "./SessionRef";
 import { agentRef } from "./sessionRefs";
 import { JUMP_CURVE, jumpDuration } from "../threadMinimap/model";
-import { decorateTimes, splitTimeTokens, TimeHover } from "./timeHover";
+import { TimeHover } from "./timeHover";
+import { decorateTimes, splitTimeTokens } from "./timeHoverModel";
 
 export type Align = "left" | "center" | "right" | null;
 
