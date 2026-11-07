@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42414973871",
+  "recorded_at": "2026-11-07T21:23:08Z",
+  "reason": "cmux-tui 44c97a12088d changes the image's cmux-tui (pinned 6edfed7b971c)",
+  "dry_run": false,
+  "cmux_tui": "44c97a12088d47b6fad905a60c921637e5f4885e",
+  "fixes": [
+    {
+      "sha": "62966ab0103b396662b8627c2eba55bfcd273025",
+      "mergedAt": "2026-11-07T13:00:00-08:00",
+      "subject": "palette.rank: the whole catalog is searchable past the entry cap, and long CJK titles rank whole (#37767)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T21:23:08Z",
+    "snapshot_id": "sh-88b22aa091b14b34bc8fc7c6e125a7a6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42414973871): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8d2e6d076e6b9d8a6e1d394f11e90ecd898ccad6",
+    "image": "cloud-native-auto-44c97a12-42414973871-1",
+    "revision": "ci-42414973871-1",
+    "at": "2026-11-07T21:23:08Z"
+  },
+  "rolled_back": false
+}
