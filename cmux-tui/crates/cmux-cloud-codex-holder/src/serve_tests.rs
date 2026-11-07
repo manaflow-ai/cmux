@@ -381,6 +381,8 @@ async fn a_holder_restarted_while_cloud_is_off_erases_once_it_is_on() {
     assert_eq!(record.entries(), HashMap::from([("vm_1".to_owned(), true)]), "marked for erasure");
     assert!(world.delivered(), "nothing reaches a machine while Cloud is off");
 
+    // The app's own off line after the start: said again, it still retires (order-independent).
+    pipe.send(json!({"op": "available", "enabled": false, "current": scope()})).await;
     pipe.send(json!({"op": "available", "enabled": true, "current": scope()})).await;
     pipe.send(json!({"op": "listed", "live": ["vm_1"], "current": scope()})).await;
     let erased = async {

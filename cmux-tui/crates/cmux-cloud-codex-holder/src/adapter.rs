@@ -423,10 +423,9 @@ impl Adapter {
     pub fn set_available(self: &Arc<Self>, enabled: bool) {
         let retiring: Vec<Scope> = {
             let mut state = self.st();
-            if enabled != state.unavailable {
-                return;
-            }
             state.unavailable = !enabled;
+            // Off retires every scope each time it is said, so the outcome never depends on
+            // whether an earlier line already fenced (a holder started under the fence, say).
             if enabled {
                 return;
             }
