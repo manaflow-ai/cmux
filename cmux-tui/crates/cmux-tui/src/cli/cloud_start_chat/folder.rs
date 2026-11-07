@@ -17,8 +17,10 @@
 //! A failed bootstrap (`status.json` `failed`, whatever the repository says) fails the start with its
 //! status and log (`cloud.folder_missing`). A running bootstrap is waited on, on the machine, for at
 //! most [`SLICE_SECONDS`] per exec. Everything that may pass later (a busy, starting or unreachable
-//! machine, a timeout, an answer that can't be read, no bootstrap and no folder yet) is asked again
-//! within the command's one [`Deadline`]; past it the start answers [`out_of_time`], and with no
+//! machine, a timeout, an answer that can't be read) is asked again within the command's one
+//! [`Deadline`]. No bootstrap and no folder (a typo, or a bootstrap still being put on the machine:
+//! `list-machines` says nothing of a requested bootstrap) is asked again for a short [`GRACE`] only, then
+//! fails `cloud.folder_missing` with reason `no_such_folder`; past it the start answers [`out_of_time`], and with no
 //! deadline (no `--wait`) the wait stops at [`MAX_WAIT`] with `cloud.folder_pending`. Under a second
 //! left, no check runs. A machine that cannot run a command for the CLI at all ([`cannot_exec`]) starts
 //! the way it did before this check: the relay is its only way. Any other refusal is
@@ -40,6 +42,9 @@ pub(super) const LOG: &str = ".cmux/bootstrap/bootstrap.log";
 pub(super) const SLICE_SECONDS: u64 = 15;
 /// The longest a start with no deadline (no `--wait`) waits for a clone.
 pub(super) const MAX_WAIT: Duration = Duration::from_secs(10 * 60);
+/// How long no bootstrap and no folder is asked again before it is a missing folder (less when less of
+/// the deadline is left).
+pub(super) const GRACE: Duration = Duration::from_secs(30);
 /// The pause before asking again after an answer that may pass later.
 const RETRY_PAUSE: Duration = Duration::from_secs(2);
 /// The app's refusal of `cloud exec` on a machine without API exec (`CloudStrings.execUnavailable`,
@@ -54,9 +59,10 @@ pub(super) enum Folder {
     Ready,
     /// The bootstrap is still running; the machine already waited on it.
     Cloning,
-    /// Not known yet (no bootstrap and no folder yet, an unknown state, an answer that can't be
-    /// read): ask again after a pause.
+    /// Not known yet (an unknown state, an answer that can't be read): ask again after a pause.
     Again,
+    /// No bootstrap and no folder: ask again within [`GRACE`].
+    Absent,
     /// The bootstrap failed; its status file.
     Missing(Value),
 }
@@ -91,6 +97,7 @@ pub(super) fn read(exit_code: Option<i64>, stdout: &str) -> Folder {
     match lines.next().map(str::trim) {
         Some("ready") => Folder::Ready,
         Some("busy") => Folder::Cloning,
+        Some("absent") => Folder::Absent,
         Some("ended") => Folder::Missing(
             lines
                 .next()
@@ -149,12 +156,31 @@ pub(super) fn wait(
     let out = |request: &Request| {
         Some(out_of_time(request, &Machine::Target(machine.to_owned()), Value::Null))
     };
+    let no_such_folder = || {
+        Some(failed(
+            "cloud.folder_missing",
+            format!(
+                "{cwd} is not on the machine, and no bootstrap is making it: check the folder, \
+                 or start without --cwd"
+            ),
+            json!({"cwd": cwd, "machine_id": machine, "reason": "no_such_folder"}),
+            1,
+        ))
+    };
+    // The last answer was `absent`: when time runs out, the folder is missing, not late.
+    let mut absent = false;
     loop {
         let waited = runner.now().saturating_duration_since(started);
+        if absent && waited >= GRACE {
+            return no_such_folder();
+        }
         let own = Duration::from_secs(SLICE_SECONDS).min(MAX_WAIT.saturating_sub(waited));
         let slice = deadline.bound(runner, own);
         // Under a second left: no check (a script waits whole seconds), so out of time.
         if slice < Duration::from_secs(1) {
+            if absent {
+                return no_such_folder();
+            }
             return if deadline.left(runner).is_some_and(|left| left < Duration::from_secs(1)) {
                 out(request)
             } else {
@@ -193,6 +219,7 @@ pub(super) fn wait(
                 return Some(Outcome::Failed { error, exit });
             }
         };
+        absent = answer == Folder::Absent;
         match answer {
             Folder::Ready => return None,
             Folder::Missing(status) => {
@@ -211,6 +238,11 @@ pub(super) fn wait(
             Folder::Cloning => {}
             Folder::Again => {
                 let pause = deadline.bound(runner, RETRY_PAUSE);
+                runner.pause(pause);
+            }
+            Folder::Absent => {
+                let grace = GRACE.saturating_sub(runner.now().saturating_duration_since(started));
+                let pause = deadline.bound(runner, RETRY_PAUSE.min(grace));
                 runner.pause(pause);
             }
         }
