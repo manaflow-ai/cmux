@@ -204,6 +204,8 @@ pub enum ResourceOperation {
     GitWorktreeApply,
     #[serde(rename = "git.worktree.remove")]
     GitWorktreeRemove,
+    #[serde(rename = "git.worktree.setup")]
+    GitWorktreeSetup,
     #[serde(rename = "history.entries.list")]
     HistoryEntriesList,
     #[serde(rename = "history.entries.remove")]

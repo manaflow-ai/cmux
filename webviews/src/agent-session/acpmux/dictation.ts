@@ -8,6 +8,8 @@ import {
   type DictationUpdate,
 } from "./dictationText";
 import type { MarkdownFieldHandle } from "./MarkdownField";
+import { composerSettingsSnapshot } from "./composerSettings";
+import { handoffFailure } from "./dictationSources";
 import { useT } from "./i18n";
 import { NativeError } from "./nativeError";
 
@@ -24,6 +26,15 @@ const listeners = new Set<(update: DictationUpdate) => void>();
 export function deliverDictation(update: DictationUpdate): void {
   setLevel(update.level, isActive(update.state));
   for (const listener of listeners) listener(update);
+}
+
+const handoffListeners = new Set<(code: string) => void>();
+/// The host's `dictationHandoff {code}`: the Toggle Dictation shortcut's hand-off to the picked app
+/// did not happen; each composer shows why, as for the mic's click (dictationSources.ts).
+export function deliverHandoffFailure(value: unknown): void {
+  const code = (value as { code?: unknown } | null | undefined)?.code;
+  if (typeof code !== "string") return;
+  for (const listener of handoffListeners) listener(code);
 }
 
 let autoSend = false;
@@ -234,6 +245,22 @@ export function useDictation(
     };
   }, [prompt, call]);
 
+  // A hand-off the shortcut asked for and the host could not make.
+  useEffect(() => {
+    const listener = (code: string) =>
+      setNotice({
+        state: "failed",
+        text: "",
+        level: 0,
+        cancelled: false,
+        message: handoffFailure(code, composerSettingsSnapshot().dictationSource, t),
+      });
+    handoffListeners.add(listener);
+    return () => {
+      handoffListeners.delete(listener);
+    };
+  }, [t]);
+
   // Esc cancels, only while a session runs; idle composers keep every key.
   const active = isActive(state);
   useEffect(() => {
@@ -266,6 +293,23 @@ export function useDictation(
       notice,
       toggle() {
         if (!active) prompt.current?.focus();
+        // A dictation app the person picked gets the press (dictationSources.ts); a session of cmux's
+        // own that still runs is stopped by it as before.
+        const source = composerSettingsSnapshot().dictationSource;
+        if (source !== "cmux" && !active) {
+          setNotice(null);
+          void call("dictation.handoff").catch((error: unknown) => {
+            const code = error instanceof NativeError ? error.code : undefined;
+            setNotice({
+              state: "failed",
+              text: "",
+              level: 0,
+              cancelled: false,
+              message: handoffFailure(code, source, t),
+            });
+          });
+          return;
+        }
         requested.current = true;
         void call("dictation.toggle").catch((error: unknown) => {
           requested.current = false;

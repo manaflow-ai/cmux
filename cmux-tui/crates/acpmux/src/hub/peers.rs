@@ -181,6 +181,8 @@ impl Hub {
             old.stop();
             // A reconnect keeps when the peer was last seen.
             peer.seed_last_seen(old.link().last_seen);
+            // And the remote tokens it read, so its first connect is one ssh login.
+            peer.carry_read_tokens(&old);
         }
         if cached {
             self.load_peer_cache(&peer);

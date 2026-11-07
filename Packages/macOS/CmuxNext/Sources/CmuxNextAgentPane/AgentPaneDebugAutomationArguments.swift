@@ -25,6 +25,10 @@ public struct AgentPaneDebugAutomationArguments {
             return [params["seconds"]?.doubleValue ?? 3, options]
         case "perf_stats":
             return [["raw": params["raw"]?.boolValue == true] as [String: Any]]
+        case "tick_watch":
+            var options: [String: Any] = ["stop": params["stop"]?.boolValue == true]
+            if let nominal = params["nominal_ms"]?.doubleValue { options["nominal_ms"] = nominal }
+            return [options]
         case "stream":
             // R104: a scripted reply streamed into `rows` synthetic rows (streamDebug.ts).
             var options: [String: Any] = [:]

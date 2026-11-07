@@ -42,7 +42,7 @@ extension AgentPaneRequest {
     }
 
     /// `pane.action {id: "preview"}`: its `url` comes from transcript text, so only a local page
-    /// (``Foundation/URL/isAgentPanePreview``, as the preview card's `browser.open`) reaches the App.
+    /// (``Foundation/URL/isAgentPanePreview``) reaches the App.
     private static func preview(_ params: [String: Any]?, method: String) -> AgentPaneRequest {
         let toggle = params?["mode"] as? String == "toggle"
         guard let raw = params?["url"] else { return .preview(url: nil, toggle: toggle) }
@@ -176,6 +176,13 @@ extension AgentPaneRequest {
             // The composer ring's Context or Plan Usage choice; the page writes only this key with it.
             if let ring = (params?["ring"] as? String).flatMap(AgentPaneComposerRing.init(rawValue:)) {
                 self = .displaySetting(path: AgentPaneComposerSetting.composerRingPath, value: .string(ring.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.setDictationSource":
+            // The mic menu's source pick; the page writes only this key with it.
+            if let source = (params?["source"] as? String).flatMap(AgentPaneDictationSource.init(rawValue:)) {
+                self = .displaySetting(path: AgentPaneComposerSetting.dictationSourcePath, value: .string(source.rawValue))
             } else {
                 self = .unsupported(method)
             }
@@ -643,6 +650,8 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "dictation.toggle": self = .dictation(.toggle)
+        case "dictation.handoff": self = .dictationHandoff
+        case "dictation.sources": self = .dictationSources
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)
