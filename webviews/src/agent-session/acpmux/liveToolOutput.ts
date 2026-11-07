@@ -133,6 +133,25 @@ export function useLiveToolRow(row: AcpmuxRow, active: boolean): AcpmuxRow {
   return useMemo(() => (version === 0 ? row : withLiveOutput(row)), [row, version]);
 }
 
+/// `rows` as the transcript draws them now: each row with a running call whose output moved on
+/// without the pane holding that newer output (`withLiveOutput`), the same array when none does.
+/// For what reads the pane's rows at a person's action, not on each update: keyboard copy of a row
+/// or range, and Find when it opens (review of #37907). O(rows) per call, only while an entry is
+/// held; rows without one stay the same objects, so Find's per-row caches still hold.
+export function rowsWithLiveOutput(rows: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
+  if (entries.size === 0) return rows;
+  let next: AcpmuxRow[] | undefined;
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    if (!row.items?.length) continue;
+    const live = withLiveOutput(row);
+    if (live === row) continue;
+    next ??= rows.slice();
+    next[index] = live;
+  }
+  return next ?? rows;
+}
+
 function withLiveOutput(row: AcpmuxRow): AcpmuxRow {
   let ahead = 0;
   const items = row.items!.map((item) => {

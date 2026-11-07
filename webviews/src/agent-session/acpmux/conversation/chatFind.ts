@@ -23,6 +23,7 @@ import { toolResult } from "./toolResult";
 import { withoutLinks } from "./webSourceList";
 import { stripsEnvelopeImages } from "../toolImages";
 import { foldFind } from "../../../find/fold";
+import { rowsWithLiveOutput } from "../liveToolOutput";
 import { clearAdaptiveFind, paintAdaptiveFind, type FindColors } from "../../../ui/findPaint";
 
 export { foldFind };
@@ -269,7 +270,9 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   const matchesCache = useRef<FindMatchesCache | undefined>(undefined);
   const matches = useMemo(() => {
     if (!open) return NO_MATCHES;
-    const result = findMatchesIncremental(rows, query, matchesCache.current);
+    // While Find is open the pane draws every output update (ChatFindScope.tsx); a running
+    // command's output from before it opened is in liveToolOutput.ts, not `rows`.
+    const result = findMatchesIncremental(rowsWithLiveOutput(rows), query, matchesCache.current);
     matchesCache.current = result.cache;
     return result.matches;
   }, [open, rows, query]);

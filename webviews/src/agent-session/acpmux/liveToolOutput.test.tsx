@@ -9,7 +9,10 @@ import { act, memo } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OrderedRows } from "./direct";
-import { liveToolOutput, toolOutputOnly, useLiveToolRow } from "./liveToolOutput";
+import { liveToolOutput, rowsWithLiveOutput, toolOutputOnly, useLiveToolRow } from "./liveToolOutput";
+import { transcriptRangeText } from "./conversation/transcriptCopy";
+import { type ChatFind, useChatFind } from "./conversation/chatFind";
+import { copyRow } from "./header/copyRow";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { markOneRowChange, oneRowChange, oneRowChangeFrom } from "./rowChanges";
 import { ToolActivityRow } from "./rows/ToolActivityRow";
@@ -349,4 +352,68 @@ test("a running command's row drawn by its memoized renderer shows the newest ou
     expect(container.textContent, `update ${tick - 1}`).toBe(output);
   }
   liveToolOutput.settle(liveToolOutput.redraw());
+});
+
+/// A running command's output grown through the fast path: the pane keeps `rows`, the store holds
+/// the newer output (review of #37907: what reads the pane's rows at a person's action sees it).
+function grownWithoutThePane() {
+  const before = call("pass 1\n");
+  const after = call("pass 1\npass 2\n");
+  const { previous, next } = update(before, after);
+  const fast = toolOutputOnly(previous, next);
+  // The fast path: the pane draws nothing for this update.
+  expect(fast).toEqual({ id: "call-1", output: "pass 1\npass 2\n", before: "pass 1\n" });
+  liveToolOutput.set(fast!.id, fast!.output, fast!.before);
+  return previous.rows;
+}
+
+test("copying a running command's row reads the output it took without the pane", () => {
+  const rows = grownWithoutThePane();
+  try {
+    // Keyboard copy of the row or of a range (VirtualTranscript `copyRows`).
+    expect(transcriptRangeText(rowsWithLiveOutput(rows), ["activity-1"])).toBe("Run bun test\npass 1\npass 2");
+    expect(transcriptRangeText(rowsWithLiveOutput(rows), ["user-1", "activity-1"])).toBe(
+      "run the tests\n\nRun bun test\npass 1\npass 2",
+    );
+    // Rows without a newer output stay the same objects.
+    const live = rowsWithLiveOutput(rows);
+    expect(live[0]).toBe(rows[0]);
+    // A row drawn since with other output is newer than the entry.
+    const redrawn = [prompt, activity(call("other\n"), 3)];
+    expect(rowsWithLiveOutput(redrawn)).toBe(redrawn);
+  } finally {
+    liveToolOutput.settle(liveToolOutput.redraw());
+  }
+  expect(rowsWithLiveOutput(rows)).toBe(rows);
+});
+
+test("Copy Response and Copy as Markdown hold no call output, so the pane's rows are exact for them", () => {
+  const rows = grownWithoutThePane();
+  try {
+    const answered = [...rows, { id: "assistant-1", version: 1, at: 2, kind: "assistant", text: "Done." } as AcpmuxRow];
+    const copied: string[] = [];
+    const menu = copyRow({ link: undefined, rows: answered }, (text) => copied.push(text));
+    for (const child of menu!.children!) child.onSelect?.();
+    expect(copied).toEqual(["Done.", "> run the tests\n\nDone."]);
+  } finally {
+    liveToolOutput.settle(liveToolOutput.redraw());
+  }
+});
+
+test("Find opened after a running command's output grew without the pane finds the new output", () => {
+  const container = mount();
+  const rows = grownWithoutThePane();
+  let find: ChatFind | undefined;
+  function Find() {
+    find = useChatFind(rows);
+    return null;
+  }
+  try {
+    root = createRoot(container);
+    act(() => root!.render(<Find />));
+    act(() => find!.show("pass 2"));
+    expect(find!.matches.map((match) => match.rowId)).toEqual(["activity-1"]);
+  } finally {
+    liveToolOutput.settle(liveToolOutput.redraw());
+  }
 });
