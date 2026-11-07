@@ -59,8 +59,5 @@ enum BenchSpans {
         #endif
     }
 
-    nonisolated static func ms(_ duration: Duration) -> Double {
-        let (seconds, attoseconds) = duration.components
-        return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
-    }
+    nonisolated static func ms(_ duration: Duration) -> Double { duration.inMilliseconds }
 }

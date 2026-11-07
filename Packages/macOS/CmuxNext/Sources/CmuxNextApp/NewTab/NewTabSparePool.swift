@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -209,6 +210,7 @@ final class NewTabSparePool {
     /// The size of the pane content a Cmd-T in the target window fills: its focused pane's.
     private var targetPaneSize: NSSize? { targetPane.map { Self.newTabContentSize(in: $0) }.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } }
     private var targetPane: PaneController? { services.windows.controllers.first { $0.window === target }?.content?.focusedPane }
+    lazy var targetLayout: () -> (any LayoutStillness)? = { [weak self] in self.flatMap { pool in pool.services.windows.controllers.first { $0.window === pool.target }?.content?.layoutView } } // a motion there defers parked work
     /// The context a Cmd-T in the target window gives (NewTabPage.open): the parked spare draws it (SHORTCUT FRAMES F2).
     private var preparedPage: AgentPaneNewTab {
         guard let pane = targetPane, pane.daemon.isLocal else { return NewTabPage.sparePage(services) }
@@ -226,7 +228,7 @@ final class NewTabSparePool {
     /// Each parked page that finished its handshake and first paint draws the context a Cmd-T would give, and gives
     /// its cover once it drew it; a page not ready yet is prepared when it painted. Never while an open settles.
     private func prepareParked() {
-        guard !refills.isOpening else { return }
+        guard !refills.isOpening, targetLayout()?.deferringWhileMoving("NewTabSparePool.prepare", on: fits, { [weak self] in self?.prepareParked() }) != true else { return }
         let page = preparedPage
         for view in slot.all where view.superview === parking {
             guard view.model.hasHandshake, view.model.hasPainted else {
@@ -355,10 +357,7 @@ final class NewTabSparePool {
         }
     }
 
-    static func milliseconds(since start: ContinuousClock.Instant) -> Double {
-        let (seconds, attoseconds) = (ContinuousClock.now - start).components
-        return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
-    }
+    static func milliseconds(since start: ContinuousClock.Instant) -> Double { (ContinuousClock.now - start).inMilliseconds }
 
     // MARK: Warming
 
@@ -397,7 +396,8 @@ final class NewTabSparePool {
     /// A recycled spare not yet back in the window.
     private var unparked: AgentPaneView? { slot.all.first { $0.superview == nil } }
 
-    private func warmNow() {
+    func warmNow() {
+        if targetLayout()?.deferringWhileMoving("NewTabSparePool.warm", on: fits, { [weak self] in self?.warmNow() }) == true { return } // never in a motion's frames
         if refills.settled() { schedulePrepare() } // the backstop ends an open whose page never reported its frame
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil

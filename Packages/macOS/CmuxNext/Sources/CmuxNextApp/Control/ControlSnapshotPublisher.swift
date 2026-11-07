@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextControl
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextLayout
+import CmuxNextWakeups
 import Observation
 import os
 
@@ -81,9 +83,17 @@ final class ControlSnapshotPublisher {
         frames.scheduleFrame { [weak self] in
             guard let self else { return }
             self.isScheduled = false
-            self.publishNow()
+            if !self.deferredWhileMoving() { self.publishNow() }
         }
     }
+
+    private func deferredWhileMoving() -> Bool { // a layout motion, no read waiting: stale (a read builds it), one publish at its landing
+        guard !router.snapshots.hasWaiters, let layout = layouts().first(where: \.isInLayoutMotion) else { return false }
+        router.snapshots.markStale()
+        return layout.deferringWhileMoving("ControlSnapshotPublisher.publish", on: stillPublishes) { [weak self] in self?.publishIfStale() }
+    }
+    lazy var layouts: () -> [any LayoutStillness] = { [weak self] in self?.services.windows.controllers.compactMap { $0.content?.layoutView } ?? [] }
+    private lazy var stillPublishes = FrameBatchQueue(owner: "ControlSnapshotPublisher.publish", budgeted: .background, on: services.mainWork)
 
     /// A control work-queue frame ran (a CLI call changed main-actor state): mark the snapshot stale; build it now
     /// only for a read waiting on its write barrier.
