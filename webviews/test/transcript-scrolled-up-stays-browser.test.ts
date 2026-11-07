@@ -16,6 +16,11 @@
 // The reply then streams on: following stays off and the offset stays where it was. The explicit
 // ways back (a wheel down to the end, End, Jump to latest, a send) still follow the reply.
 //
+// A wheel down over a tool's output that is already at its end moves the transcript (the browser
+// passes it on), and is the reader's own scroll down; one over an output with room left, or one that
+// contains its overscroll, moves the transcript not at all. Find's search field keeps End and
+// Cmd-Down for its caret.
+//
 // Real Chromium and WebKit from Playwright; CI fails the file when an engine cannot launch.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -58,7 +63,10 @@ await requireBrowserLane("transcript-scrolled-up-stays-browser.test.ts", async (
           enforce: "pre",
           transform(code, id) {
             if (id.endsWith("/test/browser/transcript-follow.harness.tsx"))
-              return code.replace("<VirtualTranscript", "<VirtualTranscript jumpButton");
+              return code.replace(
+                "<VirtualTranscript",
+                "<VirtualTranscript jumpButton find={(window as unknown as { __find?: never }).__find}",
+              );
           },
         },
       ],
@@ -85,9 +93,10 @@ await requireBrowserLane("transcript-scrolled-up-stays-browser.test.ts", async (
 
   /// A chat with a reply streaming, the reader parked `distance` px up it with a real wheel, and
   /// the wheel's input hold over (so only the case's own input is held).
-  async function parked(name: string, distance: number) {
+  async function parked(name: string, distance: number, setup?: (page: Page) => Promise<unknown>) {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 600 } });
     await installPaintedFrames(page);
+    await setup?.(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
     await page.waitForFunction(() => "__showRowsSync" in window);
@@ -315,5 +324,145 @@ await requireBrowserLane("transcript-scrolled-up-stays-browser.test.ts", async (
         expect(after.fromEnd).toBeLessThanOrEqual(4);
         // followTrace names what brought following back.
         expect(after.arms.at(-1)?.path).toBe(path);
+      });
+
+  /// A tool's output in a row in view: `room` px it can still scroll down, and its overscroll rule.
+  async function output(page: Page, room: number, overscroll = "auto") {
+    return page.evaluate(
+      ({ room, overscroll }) => {
+        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const box = node.getBoundingClientRect();
+        const row = [...node.querySelectorAll<HTMLElement>('.acpmux-row[data-row-id^="history-"]')].find(
+          (each) => each.getBoundingClientRect().top > box.top + 20,
+        )!;
+        const inner = document.createElement("pre");
+        inner.id = "tool-output";
+        inner.style.cssText = `height:80px;overflow:auto;margin:0;overscroll-behavior:${overscroll}`;
+        inner.textContent = Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n");
+        row.append(inner);
+        inner.scrollTop = inner.scrollHeight - inner.clientHeight - room;
+        const rect = inner.getBoundingClientRect();
+        return { x: rect.left + 40, y: rect.top + 40 };
+      },
+      { room, overscroll },
+    );
+  }
+  const innerTop = (page: Page) => page.evaluate(() => document.getElementById("tool-output")!.scrollTop);
+
+  for (const [name] of engines)
+    test(`${name}: a wheel down over an output at its end, to the transcript's end, follows the reply again`, async () => {
+      // fixed-wait: parked() lets the wheel's one-second input hold lapse.
+      const { page } = await parked(name, 200);
+      const at = await output(page, 0);
+      const before = await innerTop(page);
+      await page.mouse.move(at.x, at.y);
+      await page.mouse.wheel(0, 4000);
+      await settled(page);
+      await streamOn(page);
+      await page
+        .waitForFunction(
+          () => {
+            const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            return node.scrollHeight - node.clientHeight - node.scrollTop <= 4;
+          },
+          undefined,
+          { timeout: 4_000 },
+        )
+        .catch(() => {});
+      await settled(page);
+      const after = await view(page);
+      const inner = await innerTop(page);
+      await page.close();
+      expect(inner).toBe(before);
+      expect(after.following).toBe(true);
+      expect(after.fromEnd).toBeLessThanOrEqual(4);
+      expect(after.arms.at(-1)).toMatchObject({ path: "reader-scroll" });
+      expect(after.arms.at(-1)?.input).toStartWith("wheel ");
+    });
+
+  for (const [name] of engines)
+    for (const [kind, room, overscroll] of [
+      ["with room left", 300, "auto"],
+      ["at its end that contains its overscroll", 0, "contain"],
+    ] as const)
+      test(`${name}: a wheel down over an output ${kind} moves only the output, and following stays off`, async () => {
+        // fixed-wait: parked() lets the wheel's one-second input hold lapse.
+        const { page } = await parked(name, 90);
+        const start = await view(page);
+        const at = await output(page, room, overscroll);
+        const before = await innerTop(page);
+        await page.mouse.move(at.x, at.y);
+        await page.mouse.wheel(0, 40);
+        await settled(page);
+        const wheeled = await view(page);
+        // Then a layout change lands at the transcript's end inside the wheel's input hold.
+        await layoutScrollToEnd(page);
+        await frames(page, 6);
+        const landed = await view(page);
+        await streamOn(page);
+        const after = await view(page);
+        const inner = await innerTop(page);
+        await page.close();
+        expect(wheeled.top).toBe(start.top);
+        if (room > 0) expect(inner).toBeGreaterThan(before);
+        expect({ following: after.following, moved: after.top - landed.top, arms: after.arms }).toEqual({
+          following: false,
+          moved: 0,
+          arms: [],
+        });
+      });
+
+  for (const [name] of engines)
+    for (const key of ["End", "Meta+ArrowDown"])
+      test(`${name}: ${key} in Find's search field moves its caret, not the transcript`, async () => {
+        // Find open over the chat, as Cmd-F leaves it: its search field focused.
+        // fixed-wait: parked() lets the wheel's one-second input hold lapse.
+        const { page: chat } = await parked(name, 200, (each) =>
+          each.addInitScript(() => {
+            const noop = () => {};
+            (window as unknown as { __find: unknown }).__find = {
+              open: true,
+              query: "the keeper wiped the salt",
+              matches: [],
+              active: 0,
+              show: noop,
+              hide: noop,
+              setQuery: noop,
+              next: noop,
+              previous: noop,
+              focusRequest: 1,
+            };
+          }),
+        );
+        const field = chat.locator(".acpmux-find input");
+        await field.focus();
+        await field.evaluate((input: HTMLInputElement) => input.setSelectionRange(0, 0));
+        const start = await view(chat);
+        await chat.evaluate(() => {
+          (window as unknown as { __prevented?: boolean }).__prevented = false;
+          document.addEventListener("keydown", (event) => {
+            if (event.defaultPrevented) (window as unknown as { __prevented?: boolean }).__prevented = true;
+          });
+        });
+        await chat.keyboard.press(key);
+        await settled(chat);
+        await streamOn(chat);
+        const after = await view(chat);
+        const caret = await field.evaluate((input: HTMLInputElement) => ({
+          at: input.selectionStart,
+          length: input.value.length,
+          focused: document.activeElement === input,
+        }));
+        const prevented = await chat.evaluate(() => (window as unknown as { __prevented?: boolean }).__prevented);
+        await chat.close();
+        expect({ prevented, focused: caret.focused }).toEqual({ prevented: false, focused: true });
+        if (key === "End") expect(caret.at).toBe(caret.length);
+        expect({ following: after.following, arms: after.arms }).toEqual({ following: false, arms: [] });
+        // The transcript never goes to its end. Playwright's WebKit takes Linux's key bindings, where
+        // Meta+ArrowDown in a one-line field is no caret move and the engine scrolls the page a line
+        // itself (not the pane's code: nothing prevented the key, nothing re-armed); on macOS it moves
+        // the caret to the end, as End does.
+        if (key === "End" || name !== "webkit") expect(after.top - start.top).toBe(0);
+        else expect(after.fromEnd).toBeGreaterThan(40);
       });
 });
