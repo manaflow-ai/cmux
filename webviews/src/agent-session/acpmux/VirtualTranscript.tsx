@@ -63,6 +63,7 @@ import {
 } from "./conversation/scrollCoordinates";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { acpmuxPerf, type MountedSpan } from "./perf";
+import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
@@ -80,6 +81,7 @@ import {
   referenceScopes,
   turnOpener,
   type ReferenceScope,
+  type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
@@ -950,7 +952,111 @@ function TranscriptContext({
   );
 }
 
-export function VirtualTranscript({
+export type VirtualTranscriptProps = Omit<React.ComponentProps<typeof TranscriptView>, "references">;
+
+/// Where the transcript reads each row's bare `#N` scope (conversation/bareReferences.ts): the
+/// reading of the client's rows and the cache it keeps. A new value only when a scope changed.
+type TranscriptReferences = {
+  readonly cache: ReferenceScopeCache;
+  readonly scopeOf: (opener: string) => ReferenceScope;
+};
+
+/// The list props a pane render rebuilds with the same rows in them (the pane's row shaping and
+/// queue lists run again on every snapshot).
+const LIST_PROPS: ReadonlySet<string> = new Set([
+  "rows",
+  "sourceRows",
+  "earlier",
+  "queuedTail",
+  "queueIds",
+  "queueWithdrawn",
+]);
+
+/// The same item: the same object, or a row the shaping made again with every field the same
+/// (turns.ts builds the live line anew on each pass).
+function sameItem(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) || Array.isArray(b)) return false;
+  const before = a as Record<string, unknown>;
+  const after = b as Record<string, unknown>;
+  const keys = Object.keys(after);
+  return keys.length === Object.keys(before).length && keys.every((key) => Object.is(before[key], after[key]));
+}
+
+const sameList = (a: readonly unknown[], b: readonly unknown[]) =>
+  a.length === b.length && a.every((item, index) => sameItem(item, b[index]));
+
+/// The transcript, drawn again only when what it is handed changes. The pane renders on every
+/// snapshot, a running command's output update too (its rows feed the header's Preview, Session
+/// Info and the sends), and handed the transcript new callbacks and new lists of the same rows
+/// each time, so the whole transcript rendered once per update with nothing in it changed
+/// (bench/delta-renders.bench.ts: 1.07 renders per output update at 75, 750 and 7,500 rows).
+/// Here a callback prop is a stable function that calls the pane's newest one (its presence still
+/// counts), a list of the same rows is the list drawn before, and the client's rows (`sourceRows`,
+/// read only for bare `#N` scopes) reach the transcript as their scopes, which change only when
+/// the rows name something new. A streamed reply's text still reaches its row through
+/// streamingRow.ts without the pane.
+export function VirtualTranscript(props: VirtualTranscriptProps) {
+  // The newest props, for the stable callbacks below: written as the pane renders, so a callback
+  // the transcript runs in its own layout effects already calls this render's function.
+  const latest = useRef(props);
+  latest.current = props;
+  const calls = useRef(new Map<string, (...args: unknown[]) => unknown>());
+  const lists = useRef(new Map<string, readonly unknown[]>());
+  const stable: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(props)) {
+    if (typeof value === "function") {
+      let call = calls.current.get(key);
+      if (!call) {
+        call = (...args: unknown[]) =>
+          (latest.current as unknown as Record<string, ((...args: unknown[]) => unknown) | undefined>)[key]?.(...args);
+        calls.current.set(key, call);
+      }
+      stable[key] = call;
+    } else if (Array.isArray(value) && LIST_PROPS.has(key)) {
+      const before = lists.current.get(key);
+      const kept = before && sameList(before, value) ? before : value;
+      lists.current.set(key, kept);
+      stable[key] = kept;
+    } else stable[key] = value;
+  }
+  const source = (stable.sourceRows ?? stable.rows) as readonly AcpmuxRow[];
+  delete stable.sourceRows;
+  const references = useTranscriptReferences(source);
+  return <TranscriptViewMemo {...(stable as VirtualTranscriptProps)} references={references} />;
+}
+
+/// The bare `#N` scopes of `source` (referenceScopes), kept as the last value while every scope
+/// it gives is the one it gave: the same reading of every row before the last (the cache kept its
+/// prefix and evidence) and the same scope for the last row's turn.
+function useTranscriptReferences(source: readonly AcpmuxRow[]): TranscriptReferences {
+  const cache = useRef<ReferenceScopeCache>(undefined as unknown as ReferenceScopeCache);
+  cache.current ??= newReferenceScopeCache();
+  const held = useRef<
+    | { source: readonly AcpmuxRow[]; value: TranscriptReferences; lastTurn?: string; lastScope?: ReferenceScope }
+    | undefined
+  >(undefined);
+  const before = held.current;
+  if (before?.source === source) return before.value;
+  const kept = cache.current;
+  const { generation, prefixLength, evidence } = kept;
+  const scopeOf = referenceScopes(source, kept);
+  const lastId = source.at(-1)?.id;
+  const lastTurn = lastId === undefined ? undefined : kept.rowTurn.get(lastId);
+  const lastScope = lastTurn === undefined ? undefined : scopeOf(lastTurn);
+  const same =
+    before !== undefined &&
+    generation === kept.generation &&
+    prefixLength === kept.prefixLength &&
+    evidence === kept.evidence &&
+    before.lastTurn === lastTurn &&
+    before.lastScope === lastScope;
+  const value = same ? before.value : { cache: kept, scopeOf };
+  held.current = { source, value, lastTurn, lastScope };
+  return value;
+}
+
+function TranscriptView({
   rows: paneRows,
   streams = false,
   earlier,
@@ -967,7 +1073,7 @@ export function VirtualTranscript({
   historyFrom,
   githubRepository,
   fallbackRepository,
-  sourceRows,
+  references,
   find,
   reveal,
   working = false,
@@ -1063,6 +1169,8 @@ export function VirtualTranscript({
   /// The client's rows, which still hold the work a closed "Worked for" folds away: where a bare
   /// `#N`'s repository is looked for (conversation/bareReferences.ts). Else `rows`.
   sourceRows?: readonly AcpmuxRow[];
+  /// The bare `#N` scopes of `sourceRows` (VirtualTranscript's `useTranscriptReferences`).
+  references: TranscriptReferences;
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
@@ -1094,6 +1202,8 @@ export function VirtualTranscript({
   /// above the composer. 0 for a scroller below its header.
   topInset?: number;
 }) {
+  // Debug measurement (acpmuxPerf): the transcript's committed renders (perf.ts `renders`).
+  useCountedRender("transcript");
   // The streaming reply's newer text, when the pane has not redrawn for it (streamingRow.ts): that
   // row only, in place, with its version moved on by the chunks it is ahead.
   const live = useStreamingRow(streams);
@@ -1176,12 +1286,10 @@ export function VirtualTranscript({
   // Which repository each row's bare `#N` names, by the transcript's evidence
   // (conversation/bareReferences.ts): one scope object per turn, kept while nothing new is named;
   // a streaming reply reads only its own row again.
-  const referenceCache = useRef(newReferenceScopeCache());
-  const scopeAt = useMemo(() => {
-    const cache = referenceCache.current;
-    const scopeOf = referenceScopes(sourceRows ?? rows, cache);
-    return (index: number) => scopeOf(turnOpener(cache, rows, index));
-  }, [rows, sourceRows]);
+  const scopeAt = useMemo(
+    () => (index: number) => references.scopeOf(turnOpener(references.cache, rows, index)),
+    [rows, references],
+  );
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -4267,3 +4375,5 @@ export function VirtualTranscript({
     </ReadOnlyBoundary>
   );
 }
+
+const TranscriptViewMemo = React.memo(TranscriptView);

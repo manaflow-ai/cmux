@@ -491,7 +491,8 @@ export const MODEL_STUB_PY = fileURLToPath(new URL("../../tests/fixtures/model-s
  * The gateway route's time by hop, from each timed call's Server-Timing (a `hop-s` line after its `hop-t` line; the
  * warm-up is dropped), as p50 ms: the Worker's `auth` and `worker-do`, the team object's `do-wait` and `do-gateway`,
  * then per call `object_hop` (worker-do less the object's spans: the hop into the object and back) and `edge`
- * (curl's TTFB less the Worker's spans: the edge and the network to the Worker). Null when no call carried one.
+ * (curl's TTFB less the Worker's spans: the edge and the network to the Worker), and `untimed`, the counted calls
+ * without all four spans (the p50s cover only `calls`). Null when no call carried them.
  * Pure, for the tests.
  */
 export const hopSpans = (out: string): Record<string, number> | null => {
@@ -511,6 +512,7 @@ export const hopSpans = (out: string): Record<string, number> | null => {
   const of = (f: (c: { ttfb: number; spans: Record<string, number> }) => number) => p50(timed.map(f));
   return {
     calls: timed.length,
+    untimed: calls.length - 1 - timed.length,
     auth: of((c) => c.spans.auth!),
     "worker-do": of((c) => c.spans["worker-do"]!),
     "do-wait": of((c) => c.spans["do-wait"]!),
@@ -1471,7 +1473,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             // its timing line as `hop-s <value>`; the stub sends none.
             const loop = (auth: string, url: string) =>
               `h=$(mktemp); for i in $(seq 0 ${n}); do curl -sS -o /dev/null -D "$h" -m 30 ${auth} -w 'hop-t %{http_code} %{time_starttransfer} %{time_total}' ${url}; echo " $?"; ` +
-              `tr -d '\\r' < "$h" | sed -n 's/^[Ss]erver-[Tt]iming: */hop-s /p'; done; rm -f "$h"`;
+              `tr -d '\\r' < "$h" | awk 'tolower($0) ~ /^server-timing:/ { sub(/^[^:]*:[ \\t]*/, ""); print "hop-s " $0 }'; done; rm -f "$h"`;
             const via = await exec(`. ${VM_MODEL_PLANE_ENV} && ${loop(`-H "Authorization: Bearer $OPENAI_API_KEY"`, `"$OPENAI_BASE_URL/models"`)}`, 300_000);
             const direct = await gwExec!(loop("", shq(`${stubUrl}/v1/models`)), 300_000);
             const a = hopTimes(via.stdout, n);
@@ -1482,7 +1484,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               value: null,
               // The whole result, so the run's summary keeps it (the job uploads no artifact).
               detail: `the route adds ${result.added_ms.ttfb_p50} ms TTFB at p50` +
-                (result.by_hop_p50 ? `, the team object's own hop ${result.by_hop_p50.object_hop} ms` : " (no Server-Timing came back)") +
+                (result.by_hop_p50
+                  ? `, the team object's own hop ${result.by_hop_p50.object_hop} ms` +
+                    (result.by_hop_p50.untimed ? ` (over ${result.by_hop_p50.calls} calls; ${result.by_hop_p50.untimed} came back without Server-Timing)` : "")
+                  : " (no Server-Timing came back)") +
                 `; ${JSON.stringify(result)}`,
             };
           });

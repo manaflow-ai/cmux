@@ -9,6 +9,19 @@ public nonisolated enum AgentPaneComposerRing: String, Sendable, Hashable, CaseI
     case planUsage
 }
 
+/// What the composer's mic dictates with (agentPane.dictationSource): cmux's own dictation, or an app the person already dictates with (design/composer-dictation.md). Leo, 2026-11-07: "you can optionally have it be like, oh, you use Claude's thing, or ChatGPT's thing ... Or, like, maybe you can map the button to that thing, perhaps?"
+public nonisolated enum AgentPaneDictationSource: String, Sendable, Hashable, CaseIterable {
+    /// cmux's own dictation, as before.
+    case cmux
+    /// macOS Dictation, into the composer.
+    case macos
+    case chatgpt
+    case claude
+    case gemini
+    case wisprFlow
+    case superwhisper
+}
+
 /// How the composer and sent messages show attachments (agentPane.attachmentView). Only the look: a draft's text, its attachments and their order are the same in all.
 public nonisolated enum AgentPaneAttachmentView: String, Sendable, Hashable, CaseIterable {
     /// Each attachment in the text where it was added, as Messages does.
@@ -17,12 +30,4 @@ public nonisolated enum AgentPaneAttachmentView: String, Sendable, Hashable, Cas
     case strip
     /// In the text and in the row too, so every attachment shows in one place with its remove (Leo, 2026-10-24: "ALSO show the top displayed attachments alongside the inline attachments").
     case both
-}
-
-/// Where a new chat runs when its composer picks nothing (agentPane.newChatsIn); the page decides (runLocationDefault.ts). Leo, 2026-10-31: "whenever i start a chat it should be able to send me to cloud autommatically".
-public nonisolated enum AgentPaneNewChatPlace: String, Sendable, Hashable, CaseIterable {
-    /// This Mac, as before.
-    case local
-    /// The person's own Cloud machine (a free one of theirs, else a new one).
-    case cloud
 }

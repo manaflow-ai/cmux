@@ -11,6 +11,12 @@ extension AgentPaneComposerSetting {
     /// `agentPane.showDictation`.
     public nonisolated static let showDictationPath = ["agentPane", "showDictation"]
     public nonisolated static let showDictationDefault = true
+    /// `agentPane.dictationSource`: What the composer's mic dictates with (agentPane.dictationSource): cmux's own dictation, or an app the person already dictates with (design/composer-dictation.md). Leo, 2026-11-07: "you can optionally have it be like, oh, you use Claude's thing, or ChatGPT's thing ... Or, like, maybe you can map the button to that thing, perhaps?"
+    public nonisolated static let dictationSourcePath = ["agentPane", "dictationSource"]
+    public nonisolated static let dictationSourceDefault: AgentPaneDictationSource = .cmux
+    /// `agentPane.dictationShortcut`: The chord the mic sends for an app source, such as ctrl+opt+space, when the person bound the app to one other than its default; empty uses the app's. AgentPaneDictationShortcut parses it.
+    public nonisolated static let dictationShortcutPath = ["agentPane", "dictationShortcut"]
+    public nonisolated static let dictationShortcutDefault = ""
     /// `agentPane.spellChecking`.
     public nonisolated static let spellCheckingPath = ["agentPane", "spellChecking"]
     public nonisolated static let spellCheckingDefault = false
@@ -66,6 +72,34 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 kind: .toggle,
                 default: .bool(AgentPaneComposerSetting.showDictationDefault),
                 keywords: ["dictation", "microphone", "mic", "voice", "speech", "composer", "agent", "new tab"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.dictationSourcePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.dictationSource", "Dictate With"),
+                help: SettingsText.keyed("settings.agentPane.dictationSource.help", "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut."),
+                kind: .choice([
+                    SettingChoice(AgentPaneDictationSource.cmux.rawValue, SettingsText.keyed("settings.choice.dictationSourceCmux", "cmux")),
+                    SettingChoice(AgentPaneDictationSource.macos.rawValue, SettingsText.keyed("settings.choice.dictationSourceMacos", "macOS Dictation")),
+                    SettingChoice(AgentPaneDictationSource.chatgpt.rawValue, SettingsText.keyed("settings.choice.dictationSourceChatgpt", "ChatGPT")),
+                    SettingChoice(AgentPaneDictationSource.claude.rawValue, SettingsText.keyed("settings.choice.dictationSourceClaude", "Claude")),
+                    SettingChoice(AgentPaneDictationSource.gemini.rawValue, SettingsText.keyed("settings.choice.dictationSourceGemini", "Gemini")),
+                    SettingChoice(AgentPaneDictationSource.wisprFlow.rawValue, SettingsText.keyed("settings.choice.dictationSourceWisprFlow", "Wispr Flow")),
+                    SettingChoice(AgentPaneDictationSource.superwhisper.rawValue, SettingsText.keyed("settings.choice.dictationSourceSuperwhisper", "Superwhisper")),
+                ]),
+                default: .string(AgentPaneComposerSetting.dictationSourceDefault.rawValue),
+                keywords: ["dictation", "dictate", "microphone", "mic", "voice", "speech", "chatgpt", "claude", "gemini", "wispr", "flow", "superwhisper", "macos", "composer"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.dictationShortcutPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.dictationShortcut", "Dictation App Shortcut"),
+                help: SettingsText.keyed("settings.agentPane.dictationShortcut.help", "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default."),
+                kind: .text,
+                default: .string(AgentPaneComposerSetting.dictationShortcutDefault),
+                keywords: ["dictation", "shortcut", "hotkey", "key", "chatgpt", "claude", "gemini", "wispr", "flow", "superwhisper"]
             ),
             SettingDescriptor(
                 AgentPaneComposerSetting.spellCheckingPath,

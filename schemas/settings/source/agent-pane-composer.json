@@ -105,6 +105,118 @@
           ]
         },
         {
+          "key": "agentPane.dictationSource",
+          "note": "What the composer's mic dictates with (agentPane.dictationSource): cmux's own dictation, or an app the person already dictates with (design/composer-dictation.md). Leo, 2026-11-07: \"you can optionally have it be like, oh, you use Claude's thing, or ChatGPT's thing ... Or, like, maybe you can map the button to that thing, perhaps?\"",
+          "title": {
+            "key": "settings.agentPane.dictationSource",
+            "text": "Dictate With"
+          },
+          "help": {
+            "key": "settings.agentPane.dictationSource.help",
+            "text": "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "cmux",
+              "title": {
+                "key": "settings.choice.dictationSourceCmux",
+                "text": "cmux"
+              },
+              "note": "cmux's own dictation, as before."
+            },
+            {
+              "value": "macos",
+              "title": {
+                "key": "settings.choice.dictationSourceMacos",
+                "text": "macOS Dictation"
+              },
+              "note": "macOS Dictation, into the composer."
+            },
+            {
+              "value": "chatgpt",
+              "title": {
+                "key": "settings.choice.dictationSourceChatgpt",
+                "text": "ChatGPT"
+              }
+            },
+            {
+              "value": "claude",
+              "title": {
+                "key": "settings.choice.dictationSourceClaude",
+                "text": "Claude"
+              }
+            },
+            {
+              "value": "gemini",
+              "title": {
+                "key": "settings.choice.dictationSourceGemini",
+                "text": "Gemini"
+              }
+            },
+            {
+              "value": "wisprFlow",
+              "title": {
+                "key": "settings.choice.dictationSourceWisprFlow",
+                "text": "Wispr Flow"
+              }
+            },
+            {
+              "value": "superwhisper",
+              "title": {
+                "key": "settings.choice.dictationSourceSuperwhisper",
+                "text": "Superwhisper"
+              }
+            }
+          ],
+          "default": "cmux",
+          "keywords": [
+            "dictation",
+            "dictate",
+            "microphone",
+            "mic",
+            "voice",
+            "speech",
+            "chatgpt",
+            "claude",
+            "gemini",
+            "wispr",
+            "flow",
+            "superwhisper",
+            "macos",
+            "composer"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneDictationSource"
+          }
+        },
+        {
+          "key": "agentPane.dictationShortcut",
+          "note": "The chord the mic sends for an app source, such as ctrl+opt+space, when the person bound the app to one other than its default; empty uses the app's. AgentPaneDictationShortcut parses it.",
+          "title": {
+            "key": "settings.agentPane.dictationShortcut",
+            "text": "Dictation App Shortcut"
+          },
+          "help": {
+            "key": "settings.agentPane.dictationShortcut.help",
+            "text": "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "dictation",
+            "shortcut",
+            "hotkey",
+            "key",
+            "chatgpt",
+            "claude",
+            "gemini",
+            "wispr",
+            "flow",
+            "superwhisper"
+          ]
+        },
+        {
           "key": "agentPane.spellChecking",
           "title": {
             "key": "settings.agentPane.spellChecking",
