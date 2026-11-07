@@ -4,6 +4,7 @@
 d7167cb6, 45845b2d) each made `swift test` red on every pull request into it.
 """
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -70,6 +71,53 @@ class PullRequestScope(unittest.TestCase):
     def check(self, *args):
         return subprocess.run(["bash", str(self.root / "scripts/cmux-next/check-app-ffi-pin.sh"), *args],
                               env=self.env, capture_output=True, text=True)
+
+    def test_a_valid_canonical_pin_passes(self):
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_pin_that_is_not_canonical_fails_naming_the_reason(self):
+        # The check reads the pin only through scripts/ci/app_ffi_pin.py: a pin file off its one format, or a
+        # Package.swift with anything but its one loader block, fails with the reader's reason.
+        good = app_ffi_pin.render(self.pinned, CHECKSUM)
+        url = json.loads(good)["url"]
+        pin_cases = (
+            (json.dumps({"url": url, "checksum": CHECKSUM, "extra": 1}) + "\n", "must be exactly"),
+            (good.rstrip("\n"), "is not in its one format"),
+            ("not json\n", "is not JSON"),
+        )
+        for text, why in pin_cases:
+            with self.subTest(why=why):
+                self.write("Packages/macOS/CmuxNext/app-ffi-pin.json", text)
+                result = self.check()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("error: no canonical cmux-app-ffi pin in ", result.stderr)
+                self.assertIn(why, result.stderr)
+        self.pin(self.pinned)
+        manifest_cases = (
+            (MANIFEST + 'let note = """\n"""\n', "has '\"\"\"'"),
+            (MANIFEST + '.target(name: "CCmuxAppFFI", path: "Shim"),\n', "CCmuxAppFFI"),
+        )
+        for text, why in manifest_cases:
+            with self.subTest(why=why):
+                self.write("Packages/macOS/CmuxNext/Package.swift", text)
+                result = self.check()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("does not read the pin through its one loader block", result.stderr)
+                self.assertIn(why, result.stderr)
+
+    def test_a_base_whose_pin_is_not_canonical_pins_nothing(self):
+        # The base's pin is read the same way: a base that is not canonical never counts as pinning this sha, so
+        # source drift is this change's own error, as with a base that pins nothing.
+        self.write("Packages/macOS/CmuxNext/app-ffi-pin.json", app_ffi_pin.render(self.pinned, CHECKSUM) + "\n")
+        self.write(SOURCE, "v2\n")
+        base = self.commit("a base whose pin is not canonical, with FFI drift")
+        self.pin(self.pinned)
+        self.write("README.md", "unrelated\n")
+        self.commit("the pull request")
+        result = self.check("--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("error: the app FFI sources changed since the pinned source", result.stderr)
 
     def test_base_drift_is_a_note_for_a_pull_request_that_does_not_touch_ffi(self):
         self.write(SOURCE, "v2\n")

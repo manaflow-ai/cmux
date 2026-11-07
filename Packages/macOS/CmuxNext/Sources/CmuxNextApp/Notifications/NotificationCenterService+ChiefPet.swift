@@ -14,20 +14,12 @@ extension NotificationCenterService {
         guard desktopPostingEnabled, let services, chiefPet == nil else { return }
         let pet = ChiefPetRoutes(services: services).makePet()
         chiefPet = pet
+        // The mini stands for the Chief, or the chat Show in Mini picked (`ChiefPetMini`).
+        let mini = services.chiefPetMini
         pet.start(enabled: { [weak settings] in settings?.snapshot.homeChiefPetEnabled ?? false },
                   mascot: { [weak settings] in settings?.snapshot.homeChiefPetMascot ?? "" },
-                  upload: { [weak services] in services?.wornUpload(of: nil)?.file },
-                  state: { Self.chiefPetState(ChiefSidebar.shared.status.activity) })
-    }
-
-    /// The Chief's sidebar status as the pet draws it: working, waiting on you, failed, else idle.
-    nonisolated static func chiefPetState(_ activity: StatusIndicatorState) -> ChiefPetState {
-        switch activity {
-        case .working, .busy: .working
-        case .waiting: .waiting
-        case .error: .error
-        case .idle, .paused, .success: .idle
-        }
+                  upload: { [weak services] in mini.upload { services?.wornUpload(of: nil)?.file } },
+                  state: { mini.state { ChiefSidebar.shared.status.activity } }, home: { mini.home() })
     }
 
     /// An arrival that stays unread goes to the Chief pet when it would alert here, by a banner's

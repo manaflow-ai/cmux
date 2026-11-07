@@ -24,15 +24,19 @@ public struct AgentSessionShareCreateRequest: DaemonRequest {
     public var ttlSecs: UInt64?
     public var uses: UInt32?
     public var ownerToken: String?
+    /// What the link's guests may do (`view` or `talk`); nil leaves the daemon's default and is left
+    /// out of the frame, since a daemon older than link roles refuses an unknown field.
+    public var role: String?
 
     public init(surface: UInt64, session: String? = nil, createId: String? = nil, ttlSecs: UInt64? = nil, uses: UInt32? = nil,
-                ownerToken: String? = nil) {
+                ownerToken: String? = nil, role: String? = nil) {
         self.surface = surface
         self.session = session
         self.createId = createId
         self.ttlSecs = ttlSecs
         self.uses = uses
         self.ownerToken = ownerToken
+        self.role = role
     }
 }
 
@@ -215,12 +219,14 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
     public var guests: [AgentSessionShareGuest]
     /// The cmux accounts invited to the share; empty from a daemon older than invites.
     public var invitees: [AgentSessionShareInvitee]
+    /// The link's role (`view` or `talk`); nil from a daemon older than link roles.
+    public var role: String?
 
     public var id: String { shareId }
     public var isLive: Bool { state == "active" || state == "provisioning" }
 
     enum CodingKeys: String, CodingKey {
-        case state, session, surface, room, guests, invitees
+        case state, session, surface, room, guests, invitees, role
         case shareId = "share_id"
         case createdAt = "created_at"
         case createId = "create_id"
@@ -232,7 +238,7 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
 
     public init(shareId: String, state: String, session: String, surface: UInt64, createdAt: UInt64 = 0, createId: String? = nil,
                 expiresAt: UInt64 = 0, expiresInSecs: UInt64 = 0, usesLeft: UInt32 = 0, room: String? = nil, inviteUrl: String? = nil,
-                guests: [AgentSessionShareGuest] = [], invitees: [AgentSessionShareInvitee] = []) {
+                guests: [AgentSessionShareGuest] = [], invitees: [AgentSessionShareInvitee] = [], role: String? = nil) {
         self.shareId = shareId
         self.state = state
         self.session = session
@@ -246,6 +252,7 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         self.inviteUrl = inviteUrl
         self.guests = guests
         self.invitees = invitees
+        self.role = role
     }
 
     public init(from decoder: any Decoder) throws {
@@ -263,6 +270,7 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         inviteUrl = try c.decodeIfPresent(String.self, forKey: .inviteUrl)
         guests = try c.decode([AgentSessionShareGuest].self, forKey: .guests)
         invitees = try c.decodeIfPresent([AgentSessionShareInvitee].self, forKey: .invitees) ?? []
+        role = try c.decodeIfPresent(String.self, forKey: .role)
     }
 }
 
