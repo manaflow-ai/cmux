@@ -322,6 +322,7 @@ import {
   offersCompact,
   resumeThrough,
   answerThrough,
+  CHAT_CHANGED,
   type TurnActions,
 } from "./conversation/turnActions";
 import {
@@ -359,7 +360,11 @@ import {
   EARLIER_PLAN,
   withEarlierPlan,
   samePlanEntries as sameEntries,
+  waitingAsks,
+  answersSent,
 } from "./conversation/turns";
+import { PendingAsks } from "./conversation/PendingAsks";
+import { bottomAsks, dismissAsk, dismissedAsks, shownAsks } from "./conversation/waitingAskStore";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
@@ -2581,6 +2586,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     shownSessionId,
     callRelease,
   ]);
+  // The questions the agent asked the person that still wait on them once another turn came after
+  // (turns.ts `waitingAsks`): pinned in the asks stack above the composer (PendingAsks.tsx) until
+  // answered, said anything after, or dismissed. Leo, 2026-11-06, on a question another agent's
+  // message pushed out of reach: "perhaps persistent at the bottom".
+  const waitingAskRows = useMemo(
+    () =>
+      childRows || chatPresentation === "messages" || !lastTurns.current
+        ? NO_ROWS
+        : waitingAsks(lastTurns.current.turns),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the view turnRowsShown shaped, read from its ref
+    [turnRowsShown, childRows, chatPresentation],
+  );
+  const [askDismissals, setAskDismissals] = useState(() => ({
+    sessionId: shownSessionId,
+    keys: dismissedAsks(shownSessionId),
+  }));
+  if (askDismissals.sessionId !== shownSessionId)
+    setAskDismissals({ sessionId: shownSessionId, keys: dismissedAsks(shownSessionId) });
+  const pinnedAsks = useMemo(() => shownAsks(waitingAskRows, askDismissals.keys), [waitingAskRows, askDismissals]);
+  const dismissPinnedAsk = useCallback(
+    (key: string) => setAskDismissals({ sessionId: shownSessionId, keys: dismissAsk(shownSessionId, key) }),
+    [shownSessionId],
+  );
   // Every message other sessions sent that the agent has not read yet, the steers its running turn
   // has not taken and the messages queued behind it, is in one group at the end
   // (conversation/pendingMessages.ts), never a loose list of rows and never composer-queue rows. A
@@ -3296,6 +3324,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setNextStepFire({ fire });
     return () => setNextStepFire((now) => (now?.fire === fire ? undefined : now));
   }, []);
+  // A clicked answer's send boundary, read from the view drawn at the click (turns.ts `answersSent`).
+  const answersSentNow = useCallback(
+    (key: string, text: string) => (lastTurns.current ? answersSent(lastTurns.current.turns, key, text) : undefined),
+    [],
+  );
   // A background command's Bash call in the transcript (`showToolRow` below, which needs what the
   // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat),
   // and a turn's waterfall bar opens (conversation/TurnWaterfall.tsx).
@@ -3408,11 +3441,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
       ...(restartChat && {
         nextStepKey,
+        answersSent: answersSentNow,
+        // A pane that moved to another chat since sends nothing there, and says so on the card.
         answer: (
           (owner: string) => (text: string) =>
             restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
               ? answerThrough(callNative)(text)
-              : Promise.resolve()
+              : Promise.reject(new Error(CHAT_CHANGED))
         )(restartChat),
       }),
       // A context-full failure's Compact sends the agent's own /compact as Continue sends its prompt,
@@ -3563,6 +3598,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.commands,
       queueRunsNext,
       nextStepKey,
+      answersSentNow,
     ],
   );
   // Each turn's checkpoint pair, named by the row that starts the turn: the checkpoints acpmux
@@ -9197,13 +9233,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.permissionGroups?.supported &&
     (snapshot.permissionGroups.groups.length > 0 || snapshot.permissionGroups.error),
   );
-  const hasBottomAsk = Boolean(
+  const liveBottomAsk = Boolean(
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
     hasPermissionGroups ||
     individualPermission ||
     secret ||
     toolCards.length > 0,
   );
+  // Pinned questions join the stack but never take the composer's keys (waitingAskStore.ts).
+  const bottomStack = bottomAsks(liveBottomAsk, pinnedAsks.length);
+  const hasBottomAsk = bottomStack.holdsKeys;
   // A folder confirmation can be pending while the New Tab stays mounted. Keep the same ask in
   // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
   // the ask there would strand the prompt with no Use or Cancel action.
@@ -9266,8 +9305,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         answers={answersTrust}
       />
     ) : undefined;
-  const asks = hasBottomAsk ? (
+  const asks = bottomStack.shows ? (
     <div className="acpmux-permission acpmux-asks-stack">
+      {pinnedAsks.length > 0 && (
+        <PendingAsks
+          asks={pinnedAsks}
+          onAnswer={turnActions.answer}
+          registerKey={turnActions.nextStepKey}
+          answersSent={turnActions.answersSent}
+          onDismiss={dismissPinnedAsk}
+        />
+      )}
       {trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted") && (
         <TrustAsk
           ask={trustAsk.ask}
