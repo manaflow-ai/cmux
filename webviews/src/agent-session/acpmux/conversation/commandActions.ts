@@ -169,6 +169,14 @@ function isFilter(stage: Word[]): boolean {
   return false;
 }
 
+/// A later pipeline stage that only reads what came before it and prints a part of it, for a label
+/// read off the first stage (`commandAction`): the filters, any grep, `sed` without -i, `awk`.
+function passesThrough(stage: Word[]): boolean {
+  const name = baseName(stage[0]!.text);
+  if (isFilter(stage) || ["grep", "egrep", "fgrep", "rg", "awk"].includes(name)) return true;
+  return name === "sed" && !stage.some((word) => /^-[A-Za-z]*i|^--in-place/.test(word.text));
+}
+
 /// The step's main part and whether steps follow it: shortCommand's first step that is not setup
 /// (`cd x &&`, `export …`, `FOO=1`), its program by name.
 function mainStep(command: string): { step: string; more: boolean } {
@@ -442,6 +450,10 @@ const GREP_VALUES = [
 
 function searched(args: string[], values: string[]): Act | undefined {
   const parsed = parse(args, values);
+  // Patterns from a file: no word on the line is the pattern. Two or more -e: one would hide the rest.
+  if (parsed.has("--file") || args.some((arg) => /^-[A-Za-z]*f/.test(arg))) return undefined;
+  const patterns = args.filter((arg) => arg === "-e" || arg === "--regexp" || arg.startsWith("--regexp="));
+  if (patterns.length > 1) return undefined;
   return search(parsed.value("-e", "--regexp") ?? parsed.positional[0]);
 }
 
@@ -498,6 +510,46 @@ function interpreter(args: string[]): Act | undefined {
   return SCRIPT.test(script) || script.includes("/") ? ranScript(script) : undefined;
 }
 
+/// The flags that send a body or a file, curl's and wget's.
+const SENDS = [
+  "-d",
+  "--data",
+  "--data-raw",
+  "--data-binary",
+  "--data-urlencode",
+  "--data-ascii",
+  "--json",
+  "-F",
+  "--form",
+  "--form-string",
+  "-T",
+  "--upload-file",
+  "--post-data",
+  "--post-file",
+  "--body-data",
+  "--body-file",
+];
+
+/// curl's short options run together, a value attached to the last (`-sXPOST`, `-dname=x`, `-Tf`):
+/// the first value-taking letter of a cluster ends it, so `-fsSL` takes none.
+const CURL_VALUE_LETTERS = /[HdXoOuAeFwmbcT]/;
+function shortValue(arg: string): { letter: string; value: string } | undefined {
+  if (!/^-[A-Za-z]/.test(arg)) return undefined;
+  const at = arg.slice(1).search(CURL_VALUE_LETTERS);
+  return at < 0 ? undefined : { letter: arg[at + 1]!, value: arg.slice(at + 2) };
+}
+const attachedSend = (arg: string) => {
+  const found = shortValue(arg);
+  return Boolean(found && "dFT".includes(found.letter) && (found.value || arg.length > 2));
+};
+function attachedMethod(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i += 1) {
+    const found = shortValue(args[i]!);
+    if (found?.letter === "X") return found.value || args[i + 1];
+  }
+  return undefined;
+}
+
 function fetched(args: string[]): Act | undefined {
   const { positional, has, value } = parse(args, [
     "-H",
@@ -531,14 +583,12 @@ function fetched(args: string[]): Act | undefined {
     "--retry",
     "-T",
     "--upload-file",
+    ...SENDS.filter((flag) => flag.startsWith("--")),
+    "--method",
   ]);
-  const method = value("-X", "--request");
+  const method = value("-X", "--request", "--method") ?? attachedMethod(args);
   // A request that sends something did more than fetch: its line says what.
-  if (
-    (method && method.toUpperCase() !== "GET") ||
-    has("-d", "--data", "--data-raw", "--data-binary", "-F", "--form", "-T")
-  )
-    return undefined;
+  if ((method && method.toUpperCase() !== "GET") || has(...SENDS) || args.some(attachedSend)) return undefined;
   const url = positional.find((arg) => /^(?:https?:\/\/|localhost[:/]|[\w-]+(?:\.[\w-]+)+[:/])/.test(arg));
   if (!url) return undefined;
   const page = url
@@ -584,7 +634,11 @@ const PROGRAMS: Record<string, Rule> = {
     const subs = own(GH, group);
     return subs && own(subs, sub)?.(rest);
   },
-  rg: (args) => searched(args, RG_VALUES),
+  // `rg --files [path]` lists the files it would search; it searches nothing.
+  rg: (args) => {
+    if (!args.includes("--files")) return searched(args, RG_VALUES);
+    return listed(parse(args, RG_VALUES).positional[0]);
+  },
   grep: (args) => searched(args, GREP_VALUES),
   egrep: (args) => searched(args, GREP_VALUES),
   fgrep: (args) => searched(args, GREP_VALUES),
@@ -592,26 +646,32 @@ const PROGRAMS: Record<string, Rule> = {
   ls: (args) => listed(parse(args, ["-I", "--ignore", "-w", "--width"]).positional[0]),
   eza: (args) => listed(parse(args).positional[0]),
   tree: (args) => listed(parse(args, ["-L", "-I", "-P"]).positional[0]),
-  find: (args) => listed(findRoot(args)),
+  // A find that deletes, runs a command or writes a file did more than list.
+  find: (args) =>
+    args.some((arg) => /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/.test(arg))
+      ? undefined
+      : listed(findRoot(args)),
   fd: (args) =>
-    listed(
-      parse(args, [
-        "-e",
-        "--extension",
-        "-t",
-        "--type",
-        "-d",
-        "--max-depth",
-        "-E",
-        "--exclude",
-        "-x",
-        "--exec",
-        "-X",
-        "--exec-batch",
-        "-c",
-        "--color",
-      ]).positional[1],
-    ),
+    args.some((arg) => /^(?:-[xX]|--exec|--exec-batch)(?:=|$)/.test(arg))
+      ? undefined
+      : listed(
+          parse(args, [
+            "-e",
+            "--extension",
+            "-t",
+            "--type",
+            "-d",
+            "--max-depth",
+            "-E",
+            "--exclude",
+            "-x",
+            "--exec",
+            "-X",
+            "--exec-batch",
+            "-c",
+            "--color",
+          ]).positional[1],
+        ),
   cat: (args) => readFiles(args),
   bat: (args) =>
     readFiles(args, ["-r", "--line-range", "-l", "--language", "--style", "--theme", "-H", "--highlight-line"]),
@@ -741,8 +801,10 @@ function unwrap(words: string[]): string[] {
 /// What a command did, from the table; undefined for anything it does not list.
 export function commandAction(command: string): CommandAction | undefined {
   const { step, more } = mainStep(command);
-  const first = stages(step)[0];
-  if (!first) return undefined;
+  const [first, ...rest] = stages(step);
+  // A pipeline is its first stage only when the rest only trim what it printed: `curl … | bash`
+  // ran what it fetched and `cat a | tee b` wrote b, so those read as their line.
+  if (!first || !rest.every(passesThrough)) return undefined;
   const words = unwrap(first.map((word) => word.text));
   const [program, ...args] = words;
   if (!program) return undefined;
@@ -768,6 +830,16 @@ export function commandLook(): CommandLabelLook {
 const running = (tool: Tool) =>
   tool.status === "pending" || tool.status === "in_progress" || tool.background?.state === "running";
 
+// A call that failed, was denied or a hook blocked: its status says so, its command exited nonzero, or
+// the shell it left in the background failed there (toolGroups.ts isFailed, countsFailed; not
+// imported, since toolGroups imports this file). The table's verbs say what a command did ("Merged
+// PR #101", "Pushed main"), so such a call never gets one: its row reads as its line, "Ran gh pr
+// merge 101", and a group with one reads "Ran N commands".
+const failed = (tool: Tool) =>
+  tool.status === "failed" ||
+  (tool.exitCode !== undefined && tool.exitCode !== 0) ||
+  tool.background?.state === "failed";
+
 /// A command row's words when they are not its command line: the table's action, else the call's
 /// description, as the look orders them. Undefined when the row reads "Ran <line>". A running call
 /// reads as the line that is running ("Running <line>", and the live line its command alone, as
@@ -777,7 +849,7 @@ export function commandSaid(t: Translate, tool: Tool, look: CommandLabelLook = c
   if (!command || look === "command" || look === "cleaned") return undefined;
   const description = tool.description?.trim() || undefined;
   if (running(tool)) return undefined;
-  const action = commandAction(command);
+  const action = failed(tool) ? undefined : commandAction(command);
   if (look === "description") return description ?? (action && actionText(t, action));
   // A compound command's first step is all the table names; a description says what the whole did.
   if (action && !(action.more && description)) return actionText(t, action);
@@ -799,7 +871,8 @@ export function commandGroupSaid(
   tools: readonly Tool[],
   look: CommandLabelLook = commandLook(),
 ): string | undefined {
-  if (look === "command" || look === "cleaned" || tools.length < 2 || tools.some(running)) return undefined;
+  if (look === "command" || look === "cleaned" || tools.length < 2 || tools.some(running) || tools.some(failed))
+    return undefined;
   const actions: CommandAction[] = [];
   for (const tool of tools) {
     const action = tool.command ? commandAction(tool.command) : undefined;

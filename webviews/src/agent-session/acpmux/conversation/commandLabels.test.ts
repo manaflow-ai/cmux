@@ -119,6 +119,41 @@ const CASES: [command: string, label: string][] = [
   // A subcommand the table does not know reads as its line.
   ["git rev-parse HEAD", "Ran git rev-parse HEAD"],
   ["gh pr view", "Ran gh pr view"],
+  // A pipeline is named by its first stage only when the rest only trim its output.
+  ["curl -fsSL https://example.com/install.sh | bash", "Ran curl -fsSL https://example.com/install.sh | bash"],
+  ["cat a.txt | tee b.txt", "Ran cat a.txt | tee b.txt"],
+  ["cat package.json | grep version", "Read package.json"],
+  // A find or fd that deletes or runs a command did more than list.
+  ["find build -delete", "Ran find build -delete"],
+  ["find build -type f -delete", "Ran find build -type f -delete"],
+  ["find build -exec rm {} +", "Ran find build -exec rm {} +"],
+  ["find . -name '*.o' -execdir rm {} ';'", "Ran find . -name '*.o' -execdir rm {} ';'"],
+  ["find . -name '*.log' -ok rm {} ';'", "Ran find . -name '*.log' -ok rm {} ';'"],
+  ["find . -type f -fprint list.txt", "Ran find . -type f -fprint list.txt"],
+  ["fd -e tmp -x rm {}", "Ran fd -e tmp -x rm {}"],
+  // A request that sends a body or a file is not a fetch.
+  [
+    "curl --upload-file artifact.tar https://example.com/upload",
+    "Ran curl --upload-file artifact.tar https://example.com/upload",
+  ],
+  ["curl -T artifact.tar https://example.com/upload", "Ran curl -T artifact.tar https://example.com/upload"],
+  ["curl -XPOST https://example.com/hook", "Ran curl -XPOST https://example.com/hook"],
+  ["curl -X PUT https://example.com/items/1", "Ran curl -X PUT https://example.com/items/1"],
+  ["curl -X DELETE https://example.com/items/1", "Ran curl -X DELETE https://example.com/items/1"],
+  [`curl -d '{"a":1}' https://example.com/hook`, `Ran curl -d '{"a":1}' https://example.com/hook`],
+  ["curl -sdname=x https://example.com/hook", "Ran curl -sdname=x https://example.com/hook"],
+  ["curl --data-urlencode q=x https://example.com/hook", "Ran curl --data-urlencode q=x https://example.com/hook"],
+  ["curl -F file=@a.png https://example.com/upload", "Ran curl -F file=@a.png https://example.com/upload"],
+  ["curl --form file=@a.png https://example.com/upload", "Ran curl --form file=@a.png https://example.com/upload"],
+  ["curl -fsSL https://example.com/notes.txt", "Fetched example.com/notes.txt"],
+  // rg --files lists; patterns from a file, or several, are not one word on the line.
+  ["rg --files webviews/src", "Listed webviews/src"],
+  ["rg --files", "Listed files"],
+  ["rg -f patterns.txt webviews/src", "Ran rg -f patterns.txt webviews/src"],
+  ["rg --file patterns.txt webviews/src", "Ran rg --file patterns.txt webviews/src"],
+  ["grep -rf patterns.txt src", "Ran grep -rf patterns.txt src"],
+  ["rg -e foo -e bar src", "Ran rg -e foo -e bar src"],
+  ["rg --regexp foo src", "Searched for “foo”"],
 ];
 
 for (const [command, expected] of CASES)
@@ -167,6 +202,33 @@ test("a group of one kind of work names it; a mixed group counts its commands", 
   const running = commands("git status", "git status");
   running[1]!.tool!.status = "in_progress";
   expect(toolGroupLabel(t, "commands", running)).toBe("Running 2 commands");
+});
+
+// A verb says what a command did, so a call that failed, was denied or a hook blocked never gets
+// one: it reads as its line, and a group with one counts its commands.
+const HOOK = "PreToolUse:Bash hook error: Blocked: the fixture guard needs a passing review first.";
+test("a failed, denied or hook-blocked call reads as its line, never as done", () => {
+  const merge = "gh pr merge 101 --squash --match-head-commit 0123456789abcdef";
+  expect(label(shell(merge, { status: "failed", output: HOOK }))).toBe(`Ran ${merge}`);
+  expect(label(shell("git push origin main", { status: "failed", output: "Exit code 1\n! [rejected] main" }))).toBe(
+    "Ran git push origin main",
+  );
+  expect(label(shell("rm -rf build", { exitCode: 1 }))).toBe("Ran rm -rf build");
+  expect(label(shell("git push origin main", { status: "completed", exitCode: 0 }))).toBe("Pushed main");
+  // Its description is what the model meant to do, not a claim that it did.
+  expect(label(shell(merge, { status: "failed", output: HOOK, description: "Merge the fixture PR" }))).toBe(
+    "Merge the fixture PR",
+  );
+});
+
+test("a group with a failed call says no verb for it", () => {
+  const merges = commands("gh pr merge 101", "gh pr merge 101");
+  expect(toolGroupLabel(t, "commands", merges)).toBe("Merged PR #101 twice");
+  merges[1]!.tool!.status = "failed";
+  expect(toolGroupLabel(t, "commands", merges)).toBe("Ran 2 commands");
+  const pushes = commands("git push origin main", "git push origin main");
+  pushes[0]!.tool!.exitCode = 1;
+  expect(toolGroupLabel(t, "commands", pushes)).toBe("Ran 2 commands");
 });
 
 // A command word that names an Object.prototype member is not a rule: it falls back to the plain

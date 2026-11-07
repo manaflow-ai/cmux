@@ -134,3 +134,33 @@ test("the split arm keeps out and in on the live line", () => {
     "Using repo: repo grep 3m 2s · ↓ 47.4K out ↑ 2.7M in",
   );
 });
+
+// A verb says what a command did (commandActions.ts), so a merge a hook blocked never reads "Merged
+// PR #101": the row reads as its line, and its failure stays on the row as its status word.
+test("a hook-blocked merge row draws no success verb and keeps its failure", async () => {
+  const { CommandRow } = await import("../src/agent-session/acpmux/conversation/CommandRow");
+  const tool: Tool = {
+    id: "blocked-merge",
+    title: "Bash",
+    kind: "execute",
+    status: "failed",
+    command: "gh pr merge 101 --squash --match-head-commit 0123456789abcdef",
+    output: "PreToolUse:Bash hook error: Blocked: the fixture guard needs a passing review first.",
+  };
+  const html = renderToStaticMarkup(<CommandRow item={{ kind: "tool", text: "Bash", tool }} />);
+  expect(html).not.toContain("Merged");
+  expect(html).toContain("gh pr merge 101");
+  expect(html).toContain(t("tools.blockedByHook"));
+  const rejected = renderToStaticMarkup(
+    <CommandRow
+      item={{
+        kind: "tool",
+        text: "Bash",
+        tool: { ...tool, id: "rejected-push", command: "git push origin main", output: "Exit code 1\n! [rejected]" },
+      }}
+    />,
+  );
+  expect(rejected).not.toContain("Pushed");
+  expect(rejected).toContain("git push origin main");
+  expect(rejected).toContain("Exit 1");
+});
