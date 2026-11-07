@@ -206,9 +206,9 @@ async fn from_agent_must_be_one_short_line() {
     assert!(refused.as_ref().is_err_and(|e| e.contains("fromAgent")), "{refused:?}");
 }
 
-/// A failed turn holds the prompts behind it. The person's wait for the person; agent messages
-/// go in once the chat completes a turn again (coord-deputy held 121 after one "agent process
-/// closed", 2026-10-21, behind every newer message).
+/// A failed turn holds the prompts behind it. Agent messages go in once the chat completes a turn
+/// again (coord-deputy held 121 after one "agent process closed", 2026-10-21, behind every newer
+/// message); the person's waits for its own retry (`PERSON_RETRIES`), so nothing waits for Resume.
 #[tokio::test]
 async fn agent_messages_a_failed_turn_held_go_in_after_the_next_completed_turn() {
     let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
@@ -226,8 +226,10 @@ async fn agent_messages_a_failed_turn_held_go_in_after_the_next_completed_turn()
     loop {
         let attached =
             c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
-        // The turn ends a moment before its failure holds the queue (`finish_turn`).
-        if attached["session"]["turn"].is_null() && attached["session"]["queuePaused"] == true {
+        // The turn ends a moment before its failure holds the queue (`finish_turn`). The hold
+        // retries by itself, so it reads as no pause (review of #36821).
+        if attached["session"]["turn"].is_null() && queue_order(&mut c, &id).await == ["p-me", "p-a", "p-b"] {
+            assert_eq!(attached["session"]["queuePaused"], false, "{attached}");
             break;
         }
         assert!(tokio::time::Instant::now() < deadline, "the queue was never held: {attached}");
