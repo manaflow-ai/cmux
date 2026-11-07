@@ -154,7 +154,8 @@ struct BookmarkBrowserImport {
             }
             let items = bookmarks.map { BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded) }
             do {
-                let undo = try await services.bookmarks.importUndo(sourceKey: profile.id, profile: target)
+                // The folder as the daemon stores it now, before this import replaces it.
+                let undo = Undo(profile: target, sourceKey: profile.id, previous: try await services.bookmarks.routed.sourceDraft(profile.id, profile: target))
                 let counts = try await services.bookmarks.routed.importSource(items, title: Self.folderTitle(profile), sourceKey: profile.id,
                                                                        profile: target)
                 outcome.added += counts.added
@@ -188,11 +189,6 @@ struct BookmarkBrowserImport {
 }
 
 extension BookmarkService {
-    /// How to put one source's folder back as the home daemon stores it now, before its import replaces it.
-    func importUndo(sourceKey: String, profile: String) async throws -> BookmarkBrowserImport.Undo {
-        BookmarkBrowserImport.Undo(profile: profile, sourceKey: sourceKey, previous: try await routed.sourceDraft(sourceKey, profile: profile))
-    }
-
     /// Puts each source's folder back as it was before the import, newest first.
     func undoImport(_ steps: [BookmarkBrowserImport.Undo]) {
         for step in steps.reversed() {
