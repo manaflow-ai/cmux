@@ -15,6 +15,8 @@ import { expect, test } from "bun:test";
 import {
   codeCardHeight,
   hasReplyActions,
+  INLINE_ATTACHMENT_MARGIN,
+  INLINE_FILE_CHIP,
   keepsReplyRoom,
   layoutConversation,
   placeRows,
@@ -690,8 +692,9 @@ test("a sent text file is estimated as its chip, not its long body", () => {
   });
   const long = Array.from({ length: 400 }, (_, index) => `note ${index}`).join("\n");
   const [height] = heightsOf([fileRow(long)]);
-  // Its one typed line and the chip's row: the chip keeps its room.
-  expect(height).toBeCloseTo(padding + lineHeight + 36, 5);
+  // Its chip sits on its typed line (an inline block, `.cv-user__inline-file`): the line is the chip's
+  // 32px and its 2px above and below.
+  expect(height).toBeCloseTo(padding + INLINE_FILE_CHIP.height + 2 * INLINE_ATTACHMENT_MARGIN.y, 5);
   expect(heightsOf([fileRow("one line")])[0]).toBe(height!);
 });
 
@@ -709,4 +712,45 @@ test("a placed paste is estimated as the one body its bubble draws", () => {
   const drawn = parts.map((part) => part.text).join("");
   expect(heightsOf([{ id: "drawn", version: 1, at: 0, kind: "user", text: drawn }])[0]).toBe(height!);
   expect(height!).toBeLessThan(padding + 4 * lineHeight);
+});
+
+// An attachment in a placed prompt's text is an inline block on the text's line, as the bubble's CSS
+// flows it (`.cv-user__inline-content`, `pre-wrap`): a line is as tall as its tallest thumbnail, an
+// image is its own sent size (UserBubble.tsx `sentImageSize`, up to 320px wide), and an image's
+// retained original, which the bubble does not draw, takes no room. At ac67fede each image was a
+// 128px-wide row of its own under the text, and a companion file a chip row too.
+test("a placed image is estimated at its own size, on its text's line", () => {
+  const { lineHeight } = currentChatMetrics();
+  const padding = BUBBLE.oneLine - lineHeight;
+  const { y } = INLINE_ATTACHMENT_MARGIN;
+  const row = (parts: unknown[]) => ({ id: "u", version: 1, at: 0, kind: "user", text: "look", inlineParts: parts });
+  // A 1600x400 screenshot draws 320x80, whole.
+  const wide = { kind: "image", id: "wide", mimeType: "image/png", width: 1600, height: 400, placed: true };
+  expect(heightsOf([row([{ kind: "text", text: "look " }, wide])])[0]).toBeCloseTo(padding + 80 + 2 * y, 5);
+  // A square one with no known size draws 120x120; the words after it share its line.
+  const square = { kind: "image", id: "sq", mimeType: "image/png", blockIndex: 0 };
+  const companion = { kind: "file", name: "shot.heic", uri: "file:///tmp/shot.heic", companionOf: 0 };
+  const [withOriginal] = heightsOf([row([square, companion, { kind: "text", text: " then words" }])]);
+  expect(withOriginal).toBeCloseTo(padding + 120 + 2 * y, 5);
+  expect(heightsOf([row([square, { kind: "text", text: " then words" }])])[0]).toBe(withOriginal!);
+});
+
+test("placed attachments wrap to a new line only when the line is full", () => {
+  const { lineHeight } = currentChatMetrics();
+  const padding = BUBBLE.oneLine - lineHeight;
+  const { y } = INLINE_ATTACHMENT_MARGIN;
+  const image = (id: string) => ({ kind: "image", id, mimeType: "image/png", placed: true });
+  const row = (count: number) => ({
+    id: "u",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: "four",
+    inlineParts: [{ kind: "text", text: "four " }, ...Array.from({ length: count }, (_, index) => image(`i${index}`))],
+  });
+  // Each 120px image is 128px with its margins; at 720px the bubble's text is about 480px wide, so
+  // three fit beside the word and a fourth starts the next line.
+  const tile = 120 + 2 * y;
+  expect(heightsOf([row(3)])[0]).toBeCloseTo(padding + tile, 5);
+  expect(heightsOf([row(4)])[0]).toBeCloseTo(padding + 2 * tile, 5);
 });

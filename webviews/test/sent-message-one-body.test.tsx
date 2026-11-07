@@ -140,6 +140,52 @@ test("Find does not count a text file's body, which draws only as its chip", asy
   expect(bubble.querySelector(".cv-user__more")).toBeNull();
 });
 
+// A prompt whose recorded parts are only its files (direct.ts keeps them for the band) draws its
+// recorded text in the bubble, so Find reads that text. At ac67fede Find read the parts' drawn text,
+// which has no file's words, and found nothing of the typed sentence.
+test("Find reads a legacy prompt's typed text when its parts are only for its file band", async () => {
+  const { findMatches } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const typed = "Please review the quarterly report before Friday";
+  const row = {
+    id: "legacy-files",
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    text: typed,
+    inlineParts: [{ kind: "file", name: "report.pdf", uri: "file:///tmp/report.pdf", mimeType: "application/pdf" }],
+  } as Row;
+  expect(findMatches([row], "quarterly report")).toEqual([{ rowIndex: 0, rowId: "legacy-files", occurrence: 0 }]);
+  const bubble = render(row);
+  expect(bubble.textContent).toContain(typed);
+  // The file draws in the band above the bubble, not in it.
+  expect(bubble.querySelector(".acpmux-file-chip")).toBeNull();
+  expect(host.querySelector(".cv-user__files .acpmux-file-chip")).not.toBeNull();
+});
+
+// A placed prompt's image the composer left in the strip draws in the band, so the bubble joins the
+// words on either side of it as one run; Find reads that same run, not the recorded parts' join.
+test("Find reads a placed prompt's words as joined where a strip image left the bubble", async () => {
+  const { findMatches } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const inlineParts = [
+    { kind: "text", text: "the quick " },
+    { kind: "image", id: "strip", mimeType: "image/png", name: "strip.png" },
+    { kind: "text", text: "brown fox" },
+    { kind: "file", placed: true, name: "notes.txt", mimeType: "text/plain", size: 4, text: "body" },
+  ];
+  const row = {
+    id: "strip-join",
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    text: "the quick \nbrown fox\nbody",
+    inlineParts,
+  } as Row;
+  const bubble = render(row);
+  const drawn = bubble.querySelector("[data-inline-content]")!.textContent!;
+  expect(drawn).toContain("the quick brown fox");
+  expect(findMatches([row], "quick brown")).toEqual([{ rowIndex: 0, rowId: "strip-join", occurrence: 0 }]);
+});
+
 test("a sent text file's chip opens to the body it stored, and closes again", () => {
   // Its body went as a text block with no file behind it (no URI), so the chip is the reader's only
   // way to see what was sent, restored messages included.

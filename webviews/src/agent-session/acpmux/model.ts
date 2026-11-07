@@ -64,12 +64,16 @@ import {
   collapsedPromptHeight,
   drawnBody,
   hasHugeTypedPart,
-  inlineBubbleParts,
   isHugePrompt,
   promptHead,
   recordedBody,
 } from "./conversation/promptCollapse";
 import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
+import { bubbleParts } from "./conversation/bubbleParts";
+import { isPromptMarkdown } from "./conversation/promptMarkdown";
+import { SENT_IMAGE_HEIGHT, sentImageSize, sentImageWidth } from "./conversation/sentImageSize";
+import { sentVideoOf, sentVideosOf } from "./conversation/sentVideos";
+import { fileSizeLabel } from "./fileAttachmentInfo";
 import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import { agentMessage } from "./conversation/agentMessages";
@@ -2478,7 +2482,7 @@ function measuredRowHeight(
   // a placed prompt join as the draft had them.
   const inline =
     row.kind === "user" && row.inlineParts && row.from !== "chief" && !chiefEnvelope(row.text)
-      ? inlineBubbleParts(row.inlineParts)
+      ? bubbleParts(row)
       : undefined;
   const plainUser =
     row.kind === "user" &&
@@ -2507,7 +2511,7 @@ function measuredRowHeight(
       lexIncrementally(entry, row.text);
     }
     if (inline) {
-      contentHeight = inlinePromptHeight(inline, contentWidth, entry.prepared, usedPrepared);
+      contentHeight = inlinePromptHeight(row, inline, contentWidth, entry.prepared, usedPrepared);
     } else if (pasted) {
       // A prompt with pasted blocks: one body of its typed text and the person's pastes, and a paste
       // another agent wrote apart under its "Pasted from" line (conversation/PromptText.tsx). A huge
@@ -2546,57 +2550,172 @@ function measuredRowHeight(
   return finish(height);
 }
 
-/// A sent file's chip in a bubble's text (`.cv-user__inline-file`: a 32px chip, 2px above and below)
-/// and a sent image's or video's 120px tile (`.cv-user__inline-image`, the same margins), 4px apart.
-const INLINE_FILE_CHIP = 36;
-const INLINE_FILE_WIDTH = 348;
-const INLINE_IMAGE_TILE = 124;
-const INLINE_IMAGE_WIDTH = 128;
+/// A sent attachment in a bubble's text (`.cv-user__inline-image`, `.cv-user__inline-file`):
+/// an inline block 4px from its neighbors and 2px above and below, on the text's line.
+export const INLINE_ATTACHMENT_MARGIN = { x: 4, y: 2 };
+/// A sent file's chip (composerAttachments.css `.acpmux-file-chip`): 32px tall, at most 340px wide,
+/// 8px each side of its 16px glyph, its name and its size, 6px apart.
+export const INLINE_FILE_CHIP = { height: 32, maxWidth: 340, side: 8, glyph: 16, gap: 6 };
 
-/// A prompt drawn in its parts' order, as InlinePromptContent.tsx draws it: its one body (a huge
-/// part only to its head), a paste another agent wrote under its "Pasted from" line, and each run of
-/// attachments as rows of chips and tiles. A text file is its chip alone: its body is not drawn.
+/// `text` prepared for a walk of its lines, kept in the row's prepared map with its text heights.
+function preparedLines(
+  text: string,
+  prepared: PreparedRow["prepared"],
+  used: Set<string>,
+): PreparedTextWithSegments | null {
+  const key = `lines\n${metrics().measureFont}\n${text}`;
+  used.add(key);
+  let measured = prepared.get(key) as PreparedTextWithSegments | null | undefined;
+  if (measured === undefined) {
+    try {
+      measured = prepareWithSegments(text, metrics().measureFont, { whiteSpace: "pre-wrap" });
+    } catch {
+      measured = null;
+    }
+  }
+  prepared.delete(key);
+  prepared.set(key, measured);
+  return measured;
+}
+
+/// One line of `text` (no line break in it) laid on from `x` of a line `width` wide, as the bubble's
+/// `pre-wrap` text flows (`.cv-user__inline-content`): whether it starts on a new line (its first
+/// word does not fit what is left of this one), how many more lines it ends after the one it
+/// starts on, and the width it takes of its last line.
+function flowRun(
+  text: string,
+  width: number,
+  x: number,
+  prepared: PreparedRow["prepared"],
+  used: Set<string>,
+): { wraps: boolean; breaks: number; end: number } {
+  const lines = preparedLines(text, prepared, used);
+  if (!lines) {
+    const word = text.match(/^\s*\S*/)![0].length * FALLBACK_CHAR_WIDTH;
+    const wraps = x > 0 && x + word > width;
+    const total = (wraps ? 0 : x) + text.length * FALLBACK_CHAR_WIDTH;
+    const breaks = Math.max(0, Math.ceil(total / width) - 1);
+    return { wraps, breaks, end: total - breaks * width };
+  }
+  let cursor: LayoutCursor = { segmentIndex: 0, graphemeIndex: 0 };
+  let first = x > 0 ? layoutNextLineRange(lines, cursor, Math.max(1, width - x)) : null;
+  // A word cut on what is left of the line goes to the next line whole, as the browser breaks
+  // before it (an attachment is a break opportunity).
+  const wraps =
+    first !== null &&
+    first.end.graphemeIndex > 0 &&
+    lines.segments.slice(0, first.end.segmentIndex).every((segment) => !segment.trim());
+  if (wraps) first = null;
+  let end = x;
+  let breaks = 0;
+  let started = first !== null;
+  if (first) {
+    end = x + first.width;
+    cursor = first.end;
+  }
+  for (let next = layoutNextLineRange(lines, cursor, width); next; next = layoutNextLineRange(lines, next.end, width)) {
+    if (started) breaks += 1;
+    started = true;
+    end = next.width;
+  }
+  return { wraps, breaks, end };
+}
+
+/// A text's width on one line (a file chip's name).
+function lineWidth(text: string, prepared: PreparedRow["prepared"], used: Set<string>): number {
+  const lines = preparedLines(text, prepared, used);
+  return lines ? measureNaturalWidth(lines) : text.length * FALLBACK_CHAR_WIDTH;
+}
+
+/// A prompt drawn in its parts' order, as InlinePromptContent.tsx draws it, laid out as its CSS
+/// flows it (`.cv-user__inline-content`, `pre-wrap`): its one body's lines, with each attachment an
+/// inline block on the text's line (an image's thumbnail at its own size, UserBubble.tsx
+/// `sentImageSize`; a video's tile; a file's chip as wide as its name and size), a line as tall as
+/// its tallest; a part drawn as Markdown, and a paste another agent wrote under its "Pasted from"
+/// line, a block of its own. A huge part is only its head. A text file is its chip alone: its body is
+/// not drawn. `parts` are bubbleParts.ts `bubbleParts`, what the bubble draws.
 function inlinePromptHeight(
+  row: AcpmuxRow,
   parts: readonly PromptContentPart[],
   width: number,
   prepared: PreparedRow["prepared"],
   used: Set<string>,
 ): number {
   const { lineHeight } = metrics();
-  const measure = (text: string) =>
-    Math.max(
-      lineHeight,
-      textHeight(isHugePrompt(text) ? promptHead(text, HUGE_PROMPT_HEAD_CHARS) : text, width, prepared, used),
-    );
+  const { x: marginX, y: marginY } = INLINE_ATTACHMENT_MARGIN;
+  const videos = sentVideosOf(row);
   let height = 0;
-  let chips: { width: number; height: number }[] = [];
-  const flush = () => {
-    let rowWidth = 0;
-    let rowHeight = 0;
-    for (const chip of chips) {
-      if (rowWidth > 0 && rowWidth + chip.width > width) {
-        height += rowHeight;
-        rowWidth = 0;
-        rowHeight = 0;
-      }
-      rowWidth += chip.width;
-      rowHeight = Math.max(rowHeight, chip.height);
-    }
-    height += rowHeight;
-    chips = [];
+  // The open line: the width taken of it and its height, 0 while none is open.
+  let x = 0;
+  let line = 0;
+  const close = () => {
+    height += line;
+    line = 0;
+    x = 0;
   };
-  for (const part of drawnBody(parts, experimentArm(sentPasteJoin))) {
+  const attachment = (box: { width: number; height: number }) => {
+    if (line > 0 && x > 0 && x + box.width > width) close();
+    x += box.width;
+    line = Math.max(line, lineHeight, box.height);
+  };
+  const thumbnail = (size: { width: number; height: number }) => {
+    // `max-width: calc(100% - 8px)`: a narrow bubble scales it down whole.
+    const shown = Math.min(size.width, Math.max(1, width - 2 * marginX));
+    return { width: shown + 2 * marginX, height: (size.height * shown) / size.width + 2 * marginY };
+  };
+  const text = (value: string) =>
+    value.split("\n").forEach((run, index) => {
+      // A line break ends the line, an empty one included.
+      if (index > 0) {
+        line = Math.max(line, lineHeight);
+        close();
+      }
+      if (!run) return;
+      const flow = flowRun(run, width, x, prepared, used);
+      if (flow.wraps) close();
+      line = Math.max(line, lineHeight);
+      if (flow.breaks > 0) {
+        height += line + (flow.breaks - 1) * lineHeight;
+        line = lineHeight;
+      }
+      x = flow.end;
+    });
+  const block = (blockHeight: number) => {
+    close();
+    height += blockHeight;
+  };
+  const measure = (value: string) => Math.max(lineHeight, textHeight(value, width, prepared, used));
+  const body = drawnBody(parts, experimentArm(sentPasteJoin));
+  body.forEach((part, index) => {
+    // Two text parts side by side read as the recorded text does, a newline between.
+    if (index > 0 && part.kind === "text" && body[index - 1]!.kind === "text") text("\n");
     if (part.kind === "text") {
-      flush();
-      height += measure(part.text);
-    } else if (part.kind === "pasted" && "text" in part && part.text) {
-      flush();
-      height += PASTE_FROM_HEIGHT + measure(promptHead(part.text, HUGE_PROMPT_HEAD_CHARS));
-    } else if (part.kind === "image" || ("video" in part && part.video))
-      chips.push({ width: INLINE_IMAGE_WIDTH, height: INLINE_IMAGE_TILE });
-    else chips.push({ width: INLINE_FILE_WIDTH, height: INLINE_FILE_CHIP });
-  }
-  flush();
+      const huge = ("huge" in part && part.huge === true) || isHugePrompt(part.text);
+      // PromptText.tsx PromptTyped: plain text is a span of the line; Markdown is its blocks.
+      if (huge) text(isHugePrompt(part.text) ? promptHead(part.text, HUGE_PROMPT_HEAD_CHARS) : part.text);
+      else if (isPromptMarkdown(part.text)) block(measure(part.text));
+      else text(part.text);
+    } else if (part.kind === "pasted" && part.text) {
+      block(PASTE_FROM_HEIGHT + measure(promptHead(part.text, HUGE_PROMPT_HEAD_CHARS)));
+    } else if (part.kind === "image") {
+      attachment(thumbnail(sentImageSize(part)));
+    } else {
+      const video = sentVideoOf(part, videos);
+      if (video) attachment(thumbnail({ width: sentImageWidth(video), height: SENT_IMAGE_HEIGHT }));
+      else {
+        const chip = INLINE_FILE_CHIP;
+        const size = part.name.endsWith("/") ? undefined : fileSizeLabel(part.size, "en");
+        const content =
+          2 * chip.side +
+          chip.glyph +
+          chip.gap +
+          lineWidth(part.name, prepared, used) +
+          (size ? chip.gap + lineWidth(size, prepared, used) : 0);
+        attachment({ width: Math.min(chip.maxWidth, content) + 2 * marginX, height: chip.height + 2 * marginY });
+      }
+    }
+  });
+  close();
   return height;
 }
 
@@ -2977,7 +3096,16 @@ export function scrollLeadRanges(
     ranges.push(visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin));
   return mergeRowRanges(ranges);
 }
-import { layout, prepare, type PreparedText } from "@chenglou/pretext";
+import {
+  layout,
+  layoutNextLineRange,
+  measureNaturalWidth,
+  prepare,
+  prepareWithSegments,
+  type LayoutCursor,
+  type PreparedText,
+  type PreparedTextWithSegments,
+} from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { runStretches, staysInSight, toolGroups, type ToolGroup } from "./conversation/toolGroups";
 import { acpmuxSendCalls } from "./conversation/acpmuxSends";

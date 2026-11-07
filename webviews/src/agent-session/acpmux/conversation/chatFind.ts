@@ -17,6 +17,8 @@ import { argsSource, fieldsText, inputFields, opensToFields, requestText } from 
 import { fileCard, fileCardText } from "./fileResults";
 import { plainText } from "./messageMenu";
 import { drawnPromptText } from "./promptCollapse";
+import { bubbleParts } from "./bubbleParts";
+import { chiefEnvelope } from "./chiefEnvelope";
 import { sentPasteJoin } from "./sentPasteJoin.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { drawnThought } from "./thoughts";
@@ -187,8 +189,11 @@ function searchableActivityText(item: AcpmuxActivity): string {
 /** What Find reads of a row: a prompt's or reply's text, or its tool calls'. Diffs come last, so
  * the drawn matches keep their order and a diff's match lands on the row's last drawn one. */
 function rowText(row: AcpmuxRow): string | undefined {
-  // A prompt with placed parts: the words its bubble draws, not a text file's body behind its chip.
-  if (row.kind === "user" && row.inlineParts) return drawnPromptText(row.inlineParts, experimentArm(sentPasteJoin));
+  // A prompt its bubble draws in its parts' order: the words it draws, not a text file's body behind
+  // its chip. One whose parts are only for its bands draws its recorded text, as any prompt does, and
+  // a Chief's draws its own bubble (ChiefPromptBubble.tsx), as the row's estimate reads it (model.ts).
+  const parts = row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text) ? bubbleParts(row) : undefined;
+  if (parts) return drawnPromptText(parts, experimentArm(sentPasteJoin));
   if (SEARCHED_KINDS.has(row.kind)) return row.text;
   if (!row.items?.length) return undefined;
   return [...row.items.map(drawnText), ...row.items.map(diffText)].join("\n");

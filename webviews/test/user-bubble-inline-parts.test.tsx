@@ -505,6 +505,57 @@ try {
       await act(async () => setComposerSettings({ attachmentView: "inline" }));
     });
   }
+  // The row's estimate (model.ts inlinePromptHeight) flows a placed prompt's attachments as this CSS
+  // lays them out: inline blocks on the text's `pre-wrap` line, each with the margins the estimate
+  // adds, an image at the size UserBubble.tsx gives it, and a file at the shared chip's box.
+  test("inline: attachments flow on the text's line with the margins the row's estimate adds", async () => {
+    clearImageEntries();
+    resetTranscriptDisclosure();
+    await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    await render(
+      prompt("estimate-css", "look at this", [
+        { kind: "text", text: "look " },
+        { kind: "image", id: "wide", mimeType: "image/png", name: "wide.png", width: 1600, height: 400, placed: true },
+        { kind: "text", text: " at " },
+        { kind: "file", name: "a.csv", uri: "file:///tmp/a.csv", size: 12, placed: true },
+      ]),
+    );
+    const { INLINE_ATTACHMENT_MARGIN, INLINE_FILE_CHIP } = await import("../src/agent-session/acpmux/model");
+    const style = (selector: string) => dom.window.getComputedStyle(host.querySelector(selector)!);
+    expect(style("[data-inline-content]").whiteSpace).toBe("pre-wrap");
+    for (const selector of [
+      "[data-inline-content] .cv-user__inline-image",
+      "[data-inline-content] .cv-user__inline-file",
+    ]) {
+      const box = style(selector);
+      expect(box.display).toBe("inline-block");
+      expect(box.verticalAlign).toBe("middle");
+      expect([box.marginTop, box.marginBottom, box.marginLeft, box.marginRight]).toEqual(
+        [
+          INLINE_ATTACHMENT_MARGIN.y,
+          INLINE_ATTACHMENT_MARGIN.y,
+          INLINE_ATTACHMENT_MARGIN.x,
+          INLINE_ATTACHMENT_MARGIN.x,
+        ].map((px) => `${px}px`),
+      );
+    }
+    expect(style("[data-inline-content] .cv-user__inline-file").maxWidth).toBe(
+      `min(${INLINE_FILE_CHIP.maxWidth}px, 72vw)`,
+    );
+    // The image's box: its own shape at most 320 wide and 120 tall (UserBubble.tsx sentImageSize).
+    const img = host.querySelector<HTMLImageElement>("[data-inline-content] img")!;
+    expect(img.style.width).toBe("320px");
+    expect(img.style.aspectRatio.replace(/\s/g, "")).toBe("320/80");
+    // The chip's own box (composerAttachments.css `.acpmux-file-chip`): its height, sides and gap.
+    const chip = readFileSync(
+      new URL("../src/agent-session/acpmux/composerAttachments.css", import.meta.url),
+      "utf8",
+    ).match(/\n\.acpmux-file-chip \{([^}]*)\}/)![1]!;
+    expect(chip).toContain(`--acpmux-file-chip-gap: ${INLINE_FILE_CHIP.gap}px;`);
+    expect(chip).toContain(`height: ${INLINE_FILE_CHIP.height}px;`);
+    expect(chip).toContain(`padding: 0 ${INLINE_FILE_CHIP.side}px;`);
+    expect(chip).toContain(`max-width: min(${INLINE_FILE_CHIP.maxWidth}px, 72vw);`);
+  });
 } finally {
   afterAll(() => {
     act(() => root.unmount());
