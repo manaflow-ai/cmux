@@ -1808,34 +1808,20 @@ jobs:
           merge-multiple: true
 
       # point-machine-channel-early uploads this commit's Linux cmux-tui and
-      # cmux-tui-hook to cmux-tui/<sha>/ before this job runs, from this run's
-      # build-linux artifacts, so the bytes here are the same ones and the
-      # write-once upload below accepts them. A "Re-run all jobs" builds them
-      # again with other bytes: keep the ones the prefix already serves (and
-      # their -gnu copies), so the upload never stops on a conflict. A prefix
-      # with a manifest is a finished publication, which "Upload to R2" adopts.
+      # cmux-tui-hook to cmux-tui/<sha>/ before this job runs. Whichever run
+      # first writes the commit's write-once claim (cmux-tui-machine-claims/<sha>)
+      # decides whose Linux bytes the prefix gets; this step puts those served
+      # bytes here, so the checksums name them and every upload below is
+      # identical (also after "Re-run all jobs" rebuilt them). It waits for
+      # another run's early upload when that run holds the claim.
       - name: Keep the Linux binaries the machine channel already uploaded
         if: env.CMUX_TUI_PUBLISH_PASS == 'unix'
-        run: |
-          set -euo pipefail
-          base="https://files.cmux.com/cmux-tui/$GITHUB_SHA"
-          probe() { curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$1?keep=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" || true; }
-          [[ "$(probe "$base/manifest.json")" == 404 ]] || exit 0
-          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
-            for name in cmux-tui cmux-tui-hook; do
-              file="$name-$target"
-              [[ -f "assets/cmux-tui/$file" ]] || continue
-              [[ "$(probe "$base/$file")" == 200 ]] || continue
-              curl -fsS --retry 3 --max-time 600 -o "$RUNNER_TEMP/$file" "$base/$file?keep=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-              if ! cmp -s "$RUNNER_TEMP/$file" "assets/cmux-tui/$file"; then
-                echo "::notice title=machine channel bytes kept::$file: this attempt rebuilt it; keeping the bytes cmux-tui/${GITHUB_SHA:0:12}/ already serves"
-                install -m 755 "$RUNNER_TEMP/$file" "assets/cmux-tui/$file"
-                gnu="assets/cmux-tui/$name-${target%-musl}-gnu"
-                [[ -f "$gnu" ]] && install -m 755 "$RUNNER_TEMP/$file" "$gnu"
-              fi
-              rm -f "$RUNNER_TEMP/$file"
-            done
-          done
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: scripts/ci/cmux-machine-linux-claim.sh publish assets/cmux-tui
 
       - name: Build manifest and checksums
         run: |
@@ -3736,9 +3722,10 @@ jobs:
   # it, continue-on-error keeps it out of the run's result, and whenever it
   # skips or fails, point-machine-channel below moves the channel after
   # publish and verify-publish as before (it finds the channel current when
-  # the early one succeeded). It runs only in the run that owns the tree key
-  # and only while no publish has claimed the prefix, so it never races a
-  # second publisher of the same commit.
+  # the early one succeeded). It runs only in the run that owns the tree key,
+  # and uploads only when its run holds the commit's write-once claim, which
+  # publish takes too (scripts/ci/cmux-machine-linux-claim.sh), so it never
+  # races a second publisher of the same commit.
   point-machine-channel-early:
     environment: artifacts
     name: point the Cloud machine channel at this commit's Linux build
@@ -3770,16 +3757,12 @@ jobs:
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
         run: |
           set -euo pipefail
-          base="https://files.cmux.com/cmux-tui/$GITHUB_SHA"
-          probe() { curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$1?early=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" || true; }
-          # A claimed or finished prefix belongs to publish: point-machine-channel moves the channel then.
-          for claim in manifest.json cmux-tui-checksums.txt; do
-            code="$(probe "$base/$claim")"
-            if [[ "$code" != 404 ]]; then
-              echo "::notice title=machine channel waits for publish::cmux-tui/${GITHUB_SHA:0:12}/$claim answered HTTP $code; point-machine-channel moves the channel after publish"
-              exit 0
-            fi
-          done
+          # The commit's write-once claim decides whose Linux bytes cmux-tui/<sha>/ gets
+          # (scripts/ci/cmux-machine-linux-claim.sh); another run's publish holds it: skip.
+          rc=0
+          scripts/ci/cmux-machine-linux-claim.sh early assets/cmux-tui || rc=$?
+          [[ $rc == 3 ]] && exit 0
+          [[ $rc == 0 ]] || exit "$rc"
           dir="$RUNNER_TEMP/machine-channel"
           mkdir -p "$dir" && chmod 700 "$dir"
           for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
