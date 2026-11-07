@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42372045521",
+  "recorded_at": "2026-11-07T12:30:55Z",
+  "reason": "cmux-tui ddbc81786634 changes the image's cmux-tui (pinned 26ab56ac6bcf)",
+  "dry_run": false,
+  "cmux_tui": "ddbc8178663404f01fcfddad7a31bc11bf88eb4d",
+  "fixes": [
+    {
+      "sha": "ddbc8178663404f01fcfddad7a31bc11bf88eb4d",
+      "mergedAt": "2026-11-07T04:06:27-08:00",
+      "subject": "acpmux: a refused Claude sign-in ends its turn typed at the second retry (#37768)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T12:30:55Z",
+    "snapshot_id": "sh-74f3bb217aa14e418f3f3d718704c370",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42372045521): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "07f4d796dc097fd89a71c0eef64576fa09ba53ef",
+    "image": "cloud-native-auto-ddbc8178-42372045521-1",
+    "revision": "ci-42372045521-1",
+    "at": "2026-11-07T12:30:55Z"
+  },
+  "rolled_back": false
+}
