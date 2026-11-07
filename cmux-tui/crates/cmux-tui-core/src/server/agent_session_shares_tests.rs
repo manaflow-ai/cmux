@@ -1177,7 +1177,11 @@ fn a_default_link_guest_is_refused_and_an_invited_talker_is_held() {
     let tom = redeem_as(&mut owner, &share, "tom@example.com", "t1");
     let (mut talker, bound) = bind(&mux, &share, &tom, "share-link-default-tom");
     assert_eq!(bound["ok"], true, "{bound}");
-    assert_eq!(talker.request(prompt)["ok"], true);
+    let attach = talker.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_eq!(attach["ok"], true, "{attach}");
+    assert_eq!(fake.frame()["params"]["_meta"]["acpmux"]["author"]["role"], "talk");
+    let sent = talker.request(prompt);
+    assert_eq!(sent["ok"], true, "{sent}");
     let sent = fake.frame();
     assert_eq!(sent["method"], "session/prompt");
     let author = &sent["params"]["_meta"]["acpmux"]["author"];
