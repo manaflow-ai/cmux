@@ -13,7 +13,7 @@
 
 use std::fs;
 use std::io::Write as _;
-use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -23,8 +23,10 @@ use super::client::{CloudClient, Http};
 use crate::daemon_spec::{WORK_HOME, WORK_USER};
 use crate::linux::spawn::lookup_user;
 
-pub const TOKEN_DIR: &str = "/run/cmux/inference-gateway";
-pub const TOKEN_FILE: &str = "/run/cmux/inference-gateway/token";
+/// Straight under root's `/run`, never under `/run/cmux` (the work user's): no path above the file is one the work
+/// user can replace.
+pub const TOKEN_DIR: &str = "/run/cmux-inference-gateway";
+pub const TOKEN_FILE: &str = "/run/cmux-inference-gateway/token";
 /// How often the thread looks at the marker and renews the token (the token cache renews a minute before expiry).
 const EVERY: Duration = Duration::from_secs(60);
 
@@ -101,12 +103,22 @@ impl GatewayToken {
 /// user's (0600). Unchanged contents are not rewritten.
 pub fn write_token(dir: &Path, token: &str) -> Result<(), String> {
     let user = lookup_user(WORK_USER).ok_or("no work user")?;
-    fs::create_dir_all(dir).map_err(|e| format!("cannot make the token folder: {e}"))?;
-    let meta = fs::symlink_metadata(dir).map_err(|e| e.to_string())?;
-    if !meta.is_dir() {
-        return Err("the token folder is not a folder".into());
+    use std::os::unix::fs::{DirBuilderExt as _, MetadataExt as _};
+    // The parent must be root's and writable by no one else, so nothing can swap the folder after the checks below.
+    let parent = dir.parent().ok_or("the token folder has no parent")?;
+    let up = fs::symlink_metadata(parent).map_err(|e| e.to_string())?;
+    if !up.is_dir() || up.uid() != 0 || up.mode() & 0o022 != 0 {
+        return Err("the token folder's parent is not root's alone".into());
     }
-    fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+    match fs::DirBuilder::new().mode(0o755).create(dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(format!("cannot make the token folder: {e}")),
+    }
+    let meta = fs::symlink_metadata(dir).map_err(|e| e.to_string())?;
+    if !meta.is_dir() || meta.uid() != 0 || meta.mode() & 0o022 != 0 {
+        return Err("the token folder is not root's own folder".into());
+    }
     let path = dir.join("token");
     if fs::read_to_string(&path).is_ok_and(|old| old == token) {
         return Ok(());

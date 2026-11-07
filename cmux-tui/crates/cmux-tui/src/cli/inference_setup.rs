@@ -422,7 +422,7 @@ async fn start_gateway(machine: &Machine<'_>, gw: &GatewayMachine) -> Result<(),
     Err(format!("the gateway did not come online; its last lines:\n{log}"))
 }
 
-const TOKEN_FILE: &str = "/run/cmux/inference-gateway/token";
+const TOKEN_FILE: &str = "/run/cmux-inference-gateway/token";
 
 /// The gateway path: the team's state, then one real call from the machine through it.
 async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
