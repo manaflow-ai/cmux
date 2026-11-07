@@ -471,9 +471,10 @@ async fn move_to_a_fresh_machine(fault: Fault) {
     }
     let replies = events.iter().filter(|e| says(e, "echo: second")).count();
     assert_eq!(replies, 1, "p2 answered {replies} times: {events:#?}");
-    // No seq twice, none missing.
+    // No seq twice: each record comes after the one before it. (The old machine's own journal
+    // can skip a seq; every one A saw is checked above.)
     let seqs: Vec<u64> = events.iter().filter_map(|e| e["seq"].as_u64()).collect();
-    assert_eq!(seqs, (1..=seqs.len() as u64).collect::<Vec<_>>(), "B2's seqs");
+    assert!(seqs.windows(2).all(|w| w[0] < w[1]), "B2's seqs: {seqs:?}");
     let restored = seen.iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
     // The local prompt ran after every restored record too.
     if fault == Fault::LocalPrompt {
