@@ -73,7 +73,7 @@ pub(crate) const KEY_ALIASES: &[(&str, &str)] = &[("on", super::super::chat_star
 
 /// The key `path` names: its key when it is an alias, else `path` itself.
 pub(crate) fn resolve_alias(path: &str) -> &str {
-    KEY_ALIASES.iter().find(|(alias, _)| *alias == path).map_or(path, |(_, key)| key)
+    KEY_ALIASES.iter().find(|(alias, _)| *alias == path).map_or(path, |(_, key)| *key)
 }
 
 /// The app's refusal of a user-only key.

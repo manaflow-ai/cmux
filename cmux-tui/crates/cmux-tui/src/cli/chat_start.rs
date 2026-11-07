@@ -21,8 +21,9 @@
 //! `CMUX_ON` names the target when `--on` is absent, as `DOCKER_CONTEXT` does, and the app's
 //! `chat.on` setting (`cmux config set on cloud`) when both are: `--on` > `CMUX_ON` > `chat.on` >
 //! here ([`pick_target`]). The setting is read from the app (`settings.get`) only then, with a
-//! short deadline; no app (CI, a headless VM) is here. A refusal says what to run next. `cloud`, `here` and `vm:…` are selectors, never device names: a device called
-//! "cloud" is reached by its id.
+//! short deadline; no app (CI, a headless VM) is here. A refusal says what to run next. `cloud`,
+//! `here` and `vm:…` are selectors, never device names: a device called "cloud" is reached by
+//! its id.
 
 use std::time::Duration;
 

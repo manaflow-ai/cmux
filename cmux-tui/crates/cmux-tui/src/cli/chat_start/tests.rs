@@ -129,7 +129,7 @@ fn cmux_target_names_the_target_when_on_is_absent() {
 fn the_target_is_on_then_cmux_on_then_the_setting_then_here() {
     let some = |text: &str| Some(text.to_owned());
     let read = Cell::new(0);
-    let setting = |value: Option<&str>| {
+    let setting = |value: Option<&'static str>| {
         let read = &read;
         move || {
             read.set(read.get() + 1);
