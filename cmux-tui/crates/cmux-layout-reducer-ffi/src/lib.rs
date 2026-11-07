@@ -1,7 +1,8 @@
 //! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
-//! the group hover card's summary (`group_hover_summary`),
+//! the group hover card's summary (`group_hover_summary`), the app sidebar
+//! bridge's decision rules (`sidebar_bridge`),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_harness_login`,
@@ -173,6 +174,11 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_edits::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 sidebar_edits::respond(&request).map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_bridge" => {
+                let request: cmux_layout_reducer::sidebar_bridge::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                cmux_layout_reducer::sidebar_bridge::respond(&request).map_err(|_| ERR_INVALID)?
             }
             b"group_hover_summary" => {
                 let request: cmux_layout_reducer::group_hover_summary::Request =
