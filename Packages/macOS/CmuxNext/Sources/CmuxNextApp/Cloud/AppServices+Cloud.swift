@@ -23,7 +23,7 @@ extension AppServices {
     func cloudDesktopRdTransport(machine: String) -> (@MainActor (_ control: Bool) -> RemoteRdStreamTransport?)? {
         guard let session = machines.cloud.first(where: { $0.machineID.lowercased() == machine.lowercased() }),
               let dial = CloudCarrierDial.Connector(machine: session.machineID, service: .desktop, cli: cloud.binary, auth: cloud.auth,
-                                                    platform: cloud.configuration.relayAPIBaseURL(), team: session.machine.team) else { return nil }
+                                                    platform: cloud.configuration.relayAPIBaseURL(), team: session.machine.team, stateDirectory: cloud.tuiState) else { return nil }
         let hello = RemoteRdHello.cloudDesktop()
         return { control in
             let carrier = RemoteRdStreamCarrier {

@@ -25,7 +25,8 @@ import Testing
         #expect(CloudCarrierDial.serveLine(#"{"ok":true,"socket":"/tmp/a.sock","route":"carrier"}"#) == .ready(socket: "/tmp/a.sock"))
         #expect(CloudCarrierDial.serveLine(#"{"ok":false,"error_code":"ticket","route":"carrier"}"#) == .refused(code: "ticket", detail: nil))
         #expect(CloudCarrierDial.serveLine(#"{"ok":false,"error_code":"socket","error_detail":"in use"}"#) == .refused(code: "socket", detail: "in use"))
-        #expect(CloudCarrierDial.serveLine(#"{"ok":true}"#) == nil)
+        #expect(CloudCarrierDial.serveLine(#"{"ok":true,"route":"carrier","vmk":"owner"}"#) == .connected(vmk: "owner"))
+        #expect(CloudCarrierDial.serveLine(#"{"ok":true,"route":"carrier"}"#) == .connected(vmk: nil))
         #expect(CloudCarrierDial.serveLine("carrier: listening") == nil)
     }
 
@@ -49,6 +50,14 @@ import Testing
         #expect(CloudCarrierDial.environment(platform: platform, accessToken: "t-1", team: "") == base)
         #expect(CloudCarrierDial.environment(platform: platform, accessToken: "t-1", team: "team_0123456789abcdef0123")
             == base.merging(["CMUX_CLOUD_TEAM": "team_0123456789abcdef0123"]) { $1 })
+    }
+
+    /// Every carrier child writes `carrier/connect.log` under the build's own daemon state directory.
+    @Test func theEnvironmentCarriesTheDaemonStateDirectory() throws {
+        let platform = try #require(URL(string: "https://platform.example"))
+        let state = URL(fileURLWithPath: "/Users/me/Library/Application Support/cmux/tags/dev/tui", isDirectory: true)
+        #expect(CloudCarrierDial.environment(platform: platform, accessToken: "t-1", team: nil, stateDirectory: state)["CMUX_TUI_STATE_DIR"] == state.path)
+        #expect(CloudCarrierDial.environment(platform: platform, accessToken: "t-1", team: nil, stateDirectory: nil)["CMUX_TUI_STATE_DIR"] == nil)
     }
 
     /// The machine's team comes from its cmux-next record (`team`), the one `cloud.machine.list` answers.
@@ -140,6 +149,32 @@ import Testing
         let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { [:] }
         let serve = CloudCarrierServe(connector: connector, socket: "/tmp/mine.sock") { _ in }
         await #expect(throws: CloudLinkError.invalidAnswer("served another socket")) { _ = try await serve.socketPath() }
+    }
+
+    /// Ownership is the latest connected line's `vmk`; the record's creator rule only until one arrives.
+    @Test func theGrantsVmkOwnsTheLinkElseTheRecord() async throws {
+        #expect(CloudCallerOwnership(vmk: "owner") == .owner)
+        #expect(CloudCallerOwnership(vmk: "team") == .team)
+        #expect(CloudCallerOwnership(vmk: nil) == nil)
+        #expect(CloudCallerOwnership(vmk: "admin") == nil)
+        let cli = try Self.standIn("printf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nread -r l\nprintf '{\"ok\":true,\"route\":\"carrier\",\"vmk\":\"team\"}\\n' >&2\nprintf '{\"ok\":true,\"route\":\"carrier\"}\\n' >&2\ncat >/dev/null\n")
+        defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
+            ["CMUX_CLOUD_ACCESS_TOKEN": "t"]
+        }
+        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock") { _ in }
+        let link = CloudLinkSession(key: CloudLinkKey(machine: "vm_abc123"), resolver: CloudCarrierResolver(serve: serve) { .owner })
+        // No connected line yet: the record says owner.
+        _ = try await link.connect(origin: .user)
+        #expect(await link.callerOwnership == .owner)
+        // The second connect's token line lets the stand-in report a team grant, then one with no vmk.
+        _ = try await link.connect(origin: .user)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await serve.vmk == nil, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(await serve.vmk == "team")
+        _ = try await link.connect(origin: .user)
+        #expect(await link.callerOwnership == .team)
+        await link.close()
     }
 
     @Test func theRecordsCreatorOwnsTheMachine() {
