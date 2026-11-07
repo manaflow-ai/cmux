@@ -184,15 +184,28 @@ struct PaneZoomMotionTests {
         #expect((shown ?? .max) <= Int((0.35 * Self.scale / Self.dt).rounded(.up)))
     }
 
+    /// Reduce Motion snaps a zoom: no spring, the whole change in the first frame. A snapped structural change shows
+    /// at the next frame tick, its terminals drawn ahead at their new sizes in the change's turn (CLOSE MOTION 3,
+    /// #37330, `ScreenContentView+SnapFrame`), so that turn still shows what showed, and the first tick shows it all.
     @Test func reduceMotionZoomsAndUnzoomsInOneFrame() throws {
         let screen = Screen(Self.grid2, reduceMotion: true)
         defer { screen.window.closeAfterTest() }
+        let slot = try #require(screen.hostFrame("p1"))
         screen.zoom("p1")
-        #expect(screen.shown("p1") == screen.screen?.geometry.panes["p1"])
+        #expect(screen.hostFrame("p1") == slot, "the zoom showed in its own turn, before its terminal had a frame at its size")
+        #expect(["p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 1 }, "a covered pane went before the zoom showed")
+        // One frame: the first tick lands the zoom and asks for no second frame (no spring).
+        #expect(!screen.step(), "Reduce Motion asked for a second frame after the zoom's first")
+        let zoomed = try #require(screen.screen?.geometry.panes["p1"])
+        #expect(screen.shown("p1") == zoomed)
+        #expect(screen.hostFrame("p1") == zoomed, "the first frame does not show the zoomed pane at its rect")
         #expect(["p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 0 })
         screen.unzoom()
+        #expect(screen.hostFrame("p1") == zoomed, "the unzoom showed in its own turn, before its terminal had a frame at its size")
+        #expect(!screen.step(), "Reduce Motion asked for a second frame after the unzoom's first")
         #expect(["p1", "p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 1 })
         #expect(screen.shown("p1") == screen.screen?.geometry.panes["p1"])
+        #expect(screen.hostFrame("p1") == slot, "the first frame does not show the unzoomed pane in its slot")
     }
 
     @Test func anArrivingSplitPaneIsOpaqueAndGrowsLiveFromTheEdgeWhileTheSplitPaneShrinksLive() throws {

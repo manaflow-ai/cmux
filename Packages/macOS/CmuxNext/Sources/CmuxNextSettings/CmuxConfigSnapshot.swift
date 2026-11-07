@@ -70,7 +70,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeFeedInChief = HomeFeedRowsSetting.fallback
     /// `home.chiefDock.edge`: the window edge the Chief docks to (``ChiefDockSetting``); `left` when unset.
     public var chiefDockEdge = ChiefDockSetting.edgeDefault
-    /// `home.chiefDock.openBeside`: a link clicked in the Chief shows its workspace beside the docked Chief; off when unset (cmux#37365).
+    /// `home.chiefDock.openBeside`: a link clicked in the Chief opens its workspace with the Chief floating over it; on when unset.
     public var chiefDockOpenBeside = ChiefDockSetting.openBesideDefault
     /// `home.server`: cmux Cloud (`hosted`) when unset or invalid, else the self-hosted server's origin.
     public var homeServer: HomeServerSetting.Value = .hosted

@@ -500,7 +500,7 @@
         "key": "settings.group.chiefDock",
         "text": "Chief Dock"
       },
-      "note": "The Chief window dock (user 2026-11-05): the edge Open Chief Dock (Cmd-I) and a link from the Chief use.",
+      "note": "The Chief panel (user 2026-11-06): the edge the Chief docks at when the person docks it, and whether a link clicked in the Chief opens its workspace with the Chief floating over it.",
       "rows": [
         {
           "key": "home.chiefDock.edge",
@@ -511,7 +511,7 @@
           },
           "help": {
             "key": "settings.home.chiefDockEdge.help",
-            "text": "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick."
+            "text": "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick."
           },
           "kind": "choice",
           "choices": [
@@ -564,17 +564,17 @@
         },
         {
           "key": "home.chiefDock.openBeside",
-          "note": "Off (cmux#37365, \"i dont want this by default\"): a link clicked in the Chief shows its workspace in Home's place, and the Chief docks only when the person asks (Open Chief Dock, Cmd-I) or turns this on.",
+          "note": "On: a link clicked in the Chief opens its workspace with the Chief floating over it.",
           "title": {
             "key": "settings.home.chiefDockOpenBeside",
-            "text": "Keep Chief Docked When Opening Workspaces"
+            "text": "Show Chief When Opening Workspaces"
           },
           "help": {
             "key": "settings.home.chiefDockOpenBeside.help",
-            "text": "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position."
+            "text": "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "chief",
             "dock",

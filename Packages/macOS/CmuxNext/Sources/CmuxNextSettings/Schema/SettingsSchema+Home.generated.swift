@@ -58,9 +58,9 @@ extension ChiefDockSetting {
     public nonisolated static let edgePath = ["home", "chiefDock", "edge"]
     public nonisolated static let edgeDefault = "left"
     public nonisolated static let edgeValues = ["left", "right", "top", "bottom"]
-    /// `home.chiefDock.openBeside`: Off (cmux#37365, "i dont want this by default"): a link clicked in the Chief shows its workspace in Home's place, and the Chief docks only when the person asks (Open Chief Dock, Cmd-I) or turns this on.
+    /// `home.chiefDock.openBeside`: On: a link clicked in the Chief opens its workspace with the Chief floating over it.
     public nonisolated static let openBesidePath = ["home", "chiefDock", "openBeside"]
-    public nonisolated static let openBesideDefault = false
+    public nonisolated static let openBesideDefault = true
 }
 
 extension HomeChiefEngineSetting {
@@ -241,7 +241,7 @@ nonisolated enum HomeSettingsSchema {
         ]
     }
 
-    /// The Chief window dock (user 2026-11-05): the edge Open Chief Dock (Cmd-I) and a link from the Chief use.
+    /// The Chief panel (user 2026-11-06): the edge the Chief docks at when the person docks it, and whether a link clicked in the Chief opens its workspace with the Chief floating over it.
     static var chiefDockRows: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.chiefDock", "Chief Dock")
         return [
@@ -250,7 +250,7 @@ nonisolated enum HomeSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.chiefDockEdge", "Dock Edge"),
-                help: SettingsText.keyed("settings.home.chiefDockEdge.help", "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick."),
+                help: SettingsText.keyed("settings.home.chiefDockEdge.help", "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick."),
                 kind: .choice([
                     SettingChoice("left", SettingsText.keyed("settings.choice.chiefDockEdge.left", "Left")),
                     SettingChoice("right", SettingsText.keyed("settings.choice.chiefDockEdge.right", "Right")),
@@ -264,8 +264,8 @@ nonisolated enum HomeSettingsSchema {
                 ChiefDockSetting.openBesidePath,
                 section: .home,
                 group: group,
-                title: SettingsText.keyed("settings.home.chiefDockOpenBeside", "Keep Chief Docked When Opening Workspaces"),
-                help: SettingsText.keyed("settings.home.chiefDockOpenBeside.help", "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position."),
+                title: SettingsText.keyed("settings.home.chiefDockOpenBeside", "Show Chief When Opening Workspaces"),
+                help: SettingsText.keyed("settings.home.chiefDockOpenBeside.help", "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it."),
                 kind: .toggle,
                 default: .bool(ChiefDockSetting.openBesideDefault),
                 keywords: ["chief", "dock", "window", "links", "workspace", "beside", "home"]

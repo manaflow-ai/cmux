@@ -25,8 +25,6 @@ public nonisolated struct ChiefReactionSettings: Sendable, Hashable {
     }
 
     public static let fallback = ChiefReactionSettings()
-    /// Every key, for the agent policy (a Chief may configure its own reactions).
-    public static let keys: Set<String> = Set([canWakePath, harnessPath, modelPath, promptPath].map { $0.joined(separator: ".") })
 
     /// The values in `root`; a value of the wrong type is the default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (ChiefReactionSettings, [SettingsDiagnostic]) {
