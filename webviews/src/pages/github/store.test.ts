@@ -323,3 +323,59 @@ test("an older head's patch never replaces the newer one's", async () => {
   await settle();
   expect(store.getSnapshot().patches["docs/sidebar.md"]).toEqual({ state: "ready", patch: "new head" });
 });
+
+test("checks keep being asked while the host reads, even with settled checks kept", async () => {
+  const host = new RichHost();
+  let reading = true;
+  const call = host.call.bind(host);
+  host.call = <R>(op: string, params: unknown): Promise<R> => {
+    if (op !== GitHubOps.checks) return call<R>(op, params);
+    host.calls.push({ op, params });
+    return Promise.resolve({ checks: mockChecksPassed, reading } as R);
+  };
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  // Settled checks kept while the host reads again (a re-run just started): the page asks again.
+  const checksTimer = [...timers].reverse().find((timer) => timer.ms === CHECKS_MS);
+  expect(checksTimer).toBeDefined();
+  reading = false;
+  const before = timers.length;
+  checksTimer!.run();
+  await settle();
+  expect(timers.slice(before).some((timer) => timer.ms === CHECKS_MS)).toBe(false);
+});
+
+test("a new head never shows the old head's checks", async () => {
+  const host = new RichHost();
+  let answer = mockChecks;
+  const call = host.call.bind(host);
+  host.call = <R>(op: string, params: unknown): Promise<R> => {
+    if (op !== GitHubOps.checks) return call<R>(op, params);
+    host.calls.push({ op, params });
+    return Promise.resolve({ checks: answer, reading: false } as R);
+  };
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  expect(store.getSnapshot().checks?.head).toBe(mockChecks.head);
+  // A push: the details carry the new head, so the old head's checks go and the new head's are asked for.
+  const pushed = "b".repeat(40);
+  host.detailsReplies.push({ details: { ...mockDetails, headCommit: pushed } });
+  host.replies.push({ pullRequest: { ...mockPullRequest, updatedAt: "2026-11-06T00:00:00Z" }, fetchedAt: 2 });
+  await store.ask();
+  await settle();
+  await settle();
+  expect(store.getSnapshot().details?.headCommit).toBe(pushed);
+  expect(store.getSnapshot().checks).toBeUndefined();
+  const last = host.calls.filter((each) => each.op === GitHubOps.checks).at(-1);
+  expect(last?.params).toEqual({ url: MOCK_URL, head: pushed });
+  // The host still answers the old head: not drawn, and asked again shortly.
+  const before = timers.length;
+  await store.loadChecks();
+  expect(store.getSnapshot().checks).toBeUndefined();
+  expect(timers.slice(before).some((timer) => timer.ms === CHECKS_MS)).toBe(true);
+  answer = { ...mockChecks, head: pushed };
+  await store.loadChecks();
+  expect(store.getSnapshot().checks?.head).toBe(pushed);
+});

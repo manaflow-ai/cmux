@@ -17,6 +17,9 @@ public nonisolated struct GitHubChecks: Equatable, Sendable {
         public var workflow: String
         /// The Actions run it belongs to (what Re-run failed reruns), nil when none.
         public var run: Int?
+        /// The event that started its run (`push`, `pull_request`), empty for a commit status:
+        /// one workflow's runs for two events are two executions, each with its own rows.
+        public var event = ""
         /// `passed`, `failed`, `running`, `queued` or `skipped`.
         public var state: String
         public var startedAt: String
@@ -42,13 +45,13 @@ public nonisolated struct GitHubChecks: Equatable, Sendable {
 
     /// GraphQL's non-null mark, spelled apart so the crash ratchet does not read it as an unwrap.
     private static let required = "!"
-    /// `checkType: LATEST` drops a re-run's earlier attempts within a suite; a later suite of the
-    /// same workflow (another push event) is dropped by name in ``parse(_:)``.
+    /// `checkType: LATEST` drops a re-run's earlier attempts within a suite; an earlier suite of the
+    /// same workflow and event (the commit pushed again) is dropped in ``parse(_:)``.
     static let query = """
         query($owner: String\(required), $name: String\(required), $number: Int\(required)) { repository(owner: $owner, name: $name) {
           pullRequest(number: $number) { headRefOid
             commits(last: 1) { nodes { commit {
-              checkSuites(first: \(maximumSuites)) { nodes { workflowRun { databaseId workflow { name } }
+              checkSuites(first: \(maximumSuites)) { nodes { workflowRun { databaseId event workflow { name } }
                 checkRuns(first: \(maximumRuns), filterBy: { checkType: LATEST }) { nodes {
                   databaseId name status conclusion startedAt completedAt detailsUrl } } } }
               status { contexts { context state targetUrl createdAt } } } } }
@@ -106,15 +109,17 @@ public nonisolated struct GitHubChecks: Equatable, Sendable {
         for suite in nodes(commit?["checkSuites"]) {
             let workflow = workflowName(suite)
             let run = (suite["workflowRun"] as? [String: Any])?["databaseId"] as? Int
+            let event = (suite["workflowRun"] as? [String: Any])?["event"] as? String ?? ""
             for check in nodes(suite["checkRuns"]) {
                 guard let name = check["name"] as? String, !name.isEmpty else { continue }
-                let key = "\(workflow)\u{0}\(name)"
-                let job = Job(id: check["databaseId"] as? Int ?? 0, name: name, workflow: workflow, run: run,
+                let key = "\(workflow)\u{0}\(event)\u{0}\(name)"
+                let job = Job(id: check["databaseId"] as? Int ?? 0, name: name, workflow: workflow, run: run, event: event,
                               state: state(status: check["status"] as? String, conclusion: check["conclusion"] as? String),
                               startedAt: check["startedAt"] as? String ?? "", completedAt: check["completedAt"] as? String ?? "",
-                              url: link(check["detailsUrl"]), expected: expected[key])
-                // The same job again (a re-run, another event's run): the latest start stands.
-                if let kept = latest[key], kept.startedAt >= job.startedAt, !kept.startedAt.isEmpty || job.startedAt.isEmpty { continue }
+                              url: link(check["detailsUrl"]), expected: expected["\(workflow)\u{0}\(name)"])
+                // The same job of the same workflow and event again (the commit pushed again): the newest
+                // run stands, by GitHub's ids, which only grow; a queued one with no start yet still wins.
+                if let kept = latest[key], ((kept.run ?? 0), kept.id) >= ((job.run ?? 0), job.id) { continue }
                 if latest[key] == nil { order.append(key) }
                 latest[key] = job
             }
@@ -154,6 +159,7 @@ public nonisolated struct GitHubChecks: Equatable, Sendable {
                                             "state": .string(job.state), "startedAt": .string(job.startedAt),
                                             "completedAt": .string(job.completedAt)]
             if let run = job.run { row["run"] = JSONValue(run) }
+            if !job.event.isEmpty { row["event"] = .string(job.event) }
             if let url = job.url { row["url"] = .string(url) }
             if let expected = job.expected { row["expected"] = .number(expected) }
             if let failure = job.failure {

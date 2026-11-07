@@ -61,3 +61,25 @@ test("elapsed, durations and the runs Re-run failed names", () => {
   expect(duration(12, "en")).toBe("12s");
   expect(failedRuns(mockChecks.jobs)).toEqual([9001]);
 });
+
+test("one matrix's push run and pull_request run are separate rows", () => {
+  const shard = (id: number, event: string, state: DashboardJob["state"]): DashboardJob => ({
+    id,
+    name: `health (${id % 2})`,
+    workflow: "ci",
+    event,
+    state,
+    startedAt: "",
+    completedAt: "",
+  });
+  const rows = dashboardRows([
+    shard(1, "push", "failed"),
+    shard(2, "push", "passed"),
+    shard(3, "pull_request", "passed"),
+    shard(4, "pull_request", "passed"),
+  ]);
+  expect(rows.map((row) => [row.state, row.jobs.length])).toEqual([
+    ["failed", 2],
+    ["passed", 2],
+  ]);
+});

@@ -32,7 +32,7 @@ struct GitHubChecksTests {
                 {"databaseId": 2, "name": "health (1)", "status": "IN_PROGRESS", "conclusion": null, "startedAt": "2026-11-07T08:00:00Z", "completedAt": null},
                 {"databaseId": 3, "name": "test", "status": "COMPLETED", "conclusion": "FAILURE", "startedAt": "2026-11-07T08:00:00Z", "completedAt": "2026-11-07T08:05:00Z"},
                 {"databaseId": 4, "name": "journey", "status": "QUEUED", "conclusion": null, "startedAt": null, "completedAt": null}]}},
-              {"workflowRun": {"databaseId": 12, "workflow": {"name": "ci"}}, "checkRuns": {"nodes": [
+              {"workflowRun": {"databaseId": 10, "workflow": {"name": "ci"}}, "checkRuns": {"nodes": [
                 {"databaseId": 5, "name": "test", "status": "COMPLETED", "conclusion": "FAILURE", "startedAt": "2026-11-07T07:00:00Z", "completedAt": "2026-11-07T07:05:00Z"}]}}]},
             "status": {"contexts": [{"context": "risk evidence", "state": "SUCCESS", "targetUrl": null, "createdAt": "2026-11-07T08:00:00Z"}]}}}]},
           "baseRef": {"target": {"checkSuites": {"nodes": [
@@ -45,7 +45,7 @@ struct GitHubChecksTests {
         let checks = try #require(GitHubChecks.parse(Data(Self.answer.utf8)))
         #expect(checks.jobs.map(\.name) == ["health (0)", "health (1)", "test", "journey", "risk evidence"])
         #expect(checks.jobs.map(\.state) == ["passed", "running", "failed", "queued", "passed"])
-        // The older run's "test" (run 12, an hour earlier) is not the one shown.
+        // The older run's "test" (run 10, an hour earlier) is not the one shown.
         #expect(checks.jobs[2].id == 3)
         #expect(checks.jobs[2].run == 11)
         #expect(checks.jobs[1].expected == 180)
@@ -53,6 +53,73 @@ struct GitHubChecksTests {
         #expect(!checks.settled)
         #expect(checks.freshness == .seconds(20))
         #expect(GitHubChecks(head: "", jobs: [checks.jobs[0]]).freshness == .seconds(300))
+    }
+
+    /// One commit's suites, each `(run, event, check runs)`, as `checks.read`'s GraphQL answers them.
+    nonisolated private static func suites(head: String = "abc", _ suites: [(Int, String, String)]) -> Data {
+        let nodes = suites.map { run, event, checks in
+            #"{"workflowRun": {"databaseId": \#(run), "event": "\#(event)", "workflow": {"name": "ci"}}, "checkRuns": {"nodes": [\#(checks)]}}"#
+        }
+        return Data(#"""
+            {"data": {"repository": {"pullRequest": {"headRefOid": "\#(head)", "commits": {"nodes": [{"commit": {
+              "checkSuites": {"nodes": [\#(nodes.joined(separator: ","))]}, "status": null}}]}, "baseRef": null}}}}
+            """#.utf8)
+    }
+
+    @Test func aPushRunAndAPullRequestRunAreSeparateRows() throws {
+        let failed = #"{"databaseId": 7, "name": "test", "status": "COMPLETED", "conclusion": "FAILURE", "startedAt": "2026-11-07T08:00:00Z", "completedAt": "2026-11-07T08:05:00Z"}"#
+        let passed = #"{"databaseId": 8, "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS", "startedAt": "2026-11-07T08:10:00Z", "completedAt": "2026-11-07T08:15:00Z"}"#
+        let checks = try #require(GitHubChecks.parse(Self.suites([(21, "push", failed), (22, "pull_request", passed)])))
+        // The later pull_request pass does not hide the push run's failure, its log or its re-run.
+        #expect(checks.jobs.map(\.state) == ["failed", "passed"])
+        #expect(checks.jobs.map(\.event) == ["push", "pull_request"])
+        #expect(checks.jobs.map(\.run) == [21, 22])
+        #expect(checks.json["jobs"]?.arrayValue?.first?["event"]?.stringValue == "push")
+    }
+
+    @Test func aQueuedNewerRunOfTheSameEventReplacesTheOlderAndUnsettles() throws {
+        let passed = #"{"databaseId": 7, "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS", "startedAt": "2026-11-07T08:00:00Z", "completedAt": "2026-11-07T08:05:00Z"}"#
+        let queued = #"{"databaseId": 9, "name": "test", "status": "QUEUED", "conclusion": null, "startedAt": null, "completedAt": null}"#
+        // Either order of the suites: the newer run (by id) stands, though it has no start yet.
+        for suites in [[(21, "push", passed), (23, "push", queued)], [(23, "push", queued), (21, "push", passed)]] {
+            let checks = try #require(GitHubChecks.parse(Self.suites(suites)))
+            #expect(checks.jobs.map(\.id) == [9])
+            #expect(checks.jobs.map(\.state) == ["queued"])
+            #expect(!checks.settled)
+            #expect(checks.freshness == .seconds(20))
+        }
+    }
+
+    @Test func aNewHeadNeverGetsTheOldHeadsChecks() async throws {
+        final class Heads: @unchecked Sendable { // crash-allow: test state touched only on the main actor
+            var head = "abc"
+            var reads = 0
+        }
+        let heads = Heads()
+        let done = #"{"databaseId": 7, "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS", "startedAt": "2026-11-07T08:00:00Z", "completedAt": "2026-11-07T08:05:00Z"}"#
+        let checks = GitHubChecksCache(reader: { _ in
+            let head = await MainActor.run { heads.reads += 1; return heads.head }
+            return GitHubChecks.parse(Self.suites(head: head, [(21, "push", done)]))
+        }, failureReader: { _, _ in nil })
+        let first = await checks.answer(Self.link, head: "abc")
+        #expect(first.checks?.head == "abc")
+        #expect(first.checks?.settled == true)
+        // A push: the page shows "def" while "abc"'s settled checks are fresh for 5 minutes. GitHub
+        // has not caught up yet, so the page gets no checks rather than the old head's.
+        let lagging = await checks.answer(Self.link, head: "def")
+        #expect(lagging.checks == nil)
+        #expect(heads.reads == 2)
+        // Asking again for "def" is not a read per ask: one read per head asked, then the freshness.
+        _ = await checks.answer(Self.link, head: "def")
+        #expect(heads.reads == 2)
+        // Another push: a new head is a miss again, and once GitHub has it, it is drawn.
+        heads.head = "ghi"
+        let newer = await checks.answer(Self.link, head: "ghi")
+        #expect(newer.checks?.head == "ghi")
+        #expect(heads.reads == 3)
+        // A page that names no head takes what is kept.
+        #expect(await checks.answer(Self.link).checks?.head == "ghi")
+        #expect(heads.reads == 3)
     }
 
     @Test func aFailedJobsExcerptEndsAtItsLastErrorWithoutTimestamps() {
@@ -103,6 +170,18 @@ struct GitHubChecksTests {
         #expect(failed?["failure"]?["excerpt"]?.stringValue == "boom")
     }
 
+    @Test func checksReadPassesThePagesHead() async throws {
+        let calls = Calls(), checks = cache(calls)
+        let provider = provider(calls, checks: checks)
+        let url = JSONValue.string(Self.pull.absoluteString)
+        let shown = try await provider.call("cmux.github.checks.read", params: ["url": url, "head": "abc"], context: Self.page)
+        #expect(shown["checks"]?["head"]?.stringValue == "abc")
+        // The page moved on to a head GitHub's answer does not carry: no checks, rather than "abc"'s.
+        let moved = try await provider.call("cmux.github.checks.read", params: ["url": url, "head": "def"], context: Self.page)
+        #expect(moved["checks"] == JSONValue.null)
+        #expect(calls.reads == 2)
+    }
+
     @Test func reRunFailedTakesOnlyShownFailedRunsAndAClick() async throws {
         let calls = Calls(), checks = cache(calls)
         let provider = provider(calls, checks: checks)
@@ -112,9 +191,9 @@ struct GitHubChecksTests {
         await #expect(throws: PageError.self) {
             _ = try await provider.call("cmux.github.checks.rerun", params: ["url": url, "runs": .array([.number(11)])], context: Self.page)
         }
-        // A run the page did not show failing (12 was the older attempt) is refused.
+        // A run the page did not show failing (10 was the older run) is refused.
         await #expect(throws: PageError.self) {
-            _ = try await provider.call("cmux.github.checks.rerun", params: ["url": url, "runs": .array([.number(12)])], context: Self.click)
+            _ = try await provider.call("cmux.github.checks.rerun", params: ["url": url, "runs": .array([.number(10)])], context: Self.click)
         }
         #expect(calls.reruns.isEmpty)
         let reply = try await provider.call("cmux.github.checks.rerun", params: ["url": url, "runs": .array([.number(11)])], context: Self.click)

@@ -122,27 +122,33 @@ export class GitHubStore {
     if (this.snapshot.pullRequest && updatedAt !== this.snapshot.detailsFor) void this.loadDetails(updatedAt ?? "");
   }
 
-  /** Asks the host for the dashboard's checks; while a job runs or waits, again in CHECKS_MS. */
+  /** Asks the host for the dashboard's checks at the shown head; while a job runs or waits, or the
+   * host is still reading, again in CHECKS_MS. */
   async loadChecks(): Promise<void> {
     clearTimeout(this.checksTimer);
     const target = this.snapshot.target;
     if (!target || !this.client || this.checksAsking) return;
     const generation = this.generation;
+    const asked = this.snapshot.details?.headCommit;
     this.checksAsking = true;
     let reply: { checks?: DashboardChecks | null; reading?: boolean } | undefined;
     try {
-      reply = await this.client.call(GitHubOps.checks, { url: target.url });
+      reply = await this.client.call(GitHubOps.checks, { url: target.url, ...(asked ? { head: asked } : {}) });
     } catch {
       reply = undefined;
     } finally {
       this.checksAsking = false;
     }
     if (generation !== this.generation) return;
-    const checks = reply?.checks && Array.isArray(reply.checks.jobs) ? reply.checks : undefined;
+    const answered = reply?.checks && Array.isArray(reply.checks.jobs) ? reply.checks : undefined;
+    // Another head's checks (the page has seen a push since) are never drawn; asked again shortly.
+    const head = this.snapshot.details?.headCommit;
+    const stale = answered !== undefined && !!head && !!answered.head && answered.head !== head;
+    const checks = stale ? undefined : answered;
     if (checks) this.set({ ...this.snapshot, checks });
-    // Stops by itself: a settled pull request, a failed ask or a hidden page arms nothing more;
-    // the minute refresh (ask) and showing the page again start it.
-    const live = checks ? !checks.settled : reply?.reading === true;
+    // Stops by itself: a settled pull request the host is not reading, a failed ask or a hidden page
+    // arms nothing more; the minute refresh (ask) and showing the page again start it.
+    const live = reply?.reading === true || stale || (checks !== undefined && !checks.settled);
     if (!live) return;
     this.checksTimer = setTimeout(() => {
       if (this.visible()) void this.loadChecks();
@@ -193,7 +199,11 @@ export class GitHubStore {
       this.set({ ...this.snapshot, detailsFor: undefined });
       return;
     }
-    this.set({ ...this.snapshot, details });
+    // A new head (a push): the old head's checks go, and the new head's are asked for.
+    const { checks: shown, ...rest } = this.snapshot;
+    const moved = !!shown?.head && !!details.headCommit && shown.head !== details.headCommit;
+    this.set(moved ? { ...rest, details } : { ...this.snapshot, details });
+    if (moved) void this.loadChecks();
   }
 
   /** The open files read again from the new head; closed ones are forgotten. */

@@ -24,8 +24,9 @@ public import CmuxNextSettings
 /// - `pr.merge {url, head}`: merges the pull request through GitHub's normal merge path, pinned
 ///   to `head`, the commit the page showed (``AgentPaneGitPullRequest/mergeShown(url:head:)``).
 ///   Spends the gesture.
-/// - `checks.read {url}`: the CI dashboard's jobs (``GitHubChecks``) from the App's one checks
-///   cache (``GitHubChecksCache``), read again only when stale for its state.
+/// - `checks.read {url, head?}`: the CI dashboard's jobs (``GitHubChecks``) at `head`, the commit
+///   the page shows, from the App's one checks cache (``GitHubChecksCache``), read again only when
+///   stale for its state or kept for another head; never another head's checks.
 /// - `checks.rerun {url, runs}`: re-runs the failed jobs of those Actions runs (`gh run rerun
 ///   --failed`), only runs the dashboard showed with a failed job. Spends the gesture.
 @MainActor
@@ -273,10 +274,10 @@ public final class GitHubPageProvider: PageProvider {
         }
     }
 
-    /// The CI dashboard's jobs, from the App's one checks cache.
+    /// The CI dashboard's jobs at the page's head, from the App's one checks cache.
     private func readChecks(_ params: JSONValue) async throws -> JSONValue {
         let link = try link(params, "checks.read")
-        let answer = await checksCache.answer(link)
+        let answer = await checksCache.answer(link, head: params["head"]?.stringValue ?? "")
         try Task.checkCancellation()
         return ["checks": answer.checks?.json ?? .null, "reading": .bool(answer.reading)]
     }

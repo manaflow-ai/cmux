@@ -9,6 +9,9 @@ import CmuxNextAgentPane
 /// so this is the live path: reads only for pull requests a visible page asks about, at a pace
 /// set by their state, never one per tab and never for a pull request no page shows.
 ///
+/// The kept checks belong to one head commit. A page asking for another head (a push it has seen)
+/// gets no checks from the old head: that is a miss, read again at once, once per head asked.
+///
 /// A failed job's failing step and log excerpt (``GitHubJobFailure``) are read once per job id,
 /// at most ``maximumFailureReads`` per checks read, and kept: a finished job's log never changes.
 @MainActor
@@ -18,6 +21,8 @@ public final class GitHubChecksCache {
         /// When the last read finished, good or not.
         var tried: ContinuousClock.Instant?
         var read: Task<Void, Never>?
+        /// The head the last read was started for, so a page ahead of GitHub's answer is not a read per ask.
+        var readFor: String?
         var touched: ContinuousClock.Instant
     }
 
@@ -43,13 +48,20 @@ public final class GitHubChecksCache {
         self.failureReader = failureReader ?? { await GitHubJobFailure.read(repository: $0, job: $1) }
     }
 
-    /// What is kept for `link`, with each failed job's failure when read; starts a read when stale.
-    /// Waits only when nothing is kept yet, so the first ask draws the dashboard and later ones never wait.
-    public func answer(_ link: GitHubLink) async -> (checks: GitHubChecks?, reading: Bool) {
-        let task = startRead(link)
-        if entries[link.url]?.checks == nil, let task { await task.value }
+    /// What is kept for `link` at `head` (any head when empty), with each failed job's failure when
+    /// read; starts a read when stale. Waits only when nothing is kept for that head yet, so the first
+    /// ask draws the dashboard and later ones never wait.
+    public func answer(_ link: GitHubLink, head: String = "") async -> (checks: GitHubChecks?, reading: Bool) {
+        let task = startRead(link, head: head)
+        if !Self.matches(entries[link.url]?.checks, head), let task { await task.value }
         let entry = entries[link.url]
-        return (entry?.checks.map(withFailures), entry?.read != nil)
+        let checks = entry?.checks.flatMap { Self.matches($0, head) ? withFailures($0) : nil }
+        return (checks, entry?.read != nil)
+    }
+
+    private static func matches(_ checks: GitHubChecks?, _ head: String) -> Bool {
+        guard let checks else { return false }
+        return head.isEmpty || checks.head == head
     }
 
     /// The Actions runs with a failed job in what is kept for `link`: the only runs a re-run may name.
@@ -62,14 +74,16 @@ public final class GitHubChecksCache {
         entries[link.url]?.tried = nil
     }
 
-    private func stale(_ entry: Entry?) -> Bool {
+    private func stale(_ entry: Entry?, head: String) -> Bool {
         guard let entry, let tried = entry.tried else { return true }
+        // Another head's checks are a miss, unless a read for this head already ran (GitHub lags the page).
+        if let checks = entry.checks, !Self.matches(checks, head), entry.readFor != head { return true }
         return ContinuousClock.now - tried >= (entry.checks?.freshness ?? Self.retry)
     }
 
-    private func startRead(_ link: GitHubLink) -> Task<Void, Never>? {
+    private func startRead(_ link: GitHubLink, head: String) -> Task<Void, Never>? {
         if let running = entries[link.url]?.read { return running }
-        guard stale(entries[link.url]) else { return nil }
+        guard stale(entries[link.url], head: head) else { return nil }
         let reader = reader
         reads += 1
         // task-owner: one checks read per pull request at a time; every page asking shares it.
@@ -79,6 +93,7 @@ public final class GitHubChecksCache {
         }
         var entry = entries[link.url] ?? Entry(touched: .now)
         entry.read = task
+        entry.readFor = head
         entry.touched = .now
         entries[link.url] = entry
         trim()

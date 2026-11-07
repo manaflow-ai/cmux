@@ -34,6 +34,8 @@ export interface DashboardJob {
   workflow: string;
   /** The Actions run it belongs to, what Re-run failed reruns. */
   run?: number;
+  /** The event that started its run (`push`, `pull_request`); two events' runs are separate rows. */
+  event?: string;
   state: "passed" | "failed" | "running" | "queued" | "skipped";
   /** ISO 8601, empty before it starts or ends. */
   startedAt: string;

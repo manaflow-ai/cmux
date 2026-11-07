@@ -26,14 +26,16 @@ export function dashboardRows(jobs: readonly DashboardJob[]): DashboardRow[] {
   const byKey = new Map<string, DashboardRow>();
   const counts = new Map<string, number>();
   const base = (job: DashboardJob) => MATRIX.exec(job.name)?.[1];
+  // One matrix is one workflow run's shards: a push run's and a pull_request run's stay apart.
+  const matrix = (job: DashboardJob, name: string) => `${job.workflow}\0${job.event ?? ""}\0${name}`;
   for (const job of jobs) {
     const name = base(job);
-    if (name) counts.set(`${job.workflow}\0${name}`, (counts.get(`${job.workflow}\0${name}`) ?? 0) + 1);
+    if (name) counts.set(matrix(job, name), (counts.get(matrix(job, name)) ?? 0) + 1);
   }
   for (const job of jobs) {
     const name = base(job);
-    const grouped = name !== undefined && (counts.get(`${job.workflow}\0${name}`) ?? 0) > 1;
-    const key = grouped ? `${job.workflow}\0${name}` : `${job.workflow}\0${job.name}\0${job.id}`;
+    const grouped = name !== undefined && (counts.get(matrix(job, name)) ?? 0) > 1;
+    const key = grouped ? matrix(job, name) : `${job.workflow}\0${job.name}\0${job.id}`;
     const row = byKey.get(key);
     if (row) {
       row.jobs.push(job);
