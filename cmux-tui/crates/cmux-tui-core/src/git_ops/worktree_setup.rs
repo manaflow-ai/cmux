@@ -77,6 +77,10 @@ pub(super) struct Status {
     /// any session host (or after a restart) can stop it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
+    /// When that process started, as the system tells it: a pid alone may
+    /// name another process after a crash or a restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid_started: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include: Option<Report>,
     pub started_ms: u64,
@@ -191,6 +195,7 @@ fn run(place: &Place, recipe: &Recipe, status: &mut Status, handle: &Run) {
     let _ = write_status(&status_path, status);
     let outcome = shell(place, setup, status.port, &log, SETUP_DEADLINE, Some((handle, status)));
     status.pid = None;
+    status.pid_started = None;
     if cancelled() {
         let _ = writeln!(log, "Stopped: the worktree is being removed.");
     }
@@ -290,6 +295,7 @@ fn shell(
     let cancel = setup.is_some().then(|| place.git_dir.join(CANCEL_FILE));
     if let Some((_, status)) = setup {
         status.pid = Some(child.id());
+        status.pid_started = process_started(child.id());
         let _ = write_status(&place.git_dir.join(STATUS_FILE), status);
     }
     let started = Instant::now();
@@ -368,12 +374,15 @@ pub(super) fn read(root: &Path, git_dir: &Path, since: u64) -> Value {
     // Live here, or (for a setup another session host started) its
     // process group still there.
     let live = running().lock().unwrap_or_else(PoisonError::into_inner).contains_key(root)
-        || status.pid.is_some_and(group_alive);
+        || status.pid.is_some_and(|pid| {
+            status.pid_started.is_some_and(|started| process_started(pid) == Some(started))
+        });
     if matches!(status.state.as_str(), "copying" | "running") && !live {
         status.state = "interrupted".into();
     }
     let (output, start, end) = tail(&git_dir.join(LOG_FILE), since, MAX_OUTPUT_BYTES);
     status.pid = None;
+    status.pid_started = None;
     let mut value = json!(status);
     value["port"] = json!(port.or(status.port));
     value["started_ms"] = json!(status.started_ms.to_string());
@@ -450,8 +459,8 @@ fn stop(place: &Place) {
     let handle = running().lock().unwrap_or_else(PoisonError::into_inner).get(&place.root).cloned();
     let Some(handle) = handle else {
         // Another session host's setup: it stops itself on the cancel file.
-        // A pid from a status file is never signalled here, since after a
-        // crash or a restart it may name someone else's process.
+        // If that host is gone, the group its status file names is ended,
+        // but only while that pid is still the process that started then.
         let unfinished = |status: Option<Status>| {
             status.is_some_and(|status| match status.state.as_str() {
                 "copying" => true,
@@ -465,6 +474,17 @@ fn stop(place: &Place) {
             while unfinished(read_status(&place.git_dir)) && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(50));
             }
+        }
+        if let Some(status) = read_status(&place.git_dir).filter(|status| status.state == "running")
+            && let Some(pid) = status.pid
+            && status.pid_started.is_some_and(|started| process_started(pid) == Some(started))
+        {
+            signal_group(pid, Signal::Terminate);
+            let deadline = Instant::now() + STOP_GRACE;
+            while group_alive(pid) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            signal_group(pid, Signal::Kill);
         }
         return;
     };
@@ -524,6 +544,33 @@ impl Run {
 fn running() -> &'static Mutex<HashMap<PathBuf, Arc<Run>>> {
     static RUNNING: OnceLock<Mutex<HashMap<PathBuf, Arc<Run>>>> = OnceLock::new();
     RUNNING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// When the process `pid` started (Linux: clock ticks after boot; macOS:
+/// microseconds since the epoch).
+#[cfg(target_os = "linux")]
+fn process_started(pid: u32) -> Option<u64> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // The fields after the command's closing parenthesis start at field 3;
+    // `starttime` is field 22.
+    stat.rsplit_once(')')?.1.split_whitespace().nth(19)?.parse().ok()
+}
+
+#[cfg(target_os = "macos")]
+fn process_started(pid: u32) -> Option<u64> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    // SAFETY: proc_bsdinfo is plain data; proc_pidinfo writes at most `size`.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = libc::c_int::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).ok()?;
+    // SAFETY: `info` is a live buffer of `size` bytes.
+    let read =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
+    (read == size).then(|| info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn process_started(_pid: u32) -> Option<u64> {
+    None
 }
 
 /// Whether any process of the group `pid` leads is left.
@@ -654,7 +701,9 @@ mod ports {
         ports.retain(|folder, _| Path::new(folder).exists());
         let taken: std::collections::BTreeSet<u16> = ports.values().copied().collect();
         let port = (0..PORT_BLOCKS).map(|block| FIRST_PORT + block * PORT_BLOCK).find(|port| {
-            !taken.contains(port) && TcpListener::bind((Ipv4Addr::LOCALHOST, *port)).is_ok()
+            !taken.contains(port)
+                && (*port..*port + PORT_BLOCK)
+                    .all(|port| TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok())
         })?;
         ports.insert(key(root), port);
         save(&path, &ports);
@@ -700,6 +749,14 @@ mod tests {
         assert_eq!(values["CONDUCTOR_ROOT_PATH"], "/repo");
         assert_eq!(values["CMUX_WORKSPACE_NAME"], "fix-login");
         assert_eq!(values["CONDUCTOR_PORT"], "40010");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn a_process_is_known_by_when_it_started() {
+        let started = process_started(std::process::id());
+        assert!(started.is_some());
+        assert_eq!(process_started(std::process::id()), started);
     }
 
     #[cfg(unix)]

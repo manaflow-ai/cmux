@@ -348,7 +348,6 @@ struct Copier<'a> {
 impl Copier<'_> {
     fn entry(&mut self, relative: &Path) {
         let source = self.source_root.join(relative);
-        let destination = self.destination_root.join(relative);
         if (self.cancelled)() {
             return;
         }
@@ -356,16 +355,9 @@ impl Copier<'_> {
         if deciding(self.patterns, relative, metadata.is_dir()).is_some_and(|last| last.negated) {
             return;
         }
-        let link_there =
-            fs::symlink_metadata(&destination).is_ok_and(|there| there.file_type().is_symlink());
-        if !self.writable(&destination) || (metadata.is_dir() && link_there) {
-            let entry = format!("{}: the worktree has a link there", relative.display());
-            Report::note(&mut self.report.problems, entry);
-            return;
-        }
         if metadata.is_dir() {
-            if let Err(error) = fs::create_dir_all(&destination) {
-                Report::note(&mut self.report.problems, format!("{}: {error}", relative.display()));
+            if let Err(error) = destination::folder(&self.destination_root, relative) {
+                self.problem(relative, &error);
                 return;
             }
             let Ok(entries) = fs::read_dir(&source) else { return };
@@ -376,15 +368,25 @@ impl Copier<'_> {
             }
             return;
         }
-        let made = if metadata.file_type().is_symlink() {
-            if !fs::canonicalize(&source).is_ok_and(|target| target.starts_with(&self.source_root))
-            {
-                Report::note(&mut self.report.outside, relative.display().to_string());
-                return;
-            }
-            fs::read_link(&source).and_then(|target| symlink(&target, &destination))
+        let is_link = metadata.file_type().is_symlink();
+        if !is_link && !metadata.is_file() {
+            Report::note(
+                &mut self.report.problems,
+                format!("{}: not a regular file", relative.display()),
+            );
+            return;
+        }
+        if is_link
+            && !fs::canonicalize(&source).is_ok_and(|target| target.starts_with(&self.source_root))
+        {
+            Report::note(&mut self.report.outside, relative.display().to_string());
+            return;
+        }
+        let made = if is_link {
+            fs::read_link(&source)
+                .and_then(|target| destination::link(&self.destination_root, relative, &target))
         } else {
-            copy_new(&source, &destination, &metadata)
+            destination::copy(&source, &self.destination_root, relative, &metadata)
         };
         match made {
             Ok(()) => self.report.copied += 1,
@@ -392,56 +394,161 @@ impl Copier<'_> {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 self.report.kept += 1;
             }
-            Err(error) => {
-                Report::note(&mut self.report.problems, format!("{}: {error}", relative.display()));
-            }
+            Err(error) => self.problem(relative, &error),
         }
     }
 
-    /// Makes `destination`'s folder when its deepest existing folder is
-    /// inside the worktree: a tracked symlink there must not carry a copy
-    /// (or a new folder) out of it.
-    fn writable(&self, destination: &Path) -> bool {
-        let Some(parent) = destination.parent() else { return false };
-        let existing = parent.ancestors().find(|path| fs::symlink_metadata(path).is_ok());
-        existing
-            .and_then(|path| fs::canonicalize(path).ok())
-            .is_some_and(|path| path.starts_with(&self.destination_root))
-            && fs::create_dir_all(parent).is_ok()
+    fn problem(&mut self, relative: &Path, error: &std::io::Error) {
+        let entry = if destination::is_link_error(error) {
+            format!("{}: the worktree has a link there", relative.display())
+        } else {
+            format!("{}: {error}", relative.display())
+        };
+        Report::note(&mut self.report.problems, entry);
     }
 }
 
-/// Copies a file to a new `destination`, never replacing or writing
-/// through what is there: the create is exclusive and does not follow a
-/// link.
-fn copy_new(source: &Path, destination: &Path, metadata: &fs::Metadata) -> std::io::Result<()> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
-        options.custom_flags(libc::O_NOFOLLOW).mode(metadata.permissions().mode() & 0o7777);
-    }
-    #[cfg(not(unix))]
-    let _ = metadata;
-    let mut target = options.open(destination)?;
-    let copied = fs::File::open(source).and_then(|mut file| std::io::copy(&mut file, &mut target));
-    if let Err(error) = copied {
-        drop(target);
-        let _ = fs::remove_file(destination);
-        return Err(error);
-    }
-    Ok(())
-}
-
+/// Writes into the worktree one name at a time from its root, never
+/// through a link: a folder swapped for a link mid-copy fails the write
+/// instead of carrying it out of the worktree.
 #[cfg(unix)]
-fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
-    std::os::unix::fs::symlink(target, link)
+mod destination {
+    use std::ffi::{CString, OsStr};
+    use std::fs::{self, File};
+    use std::io;
+    use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+    use std::path::{Component, Path};
+
+    fn name(name: &OsStr) -> io::Result<CString> {
+        CString::new(name.as_bytes()).map_err(|_| io::ErrorKind::InvalidInput.into())
+    }
+
+    fn opened(fd: libc::c_int) -> io::Result<OwnedFd> {
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: a descriptor openat(2) just returned, owned by no one else.
+        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+
+    /// The folder `relative` names under `root`, made where missing.
+    pub(super) fn folder(root: &Path, relative: &Path) -> io::Result<OwnedFd> {
+        let root = name(root.as_os_str())?;
+        let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC;
+        // SAFETY: a NUL-terminated path; the result is checked.
+        let mut folder = opened(unsafe { libc::open(root.as_ptr(), flags) })?;
+        for component in relative.components() {
+            let Component::Normal(part) = component else {
+                return Err(io::ErrorKind::InvalidInput.into());
+            };
+            let part = name(part)?;
+            // SAFETY: a live descriptor and a NUL-terminated name.
+            if unsafe { libc::mkdirat(folder.as_raw_fd(), part.as_ptr(), 0o777) } < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::AlreadyExists {
+                    return Err(error);
+                }
+            }
+            // SAFETY: as above; O_NOFOLLOW refuses a link in the folder's place.
+            folder = opened(unsafe {
+                libc::openat(folder.as_raw_fd(), part.as_ptr(), flags | libc::O_NOFOLLOW)
+            })?;
+        }
+        Ok(folder)
+    }
+
+    fn split(relative: &Path) -> io::Result<(&Path, CString)> {
+        let file = relative.file_name().ok_or(io::ErrorKind::InvalidInput)?;
+        Ok((relative.parent().unwrap_or(Path::new("")), name(file)?))
+    }
+
+    /// A new link at `relative`.
+    pub(super) fn link(root: &Path, relative: &Path, target: &Path) -> io::Result<()> {
+        let (parent, file) = split(relative)?;
+        let folder = folder(root, parent)?;
+        let target = name(target.as_os_str())?;
+        // SAFETY: a live descriptor and NUL-terminated strings.
+        if unsafe { libc::symlinkat(target.as_ptr(), folder.as_raw_fd(), file.as_ptr()) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    /// A new file at `relative` with `source`'s bytes and mode. The create
+    /// is exclusive, so a file already there (or saved meanwhile) is kept,
+    /// and the source must still be a regular file once open.
+    pub(super) fn copy(
+        source: &Path,
+        root: &Path,
+        relative: &Path,
+        metadata: &fs::Metadata,
+    ) -> io::Result<()> {
+        // Non-blocking, so a FIFO put in the file's place cannot hang the copy.
+        let mut reader = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(source)?;
+        if !reader.metadata()?.is_file() {
+            return Err(io::Error::other("not a regular file"));
+        }
+        let (parent, file) = split(relative)?;
+        let folder = folder(root, parent)?;
+        let flags =
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+        let mode = metadata.permissions().mode() & 0o7777;
+        // SAFETY: a live descriptor and a NUL-terminated name; the result is checked.
+        let made = opened(unsafe {
+            libc::openat(folder.as_raw_fd(), file.as_ptr(), flags, mode as libc::c_uint)
+        })?;
+        let mut writer = File::from(made);
+        if let Err(error) = io::copy(&mut reader, &mut writer) {
+            drop(writer);
+            // SAFETY: as above; removes only the file this copy made.
+            unsafe { libc::unlinkat(folder.as_raw_fd(), file.as_ptr(), 0) };
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// The error a link where a folder should be gives.
+    pub(super) fn is_link_error(error: &io::Error) -> bool {
+        matches!(error.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR))
+    }
 }
 
 #[cfg(not(unix))]
-fn symlink(_target: &Path, _link: &Path) -> std::io::Result<()> {
-    Err(std::io::Error::other("links are not copied on this platform"))
+mod destination {
+    use std::fs;
+    use std::io;
+    use std::path::Path;
+
+    pub(super) fn folder(root: &Path, relative: &Path) -> io::Result<()> {
+        fs::create_dir_all(root.join(relative))
+    }
+
+    pub(super) fn link(_root: &Path, _relative: &Path, _target: &Path) -> io::Result<()> {
+        Err(io::Error::other("links are not copied on this platform"))
+    }
+
+    pub(super) fn copy(
+        source: &Path,
+        root: &Path,
+        relative: &Path,
+        _metadata: &fs::Metadata,
+    ) -> io::Result<()> {
+        if let Some(parent) = relative.parent() {
+            folder(root, parent)?;
+        }
+        let mut target =
+            fs::OpenOptions::new().write(true).create_new(true).open(root.join(relative))?;
+        io::copy(&mut fs::File::open(source)?, &mut target).map(|_| ())
+    }
+
+    pub(super) fn is_link_error(_error: &io::Error) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -557,6 +664,24 @@ mod tests {
         for folder in [source, destination, elsewhere] {
             fs::remove_dir_all(folder).unwrap();
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn leaves_out_a_fifo_instead_of_waiting_on_it() {
+        let source = scratch("source");
+        let destination = scratch("destination");
+        let fifo =
+            std::ffi::CString::new(source.join("pipe").as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: a NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        fs::write(source.join(".env"), "e").unwrap();
+        let report = copy(&source, &destination, &lines("pipe\n.env\n"), &|| false);
+        assert_eq!(report.copied, 1);
+        assert_eq!(report.problems, ["pipe: not a regular file"]);
+        assert!(fs::symlink_metadata(destination.join("pipe")).is_err());
+        fs::remove_dir_all(source).unwrap();
+        fs::remove_dir_all(destination).unwrap();
     }
 
     #[cfg(unix)]
