@@ -37,7 +37,13 @@ cmux inference setup: choose and check how a Cloud machine's Codex reaches a mod
 
 Usage:
   cmux inference setup --machine vm_... [--path auto|gateway|device]
+                       [--gateway-machine vm_... --upstream URL [--upstream-key-file PATH]]
                        [--api URL] [--team TEAM] [--token-file PATH | --token-command CMD]
+
+  --gateway-machine, --upstream
+                  first make that machine the team's gateway machine, in front of
+                  your own subscription proxy at URL (CLIProxyAPI or your own router,
+                  reachable from that machine). Running the proxy is yours.
 
   --path auto     (default) use the team's gateway when it answers; otherwise
                   offer a device login on the machine
@@ -60,6 +66,17 @@ pub(super) struct Options {
     pub machine: String,
     pub path: PathChoice,
     pub token: TokenSource,
+    /// Make this machine the team's gateway machine first, in front of the person's own proxy.
+    pub gateway: Option<GatewayMachine>,
+}
+
+/// `--gateway-machine vm_… --upstream URL [--upstream-key-file PATH]`: the person's proxy runs on (or is reachable
+/// from) that machine; it is theirs to run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct GatewayMachine {
+    pub machine: String,
+    pub upstream: String,
+    pub key_file: Option<String>,
 }
 
 /// `Some(exit code)` when `args` is `inference setup …`.
@@ -106,6 +123,9 @@ pub(super) fn parse(
             "--api" => api = Some(value()?),
             "--team" => team = Some(value()?),
             "--machine" => machine = Some(value()?),
+            "--gateway-machine" => gateway_machine = Some(value()?),
+            "--upstream" => upstream = Some(value()?),
+            "--upstream-key-file" => key_file = Some(value()?),
             "--path" => {
                 path = match value()?.as_str() {
                     "auto" => PathChoice::Auto,
@@ -139,7 +159,24 @@ pub(super) fn parse(
     let token = token.unwrap_or_else(|| {
         if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
     });
-    Ok(Options { api, team, machine, path, token })
+    let gateway = match (gateway_machine, upstream) {
+        (None, None) if key_file.is_none() => None,
+        (Some(m), Some(u)) => {
+            if !valid_machine(&m) {
+                return Err("--gateway-machine must be a machine id".into());
+            }
+            let url = reqwest::Url::parse(&u).map_err(|_| "--upstream is not a URL".to_owned())?;
+            if !matches!(url.scheme(), "http" | "https") || url.query().is_some() || u.contains(['\'', '"', ' ']) {
+                return Err("--upstream must be an http(s) URL with no query".into());
+            }
+            if key_file.as_deref().is_some_and(|k| !k.starts_with('/') || k.contains(['\'', '"', ' '])) {
+                return Err("--upstream-key-file must be an absolute path on the gateway machine".into());
+            }
+            Some(GatewayMachine { machine: m, upstream: u, key_file })
+        }
+        _ => return Err("--gateway-machine and --upstream go together (your proxy, reachable from that machine)".into()),
+    };
+    Ok(Options { api, team, machine, path, token, gateway })
 }
 
 fn say(line: &str) {
@@ -177,11 +214,21 @@ struct Machine<'a> {
 impl Machine<'_> {
     /// One command on the machine as its work user: its exit code and output.
     async fn exec(&self, command: &str, timeout_ms: u64) -> Result<(i64, String), String> {
+        self.exec_on(&self.options.machine, command, timeout_ms).await
+    }
+
+    /// One command on `machine` (the chat machine, or the gateway machine) as its work user.
+    async fn exec_on(
+        &self,
+        machine: &str,
+        command: &str,
+        timeout_ms: u64,
+    ) -> Result<(i64, String), String> {
         let request = Request {
             api: self.options.api.clone(),
             credential: self.token.clone(),
             team: self.options.team.clone(),
-            machine: self.options.machine.clone(),
+            machine: machine.to_owned(),
             op: Op::Exec,
             path: None,
             data_base64: None,
@@ -219,6 +266,9 @@ async fn setup(options: &Options) -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
     let machine = Machine { http, options, token };
+    if let Some(gw) = &options.gateway {
+        make_gateway(&machine, gw).await?;
+    }
     if options.path != PathChoice::Device {
         match gateway(&machine).await {
             Ok(()) => return Ok(()),
@@ -230,6 +280,84 @@ async fn setup(options: &Options) -> Result<(), String> {
     }
     device(&machine).await
 }
+
+/// Names `gw.machine` as the team's gateway machine and starts `cmux inference gateway` there, in front of the
+/// person's own proxy, on the machine's own short-lived token (cmux-host `gateway_token.rs`). Then waits for it.
+async fn make_gateway(machine: &Machine<'_>, gw: &GatewayMachine) -> Result<(), String> {
+    let o = machine.options;
+    let mut request = machine
+        .http
+        .put(format!("{}/v1/cloud/inference-gateway", o.api))
+        .bearer_auth(&machine.token)
+        .json(&serde_json::json!({"mode": "gateway", "machine": gw.machine}));
+    if let Some(team) = &o.team {
+        request = request.header("x-cmux-team", team);
+    }
+    let status = request
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|_| "the cmux API did not answer".to_owned())?
+        .status();
+    if !status.is_success() {
+        return Err(format!(
+            "the cmux API refused to name the gateway machine (HTTP {})",
+            status.as_u16()
+        ));
+    }
+    let key =
+        gw.key_file.as_deref().map(|k| format!(" --upstream-key-file '{k}'")).unwrap_or_default();
+    // The values were checked to hold no quote or space (parse).
+    let start = format!(
+        "set -e; d=\"$HOME/.config/cmux/inference-gateway\"; mkdir -p \"$d\" \"$HOME/.cache/cmux\"; chmod 700 \"$d\"; \
+         touch \"$d/enabled\"; for i in $(seq 1 90); do [ -s {TOKEN_FILE} ] && break; sleep 1; done; \
+         [ -s {TOKEN_FILE} ] || {{ echo no-token; exit 4; }}; \
+         p=\"$HOME/.cache/cmux/inference-gateway.pid\"; [ -f \"$p\" ] && kill \"$(cat \"$p\")\" 2>/dev/null || true; \
+         c=$(command -v cmux || command -v cmux-tui); \
+         nohup \"$c\" inference gateway --api '{api}' --upstream '{up}'{key} --token-file {TOKEN_FILE} \
+           > \"$HOME/.cache/cmux/inference-gateway.log\" 2>&1 < /dev/null & echo $! > \"$p\"",
+        api = o.api,
+        up = gw.upstream,
+    );
+    let (code, out) = machine.exec_on(&gw.machine, &start, 120_000).await?;
+    if code != 0 {
+        return Err(if out.contains("no-token") {
+            "the gateway machine did not get its gateway token (its cmux-host may be too old)"
+                .into()
+        } else {
+            format!("the gateway machine could not start the gateway (exit {code})")
+        });
+    }
+    say(&format!("Started the inference gateway on {} in front of {}.", gw.machine, gw.upstream));
+    // Wait until the gateway's socket is up.
+    for _ in 0..30 {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let mut request = machine
+            .http
+            .get(format!("{}/v1/cloud/inference-gateway", o.api))
+            .bearer_auth(&machine.token);
+        if let Some(team) = &o.team {
+            request = request.header("x-cmux-team", team);
+        }
+        if let Ok(r) = request.timeout(Duration::from_secs(20)).send().await
+            && let Ok(v) = r.json::<Value>().await
+            && v["gateway"]["online"] == true
+        {
+            return Ok(());
+        }
+    }
+    let (_, log) = machine
+        .exec_on(
+            &gw.machine,
+            "tail -n 5 \"$HOME/.cache/cmux/inference-gateway.log\" 2>/dev/null",
+            30_000,
+        )
+        .await
+        .unwrap_or((0, String::new()));
+    Err(format!("the gateway did not come online; its last lines:\n{log}"))
+}
+
+const TOKEN_FILE: &str = "/run/cmux/inference-gateway/token";
 
 /// The gateway path: the team's state, then one real call from the machine through it.
 async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
@@ -334,7 +462,7 @@ async fn device(machine: &Machine<'_>) -> Result<(), String> {
             "signed-in" => break,
             "ended" => {
                 return Err(
-                    "Codex's sign-in on the machine ended without a login; run setup again".into()
+                    "Codex's sign-in on the machine ended without a login; run setup again".into(),
                 );
             }
             _ if std::time::Instant::now() > deadline => {
@@ -425,6 +553,47 @@ mod tests {
         .unwrap();
         assert_eq!((o.path, o.machine.as_str()), (PathChoice::Device, "vm_abcdefghij0123456789"));
         assert_eq!(o.token, TokenSource::App);
+        assert_eq!(o.gateway, None);
+        let o = parse(
+            &args(&[
+                "--machine",
+                "vm_abcdefghij0123456789",
+                "--api",
+                "https://api.cmux.dev",
+                "--gateway-machine",
+                "vm_gateway0000000000000",
+                "--upstream",
+                "http://127.0.0.1:8317",
+            ]),
+            &none,
+        )
+        .unwrap();
+        assert_eq!(o.gateway.map(|g| g.upstream), Some("http://127.0.0.1:8317".to_owned()));
+        let quoted = [
+            "--machine",
+            "vm_abcdefghij0123456789",
+            "--api",
+            "https://a.dev",
+            "--gateway-machine",
+            "vm_gateway0000000000000",
+            "--upstream",
+            "http://x/'y",
+        ];
+        assert!(parse(&args(&quoted), &none).is_err());
+        assert!(
+            parse(
+                &args(&[
+                    "--machine",
+                    "vm_abcdefghij0123456789",
+                    "--api",
+                    "https://a.dev",
+                    "--upstream",
+                    "http://x"
+                ]),
+                &none
+            )
+            .is_err()
+        );
         assert!(parse(&args(&["--api", "https://a.dev"]), &none).is_err());
         assert!(parse(&args(&["--machine", "vm_x", "--api", "https://a.dev"]), &none).is_err());
         assert!(

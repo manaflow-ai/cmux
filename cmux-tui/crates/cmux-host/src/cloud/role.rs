@@ -520,6 +520,8 @@ struct Worker {
     trajectories: Option<Trajectories<PosterHttp>>,
     /// The held socket of the relay-first chat path (`relay.rs`), from bind on.
     relay: Option<Relay>,
+    /// This machine's inference gateway bearer, while the person made it their gateway (gateway_token.rs).
+    gateway_token: Option<super::gateway_token::GatewayToken>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     /// Binds put off while a carrier bind waits for the session host's
@@ -575,6 +577,7 @@ impl Worker {
             github: Minter::spawn(wall_ms, log, github_stop)?,
             trajectories,
             relay: None,
+            gateway_token: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             noise_key_waits: 0,
@@ -1038,6 +1041,16 @@ impl Worker {
                     .ok();
             }
             (Err(e), _) | (_, Err(e)) => log(&format!("relay: {e}")),
+        }
+        self.gateway_token = None;
+        match github_client(&bound, &key) {
+            Ok(client) => {
+                self.gateway_token =
+                    super::gateway_token::GatewayToken::spawn(client, wall_ms, log)
+                        .map_err(|e| log(&format!("inference gateway token: {e}")))
+                        .ok();
+            }
+            Err(e) => log(&format!("inference gateway token: {e}")),
         }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
