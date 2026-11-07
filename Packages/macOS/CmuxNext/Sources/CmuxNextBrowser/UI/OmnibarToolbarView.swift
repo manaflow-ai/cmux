@@ -57,7 +57,7 @@ public final class OmnibarToolbarView: ArrowCursorView {
     /// Enables Back, Forward and Reload (a row without `navigation` ignores it).
     public func setNavigation(canGoBack: Bool, canGoForward: Bool, canReload: Bool) {
         self.canReload = canReload
-        addressBar.navigation = ToolbarNavigation(canGoBack: canGoBack, canGoForward: canGoForward, loading: false)
+        addressBar.navigation = ToolbarNavigation(canGoBack: canGoBack, canGoForward: canGoForward, loading: false, canReload: canReload)
     }
 
     private func perform(_ command: BrowserToolbarPageCommand) {

@@ -262,7 +262,8 @@ public final class BrowserToolbarWebView: NSView {
             "url": reportedURL?.absoluteString ?? NSNull(),
             "site": site.isEmpty ? NSNull() : site.wire,
             "title": pageTitle?() ?? NSNull(),
-            "navigation": ["canGoBack": navigation.canGoBack, "canGoForward": navigation.canGoForward, "loading": navigation.loading],
+            "navigation": ["canGoBack": navigation.canGoBack, "canGoForward": navigation.canGoForward, "loading": navigation.loading,
+                           "canReload": navigation.canReload],
             "showsButtons": showsButtons,
             "bookmark": bookmarkStar.wire,
             "pageInfoOpen": pageInfoOpen,
@@ -445,6 +446,8 @@ struct ToolbarNavigation: Equatable {
     var canGoForward = false
     /// Reload shows Stop.
     var loading = false
+    /// Reload can run (a browser page always can; the Markdown tab's empty state cannot).
+    var canReload = true
 }
 
 extension BookmarkStarState {
