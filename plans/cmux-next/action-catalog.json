@@ -56756,7 +56756,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Match Terminal Background",
+      "title" : "Match Terminal Background",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -58065,7 +58065,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Notification Banners",
+      "title" : "Notification Banners",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -61671,6 +61671,74 @@
         "pane"
       ],
       "title" : "Copy Last Code Block",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "agents",
+      "cliName" : "action agent-pane-show-in-mini",
+      "computed" : {
+        "canonical_action_id" : "agentPane.showInMini",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "id" : "agentPane.showInMini",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "agent",
+        "chat",
+        "mini",
+        "pet",
+        "chief",
+        "floating",
+        "avatar",
+        "coordinator"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "agentPaneFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "pip",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Show in Mini",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78689,7 +78757,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle New Tab Animations",
+      "title" : "New Tab Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78752,7 +78820,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle New Workspace Animations",
+      "title" : "New Workspace Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78817,7 +78885,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle All Animations",
+      "title" : "All Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78882,7 +78950,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Sidebar Animations",
+      "title" : "Sidebar Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78945,7 +79013,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Tab Animations",
+      "title" : "Tab Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79010,7 +79078,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Pane and Window Animations",
+      "title" : "Pane and Window Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79076,7 +79144,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Menu and Card Animations",
+      "title" : "Menu and Card Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79139,7 +79207,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Hover Card Animations",
+      "title" : "Hover Card Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79204,7 +79272,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Home and Chat Animations",
+      "title" : "Home and Chat Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79268,7 +79336,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Agent Cursor Animations",
+      "title" : "Agent Cursor Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79333,7 +79401,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Spinner and Progress Animations",
+      "title" : "Spinner and Progress Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79398,7 +79466,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Highlight and Color Animations",
+      "title" : "Highlight and Color Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79462,7 +79530,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Web Page Animations",
+      "title" : "Web Page Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79781,7 +79849,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Pane Borders",
+      "title" : "Pane Borders",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79846,7 +79914,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Pane Padding",
+      "title" : "Pane Padding",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79911,7 +79979,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Rounded Pane Corners",
+      "title" : "Rounded Pane Corners",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -80568,7 +80636,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Focus Ring",
+      "title" : "Focus Ring",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -80760,7 +80828,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Focus Ring for a Single Pane",
+      "title" : "Focus Ring for a Single Pane",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -80826,7 +80894,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Thick Pane Borders",
+      "title" : "Thick Pane Borders",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -88843,7 +88911,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Column Scroll Bar",
+      "title" : "Column Scroll Bar",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false

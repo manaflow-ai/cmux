@@ -883,6 +883,14 @@ mark {
   border-radius: 50%;
 }
 
+/* Settings > Privacy and Security > Shared Links' `table` layout (gallery
+   settings.shared-links-layouts): the kind and both dates each in a column. */
+.shared-links-table .row-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(3, auto) auto;
+  align-items: center;
+}
+
 .host-footer,
 .host-actions {
   display: flex;

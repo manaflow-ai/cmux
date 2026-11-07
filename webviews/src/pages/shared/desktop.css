@@ -451,9 +451,15 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
 /* Text selection takes the Ghostty config's `selection-background`, else the theme accent's tint
    (the text color under the default neutral accent), never the system highlight blue
    (`--cmux-text-selection`, WebTheme.swift). A page with its own selection color sets it later.
+   That color is where the selection starts: on a surface it would barely differ from (a chat
+   bubble, a card, a code block, glass), its lightness moves until the selection stands out and its
+   text still reads (`--cmux-selection-fill`, ui/adaptiveSelection.ts, HIGHLIGHT-CONTRAST).
    Carets take the config's `cursor-color`, else the text color (`--cmux-caret`). */
 ::selection {
-  background-color: var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent));
+  background-color: var(
+    --cmux-selection-fill,
+    var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent))
+  );
 }
 :root {
   caret-color: var(--cmux-caret, auto);
@@ -658,6 +664,8 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --cmux-ease-out: cubic-bezier(0, 0, 0.58, 1);
   /* A selection that travels settles on the one spring, run over --cmux-motion-large. */
   --cmux-ease-spring: linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1.006 58%, 1.004 72%, 1);
+  /* One turn of every spinner (`cmux-spin`); not a transition. */
+  --cmux-spinner-period: 2000ms;
 }
 /* motion-scale:end */
 /* Hover reveal: a control shown while the pointer is over its row (a message's time and Copy, a
@@ -817,11 +825,12 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
 }
 
 /* SYNCED-SPINNERS (user 2026-10-20): the one spinner animation of every page. Clockwise, one
-   period (the native spinner's turn, Motion `spinner`), its phase pinned to the shared clock by
+   `--cmux-spinner-period` per turn (the motion-scale block above: the native spinner's turn too,
+   Motion `spinner`, one calm 2 s turn), its phase pinned to the shared clock by
    ui/spinnerClock.ts. Spinners write `animation: cmux-spin var(--cmux-spinner-period) linear
-   infinite` inside `prefers-reduced-motion: no-preference`, never their own keyframes. */
+   infinite` inside `prefers-reduced-motion: no-preference`, never their own keyframes or period
+   (test/spinner-period.test.ts). */
 :root {
-  --cmux-spinner-period: 900ms;
   --cmux-breath-period: 2.4s;
   --cmux-shimmer-period: 2.8s;
 }
