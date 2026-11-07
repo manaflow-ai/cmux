@@ -1003,7 +1003,8 @@
         "bare",
         "panes",
         "two-tone",
-        "floating"
+        "floating",
+        "blocks"
       ],
       "title" : "Window Style",
       "type" : "string"

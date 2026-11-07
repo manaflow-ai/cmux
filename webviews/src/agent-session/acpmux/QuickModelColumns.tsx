@@ -340,7 +340,8 @@ function Columns({
       const box = frame.getBoundingClientRect();
       if (box.width > width) {
         width = box.width;
-        popup.style.minWidth = `min(${width}px, var(--available-width, calc(100vw - 24px)))`;
+        // The em floor stays: a larger interface or chrome text size still widens the open menu.
+        popup.style.minWidth = `min(max(var(--acpmux-cols-min-width), ${width}px), var(--available-width, calc(100vw - 24px)))`;
       }
       if (box.height > height) {
         height = box.height;

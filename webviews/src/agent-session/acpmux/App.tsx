@@ -76,6 +76,7 @@ import {
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
+  carriedAnchor,
   keepAdoptedTail,
   useSessionAdoption,
   useNewTabWeather,
@@ -266,7 +267,8 @@ import {
 } from "./subagents/runningTray";
 import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
-import { SelectionReplyChip, setQuoteReplySink } from "./conversation/SelectionReply";
+import { SelectionReplyChip } from "./conversation/SelectionReply";
+import { setQuoteReplySink } from "./conversation/selectionReplyModel";
 import { AgentTonesContext, agentTone, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
@@ -646,7 +648,8 @@ import { declineReply, isPending, reply as questionReply, replyParams, selection
 
 import { defaultRegistry } from "./rows/registry";
 import { ReadOnlyRecapRow } from "./rows/RecapRow";
-import { NO_ROWS, type ScrollAnchor, VirtualTranscript, rowKind } from "./VirtualTranscript";
+import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
+import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
 import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
 export { VirtualTranscript } from "./VirtualTranscript";
@@ -4219,6 +4222,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudSignInPending.current = false;
     void callNative("cloud.signInCancel").catch(() => undefined);
   };
+  /// The last accepted first send, retained so choosing This Mac after a refusal can
+  /// explicitly finish its Cloud key just as the native cap-card answer does.
+  const lastCloudAttempt = useRef<{ key: string; request: CloudStart } | undefined>(undefined);
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
   /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
   /// on failure the prompt is still in the composer to edit and send again.
@@ -4235,6 +4241,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// fails or the cap card runs it on this Mac, so the prompt is never lost with the page.
   const newTabCloudSent = useRef(false);
   const cloudPageDraft = useRef<{ text: string; attachments: ComposerAttachment[] } | undefined>(undefined);
+  /// The same transition as the native cap card's Run on This Mac answer: keep the
+  /// failed Cloud prompt in the composer, change its destination and send it once.
+  const runCloudHere = (expectedKey?: string) => {
+    if (expectedKey === undefined && cloudStart?.state === "failed") {
+      const previous = lastCloudAttempt.current;
+      if (previous?.key === cloudStart.key)
+        cloudStartKeys.ended(previous.request, { ok: false, code: "run_on_this_mac" });
+      lastCloudAttempt.current = undefined;
+    }
+    cloudSignInRetry.reset();
+    setCloudStart((current) => (expectedKey && current?.key !== expectedKey ? current : undefined));
+    runModePicked.current = true;
+    runHereSend.current = true;
+    sandbox.setMode("persistent");
+  };
+  const dismissCloudFailure = () => setCloudStart(undefined);
   const sendToCloud = (
     text: string,
     attachments: ComposerAttachment[],
@@ -4296,6 +4318,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const { reservationKey: _spentReservation, ...resumed } = request;
       return beginCloudSend(resumed, true, expected);
     };
+    lastCloudAttempt.current = { key, request };
     cloudStartPending.current = true;
     if (signingIn) cloudSignInPending.current = true;
     if (fromPage) {
@@ -4336,11 +4359,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }
       if (cloudRunsHere(answer)) {
         // The cap card's Run on This Mac: the prompt still in the composer goes to a chat here once the mode is.
-        cloudSignInRetry.reset();
-        setCloudStart((current) => (current?.key === key ? undefined : current));
-        runModePicked.current = true;
-        runHereSend.current = true;
-        sandbox.setMode("persistent");
+        runCloudHere(key);
         return;
       }
       setCloudStart((current) => cloudStartEnded(current, key, answer));
@@ -5839,17 +5858,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pendingAdoption = useRef<SessionAdoption | undefined>(undefined);
   // The newest adoption: an older one still reading its anchor never opens over it.
   const adoptionTicket = useRef(0);
-  const runAdoption = useCallback(async ({ sessionId, revealTurn }: SessionAdoption) => {
+  const runAdoption = useCallback(async (adoption: SessionAdoption) => {
+    const { sessionId, revealTurn } = adoption;
     const ticket = ++adoptionTicket.current;
     const before = directClient.current?.selectedSession;
     // A subagent's pane shows the subagent from its first frame and has no reading place of the
     // chat to wait for (newtab/adoption.ts `adoptionPlan`): with the tail its adopt event carried,
     // the switch below draws it in this same turn.
-    const plan = adoptionPlan({ sessionId, ...(revealTurn ? { revealTurn } : {}) });
+    const plan = adoptionPlan(adoption);
     if (plan.revealsFirst && revealTurn) revealRef.current(revealTurn);
     const revealAfter = plan.revealsFirst ? undefined : revealTurn;
-    // Where the reader left this chat, before its rows draw, as a tab opened on it reads it.
-    const anchor = plan.readsAnchor ? await fetchScrollAnchor(sessionId) : undefined;
+    // Where the reader left this chat, before its rows draw, as a tab opened on it reads it: from the
+    // adopt event when the host put it there (no round trip on the click's path), else asked.
+    const anchor = plan.readsAnchor
+      ? await fetchScrollAnchor(sessionId)
+      : plan.revealsFirst
+        ? undefined
+        : carriedAnchor(adoption);
     if (ticket !== adoptionTicket.current) return;
     const now = directClient.current?.selectedSession;
     if (now !== before) {
@@ -5865,7 +5890,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     const adopt = window.cmuxAcpmuxActions?.["chat.adopt"];
     if (!adopt) {
-      pendingAdoption.current = { sessionId, ...(revealTurn ? { revealTurn } : {}) };
+      pendingAdoption.current = adoption;
       return;
     }
     setScrollAnchor(anchor);
@@ -5890,7 +5915,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     // A reconnect opened the chat already (the host bound the tab to it): what the adoption still
     // carries is its place and its turn (a subagent's pane).
-    void fetchScrollAnchor(pending.sessionId).then((anchor) => {
+    void (
+      pending.scrollAnchor === undefined
+        ? fetchScrollAnchor(pending.sessionId)
+        : Promise.resolve(carriedAnchor(pending))
+    ).then((anchor) => {
       if (directClient.current?.selectedSession === pending.sessionId) setScrollAnchor(anchor);
     });
     if (pending.revealTurn) revealRef.current(pending.revealTurn);
@@ -10881,6 +10910,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                   onAnswer={answerCloudStart}
                                   onRetry={retryCloudStart}
                                   onSignIn={cloudSignInRetry}
+                                  onUpgrade={access.addCredits}
+                                  onRunHere={runCloudHere}
+                                  onDismiss={dismissCloudFailure}
                                 />
                               ),
                             }
@@ -11375,6 +11407,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     onAnswer={answerCloudStart}
                     onRetry={retryCloudStart}
                     onSignIn={cloudSignInRetry}
+                    onUpgrade={access.addCredits}
+                    onRunHere={runCloudHere}
+                    onDismiss={dismissCloudFailure}
                   />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView

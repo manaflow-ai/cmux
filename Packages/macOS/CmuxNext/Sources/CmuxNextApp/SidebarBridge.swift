@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentLanes
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCompat
@@ -82,11 +83,10 @@ final class SidebarBridge {
         container.sidebarView.onDragOutRemove = { [weak services] id in
             _ = services?.registry.perform("sidebar.item.removeEverywhere", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: id), origin: .user))
         }
-        // The row the person is likely to open next: the agent chat on screen reads its chat ahead (HQ#5914), this Mac's chats only.
+        // The row the person is likely to open next: the agent chat on screen, or the New Tab spare, reads its chat ahead (HQ#5914), this Mac's chats only.
         container.sidebarView.onHoverTab = { [weak self] tab in
-            guard let self, let window = self.state, let shown = self.services.windows.controller(for: window.id)?.focusedPane?.stripModel.selectedID else { return }
-            let tabs = self.services.agentTabs
-            tabs.existingView(shown.rawValue)?.forwardHover(tab.flatMap { tabs.existingView($0.rawValue) == nil && tabs.daemonForTab($0.rawValue)?.isLocal == true ? tabs.session(of: $0.rawValue) : nil })
+            guard let self, let window = self.state, let shown = self.services.windows.controller(for: window.id)?.focusedPane?.stripModel.selectedID else { return }; let tabs = self.services.agentTabs
+            AgentPaneView.hoverReader(shown: tabs.existingView(shown.rawValue), spare: self.services.newTabSpares.spares.first)?.forwardHover(tab.flatMap { tabs.existingView($0.rawValue) == nil && tabs.daemonForTab($0.rawValue)?.isLocal == true ? tabs.session(of: $0.rawValue) : nil })
         }
         // The pages a row's click would show wake once the pointer rests on it (plans/cmux-next/hover-preload-DESIGN.md).
         container.sidebarView.onHoverWorkspace = { [weak self] id in
