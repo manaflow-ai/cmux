@@ -441,11 +441,12 @@ fn a_lease_of_another_person_forgets_the_old_account_before_it_connects() {
         super::driver::change_account(&mut state, Some("user_a".to_owned()), NOW);
         let _ = state.mirror.cloud_snapshot("user_a", vec![request("fi_a")], NOW);
     }
-    assert_eq!(h.feed.list(None, Some("cloud"), true).len(), 1);
+    // (The mirror itself: a feed read would start the driver, which does the same.)
+    assert!(h.feed.inner.lock().mirror.confirmed("fi_a").is_some());
     // Before any socket opens on the new lease, A's items are gone.
     super::driver::forget_other_lease(&h.feed.inner, &cloud);
-    assert!(h.feed.list(None, Some("cloud"), true).is_empty());
     let state = h.feed.inner.lock();
+    assert!(state.mirror.confirmed("fi_a").is_none());
     assert_eq!(state.account, None);
     assert_eq!(state.lease_identity.as_deref(), Some("stack:proj_1:stack_user_1"));
     drop(state);
