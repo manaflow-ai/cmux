@@ -187,7 +187,8 @@ fn the_step_resets_every_other_helper_and_writes_no_token() {
     let step = repo("o", "r", Some("main"), GITHUB).step();
     let reset = step.find("git -c credential.helper= -c core.askPass= ").unwrap();
     let chosen = step.find(r#"-c "$key.helper=$helper""#).unwrap();
-    assert!(chosen < reset, "g puts the chosen helper after the reset in git's argv");
+    // `set --` puts the chosen helper into "$@", which git reads after the reset.
+    assert!(chosen < reset, "g's set -- line comes before its git line");
     assert!(
         step.contains(
             "export GIT_TERMINAL_PROMPT=0 GIT_TRACE_REDACT=1 GIT_TRACE=0 GIT_TRACE_CURL=0"
@@ -268,4 +269,27 @@ fn the_step_parses() {
         };
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     }
+}
+
+#[test]
+fn git_reads_the_reset_before_the_chosen_helper() {
+    let step = repo("o", "r", Some("main"), GITHUB).step();
+    let Some(start) = step.find("g() {") else { panic!("g is defined") };
+    let Some(len) = step.get(start..).and_then(|rest| rest.find("\n}\n")) else { panic!("g ends") };
+    let Some(g) = step.get(start..start + len + 2) else { panic!("g's text") };
+    let script = format!(
+        "git() {{ printf '%s\\n' \"$@\"; }}\nkey='credential.https://h'; helper='!x'\n{g}\ng clone u"
+    );
+    let Ok(out) = std::process::Command::new("sh").arg("-c").arg(script).output() else {
+        panic!("sh runs")
+    };
+    let argv = String::from_utf8_lossy(&out.stdout);
+    let argv: Vec<&str> = argv.lines().collect();
+    let at = |arg: &str| argv.iter().position(|a| *a == arg);
+    let (Some(reset), Some(chosen), Some(clone)) =
+        (at("credential.helper="), at("credential.https://h.helper=!x"), at("clone"))
+    else {
+        panic!("{argv:?}")
+    };
+    assert!(reset < chosen && chosen < clone, "{argv:?}");
 }
