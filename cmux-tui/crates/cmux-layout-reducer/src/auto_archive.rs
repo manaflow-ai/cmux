@@ -148,7 +148,9 @@ pub fn plan(request: &Request) -> Plan {
         .collect();
     let policy = request.policy;
     let snooze = request.snoozed_until.filter(|until| {
-        request.trigger == Trigger::Background && policy.style == Style::Suggest && request.now < *until
+        request.trigger == Trigger::Background
+            && policy.style == Style::Suggest
+            && request.now < *until
     });
     let mut plan = plan_due(request);
     plan.first_sight = first_sight;
@@ -164,7 +166,8 @@ pub fn plan(request: &Request) -> Plan {
 
 fn plan_due(request: &Request) -> Plan {
     let policy = request.policy;
-    if request.trigger == Trigger::Background && matches!(policy.style, Style::Off | Style::Manual) {
+    if request.trigger == Trigger::Background && matches!(policy.style, Style::Off | Style::Manual)
+    {
         return Plan::default();
     }
     let now = request.now;

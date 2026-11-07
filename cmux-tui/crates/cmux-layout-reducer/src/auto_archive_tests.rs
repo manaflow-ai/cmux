@@ -55,8 +55,19 @@ fn request(list: &[Ws], style: Style, days: f64, rules: Value, trigger: Trigger)
 }
 
 /// The names of the due workspaces, `names` naming `list` in order.
-fn due(list: &[Ws], names: &[&str], style: Style, days: f64, rules: Value, trigger: Trigger) -> Vec<String> {
-    plan(&request(list, style, days, rules, trigger)).due.iter().map(|&i| names[i].to_string()).collect()
+fn due(
+    list: &[Ws],
+    names: &[&str],
+    style: Style,
+    days: f64,
+    rules: Value,
+    trigger: Trigger,
+) -> Vec<String> {
+    plan(&request(list, style, days, rules, trigger))
+        .due
+        .iter()
+        .map(|&i| names[i].to_string())
+        .collect()
 }
 
 #[test]
@@ -109,7 +120,10 @@ fn the_nearest_group_with_a_rule_wins() {
         ws(Some(2.0)),
     ];
     let names = ["inOuter", "kept", "loose"];
-    assert_eq!(due(&list, &names, Style::Quiet, 3.0, rules.clone(), Trigger::Background), ["inOuter"]);
+    assert_eq!(
+        due(&list, &names, Style::Quiet, 3.0, rules.clone(), Trigger::Background),
+        ["inOuter"]
+    );
     // The person's sweep still honors Never.
     assert_eq!(due(&list, &names, Style::Manual, 3.0, rules, Trigger::Sweep), ["inOuter"]);
 }
@@ -120,13 +134,18 @@ fn the_groups_style_archives_only_where_a_group_set_a_rule() {
     let list = [ws(Some(1.0)).groups(&["g_ci"]), ws(Some(50.0)), ws(Some(50.0)).groups(&["g_x"])];
     let names = ["ci", "loose", "other"];
     assert_eq!(due(&list, &names, Style::Groups, 3.0, rules.clone(), Trigger::Background), ["ci"]);
-    assert_eq!(due(&list, &names, Style::Groups, 3.0, rules, Trigger::Sweep), ["loose", "other", "ci"]);
+    assert_eq!(
+        due(&list, &names, Style::Groups, 3.0, rules, Trigger::Sweep),
+        ["loose", "other", "ci"]
+    );
 }
 
 #[test]
 fn off_ignores_group_rules_in_the_background() {
     let list = [ws(Some(1.0)).groups(&["g_ci"])];
-    assert!(due(&list, &["ci"], Style::Off, 3.0, json!({"g_ci": 1}), Trigger::Background).is_empty());
+    assert!(
+        due(&list, &["ci"], Style::Off, 3.0, json!({"g_ci": 1}), Trigger::Background).is_empty()
+    );
 }
 
 #[test]
@@ -135,7 +154,11 @@ fn a_rule_the_document_would_refuse_is_no_rule() {
     for bad in [json!(0), json!(1.5), json!(true), json!("soon"), json!(87_601)] {
         let list = [ws(Some(4.0)).groups(&["g"])];
         let rules = json!({ "g": bad });
-        assert_eq!(due(&list, &["w"], Style::Quiet, 3.0, rules, Trigger::Background), ["w"], "{bad}");
+        assert_eq!(
+            due(&list, &["w"], Style::Quiet, 3.0, rules, Trigger::Background),
+            ["w"],
+            "{bad}"
+        );
     }
     assert_eq!(rule_idle_seconds(AutoArchiveRule::AfterHours(24)), Some(86_400.0));
     assert_eq!(rule_idle_seconds(AutoArchiveRule::Never), None);
@@ -158,7 +181,13 @@ fn the_next_check_is_the_soonest_deadline_and_never_sooner_than_a_minute() {
 
 #[test]
 fn the_ledger_sight_counts_as_use_and_a_new_workspace_is_never_idle_on_arrival() {
-    let mut req = request(&[ws(Some(10.0)), ws(None), ws(None)], Style::Quiet, 3.0, json!({}), Trigger::Background);
+    let mut req = request(
+        &[ws(Some(10.0)), ws(None), ws(None)],
+        Style::Quiet,
+        3.0,
+        json!({}),
+        Trigger::Background,
+    );
     // Shown an hour ago on this Mac: the newer of the two wins.
     req.candidates[0].seen = Some(NOW - 3600.0);
     // Never active, but seen four days ago.
@@ -214,7 +243,10 @@ fn the_wire_reads_the_app_request() {
     assert!(result.due.is_empty());
     assert_eq!(result.first_sight, [1]);
     let reply = serde_json::to_value(&result).unwrap();
-    assert_eq!(reply, json!({"due": [], "next_check": NOW + 3.0 * DAY, "first_sight": [1], "snoozed": false}));
+    assert_eq!(
+        reply,
+        json!({"due": [], "next_check": NOW + 3.0 * DAY, "first_sight": [1], "snoozed": false})
+    );
 }
 
 #[test]

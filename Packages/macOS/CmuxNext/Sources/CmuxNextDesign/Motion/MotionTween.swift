@@ -13,8 +13,8 @@ public import CmuxNextDesignTokens
 public nonisolated enum MotionTween: UInt8, Sendable, CaseIterable {
     /// A new tab opening at its slot, its neighbours and the + making room (`ui.animations.newTab`).
     case tabOpen = 0
-    /// The tabs widening back to the strip when Chrome's closing mode ends (the pointer left the strip). A tab
-    /// close itself is instant (msg 2833): only a whole pane and a whole window close with motion.
+    /// A closing tab shrinking with its left edge pinned, the others closing the gap (`ui.animations.newTab`; close
+    /// case A, cmux-ad m49); also the tabs widening back when Chrome's closing mode ends (the pointer left the strip).
     case tabClose = 1
     /// A reorder, a crowding change, a dragged tab settling on release. A gesture: no kind switch.
     case tabMove = 2
@@ -123,7 +123,7 @@ public nonisolated struct MotionTabStrip: Equatable, Sendable {
     public var maxWidth: CGFloat
     /// A new tab starts this wide at the previous tab's right edge minus this.
     public var openStartWidth: CGFloat
-    /// Chrome's close end width (design token; unused since a tab close is instant, msg 2833).
+    /// A closing tab ends this wide, its left edge pinned to the previous tab's right edge minus this.
     public var closeEndWidth: CGFloat
     public var minActiveWidth: CGFloat
     public var minInactiveWidth: CGFloat

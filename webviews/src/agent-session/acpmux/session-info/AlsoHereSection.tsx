@@ -41,6 +41,7 @@ export function alsoHereRow({ entry }: AlsoHere): StartedSession {
 export function AlsoHereSection({ rows, onOpen }: { rows: readonly AlsoHere[]; onOpen?: (sessionId: string) => void }) {
   return (
     <ul className="acpmux-summary-list" data-also-here="">
+      {/* However many chats, it draws the rows that can show: ChildSessionRows windows them (WindowedRows). */}
       <ChildSessionRows sessions={rows.map(alsoHereRow)} onOpen={onOpen} />
     </ul>
   );
