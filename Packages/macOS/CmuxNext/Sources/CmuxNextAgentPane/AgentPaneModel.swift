@@ -55,6 +55,8 @@ public final class AgentPaneModel {
     /// New Tab page whose host gave it none (``newTabForPage``).
     @ObservationIgnored public var newChatLeftoverDraft: (() -> String?)?
     @ObservationIgnored public var machineLink: AgentPaneMachineLink? // the chat's machine dot (``AgentPanePageHost/currentEvents(_:)``)
+    /// The questions this pane's Cloud starts wait on in their cards (`cloud.answerStart`).
+    @ObservationIgnored public let cloudAsks = AgentPaneCloudAsks()
     /// Reports each settled scroll and returns the native display settings to the page.
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
     /// Applies the page's adaptive rendering decision.
@@ -605,6 +607,11 @@ public final class AgentPaneModel {
             guard let onCloudRepickChat, remoteChat, newTab == nil else { return Self.unsupported("cloud.repickChat") }
             guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
             return await onCloudRepickChat(repick)
+        // A start's question in its card: only this pane's, and a yes only on the person's own click
+        // (never a gesture left by typing); declining needs none.
+        case .cloudAnswerStart(let answer):
+            guard cloudAsks.declines(answer) || transport.gestures.consumeAnswerClick() else { return Self.transportFailure(.gestureRequired) }
+            return cloudAsks.answer(answer) ? AgentPaneReply.success() : AgentPaneReply.failure(code: "cloud_ask_gone", message: "cloud_ask_gone")
         case .sandboxState(let wait):
             return await sandboxRuns.state(wait: wait)
         case .cloudHandoffTurn(let session):
@@ -723,6 +730,8 @@ public final class AgentPaneModel {
             onAppAction(id)
             return AgentPaneReply.success()
         case .editShortcut(let kind): guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }; onEditShortcut(kind); return AgentPaneReply.success()
+        case .externalAccessOpenSettings(let kind):
+            return AgentPaneExternalAccess().open(kind, remoteChat: remoteChat, gestures: transport.gestures)
         case .dictation(let command):
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
