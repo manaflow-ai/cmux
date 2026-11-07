@@ -1,7 +1,7 @@
-import AppKit
+public import AppKit
 import CmuxNextCompat
-import CmuxNextPages
-import CmuxNextSettings
+public import CmuxNextPages
+public import CmuxNextSettings
 import Foundation
 
 /// What the Bookmarks page needs from the app (``BookmarkPageHostProvider``): the profile a tab

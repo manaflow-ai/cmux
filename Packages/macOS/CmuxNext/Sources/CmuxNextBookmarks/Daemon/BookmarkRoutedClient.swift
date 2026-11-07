@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Foundation
 
 /// The home daemon's routed `bookmarks.*` ops (cmux-tui spec/page-router.md, owner
