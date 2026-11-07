@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 599,
+  "count": 600,
   "sections": [
     {
       "id": "general",
@@ -2271,7 +2271,7 @@
           "title": "Window Style",
           "help": "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
           "kind": "choice",
-          "default": "flat-sidebar-line",
+          "default": "flat",
           "group": "Panes",
           "values": [
             "default",
@@ -5342,6 +5342,14 @@
           "group": "Opening Links"
         },
         {
+          "key": "browser.openPullRequestsInGitHubPage",
+          "title": "Open Pull Requests in cmux GitHub Page",
+          "help": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Opening Links"
+        },
+        {
           "key": "browser.openSignInPagesInCmux",
           "title": "Open Sign-In Pages in cmux Browser",
           "help": "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win.",
@@ -5735,7 +5743,7 @@
           "title": "Show Chief When Opening Workspaces",
           "help": "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Chief Dock"
         },
         {
