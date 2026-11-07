@@ -3,7 +3,8 @@ import WebKit
 
 /// What an agent chat works on (#16620): its session's cwd and the URLs its
 /// transcript mentions, dev servers first, then pull requests, newest first.
-/// A terminal or browser tab opened from the chat starts from it.
+/// A terminal tab opened from the chat starts in its cwd. A new browser tab never
+/// opens these URLs: New Browser Tab always opens the New Tab page.
 public nonisolated struct AgentPaneContext: Sendable, Equatable {
     public var cwd: String?
     public var urls: [URL]

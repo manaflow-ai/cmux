@@ -1,7 +1,8 @@
 package import Foundation
 
 /// The dev server a terminal shows (#16620): the newest localhost URL on
-/// screen, for a browser tab opened from it. Same rules as the agent pane's
+/// screen. New Browser Tab no longer opens it (it always opens the New Tab
+/// page). Same rules as the agent pane's
 /// `paneContext.ts`: `0.0.0.0` becomes `localhost`, trailing punctuation is
 /// not part of the URL.
 package struct WorkingURL {
