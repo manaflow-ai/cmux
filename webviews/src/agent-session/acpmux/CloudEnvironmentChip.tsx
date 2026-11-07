@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import type { CloudEnvironment } from "../../pages/cloud/environmentModel";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import { ChevronIcon } from "./ComposerPickers";
@@ -10,29 +10,32 @@ import { openCloudEnvironment } from "./cloudEnvironment";
 import {
   AUTO_ENVIRONMENT,
   autoEnvironment,
-  cloudEnvironmentPick,
+  cloudStartEnvironment,
   recentEnvironments,
   rememberEnvironment,
-  setCloudEnvironmentPick,
-  subscribeCloudEnvironmentPick,
   cloudEnvironmentRows,
   cloudEnvironmentValue,
   type CloudEnvironmentControl,
+  type CloudEnvironmentPick,
   type CloudEnvironmentRow,
 } from "./cloudEnvironmentChoice";
 import "./cloudEnvironmentChip.css";
 
 /// The chip's live control for a new chat's strip: the account's environments
-/// (`cloud.environment.list`), this folder's recent picks, and the page's pick, which a Cloud send
-/// names (App.tsx `sendToCloud`). Undefined while `enabled` is off (CLOUD_ENVIRONMENTS_ENABLED, or
-/// no new chat): nothing is read then.
+/// (`cloud.environment.list`), this folder's recent picks, and the chat's pick, which its Cloud send
+/// names (App.tsx `sendToCloud`). The pick is the chat's own (`held`, kept with its run mode in
+/// App.tsx); a composer given none keeps its own, which goes with it. Undefined while `enabled` is
+/// off (CLOUD_ENVIRONMENTS_ENABLED, or no new chat): nothing is read then.
 export function useCloudEnvironmentControl(
   enabled: boolean,
   folder: string | undefined,
   repo: string | undefined,
+  held?: CloudEnvironmentPick,
 ): CloudEnvironmentControl | undefined {
   const [environments, setEnvironments] = useState<readonly CloudEnvironment[]>([]);
-  const current = useSyncExternalStore(subscribeCloudEnvironmentPick, cloudEnvironmentPick);
+  const [own, setOwn] = useState(AUTO_ENVIRONMENT);
+  const current = held?.current ?? own;
+  const setPick = held?.onPick ?? setOwn;
   const load = useCallback(() => {
     postNative<unknown>("cloud.environment.list").then(
       (list) => {
@@ -52,7 +55,7 @@ export function useCloudEnvironmentControl(
   // Remembered first, so the render the new pick causes reads this folder's new order.
   const pick = (id: string) => {
     rememberEnvironment(folder, id);
-    setCloudEnvironmentPick(id);
+    setPick(id);
   };
   return {
     recent,
@@ -82,6 +85,28 @@ export function useCloudEnvironmentControl(
       );
     },
     onOpen: load,
+  };
+}
+
+/// A new chat's Cloud environment, held per chat (App.tsx, with its run mode): Auto until picked, and
+/// Auto again when `chat` changes (a chat starts here, or another new chat shows) and once a Cloud
+/// send takes it, so a pick never rides into a later chat's send. `forSend` is what that send names
+/// (`cloudStartEnvironment`: the start's own, else the pick; none on Auto or with the flag off).
+export function useChatCloudEnvironment(chat: string): {
+  pick: CloudEnvironmentPick;
+  forSend(explicit: string | undefined): string | undefined;
+} {
+  const [held, setHeld] = useState({ chat, current: AUTO_ENVIRONMENT });
+  // Another chat: back to Auto in this render, before anything reads the old chat's pick.
+  const current = held.chat === chat ? held.current : AUTO_ENVIRONMENT;
+  if (held.chat !== chat) setHeld({ chat, current: AUTO_ENVIRONMENT });
+  return {
+    pick: { current, onPick: (id) => setHeld({ chat, current: id }) },
+    forSend: (explicit) => {
+      const environment = cloudStartEnvironment(explicit, current);
+      setHeld({ chat, current: AUTO_ENVIRONMENT });
+      return environment;
+    },
   };
 }
 

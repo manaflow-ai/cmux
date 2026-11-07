@@ -49,7 +49,7 @@ import {
 } from "./sessionAuth";
 import { postNative } from "./native";
 import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
-import { cloudStartEnvironment } from "./cloudEnvironmentChoice";
+import { useChatCloudEnvironment } from "./CloudEnvironmentChip";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, startCancelled } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
@@ -3887,8 +3887,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const runHereSend = useRef(false);
   /// Counts the Cloud starts that ended, so the folder default looks again once one has.
   const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
+  /// This new chat's Cloud environment (the Environment chip, CLOUD_ENVIRONMENTS_ENABLED): Auto until
+  /// picked, and Auto again once its Cloud send goes, a chat starts here or another new chat shows.
+  const cloudEnvironment = useChatCloudEnvironment(`${snapshot.sessionId ?? ""}:${newTabGeneration}`);
   const sandboxModeRows = {
     mode: sandbox.mode,
+    environment: cloudEnvironment.pick,
     onMode: (mode: RunMode) => {
       // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
       // picker target must not survive that choice and wake the old machine on the next edit.
@@ -3913,6 +3917,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
   const composerModeRows = {
     mode: sandboxModeRows.mode,
+    environment: sandboxModeRows.environment,
     onMode: (mode: RunMode) => {
       if (mode === "cloud") {
         const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
@@ -3980,7 +3985,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     if (cloudStartPending.current) return false;
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
-    const environment = cloudStartEnvironment(start.environment);
+    const environment = cloudEnvironment.forSend(start.environment);
     const reservationKey = cloudReservation.handoff(environment);
     const request: CloudStart = {
       task: text,

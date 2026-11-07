@@ -120,7 +120,6 @@ beforeEach(async () => {
       return { ...environments[1], id: "env_new", name: (params.environment as { name: string }).name };
     return {};
   });
-  (await import("../src/agent-session/acpmux/cloudEnvironmentChoice")).setCloudEnvironmentPick("auto");
 });
 
 afterEach(async () => {
@@ -129,8 +128,6 @@ afterEach(async () => {
   host.replaceChildren();
   (await import("../src/agent-session/acpmux/native")).setNativeHost(undefined);
   (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({ cloudEnvironments: false });
-  const choice = await import("../src/agent-session/acpmux/cloudEnvironmentChoice");
-  choice.setCloudEnvironmentPick(choice.AUTO_ENVIRONMENT);
 });
 
 afterAll(async () => {
@@ -144,9 +141,21 @@ afterAll(async () => {
 
 const flush = () => act(async () => await new Promise((done) => setTimeout(done, 0)));
 
-async function mount({ flag, mode }: { flag: boolean; mode: "persistent" | "cloud" }) {
+/// App.tsx's hold of a new chat's pick (useChatCloudEnvironment): the harness's chat and its send.
+let chatSend: ((explicit?: string) => string | undefined) | undefined;
+
+async function mount({ flag, mode, chat: firstChat }: { flag: boolean; mode: "persistent" | "cloud"; chat?: string }) {
+  let chat = firstChat;
   const { createRoot } = await import("react-dom/client");
   const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
+  const { useChatCloudEnvironment } = await import("../src/agent-session/acpmux/CloudEnvironmentChip");
+  // As App.tsx: the chat's pick rides on its run mode, and its Cloud send takes it.
+  function Held(props: Parameters<typeof ComposerContext>[0] & { chat: string }) {
+    const { chat: key, ...rest } = props;
+    const held = useChatCloudEnvironment(key);
+    chatSend = (explicit) => held.forSend(explicit);
+    return <ComposerContext {...rest} runMode={{ ...rest.runMode!, environment: held.pick }} />;
+  }
   (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({ cloudEnvironments: flag });
   const props = {
     environments: true,
@@ -160,12 +169,14 @@ async function mount({ flag, mode }: { flag: boolean; mode: "persistent" | "clou
     runMode: { mode, onMode: () => undefined },
   } as unknown as Parameters<typeof ComposerContext>[0];
   root ??= createRoot(host);
-  const render = async (next: Partial<typeof props>) => {
-    Object.assign(props, next);
+  const render = async (next: Partial<typeof props> & { chat?: string }) => {
+    const { chat: nextChat, ...rest } = next;
+    if (nextChat !== undefined) chat = nextChat;
+    Object.assign(props, rest);
     await act(async () =>
       root!.render(
         <form className="acpmux-composer">
-          <ComposerContext {...props} />
+          {chat === undefined ? <ComposerContext {...props} /> : <Held {...props} chat={chat} />}
           <textarea aria-label="Prompt" />
         </form>,
       ),
@@ -254,34 +265,32 @@ test("the drop-up opens up and lists Auto, the recent environments, New, Edit, t
 });
 
 test("Auto is the default and sends no environment; a pick is what the send names, and leads the folder's list", async () => {
-  const choice = await import("../src/agent-session/acpmux/cloudEnvironmentChoice");
-  await mount({ flag: true, mode: "cloud" });
-  expect(choice.environmentForStart(choice.cloudEnvironmentPick())).toBeUndefined();
+  await mount({ flag: true, mode: "cloud", chat: "new-1" });
+  expect(chipButton()?.getAttribute("aria-label")).toBe(`${t("composer.envCloudLabel")}: ${t("composer.envAuto")}`);
   await openChip();
   await act(async () => row("GPU training")!.click());
   await flush();
-  expect(choice.cloudEnvironmentPick()).toBe("env_gpu");
-  expect(choice.environmentForStart(choice.cloudEnvironmentPick())).toBe("env_gpu");
   expect(chipButton()?.getAttribute("aria-label")).toBe(`${t("composer.envCloudLabel")}: GPU training`);
   await openChip();
   expect(rowLabels().slice(0, 2)).toEqual([t("composer.envAuto"), "GPU training"]);
   expect(rowLabels()).toContain(t("composer.envEdit", { name: "GPU training" }));
 });
 
-test("cloud.startChat's payload: Auto and the flag off send today's, a pick adds its environment", async () => {
-  const choice = await import("../src/agent-session/acpmux/cloudEnvironmentChoice");
+test("cloud.startChat's payload: Auto and the flag off send today's; a pick goes with one send only", async () => {
   const { startCloudChat } = await import("../src/agent-session/acpmux/cloudRun");
   const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
   const start = { task: "Fix the build", cwd: "/Users/you/src/cmux", harness: "claude" };
   // What App.tsx sendToCloud hands startCloudChat, and what reaches the host.
-  const payload = async () => {
+  const send = async () => {
     const sent: [string, Record<string, unknown>][] = [];
-    const environment = choice.cloudStartEnvironment(undefined);
+    let environment: string | undefined;
+    act(() => void (environment = chatSend!(undefined)));
     await startCloudChat(
       async (method, params) => void sent.push([method, params]),
       { ...start, ...(environment ? { environment } : {}) },
       "send-1",
     );
+    await flush();
     return sent;
   };
   const todayParams: Record<string, unknown> = {
@@ -291,24 +300,42 @@ test("cloud.startChat's payload: Auto and the flag off send today's, a pick adds
     key: "send-1",
   };
   const today: [string, Record<string, unknown>][] = [["cloud.startChat", todayParams]];
+  const withGpu: [string, Record<string, unknown>][] = [
+    ["cloud.startChat", { ...todayParams, environment: "env_gpu" }],
+  ];
+  const pickGpu = async () => {
+    await openChip();
+    await act(async () => row("GPU training")!.click());
+    await flush();
+    expect(chipButton()?.getAttribute("aria-label")).toBe(`${t("composer.envCloudLabel")}: GPU training`);
+  };
   // The flag off: no chip, and the payload is today's.
-  await mount({ flag: false, mode: "cloud" });
+  const render = await mount({ flag: false, mode: "cloud", chat: "new-1" });
   expect(slot()).toBeNull();
-  expect(await payload()).toEqual(today);
+  expect(await send()).toEqual(today);
   // The flag on, on Auto: still today's, with no `environment`.
-  await mount({ flag: true, mode: "cloud" });
-  expect(choice.cloudEnvironmentPick()).toBe(choice.AUTO_ENVIRONMENT);
-  expect(await payload()).toEqual(today);
-  // A picked environment: the same payload with its id.
-  await openChip();
-  await act(async () => row("GPU training")!.click());
-  await flush();
-  expect(await payload()).toEqual([["cloud.startChat", { ...todayParams, environment: "env_gpu" }]]);
-  // A pick left over when the flag goes off sends nothing either.
+  act(() => setComposerSettings({ cloudEnvironments: true }));
+  await render({});
+  expect(await send()).toEqual(today);
+  // A pick goes with the send, and the chat's next send is back on Auto.
+  await pickGpu();
+  expect(await send()).toEqual(withGpu);
+  expect(chipButton()?.getAttribute("aria-label")).toBe(`${t("composer.envCloudLabel")}: ${t("composer.envAuto")}`);
+  expect(await send()).toEqual(today);
+  // A pick, then a new chat: that chat starts on Auto and sends none.
+  await pickGpu();
+  await render({ chat: "new-2" });
+  expect(chipButton()?.getAttribute("aria-label")).toBe(`${t("composer.envCloudLabel")}: ${t("composer.envAuto")}`);
+  expect(await send()).toEqual(today);
+  // A pick left when the flag goes off sends nothing either.
+  await pickGpu();
   act(() => setComposerSettings({ cloudEnvironments: false }));
-  expect(await payload()).toEqual(today);
+  expect(await send()).toEqual(today);
   // A start that names its own environment keeps it.
-  expect(choice.cloudStartEnvironment("env_web")).toBe("env_web");
+  act(() => setComposerSettings({ cloudEnvironments: true }));
+  let own: string | undefined;
+  act(() => void (own = chatSend!("env_web")));
+  expect(own).toBe("env_web");
 });
 
 test("the GUI hooks: the chip and every drop-up row carry a stable test id", async () => {
@@ -333,13 +360,14 @@ test("the GUI hooks: the chip and every drop-up row carry a stable test id", asy
 });
 
 test("New Cloud machine… runs New Cloud Machine with the picked environment, and with none on Auto", async () => {
-  const choice = await import("../src/agent-session/acpmux/cloudEnvironmentChoice");
   await mount({ flag: true, mode: "cloud" });
   await openChip();
   await act(async () => row(t("composer.envNewMachine"))!.click());
   expect(native.filter(([method]) => method === "action.run")).toEqual([["action.run", { id: "newCloudMachine" }]]);
   native = [];
-  act(() => choice.setCloudEnvironmentPick("env_web"));
+  await openChip();
+  await act(async () => row("atlas-web")!.click());
+  await flush();
   await openChip();
   await act(async () => row(t("composer.envNewMachine"))!.click());
   expect(native.filter(([method]) => method === "action.run")).toEqual([
@@ -348,7 +376,6 @@ test("New Cloud machine… runs New Cloud Machine with the picked environment, a
 });
 
 test("New environment… makes one named after the folder, then picks it; Edit opens the current one", async () => {
-  const choice = await import("../src/agent-session/acpmux/cloudEnvironmentChoice");
   const editor = await import("../src/agent-session/acpmux/cloudEnvironment");
   await mount({ flag: true, mode: "cloud" });
   await openChip();
@@ -358,7 +385,6 @@ test("New environment… makes one named after the folder, then picks it; Edit o
   expect(request?.section).toBe("script");
   // The editor's store makes it (cloud.environment.create) and reports it; the chip picks it.
   await act(async () => request!.onCreated?.({ ...environments[1]!, id: "env_new", name: "cmux" } as never));
-  expect(choice.cloudEnvironmentPick()).toBe("env_new");
   expect(chipButton()?.getAttribute("aria-label")).toBe(`${t("composer.envCloudLabel")}: cmux`);
   editor.closeCloudEnvironmentRequest(request!.request);
   await openChip();

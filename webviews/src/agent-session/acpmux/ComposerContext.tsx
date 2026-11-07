@@ -466,9 +466,10 @@ export function ComposerContext({
   // The Environment chip's control (Leo, 2026-11-07, behind CLOUD_ENVIRONMENTS_ENABLED): a new chat's
   // only, and only where the strip is the environment picker. It shows while Cloud is the pick.
   const liveEnvironment = useCloudEnvironmentControl(
-    cloudEnvironmentSeam === undefined && composerSettings.cloudEnvironments && newChat && environments,
+    cloudEnvironmentSeam === undefined && composerSettings.cloudEnvironments && newChat && environments === true,
     currentFolder,
     currentFolder ? folders.find((folder) => folder.id === currentFolder)?.repo?.github : undefined,
+    runMode?.environment,
   );
   const environmentControl = cloudEnvironmentSeam ?? liveEnvironment;
   // A started chat's picker lists only where it runs, with that machine's warning too.

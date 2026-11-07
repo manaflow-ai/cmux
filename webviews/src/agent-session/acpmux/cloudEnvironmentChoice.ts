@@ -96,7 +96,7 @@ export function environmentForStart(pick: string | undefined): string | undefine
 /// The `environment` a Cloud send names (App.tsx `sendToCloud`): the start's own, else the chip's
 /// pick. Auto names none, and so does any pick while CLOUD_ENVIRONMENTS_ENABLED is off, so the flag
 /// off sends exactly what it sent before the chip.
-export function cloudStartEnvironment(explicit: string | undefined): string | undefined {
+export function cloudStartEnvironment(explicit: string | undefined, pick: string | undefined): string | undefined {
   if (explicit) return explicit;
   return composerSettingsSnapshot().cloudEnvironments ? environmentForStart(pick) : undefined;
 }
@@ -180,17 +180,7 @@ export function recentEnvironments(
   return chosen.slice(0, RECENT_ENVIRONMENTS).map(({ id, name }) => ({ id, name }));
 }
 
-/// The page's pick (one new chat's composer per page): what its Cloud send names. A new chat starts
-/// on Auto; a pick holds until the page's chat starts or the page goes.
-let pick: string = AUTO_ENVIRONMENT;
-const listeners = new Set<() => void>();
-export const cloudEnvironmentPick = () => pick;
-export function setCloudEnvironmentPick(next: string) {
-  if (next === pick) return;
-  pick = next;
-  for (const listener of listeners) listener();
-}
-export function subscribeCloudEnvironmentPick(listener: () => void) {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
+/// A new chat's pick, held with its run mode (`RunModeRows.environment`): App.tsx keeps it per chat
+/// and puts it back to Auto when a chat starts or another new chat shows, so a pick never reaches a
+/// later chat's send.
+export type CloudEnvironmentPick = { current: string; onPick(id: string): void };
