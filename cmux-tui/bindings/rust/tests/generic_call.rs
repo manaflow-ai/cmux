@@ -243,3 +243,38 @@ fn a_chat_target_reads_the_catalog_on_every_call() {
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn a_claimed_stream_sends_its_cancel_with_the_same_claim() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let _control = listener.accept().unwrap().0;
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let open = request(&mut reader);
+        assert_eq!(open["origin"], json!({"claim": "agent"}));
+        let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
+        respond(&mut stream, &open, json!({"ok": true, "result": {"stream_id": stream_id}}));
+        let cancel = request(&mut reader);
+        assert_eq!(cancel["operation"], "stream.cancel");
+        assert_eq!(cancel["origin"], json!({"claim": "agent"}), "{cancel}");
+        respond(&mut stream, &cancel, json!({"ok": true, "result": {}}));
+        writeln!(
+            stream,
+            "{}",
+            json!({"protocol": "cmux.protocol/2", "type": "stream_end",
+                   "stream_id": stream_id, "reason": "canceled"})
+        )
+        .unwrap();
+    });
+
+    let client = connect(&path);
+    let agent = client.with_origin_claim("agent").unwrap();
+    let mut events = agent.subscribe("conversation.events", json!({"conversation": "c"})).unwrap();
+    events.cancel().unwrap();
+    assert_eq!(events.end().unwrap().reason, StreamEndReason::Canceled);
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
