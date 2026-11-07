@@ -76,10 +76,13 @@ export function useFoldMotion<E extends HTMLElement>(
     const start = from.current;
     from.current = undefined;
     if (!box || start === undefined) return;
-    run.current?.cancel();
+    const before = run.current;
     run.current = undefined;
+    before?.cancel();
     const end = open ? box.offsetHeight : measureClosed.current(box);
     if (Math.abs(end - start) < 1) {
+      // Nothing to move (a fold turned back where it began): no clip left from the one it replaced.
+      delete box.dataset.folding;
       if (!open) setHeld(false);
       return;
     }
@@ -91,7 +94,10 @@ export function useFoldMotion<E extends HTMLElement>(
       fill: open ? "none" : "forwards",
     });
     run.current = fold;
-    fold.onfinish = () => {
+    // Finished, or cancelled from outside (the pane's animations turned off cancel every animation in
+    // the page): either way the fold lands on its end state, the closing rows gone and the box unclipped.
+    // A fold this hook replaced or stopped itself is no longer `run.current` and settles nothing.
+    const settle = () => {
       if (run.current !== fold) return;
       if (open) {
         run.current = undefined;
@@ -100,6 +106,8 @@ export function useFoldMotion<E extends HTMLElement>(
         setHeld(false);
       }
     };
+    fold.onfinish = settle;
+    fold.oncancel = settle;
   }, [open, ref]);
 
   // A close ended and its rows are gone: the box's own height is the end height now, so the held one
@@ -115,8 +123,9 @@ export function useFoldMotion<E extends HTMLElement>(
 
   useEffect(
     () => () => {
-      run.current?.cancel();
+      const fold = run.current;
       run.current = undefined;
+      fold?.cancel();
     },
     [],
   );

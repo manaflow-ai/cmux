@@ -706,6 +706,15 @@ const plainHead: Play = async (ctx) => {
   const meta = head.querySelector(".acpmux-session-info-section__meta")!;
   if (Math.abs(meta.getBoundingClientRect().right - edge) > 1)
     throw new Error("The head's count does not end on the rows' right text edge");
+  // The hidden grip lies over the count's right end and takes no press there: what the browser hits at
+  // the count is the head, so a click on it folds the section (and a second opens it again).
+  const box = meta.getBoundingClientRect();
+  const hit = ctx.document.elementFromPoint(box.right - 2, box.top + box.height / 2);
+  if (!hit || !head.contains(hit)) throw new Error(`A click on the count lands on ${hit?.className ?? "nothing"}`);
+  (hit as HTMLElement).click();
+  await ctx.waitFor(() => head.getAttribute("aria-expanded") === "false" && settled(ctx), { capMs: 3000 });
+  (hit as HTMLElement).click();
+  await ctx.waitFor(() => head.getAttribute("aria-expanded") === "true" && settled(ctx), { capMs: 3000 });
   await ctx.hover({ selector: CHANGES_HEAD });
   await ctx.waitFor(() => Number.parseFloat(style(ctx, handle).opacity) > 0 && style(ctx, meta).opacity === "0");
   if (style(ctx, head).backgroundColor !== "rgba(0, 0, 0, 0)") throw new Error("The hovered head draws a fill");
