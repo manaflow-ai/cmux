@@ -16,7 +16,13 @@ import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { AttachmentChip, RetryButton, UploadProgress, type PendingAttachment } from "./attachmentIntake";
+import {
+  AttachmentChip,
+  KeepFileButton,
+  RetryButton,
+  UploadProgress,
+  type PendingAttachment,
+} from "./attachmentIntake";
 import { keptThumb } from "./imagePool";
 import { reordered } from "./stripReorder";
 import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
@@ -37,6 +43,9 @@ type Options = {
   /// A cancelled loading chip's file read again under its id (attachmentIntake.tsx `revive`).
   revive(id: string): boolean;
   expand(id: string): void;
+  /// A pasted chip sent as a .txt file instead (composer/pastedChips.ts `keepAsFile`); unset, its chip
+  /// offers only Expand.
+  keepFile?(id: string): void;
   /// Whether a paste or drop now places what it brings in the text (not in shell mode).
   placing(): boolean;
   /// A Codex chat: a PDF's chip says it goes as a file (attachmentIntake.tsx PdfAttachmentChip).
@@ -234,6 +243,7 @@ export function useInlineAttachments(options: Options) {
       if (attachment) keep(attachment);
       live.current.expand(id);
     },
+    keepFile: (id: string) => live.current.keepFile?.(id),
     known,
     /// The field tells its nodes' elements in a microtask after the change that made them (MarkdownField
     /// `tellInlineViews`): their chips draw before that task's frame paints, so a paste's placeholder
@@ -266,6 +276,7 @@ export function useInlineAttachments(options: Options) {
         onCancel={api.cancel}
         onRetry={api.retry}
         onExpand={api.expand}
+        {...(options.keepFile ? { onKeepFile: api.keepFile } : {})}
         codex={options.codex ?? false}
         originalFailed={options.originalFailures?.[id]}
       />,
@@ -288,6 +299,7 @@ const InlineChip = memo(function InlineChip({
   onCancel,
   onRetry,
   onExpand,
+  onKeepFile,
   codex,
   originalFailed,
 }: {
@@ -298,6 +310,7 @@ const InlineChip = memo(function InlineChip({
   onCancel(id: string): void;
   onRetry(id: string): void;
   onExpand(id: string): void;
+  onKeepFile?(id: string): void;
   codex: boolean;
   originalFailed: string | undefined;
 }) {
@@ -371,6 +384,7 @@ const InlineChip = memo(function InlineChip({
         >
           <TextAttachmentCard text={text} label={label} wrap />
         </button>
+        {onKeepFile ? <KeepFileButton onKeep={() => onKeepFile(id)} /> : null}
         {remove}
       </span>
     );

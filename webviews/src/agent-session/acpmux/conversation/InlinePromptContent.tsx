@@ -4,6 +4,7 @@ import { FindReveal } from "./chatFind";
 import { attachmentPath, FileAttachment } from "../FileAttachment";
 import { PasteChip, PromptText, PromptTyped } from "./PromptText";
 import { HUGE_PROMPT_HEAD_CHARS, hasHugeTypedPart, headParts } from "./promptCollapse";
+import { isLargePaste } from "../pastedText";
 
 /** Sent prompt content in ACP order. Text and attachment runs stay in one bubble, like Messages.
  * A pasted block is the same chip a legacy prompt draws (PromptText.tsx), opening to its text. */
@@ -67,6 +68,10 @@ export const InlinePromptContent = memo(function InlinePromptContent({
     // A pasted block, or a text file's body (it starts with the file's name, attachments.ts
     // `promptText`): the chip that opens to its text, which is part of the prompt's recorded text.
     const body = blockText(part);
+    // A paste of ordinary size reads as the prompt's own text, with no label; only one too long to
+    // read in place folds (PromptText.tsx, ask-48544d7525).
+    if (body && part.kind === "pasted" && !isLargePaste(body))
+      return <PromptTyped key={`pasted-${index}`} text={body} show={show} />;
     if (body)
       return (
         <PasteChip key={`pasted-${index}`} rowId={rowId} index={index} text={body} needle={needle} onOpen={open} />

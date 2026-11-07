@@ -82,6 +82,16 @@ export function usePastedChips(
       expanding.current = false;
     }
   };
+  /// Sends chip `id`'s text as a file instead (Leo, 2026-11-07: "it just becomes this, like, .txt,
+  /// kind of like an attachment"): the chip and its place in the prompt go, a Pasted text.txt comes.
+  const keepAsFile = (id: string) => {
+    const chip = attachments.current.find((held) => held.id === id);
+    if (!attachFile || chip?.kind !== "pasted" || chip.text === undefined) return;
+    attachments.current = attachments.current.filter((held) => held.id !== id);
+    setAttachments((current) => current.filter((held) => held.id !== id));
+    field.current?.removeInline(id);
+    attachFile({ name: PASTED_TEXT_NAME, type: "text/plain", file: pastedTextFile(chip.text) });
+  };
   return {
     expanding,
     opens,
@@ -119,5 +129,7 @@ export function usePastedChips(
       return true;
     },
     expand,
+    /// Unset when the composer cannot attach a file.
+    keepAsFile: attachFile ? keepAsFile : undefined,
   };
 }

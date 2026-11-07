@@ -360,6 +360,60 @@ test.each(["inline", "strip"] as const)(
   },
 );
 
+// Leo, 2026-11-07 (ask-48544d7525): "you can either just paste it and it just becomes this, like,
+// .txt, kind of like an attachment, um, or you can just make it raw". An oversized paste's chip offers
+// both: a click on its card puts the text in the prompt (above), Keep as .txt sends it as a file.
+const keepButton = (view: AttachmentView) =>
+  (view === "inline" ? field() : host).querySelector<HTMLButtonElement>(".acpmux-attachment-keep-file");
+
+test.each(["inline", "strip"] as const)(
+  "an oversized paste offers both choices; Keep as .txt makes it a Pasted text.txt file (%s view)",
+  async (view) => {
+    const composer = await openComposer();
+    await showAttachments(view);
+    await paste(LOG);
+    expect(chipButtons(view).open()).not.toBeNull();
+    const keep = keepButton(view)!;
+    expect(keep?.textContent).toBe("Keep as .txt");
+    await act(async () => keep.click());
+    await until(() => chips(composer).some((chip) => chip.name === "Pasted text.txt"), "the .txt file");
+    expect(chips(composer).map((chip) => [chip.kind === "pasted", chip.name])).toEqual([[false, "Pasted text.txt"]]);
+    expect(host.querySelector(".acpmux-attachment-pasted:not([data-text-kind])")).toBeNull();
+    expect(words().trim()).toBe("");
+  },
+);
+
+// ask-42dfdea96c: an ordinary paste (Leo's own dictated paragraph, 515 characters) is the person's
+// text: no chip, no pasted block, sent as typed text is.
+const DICTATED =
+  "Also, like, okay, this is not good. Like, it says pasted text, but this is just the normal text that I had. " +
+  "And it's also got, like, you know, these two... what? Two card? Like, this is not good. You don't want to " +
+  "show it as pasted text when it wasn't pasted text in the first place. This is a misattribution. And it's " +
+  "also, like, fundamentally, this is not that long to, like, necessitate the sort of folding.";
+
+test("an ordinary real paste stays inline and goes as the person's text", async () => {
+  const sent: Sent[] = [];
+  const composer = await openComposer(sent);
+  await paste(DICTATED);
+  expect(chips(composer)).toEqual([]);
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments)).toEqual([{ type: "text", text: DICTATED }]);
+});
+
+test("a dictated insert is never a paste", async () => {
+  const sent: Sent[] = [];
+  const composer = await openComposer(sent);
+  // Dictation splices its words in as an edit of the text (dictation.ts), never a paste event.
+  await act(async () => markdownField().writeText(`From Codex:\n${DICTATED}\nTrace-ID: x`, 0, 0));
+  await settle();
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments).every((block) => !("_meta" in block))).toBe(true);
+});
+
 // Review (Codex): a chip between words opened its text at the caret, so a caret after the words put
 // the text after them and changed the prompt's order. It goes where the chip was.
 test.each(["inline", "strip"] as const)(

@@ -584,11 +584,12 @@
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
 }
-/* A pasted block: one card of the paste's own text, no outline, a quiet tint of the bubble's ink.
+/* A paste too long to read in place (pastedText.ts isLargePaste): one quiet region of the bubble,
+   never a card in its card (ask-42dfdea96c), its look the `pasted-block-look` arm (data-look).
    Closed, its first PASTE_PREVIEW_LINES lines wrap in the prompt's font, the last fading out, over
    the composer's label; open, the same text runs whole above that label. Closed it is
-   pasteChipHeight (promptCollapse.ts): 4px around the card, 8px and 4px inside, a 20px label 4px
-   under the lines. */
+   pasteChipHeight (promptCollapse.ts): 4px around the region, 8px and 4px inside, a 20px label 4px
+   under the lines; every arm keeps those. */
 .cv-user__paste-block {
   display: flex;
   flex-direction: column;
@@ -605,6 +606,30 @@
 }
 .cv-user__paste-card:not([data-open]):hover {
   background: color-mix(in srgb, currentColor 9%, transparent);
+}
+/* Quiet: the bubble's own text, no fill and no edge; only the fade and the label set it apart. */
+.cv-user__paste-card[data-look="quiet"],
+.cv-user__paste-card[data-look="quiet"]:not([data-open]):hover {
+  padding-inline: 0;
+  border-radius: 0;
+  background: none;
+}
+/* Rule: a thin rule of the bubble's ink down its left edge, inside its padding. */
+.cv-user__paste-card[data-look="rule"],
+.cv-user__paste-card[data-look="rule"]:not([data-open]):hover {
+  border-radius: 0;
+  background: none;
+  box-shadow: inset 2px 0 0 color-mix(in srgb, currentColor 22%, transparent);
+}
+/* Divider: hairlines of the bubble's ink above and below, inside its padding. */
+.cv-user__paste-card[data-look="divider"],
+.cv-user__paste-card[data-look="divider"]:not([data-open]):hover {
+  padding-inline: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, currentColor 14%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, currentColor 14%, transparent);
 }
 .cv-user__paste-text {
   align-self: stretch;

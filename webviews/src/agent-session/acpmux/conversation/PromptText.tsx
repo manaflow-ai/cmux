@@ -36,6 +36,8 @@ import { agentText } from "../agentText";
 import { experimentArm } from "../../../experiments/experiment";
 import { pastedAgentLook } from "./pastedAgentLook.experiment";
 import { pastedSize } from "../composer/TextAttachmentCard";
+import { isLargePaste } from "../pastedText";
+import { pastedBlockLook } from "./pastedBlockLook.experiment";
 
 export function PromptText({
   rowId,
@@ -61,13 +63,20 @@ export function PromptText({
 }) {
   const t = useT();
   const id = useId();
-  const parts = useMemo(() => promptParts(text, pasted ?? []), [text, pasted]);
+  // Only a paste too long to read in place folds (pastedText.ts isLargePaste); one of ordinary size
+  // reads as the prompt's own text, with no label (ask-48544d7525; Leo, 2026-11-07: "you only
+  // necessarily care if it's too big"). Its mark still went to the agent (pasteMarks.ts).
+  const folded = useMemo(
+    () => (pasted ?? []).filter((range) => isLargePaste(text.slice(range.start, range.end))),
+    [text, pasted],
+  );
+  const parts = useMemo(() => promptParts(text, folded), [text, folded]);
   const [open, setOpen] = useTranscriptDisclosure(`prompt:${rowId}`);
   // Whether the prompt is taller than the collapsed lines: guessed from its text until laid out,
   // then measured against its line height (open or closed), again when its width changes. A
   // measure is of one text: a bubble drawn again with another prompt guesses again.
   // A huge typed part beside pastes is long too, so it never draws whole before it is measured.
-  const guess = looksLongPrompt(pasted?.length ? "" : text) || parts.length > 3 || hasHugeTypedPart(parts);
+  const guess = looksLongPrompt(folded.length ? "" : text) || parts.length > 3 || hasHugeTypedPart(parts);
   const [measured, setMeasured] = useState<{ parts: typeof parts; long: boolean }>();
   // A huge prompt is always long: collapsed it draws only its head, and a measure of that head
   // (which `show` may shrink to a label) must never unclamp it, or it would flip between head and
@@ -408,9 +417,16 @@ export function PasteChip({
       : t("transcript.pastedFromAgent")
     : undefined;
   const name = from && look !== "badge" ? from : t("composer.pastedText");
+  const region = experimentArm(pastedBlockLook);
   return (
     <span className="cv-user__paste-block">
-      <span ref={card} className="cv-user__paste-card" data-open={open ? "" : undefined} data-agent={look}>
+      <span
+        ref={card}
+        className="cv-user__paste-card"
+        data-open={open ? "" : undefined}
+        data-agent={look}
+        data-look={region}
+      >
         {/* Closed, its lines are a wider mouse target for the label's toggle; the label is the
             keyboard and screen reader control. */}
         {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}

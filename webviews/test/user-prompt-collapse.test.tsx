@@ -457,7 +457,7 @@ try {
   test("Find opens the closed paste chip that holds the match", () => {
     resetTranscriptDisclosure();
     const typed = "See the log";
-    const paste = lines(50, "frame");
+    const paste = lines(400, "frame");
     const start = typed.length + 1;
     const row = prompt("user-7", `${typed}\n${paste}`, { pasted: [{ start, end: start + paste.length }] });
     render(row, { rowId: "user-7", card: false, needle: "frame 42", repaint: () => {} });
@@ -468,7 +468,7 @@ try {
   test("Find's current match lands in the opened paste, never on the chip's name or line count", () => {
     resetTranscriptDisclosure();
     const typed = "Why does this fail?";
-    const paste = lines(30, "error at frame");
+    const paste = lines(200, "error at frame");
     const text = `${typed}\n${paste}`;
     const start = typed.length + 1;
     const row = prompt("user-8", text, { pasted: [{ start, end: start + paste.length }] });
@@ -493,7 +493,7 @@ try {
       // Nothing in the chip itself is a match: its name and count are labels, not the prompt's text.
       const all = [...((set.get("acpmux-find") as { ranges: Range[] } | undefined)?.ranges ?? []), current!];
       expect(all.some((range) => range.startContainer.parentElement?.closest(".cv-user__paste"))).toBe(false);
-      expect(all.length).toBe(30);
+      expect(all.length).toBe(200);
     } finally {
       Object.assign(globalThis, { CSS: css, Highlight: highlight });
     }
