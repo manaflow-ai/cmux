@@ -10,6 +10,10 @@
 //   home.messages.focusComposer {}                                -> {focused}
 //   home.moveConversation     {delta}                             -> {moved}    (as Channels serves it)
 //   home.messages.selectNumber {number: 1..9}                     -> {selected} (9 = the last)
+//   home.messages.attach | detach | quoteSelection                -> composerHandoff.ts
+//
+// The page command `quoteSelection` (the app's selection menu, Quote in Reply) quotes the selected
+// message text in the composer, as `home.messages.quoteSelection` does.
 //
 // Page → host: `cmux.home.messages.selected {conversation: string | null, message?}` on every
 // change of the shown conversation (fire and forget): the host keeps it for its sync actions.
@@ -18,6 +22,8 @@ import { CURRENT_SELECTION_OP, type HomeSelection } from "../home-channels/hostS
 import { MOVE_CONVERSATION_OP } from "../home-channels/hostMove";
 import type { HomeChannelsStore } from "../home-channels/store";
 import type { PageClient } from "../shared/pageClient";
+import { PAGE_COMMAND, type PageCommand } from "../shared/pageStreams";
+import { attach, detach, HandoffOps, quoteSelection } from "./composerHandoff";
 import { conversationNumber, neighbor, type ListModel } from "./list/model";
 import type { MessagesNav, SheetKind } from "./nav";
 
@@ -141,8 +147,25 @@ export function servePageCommands(host: PageClient, latest: () => PageCommandCon
     host.handle(MessagesPageOps.focusComposer, () => ({ focused: latest().nav.focus() })),
     host.handle(MessagesPageOps.moveConversation, (params) => moveConversation(latest(), params)),
     host.handle(MessagesPageOps.selectNumber, (params) => selectNumber(latest(), params)),
+    host.handle(HandoffOps.attach, (params) => attach(host, latest().nav.composer(), params)),
+    host.handle(HandoffOps.detach, (params) => detach(latest().nav.composer(), params)),
+    host.handle(HandoffOps.quoteSelection, () => quoteSelection(document, latest().nav.composer())),
   ];
+  // The app's menu on selected message text: Quote in Reply.
+  let ended = false;
+  let unsubscribe: (() => void) | undefined;
+  void host
+    .subscribe<PageCommand>(PAGE_COMMAND, (data) => {
+      if (data?.command === "quoteSelection") quoteSelection(document, latest().nav.composer());
+    })
+    .then((stop) => {
+      if (ended) stop();
+      else unsubscribe = stop;
+    })
+    .catch(() => {});
   return () => {
+    ended = true;
+    unsubscribe?.();
     for (const stop of stops) stop();
   };
 }

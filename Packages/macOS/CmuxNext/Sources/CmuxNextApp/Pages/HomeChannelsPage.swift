@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextPages
 import CmuxNextSettings
@@ -71,7 +72,8 @@ extension PageFactory {
         let actions = PageGestureActionProvider(page: .homeMessages, wrapping: AppPageNativeProvider(services: services, page: .homeMessages))
         let extra = [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route), PageRoute(prefix: PageNativeOp.actionRun, provider: actions)]
             + HomeMessagesHostProvider.prefixes.map { PageRoute(prefix: $0, provider: host) }
-            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun)]
+            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun),
+               PageRoute(prefix: HomeComposerFiles.prefix, provider: host.composerFiles)]
         let single = conversation.flatMap { $0.rawValue.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }.map { "#/conversation/\($0)" }
         guard let page = homeWebPage(.homeMessages, dock: dock, extra: extra, route: single) else { return nil }
         host.window = { [weak page] in page?.window }

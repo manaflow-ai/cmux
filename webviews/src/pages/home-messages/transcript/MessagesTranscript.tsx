@@ -46,6 +46,8 @@ const TOP_KEY = "top";
 export interface MessagesTranscriptHandle {
   /** The message box takes the keyboard; true when it did. */
   focusComposer(): boolean;
+  /** The compose bar, for what the app hands over (composerHandoff.ts). */
+  composer(): MessageComposerHandle | null;
 }
 
 export interface MessagesTranscriptProps extends TranscriptData {
@@ -188,6 +190,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       composer.current.focus();
       return true;
     },
+    composer: () => composer.current,
   }));
 
   // A send (new rows at the end while the reader is at the newest): the window already scrolled by

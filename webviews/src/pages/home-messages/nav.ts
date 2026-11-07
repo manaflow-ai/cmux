@@ -3,6 +3,7 @@
 // shows, the sheet over the page, the composer drafts per conversation, the open Message Requests
 // and who takes the keyboard. Conversations and messages stay the Channels store's; this holds
 // only what the native view held beside them.
+import type { ComposerTarget } from "./composerHandoff";
 import type { MessageRequest } from "./sheets/model";
 import { EMPTY_DRAFT, isDraftEmpty, type RecipientDraft } from "./sheets/recipients";
 
@@ -44,6 +45,8 @@ export class MessagesNav {
   composeText = "";
   /** What takes the keyboard now (the detail registers it): true when something took it. */
   private focuser: (() => boolean) | undefined;
+  /** The composer the app's hand-off reaches now (the detail registers it). */
+  private composerTarget: (() => ComposerTarget | null | undefined) | undefined;
 
   getSnapshot = (): NavState => this.state;
 
@@ -117,6 +120,19 @@ export class MessagesNav {
     return () => {
       if (this.focuser === focuser) this.focuser = undefined;
     };
+  }
+
+  /** The detail says which composer takes what the app hands over; the returned stop clears it. */
+  setComposer(target: () => ComposerTarget | null | undefined): () => void {
+    this.composerTarget = target;
+    return () => {
+      if (this.composerTarget === target) this.composerTarget = undefined;
+    };
+  }
+
+  /** The composer that shows now (New Message's box, else the conversation's), or undefined. */
+  composer(): ComposerTarget | undefined {
+    return this.composerTarget?.() ?? undefined;
   }
 
   /** The keyboard goes to the composer after the next commit (the detail's effect). */

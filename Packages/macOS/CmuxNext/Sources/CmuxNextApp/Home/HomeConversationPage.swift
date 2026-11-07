@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHomeModel
 import CmuxNextLayout
@@ -121,6 +122,10 @@ final class HomeConversationPage: NSView {
         chief.close()
         page.close()
     }
+}
+
+extension HomeConversationPage: HomeComposerHosting {
+    var composerHandoff: HomeComposerHandoff { HomeComposerHandoff(page: page, files: host.composerFiles) }
 }
 
 extension HomeConversationPage: HomeChiefShowing {

@@ -27,15 +27,17 @@ import { HomeIcon } from "../../home-channels/icons";
 import type { HomeAttachment } from "../../home-channels/types";
 import type { Strings } from "../../shared/i18n";
 import { useWebSwapHold } from "../../shared/useWebSwapHold";
+import { quoteMarkdown } from "../../home-channels/quoteSelection";
+import type { ComposerTarget } from "../composerHandoff";
 import { ComposerHistory, historyTakesArrow } from "./history";
 import { intakeProblem, textBeside, transferFiles, type TransferLike } from "./intake";
 
 /** The host's call for dictation (`dictation.toggle`, `dictation.cancel`, ...), as the agent pane's. */
 export type DictationCall = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
-export interface MessageComposerHandle {
-  /** Files dropped on the transcript come here (the pane's drop target). */
-  addFiles(files: Iterable<File>): void;
+/** Files dropped on the transcript come here (the pane's drop target), and what the app hands over
+ * (composerHandoff.ts): files by path, a quote of selected text. */
+export interface MessageComposerHandle extends ComposerTarget {
   focus(): void;
 }
 
@@ -88,6 +90,8 @@ export function MessageComposer({
   const picker = useRef<HTMLInputElement | null>(null);
   const uploads = useRef(new Map<string, AbortController>());
   const nextFile = useRef(1);
+  /** The files each hand-off group added, by group (a design card's files go back together). */
+  const groups = useRef(new Map<string, string[]>());
   const [browse] = useState(() => new ComposerHistory());
   const voice = useDictation(editor, dictation ?? noDictation);
   const ready = files.filter((item) => item.part).map((item) => item.part as HomeAttachment);
@@ -101,7 +105,7 @@ export function MessageComposer({
   const patchFile = (id: string, patch: Partial<PendingAttachment>) =>
     setFiles((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
 
-  const addFiles = (list: Iterable<File>) => {
+  const addFiles = (list: Iterable<File>, group?: string) => {
     if (!attachments) return;
     const added: PendingAttachment[] = [];
     for (const file of list) {
@@ -132,10 +136,30 @@ export function MessageComposer({
         .finally(() => uploads.current.delete(id));
     }
     if (added.length) setFiles((current) => [...current, ...added]);
+    if (group) groups.current.set(group, [...(groups.current.get(group) ?? []), ...added.map((item) => item.id)]);
   };
   const removeFile = (id: string) => {
     uploads.current.get(id)?.abort();
     setFiles((current) => current.filter((item) => item.id !== id));
+  };
+  const removeGroup = (group: string): boolean => {
+    const ids = groups.current.get(group);
+    groups.current.delete(group);
+    if (!ids?.length) return false;
+    for (const id of ids) uploads.current.get(id)?.abort();
+    setFiles((current) => current.filter((item) => !ids.includes(item.id)));
+    return true;
+  };
+  // Quote in Reply: the quote goes after what is typed, with a line for the reply, and typing goes on there.
+  const quote = (text: string): boolean => {
+    const markdown = quoteMarkdown(text);
+    const field = editor.current;
+    if (field?.quoteReply(markdown)) {
+      field.focus();
+      return true;
+    }
+    setText(value ? `${value.replace(/\s+$/, "")}\n\n${markdown}` : markdown);
+    return true;
   };
   // Every upload ends with the composer (another conversation makes a new one).
   useEffect(() => {
@@ -206,7 +230,13 @@ export function MessageComposer({
     if (words) editor.current?.insertTyped(words);
   };
 
-  useImperativeHandle(ref, () => ({ addFiles, focus: () => editor.current?.focus() }));
+  useImperativeHandle(ref, () => ({
+    takesFiles: !!attachments,
+    addFiles,
+    removeGroup,
+    quote,
+    focus: () => editor.current?.focus(),
+  }));
 
   return (
     <div className="mt-compose" data-offline={sendEnabled ? undefined : "true"}>

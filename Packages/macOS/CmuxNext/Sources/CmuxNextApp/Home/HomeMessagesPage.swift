@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHomeModel
 import CmuxNextPages
@@ -293,6 +294,20 @@ final class HomeWindowDragStrip: NSView {
             return
         }
         window.performDrag(with: event)
+    }
+}
+
+extension HomeMessagesPage: HomeComposerHosting {
+    var composerHandoff: HomeComposerHandoff { HomeComposerHandoff(page: page, files: host.composerFiles) }
+}
+
+extension HomeComposerHandoff {
+    /// The hand-off to `page`'s composer, each call bounded by the page-call deadline.
+    init(page: PageWebView, files: HomeComposerFiles) {
+        let router = page.router
+        self.init(files: files, window: { [weak page] in page?.window }) { op, params, deadline in
+            await PageAnswerDeadline(deadline).answer { try await router.callPage(op, params: .object(params)) }
+        }
     }
 }
 

@@ -142,6 +142,11 @@ export function MessagesDetail(props: MessagesDetailProps) {
       }),
     [nav, composing],
   );
+  // What the app hands over (files, a quote) goes to the composer that shows.
+  useEffect(
+    () => nav.setComposer(() => (composing ? composeBox.current : transcript.current?.composer())),
+    [nav, composing],
+  );
   useEffect(() => {
     if (view.focusEpoch > 0) nav.focus();
   }, [nav, view.focusEpoch]);
