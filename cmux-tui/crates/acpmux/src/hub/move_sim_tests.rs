@@ -106,8 +106,13 @@ struct Machine {
     clock: u64,
     /// Every run of a prompt: its id and the generation it ran in.
     ran: Vec<(String, u64)>,
-    /// Prompts whose end (result or removal) the owner's copy wrote: none may run again.
+    /// Prompts whose end (result or removal) the owner's copy wrote: none may run again by
+    /// anything the owner sends (a disk the machine came back on may hold one still queued: its
+    /// own queue runs it, before any owner speaks).
     settled_seen: HashSet<String>,
+    /// The seqs the owner made on this disk (its prompts, its restores): a prompt that runs from
+    /// one of them runs because of the owner.
+    by_owner: HashSet<u64>,
 }
 
 impl Machine {
@@ -116,6 +121,7 @@ impl Machine {
     }
     fn push(&mut self, kind: &'static str, prompt: Option<&str>) {
         let (seq, at) = (self.end() + 1, self.tick());
+        self.by_owner.insert(seq);
         self.journal.push(Rec { seq, at, kind, prompt: prompt.map(str::to_owned) });
     }
     fn tick(&mut self) -> u64 {
@@ -134,22 +140,26 @@ impl Machine {
     /// The prompts waiting in the queue, as `restore_queue` reads the journal: queued, with no
     /// record of them after.
     fn pending(&self) -> Vec<String> {
-        let mut waiting: Vec<String> = Vec::new();
+        self.waiting().into_iter().map(|(p, _)| p).collect()
+    }
+    /// `pending`, with the seq of each one's `queued` record.
+    fn waiting(&self) -> Vec<(String, u64)> {
+        let mut waiting: Vec<(String, u64)> = Vec::new();
         for r in &self.journal {
             let Some(p) = &r.prompt else { continue };
             if r.kind == "queued" {
-                if !waiting.contains(p) {
-                    waiting.push(p.clone());
+                if !waiting.iter().any(|(w, _)| w == p) {
+                    waiting.push((p.clone(), r.seq));
                 }
             } else {
-                waiting.retain(|w| w != p);
+                waiting.retain(|(w, _)| w != p);
             }
         }
         waiting
     }
-    /// Runs `prompt`: its turn, its output and its result.
-    fn run(&mut self, prompt: &str) {
-        if self.settled_seen.contains(prompt) {
+    /// Runs `prompt`: its turn, its output and its result; `by_owner`: because of the owner.
+    fn run(&mut self, prompt: &str, by_owner: bool) {
+        if by_owner && self.settled_seen.contains(prompt) {
             LOST.with(|l| {
                 l.borrow_mut()
                     .push(format!("resurrected: {prompt} ran again after its end was captured"))
@@ -177,14 +187,15 @@ impl Machine {
         if queue {
             self.push("queued", Some(prompt));
         } else {
-            self.run(prompt);
+            self.run(prompt, true);
         }
         Ok(false)
     }
     /// The queue's first prompt runs.
     fn work(&mut self) {
-        if let Some(p) = self.pending().first().cloned() {
-            self.run(&p);
+        if let Some((p, seq)) = self.waiting().first().cloned() {
+            let by_owner = self.by_owner.contains(&seq);
+            self.run(&p, by_owner);
         }
     }
     /// A waiting prompt is taken off the queue.
@@ -224,6 +235,7 @@ impl Machine {
                 return Err("append_failed");
             }
             self.journal.push(r.clone());
+            self.by_owner.insert(r.seq);
         }
         Ok(self.end())
     }
@@ -299,6 +311,7 @@ impl World {
                 clock: 1,
                 ran: vec![],
                 settled_seen: HashSet::new(),
+                by_owner: HashSet::new(),
             },
             store,
             _dir: dir,
@@ -704,6 +717,8 @@ impl World {
         }
         let i = self.rng.below(self.machine.snapshots.len() as u64) as usize;
         self.machine.journal = self.machine.snapshots[i].clone();
+        // What this disk holds is its own now.
+        self.machine.by_owner.clear();
         // A disk at most as new as the one it came back on.
         self.machine.snapshots.truncate(i + 1);
         // Answers in flight were the old machine's: lost with it.
