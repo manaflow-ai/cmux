@@ -287,7 +287,7 @@ public final class AcpmuxHub {
         // Mac app decides. The peer counts only a one-time allow from this phone, as the Mac's own signer
         // checks first (`signPeerAllow`): anything else is refused here, before the key is asked.
         let peer = personInstance.map { instance != $0 } ?? false
-        if peer, !Self.peerMayAllow(pending["request"], optionID: optionID) { throw PeerAllowOnceOnly() }
+        if peer, !Self.peerCounts(pending, optionID: optionID, answered: answers != nil) { throw PeerAllowOnceOnly() }
         let title = pending["request"]?["toolCall"]?["title"]?.stringValue ?? ""
         // What is approved: the chosen answers, or the Mac's own title (review M1, L3).
         let reason = answers != nil ? (answerReason ?? "Send your answer to the agent") : Self.allowReason(title: title)
@@ -308,6 +308,16 @@ public final class AcpmuxHub {
             session: info["sessionId"]?.stringValue ?? sessionID, permission: permissionID, option: optionID, nonce: nonce,
             expiresAt: expiresAt, answers: answers)
         return payload.meta(signature: try sign(payload.message))
+    }
+
+    /// Whether the peer counts this phone's signature for `optionID`: the peer's own answer, its pending prompt's
+    /// `enrolledMayAllow` (no answers) or `enrolledMayAnswer` (answers), computed by acpmux `may_allow`. A peer from
+    /// before those fields gets the phone's older check (`peerMayAllow`).
+    nonisolated static func peerCounts(_ pending: JSONValue, optionID: String, answered: Bool) -> Bool {
+        if let listed = pending[answered ? "enrolledMayAnswer" : "enrolledMayAllow"]?.arrayValue {
+            return listed.contains { $0.stringValue == optionID }
+        }
+        return peerMayAllow(pending["request"], optionID: optionID)
     }
 
     /// Whether a peer could count this phone's signature for `optionID` (acpmux `mac_approvers::may_allow`): the
