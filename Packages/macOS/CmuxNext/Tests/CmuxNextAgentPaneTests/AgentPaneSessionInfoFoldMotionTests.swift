@@ -209,8 +209,14 @@ struct AgentPaneSessionInfoFoldMotionTests {
     /// The chevron is one glyph that turns: open it points down, folded right (drawn, then read back by its ink's
     /// shape: a "v" is wide at its top, a ">" is tall at its left).
     @Test func theChevronPointsDownOpenAndRightFolded() throws {
+        /// The view drawn at 4 pixels a point (a caption glyph at 1x is a handful of pixels), as opaque ink points.
         func ink(_ view: NSView) throws -> [(x: Int, y: Int)] {
-            let rep = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            let scale = 4
+            let rep = try #require(NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(view.bounds.width) * scale, pixelsHigh: Int(view.bounds.height) * scale,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                bytesPerRow: 0, bitsPerPixel: 0))
+            rep.size = view.bounds.size
             view.cacheDisplay(in: view.bounds, to: rep)
             var points: [(x: Int, y: Int)] = []
             for y in 0..<rep.pixelsHigh {
@@ -231,7 +237,7 @@ struct AgentPaneSessionInfoFoldMotionTests {
         let open = SessionInfoChevronView(font: Typography.body, tint: .black, unfolded: true)
         open.frame = CGRect(x: 0, y: 0, width: 32, height: 32)
         let down = try ink(open)
-        #expect(down.count > 10)
+        #expect(down.count > 40, "the open chevron drew \(down.count) ink pixels")
         let rows = spreads(down, alongRows: true)
         #expect(rows.first > rows.last, "an open chevron's top is \(rows.first) wide and its foot \(rows.last): not a v")
 
