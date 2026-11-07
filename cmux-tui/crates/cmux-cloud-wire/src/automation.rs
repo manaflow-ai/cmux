@@ -67,7 +67,9 @@ pub fn route(request: &Value) -> Result<Routed, Value> {
     if !params.is_object() {
         return Err(refusal("invalid_params", "`params` must be an object"));
     }
-    let mut body = json!({ "op": op, "params": params });
+    let mut body = Map::new();
+    body.insert("op".into(), json!(op));
+    body.insert("params".into(), params);
     let path = if READS.contains(&op) {
         "/v1/read"
     } else if MUTATIONS.contains(&op) {
@@ -80,8 +82,8 @@ pub fn route(request: &Value) -> Result<Routed, Value> {
                 ),
             ));
         }
-        body["idempotency_key"] = json!(key);
-        body["origin"] = json!("cli");
+        body.insert("idempotency_key".into(), json!(key));
+        body.insert("origin".into(), json!("cli"));
         "/v1/ops"
     } else {
         return Err(refusal(
@@ -89,7 +91,7 @@ pub fn route(request: &Value) -> Result<Routed, Value> {
             &format!("cloud.automation forwards only automation ops; {op} is not one"),
         ));
     };
-    Ok(Routed { path, body })
+    Ok(Routed { path, body: Value::Object(body) })
 }
 
 /// The answer for the owner's reply (`status`, `body`): its value, or the
@@ -111,19 +113,23 @@ pub fn answer(status: u16, body: &[u8]) -> Value {
             "cmux Cloud answered something that is not a JSON object",
         );
     }
-    let mut error = json!({ "code": format!("http_{status}"), "message": format!("cmux Cloud answered HTTP {status}") });
+    let mut error = Map::new();
+    error.insert("code".into(), json!(format!("http_{status}")));
+    error.insert("message".into(), json!(format!("cmux Cloud answered HTTP {status}")));
     match reply.as_ref().and_then(|reply| reply.get("error")) {
         Some(Value::Object(owner)) => {
             if let Some(code) = owner.get("code").and_then(Value::as_str) {
-                error["code"] = json!(code);
+                error.insert("code".into(), json!(code));
             }
-            error["message"] =
-                json!(owner.get("message").and_then(Value::as_str).unwrap_or_default());
+            let message = owner.get("message").and_then(Value::as_str).unwrap_or_default();
+            error.insert("message".into(), json!(message));
             if let Some(details) = owner.get("details") {
-                error["details"] = details.clone();
+                error.insert("details".into(), details.clone());
             }
         }
-        Some(Value::String(text)) => error["message"] = json!(text),
+        Some(Value::String(text)) => {
+            error.insert("message".into(), json!(text));
+        }
         _ => {}
     }
     json!({ "ok": false, "error": error })

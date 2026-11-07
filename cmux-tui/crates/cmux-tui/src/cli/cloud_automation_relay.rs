@@ -43,7 +43,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     };
     let mut stdout = std::io::stdout().lock();
     let written = writeln!(stdout, "{answer}").and_then(|()| stdout.flush());
-    Some(if written.is_ok() && answer["ok"] == true { 0 } else { 1 })
+    Some(if written.is_ok() && answer.get("ok") == Some(&Value::Bool(true)) { 0 } else { 1 })
 }
 
 fn relay_blocking(input: &[u8]) -> Value {

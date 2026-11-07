@@ -345,10 +345,15 @@ pub fn user_socket_url(api: &str) -> String {
 
 /// The delay before reconnect `attempt` (0 first): 500 ms doubling to 30 s,
 /// ±20% by `random` in 0..1.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "clamped to 0..=36000 ms first, so the cast keeps the value"
+)]
 pub fn reconnect_delay_ms(attempt: u32, random: f64) -> u64 {
-    let base = (500.0 * 2f64.powi(attempt.min(62) as i32)).min(30_000.0);
+    let base = (500.0 * 2f64.powi(attempt.min(62).try_into().unwrap_or(62))).min(30_000.0);
     let spread = base * 0.2 * (random.clamp(0.0, 1.0) * 2.0 - 1.0);
-    (base + spread).max(0.0) as u64
+    (base + spread).clamp(0.0, 36_000.0) as u64
 }
 
 /// What a level change names: one hand, or the owner default of new hands of a profile.

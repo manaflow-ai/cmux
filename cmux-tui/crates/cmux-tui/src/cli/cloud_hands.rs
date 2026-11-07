@@ -231,7 +231,7 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
     fn internal(&mut self, event: Internal) {
         match event {
             Internal::Token(sender) => {
-                self.next_token += 1;
+                self.next_token = self.next_token.wrapping_add(1);
                 self.tokens.retain(|_, waiting| !waiting.is_closed());
                 self.tokens.insert(self.next_token, sender);
                 (self.emit)(json!({ "event": "token", "id": self.next_token }));
@@ -295,7 +295,7 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
 
     fn start(&mut self, api: String) {
         self.halt();
-        self.generation += 1;
+        self.generation = self.generation.wrapping_add(1);
         self.api = Some(api.clone());
         let (generation, internal, version) =
             (self.generation, self.internal.clone(), self.app_version.clone());
@@ -335,7 +335,7 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
 
     fn stop(&mut self) {
         self.halt();
-        self.generation += 1;
+        self.generation = self.generation.wrapping_add(1);
         self.api = None;
         let changes = self.tracker.clear();
         self.show(changes);
@@ -436,8 +436,10 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                 if let (Some(install), Some(signature)) =
                     (text(request, "install"), text(request, "signature"))
                 {
-                    body["install"] = json!(install);
-                    body["signature"] = json!(signature);
+                    if let Some(fields) = body.as_object_mut() {
+                        fields.insert("install".into(), json!(install));
+                        fields.insert("signature".into(), json!(signature));
+                    }
                 }
                 let path = format!("/v1/hands/{}/approvals/{}", approval.hand, approval.id);
                 self.spawn_call(
@@ -510,7 +512,9 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                 let proof = request.get("proof").filter(|p| p.is_object());
                 if let Some(proof) = proof {
                     for key in ["install", "nonce", "signature"] {
-                        body[key] = json!(text(proof, key).unwrap_or_default());
+                        if let Some(fields) = body.as_object_mut() {
+                            fields.insert(key.into(), json!(text(proof, key).unwrap_or_default()));
+                        }
                     }
                 } else if hands::level_plan(
                     &target,
