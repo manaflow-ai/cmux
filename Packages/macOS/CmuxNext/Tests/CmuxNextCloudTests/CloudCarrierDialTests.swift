@@ -291,6 +291,64 @@ import Testing
         #expect(CloudCarrierServe.refreshDelay("opaque", now: now) == .seconds(300))
     }
 
+    /// stop() while a launch waits for its token never spawns a child (it would carry the old account's token).
+    @Test func aStopDuringThePendingTokenSpawnsNothing() async throws {
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\ncat >/dev/null\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let gate = Gate()
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
+            await gate.wait()
+            return ["CMUX_CLOUD_ACCESS_TOKEN": "old-account"]
+        }
+        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock") { _ in }
+        let connect = Task { try await serve.socketPath() }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await !gate.isWaiting, ContinuousClock.now < deadline { await Task.yield() }
+        await serve.stop()
+        await gate.open()
+        await #expect(throws: CloudLinkError.disconnected(reason: "closed")) { _ = try await connect.value }
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("launches").path), "a stopped launch spawned serve")
+    }
+
+    /// stop() while a launch waits for the previous child's exit never spawns the next one.
+    @Test func aStopDuringThePreviousExitSpawnsNothing() async throws {
+        // The first child ignores its stdin closing and exits only on `go`.
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nwhile [ ! -f \"$d/go\" ]; do sleep 0.05; done\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let tokens = Counter()
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
+            ["CMUX_CLOUD_ACCESS_TOKEN": "t-\(await tokens.next())"]
+        }
+        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock") { _ in }
+        _ = try await serve.socketPath()
+        await serve.stop()
+        // The next connect closes the first child and waits for it to exit.
+        let connect = Task { try await serve.socketPath() }
+        try await Task.sleep(for: .milliseconds(300))
+        await serve.stop()
+        try Data().write(to: folder.appendingPathComponent("go"))
+        await #expect(throws: CloudLinkError.disconnected(reason: "closed")) { _ = try await connect.value }
+        #expect(try String(contentsOf: folder.appendingPathComponent("launches"), encoding: .utf8) == "launched\n")
+        #expect(await tokens.current() == 1, "a stopped launch asked for a token")
+    }
+
+    private actor Gate {
+        private var waiter: CheckedContinuation<Void, Never>?
+        private var opened = false
+        var isWaiting: Bool { waiter != nil }
+        func wait() async {
+            if opened { return }
+            await withCheckedContinuation { waiter = $0 }
+        }
+        func open() {
+            opened = true
+            waiter?.resume()
+            waiter = nil
+        }
+    }
+
     private actor Counter {
         private var value = 0
         func next() -> Int { value += 1; return value }

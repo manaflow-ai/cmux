@@ -56,6 +56,9 @@ public actor CloudCarrierServe {
     private var child: ChildProcess?
     private var ready = false
     private var starting: Task<String, any Error>?
+    /// Bumped by ``stop()``: a connect or launch of an older generation resumes after teardown and must
+    /// not spawn a child or hand a token to one (it would carry the old account's access).
+    private var generation: UInt64 = 0
     /// The last refused dial since the current connect.
     private var refused: CloudLinkError?
     /// The `vmk` of the latest connection serve reported connected (`owner` or `team`); nil before one.
@@ -101,22 +104,34 @@ public actor CloudCarrierServe {
     public func socketPath() async throws -> String {
         refused = nil
         if let starting { return try await starting.value }
-        if ready, let child, child.isRunning,
-           let token = try? await connector.environment()["CMUX_CLOUD_ACCESS_TOKEN"], child.writeInput(line: CloudCarrierDial.tokenLine(token)) {
-            sentToken = token
-            return socket
+        let mine = generation
+        if ready, let child, child.isRunning {
+            let token = try? await connector.environment()["CMUX_CLOUD_ACCESS_TOKEN"]
+            guard mine == generation else { throw Self.stopped }
+            if let token, ready, child === self.child, child.writeInput(line: CloudCarrierDial.tokenLine(token)) {
+                sentToken = token
+                return socket
+            }
         }
-        let task = Task { try await self.launch() }
+        let task = Task { try await self.launch(generation: mine) }
         starting = task
-        defer { starting = nil }
+        defer { if mine == generation { starting = nil } }
         return try await task.value
     }
 
-    /// Closes the child's stdin: it removes its socket and exits.
+    /// Closes the child's stdin: it removes its socket and exits. A connect or launch still in flight
+    /// (waiting for a token or the previous child's exit) is cancelled and spawns nothing.
     public func stop() {
+        generation &+= 1
+        starting?.cancel()
+        starting = nil
         ready = false
         child?.closeInput()
+        refresher.cancel()
+        refreshing = false
     }
+
+    private static let stopped = CloudLinkError.disconnected(reason: "closed")
 
     private func noteRefused(_ error: CloudLinkError) { refused = error }
 
@@ -149,10 +164,13 @@ public actor CloudCarrierServe {
         scheduleRefresh(serving)
     }
 
-    private func launch() async throws -> String {
+    private func launch(generation mine: UInt64) async throws -> String {
         if let previous = child { previous.closeInput(); _ = await previous.waitForExit() }
+        guard mine == generation else { throw Self.stopped }
         ready = false
-        let environment = ProcessInfo.processInfo.environment.merging(try await connector.environment()) { $1 }
+        let fresh = try await connector.environment()
+        guard mine == generation, !Task.isCancelled else { throw Self.stopped }
+        let environment = ProcessInfo.processInfo.environment.merging(fresh) { $1 }
         let child = ChildProcess(executable: connector.cli, arguments: connector.dial.serveArguments(socket: socket), environment: environment)
         self.child = child
         sentToken = environment["CMUX_CLOUD_ACCESS_TOKEN"]
@@ -193,8 +211,10 @@ public actor CloudCarrierServe {
             }
         } catch {
             child.closeInput()
-            throw (error as? CloudLinkError) ?? CloudLinkError.helperNotRunning(reason: String(describing: error))
+            throw mine == generation ? (error as? CloudLinkError) ?? CloudLinkError.helperNotRunning(reason: String(describing: error)) : Self.stopped
         }
+        // Stopped while it got ready: stop() closed its stdin; it exits and is reaped (ChildProcess waits on it).
+        guard mine == generation else { child.closeInput(); throw Self.stopped }
         ready = true
         scheduleRefresh(child)
         // task-owner: ends when the child exits
