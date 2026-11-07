@@ -17,6 +17,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { machineColor } from "../machineColor";
 import type { SavedEnvironmentDraft } from "../environments";
 import type { AcpmuxSnapshot } from "../model";
+import { chatMachine, type ChatPlace } from "../chatMachine";
 import { homePath } from "../sessionList";
 import { chatProject } from "./chatFolders";
 import { Counts } from "../changes/Counts";
@@ -61,21 +62,6 @@ export const MACHINE_KIND_LABELS: Readonly<Record<"local" | "ssh" | "cloud", Str
   cloud: "composer.cloud",
 };
 
-/// Where the session runs, as the composer's computer chip names it (ComposerContext computerId):
-/// a peer or a Cloud host is another machine, else it is this Mac by its name. With no name known
-/// (an older App), the row says nothing rather than a generic "This computer".
-export function machineOf(
-  summary: Summary | undefined,
-  machineName: string | undefined,
-  peerKinds?: Readonly<Record<string, "ssh" | "cloud">>,
-): { icon: string; name?: string; kind: "local" | "ssh" | "cloud" } {
-  const peer = summary?.peer;
-  if (summary?.hostKind === "cloud" || (peer && peerKinds?.[peer] === "cloud"))
-    return { icon: "cloud", name: summary?.host || peer || machineName, kind: "cloud" };
-  if (peer) return { icon: "machine.remote", name: summary?.host || peer, kind: "ssh" };
-  return { icon: "machine.mac", name: machineName || summary?.host || undefined, kind: "local" };
-}
-
 /// What Save keeps of the chat's environment (environments.ts, the New Tab page's saved
 /// environments): this Mac or the SSH machine, and the chat's folder, named after its project. Only
 /// a chat in a project has one: a chat in a temporary or internal folder (chatFolders.ts) saves
@@ -85,12 +71,15 @@ export function environmentToSave(
   summary: Summary | undefined,
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>,
   repository?: string,
+  place?: ChatPlace,
 ): SavedEnvironmentDraft | undefined {
-  const machine = machineOf(summary, undefined, peerKinds);
+  const machine = chatMachine(summary, undefined, peerKinds, place);
   const project = chatProject(summary, repository);
   const folder = summary?.cwd;
   if (!summary || !folder || !project || machine.kind === "cloud") return undefined;
-  if (machine.kind === "ssh") return { name: project.name, kind: "ssh", host: summary.peer, folder };
+  // An SSH machine is saved by its peer name; a chat reached over a remote route has none to save.
+  if (machine.kind === "ssh")
+    return summary.peer ? { name: project.name, kind: "ssh", host: summary.peer, folder } : undefined;
   return { name: project.name, kind: "local", folder };
 }
 
@@ -150,6 +139,7 @@ export function EnvironmentSection({
   summary,
   machineName,
   peerKinds,
+  place,
   repository,
   cloudRepositoryAvailable = false,
   remoteControl,
@@ -163,6 +153,8 @@ export function EnvironmentSection({
   summary?: Summary;
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
+  /// The page's route to the chat (chatMachine.ts `chatPlace`).
+  place?: ChatPlace;
   /// The chat folder's GitHub repository, `owner/name`.
   repository?: string;
   /// Native says whether this pane has an authenticated Cloud repository route.
@@ -189,7 +181,7 @@ export function EnvironmentSection({
   const [pendingRepos, setPendingRepos] = useState<PendingCloudRepo[]>([]);
   const addRepositoryButton = useRef<HTMLButtonElement>(null);
   const pending = useRef(false);
-  const machine = machineOf(summary, machineName, peerKinds);
+  const machine = chatMachine(summary, machineName, peerKinds, place);
   const cloudSession = machine.kind === "cloud" ? summary?.sessionId : undefined;
   const canUseCloudRepositories = Boolean(cloudSession && cloudRepositoryAvailable);
   const branch = summary?.branch;

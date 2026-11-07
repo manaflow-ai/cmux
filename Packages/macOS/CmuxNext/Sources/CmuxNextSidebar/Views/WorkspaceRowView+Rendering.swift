@@ -201,9 +201,9 @@ extension WorkspaceRowView {
         // "hover on pinned tab should not have close button, should only be able to close in right click"). Its ⋮
         // takes the x's place, as on a row that cannot close. The pin is read only while the controls show.
         setHoverShown(closeSlot, showClose, fades: controlFades)
-        setHoverShown(badge, !(showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
+        setHoverPainted(badge, !(showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
         // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
-        setHoverShown(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !hoverCloses)), fades: fades)
+        setHoverPainted(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !hoverCloses)), fades: fades)
         var badgeEdge: CGFloat?
         if !badge.state.isUnread, keycap.number != nil {
             _ = layoutKeycap(trailing: trailing, cy: cy, control: control)

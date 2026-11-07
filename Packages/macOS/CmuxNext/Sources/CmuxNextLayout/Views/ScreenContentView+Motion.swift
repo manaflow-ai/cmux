@@ -52,6 +52,15 @@ extension ScreenContentView {
         if !moving { releaseClosing() }
         return moving
     }
+    /// The key's turn (T-KEYS 3, `LayoutRootView.keyboardResizeDidChange`): the press's first refresh is drawn ahead as
+    /// each later refresh is, from the springs the press's targets just set, so the frame that shows the press shows each
+    /// terminal at its pane's size in it (keys bench 8554d26b: that frame was the only one a terminal showed off its pane).
+    /// Render only: no presentation, no layout, no bounds and no grid in the key's turn (S1B).
+    func drawAheadOfKeyPress() {
+        guard let window, hasMotion else { return }
+        drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: Motion.panes.policy)
+    }
+
     /// Draw ahead (cmux-ad m26, the Chromium model: the renderer gets the size before the compositor needs its frame):
     /// each pane its key hold's spring still moves hears how much its size changes at the next refresh, from a copy of
     /// its spring stepped once more by `dt`, the display link's interval to the next frame's target time (one refresh).
@@ -192,10 +201,12 @@ extension ScreenContentView {
     /// `force` (or a structural change's `forcesPresentation`): everything is re-placed and the overlay syncs.
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
         // The frame tick's input: the pass waits for the frame's one presentation (`LayoutFrameInput`).
-        if context.holdsPresentations {
+        // A snap held for its terminals' frames shows at the next tick (`ScreenContentView+SnapFrame`).
+        if context.holdsPresentations || frameInput.snapWaitsForContent {
             (frameInput.presentationWaiting, forcesPresentation) = (true, forcesPresentation || force)
             return
         }
+        releaseSnapDeparted()
         // Every presentation shows the latest pan and the frame's input: nothing waits after it.
         (frameInput.panPresentationPending, frameInput.presentationWaiting) = (false, false)
         presentationPasses += 1
@@ -268,7 +279,7 @@ extension ScreenContentView {
             clips.append((host, scrolls && pane != zoomMotion.pane))
         }
         // The panes a close took out, each with its own ground on what its neighbours have not covered (FRAME OWNER S3c).
-        let closing = presentClosingPanes(strip: strip, scale: scale)
+        let closing = presentClosingPanes(strip: strip, restStrip: restStrip, scale: scale)
         clips += closing.hosts
         if closing.changed { changed = true }
         // A zoom that landed gives its pane back its place in the stacking order (`rank`).

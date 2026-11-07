@@ -357,6 +357,8 @@ impl Hub {
                 false
             }
         };
+        // Told once the steer is handed to the agent: a held or refused one never is.
+        let written = tokio::sync::Notify::new();
         let answer = agent_prompt_hook(
             session,
             &child,
@@ -368,12 +370,23 @@ impl Hub {
             inbox_notice,
             Some(&held as &(dyn Fn() -> bool + Send + Sync)),
             || {
+                written.notify_one();
                 if inbox_notice {
                     self.inbox_prompt_written(session, &prompt_id);
                 }
             },
-        )
-        .await;
+        );
+        // The person's message does not wait behind a long foreground call: once it is written,
+        // the call goes to the background until the agent reads the message
+        // (`auto_background.rs`).
+        let answer = if super::auto_background::persons_message(
+            opts.provenance.as_ref(),
+            opts.agent.as_deref(),
+        ) {
+            self.answer_moving_work(session, &child, &written, answer).await
+        } else {
+            answer.await
+        };
         // A Stop ended the turn before its agent answered another agent's message. Never
         // written (it waited behind the Stop), it comes back and starts the next turn (module
         // docs of `cancel.rs`). Written, it comes back only once its agent confirms it dropped it
@@ -497,6 +510,15 @@ impl Hub {
             }
             r => r?,
         };
+        // Read: the log says so at once, so a chat stops offering the X on its row then. Until
+        // now a chat learned it only from the agent's next words, which may come a minute later
+        // or never (a reply that is only a tool call), and a take-back meanwhile was refused
+        // with nothing to show why (Leo, 2026-11-06: "I can't ... cancel and edit these
+        // messages").
+        if r.get("stopReason").and_then(Value::as_str) == Some("steered") {
+            let msg = json!({"promptId": prompt_id, "turnId": turn_id});
+            self.append(session, "mux", "steer_read", msg);
+        }
         merge_mux_meta(&mut r, json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}));
         Ok(r)
     }

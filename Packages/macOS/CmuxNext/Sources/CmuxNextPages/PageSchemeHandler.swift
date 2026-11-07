@@ -128,8 +128,12 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let launchServer = projected == nil ? devServer : nil
         if let devServer = launchServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
             let request = devServer.request(for: remote)
+            // The document must be HTML, or the page falls back to its bundled one (or, for the launch
+            // variable, fails): an answer drawn as text shows the page's source.
+            let document = PageDevServer.isDocument(url, page: served.page)
             if let (body, response) = await fetchDevServer(request), devServer.answered(response, to: request),
-               launchServer != nil || response.statusCode < 400 {
+               launchServer != nil || response.statusCode < 400,
+               !document || PageDevServer.isHTML(response.value(forHTTPHeaderField: "Content-Type")) {
                 let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
                     ?? Self.mimeType(forExtension: remote.pathExtension)
                 return Self.reply(url: url, csp: devServer.csp(for: served.page), status: response.statusCode, mimeType: type, body: body)

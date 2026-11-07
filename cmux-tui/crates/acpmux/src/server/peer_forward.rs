@@ -129,7 +129,16 @@ fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
         meta.remove("messageSender");
     }
     if conn.origin != Origin::Peer {
+        // A relay on this machine's unix socket (no proven session) keeps its relay record, read
+        // again so only well-formed relay fields go on as this daemon's word
+        // (`prompt_provenance::FROM_RELAY`); anything else a client wrote is dropped.
+        let relay = (conn.origin == Origin::Local && conn.caller().is_none())
+            .then(|| crate::prompt_provenance::relay_sender(p))
+            .flatten();
         crate::prompt_provenance::drop_sender_fields(p);
+        if let Some(relay) = relay {
+            crate::hub::merge_mux_meta(p, relay.mux_fields());
+        }
     }
     if conn.is_person() {
         return;
@@ -559,7 +568,13 @@ async fn forward_inner(
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
-        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        super::remote_guard::mark_forwarded_with_person(
+            conn.origin,
+            conn.auth,
+            params,
+            &mut p,
+            conn.is_person(),
+        );
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
         if held

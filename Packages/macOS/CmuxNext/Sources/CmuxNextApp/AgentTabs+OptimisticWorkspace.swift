@@ -57,7 +57,7 @@ extension AgentTabStore {
         if session == nil, chat == nil { newTabPages[tabKey] = firstPage(cwd: cwd, token: token) }
         if reserved == nil {
             track(tabKey, in: store)
-            if let page = newTabPages[tabKey]?.page, let spare = takeSpare?() { adoptSpare(spare, key: tabKey, page: page) }
+            if let page = newTabPages[tabKey]?.page, let spare = takeSpare?(.now) { adoptSpare(spare, key: tabKey, page: page) }
         } else if let page = newTabPages[tabKey]?.page {
             // The reserved page takes the press's context: its token alone keeps the screen; another folder remounts it.
             if reservedPage?.drawsSameScreen(as: page) != true { BenchSpans.mark("cmdN.reserved.recontext") }
@@ -92,7 +92,7 @@ extension AgentTabStore {
         return OptimisticWorkspace(tabKey: tabKey, transaction: transaction, confirm: confirm, abandon: fail)
     }
 
-    /// Reserves `daemon`'s next plain Cmd-N workspace with its New Tab page in `cwd` (the spare, else made now); idle work only.
+    /// Reserves `daemon`'s next plain Cmd-N workspace with its New Tab page in `cwd` (the spare, `.idle`: its page draws no frame; else made now); idle work only.
     func reserveWorkspace(on daemon: DaemonService, cwd: String?) -> WorkspaceModel? {
         let store = daemon.store
         if let reserved = store.reservedWorkspace { return reserved.model }
@@ -100,7 +100,7 @@ extension AgentTabStore {
         let record = AgentSessionRef(host: localHost, hostName: localHostName, session: nil), tab = ProvisionalTab()
         newTabPages[tab.id] = made
         track(tab.id, in: store)
-        if let spare = takeSpare?() { adoptSpare(spare, key: tab.id, page: made.page) } else if view(for: tab.id, known: (record: record, store: store)) == nil { release(tab.id); return nil }
+        if let spare = takeSpare?(.idle) { adoptSpare(spare, key: tab.id, page: made.page) } else if view(for: tab.id, known: (record: record, store: store)) == nil { release(tab.id); return nil }
         return store.reserveWorkspace(ProvisionalWorkspace(key: WorkspaceKey.generate(), name: "", tab: tab.conversation(ConversationTabRef(agentSession: record)))).model
     }
 

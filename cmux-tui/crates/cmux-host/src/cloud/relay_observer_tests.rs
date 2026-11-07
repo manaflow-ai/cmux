@@ -159,7 +159,8 @@ fn relay_thread(urls: Vec<String>, runner: Runner) -> Thread {
     let done = std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let mut dial = Local { urls: urls.into(), runner };
-        relay_loop(&rt, &mut dial, |_| {}, &mut stopping, &mut resumes, owned);
+        let (_network, changes) = watch::channel(0u64);
+        relay_loop(&rt, &mut dial, |_| {}, &mut stopping, &mut resumes, &changes, owned);
         drop(rt);
     });
     Thread { stop, _resume: resume, detached, done }

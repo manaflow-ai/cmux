@@ -4,14 +4,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { ChatMenu } from "./ChatHeaderTools";
 import {
-  ChatMenu,
   guardedChatMenu,
   menuGroups,
   menuItemForShortcut,
   menuKeycap,
   type ChatMenuItem,
-} from "./ChatHeaderTools";
+} from "./chatHeaderToolsModel";
 import { ThreadTitle } from "./ThreadTitle";
 
 let dom: JSDOM | undefined;

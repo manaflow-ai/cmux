@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextSettings
+import CmuxNextWindowRules
 
 /// Notification preference verbs: mute a workspace, banners on or off, and
 /// the dismissal policy. Each applies to `NotificationCenterService` at once
@@ -19,16 +20,14 @@ enum NotificationSettingsHandlers {
             }
             let key = NotificationWorkspaceKey.settingsKey(machine: daemon.machineID, workspace: workspace.id,
                                                             localMachine: context.services.machines.local.machineID)
-            var muted = notifications.preferences.mutedWorkspaces
+            let muted = notifications.preferences.mutedWorkspaces
             // A remote mute saved before keys were qualified (NotificationWorkspaceKey.legacyRemoteKey) unmutes too.
-            if let legacy = NotificationWorkspaceKey.legacyRemoteKey(muted, machine: daemon.machineID, workspace: workspace.id,
-                                                                    localMachine: context.services.machines.local.machineID,
-                                                                    localHolds: { id in context.services.machines.local.store.workspace(id: id) != nil }) {
-                muted.remove(legacy)
-                muted.remove(key)
-            } else if muted.remove(key) == nil { muted.insert(key) }
-            notifications.preferences.mutedWorkspaces = muted
-            let list = JSONValue.array(muted.sorted().map(JSONValue.string))
+            let legacy = NotificationWorkspaceKey.legacyRemoteKey(muted, machine: daemon.machineID, workspace: workspace.id,
+                                                                  localMachine: context.services.machines.local.machineID,
+                                                                  localHolds: { id in context.services.machines.local.store.workspace(id: id) != nil })
+            guard let next = WindowRules().toggleMute(Array(muted), key: key, legacy: legacy) else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
+            notifications.preferences.mutedWorkspaces = Set(next)
+            let list = JSONValue.array(next.map(JSONValue.string))
             context.writeSetting("mute workspace", ["notifications", "mutedWorkspaces"], list, reloadOnFailure: true)
             return .done
         })
@@ -41,11 +40,11 @@ enum NotificationSettingsHandlers {
             notifications.dismissHighlight(workspace)
         })
         registry.bind("notifications.toggleBanners", run: { _ in
-            let next: DesktopNotificationMode = notifications.preferences.desktop == .never ? .unlessFocused : .never
+            guard let next = WindowRules().toggleBanners(notifications.preferences.desktop.rawValue).flatMap(DesktopNotificationMode.init(rawValue:)) else { return }
             notifications.preferences.desktop = next
             context.writeSetting("toggle banners", ["notifications", "desktop"], .string(next.rawValue))
         })
-        ActionTargetTitles.setPaletteState("notifications.toggleBanners", in: registry) { notifications.preferences.desktop != .never }
+        ActionTargetTitles.setPaletteSettingState("notifications.toggleBanners", in: registry) { notifications.preferences.desktop != .never }
         for mode in NotificationDismissal.allCases {
             registry.bind(ActionID(rawValue: "notifications.dismissal.\(mode.rawValue)"), run: { _ in
                 notifications.preferences.dismissal = mode
