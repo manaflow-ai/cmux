@@ -106,7 +106,8 @@ nonisolated extension AcpmuxPaneMethods {
     /// The `data.reason` values a filtered reply's error keeps, so the page can tell a refusal
     /// from a machine that is down (the folder browser's lines); any other reason is dropped.
     static let keptErrorReasons: Set<String> = [
-        "browse.path", "browse.outside_roots", "browse.not_directory", "peer_unreachable", "peer.forward_refused",
+        "browse.path", "browse.outside_roots", "browse.not_directory", "peer_unreachable", "peer_disconnected",
+        "peer.forward_refused",
     ]
 
     /// A reply to a filtered request, rebuilt with the page's id (raw JSON) and its filtered

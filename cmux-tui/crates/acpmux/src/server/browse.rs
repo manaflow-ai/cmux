@@ -137,11 +137,28 @@ fn list(
             "this machine starts a peer's chat only inside its webRoots and known projects",
         ));
     }
-    if !dir.is_dir() {
-        return Err(refused("browse.not_directory", format!("{} is not a folder", dir.display())));
+    // Opened once and listed through that open folder, checked by what it names now: a rename
+    // or a link swapped in after the check above never lists another folder.
+    let opened = opened::open(&dir).map_err(|e| match e.raw_os_error() {
+        Some(code) if code == libc::ENOTDIR => {
+            refused("browse.not_directory", format!("{} is not a folder", dir.display()))
+        }
+        _ => refused("browse.path", format!("{}: {e}", dir.display())),
+    })?;
+    let outside = || {
+        refused(
+            "browse.outside_roots",
+            "this machine starts a peer's chat only inside its webRoots and known projects",
+        )
+    };
+    let dir = opened
+        .path()
+        .ok_or_else(|| refused("browse.path", "the folder moved while it was opened"))?;
+    if !inside(&dir) {
+        return Err(outside());
     }
-    let read = std::fs::read_dir(&dir)
-        .map_err(|e| refused("browse.path", format!("{}: {e}", dir.display())))?;
+    let read =
+        opened.read().map_err(|e| refused("browse.path", format!("{}: {e}", dir.display())))?;
     let mut entries = Vec::new();
     let mut scanned = 0;
     let mut cut = None;
@@ -197,6 +214,10 @@ fn list(
         }
         entries.push((opens, row));
     }
+    // Still inside after the read: one moved out while it was listed lists nothing.
+    if !opened.path().is_some_and(|now| inside(&now)) {
+        return Err(outside());
+    }
     // Folders first, then by name as a person reads it.
     entries.sort_by_cached_key(|(opens, row)| {
         (!*opens, row["name"].as_str().unwrap_or("").to_lowercase())
@@ -213,6 +234,96 @@ fn list(
         reply["truncated"] = json!({"reason": reason, "scanned": scanned});
     }
     Ok(reply)
+}
+
+/// A folder opened once (no link followed at its last name) and read through that open
+/// descriptor, and the path the descriptor names now, from the kernel.
+mod opened {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    use std::fs::File;
+    use std::fs::ReadDir;
+    use std::io;
+    use std::path::{Path, PathBuf};
+
+    pub(super) struct Opened {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        file: File,
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        dir: PathBuf,
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(super) fn open(dir: &Path) -> io::Result<Opened> {
+        use std::os::unix::fs::OpenOptionsExt;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(dir)?;
+        Ok(Opened { file })
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    pub(super) fn open(dir: &Path) -> io::Result<Opened> {
+        if !dir.is_dir() {
+            return Err(io::Error::from_raw_os_error(libc::ENOTDIR));
+        }
+        Ok(Opened { dir: dir.to_path_buf() })
+    }
+
+    impl Opened {
+        /// The descriptor's own folder, as `/proc/self/fd` (Linux) or `/dev/fd` (macOS) opens it.
+        #[cfg(target_os = "linux")]
+        fn fd_path(&self) -> PathBuf {
+            use std::os::fd::AsRawFd;
+            PathBuf::from(format!("/proc/self/fd/{}", self.file.as_raw_fd()))
+        }
+
+        #[cfg(target_os = "macos")]
+        fn fd_path(&self) -> PathBuf {
+            use std::os::fd::AsRawFd;
+            PathBuf::from(format!("/dev/fd/{}", self.file.as_raw_fd()))
+        }
+
+        /// What the open folder is now, or None once it is gone.
+        #[cfg(target_os = "linux")]
+        pub(super) fn path(&self) -> Option<PathBuf> {
+            let path = std::fs::read_link(self.fd_path()).ok()?;
+            // A removed folder reads "<path> (deleted)", which names nothing.
+            path.is_absolute().then_some(path).filter(|p| p.is_dir())
+        }
+
+        #[cfg(target_os = "macos")]
+        pub(super) fn path(&self) -> Option<PathBuf> {
+            use std::os::fd::AsRawFd;
+            use std::os::unix::ffi::OsStringExt;
+            let mut buf = vec![0u8; libc::PATH_MAX as usize];
+            // SAFETY: F_GETPATH writes at most PATH_MAX bytes into `buf`, which holds PATH_MAX
+            // bytes, for a descriptor this value owns.
+            let r =
+                unsafe { libc::fcntl(self.file.as_raw_fd(), libc::F_GETPATH, buf.as_mut_ptr()) };
+            if r == -1 {
+                return None;
+            }
+            buf.truncate(buf.iter().position(|&b| b == 0)?);
+            Some(PathBuf::from(std::ffi::OsString::from_vec(buf)))
+        }
+
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        pub(super) fn path(&self) -> Option<PathBuf> {
+            std::fs::canonicalize(&self.dir).ok()
+        }
+
+        /// The open folder's entries, read through its descriptor.
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        pub(super) fn read(&self) -> io::Result<ReadDir> {
+            std::fs::read_dir(self.fd_path())
+        }
+
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        pub(super) fn read(&self) -> io::Result<ReadDir> {
+            std::fs::read_dir(&self.dir)
+        }
+    }
 }
 
 /// A peer's top level: the folders it may start a chat in, each once (none inside another).
@@ -370,6 +481,31 @@ mod tests {
         assert_eq!(reason(e), "browse.outside_roots");
         let inside = list(&ask(&root.join("to-real")), Some(&roots), SCAN_CAP, later()).unwrap();
         assert_eq!(inside["path"], json!(root.join("real")));
+    }
+
+    #[test]
+    fn a_folder_is_listed_through_what_was_opened_and_judged_by_where_it_is_now() {
+        let t = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(t.path()).unwrap();
+        std::fs::create_dir_all(base.join("root/a/mine")).unwrap();
+        std::fs::create_dir_all(base.join("away/theirs")).unwrap();
+        let opened = opened::open(&base.join("root/a")).unwrap();
+        // The path is swapped for a link out of the root after the open: the read is still `a`'s.
+        std::fs::rename(base.join("root/a"), base.join("root/moved")).unwrap();
+        std::os::unix::fs::symlink(base.join("away"), base.join("root/a")).unwrap();
+        let names: Vec<String> = opened
+            .read()
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["mine"]);
+        assert_eq!(opened.path(), Some(base.join("root/moved")));
+        // Moved out of the root: what it names now is outside, which the listing refuses.
+        std::fs::rename(base.join("root/moved"), base.join("away/moved")).unwrap();
+        assert_eq!(opened.path(), Some(base.join("away/moved")));
+        // A link at the last name is never opened.
+        let e = opened::open(&base.join("root/a")).err().unwrap();
+        assert!(matches!(e.raw_os_error(), Some(libc::ELOOP) | Some(libc::ENOTDIR)), "{e}");
     }
 
     #[test]

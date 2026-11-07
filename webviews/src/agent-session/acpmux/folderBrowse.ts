@@ -56,7 +56,16 @@ export function browseFailure(error: unknown): BrowseFailure {
   // An acpmux from before `_acpmux/browse`, on this Mac or on the peer.
   if (code === -32601 || code === "transport.method_refused" || code === "remote.unsupported") return "unsupported";
   if (reason === "browse.outside_roots") return "outside";
-  if (reason === "peer_unreachable" || code === "native.not_connected" || reason === "browse.timeout")
+  // Down before the ask went, gone while it was out (the peer's link, or this page's own socket),
+  // or silent past the browser's wait.
+  if (
+    reason === "peer_unreachable" ||
+    reason === "peer_disconnected" ||
+    reason === "interrupted" ||
+    code === "native.not_connected" ||
+    code === "native.timed_out" ||
+    reason === "browse.timeout"
+  )
     return "unreachable";
   return "failed";
 }

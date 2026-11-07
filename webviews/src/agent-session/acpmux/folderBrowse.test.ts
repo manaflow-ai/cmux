@@ -122,6 +122,9 @@ test("an older acpmux (-32601), a refused folder and a down machine read apart",
   expect(browseFailure({ code: "transport.method_refused" })).toBe("unsupported");
   expect(browseFailure({ code: -32602, reason: "browse.outside_roots" })).toBe("outside");
   expect(browseFailure({ code: -32603, reason: "peer_unreachable" })).toBe("unreachable");
+  // Sent, then the peer's link or this page's socket closed under it.
+  expect(browseFailure({ code: -32603, reason: "peer_disconnected" })).toBe("unreachable");
+  expect(browseFailure({ code: "native.timed_out", reason: "interrupted" })).toBe("unreachable");
   expect(browseFailure({ code: -32602, reason: "browse.not_directory" })).toBe("failed");
   const { asked, browse } = machine();
   browse.open(null);

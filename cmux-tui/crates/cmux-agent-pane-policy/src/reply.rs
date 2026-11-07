@@ -37,11 +37,12 @@ pub fn filtered(value: &Value, shape: &ReplyShape) -> Option<Value> {
 
 /// The `data.reason` values a filtered reply's error keeps, as Swift's
 /// `keptErrorReasons`: a refusal told apart from a machine that is down.
-pub const KEPT_ERROR_REASONS: [&str; 5] = [
+pub const KEPT_ERROR_REASONS: [&str; 6] = [
     "browse.path",
     "browse.outside_roots",
     "browse.not_directory",
     "peer_unreachable",
+    "peer_disconnected",
     "peer.forward_refused",
 ];
 
