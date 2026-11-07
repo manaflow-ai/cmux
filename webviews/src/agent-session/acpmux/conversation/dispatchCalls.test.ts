@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
 import { translate } from "../i18n";
 import { dispatchCall } from "./dispatchCalls";
-import { briefAnchor, lineLabel } from "./DispatchCard";
+import { briefAnchor, lineLabel } from "./dispatchCardModel";
 import { toolGroups } from "./toolGroups";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;

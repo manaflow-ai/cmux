@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileRealtime
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -130,7 +131,7 @@ struct ChiefCallsPage: View {
                 }
                 Spacer()
                 if keys.isChecking {
-                    ProgressView()
+                    CmuxSpinner()
                         .accessibilityLabel("Checking with OpenAI")
                 } else {
                     // The page's neutral tint is the label color (white in dark mode):
@@ -163,7 +164,7 @@ struct ChiefCallsPage: View {
                 SettingsLabel("Check Key", symbol: "checkmark.shield")
                 if keys.isChecking {
                     Spacer()
-                    ProgressView()
+                    CmuxSpinner()
                 }
             }
         }

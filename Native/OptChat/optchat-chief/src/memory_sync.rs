@@ -163,8 +163,9 @@ impl Plan {
 
 /// This run's share of `fresh` (oldest first): the longest prefix whose estimate stays within `max_cost` and
 /// `max_items`. A history too big for one run is imported over several instead of refused: each run spends at most
-/// `max_cost`, and the next one starts where it stopped (written keys are known). `plan` then describes the share,
-/// with `remaining` the items left.
+/// `max_cost`, and the next one starts where it stopped (written keys are known). The oldest item is always taken,
+/// even alone over `max_cost`, so a source whose first item is huge still moves forward one item per run instead of
+/// writing nothing forever. `plan` then describes the share, with `remaining` the items left.
 pub fn within_budget(
     plan: &mut Plan,
     fresh: &mut Vec<Item>,
@@ -185,7 +186,7 @@ pub fn within_budget(
             ..Plan::default()
         }
         .cost(price);
-        if cost > max_cost {
+        if cost > max_cost && keep > 0 {
             break;
         }
         bytes += it.text.len();
@@ -914,6 +915,17 @@ mod tests {
         );
         within_budget(&mut plan, &mut fresh, Price::default(), 20.0, Some(2));
         assert_eq!((plan.new, plan.remaining), (2, 1));
+        // An oldest item alone over the cap is still taken, so the import moves on.
+        let (mut plan, mut fresh) = make_plan(
+            "t",
+            vec![
+                item("chat", &big, "2026-10-01T10:00:00.000Z", "t"),
+                item("chat", "small", "2026-10-02T10:00:00.000Z", "t"),
+            ],
+            &HashSet::new(),
+        );
+        within_budget(&mut plan, &mut fresh, Price::default(), 1.0, None);
+        assert_eq!((plan.new, plan.remaining), (1, 1));
         // Under the cap nothing is held back.
         let (mut plan, mut fresh) = make_plan("t", items(&[("a", "one")]), &HashSet::new());
         within_budget(&mut plan, &mut fresh, Price::default(), 20.0, None);
