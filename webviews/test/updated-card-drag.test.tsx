@@ -84,12 +84,20 @@ function stage() {
   const scope = globalThis as Record<string, unknown>;
   const savedElement = scope.HTMLElement;
   scope.HTMLElement = dom.window.HTMLElement;
-  const pointer = (type: string, x: number, y: number, at: number, target: Element = section, buttons = 1) => {
+  const pointer = (
+    type: string,
+    x: number,
+    y: number,
+    at: number,
+    target: Element = section,
+    buttons = 1,
+    pointerId = 1,
+  ) => {
     const event = new dom.window.Event(type, { bubbles: true });
     for (const [key, value] of Object.entries({
       button: 0,
       buttons,
-      pointerId: 1,
+      pointerId,
       clientX: x,
       clientY: y,
       screenX: x,
@@ -236,6 +244,54 @@ test("the drop starts from where the pointer was let go, not from its last move"
     pointer("pointerup", 100, 390, 1100);
     expect(log.at(-2)).toBe("move 0,-20");
     expect(log.at(-1)).toBe("drop bottom 0,-30");
+  } finally {
+    close();
+  }
+});
+
+// Review of #37790 (P2): the press's window listeners took every pointer, so a second touch or pen
+// could move or let go of the first press. A press follows only the pointer that started it.
+test("another pointer neither moves nor ends a press", () => {
+  const { log, pointer, section, close } = stage();
+  try {
+    pointer("pointerdown", 100, 420, 0);
+    pointer("pointermove", 100, 300, 100, section, 1, 2);
+    pointer("pointerup", 100, 300, 150, section, 1, 2);
+    expect(section.dataset.dragging).toBeUndefined();
+    expect(log).toEqual([]);
+    // The press's own pointer still drags and lets go.
+    pointer("pointermove", 100, 410, 200);
+    pointer("pointermove", 100, 400, 300);
+    pointer("pointerup", 100, 400, 400);
+    expect(log[0]).toBe("start");
+    expect(log.at(-1)).toBe("drop bottom 0,-20");
+  } finally {
+    close();
+  }
+});
+
+// Review of #37802 at 0a6b6a0f: a second pointerdown on the card started a second press, and the two
+// shared the card's dragging mark, so letting go of the second pointer dropped the first one's drag.
+test("a second pointer pressed while a press is active is ignored", () => {
+  const { log, pointer, section, close } = stage();
+  try {
+    pointer("pointerdown", 100, 420, 0);
+    pointer("pointermove", 100, 400, 100);
+    expect(section.dataset.dragging).toBe("");
+    pointer("pointerdown", 100, 300, 150, section, 1, 2);
+    pointer("pointermove", 100, 250, 200, section, 1, 2);
+    pointer("pointerup", 100, 250, 250, section, 0, 2);
+    expect(section.dataset.dragging).toBe("");
+    expect(log.filter((line) => line.startsWith("drop"))).toEqual([]);
+    // The first press still holds the card and lets go once.
+    pointer("pointermove", 100, 390, 300);
+    pointer("pointerup", 100, 390, 400, section, 0);
+    expect(log.filter((line) => line.startsWith("drop"))).toEqual(["drop bottom 0,-30"]);
+    // Its end frees the card for the next press.
+    pointer("pointerdown", 100, 420, 500);
+    pointer("pointermove", 100, 400, 600);
+    expect(section.dataset.dragging).toBe("");
+    pointer("pointerup", 100, 400, 700, section, 0);
   } finally {
     close();
   }
