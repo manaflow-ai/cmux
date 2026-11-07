@@ -188,6 +188,36 @@ test("a row that changes while an answer is on its way runs its current action",
   expect(ran).toEqual(["new:c0"]);
 });
 
+test("Enter before the current query's answer waits for it and runs its top row", async () => {
+  const ranker = heldRanker();
+  const ran: string[] = [];
+  let closed = 0;
+  const list = items.map((item) => ({ ...item, run: () => void ran.push(item.id) }));
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      createElement(Palette, {
+        items: list,
+        rank: ranker.rank,
+        strings,
+        onClose: () => void (closed += 1),
+      }),
+    ),
+  );
+  await act(async () => ranker.asked[0]!.answer(reply(0, 1, 2)));
+  await type("release");
+  // The empty query's rows are still on screen; Enter must not run "general".
+  const field = host.ownerDocument.querySelector<HTMLInputElement>(".lg-palette input")!;
+  await act(async () => {
+    field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  expect(ran).toEqual([]);
+  expect(closed).toBe(0);
+  await act(async () => ranker.asked[1]!.answer(reply(1)));
+  expect(ran).toEqual(["c1"]);
+  expect(closed).toBe(1);
+});
+
 test("the request is clipped to the daemon's byte caps on a character boundary", () => {
   expect(clipUtf8("short", 512)).toBe("short");
   const long = "é".repeat(300); // 600 bytes

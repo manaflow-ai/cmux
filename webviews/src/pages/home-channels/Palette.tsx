@@ -5,12 +5,13 @@
 // (`cmux.home.paletteRank`, the daemon's `palette.rank`), so fuzzy and acronym rules match the app
 // palette. Each keystroke asks once; the list keeps the last answer until the next one arrives (no
 // empty frame between them), and an answer for an older query or older rows is dropped. The first
-// frame shows the rows in their order, which is the ranker's answer for the empty query. The
-// shared primitives own the keyboard, roles and
+// frame shows the rows in their order, which is the ranker's answer for the empty query. Enter
+// while the current query's answer is on its way waits for it and runs its top row, so it never
+// runs a row from an older query's list. The shared primitives own the keyboard, roles and
 // focus: ui/Dialog traps focus and returns it; ui/Combobox owns the combobox and listbox roles,
 // the arrows and the highlighted row. A group's name shows over its first row (not read out: each
 // row's own label says what it is).
-import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Dialog } from "../../ui/Dialog";
 import type { Strings } from "../shared/i18n";
@@ -68,14 +69,17 @@ export function Palette({
   );
   // Ranked within each group, groups in a fixed order. Until the first answer: the rows in order.
   // Kept as ids and read from the current rows, so a row that changed while an answer was on its
-  // way runs its current action, and a row that left is not shown.
-  const [rankedIds, setRankedIds] = useState<readonly string[]>(() =>
-    grouped(items, fixtureRank({ entries, query: "", keepsSectionOrder: true })).map((item) => item.id),
-  );
+  // way runs its current action, and a row that left is not shown. `query` is the query they answer.
+  const [ranked, setRanked] = useState<{ query: string; ids: readonly string[] }>(() => ({
+    query: "",
+    ids: grouped(items, fixtureRank({ entries, query: "", keepsSectionOrder: true })).map((item) => item.id),
+  }));
   const results = useMemo(() => {
     const rows = new Map(items.map((item) => [item.id, item]));
-    return rankedIds.flatMap((id) => rows.get(id) ?? []);
-  }, [items, rankedIds]);
+    return ranked.ids.flatMap((id) => rows.get(id) ?? []);
+  }, [items, ranked]);
+  // Enter came before the current query's answer: run that answer's top row when it lands.
+  const submitWhenRanked = useRef(false);
   useEffect(() => {
     // Each query or set of rows asks once; the effect's cleanup drops an answer that comes after
     // the next ask (an older query's) or after the palette closed.
@@ -85,18 +89,31 @@ export function Palette({
     void rank(request)
       .catch(() => fixtureRank(request))
       .then((reply) => {
-        if (current) setRankedIds(grouped(items, reply).map((item) => item.id));
+        if (current) setRanked({ query, ids: grouped(items, reply).map((item) => item.id) });
       });
     return () => {
       current = false;
     };
   }, [entries, items, query, rank]);
+  useEffect(() => {
+    if (!submitWhenRanked.current || ranked.query !== query) return;
+    submitWhenRanked.current = false;
+    const top = results[0];
+    if (!top) return;
+    onClose();
+    top.run();
+  }, [onClose, query, ranked, results]);
   const byId = useMemo(() => new Map(results.map((item) => [item.id, item])), [results]);
   const firsts = useMemo(() => {
     const seen = new Set<PaletteGroup>();
     return new Set(results.filter((item) => !seen.has(item.group) && seen.add(item.group)).map((item) => item.id));
   }, [results]);
   const submit = (value: string) => {
+    // The list on screen answers an older query; its rows are not what the field now asks for.
+    if (ranked.query !== query) {
+      submitWhenRanked.current = true;
+      return;
+    }
     const item = byId.get(value) ?? results[0];
     if (!item) return;
     onClose();
