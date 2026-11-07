@@ -175,3 +175,24 @@ fn finds_codex_on_path_or_in_the_usual_folders() {
         Some(bin.join("codex"))
     );
 }
+
+/// A cancel that overtakes its run's line still ends that run; a late cancel of a run that
+/// already finished leaves nothing behind.
+#[test]
+fn a_cancel_before_its_run_line_starts_the_run_cancelled() {
+    let mut runs = Runs::default();
+    runs.read(1, false);
+    runs.cancel(2);
+    runs.read(2, true);
+    assert!(runs.live.get(&2).is_some_and(Cx::is_cancelled), "the run starts cancelled");
+
+    runs.read(3, true);
+    assert!(!runs.live.get(&3).is_some_and(Cx::is_cancelled));
+    runs.cancel(3);
+    assert!(runs.live.get(&3).is_some_and(Cx::is_cancelled));
+
+    runs.live.remove(&2);
+    runs.live.remove(&3);
+    runs.cancel(3);
+    assert!(runs.live.is_empty(), "a cancel after its run ended keeps nothing");
+}

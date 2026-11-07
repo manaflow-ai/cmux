@@ -144,7 +144,39 @@ struct Holder {
     config: Config,
     current: Arc<Mutex<Option<Scope>>>,
     acpmux: Arc<Mutex<Option<PathBuf>>>,
-    runs: Mutex<HashMap<u64, Cx>>,
+    runs: Mutex<Runs>,
+}
+
+/// The runs in flight by request id, and the highest request id read so far. The app numbers
+/// its requests in the order it writes them, so a cancel for an id above that one is for a run
+/// whose line is still on its way (its cancel overtook it): the run starts cancelled.
+#[derive(Default)]
+struct Runs {
+    live: HashMap<u64, Cx>,
+    highest: u64,
+}
+
+impl Runs {
+    fn cancel(&mut self, run: u64) {
+        if let Some(cx) = self.live.get(&run) {
+            cx.cancel();
+        } else if run > self.highest {
+            let cx = Cx::new();
+            cx.cancel();
+            self.live.insert(run, cx);
+        }
+    }
+
+    /// A request line read: a run's Cx (kept when a cancel came first).
+    fn read(&mut self, id: u64, run: bool) {
+        self.highest = self.highest.max(id);
+        if run {
+            self.live.entry(id).or_default();
+        } else {
+            // A cancel for this id was not for a run after all.
+            self.live.remove(&id);
+        }
+    }
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -209,7 +241,7 @@ impl Holder {
             }
             .boxed()
         })));
-        Arc::new(Self { adapter, app, config, current, acpmux, runs: Mutex::new(HashMap::new()) })
+        Arc::new(Self { adapter, app, config, current, acpmux, runs: Mutex::default() })
     }
 
     /// Takes one app line. Returns false at a line that is not JSON.
@@ -228,12 +260,8 @@ impl Holder {
                 }
             }
             "cancel" => {
-                // A run's Cx is made when its line is read (below), so a cancel right after it
-                // always finds it.
                 let run = message.get("run").and_then(Value::as_u64).unwrap_or_default();
-                if let Some(cx) = lock(&self.runs).get(&run) {
-                    cx.cancel();
-                }
+                lock(&self.runs).cancel(run);
             }
             "available" => {
                 self.adapter
@@ -249,10 +277,8 @@ impl Holder {
             }
             "" => {}
             op => {
-                if op == "run"
-                    && let Some(id) = message.get("id").and_then(Value::as_u64)
-                {
-                    lock(&self.runs).insert(id, Cx::new());
+                if let Some(id) = message.get("id").and_then(Value::as_u64) {
+                    lock(&self.runs).read(id, op == "run");
                 }
                 let this = self.clone();
                 tokio::spawn(async move { this.reply(message).await });
@@ -280,12 +306,12 @@ impl Holder {
         let scoped = || scope.clone().ok_or(Error::Other("a scope is needed".into()));
         match message.get("op").and_then(Value::as_str).unwrap_or_default() {
             "run" => {
-                let cx = lock(&self.runs).get(&id).cloned().unwrap_or_else(Cx::new);
+                let cx = lock(&self.runs).live.get(&id).cloned().unwrap_or_else(Cx::new);
                 let result = match scoped() {
                     Ok(scope) => self.run(&cx, id, message, &scope).await,
                     Err(error) => Err(error),
                 };
-                lock(&self.runs).remove(&id);
+                lock(&self.runs).live.remove(&id);
                 result.map(|()| Value::Null)
             }
             "delivers" => Ok(Value::Bool(self.adapter.delivers(&text("machine"), &scoped()?))),
