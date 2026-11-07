@@ -85,6 +85,10 @@ pub struct QueuedPrompt {
     /// Times a hold let it go by itself (`digest.rs` `retry_held_agent_messages`): the next
     /// hold waits longer.
     pub(super) retries: usize,
+    /// The person's own prompt their Stop holds (`cancel.rs` `hold_agent_messages`): it waits for
+    /// them to send it (Resume, or Send now), never for the turn's end. Listed `heldByStop`
+    /// while `held`; a failed turn's hold (`pause_queue`) clears it.
+    pub(super) held_by_stop: bool,
 }
 
 impl QueuedPrompt {
@@ -755,6 +759,7 @@ impl Hub {
                 joined: joined.clone(),
                 requeued: false,
                 retries: 0,
+                held_by_stop: false,
             },
         );
         let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
@@ -897,7 +902,7 @@ impl Hub {
                 .iter_mut()
                 .filter(|q| !q.held && !q.sent_now)
                 .map(|q| {
-                    q.held = true;
+                    (q.held, q.held_by_stop) = (true, false);
                     q.prompt_id.clone()
                 })
                 .collect()
@@ -916,6 +921,7 @@ impl Hub {
         session.stop_hold.store(0, Ordering::SeqCst);
         for q in queue.iter_mut() {
             resumed |= std::mem::take(&mut q.held);
+            q.held_by_stop = false;
         }
         drop(queue);
         if resumed {
@@ -937,6 +943,8 @@ impl Hub {
         for q in queue.iter_mut() {
             if ids.contains(&q.prompt_id)
                 && !(stop_held && q.run.agent.is_some())
+                // The person's prompt their Stop holds waits for them (`cancel.rs`).
+                && !q.held_by_stop
                 && std::mem::take(&mut q.held)
             {
                 released.push(q.prompt_id.clone());
@@ -979,7 +987,7 @@ impl Hub {
             // Only the last prompt sent now: one sent before it is a queued prompt again.
             queue.iter_mut().for_each(|q| q.sent_now = false);
             let mut q = queue.remove(from);
-            (q.held, q.sent_now) = (false, true);
+            (q.held, q.sent_now, q.held_by_stop) = (false, true, false);
             queue.insert(0, q);
             queue.iter().map(|q| q.prompt_id.clone()).collect()
         };
@@ -1537,6 +1545,7 @@ impl Hub {
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: e.msg.get("requeued") == Some(&Value::Bool(true)),
                 retries: 0,
+                held_by_stop: false,
             });
             restored_any = true;
             session.queued.fetch_add(1, Ordering::SeqCst);

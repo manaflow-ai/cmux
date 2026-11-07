@@ -339,6 +339,7 @@ impl Hub {
             if again && !q.awaiting_owner {
                 return Err(super::queue::approved_error());
             }
+            let was_agent = q.run.agent.is_some();
             let (mut blocks, origin) = edit.blocks(&q.run.blocks);
             // Only `session/prompt` adds a hidden context (prompt_context.rs).
             crate::prompt_context::strip_marks(&mut blocks);
@@ -371,6 +372,11 @@ impl Hub {
                 message_sender: None,
             });
             q.preview = short_text(&text, 200);
+            // An agent's message the person's Stop held is the person's now: it keeps waiting for
+            // them to send it, listed `heldByStop` as their own (`cancel.rs`).
+            if was_agent && q.held && session.stop_hold.load(std::sync::atomic::Ordering::SeqCst) != 0 {
+                q.held_by_stop = true;
+            }
             // Its author's edit of a prompt that waits for the owner is a new revision: an
             // approval names the words the owner saw (`queue_approve.rs`).
             if again {
