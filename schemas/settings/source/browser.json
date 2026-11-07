@@ -1560,6 +1560,28 @@
           ]
         },
         {
+          "key": "browser.openPullRequestsInGitHubPage",
+          "name": "pullRequestsInGitHubPage",
+          "title": {
+            "key": "settings.browser.openPullRequestsInGitHubPage",
+            "text": "Open Pull Requests in cmux GitHub Page"
+          },
+          "help": {
+            "key": "settings.browser.openPullRequestsInGitHubPage.help",
+            "text": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "github",
+            "github.com",
+            "pull request",
+            "pr",
+            "link",
+            "native page"
+          ]
+        },
+        {
           "key": "browser.openTerminalLinksInCmuxBrowser",
           "name": "legacyOpen",
           "note": "Classic's key: read when browser.openLinksInCmuxBrowser is absent (EffectiveSettings copies it over), never written by Settings. Listed so MDM profiles and team policies written for it still apply.",

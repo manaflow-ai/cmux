@@ -54,6 +54,7 @@ final class SidebarBridge {
         let frames = FrameBatcher(owner: "SidebarRows")
         return SidebarRowFeed(schedule: { work in frames.scheduleFrame(work) })
     }()
+    let faceBuffers = SidebarFaceBatch() // the face rules' buffers its passes and band items reuse (`sections(faces:)`)
 
     init(services: AppServices, state: WindowState) {
         self.services = services
@@ -143,7 +144,7 @@ final class SidebarBridge {
         let services = services
         guard let windowState = state else { return }
         // Decorations go on after the feed: the pass names rows by stub (no title yet), and a patched row is undecorated.
-        let feed = rowFeed, customization = services.sidebarCustomization
+        let feed = rowFeed, customization = services.sidebarCustomization, faces = faceBuffers
         feed.onChange = { [weak self] changed in
             let decorations = customization.rowDecorations
             self?.rows.patch(changed.map { $0.decorated(by: decorations) })
@@ -158,7 +159,7 @@ final class SidebarBridge {
         // The band's layout comes with the rows it projects too (cx-odqn):
         // a pinned workspace leaves the list in the turn it joins the band.
         sameTurn.observe(listsRows: true, {
-            let (listed, launching, failed) = Self.passSections(services, window: windowState, feed: feed, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) }))
+            let (listed, launching, failed) = Self.passSections(services, window: windowState, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) }))
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             // The document projection these rows were built from (`SidebarRows.layoutCatchingUp`).
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines, doc: services.sidebarDoc), services.sidebarCustomization.rowDecorations,
@@ -295,7 +296,7 @@ final class SidebarBridge {
 
     /// A window's rows (`observe`'s structural pass, `feed`'s, and the snapshot-first seed). No New Tab page set is an
     /// input: each row names its own (`rowNewTabPages`), so a page made in one workspace maps its row only (ask-bdd706af47).
-    static func passSections(_ services: AppServices, window: WindowState, feed: SidebarRowFeed? = nil, rows: SidebarMapping.RowSource? = nil,
+    static func passSections(_ services: AppServices, window: WindowState, feed: SidebarRowFeed? = nil, faces: SidebarFaceBatch? = nil, rows: SidebarMapping.RowSource? = nil,
                              pageFace: PageFace? = nil) -> ([SidebarRowSection], Bool, Set<MachineID>) {
         let machines = services.machines, layout = services.sidebarLayout, muted = services.notifications.preferences.mutedWorkspaces
         let hidesHome = layout.document.hidesHome // an input of each workspace's listing rule (`SidebarRowFeed.lists`) too
@@ -305,7 +306,7 @@ final class SidebarBridge {
             hidesHome: hidesHome, rowNewTabPages: services.agentTabs, muted: muted,
             top: .make(layout, machines: machines, room: window.profileID.rawValue), pageFace: pageFace ?? services.sidebarPageFace,
             tabTitle: tabTitle(services), rows: rows, listing: feed?.listingSource, groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
-            harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
+            harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none }, faces: faces)
     }
 
     /// The window's live sidebar, whether the app is still launching (its
@@ -320,10 +321,10 @@ final class SidebarBridge {
                              groupConfig: WorkspaceGroupConfig = WorkspaceGroupConfig(),
                              workspaceFilter: @escaping (WorkspaceModel) -> Bool = {
                                  AgentLaneStore.shared.keepsWorkspace($0, turns: AgentTurnStateStore.shared)
-                             }, harnessIcons: @escaping () -> HarnessIconLookup = { .none }) -> ([SidebarRowSection], Bool, Set<MachineID>) {
+                             }, harnessIcons: @escaping () -> HarnessIconLookup = { .none }, faces: SidebarFaceBatch? = nil) -> ([SidebarRowSection], Bool, Set<MachineID>) {
         var sections = Self.sections(machines, doc: doc, members: registry.members(of: window.id), profile: window.profileID, hidesHome: hidesHome,
                                      selection: window.selection, newTabPages: newTabPages, rowNewTabPages: rowNewTabPages, muted: muted, top: top,
-                                     pageFace: pageFace, tabTitle: tabTitle, rows: rows, listing: listing, workspaceFilter: workspaceFilter, harnessIcons: harnessIcons)
+                                     pageFace: pageFace, tabTitle: tabTitle, rows: rows, listing: listing, workspaceFilter: workspaceFilter, harnessIcons: harnessIcons, faces: faces)
         // cmux.json `workspaceGroups.byCwd`: a configured group's color and icon.
         sections = WorkspaceGroupConfigLook(config: groupConfig, machines: machines).applying(to: sections)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
@@ -351,11 +352,11 @@ final class SidebarBridge {
                          pageFace: @escaping PageFace = { _, _, _ in nil }, tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil,
                          listing: SidebarMapping.ListingSource? = nil, workspaceFilter: @escaping (WorkspaceModel) -> Bool = {
                              AgentLaneStore.shared.keepsWorkspace($0, turns: AgentTurnStateStore.shared)
-                         }, harnessIcons: @escaping () -> HarnessIconLookup = { .none }) -> [SidebarRowSection] {
+                         }, harnessIcons: @escaping () -> HarnessIconLookup = { .none }, faces: SidebarFaceBatch? = nil) -> [SidebarRowSection] {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
         let filtered = SidebarRowSection.filter(sections(machines, doc: doc, profile: profile, hidesHome: hidesHome, selection: selection(), newTabPages: newTabPages,
                                                          rowNewTabPages: rowNewTabPages, muted: muted, pageFace: pageFace, tabTitle: tabTitle, rows: rows,
-                                                         listing: listing, workspaceFilter: workspaceFilter, harnessIcons: harnessIcons),
+                                                         listing: listing, workspaceFilter: workspaceFilter, harnessIcons: harnessIcons, faces: faces),
                                                 members: Set(ClosingWorkspaces.shared.survivors(visible)))
         return top.apply(to: filtered, machines: machines)
     }
@@ -389,7 +390,7 @@ final class SidebarBridge {
                          pageFace: @escaping PageFace = { _, _, _ in nil }, tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil,
                          listing: SidebarMapping.ListingSource? = nil, workspaceFilter: @escaping (WorkspaceModel) -> Bool = {
                              AgentLaneStore.shared.keepsWorkspace($0, turns: AgentTurnStateStore.shared)
-                         }, harnessIcons: @escaping () -> HarnessIconLookup = { .none }) -> [SidebarRowSection] {
+                         }, harnessIcons: @escaping () -> HarnessIconLookup = { .none }, faces: SidebarFaceBatch? = nil) -> [SidebarRowSection] {
         let showsUnread = DesignSettings.shared.attention.showsOnSidebar
         let selectedTab = { (pane: PaneModel) in selection().selection(in: pane.id) }
         let groupIcon = IconAssetImages.shared.sidebarIcon(owner: machines.local)
@@ -401,7 +402,7 @@ final class SidebarBridge {
                                                newTabPages: newTabPages, isNewTabPage: rowPages(true), newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
                                                tabTitle: tabTitle, notificationText: machines.local.store.notificationText(for:),
                                                iconAsset: groupIcon, rowSource: rows, listing: listing, workspaceFilter: workspaceFilter,
-                                               harnessIcons: harnessIcons)
+                                               harnessIcons: harnessIcons, faces: faces)
         let remotes: [(DaemonService, SidebarMachine, Bool, String?)] = machines.cloud.map { ($0.daemon, CloudCreationRows.machine($0, compatibility: machines.compatibility(of: $0.daemon), limits: machines.cloudLimits,
                                                                                  updates: machines.updates), showsUnread, Strings.untitledTerminal) }
             + machines.ssh.map { ($0.daemon, sshMachine($0, machines: machines), true, String?.none) }
@@ -411,7 +412,7 @@ final class SidebarBridge {
                                                 newTabPages: newTabPages, isNewTabPage: rowPages(false), newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
                                                 tabTitle: tabTitle, notificationText: daemon.store.notificationText(for:),
                                                 iconAsset: IconAssetImages.shared.sidebarIcon(owner: daemon), groupIconAsset: groupIcon,
-                                                rowSource: rows, listing: listing, workspaceFilter: workspaceFilter, terminalTitle: terminalTitle)
+                                                rowSource: rows, listing: listing, workspaceFilter: workspaceFilter, terminalTitle: terminalTitle, faces: faces)
         }
         for session in machines.servers {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines, doc: doc),
@@ -419,7 +420,7 @@ final class SidebarBridge {
                                                 muted: NotificationWorkspaceKey.workspaceIDs(muted, machine: session.daemon.machineID, localMachine: machines.local.machineID, localHolds: localHolds), selectedTab: selectedTab, pageFace: pageFace,
                                                 tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:),
                                                 iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon), groupIconAsset: groupIcon,
-                                                rowSource: rows, listing: listing, workspaceFilter: workspaceFilter)
+                                                rowSource: rows, listing: listing, workspaceFilter: workspaceFilter, faces: faces)
         }
         return machines.withMachineIcons(sections)
     }

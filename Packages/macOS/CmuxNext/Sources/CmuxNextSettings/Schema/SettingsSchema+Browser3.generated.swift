@@ -130,6 +130,16 @@ extension BrowserSettingsSchema {
                 keywords: ["sign in", "login", "device code", "oauth", "auth", "passkey", "default browser", "gh auth login"]
             ),
             SettingDescriptor(
+                LinkRouting.pullRequestsInGitHubPagePath,
+                section: .browser,
+                group: group,
+                title: SettingsText.keyed("settings.browser.openPullRequestsInGitHubPage", "Open Pull Requests in cmux GitHub Page"),
+                help: SettingsText.keyed("settings.browser.openPullRequestsInGitHubPage.help", "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way."),
+                kind: .toggle,
+                default: .bool(LinkRouting.pullRequestsInGitHubPageDefault),
+                keywords: ["github", "github.com", "pull request", "pr", "link", "native page"]
+            ),
+            SettingDescriptor(
                 LinkRouting.legacyOpenPath,
                 section: .browser,
                 group: group,

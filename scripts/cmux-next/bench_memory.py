@@ -731,6 +731,10 @@ def main():
                         help="after each count, purge hidden pages' renderers (no reload) and sample again")
     parser.add_argument("--out")
     args = parser.parse_args()
+    if args.purge_hidden and len([n for n in args.workspaces.split(",") if n]) > 1:
+        # A later count's idle sample would follow the earlier purge, not an unpurged app. Checked
+        # before the launch, so a refused run leaves no app behind.
+        parser.error("--purge-hidden takes one --workspaces count; run each count on its own")
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
     signal.signal(signal.SIGTERM, interrupted)
     if sys.platform != "darwin":
@@ -750,9 +754,6 @@ def main():
     chats = None
     recipes = args.mix.split(",")
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
-    if args.purge_hidden and len(counts) > 1:
-        # A later count's idle sample would follow the earlier purge, not an unpurged app.
-        parser.error("--purge-hidden takes one --workspaces count; run each count on its own")
     report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [], "cef_switches": args.cef_switches,
               "webkit_attributed": _responsible is not None}
     opened = []

@@ -3,65 +3,65 @@
 
 extension BrowserAppSettingsSchema {
     /// `browser.toolbar.back`.
-    public nonisolated static let backPath = ["browser", "toolbar", "back"]
-    public nonisolated static let backDefault = true
+    nonisolated static let backPath = ["browser", "toolbar", "back"]
+    nonisolated static let backDefault = true
     /// `browser.toolbar.forward`.
-    public nonisolated static let forwardPath = ["browser", "toolbar", "forward"]
-    public nonisolated static let forwardDefault = true
+    nonisolated static let forwardPath = ["browser", "toolbar", "forward"]
+    nonisolated static let forwardDefault = true
     /// `browser.toolbar.reload`.
-    public nonisolated static let reloadPath = ["browser", "toolbar", "reload"]
-    public nonisolated static let reloadDefault = true
+    nonisolated static let reloadPath = ["browser", "toolbar", "reload"]
+    nonisolated static let reloadDefault = true
     /// `browser.toolbar.home`.
-    public nonisolated static let homePath = ["browser", "toolbar", "home"]
-    public nonisolated static let homeDefault = false
+    nonisolated static let homePath = ["browser", "toolbar", "home"]
+    nonisolated static let homeDefault = false
     /// `browser.toolbar.extensions`.
-    public nonisolated static let extensionsPath = ["browser", "toolbar", "extensions"]
-    public nonisolated static let extensionsDefault = true
+    nonisolated static let extensionsPath = ["browser", "toolbar", "extensions"]
+    nonisolated static let extensionsDefault = true
     /// `browser.toolbar.downloads`.
-    public nonisolated static let downloadsPath = ["browser", "toolbar", "downloads"]
-    public nonisolated static let downloadsDefault = true
+    nonisolated static let downloadsPath = ["browser", "toolbar", "downloads"]
+    nonisolated static let downloadsDefault = true
     /// `browser.toolbar.media`.
-    public nonisolated static let mediaPath = ["browser", "toolbar", "media"]
-    public nonisolated static let mediaDefault = true
+    nonisolated static let mediaPath = ["browser", "toolbar", "media"]
+    nonisolated static let mediaDefault = true
     /// `browser.toolbar.profile`.
-    public nonisolated static let profilePath = ["browser", "toolbar", "profile"]
-    public nonisolated static let profileDefault = true
+    nonisolated static let profilePath = ["browser", "toolbar", "profile"]
+    nonisolated static let profileDefault = true
     /// `browser.toolbar.menu`.
-    public nonisolated static let menuPath = ["browser", "toolbar", "menu"]
-    public nonisolated static let menuDefault = true
+    nonisolated static let menuPath = ["browser", "toolbar", "menu"]
+    nonisolated static let menuDefault = true
 }
 
 extension BrowserAppSettingsSchema {
     /// `browser.omnibox.color`.
-    public nonisolated static let omniboxColorPath = ["browser", "omnibox", "color"]
+    nonisolated static let omniboxColorPath = ["browser", "omnibox", "color"]
     /// `browser.omnibox.popupColor`.
-    public nonisolated static let omniboxPopupColorPath = ["browser", "omnibox", "popupColor"]
+    nonisolated static let omniboxPopupColorPath = ["browser", "omnibox", "popupColor"]
     /// `browser.omnibox.popupHoverColor`.
-    public nonisolated static let omniboxPopupHoverColorPath = ["browser", "omnibox", "popupHoverColor"]
+    nonisolated static let omniboxPopupHoverColorPath = ["browser", "omnibox", "popupHoverColor"]
 }
 
 extension BrowserAppSettingsSchema {
     /// `layout.stripMargin`.
-    public nonisolated static let stripMarginPath = ["layout", "stripMargin"]
-    public nonisolated static let stripMarginDefault: Double = 0
-    public nonisolated static let stripMarginRange: ClosedRange<Double> = 0...40
+    nonisolated static let stripMarginPath = ["layout", "stripMargin"]
+    nonisolated static let stripMarginDefault: Double = 0
+    nonisolated static let stripMarginRange: ClosedRange<Double> = 0...40
     /// `layout.columnWidthPresets`.
-    public nonisolated static let columnWidthPresetsPath = ["layout", "columnWidthPresets"]
-    public nonisolated static let columnWidthPresetsDefault: [Double] = [1, 0.6667, 0.5, 0.3333]
-    public nonisolated static let columnWidthPresetsRange: ClosedRange<Double> = 0.1...2
+    nonisolated static let columnWidthPresetsPath = ["layout", "columnWidthPresets"]
+    nonisolated static let columnWidthPresetsDefault: [Double] = [1, 0.6667, 0.5, 0.3333]
+    nonisolated static let columnWidthPresetsRange: ClosedRange<Double> = 0.1...2
 }
 
 extension BrowserAppSettingsSchema {
     /// `window.trafficLightClearance`.
-    public nonisolated static let trafficLightClearancePath = ["window", "trafficLightClearance"]
-    public nonisolated static let trafficLightClearanceDefault: Double = 72
-    public nonisolated static let trafficLightClearanceRange: ClosedRange<Double> = 0...160
+    nonisolated static let trafficLightClearancePath = ["window", "trafficLightClearance"]
+    nonisolated static let trafficLightClearanceDefault: Double = 72
+    nonisolated static let trafficLightClearanceRange: ClosedRange<Double> = 0...160
 }
 
 extension BrowserAppSettingsSchema {
     /// `sidebar.workspaceIcons`.
-    public nonisolated static let workspaceIconsPath = ["sidebar", "workspaceIcons"]
-    public nonisolated static let workspaceIconsDefault: JSONValue = .object([:])
+    nonisolated static let workspaceIconsPath = ["sidebar", "workspaceIcons"]
+    nonisolated static let workspaceIconsDefault: JSONValue = .object([:])
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

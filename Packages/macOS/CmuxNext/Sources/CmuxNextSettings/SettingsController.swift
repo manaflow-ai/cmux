@@ -471,13 +471,13 @@ extension SettingsController {
                 }
             }
             self.sources = sources
-            let settingPath = ThemeFileSetting.path.joined(separator: ".")
+            let settingPath = ThemeFileSetting.configPath.joined(separator: ".")
             guard let name = ThemeFileSetting.name(in: root) else {
                 overlay = nil
                 activeSource = nil
                 goodSource = nil
                 applied = root
-                diagnostics = root.value(at: ThemeFileSetting.path).map { _ in
+                diagnostics = root.value(at: ThemeFileSetting.configPath).map { _ in
                     [SettingsDiagnostic(kind: .invalidValue, path: settingPath,
                                         message: "expected a theme file name, such as \"tokyo\" for themes/tokyo.json")]
                 } ?? []
