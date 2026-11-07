@@ -208,6 +208,8 @@ export function reportHostGlass(doc: Document, post: (surfaces: HostGlassSurface
         if (element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE) === "1") return;
         timedOut.add(element);
         mark(element, "0");
+        // Measuring may have settled already (a 120 Hz display): withdraw its box from the App.
+        kick();
       }, HOST_GLASS_DEADLINE_MS),
     );
   };

@@ -195,3 +195,18 @@ test("an opaque page reports nothing and its surfaces keep the page's glass", as
   expect(reports).toEqual([]);
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
 });
+
+test("a surface that misses the deadline after measuring settled is withdrawn from the report", async () => {
+  const doc = page();
+  // At 120 Hz the unchanged frames run out well before the deadline.
+  const window = dom!.window as unknown as Window;
+  window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(performance.now()), 8);
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), new Promise(() => undefined)));
+  surface(doc);
+  await frames(5);
+  expect(reports.at(-1)).toHaveLength(1);
+  await pastDeadline();
+  await frames();
+  expect(reports.at(-1)).toEqual([]);
+});
