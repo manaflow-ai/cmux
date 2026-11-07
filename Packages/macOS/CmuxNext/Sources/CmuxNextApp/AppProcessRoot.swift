@@ -1,3 +1,5 @@
+import CmuxNextControl
+
 /// The process root (plans/cmux-next/crash-elimination.md, P1b): the app's one
 /// `AppServices`, held here for the life of the process. Many service objects
 /// keep an `unowned` back-reference to `AppServices`; they are safe because their
@@ -23,5 +25,13 @@ final class AppProcessRoot {
     /// Holds `controller` for the rest of the process.
     func adopt(hangReports controller: HangReportsController) {
         hangReports = controller
+    }
+
+    /// This launch's opt-in usage recording; nil in tests and before launch.
+    private(set) var usageRecording: UsageRecorder?
+
+    /// Holds `controller` for the rest of the process.
+    func adopt(usageRecording controller: UsageRecorder) {
+        usageRecording = controller
     }
 }

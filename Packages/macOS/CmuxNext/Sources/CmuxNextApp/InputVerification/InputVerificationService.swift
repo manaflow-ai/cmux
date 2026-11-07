@@ -103,6 +103,11 @@ final class InputVerificationService {
                 services?.notifications.focusDidSettle(state, in: controller)
                 // What new terminals and chats copy (NEW-WORK-INHERITS-CONTEXT).
                 services?.noteWorkFocus(state, in: controller)
+                // Opt-in usage recording's keyboard place and the app's activity (nothing while off).
+                if let usage = AppProcessRoot.shared.usageRecording, usage.isRecording {
+                    let shown = NotificationCenterService.shownFocus(controller)
+                    usage.noteFocus(appActive: state.appActive, windowKey: state.windowKey, kind: shown?.kind, tab: shown?.tab)
+                }
             }
             let trail = TrailSettleKey(focus: key, active: services?.windows.active === controller,
                                        topPage: controller.shownTopPage != nil, workspace: controller.state.workspaceID)

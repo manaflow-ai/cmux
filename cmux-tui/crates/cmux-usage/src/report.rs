@@ -306,7 +306,7 @@ pub fn build(records: &[Record], from_ms: u64, to_ms: u64) -> Report {
                 }
             }
             Event::Latency { what, ms } => {
-                latencies.entry(what.as_str().to_owned()).or_default().push(f64::from(*ms))
+                latencies.entry(what.as_str().to_owned()).or_default().push(f64::from(*ms));
             }
             Event::Counts {
                 windows,
@@ -451,7 +451,7 @@ pub fn build(records: &[Record], from_ms: u64, to_ms: u64) -> Report {
     };
     report.agents.turn_seconds = Dist::of(turn_seconds);
     let mut by_model: Vec<ModelRow> = models.into_values().collect();
-    by_model.sort_by(|a, b| b.turns.cmp(&a.turns));
+    by_model.sort_by_key(|row| std::cmp::Reverse(row.turns));
     report.agents.by_model = by_model;
     report.connections = connections.into_iter().map(|(k, v)| (k, Dist::of(v))).collect();
     report

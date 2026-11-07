@@ -102,7 +102,8 @@ final class HangReportsController {
     func start(settings: SettingsController, asks: SidebarAsks, isFirstLaunch: Bool = false, firstWindow: @escaping @MainActor () async -> Void) {
         guard service != nil else { return }
         if isFirstLaunch { askedThisLaunch = [.confirm, .invite] }
-        settings.userWillWrite = { [defaults] descriptor, value in
+        // Chained: usage recording records its own consent from the same writes.
+        settings.chainUserWillWrite { [defaults] descriptor, value in
             Self.recordUserWrite(defaults: defaults, path: descriptor.path, value: value)
         }
         let managedDisables = managedDisables

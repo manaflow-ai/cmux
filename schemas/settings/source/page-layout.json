@@ -435,6 +435,7 @@
               "browser.omnibar.remoteSuggestions", "announcements.fetch"
             ]},
             {"group": "settings.group.hangReports"},
+            {"group": "settings.group.usageRecording"},
             {"group": "settings.group.sshLinks", "note": "The hosts an ssh:// link from another app reaches without asking (ExternalLinkGate)."}
           ],
           "actions": ["home"],
