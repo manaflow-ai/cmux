@@ -30,6 +30,8 @@ pub(crate) async fn worker(request: &Request) -> Result<Value, Failure> {
         fields.insert("app_version".into(), json!(version));
     }
     fields.insert("local_only".into(), json!(request.local_only));
+    // A file's bytes come back as base64 inside the answer: 12 MiB less 64 KiB stays under it.
+    fields.insert("max_bytes".into(), json!(FILE_LIMIT));
     let io: machine_io::Request = serde_json::from_value(Value::Object(fields))
         .map_err(|e| Failure::Transport(format!("not a machine request: {e}")))?;
     let client = machine_io::http_client().map_err(Failure::Transport)?;
@@ -44,6 +46,9 @@ pub(crate) async fn worker(request: &Request) -> Result<Value, Failure> {
     let path = route_path(&io.machine, op_name(&request.args));
     read(&line, &path)
 }
+
+/// The most bytes a Worker machine read or listing may come to through the daemon.
+const FILE_LIMIT: u64 = 12_517_376;
 
 /// A buffer that refuses to grow past [`crate::MAX_ANSWER_BYTES`], so a file or listing larger
 /// than any answer may be is refused while it is copied, never held whole.
@@ -89,6 +94,10 @@ pub(crate) fn read(line: &Value, path: &str) -> Result<Value, Failure> {
     match status {
         0 if code == Some("timed_out") => Err(Failure::TimedOut(path.to_owned())),
         0 if code == Some("no_backend") => Err(Failure::NoBackend),
+        0 if code == Some("decoding") => Err(Failure::Decoding(format!("{path}: not JSON"))),
+        0 if code == Some("too_large") => {
+            Err(Failure::Transport(format!("{path}: the answer is larger than {FILE_LIMIT} bytes")))
+        }
         0 => Err(Failure::Transport(code.unwrap_or("no answer").to_owned())),
         200..=299 => Ok(body),
         _ => Err(vm_error(status, body.to_string().as_bytes(), code)),

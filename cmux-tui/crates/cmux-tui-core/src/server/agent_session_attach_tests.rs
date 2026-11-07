@@ -535,6 +535,31 @@ impl Client {
         }
     }
 
+    /// Whether the daemon ends this connection (end of stream) within `timeout`; any line read
+    /// before it is dropped.
+    pub(super) fn ends_within(&mut self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut line = String::new();
+        while Instant::now() < deadline {
+            line.clear();
+            match self.reader.read_line(&mut line) {
+                Ok(0) => return true,
+                Ok(_) => continue,
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    continue;
+                }
+                // A reset is the connection ending too.
+                Err(_) => return true,
+            }
+        }
+        false
+    }
+
     /// The next `agent-session-*` event (buffered first).
     pub(super) fn event(&mut self, timeout: Duration) -> Option<Value> {
         if let Some(index) = self.events.iter().position(is_agent_event) {

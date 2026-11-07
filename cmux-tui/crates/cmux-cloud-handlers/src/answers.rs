@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::args::PortNames;
 use crate::{Fields, Said, time};
 
 /// What an action found.
@@ -295,12 +296,12 @@ pub fn forward_fields(record: &Value) -> Fields {
 
 /// `cloud port-forward`'s answer: the forward, whose `url` is the text. A forward with no local
 /// port is refused.
-pub fn forward(record: &Value) -> Result<Answer, Said> {
+pub fn forward(record: &Value, names: &PortNames) -> Result<Answer, Said> {
     let fields = forward_fields(record);
     let url = fields
         .get("url")
         .and_then(Value::as_str)
-        .ok_or_else(|| Said::with("portFailed", ["no local port"]))?;
+        .ok_or_else(|| names.said("portFailed", &["no local port"]))?;
     Ok(Answer { text: Some(url.to_owned()), copyable: true, fields })
 }
 
@@ -352,44 +353,97 @@ pub struct ShareLink {
 }
 
 /// `cloud machine-link`: the machine's target and address (its text: the address, else the
-/// target); with a port, its private URL and, once the app made it, the share `link`, whose URL
-/// is the text. A port with no link yet has no text.
+/// target); with a port, its private URL and the platform's share `link`, whose URL is the text.
+/// A port on a machine whose provider opens no port links, or with no link to give, is refused
+/// as `noLink` with the machine and port named.
 pub fn machine_link(
-    machine_id: &str,
+    names: &PortNames,
     ipv4: Option<&str>,
-    port: Option<u16>,
+    allows_ports: bool,
     link: Option<&ShareLink>,
-) -> Answer {
+) -> Result<Answer, Said> {
+    let machine_id = names.id.as_str();
     let mut fields =
         object(json!({"machine_id": machine_id, "target": format!("machine:{machine_id}")}));
-    let Some(port) = port else {
+    let Some(port) = names.port else {
         if let Some(address) = ipv4 {
             fields.insert("address".into(), json!(address));
         }
         let text = ipv4.map_or_else(|| format!("machine:{machine_id}"), str::to_owned);
-        return Answer { text: Some(text), copyable: true, fields };
+        return Ok(Answer { text: Some(text), copyable: true, fields });
     };
+    machine_link_port(names, allows_ports)?;
+    let link = link.ok_or_else(|| names.said("portNoLink", &[]))?;
     fields.insert("port".into(), json!(port));
     if let Some(address) = ipv4 {
         fields.insert("private_url".into(), json!(format!("http://{address}:{port}")));
     }
-    let Some(link) = link else { return Answer { text: None, copyable: true, fields } };
     fields.insert("url".into(), json!(link.url));
     fields.insert("linkId".into(), json!(link.link_id));
     fields.insert("expiresAt".into(), json!(link.expires_at));
-    Answer { text: Some(link.url.clone()), copyable: true, fields }
+    Ok(Answer { text: Some(link.url.clone()), copyable: true, fields })
 }
 
-/// Whether a platform share link may be handed out: `https`, with no user or password.
+/// Whether `machine-link --port` may ask the platform for a share link: only on a machine whose
+/// provider opens port links (else `portNoLink`). The app asks before it makes the link.
+pub fn machine_link_port(names: &PortNames, allows_ports: bool) -> Result<(), Said> {
+    if allows_ports { Ok(()) } else { Err(names.said("portNoLink", &[])) }
+}
+
+/// Whether a platform share link may be handed out: a URL as the app's URL parser reads one
+/// (RFC 3986 characters only, every `%` escape whole, a host that is a name or a closed IPv6
+/// literal, a numeric port), `https`, with no user or password.
 pub fn share_link_ok(url: &str) -> bool {
     let Some((scheme, rest)) = url.split_once("://") else { return false };
-    if !scheme.eq_ignore_ascii_case("https")
-        || url.chars().any(|c| c.is_whitespace() || c.is_control())
-    {
+    if !scheme.eq_ignore_ascii_case("https") || !url.chars().all(is_url_character) {
+        return false;
+    }
+    if !escapes_whole(url) {
         return false;
     }
     let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    !authority.is_empty() && !authority.contains('@')
+    if authority.contains('@') {
+        return false;
+    }
+    let (host, port) = if let Some(literal) = authority.strip_prefix('[') {
+        let Some((inside, after)) = literal.split_once(']') else { return false };
+        let ipv6 = inside.contains(':')
+            && inside.chars().all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.');
+        if !ipv6 {
+            return false;
+        }
+        match after {
+            "" => (inside, None),
+            _ => match after.strip_prefix(':') {
+                Some(port) => (inside, Some(port)),
+                None => return false,
+            },
+        }
+    } else {
+        match authority.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        }
+    };
+    let host_ok = !host.is_empty()
+        && (authority.starts_with('[')
+            || host.chars().all(|c| c.is_ascii_alphanumeric() || "-._~!$&'()*+,;=%".contains(c)));
+    host_ok && port.is_none_or(|port| port.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// RFC 3986's characters: unreserved, reserved and `%`.
+fn is_url_character(c: char) -> bool {
+    c.is_ascii_alphanumeric() || "-._~:/?#[]@!$&'()*+,;=%".contains(c)
+}
+
+/// Every `%` followed by two hex digits.
+fn escapes_whole(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.iter().enumerate().filter(|&(_, &byte)| byte == b'%').all(|(at, _)| {
+        bytes
+            .get(at.saturating_add(1)..at.saturating_add(3))
+            .is_some_and(|hex| hex.iter().all(u8::is_ascii_hexdigit))
+    })
 }
 
 /// What `cmux vm tools` runs: the login shell, where each common tool is (or "missing"), and the

@@ -341,6 +341,10 @@ impl fmt::Debug for RelayClientConfig {
 pub struct RelayProvider {
     config: RelayClientConfig,
     credentials: RelayCredentialSource,
+    /// When set, a lane's allocation waits until this instant instead of
+    /// `control_timeout`: a Connect the relay parks until the daemon
+    /// registers then follows its caller's one deadline.
+    allocation_deadline: Option<Instant>,
 }
 
 impl RelayProvider {
@@ -359,7 +363,18 @@ impl RelayProvider {
     ) -> Result<Self, ProviderError> {
         config.ticket.zeroize();
         config.validate_common()?;
-        Ok(Self { config, credentials })
+        Ok(Self { config, credentials, allocation_deadline: None })
+    }
+
+    /// Wait for each lane's allocation until `deadline` rather than for
+    /// `control_timeout`. A relay may park a Connect until the machine's
+    /// daemon registers (`RelayControl::Parked`); this lets that wait follow
+    /// the caller's remaining deadline. It applies to the first connect
+    /// (generation 0) only: a resume's allocation, and every other control
+    /// step, keeps `control_timeout`.
+    pub fn with_allocation_deadline(mut self, deadline: Instant) -> Self {
+        self.allocation_deadline = Some(deadline);
+        self
     }
 }
 
@@ -403,6 +418,7 @@ impl TransportProvider for RelayProvider {
             framing,
             config: self.config.clone(),
             credentials: self.credentials.clone(),
+            allocation_deadline: self.allocation_deadline,
             control: Mutex::new(Some(control)),
             closed: AtomicBool::new(false),
         }))
@@ -417,6 +433,7 @@ struct RelayLinkGroup {
     framing: RelayCircuitFraming,
     config: RelayClientConfig,
     credentials: RelayCredentialSource,
+    allocation_deadline: Option<Instant>,
     // An allocation temporarily takes ownership of the control socket. If the
     // allocation future is cancelled, the socket is dropped while this slot
     // remains empty, so a later attempt cannot consume a stale response.
@@ -886,6 +903,9 @@ impl LinkGroup for RelayLinkGroup {
             return Err(ProviderError::Transport("relay connection group is closed".into()));
         }
         let lane = LaneToken(random_capability()?);
+        // The allocation deadline is the first connect's; a resume (a later
+        // generation) waits `control_timeout` as any reconnect does.
+        let wait_until = self.allocation_deadline.filter(|_| request.generation == 0);
         let allocation = {
             let mut stored_control = self.control.lock().await;
             if self.closed.load(Ordering::Acquire) {
@@ -899,6 +919,7 @@ impl LinkGroup for RelayLinkGroup {
                 &mut control,
                 &self.config,
                 &self.credentials,
+                allocation_wait(wait_until, self.config.control_timeout),
                 &lane,
                 request.generation,
             )
@@ -930,6 +951,7 @@ impl LinkGroup for RelayLinkGroup {
                         &mut replacement,
                         &self.config,
                         &self.credentials,
+                        allocation_wait(wait_until, self.config.control_timeout),
                         &lane,
                         request.generation,
                     )
@@ -990,10 +1012,20 @@ impl AllocationError {
     }
 }
 
+/// How long one lane's allocation may wait: until the provider's
+/// allocation deadline when it has one, else `control_timeout`.
+fn allocation_wait(deadline: Option<Instant>, control_timeout: Duration) -> Duration {
+    match deadline {
+        Some(deadline) => deadline.saturating_duration_since(Instant::now()),
+        None => control_timeout,
+    }
+}
+
 async fn request_allocation(
     socket: &mut RelaySocket,
     config: &RelayClientConfig,
     credentials: &RelayCredentialSource,
+    wait: Duration,
     lane: &LaneToken,
     generation: u64,
 ) -> Result<(CircuitId, String), AllocationError> {
@@ -1012,11 +1044,9 @@ async fn request_allocation(
     )
     .await
     .map_err(AllocationError::Reconnect)?;
-    tokio::time::timeout(config.control_timeout, read_until_allocation(socket, lane, generation))
-        .await
-        .map_err(|_| {
-            AllocationError::Reconnect(relay_carrier_error("relay allocation timed out"))
-        })?
+    tokio::time::timeout(wait, read_until_allocation(socket, lane, generation)).await.map_err(
+        |_| AllocationError::Reconnect(relay_carrier_error("relay allocation timed out")),
+    )?
 }
 
 async fn read_until_allocation(
@@ -2667,5 +2697,128 @@ mod tests {
         link.close().await.unwrap();
         group.close().await.unwrap();
         tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
+    }
+
+    /// A relay that answers one Connect after `delay`, then serves its circuit.
+    async fn answer_connect_after(
+        delay: Duration,
+    ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut control, _) = accept_with_authorization(stream).await;
+            let RelayControl::Connect { lane, generation, .. } =
+                receive_test_control(&mut control).await
+            else {
+                panic!("expected client connect");
+            };
+            tokio::time::sleep(delay).await;
+            let circuit = CircuitId("late-circuit".into());
+            send_test_control(
+                &mut control,
+                &RelayControl::Allocated {
+                    circuit: circuit.clone(),
+                    lane: lane.clone(),
+                    generation,
+                    join_ticket: "late-join-ticket".into(),
+                },
+            )
+            .await;
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut circuit_socket, _) = accept_with_authorization(stream).await;
+            assert!(matches!(
+                receive_test_control(&mut circuit_socket).await,
+                RelayControl::Join { .. }
+            ));
+            send_test_control(
+                &mut circuit_socket,
+                &RelayControl::Ready { circuit, lane, generation },
+            )
+            .await;
+            let _ = circuit_socket.next().await;
+            let _ = control.next().await;
+        });
+        (address, server)
+    }
+
+    /// A relay that holds the first Connect past `control_timeout` (as it
+    /// parks one until the daemon registers) still answers it inside the
+    /// provider's allocation deadline, and a hold that outlives the deadline
+    /// fails as an allocation timeout. A resume (a later generation) keeps
+    /// `control_timeout`, even once the first connect's deadline has passed.
+    #[tokio::test]
+    async fn a_parked_allocation_waits_until_the_allocation_deadline() {
+        let config = RelayClientConfig {
+            slot: "test-slot".into(),
+            ticket: "client-ticket".into(),
+            maximum_frame_bytes: 64,
+            control_timeout: Duration::from_millis(100),
+        };
+        let request = |address: std::net::SocketAddr| ConnectRequest {
+            endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+            session: SessionId::ZERO,
+            lane_policy: LanePolicy::Isolated,
+            routing: BTreeMap::new(),
+        };
+        // Past the 100 ms control timeout, inside the 5 s deadline.
+        let (address, server) = answer_connect_after(Duration::from_millis(400)).await;
+        let provider = RelayProvider::new(config.clone())
+            .unwrap()
+            .with_allocation_deadline(Instant::now() + Duration::from_secs(5));
+        let group = provider.connect(request(address)).await.unwrap();
+        let link = group
+            .open(LinkRequest { lane: Lane::Interactive, generation: 0 })
+            .await
+            .expect("a park inside the deadline is answered");
+        link.close().await.unwrap();
+        group.close().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
+
+        // A resume after the deadline passed waits control_timeout, not zero.
+        let (address, server) = answer_connect_after(Duration::from_millis(20)).await;
+        let provider =
+            RelayProvider::new(config.clone()).unwrap().with_allocation_deadline(Instant::now());
+        let group = provider.connect(request(address)).await.unwrap();
+        let link = group
+            .open(LinkRequest { lane: Lane::Interactive, generation: 1 })
+            .await
+            .expect("a resume keeps control_timeout after the dial's deadline");
+        link.close().await.unwrap();
+        group.close().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
+
+        // A park that never ends fails at the deadline, not at control_timeout.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            // The client's reconnect after the timeout is refused at once.
+            drop(listener);
+            let (mut control, _) = accept_with_authorization(stream).await;
+            let RelayControl::Connect { .. } = receive_test_control(&mut control).await else {
+                panic!("expected client connect");
+            };
+            while control.next().await.is_some() {}
+        });
+        let started = Instant::now();
+        let provider = RelayProvider::new(config)
+            .unwrap()
+            .with_allocation_deadline(started + Duration::from_millis(600));
+        let group = provider.connect(request(address)).await.unwrap();
+        let error = group
+            .open(LinkRequest { lane: Lane::Interactive, generation: 0 })
+            .await
+            .err()
+            .expect("a park past the deadline fails");
+        let waited = started.elapsed();
+        assert!(error.to_string().contains("allocation timed out"), "{error}");
+        assert!(
+            waited >= Duration::from_millis(500),
+            "gave up after {waited:?}, before the deadline"
+        );
+        assert!(waited < Duration::from_secs(5), "waited {waited:?}, past the deadline");
+        let _ = group.close().await;
+        server.abort();
     }
 }
