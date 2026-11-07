@@ -485,11 +485,11 @@ const VM_MODEL_PLANE_ENV = "/etc/cmux/model-plane.env";
 const HOP_SAMPLES = 20;
 
 /**
- * Curl's `@@t <status> <starttransfer> <total>` lines (seconds) after the warm-up, as ms percentiles. Every timed call
- * must answer 200. Pure, for the tests.
+ * Curl's `hop-t <status> <starttransfer> <total>` lines (seconds) after the warm-up, as ms percentiles. Every timed call
+ * must answer 200. Pure, for the tests. (The marker must not start with `@`: curl reads such a `-w` value as a file.)
  */
 export const hopTimes = (out: string, n: number): { ttfb_p50: number; ttfb_p90: number; total_p50: number; total_p90: number } => {
-  const rows = out.split("\n").filter((l) => l.startsWith("@@t ")).map((l) => l.split(" "));
+  const rows = out.split("\n").filter((l) => l.startsWith("hop-t ")).map((l) => l.split(" "));
   const timed = rows.slice(1);
   if (timed.length !== n) throw new Error(`${timed.length} of ${n} timed calls answered: ${out.slice(-300)}`);
   const bad = timed.filter((r) => r[1] !== "200");
@@ -1128,8 +1128,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (!port) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)}`);
           return { value: `http://127.0.0.1:${port}`, detail: `the model stub at 127.0.0.1:${port} on the gateway machine, nonce ${nonce}` };
         });
+        gwStubUrl = upstream;
       }
-      gwStubUrl = upstream;
       await J.step("cmux inference setup (gateway machine)", async () => {
         const dir = mkdtempSync(path.join(tmpdir(), "cmux-gw-"));
         const tokenFile = path.join(dir, "token");
@@ -1400,7 +1400,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           await J.step("gateway: hop cost", async () => {
             const n = HOP_SAMPLES;
             const loop = (auth: string, url: string) =>
-              `for i in $(seq 0 ${n}); do curl -sS -o /dev/null -m 30 ${auth} -w '@@t %{http_code} %{time_starttransfer} %{time_total}\n' ${url}; done`;
+              `for i in $(seq 0 ${n}); do curl -sS -o /dev/null -m 30 ${auth} -w 'hop-t %{http_code} %{time_starttransfer} %{time_total}\n' ${url}; done`;
             const via = await exec(`. ${VM_MODEL_PLANE_ENV} && ${loop(`-H "Authorization: Bearer $OPENAI_API_KEY"`, `"$OPENAI_BASE_URL/models"`)}`, 300_000);
             const direct = await gwExec!(loop("", shq(`${stubUrl}/v1/models`)), 300_000);
             const a = hopTimes(via.stdout, n);
@@ -1409,8 +1409,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (outDir) writeFileSync(path.join(outDir, "gateway-hop.json"), `${JSON.stringify(result, null, 2)}\n`);
             return {
               value: null,
-              detail: `n=${n}: through the gateway TTFB p50 ${a.ttfb_p50} ms p90 ${a.ttfb_p90} ms, total p50 ${a.total_p50} ms; ` +
-                `gateway machine to the stub TTFB p50 ${b.ttfb_p50} ms; the route adds ${result.added_ms.ttfb_p50} ms at p50`,
+              // The whole result, so the run's summary keeps it (the job uploads no artifact).
+              detail: `the route adds ${result.added_ms.ttfb_p50} ms TTFB at p50; ${JSON.stringify(result)}`,
             };
           });
         }
