@@ -160,7 +160,7 @@ final class AgentTabStore {
     /// Every page is asked what it holds now (true), or that ended (false) (`AgentPageHibernation.holdAwake`).
     var onCollectingPages: ((Bool) -> Void)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
-    let retirer = AgentPageRetirer()
+    let retirer = AgentPageRetirer { BenchSpans.measure($0, $1) }
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
@@ -449,6 +449,16 @@ final class AgentTabStore {
             track(key, in: store)
             onPageBuilt?(key)
             return spare
+        }
+        // Reopen Closed of a chat of this Mac closed a moment ago: its own page, kept whole
+        // (``AgentPageRetirer``), comes back loaded and drawn, so its first frame is its transcript.
+        if kind == .local, seed == nil, newTabPages[key] == nil, wakeStates[key] == nil, !relaunchWake.mayHold(key),
+           let session = sessions[key] ?? record.session, let kept = retirer.takeKept(session) {
+            views[key] = kept
+            wire(kept.model, key: key)
+            track(key, in: store)
+            onPageBuilt?(key)
+            return kept
         }
         // An existing chat of this Mac (a sidebar click, Open in Tab, a subagent's pane) adopts the
         // spare too: it is loaded and connected, and switches to the chat in place.
