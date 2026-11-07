@@ -34,7 +34,7 @@ struct MoveWorkspacesToWindowSpaceTests {
         #expect(registry.window(target.state.id)?.workspaceIDs.sorted() == ["k0", "k1", "k2", "k3"])
         #expect(target.state.profileID == GatherWindowsTests.rooms[0], "the window stayed on a space that does not show them")
         #expect(target.state.workspaceID == "k0", "the first moved workspace was not selected")
-        let shown = WindowProfiles.shown(registry.members(of: target.state.id), profile: target.state.profileID, machines: services.machines)
+        let shown = WindowProfiles.shown(registry.window(target.state.id)?.workspaceIDs ?? [], profile: target.state.profileID, machines: services.machines)
         #expect(Set(shown).isSuperset(of: ["k0", "k1"]), "the moved workspaces are listed but not shown: \(shown)")
         // Their space did not change: the window's own workspaces are one space switch away, as before.
         #expect(WindowProfiles.shown(["k2", "k3"], profile: GatherWindowsTests.rooms[1], machines: services.machines) == ["k2", "k3"])
@@ -69,5 +69,26 @@ struct MoveWorkspacesToWindowSpaceTests {
         #expect(services.windows.registry.value.window(source.state.id)?.workspaceIDs == ["k1"])
         #expect(target.state.profileID == GatherWindowsTests.rooms[1], "the run switched the window's space")
         #expect(target.state.workspaceID == "k3", "the run changed the window's selection")
+    }
+
+    /// The related report: a workspace started from one window landed in the window the Chief works from. A Chief
+    /// turn names the store's Home as its caller workspace (`ControlCallerLocation.homeChat`), and the create took
+    /// that Home's window; it goes to the window the person acts in.
+    @Test func aWorkspaceAnchoredOnTheChiefsHomeOpensInThePersonsWindow() throws {
+        let services = try GatherWindowsTests.services(storeHome: true)
+        defer { GatherWindowsTests.closeAll(services) }
+        AppActions.bind(services)
+        let here = try GatherWindowsTests.open(["k0"], services), chief = try GatherWindowsTests.open(["k2", "hs"], services)
+        #expect(services.workspace(id: "hs")?.kind == "home")
+        services.keyWindowSource = { here.window }
+        #expect(services.windows.active === here)
+        let before = Set(services.windows.claims.pending.keys)
+
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: "hs"), origin: .cli)
+        #expect(services.registry.perform("workspace.newAtTop", invocation: invocation))
+
+        let claimed = services.windows.claims.pending.filter { !before.contains($0.key) }
+        #expect(claimed.count == 1, "no new workspace was claimed: \(claimed)")
+        #expect(claimed.values.allSatisfy { $0 == here.state.id }, "it went to the Chief's window \(chief.state.id): \(claimed)")
     }
 }

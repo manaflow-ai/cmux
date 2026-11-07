@@ -124,7 +124,10 @@ enum WorkspaceVerbHandlers {
                               newTabPage: Bool, firstChat: AgentPaneSeed? = nil, fromCurrent: Bool = true,
                               then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
         let windows = context.services.windows
-        let window = anchor.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
+        // A Home anchor is no window's place of its own: the Chief's turn names the store's Home (in whichever window
+        // holds it) as its caller workspace, and a workspace the person started from another window went there
+        // (cmux#37366). It goes to the window the person acts in.
+        let window = anchor.flatMap { $0.isAnyHome ? nil : windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
         let target = windows.targetWindow(preferring: window)
         var spawn = WorkspaceSpawn(cwd: cwd)
         spawn.slot = slot
