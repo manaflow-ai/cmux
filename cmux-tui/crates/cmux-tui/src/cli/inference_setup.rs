@@ -82,11 +82,8 @@ pub(super) struct GatewayMachine {
 
 /// `Some(exit code)` when `args` is `inference setup …`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    let (_global, command_args) = super::parse_globals(args).ok()?;
-    let rest = match command_args.as_slice() {
-        [a, b, rest @ ..] if a == "inference" && b == "setup" => rest,
-        _ => return None,
-    };
+    let rest = setup_args(args)?;
+    let rest = rest.as_slice();
     if rest.iter().any(|a| a == "--help" || a == "-h") {
         print!("{HELP}");
         return Some(0);
@@ -98,6 +95,16 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             eprintln!("cmux inference setup: {error}\n\n{HELP}");
             Some(2)
         }
+    }
+}
+
+/// The arguments after `inference setup`, or None for another command. `--machine` here is setup's own (the chat
+/// machine), not the global option that routes a command to a daemon, so the action form of the global scan keeps it.
+fn setup_args(args: &[String]) -> Option<Vec<String>> {
+    let (_global, command_args) = super::parse_action_globals(args).ok()?;
+    match command_args.as_slice() {
+        [a, b, rest @ ..] if a == "inference" && b == "setup" => Some(rest.to_vec()),
+        _ => None,
     }
 }
 
@@ -689,6 +696,22 @@ mod tests {
             .is_err()
         );
         assert!(parse(&args(&["--api", "https://a.dev"]), &none).is_err());
+        // Through the dispatch, --machine stays setup's own: the global scan once took it (gateway-e2e run 42363310378).
+        let rest = setup_args(&args(&[
+            "inference",
+            "setup",
+            "--machine",
+            "vm_0123456789abcdefghij",
+            "--api",
+            "https://a.dev",
+        ]))
+        .expect("inference setup");
+        assert_eq!(rest, args(&["--machine", "vm_0123456789abcdefghij", "--api", "https://a.dev"]));
+        assert!(parse(&rest, &none).is_ok());
+        assert!(
+            setup_args(&args(&["inference", "gateway", "--machine", "vm_0123456789abcdefghij"]))
+                .is_none()
+        );
         assert!(parse(&args(&["--machine", "vm_x", "--api", "https://a.dev"]), &none).is_err());
         assert!(
             parse(

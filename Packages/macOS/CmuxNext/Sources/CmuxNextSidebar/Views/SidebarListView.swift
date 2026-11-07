@@ -105,6 +105,9 @@ final class SidebarListView: NSView {
     /// A click on a group's name waits out the double-click interval before it folds.
     let groupNameClick = SidebarGroupNameClick()
     var drag: Drag?
+    /// The rect the shown group lines were made for (`lineWindow`; nil: the whole list): a scroll past it makes the
+    /// lines it reaches.
+    var lineCover: NSRect?
     /// Every `reload`, counted: a drag's base (`SidebarDragBaseKey`) is made again after one.
     var reloads: UInt64 = 0
     /// Rows kept invisible while a lifted view stands in for them.
