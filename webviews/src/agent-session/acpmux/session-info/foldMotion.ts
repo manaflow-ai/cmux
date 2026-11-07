@@ -15,6 +15,12 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "re
 import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
 
+/// Whether a fold moves: full motion, and the host's move duration not 0 (Reduce Motion zeroes only
+/// that one, theme.ts `data-agent-move`), as the transcript's fold reads it (conversation/fold.ts).
+function foldMoves(doc: Document | undefined = typeof document === "undefined" ? undefined : document): boolean {
+  return motionMode(doc) === "full" && doc?.documentElement.dataset.agentMove !== "instant";
+}
+
 /// How long a fold moves: the settle's measured length (--cmux-motion-settle, schemas/motion-scale).
 export const FOLD_MS = MOTION_SETTLE_MS;
 /// The settle (--cmux-ease-settle): a strong ease-out that decelerates into the end height and never
@@ -60,7 +66,7 @@ export function useFoldMotion<E extends HTMLElement>(
   const toggle = (next: boolean, apply: (next: boolean) => void) => {
     const box = ref.current;
     // A box drawn only while open (`drawn && <div ref>`) opens from nothing.
-    if ((box || next) && next !== open && motionMode() === "full") {
+    if ((box || next) && next !== open && foldMoves(box?.ownerDocument)) {
       // Where it is drawn now, a fold still running included.
       from.current = box ? box.offsetHeight : 0;
       setHeld(!next);

@@ -109,6 +109,20 @@ test("a Show less keeps its rows drawn and its box clipped while it closes, then
   expect(list.dataset.folding).toBeUndefined();
 });
 
+test("the host's Reduce Motion (a zero move duration) folds at once", async () => {
+  dom!.window.document.documentElement.dataset.agentMove = "instant";
+  const { list, button } = await render();
+  await act(async () => button.click());
+  expect(animations.length).toBe(0);
+  expect(list.children.length).toBe(2);
+  expect(list.dataset.folding).toBeUndefined();
+  const css = readFileSync(
+    path.join(import.meta.dir, "../src/agent-session/acpmux/session-info/sessionInfo.css"),
+    "utf8",
+  );
+  expect(css.match(/\[data-agent-move="instant"\]\)/g)?.length).toBe(2);
+});
+
 test("a closing fold cancelled from outside (animations turned off) lands closed, not stuck open", async () => {
   const { list, button } = await render();
   await act(async () => button.click());
