@@ -18,7 +18,8 @@ export const newTabIconColumn = defineExperiment({
     },
     shift: {
       label: "Shift the chip",
-      description: "The chip keeps its full inset and moves out by the badge's extra half width; its hover pill moves with it.",
+      description:
+        "The chip keeps its full inset and moves out by the badge's extra half width; its hover pill moves with it.",
     },
     shrink: {
       label: "Shrink the badge",

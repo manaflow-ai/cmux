@@ -18,7 +18,9 @@ await requireBrowserLane("newtab-icon-column.test.ts", async () => {
   setDefaultTimeout(240_000);
   const ENTRY = "agent-pane.new-tab-icon-column";
   const ALL = process.env.NEWTAB_ICON_COLUMN_ALL === "1";
-  const ARMS = process.env.NEWTAB_ICON_COLUMN_ARMS?.split(",") ?? (ALL ? Object.keys(newTabIconColumn.arms) : [newTabIconColumn.defaultArm]);
+  const ARMS =
+    process.env.NEWTAB_ICON_COLUMN_ARMS?.split(",") ??
+    (ALL ? Object.keys(newTabIconColumn.arms) : [newTabIconColumn.defaultArm]);
   const STATES = ["no-project", "project", "machine"];
   const WIDTHS = ALL ? [320, 430, 760, 1040] : [320, 760];
   const THEMES = ALL
@@ -64,7 +66,9 @@ await requireBrowserLane("newtab-icon-column.test.ts", async () => {
                 timeout: 60_000,
               });
               await page.evaluate(() => document.fonts.ready);
-              await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+              await page.evaluate(
+                () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+              );
               const m: Measured = await page.evaluate(() => {
                 const cx = (element: Element | null | undefined) => {
                   if (!element) return null;
@@ -75,7 +79,9 @@ await requireBrowserLane("newtab-icon-column.test.ts", async () => {
                   element ? element.getBoundingClientRect().left : null;
                 const q = (selector: string) => document.querySelector(selector);
                 return {
-                  folder: cx(q(".nt-above .acpmux-location-leading > .acpmux-location-picker:first-child button > :first-child")),
+                  folder: cx(
+                    q(".nt-above .acpmux-location-leading > .acpmux-location-picker:first-child button > :first-child"),
+                  ),
                   plus: cx(q(".nt-box .acpmux-composer-plus svg")),
                   shield: cx(q(".nt-foot .acpmux-access-trigger svg")),
                   composerLeft: left(q(".nt-composer")),
@@ -85,7 +91,9 @@ await requireBrowserLane("newtab-icon-column.test.ts", async () => {
                     q(".nt-above .acpmux-location-leading > .acpmux-location-picker:first-child button"),
                   ),
                   boxLeft: left(q(".nt-box")),
-                  plusButtonLeft: left(q(".nt-box .acpmux-composer-plus .acpmux-picker-button, .nt-box .acpmux-composer-plus button")),
+                  plusButtonLeft: left(
+                    q(".nt-box .acpmux-composer-plus .acpmux-picker-button, .nt-box .acpmux-composer-plus button"),
+                  ),
                   footLeft: left(q(".nt-foot .acpmux-composer-foot")),
                   shieldButtonLeft: left(q(".nt-foot .acpmux-access-trigger")),
                 };
@@ -98,10 +106,9 @@ await requireBrowserLane("newtab-icon-column.test.ts", async () => {
                 .screenshot({ path: path.join(outDir, `${stem}.png`) })
                 .catch(() => {});
               const centers = [m.folder, m.plus, m.shield];
-              const spread =
-                centers.every((value) => typeof value === "number")
-                  ? Math.max(...(centers as number[])) - Math.min(...(centers as number[]))
-                  : Number.NaN;
+              const spread = centers.every((value) => typeof value === "number")
+                ? Math.max(...(centers as number[])) - Math.min(...(centers as number[]))
+                : Number.NaN;
               rows.push(
                 [arm, state, width, look, m.folder, m.plus, m.shield, spread.toFixed(2), JSON.stringify(m)].join("\t"),
               );
