@@ -1111,7 +1111,7 @@ fn commit_resource_effect_patch_in_transaction(
     // not seen here.
     let intent = serde_json::from_str::<Value>(&intent_json).unwrap_or(Value::Null);
     let apply = || apply_resource_patch_timed(transaction, patch, sqlite_revision);
-    let (patch, prune) = match intent["fields"].as_object() {
+    let (patch, prune) = match intent.get("fields").and_then(Value::as_object) {
         Some(fields) => crate::state::created_by::scoped_by_fields(fields, apply),
         None => apply(),
     }?;

@@ -205,7 +205,8 @@ pub(crate) fn snapshot(connection: &Connection, key: &str) -> anyhow::Result<Opt
         )
         .optional()?;
     let Some((kind, creator, session)) = row else { return Ok(None) };
-    let mut value = json!({"kind": kind});
+    let mut value = Map::new();
+    value.insert("kind".into(), json!(kind));
     if let Some(creator) = creator {
         let id = connection
             .query_row(
@@ -216,11 +217,11 @@ pub(crate) fn snapshot(connection: &Connection, key: &str) -> anyhow::Result<Opt
             )
             .optional()?;
         if let Some(id) = id {
-            value["workspace"] = json!(id);
+            value.insert("workspace".into(), json!(id));
         }
     }
     if let Some(session) = session {
-        value["session"] = json!(session);
+        value.insert("session".into(), json!(session));
     }
-    Ok(Some(value))
+    Ok(Some(Value::Object(value)))
 }
