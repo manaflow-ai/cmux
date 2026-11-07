@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { isMcpLifecycleOutput, isToolDiscoveryNoise, visibleToolItems, usefulMcpResponse } from "./mcpPresentation";
 import { mixedToolRunFixture } from "./mixedToolRunFixture";
+import { isCompletedPlumbingTool } from "../hiddenTools";
 
 test("only successful builtin discovery is hidden, never a similarly named operation or an error", () => {
   const discovery = mixedToolRunFixture()[2]!.tool! as NonNullable<Parameters<typeof isToolDiscoveryNoise>[0]>;
@@ -20,10 +21,16 @@ test("only successful builtin discovery is hidden, never a similarly named opera
     { title: "download_tools" },
     { command: "load_tools" },
     { approved: true },
-  ])
-    expect(
-      isToolDiscoveryNoise({ ...discovery, ...extra } as NonNullable<Parameters<typeof isToolDiscoveryNoise>[0]>),
-    ).toBe(false);
+    { background: { state: "running" } },
+    { images: ["data:image/png;base64,AA=="] },
+    { diffs: [{ path: "a.ts", oldText: "", newText: "a" }] },
+  ]) {
+    const tool = { ...discovery, ...extra } as NonNullable<Parameters<typeof isToolDiscoveryNoise>[0]>;
+    expect(isToolDiscoveryNoise(tool)).toBe(false);
+    // The turn summary's count reads the same predicate, so a call drawn in the transcript is
+    // never left out of its "Worked for" count.
+    expect(isCompletedPlumbingTool(tool)).toBe(false);
+  }
 });
 
 test("a call's line uses meaningful results instead of lifecycle placeholders", () => {

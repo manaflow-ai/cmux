@@ -400,6 +400,25 @@ for (const agentFamily of ["claude", "codex"])
       expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
     });
 
+test("a finished turn whose only work is hidden discovery folds nothing under Worked for", async () => {
+  const { mixedToolRunFixture } = await import("./mixedToolRunFixture");
+  const { turnView, WORKED } = await import("./turns");
+  const at = Date.UTC(2026, 10, 4, 0, 0);
+  const discovery = mixedToolRunFixture()[2]!;
+  const turn: AcpmuxRow[] = [
+    { id: "discovery-prompt", version: 1, kind: "user", at, text: "Which tools can you use?" },
+    { id: "discovery-activity", version: 1, kind: "activity", at: at + 1000, items: [discovery], toolCount: 0 },
+    { id: "discovery-answer", version: 1, kind: "assistant", at: at + 2000, text: "The repo tools." },
+    { id: "discovery-summary", version: 1, kind: "turnSummary", at: at + 3000, status: "completed", toolCount: 0 },
+  ];
+  for (const agentFamily of ["codex", "claude"]) {
+    const projected = turnView(turn, new Set(), { agentFamily });
+    expect(projected.some((row) => row.kind === WORKED)).toBe(false);
+    expect(projected.some((row) => row.kind === "activity")).toBe(false);
+    expect(projected.some((row) => row.text === "The repo tools.")).toBe(true);
+  }
+});
+
 test("a click opens a long run with only a window's steps drawn, the rest reserved and drawn after the fold", async () => {
   const items = Array.from({ length: 100 }, (_, at) => calls()[at % 13]!).map((item, at) => ({
     ...item,
