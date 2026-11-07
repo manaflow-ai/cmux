@@ -13,17 +13,16 @@ import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
 import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
-import { SearchIcon, reasoningChoices, type Choice } from "./ComposerPickers";
+import { SearchIcon } from "./ComposerPickers";
+import { reasoningChoices, type Choice } from "./composerPickerModel";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { OnNewTab } from "./newTabComposer";
 import { isModelRouterKind } from "./routerKinds";
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
+import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
 import {
-  QuickModelMenu,
-  StarIcon,
-  UsedMark,
   familyTabs,
   heldTab,
   initialOf,
@@ -36,7 +35,7 @@ import {
   type QuickFamily,
   type QuickMenu,
   type QuickModel,
-} from "./QuickModelMenu";
+} from "./quickModelMenuModel";
 import "./quickModelColumns.css";
 
 type Column = 0 | 1 | 2;
@@ -340,7 +339,8 @@ function Columns({
       const box = frame.getBoundingClientRect();
       if (box.width > width) {
         width = box.width;
-        popup.style.minWidth = `min(${width}px, var(--available-width, calc(100vw - 24px)))`;
+        // The em floor stays: a larger interface or chrome text size still widens the open menu.
+        popup.style.minWidth = `min(max(var(--acpmux-cols-min-width), ${width}px), var(--available-width, calc(100vw - 24px)))`;
       }
       if (box.height > height) {
         height = box.height;

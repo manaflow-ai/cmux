@@ -12,15 +12,16 @@ import { CodeBlock } from "./CodeBlock";
 import { InlinePreview } from "./InlinePreview";
 import { inlinePreviewKind } from "./previewDocument";
 import { TableBlock } from "./TableBlock";
-import { DiagramBlock, isChart } from "./DiagramBlock";
-import { RenderCard, canRender } from "./RenderCard";
+import { DiagramBlock } from "./DiagramBlock";
+import { RenderCard } from "./RenderCard";
+import { isChart } from "./diagramBlockModel";
+import { canRender } from "./renderCardModel";
 import { renderFence } from "./renderCall";
 import { RemoteMedia } from "../chips/ReplyMedia";
 import { isRemoteMedia } from "../chips/replyMediaModel";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
-import type { Reveal } from "./RevealedMarkdown";
-
 import { MathDisplay } from "./Math";
+import type { Reveal } from "./revealedMarkdownModel";
 import { installSelectionCopy } from "./selectionCopy";
 
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";

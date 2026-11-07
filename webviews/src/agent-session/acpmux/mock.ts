@@ -380,7 +380,7 @@ export class MockAcpmuxSocket {
   /// No reply text streams, so whatever the transcript draws past the running turn is waste.
   async tickLoadTurn(
     target: string,
-    options: { seconds: number; tickMs: number; sidebarMs: number },
+    options: { seconds: number; tickMs: number; sidebarMs: number; lineSuffix?: string },
   ): Promise<{ ticks: number; sidebar: number }> {
     const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
     this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
@@ -402,7 +402,7 @@ export class MockAcpmuxSocket {
     while (performance.now() < end && !this.closed) {
       await this.delay(options.tickMs);
       ticks += 1;
-      output += `pass ${ticks}\n`;
+      output += `pass ${ticks}${options.lineSuffix ?? ""}\n`;
       this.emit(target, {
         update: {
           sessionUpdate: "tool_call_update",
