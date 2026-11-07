@@ -185,12 +185,19 @@ class GitHub(_evidence.GitHub):
             def kill() -> None:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
+                except (ProcessLookupError, PermissionError):  # gone, or a macOS zombie group
                     pass
+
+            fired = threading.Event()
+
+            def expire() -> None:
+                fired.set()
+                kill()
 
             # A read blocks while gh sends nothing: the deadline kills gh's group, which ends the read
             # (router-review F1 of #37969: a stalled download held the whole run's deadline, not ARTIFACT_SECONDS).
-            deadline = threading.Timer(ARTIFACT_SECONDS, kill)
+            end = time.monotonic() + ARTIFACT_SECONDS
+            deadline = threading.Timer(ARTIFACT_SECONDS, expire)
             deadline.start()
             try:
                 kept = 0
@@ -200,7 +207,7 @@ class GitHub(_evidence.GitHub):
                         raise Refused(f"artifact {artifact} is over {ARTIFACT_MAX_BYTES} bytes")
                     output.write(chunk)
                 process.wait()
-                if not deadline.is_alive():
+                if fired.is_set() or time.monotonic() > end:  # the timer thread may run late
                     raise Refused(f"artifact {artifact} took over {ARTIFACT_SECONDS} seconds to read")
             finally:
                 deadline.cancel()
