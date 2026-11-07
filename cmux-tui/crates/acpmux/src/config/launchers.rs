@@ -160,12 +160,25 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
 }
 
 pub(crate) fn which(bin: &str) -> Option<String> {
-    let path = crate::login_env::path()?;
+    let path = crate::login_env::path().unwrap_or_default();
     for dir in std::env::split_paths(&path) {
         let candidate = dir.join(bin);
         if candidate.is_file() {
             return Some(candidate.to_string_lossy().into_owned());
         }
     }
-    None
+    native_install(bin)
+}
+
+/// Claude Code's native installer puts `claude` in `~/.local/bin`, which a login PATH may not list
+/// (the installer only asks the person to add it), and a daemon read that PATH when it started: so a
+/// `claude` installed there (`acpmux harness install claude`) is found on the next reload.
+fn native_install(bin: &str) -> Option<String> {
+    if bin != "claude" {
+        return None;
+    }
+    let candidate = dirs::home_dir()?.join(".local/bin").join(bin);
+    // A stale or non-executable file there is no installed CLI (as `harness install` checks).
+    crate::harness_install::is_executable(&candidate)
+        .then(|| candidate.to_string_lossy().into_owned())
 }

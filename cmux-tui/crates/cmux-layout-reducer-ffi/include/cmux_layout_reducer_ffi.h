@@ -113,6 +113,55 @@ uint8_t cmux_pane_edge_split_axis(uint8_t edge);
  *                        row = {key, kind, section, parent?, depth, item?, dimmed, ref?, collapsed?}
  *   drag_begin(items)    {items:[id]} -> {row_key:{before,into,after,refusal?}}
  */
+/*
+ * The sidebar's drop rules as a handle per drag (drag_handle.rs). The rows and
+ * sections cross once, as JSON, when a drag's base layout is made; each drag
+ * move crosses with numbers only. A move's reply is JSON, written only when it
+ * differs from the handle's last reply to the same question: otherwise the
+ * call answers CMUX_SIDEBAR_DRAG_SAME and leaves the output untouched. A reply
+ * larger than the buffer answers ERR_BUFFER with its length, as
+ * cmux_layout_reducer_json does. A handle is used on one thread.
+ *
+ *   cmux_sidebar_drag_new(request)      a sidebar_drop Request ({payload, rows, sections, ...}) -> handle | null
+ *   cmux_sidebar_drag_resolve(...)      the card's points -> null | {target, probe}
+ *   cmux_sidebar_tab_drag_new(request)  a TabRequest ({rows, sections, source_machine, ...}, y unused) -> handle | null
+ *   cmux_sidebar_tab_drag_drop(y, w)    -> null | tab drop (w non-zero: a workspace row takes the tab over its whole height)
+ *   cmux_sidebar_tab_drag_refusal(y)    -> null | {row, reason}
+ *   cmux_sidebar_base_y(...)            1 and *base_y set, or 0 inside the open gap
+ */
+#define CMUX_SIDEBAR_DRAG_SAME 1
+typedef struct CmuxSidebarDrag CmuxSidebarDrag;
+typedef struct CmuxSidebarTabDrag CmuxSidebarTabDrag;
+
+CmuxSidebarDrag *cmux_sidebar_drag_new(const uint8_t *request, size_t request_len);
+void cmux_sidebar_drag_free(CmuxSidebarDrag *drag);
+int32_t cmux_sidebar_drag_resolve(
+    CmuxSidebarDrag *drag,
+    double centre_y,
+    double leading_y,
+    uint8_t has_gap,
+    double gap_y,
+    double gap_height,
+    uint8_t *output,
+    size_t output_capacity,
+    size_t *output_len);
+CmuxSidebarTabDrag *cmux_sidebar_tab_drag_new(const uint8_t *request, size_t request_len);
+void cmux_sidebar_tab_drag_free(CmuxSidebarTabDrag *drag);
+int32_t cmux_sidebar_tab_drag_drop(
+    CmuxSidebarTabDrag *drag,
+    double y,
+    uint8_t whole_rows,
+    uint8_t *output,
+    size_t output_capacity,
+    size_t *output_len);
+int32_t cmux_sidebar_tab_drag_refusal(
+    CmuxSidebarTabDrag *drag,
+    double y,
+    uint8_t *output,
+    size_t output_capacity,
+    size_t *output_len);
+uint8_t cmux_sidebar_base_y(double display_y, uint8_t has_gap, double gap_y, double gap_height, double *base_y);
+
 typedef struct CmuxSidebarMirror CmuxSidebarMirror;
 
 CmuxSidebarMirror *cmux_sidebar_mirror_new(void);
@@ -727,7 +776,8 @@ typedef struct CmuxClosingFrame {
     double vw;
     double vh;
     uint8_t moving;
-    uint8_t reserved[7];
+    uint8_t fixed; /* 1: it does not scroll with the strip (x in view coordinates) */
+    uint8_t reserved[6];
 } CmuxClosingFrame;
 
 typedef struct CmuxClosingRow {
@@ -761,13 +811,13 @@ typedef struct CmuxClosingPlacedList {
 
 CmuxClosingPanes *cmux_closing_panes_new(void);
 void cmux_closing_panes_free(CmuxClosingPanes *closing);
-int32_t cmux_closing_panes_begin(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingEdges *shown, const CmuxClosingPane *panes, size_t pane_count, const CmuxClosingHandle *handles, size_t handle_count, double max_gap, uint8_t has_view_shift, double view_shift);
+int32_t cmux_closing_panes_begin(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingEdges *shown, const CmuxClosingPane *panes, size_t pane_count, const CmuxClosingHandle *handles, size_t handle_count, double max_gap, uint8_t has_view_shift, double view_shift, double strip_shift);
 int32_t cmux_closing_panes_settle(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, CmuxClosingIds *out);
-int32_t cmux_closing_panes_rects(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, CmuxClosingPlacedList *out);
+int32_t cmux_closing_panes_rects(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, double strip, double rest_strip, CmuxClosingPlacedList *out);
 int32_t cmux_closing_panes_carry(CmuxClosingPanes *closing, double drift, uint8_t has_view_shift, double view_shift);
 int32_t cmux_closing_panes_settle_carried(CmuxClosingPanes *closing, double strip_shift);
 int32_t cmux_closing_panes_shift_y(CmuxClosingPanes *closing, uint64_t column, double delta);
-int32_t cmux_closing_panes_remove(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingFrame *frames, size_t frame_count, CmuxClosingTaken *out);
+int32_t cmux_closing_panes_remove(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingFrame *frames, size_t frame_count, double strip, CmuxClosingTaken *out);
 int32_t cmux_closing_panes_drop(CmuxClosingPanes *closing, uint64_t pane);
 uint8_t cmux_closing_panes_has_awaiting(const CmuxClosingPanes *closing);
 uint64_t cmux_closing_panes_state_hash(const CmuxClosingPanes *closing); /* tests: the whole state, hashed */

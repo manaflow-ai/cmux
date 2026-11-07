@@ -332,6 +332,20 @@ fn a_clock_stepped_back_revives_no_spent_grant() {
 }
 
 #[test]
+fn a_sealed_link_group_admits_no_further_link() {
+    let signer = Signer::generate("k1");
+    let (verifier, _) = verifier(&signer);
+    let key = [3_u8; 32];
+    let token = signer.sign(GRANT_TYP, &claims(&key));
+    verifier.verify(&token, &key, ATTEMPT).unwrap();
+    // Another group's seal changes nothing.
+    verifier.seal([2; 32]);
+    verifier.verify(&token, &key, ATTEMPT).unwrap();
+    verifier.seal(ATTEMPT);
+    assert_eq!(verifier.verify(&token, &key, ATTEMPT).unwrap_err().kind, TokenRefused::Replayed);
+}
+
+#[test]
 fn construction_refuses_an_empty_issuer_machine_or_team() {
     let signer = Signer::generate("k1");
     assert!(CarrierGrantVerifier::with_system_clock("", MACHINE, TEAM, signer.keyset()).is_err());
