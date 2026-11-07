@@ -34,22 +34,25 @@ struct PageWebViewChatZoomTests {
         let chief = try #require(PageWebView(descriptor: chiefDescriptor, root: root, routes: [], chromium: nil))
         let other = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
         #expect(chief.followsChatZoom && !other.followsChatZoom)
-        #expect(Self.near(chief.webKitView.pageZoom, 1.25 * 0.8), "the page shows the chat zoom at once")
-        #expect(Self.near(other.webKitView.pageZoom, 1.25), "a page that does not follow keeps the UI scale")
+        // Expected values are read when checked: other suites in the process also set the shared scale.
+        #expect(Self.near(chief.webKitView.pageZoom, Self.uiScale * Self.chatZoom), "the page shows the chat zoom at once")
+        #expect(Self.near(other.webKitView.pageZoom, Self.uiScale), "a page that does not follow keeps the UI scale")
 
         // Cmd-= on the page steps `agentPane.zoom`: the page follows it live.
         design.agentPaneZoom = 1.2
-        #expect(await Self.settles({ Self.near(chief.webKitView.pageZoom, 1.25 * 1.2) }), "page zoom \(chief.webKitView.pageZoom)")
-        #expect(Self.near(chief.pageZoom, 1.25 * 1.2))
-        #expect(Self.near(other.webKitView.pageZoom, 1.25))
+        #expect(await Self.settles({ Self.near(chief.webKitView.pageZoom, Self.uiScale * 1.2) }), "page zoom \(chief.webKitView.pageZoom)")
+        #expect(Self.near(chief.pageZoom, Self.uiScale * Self.chatZoom))
+        #expect(await Self.settles({ Self.near(other.webKitView.pageZoom, Self.uiScale) }), "other page zoom \(other.webKitView.pageZoom)")
 
         // The UI scale still applies on top.
         design.uiScale = 1
-        #expect(await Self.settles({ Self.near(chief.webKitView.pageZoom, 1.2) }), "page zoom \(chief.webKitView.pageZoom)")
+        #expect(await Self.settles({ Self.near(chief.webKitView.pageZoom, Self.uiScale * Self.chatZoom) }), "page zoom \(chief.webKitView.pageZoom)")
         chief.close()
         other.close()
     }
 
+    private static var uiScale: Double { Double(DesignSettings.shared.uiScale) }
+    private static var chatZoom: Double { Double(DesignSettings.shared.agentPaneZoom) }
     private static func near(_ value: CGFloat, _ expected: Double) -> Bool { abs(Double(value) - expected) < 1e-6 }
     private static func near(_ value: Double, _ expected: Double) -> Bool { abs(value - expected) < 1e-6 }
 

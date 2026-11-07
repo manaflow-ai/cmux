@@ -154,9 +154,16 @@ public nonisolated struct KeyBindingDefaults {
         .equals(KeyContext.surfaceKind, .string("home-dock")),
     ])
 
-    /// The Bring your history page (`cmux.import-history`) has the keyboard: the first-run import over
-    /// Home, or the page in a pane. It follows Agent Chat Zoom (`PageWebView.followsChatZoom`).
-    public static let onHistoryImport = WhenClause.equals(KeyContext.pageID, .string("cmux.import-history"))
+    /// The `topPage` of a window that shows Bring your history on top (the first-run import over Home).
+    public static let historyImportTopPage = "import-history"
+
+    /// Bring your history (`cmux.import-history`) is the window's top page, or has the keyboard in a
+    /// pane. It follows Agent Chat Zoom (`PageWebView.followsChatZoom`). As on Home, the top page takes
+    /// the zoom keys wherever the window's keyboard is (a sidebar click leaves it shown).
+    public static let onHistoryImport = WhenClause.or([
+        .equals(KeyContext.topPage, .string(historyImportTopPage)),
+        .equals(KeyContext.pageID, .string("cmux.import-history")),
+    ])
 
     /// Where the Chief chat's zoom keys run: Home, and Bring your history, whose page zooms with the
     /// Chief chat (issue 38049: Cmd-= / Cmd-- did nothing on the first-run import).

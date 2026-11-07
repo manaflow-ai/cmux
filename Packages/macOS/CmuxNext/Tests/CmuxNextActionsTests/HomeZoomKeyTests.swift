@@ -29,7 +29,9 @@ import Testing
         [KeyContext.surfaceKind: .string("home")],
         [KeyContext.surfaceKind: .string("home-dock")],
         // Bring your history (issue 38049): the first-run import over Home zooms with the Chief chat.
-        [KeyContext.pageID: .string("cmux.import-history"), KeyContext.surfaceKind: .string("page")],
+        [KeyContext.pageID: .string("cmux.import-history"), KeyContext.surfaceKind: .string("import-history")],
+        // Shown on top with the keyboard elsewhere in the window (a sidebar click).
+        [KeyContext.topPage: .string("import-history"), KeyContext.surfaceKind: .string("sidebar")],
     ])
     func zoomKeysZoomTheChiefChatOnHome(context: [String: KeyContextValue]) {
         for (key, command) in Self.keys {
