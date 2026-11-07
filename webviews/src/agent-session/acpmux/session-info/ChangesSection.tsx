@@ -22,6 +22,7 @@ import { useHoverCard } from "../chips/useHoverCard";
 import type { SummaryPullRequest } from "../summary/sessionSummary";
 import { PullRequestGlyph, type PullRequestGlyphState } from "./PullRequestGlyph";
 import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
+import { heightAbove, useFoldMotion } from "./foldMotion";
 import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
@@ -174,10 +175,12 @@ export function ChangesSection({
   const [all, setAll] = useState(false);
   const ordered = changesOrder(pullRequests, statuses);
   const folds = ordered.length > CHANGES_SHOWN;
-  const shown = folds && !all ? ordered.slice(0, CHANGES_SHOWN) : ordered;
+  // Show more grows the list in place and Show less closes it over the rows that go (foldMotion.ts).
+  const fold = useFoldMotion<HTMLUListElement>(all, (list) => heightAbove(list, list.children[CHANGES_SHOWN]));
+  const shown = folds && !fold.drawn ? ordered.slice(0, CHANGES_SHOWN) : ordered;
   return (
     <>
-      <ul className="acpmux-session-info-list" data-section="changes">
+      <ul ref={fold.ref} className="acpmux-session-info-list" data-section="changes">
         <WindowedRows
           items={shown}
           render={(pr) => (
@@ -196,7 +199,7 @@ export function ChangesSection({
           type="button"
           className="acpmux-session-info-fold acpmux-session-info-pr-fold"
           aria-expanded={all}
-          onClick={() => setAll(!all)}
+          onClick={() => fold.toggle(!all, setAll)}
         >
           {t(all ? "sessionInfo.changes.showLess" : "sessionInfo.changes.showMore")}
         </button>
