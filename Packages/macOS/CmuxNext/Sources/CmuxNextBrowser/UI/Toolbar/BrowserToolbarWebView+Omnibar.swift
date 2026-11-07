@@ -177,17 +177,15 @@ extension BrowserToolbarWebView {
         ]
     }
 
-    /// Follows `suggestionEngine.display.showsFullURLs` into the page, now and on every change.
+    /// Follows `suggestionEngine.display.showsFullURLs` into the page, now and on every change
+    /// (one loop per engine; a new engine replaces it). A push of an unchanged state is skipped.
     func followDisplay() {
-        let display = suggestionEngine.display
-        _ = withObservationTracking { display.showsFullURLs } onChange: { [weak self, weak display] in
-            // task-owner: one hop per change; ends at once (the view or engine may be gone).
-            Task { @MainActor [weak self, weak display] in
-                guard let self, let display, display === self.suggestionEngine.display else { return }
-                self.followDisplay()
-            }
+        displayLoop?.cancel()
+        displayLoop = ObservationLoop { [weak self] in
+            guard let self else { return }
+            _ = suggestionEngine.display.showsFullURLs
+            setNeedsPush()
         }
-        setNeedsPush()
     }
 
     // MARK: The field's context menu

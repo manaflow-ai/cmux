@@ -37,8 +37,13 @@
       "owner": "Performance Lead"
     },
     "omnibar-key": {
-      "what": "omnibar suggestions per typed key",
-      "bench": "scripts/cmux-next/omnibar-click-bench.py (focus), then bench-typing.py with the omnibar focused",
+      "what": "omnibar suggestions per typed key: the toolbar page's reducer step, then one OmniboxSuggestionEngine request relayed by BrowserToolbarWebView",
+      "bench": "bench-typing.py with the omnibar focused",
+      "owner": "Performance Lead"
+    },
+    "browser-toolbar-push": {
+      "what": "one push of the browser toolbar page's state (BrowserToolbarWebView.pushNow: build the state dictionary, compare with the last, post it): once per run-loop turn with changes, one per tab switch",
+      "bench": "tab-switch-stages.py (browser tabs), then bench-typing.py with the omnibar focused",
       "owner": "Performance Lead"
     },
     "motion-frame": {

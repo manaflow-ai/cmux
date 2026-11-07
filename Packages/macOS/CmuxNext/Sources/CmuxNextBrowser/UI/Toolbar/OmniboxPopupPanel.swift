@@ -59,6 +59,7 @@ final class OmniboxPopupPanel {
         self.bar = bar
         let panel = self.panel ?? makePanel(content)
         panel.adoptThemeScope(of: view)
+        panel.applyGlassTheme()
         if panel.parent !== window {
             panel.parent?.removeChildWindow(panel)
             window.addChildWindow(panel, ordered: .above)
@@ -105,13 +106,7 @@ final class OmniboxPopupPanel {
 
     private func makePanel(_ content: any BrowserChromeWebContent) -> OmniboxPopupWindow {
         let panel = OmniboxPopupWindow()
-        let view = content.view
-        view.translatesAutoresizingMaskIntoConstraints = true
-        view.autoresizingMask = [.width, .height]
-        if let host = panel.contentView {
-            view.frame = host.bounds
-            host.addSubview(view)
-        }
+        panel.host(content.view)
         self.panel = panel
         return panel
     }
@@ -127,6 +122,7 @@ final class OmniboxPopupPanel {
         let y = upward ? bar.maxY - m.bottom : bar.minY + m.top - height
         let frame = NSRect(x: bar.minX - m.left, y: y, width: bar.width + m.left + m.right, height: height)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
+        panel.placeCard(margin: m, upward: upward, cornerRadius: ToolbarRowMetrics.cornerRadius)
     }
 
     private func push() {
@@ -197,11 +193,48 @@ final class OmniboxPopupPanel {
 }
 
 /// The card's window: a popup panel that never becomes key, so the omnibar keeps the keys, and
-/// that acts on the first click (the page's web view accepts it).
+/// that acts on the first click (the page's web view accepts it). The card is the shared overlay
+/// glass, drawn here under the page; the page draws only the rows over it (and the shadow in the
+/// margin around it).
 final class OmniboxPopupWindow: NativePopupPanel {
+    /// Clips the glass's corners on the bar's side, so the card meets the bar square.
+    private let clip = NSView()
+    private let glass = Glass.makeOverlayPanel(cornerRadius: ToolbarRowMetrics.cornerRadius)
+
     init() {
         super.init(identifier: "cmux.omniboxPopup")
+        clip.wantsLayer = true
+        clip.layer?.masksToBounds = true
+        glass.translatesAutoresizingMaskIntoConstraints = true
+        clip.addSubview(glass)
+        contentView?.addSubview(clip)
     }
 
     override var canBecomeKey: Bool { false }
+
+    /// Puts the card's page over the glass, filling the panel.
+    func host(_ view: NSView) {
+        guard let host = contentView else { return }
+        view.translatesAutoresizingMaskIntoConstraints = true
+        view.autoresizingMask = [.width, .height]
+        view.frame = host.bounds
+        host.addSubview(view, positioned: .above, relativeTo: clip)
+    }
+
+    /// The glass at the card's rect: inside the shadow margin, its corners on the bar's side
+    /// clipped square (above the bar when `upward`).
+    func placeCard(margin m: (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat), upward: Bool, cornerRadius: CGFloat) {
+        let size = contentView?.bounds.size ?? frame.size
+        let card = NSRect(x: m.left, y: m.bottom, width: max(0, size.width - m.left - m.right),
+                          height: max(0, size.height - m.top - m.bottom))
+        if clip.frame != card { clip.frame = card }
+        glass.cornerRadius = cornerRadius
+        let rect = NSRect(x: 0, y: upward ? -cornerRadius : 0, width: card.width, height: card.height + cornerRadius)
+        if glass.frame != rect { glass.frame = rect }
+    }
+
+    /// The glass tint of the theme scope the panel adopted (the omnibar's).
+    func applyGlassTheme() {
+        contentView?.performWithTheme { glass.applyTheme() }
+    }
 }
