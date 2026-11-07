@@ -23,7 +23,7 @@ extension ScreenContentView {
             // (an agent, the CLI, a new pane) leaves none (`LayoutModel.focusRingEarned`).
             && context.model.focusRingEarned
         let dim = style.inactiveDim(dimsInactive: dimsInactive)
-        // The flash is the ring's: Toggle Focus Ring off (`focusRing.enabled`) turns it off too.
+        // The flash is the ring's: Focus Ring off (`focusRing.enabled`) turns it off too.
         let flashes = Self.requestsFocusFlash(enabled: FocusIndicatorTunables.flashOnMove.value && style.focusRing.enabled,
                                               multiple: multiple,
                                               source: context.model.lastFocusSource, animated: flashAnimated ?? animated)
