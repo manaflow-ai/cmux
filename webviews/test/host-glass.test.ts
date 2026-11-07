@@ -274,3 +274,24 @@ test("a surface whose deadline passes as host glass stops applying goes to the A
   expect(reports.at(-1)).toHaveLength(1);
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
 });
+
+test("an answer that comes after host glass stopped applying never marks the surface drawn", async () => {
+  const doc = page();
+  const answers: (() => void)[] = [];
+  stop = reportHostGlass(doc, () => new Promise<void>((resolve) => answers.push(resolve)));
+  const element = surface(doc);
+  await frames();
+  // Reduce Transparency turns on and the deadline passes before any frame measures again.
+  const window = dom!.window as unknown as Window;
+  const paint = window.requestAnimationFrame;
+  window.requestAnimationFrame = () => 0;
+  doc.documentElement.setAttribute("data-reduce-transparency", "");
+  await pastDeadline();
+  // The App answers the report sent while host glass applied.
+  answers[0]!();
+  await settled();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).not.toBe("1");
+  window.requestAnimationFrame = paint;
+  await frames();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+});
