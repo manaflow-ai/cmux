@@ -21,6 +21,9 @@ struct PageInfoWireTests {
         #expect(PageInfoCommand(wire: ["type": "setPermission", "kind": "nonsense", "setting": "allow"]) == nil)
         #expect(PageInfoCommand(wire: ["type": "show", "page": ["type": "permission"]]) == nil)
         #expect(PageInfoCommand(wire: ["type": "runScript"]) == nil)
+        // A malformed domain is no "delete every site's data".
+        #expect(PageInfoCommand(wire: ["type": "deleteSiteData", "domain": 42]) == nil)
+        #expect(PageInfoCommand(wire: ["type": "deleteSiteData", "domain": ["a.com"]]) == nil)
     }
 
     @Test func theStateCarriesThePageSiteAndRows() throws {

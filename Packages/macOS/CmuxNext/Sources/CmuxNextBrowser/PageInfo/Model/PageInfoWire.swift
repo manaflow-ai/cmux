@@ -98,7 +98,14 @@ extension PageInfoCommand {
         case "resetPermissions": self = .resetPermissions
         case "siteSettings": self = .siteSettings
         case "manageSiteData": self = .manageSiteData
-        case "deleteSiteData": self = .deleteSiteData(domain: wire["domain"] as? String)
+        case "deleteSiteData":
+            // No domain deletes every site's data: a domain that is there but not a string is refused,
+            // never read as that.
+            switch wire["domain"] {
+            case nil, is NSNull: self = .deleteSiteData(domain: nil)
+            case let domain as String: self = .deleteSiteData(domain: domain)
+            default: return nil
+            }
         case "aboutThisPage": self = .aboutThisPage
         case "reenableCertificateWarnings": self = .reenableCertificateWarnings
         case "reload": self = .reload
