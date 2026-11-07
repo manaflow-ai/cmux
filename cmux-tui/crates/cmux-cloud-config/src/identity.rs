@@ -83,11 +83,17 @@ pub struct Claims {
     pub team: Option<String>,
 }
 
-/// The claims of a three-part JWT; none of a token that is not one.
+/// The claims of a three-part JWT (each part non-empty); none of a token that is not one.
 pub fn claims(token: &str) -> Claims {
     let mut parts = token.split('.');
     let middle = match (parts.next(), parts.next(), parts.next(), parts.next()) {
-        (Some(_), Some(middle), Some(_), None) => Some(middle),
+        // Three non-empty segments, as the old Swift parser required: `.payload.sig` or
+        // `header.payload.` is not a token.
+        (Some(header), Some(middle), Some(signature), None)
+            if !header.is_empty() && !middle.is_empty() && !signature.is_empty() =>
+        {
+            Some(middle)
+        }
         _ => None,
     };
     let payload = middle

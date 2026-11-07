@@ -5727,7 +5727,7 @@
         {
           "key": "home.chiefDock.edge",
           "title": "Dock Edge",
-          "help": "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick.",
+          "help": "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick.",
           "kind": "choice",
           "default": "left",
           "group": "Chief Dock",
@@ -5740,8 +5740,8 @@
         },
         {
           "key": "home.chiefDock.openBeside",
-          "title": "Keep Chief Docked When Opening Workspaces",
-          "help": "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
+          "title": "Show Chief When Opening Workspaces",
+          "help": "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it.",
           "kind": "toggle",
           "default": false,
           "group": "Chief Dock"
