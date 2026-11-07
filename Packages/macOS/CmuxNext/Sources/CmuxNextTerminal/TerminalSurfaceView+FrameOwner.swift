@@ -127,6 +127,10 @@ extension TerminalSurfaceView {
         frameOwnership.ahead = size
         setSurfacePixels(pixels, on: surface)
         updateReflowPreview()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        debugAheadStamp = [clock_gettime_nsec_np(CLOCK_UPTIME_RAW), ghostty_surface_render_counters(surface).frames,
+                           UInt64(pixels.width)]
+        #endif
     }
 
     /// A frame just landed short of the wanted size and its spring gave it the next refresh's size this turn: that size

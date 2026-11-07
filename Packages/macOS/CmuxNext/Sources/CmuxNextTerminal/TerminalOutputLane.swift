@@ -62,6 +62,10 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     let debugParsedBytes = Atomic<UInt64>(0)
     /// The COLS of the last pixel fixture frame parsed (its centre label `pN  COLSxROWS`), 0 before one.
     let debugLabelCols = Atomic<UInt64>(0)
+    /// RESIZE P0 10 diag (nomerge): Ghostty's render counters right after the last parse (frames drawn, draw-now ticks,
+    /// wakeups), so a present can tell whether a frame was drawn after the bytes it should show.
+    let debugFramesAtParse = Atomic<UInt64>(0)
+    let debugDrawNowAtParse = Atomic<UInt64>(0)
 
     private func debugNoteLabel(_ data: Data) {
         let text = String(decoding: data, as: UTF8.self)
@@ -87,6 +91,9 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             #if DEBUG || CMUX_BENCH_HOOKS
             _ = debugParsedBytes.add(UInt64(data.count), ordering: .relaxed)
             debugNoteLabel(data)
+            let counters = ghostty_surface_render_counters(surface)
+            debugFramesAtParse.store(counters.frames, ordering: .relaxed)
+            debugDrawNowAtParse.store(counters.renderer_draw_now, ordering: .relaxed)
             debugParsedNanos.store(clock_gettime_nsec_np(CLOCK_UPTIME_RAW), ordering: .relaxed)
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }
             #endif

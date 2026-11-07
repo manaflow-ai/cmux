@@ -248,6 +248,7 @@ final class TerminalFramePresenter {
             if presented {
                 stats.presented += 1
                 #if DEBUG || CMUX_BENCH_HOOKS
+                view.debugStampPresent(shown == GHOSTTY_HOST_FRAME_PRESENTED ? 1 : 2)
                 presentedHook?(view)
                 #endif
                 landed(view, id: id, watch: false, followUp: followUp)
@@ -260,6 +261,9 @@ final class TerminalFramePresenter {
             default:
                 // Kept: its bounds and its frame stay as they are (never the bounds alone: that stretches the frame).
                 stats.keeps += 1
+                #if DEBUG || CMUX_BENCH_HOOKS
+                view.debugStampPresent(3)
+                #endif
                 if age > Self.longKeepTicks { stats.longKeeps += 1 }
             }
         }

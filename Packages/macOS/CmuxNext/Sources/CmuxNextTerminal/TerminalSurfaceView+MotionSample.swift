@@ -20,6 +20,22 @@ extension TerminalSurfaceView {
     /// ``TerminalFramePresenter/debugState(of:)`` (request, watch, commit or -); `host frame` is what
     /// `ghostty_surface_host_frame` answers now without presenting (owned only, else "-"). It reads only while the trace
     /// records; nothing runs when it does not.
+    private static func drawnCols(_ surface: ghostty_surface_t) -> UInt64 {
+        var cols: UInt16 = 0
+        var rows: UInt16 = 0
+        return ghostty_surface_drawn_grid(surface, &cols, &rows) ? UInt64(cols) : 0
+    }
+
+    /// RESIZE P0 10 diag (nomerge): the presenter's pass presented (1), found shown (2) or kept (3) this view's frame.
+    func debugStampPresent(_ kind: UInt64) {
+        guard let surface else { return }
+        let counters = ghostty_surface_render_counters(surface)
+        debugPresentStamp = [clock_gettime_nsec_np(CLOCK_UPTIME_RAW), kind, counters.frames, counters.renderer_draw_now,
+                             lane?.debugParsedNanos.load(ordering: .relaxed) ?? 0,
+                             lane?.debugLabelCols.load(ordering: .relaxed) ?? 0,
+                             lane?.debugFramesAtParse.load(ordering: .relaxed) ?? 0, Self.drawnCols(surface)]
+    }
+
     static func motionSample(_ view: NSView) -> [String: [Any]]? {
         guard let surfaceView = view as? TerminalSurfaceView else { return nil }
         guard let window = surfaceView.window, let surface = surfaceView.surface, !surfaceView.isHiddenOrHasHiddenAncestor,
@@ -41,7 +57,15 @@ extension TerminalSurfaceView {
                           surfaceView.lane?.debugQueuedNanos.load(ordering: .relaxed) ?? 0,
                           surfaceView.lane?.debugParsedNanos.load(ordering: .relaxed) ?? 0,
                           surfaceView.lane?.debugParsedBytes.load(ordering: .relaxed) ?? 0,
-                          surfaceView.lane?.debugLabelCols.load(ordering: .relaxed) ?? 0]
+                          surfaceView.lane?.debugLabelCols.load(ordering: .relaxed) ?? 0,
+                          // RESIZE P0 10 diag (nomerge), fields 19..: draw-now ticks, wakeups, drawn grid cols now,
+                          // frames and draw-now ticks right after the last parse, the last present stamp
+                          // [ns, kind 1 presented 2 shown 3 kept, frames, draw-now, parsed ns, label cols, frames at parse,
+                          // drawn cols] and the last draw-ahead stamp [ns, frames, width px].
+                          counters.renderer_draw_now, counters.renderer_wakeups, Self.drawnCols(surface),
+                          surfaceView.lane?.debugFramesAtParse.load(ordering: .relaxed) ?? 0,
+                          surfaceView.lane?.debugDrawNowAtParse.load(ordering: .relaxed) ?? 0,
+                          surfaceView.debugPresentStamp, surfaceView.debugAheadStamp]
         return ["terminal": [row]]
     }
 

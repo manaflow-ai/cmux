@@ -27,6 +27,12 @@ public final class TerminalSurfaceView: NSView {
     private(set) var lane: TerminalOutputLane?
     weak var session: TerminalSession?
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// RESIZE P0 10 diag (nomerge): stamps of this view's last owned present and last draw-ahead size (motion trace).
+    var debugPresentStamp: [UInt64] = []
+    var debugAheadStamp: [UInt64] = []
+    #endif
+
     /// The pixel size last given to `ghostty_surface_set_size` (``setSurfacePixels(_:on:)``).
     private var lastSurfacePixels: (width: UInt32, height: UInt32)?
 
