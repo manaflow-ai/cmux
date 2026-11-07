@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A flat imported bookmark: title, URL and its folder path from the source's root (the shape
 /// `CmuxNextBrowserImport` reads from every browser); the home daemon builds the folders.

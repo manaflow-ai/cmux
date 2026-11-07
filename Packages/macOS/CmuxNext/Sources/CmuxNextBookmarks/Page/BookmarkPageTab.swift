@@ -1,10 +1,10 @@
-import AppKit
-import CmuxNextBrowser
+public import AppKit
+public import CmuxNextBrowser
 import CmuxNextIcons
-import CmuxNextPages
+public import CmuxNextPages
 import CmuxNextSettings
-import Foundation
-import Observation
+public import Foundation
+public import Observation
 
 /// The `cmux://bookmarks` manager in a browser tab: the React page
 /// (``PageDescriptor/bookmarks``) on the shared page host, no engine of its own. Navigating it

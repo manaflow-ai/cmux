@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// `cmux://bookmarks`, the manager page's address.
 public nonisolated enum BookmarkPageAddress {
