@@ -35,6 +35,7 @@ export const CATEGORY_CARDS = [
   "server",
   "cloudEnvironments",
   "contextMenus",
+  "personalization",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */

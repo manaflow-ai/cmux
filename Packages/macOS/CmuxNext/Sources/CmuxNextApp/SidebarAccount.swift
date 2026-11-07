@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextDesign
 import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
@@ -42,7 +43,8 @@ struct SidebarAccount: Hashable {
     /// Adds the account rows to the profile menu (`ProfileMenuBuilder.addAccountRows`).
     @MainActor static func addRows(to menu: NSMenu, account: SidebarAccount?, registry: ActionRegistry) {
         ProfileMenuBuilder(registry: registry)
-            .addAccountRows(to: menu, who: account.map { [$0.name, $0.email].compactMap(\.self) }, team: account?.team)
+            .addAccountRows(to: menu, who: account.map { [$0.name, $0.email].compactMap(\.self) }, team: account?.team,
+                            avatar: account?.avatar.image(diameter: Double(Metrics.smallIconSize)))
     }
 }
 
