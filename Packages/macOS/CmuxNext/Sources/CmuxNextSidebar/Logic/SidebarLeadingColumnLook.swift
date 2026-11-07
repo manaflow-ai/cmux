@@ -6,8 +6,9 @@ public import CmuxNextDesign
 /// a glyph starts at one text x after it. The looks differ in where the glyph's ink sits in that box, and whether a
 /// text-only row keeps the box empty.
 public nonisolated enum SidebarLeadingColumnLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The default (Lawrence msg 19643, "left alignment here is bad"): every glyph's ink (a pin, Home's house, a
-    /// favicon, an emoji, a symbol) starts at the row inset, on the left edge text-only titles start on.
+    /// The default (Lawrence msg 19643, "left alignment here is bad"): a workspace row's glyph ink (a favicon, an
+    /// emoji, a symbol) starts at the row inset, on the left edge text-only titles start on. A band row's glyph (Home's
+    /// house) and a pinned row's pin center in the icon column at every look (`SidebarStyle.bandGlyphX`, #38061).
     case inset
     /// As `inset`, and a text-only row keeps the icon column empty, so every title starts at the one text x. Takes
     /// back Lawrence msg 11405 ("text needs to be as left as possible"); kept for comparison only.

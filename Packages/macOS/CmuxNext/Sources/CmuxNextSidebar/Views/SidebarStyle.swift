@@ -54,6 +54,14 @@ enum SidebarStyle {
     static func iconColumnGlyphX(leading: CGFloat, ink: CGRect) -> CGFloat {
         leadingColumnLook == .centered ? iconColumnCenterX(leading: leading) - ink.midX : leading - ink.minX
     }
+    /// The x of a band row's leading glyph (Home's house, another built-in's glyph, a pinned row's pin) drawn with
+    /// `ink`, in the icon column whose box starts at `leading`: its ink centers on the column's center line at every
+    /// look. https://github.com/manaflow-ai/cmux/issues/38061: starting each ink at the inset (`iconColumnGlyphX`) put
+    /// the narrow pin's center about 1.5 pt left of the house's, so the pinned rows' pins did not line up under Home.
+    /// Centered, glyphs of every ink width share one center x, the center of a workspace row's icon box.
+    static func bandGlyphX(leading: CGFloat, ink: CGRect) -> CGFloat {
+        iconColumnCenterX(leading: leading) - ink.midX
+    }
     /// The leading icon column's box (grid.md 3: 16 compact, 20 comfortable, wider when the text size grows the
     /// glyph). Leading icon frames take this box and draw their glyph, at its own `iconBox` size, centered in it,
     /// so the text column is one 8 pt gap after the frame at both densities.
