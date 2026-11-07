@@ -119,7 +119,7 @@ enum DebugAgentPane {
                 return !!field && document.activeElement === field;
                 """
             let focused = (try? await view.callPageScript(script)) as? Bool ?? false
-            return .object(["pane": .string(pane), "focused": .bool(focused)])
+            return .object(["pane": .string(pane), "focused": .bool(focused), "native": .bool(view.debugHoldsKeyboard)])
         }
         if action == "focus_composer" {
             // The chat's pane takes the app's focus, the chat the keyboard and its composer the caret, in
