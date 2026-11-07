@@ -1613,9 +1613,44 @@ PACKAGE_JOBS = {
                   "cmux-tui/spec/full-access-modes.json", "schemas/deeplinks/agent-link.json"),
     },
 }
-SWIFT_PATH_PACKAGE = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
-SWIFT_URL_PACKAGE = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?(?:url|id):\s*"')
-SWIFT_PACKAGE_CALL = re.compile(r"\.package\s*\(")
+SWIFT_PATH_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
+SWIFT_URL_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?(?:url|id):\s*"')
+SWIFT_PACKAGE_TOKEN = re.compile(r"\.package\b")
+
+
+def swift_without_comments(text: str) -> str | None:
+    """TEXT with its Swift comments (`//` to the line end, `/* */` nested as Swift nests them) blanked, plain string
+    literals kept whole (a url's `//` is not a comment); None when it has a raw (`#"`) or multiline literal, which this
+    reader does not parse."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        if text.startswith('"""', i) or text.startswith('#"', i):
+            return None
+        if text[i] == '"':
+            j = i + 1
+            while j < n and text[j] not in '"\n':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            out.append(" ")
+        elif text.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            out.append(" ")
+            i = j
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
 
 
 CARGO_DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
@@ -1725,16 +1760,18 @@ def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]
             manifest = source_text(repo, sha, f"{where}/Package.swift", github)
         except Refused as why:
             raise Refused(f"{where}/Package.swift could not be read at {sha[:12]}: {why}") from None
-        # Every `.package(` is a path dependency read below or a url (or registry id) one: any other spelling (a
-        # comment inside the call, a variable path) could reach a package this rule cannot see, so it refuses.
-        calls = [found.start() for found in SWIFT_PACKAGE_CALL.finditer(manifest)]
-        known = {found.start() for pattern in (SWIFT_PATH_PACKAGE, SWIFT_URL_PACKAGE)
-                 for found in pattern.finditer(manifest)}
-        if unread := [at for at in calls if at not in known]:
-            line = manifest.count("\n", 0, unread[0]) + 1
+        # Read with its comments blanked. Every `.package` token is then a path dependency read below or a url (or
+        # registry id) one: any other spelling (a variable path, a raw or multiline literal) could reach a package
+        # this rule cannot see, so it refuses.
+        code = swift_without_comments(manifest)
+        if code is None:
+            raise Refused(f"{where}/Package.swift has a raw or multiline string literal, which this rule does not read")
+        known = {found.start() for pattern in (SWIFT_PATH_PACKAGE, SWIFT_URL_PACKAGE) for found in pattern.finditer(code)}
+        if unread := [found.start() for found in SWIFT_PACKAGE_TOKEN.finditer(code) if found.start() not in known]:
+            line = code.count("\n", 0, unread[0]) + 1
             raise Refused(f"{where}/Package.swift:{line} declares a package dependency in a form this rule does not "
                           "read; it could reach a package outside the declared reads")
-        for found in SWIFT_PATH_PACKAGE.finditer(manifest):
+        for found in SWIFT_PATH_PACKAGE.finditer(code):
             path = posixpath.normpath(posixpath.join(where, found.group(1)))
             if path.startswith(".."):
                 raise Refused(f"{where}/Package.swift reaches {found.group(1)}, outside the repository")

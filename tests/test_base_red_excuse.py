@@ -3005,12 +3005,29 @@ class PackageFixedOnBase(unittest.TestCase):
             "2026-11-07T07:08:54.9000000Z ##[error]Process completed with exit code 1."])
         self.assertIn(f"excused '{KIT}': fixed on base", self.judge(github))
 
-    def test_a_swift_package_declared_in_an_unread_form_is_refused(self):
-        # A comment inside the call hides the path from the reader: refused, never skipped (review of ce36494d, F1).
+    def test_a_swift_path_package_behind_comments_is_still_followed(self):
+        # Comments inside or before the call no longer hide the path (reviews of ce36494d and d13a3060, F1).
+        for manifest in ('.package(/* the Mac */ path: "../../macOS/CmuxNext")',
+                         '.package /* the Mac */ (path: "../../macOS/CmuxNext")',
+                         '.package(\n    // the Mac\n    path: "../../macOS/CmuxNext"\n)'):
+            files = dict(KIT_FILES)
+            files["Packages/iOS/CmuxTabsKit/Package.swift"] = manifest
+            with self.subTest(manifest=manifest), \
+                    self.assertRaisesRegex(excuse.Refused, "Packages/macOS/CmuxNext is outside its declared reads"):
+                self.judge(KitFixedOnBaseGitHub(files=files))
+
+    def test_a_commented_out_dependency_is_not_followed(self):
         files = dict(KIT_FILES)
-        files["Packages/iOS/CmuxTabsKit/Package.swift"] = '.package(/* the Mac */ path: "../../macOS/CmuxNext")'
-        with self.assertRaisesRegex(excuse.Refused, "CmuxTabsKit/Package.swift:1 declares a package dependency"):
-            self.judge(KitFixedOnBaseGitHub(files=files))
+        files["Packages/iOS/CmuxTabsKit/Package.swift"] = '// .package(path: "../../macOS/CmuxNext"),\n/* .package(x) */'
+        self.assertIn(f"excused '{KIT}': fixed on base", self.judge(KitFixedOnBaseGitHub(files=files)))
+
+    def test_a_swift_package_declared_in_an_unread_form_is_refused(self):
+        for manifest, said in (('.package(path: macPath)', "Package.swift:1 declares a package dependency"),
+                               ('.package(path: #"../../macOS/CmuxNext"#)', "raw or multiline string literal")):
+            files = dict(KIT_FILES)
+            files["Packages/iOS/CmuxTabsKit/Package.swift"] = manifest
+            with self.subTest(manifest=manifest), self.assertRaisesRegex(excuse.Refused, said):
+                self.judge(KitFixedOnBaseGitHub(files=files))
 
     def test_a_url_package_is_read_as_one(self):
         files = dict(KIT_FILES)
