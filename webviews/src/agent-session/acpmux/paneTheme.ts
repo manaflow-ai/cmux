@@ -1,10 +1,9 @@
+import { SCROLLER_FADE_ATTRIBUTE } from "../../scrollers";
 import { applyAgentTheme } from "../shared/theme";
 import { configureSubagentTray } from "./subagents/runningTray";
 import { configureSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { configureSelectionReply } from "./conversation/SelectionReply";
 import { configureChatWidth } from "./chatWidth";
-import { configureCodexToolRuns } from "./codexToolRuns";
-import { configureLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
 import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
@@ -15,9 +14,9 @@ import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 /** The same host theme before mount and on subsequent bridge pushes. */
 export function applyPaneTheme(theme: Record<string, unknown>): void {
   applyAgentTheme(theme as never);
+  // The agent chat's scrollbars fade at rest and widen near the pointer (scrollers.ts).
+  document.documentElement.setAttribute(SCROLLER_FADE_ATTRIBUTE, "");
   configureChatWidth(theme.chatWidth);
-  configureCodexToolRuns(theme.codexToolRuns);
-  configureLiveLineBelow(theme.liveLineBelow);
   configureToolRunLook(theme.toolRunLook);
   configureSentLook(theme.sentLook);
   configureInboxNoticeLook(theme.inboxNoticeLook);

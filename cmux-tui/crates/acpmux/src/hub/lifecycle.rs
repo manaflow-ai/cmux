@@ -1343,7 +1343,16 @@ impl Hub {
                     return Err(RpcError::internal(format!("claude did not start: {}", e.message)));
                 }
             }
-            let state = child.claude_state().await.unwrap_or_default();
+            // A hosted agent's host that did not answer (the shutdown detached it, or it ended)
+            // told nothing of its session: the start fails, never recording no id over the one
+            // it was given and handing out an agent with none ("no agent session").
+            let Some(state) = child.claude_state().await else {
+                return Err(if self.shutting_down() {
+                    super::shutdown::shutting_down_error()
+                } else {
+                    RpcError::internal("the agent host did not answer as its agent started")
+                });
+            };
             let (sid, modes, opts) = (state.session_id, state.modes, state.config_options);
             {
                 let mut m = session.meta.lock().unwrap();
