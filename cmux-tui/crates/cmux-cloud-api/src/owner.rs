@@ -5,6 +5,8 @@
 
 use std::time::Duration;
 
+use cmux_cloud_machine::github::{self, GitHubApp};
+use cmux_cloud_machine::harness_copy;
 use cmux_json::JsonSet as _;
 use reqwest::Method;
 use serde_json::{Map, Value, json};
@@ -15,8 +17,6 @@ use super::{Failure, optional_int, text};
 
 /// The longest the store holds one hand-off wait (`MAX_WAIT_MS`).
 pub(crate) const HANDOFF_WAIT_LIMIT_MS: i64 = 25_000;
-/// The longest a harness login copy answer is trusted, whatever the route says.
-pub(crate) const HARNESS_LOGIN_COPY_MAX_TTL: i64 = 300;
 /// The statuses a hand-off's turn has.
 pub(crate) const HANDOFF_STATUSES: [&str; 6] =
     ["starting", "running", "needs-you", "done", "failed", "cancelled"];
@@ -254,12 +254,16 @@ pub(crate) fn fork_children(value: Value) -> Option<Value> {
     list.iter().map(child).collect::<Option<Vec<_>>>().map(Value::Array)
 }
 
+/// The most pages `owner.handoffs` reads (100 hand-offs each).
+const MAX_HANDOFF_PAGES: i64 = 50;
+
 /// `GET /v1/handoffs?limit=100&cursor=`: the person's hand-offs, newest first, page after page
 /// (at most `pages`). Answers the list.
 async fn handoffs(http: &Http, pages: i64) -> Result<Value, Failure> {
     let mut all_handoffs = Vec::new();
+    let mut bytes = 0_usize;
     let mut cursor: Option<String> = None;
-    for _ in 0..pages.max(1) {
+    for _ in 0..pages.clamp(1, MAX_HANDOFF_PAGES) {
         let mut query = vec![("limit", "100".to_owned())];
         if let Some(cursor) = &cursor {
             if !all(cursor, 512, id_byte) {
@@ -271,6 +275,13 @@ async fn handoffs(http: &Http, pages: i64) -> Result<Value, Failure> {
         let Some(list) = page.get("handoffs").and_then(Value::as_array) else {
             return Err(Failure::Decoding("/v1/handoffs: no handoffs".into()));
         };
+        bytes = bytes.saturating_add(Value::Array(list.clone()).to_string().len());
+        if bytes > crate::MAX_ANSWER_BYTES {
+            return Err(Failure::Transport(format!(
+                "/v1/handoffs: the list is larger than {} bytes",
+                crate::MAX_ANSWER_BYTES
+            )));
+        }
         all_handoffs.extend(list.iter().cloned());
         match page.get("nextCursor").and_then(Value::as_str) {
             Some(next) if !next.is_empty() => cursor = Some(next.to_owned()),
@@ -327,14 +338,10 @@ pub(crate) fn handoff_turn(handoff: &Value) -> Option<Value> {
 }
 
 /// The switch's answer: `{enabled, ttlSeconds}` (or that object under `value`), `ttlSeconds`
-/// clamped to 0..=300.
+/// clamped to 0..=300 ([`cmux_cloud_machine::harness_copy::read`]).
 pub(crate) fn harness_login_copy(body: &Value) -> Result<Value, Failure> {
-    let read = |v: &Value| Some((v.get("enabled")?.as_bool()?, v.get("ttlSeconds")?.as_i64()?));
-    let (enabled, ttl) =
-        read(body).or_else(|| body.get("value").and_then(read)).ok_or_else(|| {
-            Failure::Decoding("/v1/cloud/harness-login-copy: no enabled and ttlSeconds".into())
-        })?;
-    Ok(json!({ "enabled": enabled, "ttlSeconds": ttl.clamp(0, HARNESS_LOGIN_COPY_MAX_TTL) }))
+    let copy = harness_copy::read(body).map_err(Failure::Decoding)?;
+    Ok(json!({ "enabled": copy.enabled, "ttlSeconds": copy.ttl_seconds }))
 }
 
 /// `GET /v1/integrations/github/status?team=` with the person's session and no team header (the
@@ -353,37 +360,20 @@ async fn github_app(http: &Http, team: &str) -> Result<Value, Failure> {
         .send(Method::GET, url, None, None, Duration::from_secs(15), &path_text(&segments))
         .await;
     let state = match reply {
-        Ok(reply) => github_app_state(reply.status, reply.json().as_ref()),
+        Ok(reply) => github_app_state(reply.status, &reply.body),
         Err(_) => "unknown",
     };
     Ok(json!({ "state": state }))
 }
 
 /// The status route's answer (`{configured, app_slug, allowed?, connection: {status} | null}`,
-/// else `{error: {code, message}}`) as `ready`, `not_connected`, `not_configured` or `unknown`.
-pub(crate) fn github_app_state(status: u16, body: Option<&Value>) -> &'static str {
-    let Some(object) = body.and_then(Value::as_object) else { return "unknown" };
-    if !(200..300).contains(&status) {
-        let code = object.get("error").and_then(|e| e.get("code")).and_then(Value::as_str);
-        return if code == Some("integration.not_found") { "not_connected" } else { "unknown" };
+/// else `{error: {code, message}}`) as `ready`, `not_connected`, `not_configured` or `unknown`
+/// ([`cmux_cloud_machine::github::status`]).
+pub(crate) fn github_app_state(status: u16, body: &[u8]) -> &'static str {
+    match github::status(status, body) {
+        GitHubApp::Ready => "ready",
+        GitHubApp::NotConnected => "not_connected",
+        GitHubApp::NotConfigured => "not_configured",
+        GitHubApp::Unknown => "unknown",
     }
-    let Some(configured) = object.get("configured").and_then(Value::as_bool) else {
-        return "unknown";
-    };
-    if !configured {
-        return "not_configured";
-    }
-    // A configured deployment names its App; an answer that does not is not this route's.
-    let slug = object.get("app_slug").and_then(Value::as_str).unwrap_or_default();
-    if slug.trim().is_empty() {
-        return "unknown";
-    }
-    // The team policy disallows GitHub: the App mints nothing, so the helper must not replace the
-    // machine's own sign-in. An older Worker that does not say is allowed, as before.
-    if object.get("allowed") == Some(&Value::Bool(false)) {
-        return "unknown";
-    }
-    let active = object.get("connection").and_then(|c| c.get("status")).and_then(Value::as_str)
-        == Some("active");
-    if active { "ready" } else { "not_connected" }
 }
