@@ -130,14 +130,14 @@ extension SidebarListViewComponents {
         showDragLayout()
     }
     /// The drag's base layout (no gap) and its drop rules in the Rust reducer, made again only when the rows or their
-    /// look change: a move lays out nothing and crosses into Rust with the card's points only, so its cost does not grow
-    /// with the rows the list holds (`SidebarDragMoveCostTests`). The rows are the held ones as shown (`SidebarRowHold`).
+    /// look change: a move builds no options, lays out nothing and crosses into Rust with the card's points only, so its
+    /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`). The rows are the held ones as shown (`SidebarRowHold`).
     func dragBase(_ drag: Drag) -> (layout: SidebarLayout, rules: DropResolver.DragRules?) {
-        let options = options(includeGap: false)
-        let key = SidebarDragBaseKey(content: model.contentRevision, metrics: metrics, options: options, ungroupedFirst: model.ungroupedFirst)
+        let key = SidebarDragBaseKey(content: model.contentRevision, reloads: reloads, width: bounds.width, metrics: metrics,
+                                     ungroupedFirst: model.ungroupedFirst)
         if let base = drag.base, base.key == key { return (base.layout, base.rules) }
         let sections = listSections
-        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: options)
+        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: options(includeGap: false))
         let rules = DropResolver.DragRules(payload: drag.payload, base: layout, sections: sections, ungroupedFirst: model.ungroupedFirst)
         drag.base = (key, layout, rules)
         return (layout, rules)

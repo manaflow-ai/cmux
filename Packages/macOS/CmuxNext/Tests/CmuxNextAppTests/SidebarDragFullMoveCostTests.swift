@@ -70,6 +70,32 @@ import Testing
         return (held, retarget, base)
     }
 
+    /// The base is made once per drag and again only after a reload (any change of the options the list draws runs
+    /// one) or a width change: a move reuses it and builds no options.
+    @Test func theDragBaseHoldsAcrossMovesUntilTheListReloads() throws {
+        let (list, window) = Self.list(50)
+        defer { window.close() }
+        let row = try #require(list.displayed.row(for: .workspace(WorkspaceID("fm-0"))))
+        let start = NSPoint(x: 80, y: row.y + row.height / 2)
+        list.press = SidebarPress(key: row.key, point: start)
+        list.beginDrag(try #require(list.press))
+        let drag = try #require(list.drag)
+        let move = { (dy: CGFloat) in list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: start.y + dy), to: nil)) }
+        move(3)
+        let first = try #require(drag.base?.rules)
+        move(40)
+        move(90)
+        #expect(drag.base?.rules === first, "a move made the drag's base again")
+        list.reload(animated: false)
+        move(93)
+        let reloaded = try #require(drag.base?.rules)
+        #expect(reloaded !== first, "a reload left the drag's base as it was")
+        list.setFrameSize(NSSize(width: list.frame.width - 20, height: list.frame.height))
+        move(96)
+        #expect(drag.base?.rules !== reloaded, "a width change left the drag's base as it was")
+        list.cancelDrag()
+    }
+
     @Test func dragFullMoveCostPerSize() throws {
         _ = try Self.sweep(50) // warm the reducer, the layout and the allocator
         for count in Self.sizes {

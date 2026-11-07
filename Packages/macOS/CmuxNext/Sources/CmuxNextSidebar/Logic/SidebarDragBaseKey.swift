@@ -1,8 +1,14 @@
-/// What a drag's base layout and drop rules are made from (`SidebarListView.dragBase`): the model's rows (any write of
-/// them moves `contentRevision`), the row metrics and the layout options. While it is unchanged a drag move reuses both.
+import CoreGraphics
+
+/// What a drag's base layout and drop rules are made from (`SidebarListView.dragBase`), in values a move reads in
+/// constant time: the model's rows (any write of them moves `contentRevision`), the list's reloads (every change of
+/// the layout options the list draws runs one, `SidebarListView.reloads`), its width (block heights), the row metrics
+/// and the drop tunables the rules hold. While it is unchanged a drag move reuses both and builds no options.
 nonisolated struct SidebarDragBaseKey: Equatable {
     var content: UInt64
+    var reloads: UInt64
+    var width: CGFloat
     var metrics: SidebarLayoutMetrics
-    var options: SidebarLayoutOptions
     var ungroupedFirst: Bool
+    var drop = DropResolver.tunables
 }

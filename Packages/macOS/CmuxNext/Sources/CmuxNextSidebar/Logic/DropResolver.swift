@@ -19,6 +19,9 @@ public nonisolated enum DropResolver {
         (SidebarTunables.workspaceOntoStart.value, SidebarTunables.workspaceOntoEnd.value)
     }
 
+    /// Every tunable a drag's rules hold (`DragRules`, `TabDragRules`): a change makes the rules again.
+    static var tunables: [CGFloat] { [groupEdgeFraction, groupExitFraction, sectionTopFraction, ontoBand.start, ontoBand.end] }
+
     /// Resolves a drop at `y`. `onto` is the onto band of a loose workspace
     /// row (default: the tunables); an empty band turns grouping off.
     public static func resolve(y: CGFloat, payload: DragPayload, base: SidebarLayout, sections: [SidebarSection], ungroupedFirst: Bool = false,
