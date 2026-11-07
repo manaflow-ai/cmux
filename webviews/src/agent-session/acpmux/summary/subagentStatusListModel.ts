@@ -1,6 +1,6 @@
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { type StringKey, type Translate } from "../i18n";
-import { running, STATE_LABEL } from "../subagents/SubagentGroup";
+import { running, STATE_LABEL } from "../subagents/subagentGroupModel";
 import { awaitsOwnWork, type Subagent } from "../subagents/subagentFold";
 import { IDLE_AFTER_MS } from "../subagents/idle";
 import { retrying, retryLabel } from "../subagents/retryState";

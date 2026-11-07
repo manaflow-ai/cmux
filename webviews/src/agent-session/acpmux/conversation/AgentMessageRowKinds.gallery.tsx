@@ -51,7 +51,7 @@ const SEND: Tool = {
   title: "acpmux send coord",
   kind: "execute",
   status: "completed",
-  command: "acpmux send --no-wait gcp-agent-lane-1/cloud-client-rust - <<'EOF'\n" + REPORT + "\nEOF",
+  command: "acpmux send --no-wait build-box-1/cloud-client-rust - <<'EOF'\n" + REPORT + "\nEOF",
   output: "queued",
   description: "Report the merge",
 };
@@ -104,20 +104,21 @@ export default componentEntry<Props>({
     const { incomingPrompt } = await import("./incomingMessage");
     const { inboxNotice } = await import("./inboxNotice");
     const { GroupHoverLookContext, MessageGroupHover, hoverMessages } = await import("./MessageGroupHover");
-    const { SubagentDoneLine, DoneReportLookContext } = await import("../subagents/SubagentDoneLine");
-    const { SubagentNavContext } = await import("../subagents/SubagentGroup");
+    const { SubagentDoneLine } = await import("../subagents/SubagentDoneLine");
+    const { DoneReportLookContext } = await import("../subagents/subagentDoneLineModel");
+    const { SubagentNavContext } = await import("../subagents/subagentGroupModel");
     // A relayed message from a sender acpmux verified: its record names its family and the relay.
-    const verified = incomingPrompt(relayed(REPORT, "7f70dca3", "gcp-agent-lane-2/lock-proof-routes"), {
-      client: "acpmux-cli#1@gcp-agent-lane-2",
+    const verified = incomingPrompt(relayed(REPORT, "7f70dca3", "build-box-2/lock-proof-routes"), {
+      client: "acpmux-cli#1@build-box-2",
       _meta: {
         provenance: {
           kind: "agent_message",
           from: "fromAgent",
-          fromName: "gcp-agent-lane-2/lock-proof-routes",
+          fromName: "build-box-2/lock-proof-routes",
           sender: {
             verification: "verified",
             harness: "codex",
-            relay: { by: "lane-gh broker", machine: "gcp-agent-lane-2" },
+            relay: { by: "lane-gh broker", machine: "build-box-2" },
           },
         },
       },
@@ -145,7 +146,7 @@ export default componentEntry<Props>({
     const group = hoverMessages([
       verified?.kind === "message" ? verified.message : undefined,
       {
-        name: "gcp-agent-lane-1/chat-rendering",
+        name: "build-box-1/chat-rendering",
         text: "Shared row landed behind the card look; gallery has the three variants.",
         raw: "",
         harness: "claude",
@@ -157,7 +158,7 @@ export default componentEntry<Props>({
         unverified: true,
       },
       ...["palette-ranker-one", "pr-latency", "chat-targets", "base-red-watch"].map((name) => ({
-        name: `gcp-agent-lane-3/${name}`,
+        name: `build-box-3/${name}`,
         text: `${name}: checks pass, ready for review.`,
         raw: "",
       })),

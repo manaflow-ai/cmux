@@ -19,8 +19,9 @@ import { incomingPrompt, type IncomingMessage } from "../src/agent-session/acpmu
 import { relayEnvelope, withoutRelayHead } from "../src/agent-session/acpmux/conversation/relayEnvelope";
 import { AcpmuxSendLine } from "../src/agent-session/acpmux/conversation/SentMessageLine";
 import { acpmuxSendCall } from "../src/agent-session/acpmux/conversation/acpmuxSends";
-import { SubagentDoneLine, DoneReportLookContext } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
-import { SubagentNavContext } from "../src/agent-session/acpmux/subagents/SubagentGroup";
+import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
+import { DoneReportLookContext } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
+import { SubagentNavContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 
 let dom: JSDOM | undefined;

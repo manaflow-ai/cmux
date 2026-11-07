@@ -152,6 +152,7 @@ import {
   markTranscriptSummaryVersion,
   pullRequestRowKey,
 } from "./summary/transcriptPullRequests";
+import { markOneRowChange } from "./rowChanges";
 import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
@@ -597,6 +598,9 @@ const OPEN_HOLD_MS = 1500;
 let connectFailedAfterEarlyTail: string | undefined;
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
+/// A sudo card and its answer (acpmux hub/elevation.rs): only this machine's own chats ask, so only
+/// a local attach asks for them (a peer's attach stays at 8 kinds).
+const ELEVATION_KINDS = ["elevation_request", "elevation_decision"];
 /// The promptId acpmux gives a task result's prompt: `offer-result-<offerId>` (hub/offers.rs).
 const OFFER_RESULT_PROMPT = "offer-result-";
 /// A queued prompt sent now (`queue_order` `next`) or edited (`queue_updated`): not transcript in
@@ -1584,6 +1588,9 @@ function promptImages(value: unknown): PromptImage[] {
   );
 }
 
+/// More than one slot of the kept order changed, or it was rebuilt (`OrderedRows.changedSlot`).
+const MANY_SLOTS = Symbol("many");
+
 /// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
 /// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
 /// A row made without an event (a prompt sending or failed, a notice, the typing row) orders after
@@ -1604,6 +1611,12 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// The array handed to snapshots. Metadata updates can emit without changing a transcript row;
   /// reuse this reference so the pane's derived rows stay memoized.
   private snapshot: AcpmuxRow[] | undefined;
+  /// The one slot of `ordered` written in place since `snapshot` was made, when that is all that
+  /// changed (MANY_SLOTS for any other change): the next snapshot says so (rowChanges.ts
+  /// `markOneRowChange`), so the pane reads that row alone, not every row.
+  private changedSlot: number | typeof MANY_SLOTS | undefined;
+  /// The last snapshot handed out, which the next one's change is from.
+  private published: AcpmuxRow[] | undefined;
   private pullRequestActivityVersion = Symbol();
   private pullRequestCommandVersion = Symbol();
   private transcriptSummaryVersion = {};
@@ -1648,6 +1661,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       const at = this.orderedIndex.get(rowId);
       if (this.ordered && at !== undefined) this.ordered[at] = tagged;
       this.snapshot = undefined;
+      this.changedSlot = MANY_SLOTS;
       this.transcriptSummaryVersion = {};
     }
     return { ended: ended?.turn, hasRows };
@@ -1703,7 +1717,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (this.ordered && at !== undefined) this.ordered[at] = old;
       changed = true;
     }
-    if (changed) this.snapshot = undefined;
+    if (changed) {
+      this.snapshot = undefined;
+      this.changedSlot = MANY_SLOTS;
+    }
   }
 
   // Producers identify stream progress from the event, even when its row retains settled tools.
@@ -1747,8 +1764,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const index = this.orderedIndex.get(id);
     if (known && index !== undefined && (ordered[index]!.at === row.at || this.ownsSlot(index))) {
       ordered[index] = row;
+      this.changedSlot = this.changedSlot === undefined || this.changedSlot === index ? index : MANY_SLOTS;
       return;
     }
+    this.changedSlot = MANY_SLOTS;
     const last = ordered.at(-1);
     const order = this.order.get(id) ?? 0;
     const lastOrder = last ? (this.order.get(last.id) ?? 0) : -Infinity;
@@ -1861,13 +1880,19 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// The rows in event order (wall-clock time breaks a tie).
   sorted(): AcpmuxRow[] {
     if (!this.ordered) {
+      this.changedSlot = MANY_SLOTS;
       this.ordered = [...this.values()].sort(
         (a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at,
       );
       this.orderedIndex = new Map(this.ordered.map((row, index) => [row.id, index]));
     }
     if (!this.snapshot) {
+      const from = this.published;
       this.snapshot = this.ordered.slice();
+      if (typeof this.changedSlot === "number" && from && from.length === this.snapshot.length)
+        markOneRowChange(this.snapshot, from, this.changedSlot);
+      this.published = this.snapshot;
+      this.changedSlot = undefined;
       this.artifactUpdates.publish(this.snapshot);
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
       markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
@@ -3301,12 +3326,13 @@ export class AcpmuxDirectClient {
   }
 
   /// The selected chat's tail as this page read it (its newest `KEPT_EVENTS` records and what they
-  /// need to draw), once its attach answered; undefined before, or for a replay.
-  private currentTail(): KeptTail | undefined {
+  /// need to draw, or every record with `whole`), once its attach answered; undefined before, or for
+  /// a replay.
+  private currentTail(whole = false): KeptTail | undefined {
     const sessionId = this.selectedSessionId;
     if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return undefined;
     if (this.attachedGeneration !== this.selectionGeneration) return undefined;
-    const events = this.events.slice(-KEPT_EVENTS);
+    const events = whole ? this.events : this.events.slice(-KEPT_EVENTS);
     // The kept page may start inside a turn whose prompt was in the history we just cut off.
     // Keep that prompt beside the page, as attach does: without it the first cached frame draws
     // the turn's work unfolded, then the identical attach folds it once the prompt comes back.
@@ -3619,32 +3645,40 @@ export class AcpmuxDirectClient {
   /// one; else the chat is off screen as after a failed open, and opens again once the machine is.
   private async redrawPeerCopy(sessionId: string): Promise<void> {
     const generation = this.selectionGeneration;
-    // The frame drawn stays until the new copy is read, as for a switch: no empty pane between.
+    // The frame drawn stays until the new copy is drawn as what it is (offline) or is dropped, as
+    // for a switch: no empty pane between, and no frame of the copy as if read from its machine.
     const hold = this.holdSnapshots(SWITCH_HOLD_MS);
     // Everything of the old session goes, its queue and prompts not yet sent too, as for a switch.
     this.resetSessionState("peer copy redrawn");
-    const drawn = await this.drawPeerCopy(sessionId, generation).finally(() => this.releaseSnapshots(hold));
-    const copy = this.peerCopy as PeerCopy | undefined;
-    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-    if (drawn === 0 || copy?.sessionId !== sessionId) {
-      this.dropPeerCopy(sessionId);
-      // A machine that came back meanwhile opens the chat itself.
-      const row = this.sessions.find((session) => session.sessionId === sessionId);
-      if (this.copyBack === sessionId && peerBack(row)) {
-        this.copyBack = undefined;
-        // Owned like any attach of the copy: a reconnect's takes it over; down again, the
-        // Mac's copy is drawn if it has one.
-        const mine = ++this.copyAttaches;
-        void this.attach(sessionId, generation, 0).catch(async (error: unknown) => {
-          if (mine === this.copyAttaches) await this.keepPeerCopy(sessionId, generation, error);
-        });
+    let offline = false;
+    try {
+      const drawn = await this.drawPeerCopy(sessionId, generation);
+      const copy = this.peerCopy as PeerCopy | undefined;
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      if (drawn === 0 || copy?.sessionId !== sessionId) {
+        this.dropPeerCopy(sessionId);
+        // A machine that came back meanwhile opens the chat itself.
+        const row = this.sessions.find((session) => session.sessionId === sessionId);
+        if (this.copyBack === sessionId && peerBack(row)) {
+          this.copyBack = undefined;
+          // Owned like any attach of the copy: a reconnect's takes it over; down again, the
+          // Mac's copy is drawn if it has one.
+          const mine = ++this.copyAttaches;
+          void this.attach(sessionId, generation, 0).catch(async (error: unknown) => {
+            if (mine === this.copyAttaches) await this.keepPeerCopy(sessionId, generation, error);
+          });
+        }
+        return;
       }
-      return;
+      copy.offline = true;
+      copy.attaching = false;
+      this.emit("peer offline");
+      offline = true;
+    } finally {
+      this.releaseSnapshots(hold);
     }
-    copy.offline = true;
-    copy.attaching = false;
-    this.emit("peer offline");
-    this.reattachIfBack(sessionId);
+    // After the offline frame is drawn: a read of the machine holds frames of its own.
+    if (offline) this.reattachIfBack(sessionId);
   }
 
   /// An open that failed before its attach of the copy answered (the socket, the handshake or the
@@ -4361,8 +4395,10 @@ export class AcpmuxDirectClient {
       from !== undefined &&
       this.drawn.peer !== undefined;
     // What this page read of it, for a reopen while it is held (`select`): kept here only, never
-    // in the shared cache, which a purge cleared.
-    const tail = brief ? this.currentTail() : undefined;
+    // in the shared cache, which a purge cleared. Every row, older pages too: a tail cut at
+    // KEPT_EVENTS would take the rows before it off screen when the chat is listed again. Held only
+    // for that hold, and the rows are the ones the page holds already.
+    const tail = brief ? this.currentTail(true) : undefined;
     this.leftTail = from !== undefined && tail ? { sessionId: from, tail } : undefined;
     this.selectedSessionId = this.host.sessionMustExist || purging ? undefined : this.sessions[0]?.sessionId;
     if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
@@ -5118,7 +5154,7 @@ export class AcpmuxDirectClient {
         ...SECRET_KINDS,
         // The chat's sub-session records: its running limit's `limits` changes (the eighth kind).
         SUBSESSION_KIND,
-        ...(this.localOrigin ? QUEUE_KINDS : []),
+        ...(this.localOrigin ? [...QUEUE_KINDS, ...ELEVATION_KINDS] : []),
       ],
       eventStream: true,
       visible,
@@ -6309,7 +6345,18 @@ export class AcpmuxDirectClient {
         name: String(msg.name ?? ""),
         reason: String(msg.reason ?? ""),
       };
-    else if (event.kind === "secret_decision") {
+    else if (event.kind === "elevation_request")
+      this.pendingSecret = {
+        secretId: String(msg.secretId ?? ""),
+        name: "sudo",
+        reason: String(msg.reason ?? ""),
+        elevation: {
+          argv: Array.isArray(msg.argv) ? msg.argv.map(String) : [],
+          host: String(msg.host ?? ""),
+          ...(typeof msg.timeoutSecs === "number" ? { timeoutSecs: msg.timeoutSecs } : {}),
+        },
+      };
+    else if (event.kind === "secret_decision" || event.kind === "elevation_decision") {
       if (this.pendingSecret?.secretId === msg.secretId) this.pendingSecret = undefined;
     } else if (event.kind === "permission_group" || event.kind === "permission_chat_allowance")
       void this.permissions.refresh().catch(() => {});
