@@ -561,8 +561,9 @@ async fn a_restart_keeps_a_continuations_goal_mark_and_an_edit_drops_it() {
 /// A prompt of acpmux's own control state the person rewrote in the queue is their prompt now:
 /// a restart keeps it, for every kind a restart or its cleanup leaves out (`queue_edit.rs`
 /// `controls`). Before, the edit kept the kind, so the load dropped the person's words: an inbox
-/// notice in `restore_queue`, a subagent retry in `drop_unsent_subagent_retries` (Codex reviews
-/// of #37497).
+/// notice in `restore_queue`, a subagent retry in `drop_unsent_subagent_retries`, and a forum
+/// announcement's refresh rewrote them (Codex reviews of #37497). A message that names its
+/// sender keeps only that.
 #[tokio::test]
 async fn a_restart_keeps_control_prompts_the_person_rewrote() {
     let dir = std::env::temp_dir().join(format!("acpmux-edited-control-{}", uuid::Uuid::now_v7()));
@@ -591,6 +592,12 @@ async fn a_restart_keeps_control_prompts_the_person_rewrote() {
                 "subagentId": "s/t9", "agentId": "agent-s/t9", "attempt": 1}),
         ),
         ("trigger", json!({"kind": "trigger"})),
+        ("forum-post-1", json!({"kind": super::super::forum::PROVENANCE_KIND, "postId": "post-1"})),
+        (
+            "report",
+            json!({"kind": super::super::lane_reports::KIND, "from": "acp:lane-1",
+                "fromName": "lane-1", "firstWork": true, "goalMark": "41"}),
+        ),
     ];
     for (prompt_id, provenance) in &kinds {
         insert(&hub, &session, prompt_id, Some(provenance));
@@ -612,11 +619,19 @@ async fn a_restart_keeps_control_prompts_the_person_rewrote() {
             (q.prompt_id, q.preview, kind)
         })
         .collect();
+    // A lane's report keeps who sent it, as a session's message and nothing more: no gate, first
+    // work or mark acts on the person's words.
+    let sender = |prompt_id: &str| (prompt_id == "report").then(|| json!("session_message"));
     let want: Vec<(String, String, Option<Value>)> = kinds
         .iter()
-        .map(|(prompt_id, _)| ((*prompt_id).to_owned(), format!("Do {prompt_id} instead"), None))
+        .map(|(id, _)| ((*id).to_owned(), format!("Do {id} instead"), sender(id)))
         .collect();
     assert_eq!(left, want, "the person's rewritten control prompts after a restart");
+    let report = session.queue().into_iter().find(|q| q.prompt_id == "report").unwrap();
+    let kept = report.run.provenance.clone().unwrap();
+    assert_eq!(kept["fromName"], "lane-1", "{kept}");
+    assert!(kept.get("firstWork").is_none() && kept.get("goalMark").is_none(), "{kept}");
+    assert!(kept.get(crate::prompt_provenance::EDITED_BY).is_some(), "{kept}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
