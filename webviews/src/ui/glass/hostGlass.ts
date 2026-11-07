@@ -148,9 +148,11 @@ export function reportHostGlass(doc: Document, post: (surfaces: HostGlassSurface
     sent = text;
     post(surfaces).then(() => {
       if (!live) return;
-      for (const element of elements) if (ids.has(element) && element.isConnected) mark(element, "1");
+      // A surface that already fell back keeps the page's glass: a late answer never swaps it.
+      for (const element of elements) if (ids.has(element) && element.isConnected && !fellBack(element)) mark(element, "1");
     }, end);
   };
+  const fellBack = (element: Element) => element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE) === "0";
   const measure = (): string => {
     const applies = live && hostGlassApplies(doc);
     root.toggleAttribute(HOST_GLASS_ROOT_ATTRIBUTE, applies);
@@ -161,7 +163,9 @@ export function reportHostGlass(doc: Document, post: (surfaces: HostGlassSurface
         forget(element);
         continue;
       }
-      const surface = applies && surfaces.length < HOST_GLASS_MAX ? hostGlassSurface(element, id) : undefined;
+      // A fallen-back surface is not reported: the App draws no glass under the page's own.
+      const surface =
+        applies && surfaces.length < HOST_GLASS_MAX && !fellBack(element) ? hostGlassSurface(element, id) : undefined;
       if (surface) {
         surfaces.push(surface);
         elements.push(element);

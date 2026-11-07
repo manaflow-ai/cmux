@@ -93,6 +93,25 @@ test("a surface the App has not drawn by the deadline keeps the page's own glass
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
 });
 
+test("a late answer leaves a fallen-back surface on the page's glass, and it is no longer reported", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  let answer: (() => void) | undefined;
+  stop = reportHostGlass(doc, (surfaces) => {
+    reports.push(surfaces);
+    return new Promise<void>((resolve) => (answer ??= resolve));
+  });
+  const element = surface(doc);
+  await frames();
+  await pastDeadline();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+  answer!();
+  await settled();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+  await frames();
+  expect(reports.at(-1)).toEqual([]);
+});
+
 test("an App that refuses the report leaves every surface on the page's glass and is not asked again", async () => {
   const doc = page();
   let calls = 0;
