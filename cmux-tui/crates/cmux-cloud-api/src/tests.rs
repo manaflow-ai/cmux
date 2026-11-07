@@ -192,6 +192,12 @@ fn an_upgrade_url_off_cmux_com_or_a_plan_not_sold_here_is_not_kept() {
         vm_error(402, plain_http, None),
         Failure::PlanRequired { upgrade_url: None, .. }
     ));
+    // A browser reads `\` as `/`: this link is evil.example's, whatever follows the `@`.
+    let backslash = br#"{"error":"x","upgradeRequired":true,"upgradeUrl":"https://evil.example\\@cmux.com/pricing"}"#;
+    assert!(matches!(
+        vm_error(402, backslash, None),
+        Failure::PlanRequired { upgrade_url: None, .. }
+    ));
     let team = br#"{"error":"x","upgradeRequired":true,"upgradePlanId":"team"}"#;
     assert!(matches!(vm_error(402, team, None), Failure::Http { .. }));
 }
