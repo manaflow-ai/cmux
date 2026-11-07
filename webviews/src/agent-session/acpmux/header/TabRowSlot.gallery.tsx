@@ -49,7 +49,7 @@ function Row({ policy, step }: { policy: Policy; step: Step }) {
           position: "relative",
           width: WIDTH,
           height: 32,
-          borderBottom: "1px solid var(--cmux-separator, rgba(127,127,127,.3))",
+          borderBottom: "1px solid var(--ds-color-separator)",
         }}
       >
         <div style={{ position: "absolute", left: 0, top: 4, width: end, display: "flex", overflow: "hidden" }}>
@@ -64,12 +64,12 @@ function Row({ policy, step }: { policy: Policy; step: Step }) {
                 boxSizing: "border-box",
                 display: "flex",
                 alignItems: "center",
-                gap: 6,
+                gap: "var(--ds-space-1)",
                 overflow: "hidden",
                 whiteSpace: "nowrap",
                 textOverflow: "ellipsis",
                 borderRadius: 6,
-                background: tab.id === step.selected ? "rgba(127,127,127,.18)" : undefined,
+                background: tab.id === step.selected ? "var(--ds-color-selection)" : undefined,
               }}
             >
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{tab.title}</span>
@@ -91,14 +91,20 @@ function Row({ policy, step }: { policy: Policy; step: Step }) {
           {Array.from({ length: tools }, (_, index) => (
             <span
               key={index}
-              style={{ width: TOOL, height: TOOL, borderRadius: 6, background: "rgba(127,127,127,.28)" }}
+              style={{ width: TOOL, height: TOOL, borderRadius: 6, background: "var(--ds-color-hover)" }}
             />
           ))}
           {!step.chatShown || policy === "fold" ? <span style={{ width: TOOL, textAlign: "center" }}>⋯</span> : null}
         </div>
         <div
           title="where the tabs end"
-          style={{ position: "absolute", left: end, top: 0, bottom: 0, borderLeft: "1px dashed rgba(255,80,80,.7)" }}
+          style={{
+            position: "absolute",
+            left: end,
+            top: 0,
+            bottom: 0,
+            borderLeft: "1px dashed var(--ds-color-danger)",
+          }}
         />
       </div>
     </div>
@@ -107,7 +113,7 @@ function Row({ policy, step }: { policy: Policy; step: Step }) {
 
 function TabRowSlot({ policy }: { policy: Policy }) {
   return (
-    <div style={{ display: "grid", gap: 10, padding: 8, width: WIDTH }}>
+    <div style={{ display: "grid", gap: "var(--ds-space-3)", padding: 8, width: WIDTH }}>
       {STEPS.map((step) => (
         <Row key={step.label} policy={policy} step={step} />
       ))}
