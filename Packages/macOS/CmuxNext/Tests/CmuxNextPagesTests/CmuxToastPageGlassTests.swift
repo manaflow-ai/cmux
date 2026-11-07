@@ -20,25 +20,32 @@ struct CmuxToastPageGlassTests {
         defer { page.close() }
         let view = CmuxToastPageView(page: page)
         view.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
-        let glass = { view.subviews.compactMap { $0 as? OverlaySurfaceView } }
+        let glass: () -> [OverlaySurfaceView] = { view.subviews.compactMap { $0 as? OverlaySurfaceView } }
+        let frames: () -> [NSRect] = { glass().map(\.frame) }
 
         // The page's rects are in its own (flipped) coordinates; the glass goes where they show in the view.
-        let inView = { (rect: NSRect) in view.convert(rect, from: page) }
+        let inView: (NSRect) -> NSRect = { view.convert($0, from: page) }
+        let byY: (NSRect, NSRect) -> Bool = { $0.minY < $1.minY }
         let first = NSRect(x: 100, y: 336, width: 300, height: 44)
         view.placeGlass(resting: [(1, first)], fading: [])
-        #expect(glass().map(\.frame) == [inView(first)])
+        let firstPlace: NSRect = inView(first)
+        #expect(frames() == [firstPlace])
         // Review 5 of #37289 (F1): near the page's bottom, so near the view's bottom too, not mirrored.
-        #expect(glass().first.map { $0.frame.minY < view.bounds.midY } == true)
+        let firstBottom: CGFloat = glass().first?.frame.minY ?? .infinity
+        #expect(firstBottom < view.bounds.midY)
         // Under the page, which draws the toast's contents over it.
         #expect(view.subviews.last === page)
 
         let second = NSRect(x: 100, y: 284, width: 280, height: 44)
         view.placeGlass(resting: [(2, second)], fading: [(1, first)])
         // CGRect is Hashable only from macOS 15: compare the frames in order of y.
-        #expect(glass().map(\.frame).sorted { $0.minY < $1.minY } == [inView(first), inView(second)].sorted { $0.minY < $1.minY })
+        let drawn: [NSRect] = frames().sorted(by: byY)
+        let expected: [NSRect] = [inView(first), inView(second)].sorted(by: byY)
+        #expect(drawn == expected)
         // The fade ended: the page no longer reports toast 1.
         view.placeGlass(resting: [(2, second)], fading: [])
-        #expect(glass().map(\.frame) == [inView(second)])
+        let secondPlace: NSRect = inView(second)
+        #expect(frames() == [secondPlace])
 
         // Review 5 of #37289 (F3): a toast replaced under its id takes its predecessor's place in one
         // frame, so it keeps the predecessor's glass instead of rising in again under still text.
