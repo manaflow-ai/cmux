@@ -132,6 +132,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
 
+      - name: Validate risk tier skips base history only on zero deletions
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_risk_tier_history_admission.py
+
       # No polling loops in scripts or workflows: waits go through one
       # glaeda-gh wait (or a single gh run watch --interval 300). A loop that
       # must stay needs an allowlist entry with its reason.
