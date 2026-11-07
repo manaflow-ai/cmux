@@ -28,6 +28,8 @@ use vt_boundary::*;
 
 mod replay_rows;
 
+mod settled_replay;
+
 mod color_override;
 use color_override::*;
 
@@ -388,6 +390,9 @@ pub struct Terminal {
     /// Stable primary-screen row markers (`terminal.history`).
     history_markers: history::HistoryMarkers,
     empty_kitty_probe_filter: EmptyKittyProbeFilter,
+    /// A resize may have put off a prompt clear the replay must show run
+    /// (`settled_replay`); false once a snapshot showed none waits.
+    prompt_clear_may_wait: bool,
 }
 
 enum PendingSequenceReplay<'a> {
@@ -532,6 +537,7 @@ impl Terminal {
             c1_normalizer: C1Normalizer::default(),
             history_markers: Default::default(),
             empty_kitty_probe_filter: EmptyKittyProbeFilter,
+            prompt_clear_may_wait: false,
         };
         // SAFETY: `hooks` is heap-pinned for the terminal's lifetime and
         // Drop uninstalls the trampolines before the Box is freed.
@@ -1062,6 +1068,7 @@ impl Terminal {
             cell_height: cell_height_px,
         };
         if reflows {
+            self.prompt_clear_may_wait = true;
             self.bump_history_epoch();
             self.reset_history_anchor();
             self.history_markers_reflowed();
@@ -2180,13 +2187,19 @@ impl Terminal {
             let visible_start = catalog.visible_anchor_start().unwrap_or(viewport_start);
             viewport_start.min(visible_start)
         });
-        let active_text = self.vt_replay_text_layout_bounded(
-            remaining,
-            catalog.placement_rows(),
-            active_start,
-            include_palette,
-            max_history_rows,
-        )?;
+        // While a resize's prompt clear waits for the shell, the text comes
+        // from a copy that has run it, so a byte mirror matches this
+        // terminal after the shell's redraw (`settled_replay`).
+        let settled = self.settled_prompt_copy();
+        let active_text = self.with_replay_grid(settled.as_ref(), |term| {
+            term.vt_replay_text_layout_bounded(
+                remaining,
+                catalog.placement_rows(),
+                active_start,
+                include_palette,
+                max_history_rows,
+            )
+        })?;
         let visible_cost =
             active_text.range.map(|range| catalog.visible_cost(range, remaining)).unwrap_or(0);
 
@@ -2201,13 +2214,15 @@ impl Terminal {
         let text = if reuse {
             active_text
         } else {
-            self.vt_replay_text_layout_bounded(
-                text_budget,
-                catalog.placement_rows(),
-                active_start,
-                include_palette,
-                max_history_rows,
-            )?
+            self.with_replay_grid(settled.as_ref(), |term| {
+                term.vt_replay_text_layout_bounded(
+                    text_budget,
+                    catalog.placement_rows(),
+                    active_start,
+                    include_palette,
+                    max_history_rows,
+                )
+            })?
         };
         let history_rows_omitted = text.range.map_or(0, |range| range.start);
         let graphics_budget = remaining.saturating_sub(text.bytes.len());
