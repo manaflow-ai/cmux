@@ -183,6 +183,43 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     });
   }
 
+  test("in a narrow tray an open command's actions wrap inside it, never clipped", async () => {
+    // Review of #37830 (F1): its one foot line could not wrap, so a narrow tray cut off Open in terminal.
+    const page = await browser!.newPage({ viewport: { width: 760, height: 400 } });
+    try {
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
+      await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+      await page.evaluate(() =>
+        (window as unknown as { __showOpenCommand: (width: number, line: string) => void }).__showOpenCommand(
+          260,
+          "gh pr checks 34769 --repo manaflow-ai/cmux --watch",
+        ),
+      );
+      await page.waitForSelector(".acpmux-running-tray");
+      await openRunningTray(page);
+      await page.click(".acpmux-running-tray .acpmux-agent-line__button");
+      await page.waitForSelector(".acpmux-running-tray__tail button");
+      await page.waitForSelector(".acpmux-running-tray__tail a");
+      const fit = await page.evaluate(() => {
+        const tail = document.querySelector<HTMLElement>(".acpmux-running-tray__tail")!.getBoundingClientRect();
+        return [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray__tail :is(a, button)")].map(
+          (control) => {
+            const box = control.getBoundingClientRect();
+            return { left: box.left - tail.left, right: tail.right - box.right };
+          },
+        );
+      });
+      expect(fit.length).toBe(2);
+      for (const control of fit) {
+        expect(control.left).toBeGreaterThanOrEqual(-0.5);
+        expect(control.right).toBeGreaterThanOrEqual(-0.5);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
   test("an open command's time, state and Open in terminal share one line on the command's left edge", async () => {
     // Leo, 2026-11-07, on the open command's last line ("33s", "Running", "Open in terminal" each at
     // their own height): "also for the hat wow this is wildly misaligned at the bottom".
