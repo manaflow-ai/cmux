@@ -106,7 +106,8 @@ export default componentEntry<Props>({
   id: "agent-pane.tool-cards",
   title: "Tool cards (Move to Cloud ask)",
   area: "Agent pane",
-  height: 150,
+  // The secret card (text, field, two buttons) is the tallest state; it needs the full frame.
+  height: 240,
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-tool-card-fixture]" }],
   covers: ["agent-session/acpmux/toolCards/ToolCards.tsx#ToolCards"],

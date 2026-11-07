@@ -561,21 +561,24 @@ pub fn prompt_index_msg(msg: &Value) -> Value {
 impl Hub {
     /// Every prompt (`user_message`) of a session's log before `before`, oldest first, each cut to
     /// [`prompt_index_msg`]: the thread rail lays out a long chat's every turn from its first frame
-    /// instead of growing as history pages in (Leo, 2026-10-31). One pass that parses only prompt
-    /// lines (the store skips the rest by kind), so it stays fast however much tool output the
-    /// chat has.
+    /// instead of growing as history pages in (Leo, 2026-10-31). It reads the log's copies of its
+    /// prompts (`store/kind_index.rs`, which the log load already made), and the log only past
+    /// them: a scan of the whole log for its prompts took 10 s on a 566 MB chat and held the
+    /// rail's pending ticks blank (Leo, 2026-11-03: "the hover previews ... aren't loading past
+    /// the first bits").
     pub fn prompt_index(&self, id: &str, before: Option<u64>) -> Result<Vec<EventRecord>> {
         let before = before.unwrap_or(u64::MAX);
         let mut out = Vec::new();
-        let skip = |dir: &[u8], kind: &[u8]| !(dir == b"mux" && kind == b"user_message");
-        self.store.scan_back(id, 0, before, &skip, &mut |mut rec| {
-            if rec.dir == "mux" && rec.kind == "user_message" {
+        self.store.scan_kinds(id, &["user_message"], &mut |mut rec| {
+            if rec.seq >= before {
+                return false;
+            }
+            if rec.dir == "mux" {
                 rec.msg = prompt_index_msg(&rec.msg);
                 out.push(rec);
             }
             true
         })?;
-        out.reverse();
         Ok(out)
     }
 }

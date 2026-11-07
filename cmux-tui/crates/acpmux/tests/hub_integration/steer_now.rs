@@ -8,11 +8,18 @@
 use super::*;
 
 async fn claude_hub() -> (Arc<Hub>, TestClient, String) {
+    claude_hub_with(&[]).await
+}
+
+/// `claude_hub` with more environment for fake_claude.py (`FAKE_CLAUDE_SKILLS`: it lists its
+/// slash commands, `/compact` among them).
+async fn claude_hub_with(extra: &[(&str, &str)]) -> (Arc<Hub>, TestClient, String) {
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
     let home = std::env::temp_dir().join(format!("steer-now-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&home).unwrap();
-    let env =
+    let mut env =
         BTreeMap::from([("CLAUDE_CONFIG_DIR".to_owned(), home.to_string_lossy().into_owned())]);
+    env.extend(extra.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
     let profile = HarnessProfile {
         kind: acpmux::config::HarnessKind::ClaudeStdio,
         argv: vec!["python3".into(), fake_claude.into()],
@@ -123,6 +130,35 @@ async fn send_now_for_a_queued_prompt_steers_it_in_at_once() {
     assert_eq!(sent["sent"], "steer", "{sent}");
     let read = ended_and_carried(&mut c, turn, json!(["p-queued"])).await;
     assert_eq!(read, "read: MANGO");
+}
+
+/// Send now on a queued `/compact` (one of the agent's own commands) stops the running turn and
+/// runs it as a turn of its own, so Claude Code compacts at once. Steered in, it read "/compact"
+/// as words and thought about them (Leo, 2026-11-03: "this should have just started compacting").
+#[tokio::test]
+async fn send_now_for_a_queued_command_interrupts_and_runs_it_as_its_own_turn() {
+    let (hub, mut c, id) = claude_hub_with(&[("FAKE_CLAUDE_SKILLS", "1")]).await;
+    let turn = long_step(&mut c, &id).await;
+    let mut a = connect(&hub).await;
+    let queued = a.send(method::SESSION_PROMPT, prompt(&id, "p-compact", "/compact", false)).await;
+    let accepted = a.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-compact").await;
+    assert_eq!(accepted["queued"], true, "{accepted}");
+
+    let sent = send_now(&hub, &id, "p-compact").await;
+    assert_eq!(
+        (sent["ok"].clone(), sent["sent"].clone()),
+        (json!(true), json!("interrupt")),
+        "{sent}"
+    );
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "cancelled");
+    let running = |p: &Value| {
+        p["update"]["sessionUpdate"] == "compaction" && p["update"]["state"] == "running"
+    };
+    c.wait_for(method::SESSION_UPDATE, running).await;
+    let (answer, seen) = a.response(queued).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    assert!(!said(&seen, "read: /compact"), "the agent read /compact as words: {seen:#?}");
 }
 
 /// Stop stays a Stop: the steer it finds unread is read, and its turn ends stopped.

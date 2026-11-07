@@ -258,6 +258,24 @@ test("a view invitee watches: no composer, and the page says it can only watch",
   await page.unmount();
 });
 
+// The role is known only after accept, so the invite's join text never promises a view invitee
+// that the owner approves its messages (#33925).
+test("the invite join text hedges message approval in every app locale", () => {
+  expect(translate("guest.invite.detail", {}, "en")).toContain("If you can send messages");
+  for (const lang of ["en", "de", "fr", "ar", "es", "zh-Hant", "zh-Hans", "ko", "ja"] as const)
+    expect(translate("guest.invite.detail", {}, lang)).not.toContain(translate("guest.join.detail", {}, lang));
+});
+
+// The owner's thread rail is pane chrome: on the guest page it drew a lone tick at the left edge (#33925).
+for (const role of ["view", "talk"] as const)
+  test(`the guest page draws no thread rail (${role})`, async () => {
+    const page = await mount({ guestId: "g1", role, openSocket: fakeRoom(joinFrames(workingRecords())) });
+    await roomFrames();
+    expect(page.host.textContent).toContain("Fix the flaky upload retry test");
+    expect(page.host.querySelector(".acpmux-minimap, .acpmux-minimap__tick")).toBeNull();
+    await page.unmount();
+  });
+
 test("an invitee the owner removes (uninvite) ends on You were removed", async () => {
   const frames = [...joinFrames(askingRecords()), { v: 1, t: "kicked" }];
   const page = await mount({ guestId: "g1", role: "talk", openSocket: fakeRoom(frames) });

@@ -122,16 +122,19 @@ pub(crate) struct AppsSlot {
     supervisor: OnceLock<Arc<Supervisor>>,
     #[cfg(not(unix))]
     supervisor: OnceLock<Arc<()>>,
-    /// Told of each `apps-server` start and stop the supervisor broadcasts,
-    /// from its event sink (outside the supervisor's lock).
+    /// Told of each app server start and stop; the supervisor gets them
+    /// when it is created and calls them outside its lock.
     server_observers: ServerObservers,
 }
 
 impl AppsSlot {
     #[cfg(unix)]
     pub(crate) fn get_or_init(&self, mux: &Arc<crate::Mux>) -> Arc<Supervisor> {
-        self.supervisor
+        let mut created = false;
+        let supervisor = self
+            .supervisor
             .get_or_init(|| {
+                created = true;
                 let state_dir = mux.session_state_directory();
                 let idle = std::env::var("CMUX_APPS_IDLE_STOP_SECONDS")
                     .ok()
@@ -156,7 +159,6 @@ impl AppsSlot {
                 // from `subscribe` (page-router.json `events`), so the open
                 // App Store page re-reads after an install made elsewhere.
                 let events = Arc::downgrade(mux);
-                let server_observers = self.server_observers.clone();
                 supervisor.register_client(
                     MUX_EVENTS_SINK,
                     Arc::new(move |event: &serde_json::Value| {
@@ -165,19 +167,23 @@ impl AppsSlot {
                         {
                             mux.emit(crate::MuxEvent::AppsChanged(Arc::new(event.clone())));
                         }
-                        if event.get("event").and_then(serde_json::Value::as_str)
-                            == Some("apps-server")
-                        {
-                            for observer in server_observers.lock().recover_poison().iter() {
-                                observer();
-                            }
-                        }
                         true
                     }),
                 );
+                supervisor.observe_kept_servers(self.server_observers.clone());
                 supervisor
             })
-            .clone()
+            .clone();
+        if created {
+            // Its `always` servers started before it had the observers, and
+            // `kept_servers` read 0 until this slot held it: the owner's
+            // watch reads the count again now. Later changes reach the
+            // observers from `Supervisor::emit`.
+            for observer in self.server_observers.lock().recover_poison().iter() {
+                observer();
+            }
+        }
+        supervisor
     }
 
     /// `client` cancels its own request `target` (`cancel-request`). Before
@@ -212,14 +218,13 @@ impl AppsSlot {
         let _ = (client, &self.supervisor);
     }
 
-    /// App server processes running now (none before the supervisor exists,
-    /// and none off Unix, where apps never run).
-    pub(crate) fn running_servers(&self) -> usize {
+    /// App servers that keep the daemon's owner (the supervisor's
+    /// `kept_servers`; none before the supervisor exists, and none off Unix,
+    /// where apps never run).
+    pub(crate) fn kept_servers(&self) -> usize {
         #[cfg(unix)]
         {
-            self.supervisor
-                .get()
-                .map_or(0, |supervisor| supervisor.inner.lock().recover_poison().servers.len())
+            self.supervisor.get().map_or(0, |supervisor| supervisor.kept_servers())
         }
         #[cfg(not(unix))]
         {
@@ -227,9 +232,10 @@ impl AppsSlot {
         }
     }
 
-    /// Calls `observer` after each app server start and stop. It runs from
-    /// the supervisor's event delivery, outside the supervisor's lock, and
-    /// must not call back into the supervisor.
+    /// Calls `observer` each time [`Self::kept_servers`] changes (a server
+    /// starts or stops, a crash restart is scheduled, fired or cancelled).
+    /// It runs from the supervisor's event delivery, outside the
+    /// supervisor's lock, and must not call back into the supervisor.
     pub(crate) fn add_server_observer(&self, observer: impl Fn() + Send + Sync + 'static) {
         self.server_observers.lock().recover_poison().push(Box::new(observer));
     }

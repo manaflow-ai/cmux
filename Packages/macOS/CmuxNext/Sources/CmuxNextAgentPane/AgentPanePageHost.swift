@@ -16,6 +16,8 @@ enum AgentPanePageHost {
                                documentAttributes: AgentPaneTunables.documentAttributes,
                                options: PageEngineOptions(fullFrameRate: renderRate != .capped,
                                                                   chromiumAgentChat: AgentPaneTunables.chromium.value),
+                               // Granted video and audio, in byte ranges (`__media/`).
+                               dynamicResources: AgentPageMediaResource.shared,
                                chromium: chromium)
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in page?.performEdit(command.selector) }

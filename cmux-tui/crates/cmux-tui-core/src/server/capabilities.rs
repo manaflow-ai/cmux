@@ -56,6 +56,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY);
+        capabilities.push(AGENT_SESSION_FORK_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
@@ -201,8 +202,12 @@ pub fn build_capabilities() -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.retain(|capability| {
         *capability != crate::fs_ops::FS_CAPABILITY
+            && *capability != crate::fs_ops::FS_SYMLINK_CAPABILITY
+            && *capability != crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY
+            && *capability != crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
+            && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
@@ -230,6 +235,7 @@ pub(super) fn advertised_capabilities(
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+        LAYOUT_SIZES_BATCH_CAPABILITY,
         DOCK_COLUMNS_CAPABILITY,
         LAYOUT_DELTA_CAPABILITY,
         EDGE_DOCKS_CAPABILITY,
@@ -260,6 +266,7 @@ pub(super) fn advertised_capabilities(
         OPEN_DEVICE_KINDS_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
+        ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
         terminal_snapshot::ATTACH_VISIBILITY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
@@ -279,6 +286,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         RESUME_COMMAND_CAPABILITY,
+        TERMINAL_LAST_COMMAND_CAPABILITY,
         END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         CLOSE_WORKSPACE_IF_EMPTY_CAPABILITY,
@@ -383,12 +391,14 @@ pub(super) fn advertised_capabilities(
         crate::state::palette_usage_store::CAPABILITY,
         crate::state::stash_store::CAPABILITY,
         crate::state::stash_store::WORKSPACES_CAPABILITY,
+        crate::state::conductor_import_router::CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
         crate::state::browser_devices::FIT_WIDTH_CAPABILITY,
         crate::browser_profile_ops::CAPABILITY,
         crate::state::layout_bulk::CAPABILITY,
+        crate::state::layout_bulk::BARE_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::CLOSED_CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
@@ -414,6 +424,7 @@ pub(super) fn advertised_capabilities(
         crate::request_origin::page_router_table::PAGE_ROUTER_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_EVENTS_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
+        crate::remote_host::REMOTE_HOST_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
         clipboard_read::CAPABILITY,
@@ -429,6 +440,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::fs_ops::advertised());
     #[cfg(unix)]
     capabilities.extend(crate::git_seed::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::blob_fetch::advertised());
     #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     capabilities

@@ -178,6 +178,21 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Dev server stopped.").waitFor();
+    // A finished Claude turn folds its work under one Worked for (Codex parity): open both turns'.
+    const closed = page.locator('button.cv-worked[aria-expanded="false"]');
+    while (await closed.count()) {
+      await closed.first().click();
+      await page.waitForFunction(
+        () =>
+          !document
+            .getAnimations()
+            .some(
+              (each) =>
+                each.playState === "running" &&
+                Number.isFinite(Number(each.effect?.getComputedTiming().endTime ?? Number.POSITIVE_INFINITY)),
+            ),
+      );
+    }
     // No second row for a shell whose call is in the transcript.
     expect(await page.getByText(/Background (task|command) .*npm run dev/).count()).toBe(0);
     // The one whose call is not loaded is noted in the turn it ended, before its reply.
@@ -188,8 +203,8 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     expect(await top("Stop the dev server")).toBeLessThan(at);
     expect(at).toBeLessThan(await top("Dev server stopped."));
     // The first turn's calls: the dev server stopped (a later turn said so), the watcher still runs
-    // in the background. A finished Claude turn folds its two calls under their run's line, as Claude
-    // desktop does (turns.ts claudeGroups): open it to their rows.
+    // in the background. Inside its Worked for, the turn folds its two calls under their run's line
+    // (turns.ts claudeGroups): open it to their rows.
     await page.locator("button.cv-tool", { hasText: "Ran 2 commands" }).click();
     const row = (command: string) => page.locator(".cv-tool", { hasText: command }).first();
     await row("npm run dev").waitFor({ timeout: 5_000 });
@@ -200,6 +215,47 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
       "Running in background",
     );
     await page.close();
+  });
+
+  test("Background tasks header keeps compact chrome in the production pane stylesheet", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    try {
+      await page.goto(url(CHAT));
+      await page.getByText("Dev server stopped.").waitFor();
+      await page.getByRole("button", { name: "Chat actions" }).click();
+      await page.getByRole("menuitem", { name: "Background tasks", exact: true }).click();
+      const head = page.locator(".acpmux-bg__head");
+      await head.waitFor();
+      // This uses dev.tsx's shipped stylesheet set, which deliberately excludes ui.css/controls.css.
+      const buttons = head.locator("button");
+      const boxes = await buttons.evaluateAll((nodes) =>
+        nodes.map((button) => {
+          const style = getComputedStyle(button);
+          const box = button.getBoundingClientRect();
+          return {
+            width: box.width,
+            height: box.height,
+            border: style.borderTopWidth,
+            background: style.backgroundColor,
+            cursor: style.cursor,
+          };
+        }),
+      );
+      expect(boxes.length).toBeGreaterThan(0);
+      for (const box of boxes) {
+        expect(box.width).toBe(24);
+        expect(box.height).toBe(24);
+        expect(box.border).toBe("0px");
+        expect(box.background).toBe("rgba(0, 0, 0, 0)");
+        expect(box.cursor).toBe("default");
+      }
+      await buttons.first().hover();
+      expect(await buttons.first().evaluate((button) => getComputedStyle(button).backgroundColor)).not.toBe(
+        "rgba(0, 0, 0, 0)",
+      );
+    } finally {
+      await page.close();
+    }
   });
 
   /// A page whose native host records what the page asks of it (CmuxNextAgentPane's `agentSession`).
@@ -266,7 +322,10 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     expect(await note.getAttribute("aria-expanded")).toBe("true");
     const card = page.locator(`[id="${await note.getAttribute("aria-controls")}"]`);
     await card.waitFor({ timeout: 5_000 });
-    expect(await card.locator(".cv-shell__command").textContent()).toBe("$ pytest -x");
+    // A task whose registry has no output stays a compact details row; opening it does not
+    // manufacture an empty shell card.
+    expect(await card.locator(".cv-bgtask__raw-command").textContent()).toBe("pytest -x");
+    expect(await card.locator(".cv-shell").count()).toBe(0);
     // acpmux's own words on the end.
     expect(await card.locator(".cv-bgtask__detail").textContent()).toBe("Tests passed");
     // The clicked line stays where it was (foldAnchor.ts).

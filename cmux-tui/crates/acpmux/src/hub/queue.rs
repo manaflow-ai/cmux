@@ -283,6 +283,10 @@ impl Hub {
             // A lane's report to a parent whose close has begun: refused, never reopening it
             // (`lane_reports.rs`). Nothing is awaited from this check to the commit below.
             None if refuses_closing(&p) && closing(session) => return Err(Err(closing_error())),
+            // Nor once a shutdown began: no agent may start from then on (`shutdown.rs`).
+            None if refuses_closing(&p) && self.shutting_down() => {
+                return Err(Err(super::shutdown::shutting_down_error()));
+            }
             None => {
                 // A Cloud turn is prepared and captured before the prompt arrives. Reuse its
                 // immutable id so the platform fence covers exactly the turn that runs.
@@ -1663,7 +1667,7 @@ fn refuses_closing(p: &Slot<'_>) -> bool {
     is_lane_report(p.provenance)
 }
 
-fn is_lane_report(provenance: Option<&Value>) -> bool {
+pub(super) fn is_lane_report(provenance: Option<&Value>) -> bool {
     provenance.and_then(|v| v.get("kind")).and_then(Value::as_str)
         == Some(super::lane_reports::KIND)
 }

@@ -31,7 +31,6 @@ function quickInput(calls: string[]): HeaderQuickToolsInput {
     tabTools: true,
     sideTabs: true,
     lit: [HEADER_ACTIONS.changes, HEADER_ACTIONS.files, HEADER_ACTIONS.terminal],
-    browserOpensPreview: true,
     hasChanges: true,
     previewUrl: "http://localhost:5173/",
     onTerminal: (mode) => void calls.push(`terminal:${mode}`),
@@ -55,7 +54,7 @@ test("native descriptors preserve quick-action order, toolbar symbols, state and
   });
   expect(bindings.map(({ tool }) => tool.id)).toEqual(["summary", ...ids]);
   expect(bindings.map(({ tool }) => tool.symbol)).toEqual([
-    "list.bullet",
+    "view.list.short",
     "sidebar.right",
     "plusminus",
     "folder",
@@ -238,7 +237,7 @@ function mount() {
     scope[key] = value;
   }
   configureQuickActions({ quickActions: ["terminal", "browser"] });
-  setHeaderState({ lit: [], pullRequest: null, browserOpensPreview: true });
+  setHeaderState({ lit: [], pullRequest: null });
   const container = dom.window.document.getElementById("root")!;
   root = createRoot(container);
   return container;

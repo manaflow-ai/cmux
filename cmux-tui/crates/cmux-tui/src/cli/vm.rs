@@ -18,11 +18,10 @@
 //! every verb; only `vm ls|list` keeps listing the VM API's VMs, as it always did.
 //!
 //! `cmux machine new` is the one way to make a machine. With the cmux app on
-//! this Mac and no VM API credential, it makes the same Cloud machine the
-//! app's New Cloud Machine… does (the app action `cloud new-machine`, whose
-//! old spelling stays as a hidden alias) and prints how to reach it; a flag
-//! only the VM API takes (`--snapshot`, `--image`, …), a credential of its
-//! own, or no app sends it to the VM API as before ([`new_route`]).
+//! this Mac it makes the same Cloud machine the app's New Cloud Machine… does
+//! (the app action `cloud new-machine`, whose old spelling stays as a hidden
+//! alias), opens it and prints how to reach it; a flag only the VM API takes
+//! (`--snapshot`, `--image`, …) or no app sends it to the VM API ([`new_route`]).
 //!
 //! `cmux machine key new` with no credential of its own (no `CMUX_VM_API_KEY`,
 //! no config file) asks the cmux app (`vm.agent_key.create`, the socket's usual
@@ -116,6 +115,18 @@ fn help() -> String {
     )
 }
 
+/// What `cmux vm --help` adds under the Cloud verbs: `vm` is also `machine`'s old name.
+fn vm_machine_note(japanese: bool) -> &'static str {
+    if japanese {
+        "MACHINE の動詞（new、show、pause、resume、rm、run、key、access …）は `cmux vm` でも使えます。\n\
+         `cmux machine --help` で一覧できます。`cmux cloud` は `cmux vm` の旧名で、どちらも使えます。"
+    } else {
+        "The machine verbs (new, show, pause, resume, rm, run, key, access, ...) work as\n\
+         `cmux vm VERB` too: `cmux machine --help` lists them. `cmux cloud` is the old\n\
+         name of `cmux vm`; both work."
+    }
+}
+
 fn usage(message: impl AsRef<str>) -> UsageError {
     UsageError::new(format!("{}\n\n{}", message.as_ref(), help()))
 }
@@ -168,12 +179,17 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
         "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "run" | "creation" => {
             (verb.as_str(), tail.to_vec())
         }
+        "start-chat" | "chat" => {
+            return Err(usage(
+                "a chat on a Cloud machine is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`)",
+            ));
+        }
         "resize" => {
-            return Err(usage("`cmux machine resize` is `cmux cloud resize-machine`"));
+            return Err(usage("`cmux machine resize` is `cmux vm resize-machine`"));
         }
         "workspace" => {
             return Err(usage(
-                "a machine opens as a workspace through the app: run `cmux cloud new-workspace`",
+                "a machine opens as a workspace through the app: run `cmux vm new-workspace`",
             ));
         }
         other => return Err(usage(format!("unknown machine verb \"{other}\"; verbs: {VERBS}"))),
@@ -324,6 +340,75 @@ pub(super) fn machine_alias(args: &[String]) -> Option<Vec<String>> {
     Some(rewritten)
 }
 
+/// `vm VERB …` as `cloud VERB …`: `cmux cloud` is now `cmux vm` (Linear CMUX-43). `vm` keeps
+/// every verb it had as `machine`'s old name; any other word is a Cloud verb. `exec` and
+/// `client-session` are both: with `--target` (the Cloud form, `--target machine:ID`) they are
+/// Cloud's. `vm start-chat` and `vm chat` are not verbs: a Cloud chat is `cmux chat --on vm:…`.
+/// `None` for anything else.
+pub(super) fn cloud_alias(args: &[String]) -> Option<Vec<String>> {
+    let (_, scope, after) = split_raw(args)?;
+    if scope != Scope::Vm {
+        return None;
+    }
+    let (rest, _) = without_json(after);
+    let verb = rest.first()?.as_str();
+    let targeted = || {
+        rest.iter()
+            .take_while(|word| *word != "--")
+            .any(|word| word == "--target" || word.starts_with("--target="))
+    };
+    let machine_owned = MACHINE_VERBS.contains(&verb)
+        || OTHER_MACHINE_VERBS.contains(&verb)
+        || VM_OWN_WORDS.contains(&verb)
+        || verb.starts_with('-');
+    let cloud_form = matches!(verb, "exec" | "client-session") && targeted();
+    if machine_owned && !cloud_form {
+        return None;
+    }
+    let before = args.get(..args.len().checked_sub(after.len())?.checked_sub(1)?)?;
+    let mut rewritten = before.to_vec();
+    rewritten.push("cloud".to_owned());
+    rewritten.extend(after.iter().cloned());
+    Some(rewritten)
+}
+
+/// Words `vm` answers itself that are not [`MACHINE_VERBS`]: the VM API's list, help, and the
+/// pointers of [`plan`].
+const VM_OWN_WORDS: &[&str] = &["ls", "list", "help", "resize", "workspace", "start-chat", "chat"];
+
+/// `cmux cloud …` typed at a terminal: one line on stderr with its new name. A script (no
+/// terminal on stderr) and this binary's own steps read nothing new.
+pub(super) fn cloud_rename_note(args: &[String]) {
+    use std::io::IsTerminal as _;
+    let Ok((_, command)) = super::parse_globals(args) else { return };
+    let [scope, rest @ ..] = command.as_slice() else { return };
+    if scope != "cloud" || !std::io::stderr().is_terminal() {
+        return;
+    }
+    let japanese = crate::localization::catalog().is_japanese();
+    eprintln!("{}", rename_note(rest.first().map(String::as_str), japanese));
+}
+
+/// The note [`cloud_rename_note`] prints for `cmux cloud VERB`.
+pub(super) fn rename_note(verb: Option<&str>, japanese: bool) -> String {
+    match (verb, japanese) {
+        (Some("start-chat"), false) => {
+            "cmux: `cmux cloud start-chat` is now `cmux chat --on vm:ID|NAME|new`; both work.".into()
+        }
+        (Some("start-chat"), true) => {
+            "cmux: `cmux cloud start-chat` は `cmux chat --on vm:ID|NAME|new` になりました。どちらも使えます。".into()
+        }
+        (Some(verb), false) if !verb.starts_with('-') => {
+            format!("cmux: `cmux cloud` is now `cmux vm` (`cmux vm {verb}`); both work.")
+        }
+        (Some(verb), true) if !verb.starts_with('-') => {
+            format!("cmux: `cmux cloud` は `cmux vm` になりました（`cmux vm {verb}`）。どちらも使えます。")
+        }
+        (_, false) => "cmux: `cmux cloud` is now `cmux vm`; both work.".into(),
+        (_, true) => "cmux: `cmux cloud` は `cmux vm` になりました。どちらも使えます。".into(),
+    }
+}
+
 /// The words after `vm` without the `--json` flags before any `--`, and
 /// whether there was one.
 pub(super) fn without_json(words: &[String]) -> (Vec<String>, bool) {
@@ -411,16 +496,10 @@ const VM_API_CREATE_FLAGS: [&str; 5] =
     ["--snapshot", "--image", "--image-revision", "--public-egress", "--idle-timeout"];
 
 /// Where `<scope> new <tail>` goes. `vm new` (the old name) stays the VM
-/// API's. A flag only one side takes picks that side; otherwise a VM API
-/// credential of the caller's own (`has_credential`) keeps it on the VM API,
-/// as it always ran, and with none the app makes it when there is one
-/// (`app_present`), since the VM API would only refuse it for want of a key.
-pub(super) fn new_route(
-    scope: Scope,
-    tail: &[String],
-    has_credential: impl FnOnce() -> bool,
-    app_present: bool,
-) -> NewRoute {
+/// API's. A flag only one side takes picks that side; otherwise the app makes
+/// it when there is one (`app_present`), with its own sign-in: a VM API key
+/// stored on this Mac (one that expired, on Leo's nightly) no longer wins.
+pub(super) fn new_route(scope: Scope, tail: &[String], app_present: bool) -> NewRoute {
     if scope == Scope::Vm {
         return NewRoute::VmApi;
     }
@@ -439,10 +518,22 @@ pub(super) fn new_route(
     if flags.iter().any(|flag| APP_CREATE_FLAGS.contains(flag)) {
         return NewRoute::App;
     }
-    if !app_present || has_credential() {
-        return NewRoute::VmApi;
+    if app_present { NewRoute::App } else { NewRoute::VmApi }
+}
+
+/// Whether `cmux machine new` has an app to make the machine: an `--app-socket`, a `--socket`
+/// that answers as the app (`socket_is_app`; a daemon's does not), or, with no socket named, the
+/// app found on this Mac.
+pub(super) fn app_present(
+    app_socket: bool,
+    socket: bool,
+    socket_is_app: impl FnOnce() -> bool,
+    app_found: impl FnOnce() -> bool,
+) -> bool {
+    if app_socket {
+        return true;
     }
-    NewRoute::App
+    if socket { socket_is_app() } else { app_found() }
 }
 
 /// `cmux machine new --help`: both routes, the app's first.
@@ -553,7 +644,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         && rest.first().is_some_and(|word| matches!(word.as_str(), "-h" | "--help" | "help"))
     {
         if scope == Scope::Vm {
-            println!("`cmux vm` is the old name of `cmux machine`; both work.\n");
+            // `cmux vm` is Cloud's name, and still `cmux machine`'s old one.
+            let japanese = crate::localization::catalog().is_japanese();
+            print!("{}", super::cloud_help::overview(japanese));
+            println!("\n{}", vm_machine_note(japanese));
+            return Some(0);
         }
         println!("{}", help());
         return Some(0);
@@ -569,14 +664,15 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             print!("{NEW_HELP}");
             return Some(0);
         }
-        let has_credential =
-            || has_own_credential(&env) || !matches!(cmux_vm::token::read_stored(&env), Ok(None));
-        // A named socket that is not the app's makes `run_cli_action` answer
-        // `None`, and the VM API takes it as before.
-        let app_present = global.app_socket.is_some()
-            || global.socket.is_some()
-            || super::cloud_machines::app_found();
-        if new_route(scope, tail, has_credential, app_present) == NewRoute::App
+        // A `--socket` counts only when it answers as the app: a daemon's socket would refuse
+        // the app action (`socket.wrong_kind`), so the VM API takes it as before.
+        let app_present = app_present(
+            global.app_socket.is_some(),
+            global.socket.is_some(),
+            || super::app::connect_command(&global).is_ok(),
+            super::cloud_machines::app_found,
+        );
+        if new_route(scope, tail, app_present) == NewRoute::App
             && let Some(code) = super::app::run_cli_action(&global, "cloud new-machine", tail)
         {
             return Some(code);
@@ -724,21 +820,20 @@ pub(super) fn mint_params(plan: &[String]) -> Result<Map<String, Value>, UsageEr
 /// service answered (401 11, 402 12, 403 13, 429 16, 503 18, no answer 3), so
 /// scripts tell the cases apart the same way on either mint path.
 pub(super) fn mint_exit(code: &str, status: Option<u64>) -> i32 {
+    use cmux_cloud_config::agent_key::{Outcome, outcome};
     use cmux_vm::exit;
-    match code {
-        "labs_off" | "no_team" | "feature.disabled" => 3,
-        "not_signed_in" => exit::UNAUTHENTICATED,
-        "plan_required" => exit::PAYMENT_REQUIRED,
-        "forbidden" => exit::FORBIDDEN,
-        "rate_limited" => exit::QUOTA_EXCEEDED,
-        "invalid_params" => exit::USAGE,
-        "method_not_found" => 5,
-        "unavailable" => match status.and_then(|status| u16::try_from(status).ok()) {
-            None | Some(0) => exit::NETWORK,
-            Some(status) if status >= 500 => exit::SERVICE_UNAVAILABLE,
-            Some(status) => exit::for_status(status),
-        },
-        _ => exit::UNEXPECTED,
+    // What each refusal means is the app's and this CLI's shared rule (cmux-cloud-config).
+    match outcome(code, status) {
+        Outcome::Network => exit::NETWORK,
+        Outcome::Unauthenticated => exit::UNAUTHENTICATED,
+        Outcome::PaymentRequired => exit::PAYMENT_REQUIRED,
+        Outcome::Forbidden => exit::FORBIDDEN,
+        Outcome::QuotaExceeded => exit::QUOTA_EXCEEDED,
+        Outcome::Usage => exit::USAGE,
+        Outcome::MethodNotFound => 5,
+        Outcome::ServiceUnavailable => exit::SERVICE_UNAVAILABLE,
+        Outcome::Status(status) => exit::for_status(status),
+        Outcome::Unexpected => exit::UNEXPECTED,
     }
 }
 

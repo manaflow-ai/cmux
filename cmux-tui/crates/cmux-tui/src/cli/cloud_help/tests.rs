@@ -66,9 +66,6 @@ const TARGETLESS: &[&str] = &[
     "tunnel-attach",
     "tunnel-detach",
     "tunnel-rotate-key",
-    "tunnel on",
-    "tunnel off",
-    "tunnel status",
     "firewall-list",
     "firewall-get",
     "firewall-create",
@@ -99,7 +96,7 @@ fn every_verb_has_both_languages_and_a_target_when_it_names_a_machine() {
         assert_ne!(verb.en, verb.ja, "{} is not translated", verb.name);
         let usage = usage_line(verb);
         assert!(!usage.contains("{target}"), "{usage}");
-        assert!(usage.starts_with(&format!("cmux cloud {}", verb.name)), "{usage}");
+        assert!(usage.starts_with(&format!("cmux vm {}", verb.name)), "{usage}");
     }
     for group in GROUPS {
         assert_ne!(group.en, group.ja);
@@ -137,12 +134,12 @@ fn destructive_verbs_show_confirm_in_the_list_and_their_help() {
 fn verb_help_is_that_verb_only() {
     let help = verb_help("kill-machine", false).expect("kill-machine help");
     assert!(
-        help.starts_with("usage: cmux cloud kill-machine --target machine:MACHINE_ID --confirm\n")
+        help.starts_with("usage: cmux vm kill-machine --target machine:MACHINE_ID --confirm\n")
     );
     assert!(help.contains("cmux action describe cloud kill-machine --json"));
     assert!(!help.contains("list-machines"), "{help}");
     let japanese = verb_help("kill-machine", true).expect("kill-machine ja help");
-    assert!(japanese.starts_with("使い方: cmux cloud kill-machine"), "{japanese}");
+    assert!(japanese.starts_with("使い方: cmux vm kill-machine"), "{japanese}");
     assert_eq!(verb_help("no-such-verb", false), None);
 }
 
@@ -150,7 +147,7 @@ fn verb_help_is_that_verb_only() {
 fn exec_usage_is_the_parse_error_text() {
     assert_eq!(
         usage("exec").as_deref(),
-        Some("cmux cloud exec --target machine:MACHINE_ID --command COMMAND")
+        Some("cmux vm exec --target machine:MACHINE_ID --command COMMAND")
     );
 }
 
@@ -177,20 +174,40 @@ fn quick_start_commands_parse() {
         let commands = text
             .lines()
             .map(str::trim)
-            .filter(|line| line.starts_with("cmux cloud ") && !line.contains('<'))
+            .filter(|line| {
+                (line.starts_with("cmux vm ") || line.starts_with("cmux chat "))
+                    && !line.contains('<')
+            })
+            // These run in this CLI, not through the app's catalog; `cloud env` lines parse in
+            // `cloud_environment.rs` (`the_help_env_lines_parse`).
             .filter(|line| !line.contains("secret") && !line.contains("client-session"))
+            .filter(|line| !line.starts_with("cmux vm env "))
             .collect::<Vec<_>>();
-        // Two start-chat lines, three follow-ups and five machine lines; the quick start's
-        // create is `cmux machine new`.
+        // Two `cmux chat --on vm:` lines, three follow-ups and five machine lines; the quick
+        // start's create is `cmux machine new`. No line is a `vm start-chat` or `vm chat`.
         assert_eq!(commands.len(), 10, "{commands:?}");
-        assert!(
-            commands[0].starts_with("cmux cloud start-chat "),
-            "start-chat leads: {commands:?}"
-        );
+        assert!(commands[0].starts_with("cmux chat --on vm:"), "the chat leads: {commands:?}");
+        assert!(!text.contains("vm start-chat") && !text.contains("vm chat"), "{text}");
         for command in commands {
-            let words = shell_words(command)
+            if let Some(rest) = command.strip_prefix("cmux chat ") {
+                let words = shell_words(rest)
+                    .into_iter()
+                    .filter(|word| word != "--json")
+                    .collect::<Vec<_>>();
+                assert!(
+                    matches!(
+                        crate::cli::chat_start::parse(&words, None),
+                        Ok(crate::cli::chat_start::Parsed::Run(_))
+                    ),
+                    "quick start command does not parse: {command}"
+                );
+                continue;
+            }
+            // `vm VERB` runs as `cloud VERB` (vm.rs `cloud_alias`).
+            let alias = crate::cli::vm::cloud_alias(&shell_words(command)[1..]);
+            let words = alias
+                .unwrap_or_else(|| panic!("{command} is not a Cloud verb"))
                 .into_iter()
-                .skip(1)
                 .filter(|word| word != "--json")
                 .collect::<Vec<_>>();
             if words[1] == START_CHAT {
@@ -219,11 +236,11 @@ fn renamed_verbs_are_hidden_and_point_at_their_new_name() {
     for japanese in [false, true] {
         let text = overview(japanese);
         assert!(!text.lines().any(|line| line.starts_with("  new-machine ")), "{text}");
-        assert!(!text.contains("cmux cloud new-machine"), "{text}");
+        assert!(!text.contains("cmux vm new-machine"), "{text}");
         assert!(text.contains("cmux machine new"), "{text}");
         let help = verb_help("new-machine", japanese).unwrap();
         assert!(help.contains("cmux machine new"), "{help}");
-        assert!(help.contains("cmux cloud new-machine [--size"), "{help}");
+        assert!(help.contains("cmux vm new-machine [--size"), "{help}");
     }
     for (old, _) in HIDDEN {
         assert!(find(old).is_some(), "{old} is hidden but not a verb");
@@ -237,6 +254,8 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
         assert_eq!(verb_help(START_CHAT, japanese).as_deref(), Some(START_CHAT_USAGE));
     }
     assert!(START_CHAT_USAGE.starts_with("usage: cmux cloud start-chat --prompt TEXT"));
+    // The start matrix runs its no-name row only on a build whose help names new_machine (cmuxterm-hq#7406).
+    assert!(START_CHAT_USAGE.contains("new_machine: true"));
     let examples = START_CHAT_USAGE
         .lines()
         .map(str::trim)

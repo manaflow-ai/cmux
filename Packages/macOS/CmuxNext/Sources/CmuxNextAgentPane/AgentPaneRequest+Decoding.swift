@@ -71,6 +71,10 @@ extension AgentPaneRequest {
             self = AgentPaneIMessageAction(rawValue: String(method.dropFirst("imessage.".count))).map(Self.imessage) ?? .unsupported(method)
             return
         }
+        if AgentPaneCloudReservationRequest.methods.contains(method) {
+            self = AgentPaneCloudReservationRequest(method: method, params: params).map(Self.cloudReservation) ?? .unsupported(method)
+            return
+        }
         if AgentPaneCloudEnvironmentRequest.methods.contains(method) {
             self = AgentPaneCloudEnvironmentRequest(method: method, params: params).map(Self.cloudEnvironment) ?? .unsupported(method)
             return
@@ -168,6 +172,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setComposerRing":
+            // The composer ring's Context or Plan Usage choice; the page writes only this key with it.
+            if let ring = (params?["ring"] as? String).flatMap(AgentPaneComposerRing.init(rawValue:)) {
+                self = .displaySetting(path: AgentPaneComposerSetting.composerRingPath, value: .string(ring.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setRemoteControl":
             // Session Info's Remote Control switch: one Bool, nothing else.
             if let on = params?["on"] as? Bool, Set((params ?? [:]).keys) == ["on"] {
@@ -223,7 +234,9 @@ extension AgentPaneRequest {
                 self = .openTab(AgentPaneOpenTab(kind: kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil,
                                                  search: kind == .browser && params?["search"] as? Bool == true,
                                                  run: kind != .terminal || params?["run"] as? Bool != false,
-                                                 keep: params?["keep"] as? Bool == true))
+                                                 keep: params?["keep"] as? Bool == true,
+                                                 profile: kind == .browser ? AgentPaneOpenTabProfile(params: params) : nil,
+                                                 inPlace: params?["inPlace"] as? Bool == true))
             } else {
                 self = .unsupported(method)
             }
@@ -338,6 +351,8 @@ extension AgentPaneRequest {
                 return
             }
             self = .cloudHandoffTurn(sessionId: session)
+        case "cloud.signInCancel": self = .cloudSignInCancel
+        case "cloud.signIn": self = AgentPaneCloudStart(params: params).map(Self.cloudSignIn) ?? .unsupported(method)
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "sandbox.run":
@@ -484,17 +499,19 @@ extension AgentPaneRequest {
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String)
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String, tone: params?["tone"] as? Int)
             } else { self = .unsupported(method) }
         case "chat.subagentShown":
             let id = params?["subagent"] as? String
             if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
-                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String)
+                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int)
             }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
+        case AgentPaneTryAnotherApproach.method:
+            self = AgentPaneTryAnotherApproach(params: params).map(AgentPaneRequest.tryAnotherApproach) ?? .unsupported(method)
         case "chat.openTab":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.asks.open":

@@ -84,13 +84,13 @@ impl fmt::Display for CloudError {
                 }
             }
             Self::SignedOut => formatter.write_str(
-                "cmux Cloud conversation request failed: not signed in; run `cmux cloud sign-in`",
+                "cmux Cloud conversation request failed: not signed in; run `cmux login`",
             ),
             Self::SessionExpired => formatter.write_str(
-                "cmux Cloud conversation request failed: the session expired; run `cmux cloud sign-in`",
+                "cmux Cloud conversation request failed: the session expired; run `cmux login`",
             ),
             Self::Unauthenticated => formatter.write_str(
-                "cmux Cloud conversation request failed: the session was refused; run `cmux cloud sign-in`",
+                "cmux Cloud conversation request failed: the session was refused; run `cmux login`",
             ),
             Self::Unavailable(detail) => write!(
                 formatter,
@@ -115,7 +115,7 @@ mod tests {
         for error in
             [CloudError::SignedOut, CloudError::SessionExpired, CloudError::Unauthenticated]
         {
-            assert!(error.to_string().contains("cmux cloud sign-in"));
+            assert!(error.to_string().contains("cmux login"));
         }
         for retryable in [false, true] {
             let error = CloudError::Rejected {

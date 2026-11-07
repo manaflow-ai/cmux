@@ -3,7 +3,10 @@
 use super::*;
 use cmux_json::JsonSet as _;
 
+mod host_build;
 mod host_load;
+
+pub(crate) use host_build::{host_build_differs, other_build_host_line, other_build_hosts_line};
 
 /// The mux record of a change in how many subagents a session runs (`hub/tap.rs`), which
 /// watchers hear as `_acpmux/session_changed` with the new `subagentsRunning`.
@@ -486,6 +489,11 @@ impl Hub {
             queue_paused: session.queue_paused(),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
+            // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
+            // session/new or session/load): the busy("starting") of `stop_if_idle.rs`. So is a
+            // prompt's start that waits to be tried again (`start_retry.rs`).
+            starting: session.spawn_lock.try_lock().is_err()
+                || session.start_retry_waits.load(Ordering::SeqCst),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some() && m.moved_to.is_none(),
             // Moved away for good (`transfer_out.rs` commit): where it runs now.
@@ -625,6 +633,11 @@ impl Hub {
         summary.set("subagentsRunning", json!(work.subagents));
         summary.set("subagentNames", json!(work.names));
         summary.set("commandsRunning", json!(work.commands));
+        // The build its live agent host runs, and whether it differs from this daemon's: a
+        // host that has not hibernated since an update (`views/host_build.rs`).
+        let host_build = host_build::live_host_build(session);
+        summary.set("hostBuildDiffers", json!(host_build_differs(host_build.as_deref(), build())));
+        summary.set("hostBuild", json!(host_build));
         if notice && let Some(turn) = summary.get_mut("turn").and_then(Value::as_object_mut) {
             // A History of the person's prompts leaves it out (`turn.notice`).
             turn.insert("notice".into(), Value::Bool(true));
@@ -651,12 +664,12 @@ impl Hub {
         let m = session.meta();
         let mut v = self.session_summary(session);
         v.set("modes", m.modes.clone().unwrap_or(Value::Null));
-        v.set("configOptions", m.config_options.clone().unwrap_or(Value::Null));
+        v.set("configOptions", m.config_options.as_deref().cloned().unwrap_or(Value::Null));
         v.set("models", m.models.clone().unwrap_or(Value::Null));
         v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));
         v.set("agentCapabilities", m.agent_capabilities.clone().unwrap_or(Value::Null));
         v.set("usage", m.usage.clone().unwrap_or(Value::Null));
-        v.set("goal", m.goal.clone().unwrap_or(Value::Null));
+        v.set("goal", m.goal.as_ref().map(crate::goal::GoalState::to_value).unwrap_or(Value::Null));
         // What the context holds by category, as Claude Code's /context says after each turn.
         v.set("contextBreakdown", m.context_breakdown.clone().unwrap_or(Value::Null));
         // The account's plan usage limits, as Claude Code's rate_limit_event last said them.
@@ -726,10 +739,13 @@ impl Hub {
                 "stuckSince": since, "stuckError": error}))
             })
             .collect();
-        let mut live = 0;
+        let (mut live, mut other_build) = (0, 0);
         for s in &sessions {
-            if s.child.lock().await.is_some() {
+            if let Some(child) = s.child.lock().await.as_ref() {
                 live += 1;
+                if host_build_differs(child.host_build().as_deref(), build()) {
+                    other_build += 1;
+                }
             }
         }
         let exe_unstable = crate::daemon::exe_path::current_unstable();
@@ -762,7 +778,12 @@ impl Hub {
             // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
             // `acpmux ls` says so, `acpmux send --status` lists them.
             "outboxPending": self.outbox_unsettled(),
+            // Each host's last shadow admission verdict (`shadow_admission.rs`): what a
+            // pressure-aware admission would say. Nothing is deferred on it.
+            "shadowAdmission": crate::shadow_admission::last_verdicts(),
             "liveAgents": live,
+            // Live agent hosts still on another build than this one (`views/host_build.rs`).
+            "hostsOnOtherBuilds": other_build,
             "stuckSessions": stuck,
             "disk": disk,
             // macOS: whether this daemon's agents can read the login keychain

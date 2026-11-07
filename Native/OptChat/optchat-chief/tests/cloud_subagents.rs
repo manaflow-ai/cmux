@@ -381,7 +381,11 @@ fn set_cloud(h: &mut Harness, sp: &Arc<Spawner>, peers: &str) {
         })
     })
     .unwrap();
-    assert!(set.starts_with("outcome: done."), "{set}");
+    // A noop: the saved state of a restarted Chief has this choice already.
+    assert!(
+        set.starts_with("outcome: done.") || set.starts_with("outcome: noop."),
+        "{set}"
+    );
 }
 
 /// B4: with several peers, each subagent goes to the peer with the fewest
@@ -2186,4 +2190,84 @@ fn no_cloud_vm_auto_pauses_by_default() {
         "{:?}",
         calls_of(&own)
     );
+}
+
+/// A Chief that restarts or moves to another Mac (the same saved state)
+/// still knows which cloud VMs it paused: a tell to a finished subagent
+/// there resumes its VM first, instead of sending into a paused VM.
+#[test]
+fn a_restarted_chief_resumes_a_vm_it_paused_before_a_tell() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    let until = Instant::now() + Duration::from_secs(5);
+    while !calls_of(&vms).contains(&"pause chief-sub-a1".to_owned()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(calls_of(&vms).contains(&"pause chief-sub-a1".to_owned()));
+    while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
+        h.brain.step(input);
+    }
+
+    // The saved state in a new home: the Chief after a restart or a move.
+    let state = h.brain.state().clone();
+    let dir = tempfile::tempdir().unwrap();
+    optchat_chief::state::StateFile::new(&dir.path().join("host.json"))
+        .save(&state)
+        .unwrap();
+    let owner = h.owner.clone();
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let a = sp.clone();
+    let told = run(&mut h, move || a.tell("a1", "one more thing"));
+    assert!(
+        calls_of(&vms).contains(&"resume chief-sub-a1".to_owned()),
+        "no resume after the restart: {:?}, told {told:?}",
+        calls_of(&vms)
+    );
+}
+
+/// A Chief on a Mac without the pool tool cannot resume a paused VM: a tell
+/// there is refused and names the missing tool, never sent into the VM.
+#[test]
+fn a_tell_to_a_paused_vm_without_the_pool_tool_names_the_tool() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    let until = Instant::now() + Duration::from_secs(5);
+    while !calls_of(&vms).contains(&"pause chief-sub-a1".to_owned()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
+        h.brain.step(input);
+    }
+    h.brain.set_cloud_vms(
+        Some(Arc::new(optchat_chief::cloud_vms::CommandVms {
+            file: h.dir.path().join("no-such-vm-cmd"),
+        })),
+        Duration::from_secs(3600),
+    );
+    let a = sp.clone();
+    let told = format!("{:?}", run(&mut h, move || a.tell("a1", "one more thing")));
+    assert!(told.contains("pool tool"), "{told}");
 }

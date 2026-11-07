@@ -115,6 +115,37 @@ public struct AgentSessionShareInviteRequest: DaemonRequest {
     }
 }
 
+/// `agent-session-share-invite-chat`: `account` is invited to the chat on `surface` as `role`, on the chat's
+/// invite share, which the daemon makes in the same step when the chat has none (lasting `ttlSecs`, 7 days
+/// by default). A refusal leaves no share. `ownerToken` is spent only when that share opens in a hosted
+/// room; without one there the daemon answers `share.needs_sign_in`. The answer is the invite's (`share_id`,
+/// `account`, `role`, `state`, `invite_url`) with `created_share` and `expires_at`.
+public struct AgentSessionShareInviteChatRequest: DaemonRequest {
+    public typealias Response = JSONValue
+    public static let command = "agent-session-share-invite-chat"
+
+    public var surface: UInt64
+    /// The acpmux session the caller saw on `surface` (`share.chat_moved` when it shows another by now).
+    public var session: String?
+    public var account: String
+    public var role: String?
+    public var ttlSecs: UInt64?
+    /// The caller's id for a share this makes (list shows it).
+    public var createId: String?
+    public var ownerToken: String?
+
+    public init(surface: UInt64, session: String? = nil, account: String, role: String? = nil, ttlSecs: UInt64? = nil,
+                createId: String? = nil, ownerToken: String? = nil) {
+        self.surface = surface
+        self.session = session
+        self.account = account
+        self.role = role
+        self.ttlSecs = ttlSecs
+        self.createId = createId
+        self.ownerToken = ownerToken
+    }
+}
+
 /// `agent-session-share-uninvite`: the account joins no more, and every guest it joined as leaves.
 public struct AgentSessionShareUninviteRequest: DaemonRequest {
     public typealias Response = JSONValue
@@ -178,6 +209,9 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
     public var usesLeft: UInt32
     /// The hosted room's origin, nil without one.
     public var room: String?
+    /// The link invitees open (`<room>/i/<share_id>`, no secret in it); nil without a room, and from a
+    /// daemon older than invite links.
+    public var inviteUrl: String?
     public var guests: [AgentSessionShareGuest]
     /// The cmux accounts invited to the share; empty from a daemon older than invites.
     public var invitees: [AgentSessionShareInvitee]
@@ -193,10 +227,11 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         case expiresAt = "expires_at"
         case expiresInSecs = "expires_in_secs"
         case usesLeft = "uses_left"
+        case inviteUrl = "invite_url"
     }
 
     public init(shareId: String, state: String, session: String, surface: UInt64, createdAt: UInt64 = 0, createId: String? = nil,
-                expiresAt: UInt64 = 0, expiresInSecs: UInt64 = 0, usesLeft: UInt32 = 0, room: String? = nil,
+                expiresAt: UInt64 = 0, expiresInSecs: UInt64 = 0, usesLeft: UInt32 = 0, room: String? = nil, inviteUrl: String? = nil,
                 guests: [AgentSessionShareGuest] = [], invitees: [AgentSessionShareInvitee] = []) {
         self.shareId = shareId
         self.state = state
@@ -208,6 +243,7 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         self.expiresInSecs = expiresInSecs
         self.usesLeft = usesLeft
         self.room = room
+        self.inviteUrl = inviteUrl
         self.guests = guests
         self.invitees = invitees
     }
@@ -224,6 +260,7 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         expiresInSecs = try c.decode(UInt64.self, forKey: .expiresInSecs)
         usesLeft = try c.decode(UInt32.self, forKey: .usesLeft)
         room = try c.decodeIfPresent(String.self, forKey: .room)
+        inviteUrl = try c.decodeIfPresent(String.self, forKey: .inviteUrl)
         guests = try c.decode([AgentSessionShareGuest].self, forKey: .guests)
         invitees = try c.decodeIfPresent([AgentSessionShareInvitee].self, forKey: .invitees) ?? []
     }

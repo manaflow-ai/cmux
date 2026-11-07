@@ -99,9 +99,22 @@ enum SidebarStyle {
     /// A workspace row's status mark (the shared indicator, or the agent mark in its place): as
     /// tall as the unread badge beside it (Leo 2026-10-13); both read `Metrics.statusMarkSize`.
     static var statusGlyphSize: CGFloat { badgeHeight }
+    /// Every status mark that is not a dot or a spinner (the red warning, the yellow needs-you marks) draws in this
+    /// box, in every row kind: a workspace row's badge (`RowBadgeView`) and a group header's roll-up alike. Leo
+    /// 2026-11-01: "a bigger red warn symbol", like ChatGPT; Leo 2026-11-03: "symbol size discrepancy groups vs
+    /// workspaces" (a header drew its warning in the 10 pt indicator box while the rows under it drew 14 pt).
+    static let statusMarkSide: CGFloat = 14
+    /// A working or loading spinner, in every row kind: the status glyph size, smaller than the warning so it
+    /// never outweighs the 8 pt unread dot (Leo 2026-11-03: "i think the spinners are maybe a bit too big").
+    static var statusSpinnerSide: CGFloat { statusGlyphSize }
+    /// The box a row's status `state` draws in, whatever the row kind: the spinner's for work in flight, the
+    /// warning's otherwise. A dot paints `statusDotSize` centered in whichever box it gets.
+    static func statusMarkSide(for state: StatusIndicatorState) -> CGFloat {
+        state.isWorking || state.isLoading ? statusSpinnerSide : statusMarkSide
+    }
     /// A color swatch or machine dot (not a status): 6 pt at compact.
     static var dotSize: CGFloat { Metrics.space3 }
-    /// Every status dot's diameter: blue unread, orange needs attention and any other status dot, in every
+    /// Every status dot's diameter: blue unread, yellow needs attention and any other status dot, in every
     /// row kind (Home and band items, pinned, workspace and nested rows, group header roll-ups, icon and
     /// tile corners, Priority rows). 8 pt at compact, as Claude's and ChatGPT's unread dot (Leo 2026-10-31:
     /// "INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR"). Lawrence msg 19696 ("dots are different
@@ -112,7 +125,7 @@ enum SidebarStyle {
     /// glyphs on 32pt tiles), and its tile's rounding.
     static var railIconBox: CGFloat { Metrics.iconSize + Metrics.space3 }
     static var railGlyphSize: CGFloat { Metrics.iconSize + 1 }
-    static var railTileCornerRadius: CGFloat { Metrics.itemCornerRadius + Metrics.space1 }
+    static var railTileCornerRadius: CGFloat { Metrics.surfaceCornerRadius }
     /// The glyph well of a large sidebar-top tile (the tiles arrangement).
     static var favoriteWell: CGFloat { SidebarDensityTokens.rowHeight + Metrics.space1 }
     /// The glyph in that well: a rail button's glyph grown by the row's density and text size step
@@ -150,6 +163,10 @@ enum SidebarStyle {
     /// Length of the fade that ends a clipped row title (no ellipsis): 24 pt at Compact. At
     /// 16 pt the fade ended at a word gap and read as a hard cut.
     static var titleFadeWidth: CGFloat { Metrics.space6 + Metrics.space4 }
+    /// A workspace title at a weight of its own (a row decoration's `weight`), at the title's size.
+    static func titleFont(weight: NSFont.Weight) -> NSFont {
+        Typography.system(.default, size: titleFont.pointSize, weight: weight)
+    }
     static var subtitleFont: NSFont { sized(Typography.caption, weight: .regular) }
     /// One detail line under a row's title (the folder, branch or agent line), as its label lays it out.
     static var detailLineHeight: CGFloat {
@@ -168,15 +185,18 @@ enum SidebarStyle {
     /// row (Lawrence 2026-10-19: "the height of the group headers is identical to the height of
     /// each workspace").
     static func groupHeaderContentHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
-    /// The header's name: medium weight (cx-qno.17: more contrast on the
-    /// pastel bar), 14 pt on a 26 pt bar, scaled.
-    static func groupHeaderFont(barHeight: CGFloat) -> NSFont {
-        NSFont.systemFont(ofSize: min(15, max(11, (barHeight * 0.54).rounded())), weight: .medium)
+    /// The header's name: its rows' own face, size and regular weight (`titleFont`, which follows `sidebar.textSize`);
+    /// the bar's color sets the group apart, not a heavier face (Lawrence 2026-11-05: "group fonts should not be bold").
+    /// It was 11 pt medium in the bare system face on the compact bar, smaller than the rows under it (Leo 2026-11-05:
+    /// "this strange f***ing font of the group on the side ... it just looks sad").
+    /// `barHeight` is kept for callers; the name no longer scales with the bar.
+    static func groupHeaderFont(barHeight _: CGFloat) -> NSFont {
+        Typography.system(.default, size: titleFont.pointSize, weight: TypeScale.regular)
     }
     /// The opt-in member count after a group's name (Lawrence 2026-10-20): a detail, not a title,
     /// so smaller than `name`, at the regular weight, in ``groupHeaderCountInkAlpha`` of the ink.
     static func groupHeaderCountFont(name: NSFont) -> NSFont {
-        NSFont.systemFont(ofSize: max(TypeScale.caption, name.pointSize - 2), weight: TypeScale.regular)
+        Typography.system(.default, size: max(TypeScale.caption, name.pointSize - 2), weight: TypeScale.regular)
     }
     /// How much of the header's ink the member count takes: lighter than the name.
     static let groupHeaderCountInkAlpha: CGFloat = 0.7

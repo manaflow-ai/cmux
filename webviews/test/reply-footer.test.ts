@@ -180,10 +180,18 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         expect(hover!.time!.opacity).toBe(1);
         expect(hover!.time!.left).toBeGreaterThanOrEqual(hover!.lastButtonRight - TOLERANCE);
         expect(hover!.buttons).toEqual(rest!.buttons);
-        // Earlier footers stay hidden at rest: only the last reply's row is in sight.
+        // Earlier footers with a reply show their buttons at rest too, as ChatGPT's (Leo, 2026-11-04:
+        // "the thing always showing at hte bottom"); their time still waits for the pointer.
         await page.mouse.move(1, 1);
-        const earlier = await footers(page, ".acpmux-turnSummary:not(.acpmux-row--final-footer)");
-        for (const footer of earlier) expect(footer.actionsOpacity).toBe(0);
+        const earlier = await footers(
+          page,
+          ".acpmux-turnSummary:not(.acpmux-row--final-footer):not(:has(.cv-turn-actions--empty))",
+        );
+        expect(earlier.length).toBeGreaterThan(0);
+        for (const footer of earlier) {
+          expect(footer.actionsOpacity).toBe(1);
+          expect(footer.time?.opacity ?? 0).toBe(0);
+        }
       } finally {
         await page.close();
       }
@@ -248,17 +256,46 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await button.waitFor({ timeout: 10_000 });
         const fit = await button.evaluate((el) => ({
           width: el.getBoundingClientRect().width,
+          height: el.getBoundingClientRect().height,
           scroll: el.scrollWidth,
           client: el.clientWidth,
           glyph: el.querySelector("svg")?.getBoundingClientRect().width ?? 0,
+          fontSize: getComputedStyle(el).fontSize,
+          captionSize: (() => {
+            const probe = document.createElement("span");
+            probe.style.fontSize = "var(--text-caption)";
+            document.body.append(probe);
+            const size = getComputedStyle(probe).fontSize;
+            probe.remove();
+            return size;
+          })(),
+          paddingInline: `${getComputedStyle(el).paddingLeft} ${getComputedStyle(el).paddingRight}`,
+          title: el.getAttribute("title"),
         }));
         console.log(`REPLY_FOOTER ${theme.file} continue ${JSON.stringify(fit)}`);
         expect(fit.width).toBeGreaterThan(40);
+        expect(Math.abs(fit.height - 24)).toBeLessThanOrEqual(TOLERANCE);
         expect(fit.scroll).toBeLessThanOrEqual(fit.client + 1);
         expect(fit.glyph).toBeLessThan(20);
+        expect(fit.fontSize).toBe(fit.captionSize);
+        expect(fit.paddingInline).toBe("2px 2px");
+        expect(fit.title).toBeNull();
+        await still(page, `${theme.file}-stopped-after`);
       } finally {
         await page.close();
       }
     });
+
+    for (const variant of ["footer-before", "footer-chosen", "footer-roomy"]) {
+      test(`captures the stopped footer gallery arm (${variant}, ${theme.name})`, async () => {
+        const page = await open(variant, theme.name, "agent-pane.stopped-turn");
+        try {
+          await page.locator(".cv-turn-continue").waitFor({ timeout: 10_000 });
+          await still(page, `${theme.file}-${variant}`);
+        } finally {
+          await page.close();
+        }
+      });
+    }
   }
 });

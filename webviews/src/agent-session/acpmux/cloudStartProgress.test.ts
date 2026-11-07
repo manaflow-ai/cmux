@@ -51,10 +51,29 @@ test("the start's answer: an opened chat clears the card, a failure keeps it wit
   expect(cloudStartEnded(begun(), "k-1", { ok: true })).toBeUndefined();
   expect(
     cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "No machine\nfree" }),
-  ).toEqual({ ...begun(), state: "failed", message: "No machine free" });
-  expect(cloudStartEnded(begun(), "k-1", { ok: false, code: "unavailable" })).toEqual({ ...begun(), state: "failed" });
+  ).toEqual({ ...begun(), state: "failed", code: "cloud_start_failed", message: "No machine free" });
+  expect(cloudStartEnded(begun(), "k-1", { ok: false, code: "unavailable" })).toEqual({
+    ...begun(),
+    state: "failed",
+    code: "unavailable",
+  });
   expect(cloudStartEnded(begun(), "k-2", { ok: true })).toEqual(begun());
   expect(cloudStartEnded(undefined, "k-1", { ok: true })).toBeUndefined();
+});
+
+test("a chat opened during sign-in keeps its specific recovery message", () => {
+  expect(
+    cloudStartEnded(begun(), "k-1", {
+      ok: false,
+      code: "cloud_chat_already_started",
+      message: "A chat opened while you were signing in. This prompt was not sent to Cloud.",
+    }),
+  ).toEqual({
+    ...begun(),
+    state: "failed",
+    code: "cloud_chat_already_started",
+    message: "A chat opened while you were signing in. This prompt was not sent to Cloud.",
+  });
 });
 
 test("a start with no project carries home, and the agent's name for the opening step", () => {
@@ -141,10 +160,15 @@ test("forwards the environment id and setup ran or cached state", () => {
 
 test("a start this Mac's pane refused says why by its code, never the generic connection refusal", () => {
   const generic = "The app refused the agent connection.";
-  const outside = cloudStartEnded(begun(), "k-1", { ok: false, code: "transport.path_outside_roots", message: generic });
+  const outside = cloudStartEnded(begun(), "k-1", {
+    ok: false,
+    code: "transport.path_outside_roots",
+    message: generic,
+  });
   expect(outside).toEqual({
     ...begun(),
     state: "failed",
+    code: "transport.path_outside_roots",
     message: "This folder isn't open in this tab; pick it to send it to Cloud.",
     refusedHere: true,
   });
@@ -153,14 +177,37 @@ test("a start this Mac's pane refused says why by its code, never the generic co
   expect(gesture?.message).not.toBe(generic);
   expect(gesture?.refusedHere).toBe(true);
   // The App's own failure keeps the host's words and its checklist step.
-  expect(cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "No machine" })?.refusedHere).toBeUndefined();
+  expect(
+    cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "No machine" })?.refusedHere,
+  ).toBeUndefined();
+});
+
+test("a gone, home or credential folder each says why, naming the credential folder (cmux#35005, cmux#35006)", () => {
+  const ended = (code: string, message: string) => cloudStartEnded(begun(), "k-1", { ok: false, code, message });
+  expect(ended("cloud_folder_missing", "cloud_folder_missing")).toEqual({
+    ...begun(),
+    state: "failed",
+    code: "cloud_folder_missing",
+    message: "This folder no longer exists; pick another one to send to Cloud.",
+    refusedHere: true,
+  });
+  expect(ended("cloud_folder_home", "cloud_folder_home")?.message).toBe(
+    "Cloud doesn't copy your home folder or a folder above it; pick another folder.",
+  );
+  const secret = ended("cloud_folder_secret", "~/.ssh");
+  expect(secret?.message).toBe("Cloud never copies ~/.ssh, which holds keys or credentials; pick another folder.");
+  expect(secret?.refusedHere).toBe(true);
+  for (const code of ["cloud_folder_missing", "cloud_folder_home", "cloud_folder_secret"])
+    expect(ended(code, "x")?.message).not.toBe(cloudRefusalText("transport.path_outside_roots"));
 });
 
 test("the pane's other refusals before Cloud (attachments, a busy pane) mark no step failed, as Swift counts them", () => {
-  const attachment = "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.";
+  const attachment =
+    "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.";
   expect(cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_attachments", message: attachment })).toEqual({
     ...begun(),
     state: "failed",
+    code: "cloud_attachments",
     message: attachment,
     refusedHere: true,
   });

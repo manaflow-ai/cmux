@@ -16,8 +16,10 @@ public nonisolated struct MistBackdropPlan: Equatable, Sendable {
     /// - Parameters:
     ///   - tokens: The active terminal theme tokens.
     ///   - metadata: The selected artwork's authored layout and palette hints.
+    ///   - cardCornerRadius: The frosted cards' radius: the host passes the one corner radius (`Metrics.surfaceCornerRadius`).
     ///   - minimumTextContrast: The minimum ratio required for card text.
     public init(tokens: ThemeTokens, metadata: BackdropArtMetadata,
+                cardCornerRadius: Double,
                 minimumTextContrast: Double = MistBackdropPlan.minimumTextContrast) {
         let sampled = Self.sample(metadata: metadata, fallback: tokens.windowBackground.withAlpha(1))
         sampledArt = sampled
@@ -45,7 +47,7 @@ public nonisolated struct MistBackdropPlan: Equatable, Sendable {
                                       text: text, minimum: minimumTextContrast,
                                       ratio: text.contrast(with: renderedSurface))
         cards = MistCardStyle(material: .frosted, fill: fill, text: text,
-                              cornerRadius: 12, contrastCheck: check)
+                              cornerRadius: cardCornerRadius, contrastCheck: check)
     }
 
     private static func sample(metadata: BackdropArtMetadata, fallback: ThemeRGB) -> ThemeRGB {

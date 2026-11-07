@@ -1,7 +1,16 @@
 import type { PageClient } from "../shared/pageClient";
 
 export type Origin = "grok-bot" | "muse" | "dots" | "instinct";
-export type RowID = "claude-code" | "codex" | "claude-memory" | "chatgpt" | "claude" | Origin | "dot";
+export type RowID =
+  | "claude-code"
+  | "codex"
+  | "codex-sessions"
+  | "claude-memory"
+  | "chatgpt"
+  | "claude"
+  | Origin
+  | "dot"
+  | `detected-${number}`;
 export type Phase = "idle" | "detecting" | "ready" | "importing" | "done" | "error";
 export type RowPhase = "idle" | "planning" | "writing" | "done" | "error";
 export interface ImportReport {
@@ -16,6 +25,9 @@ export interface HistoryRow {
   expanded?: boolean;
   source?: string;
   name?: string;
+  title?: string;
+  icon?: string;
+  detected?: boolean;
   text?: string;
   phase: RowPhase;
   report?: ImportReport;
@@ -30,6 +42,8 @@ export interface HistorySnapshot {
   picking?: RowID;
   copied?: RowID;
   error?: string;
+  /** A line about another tool's import from the host (Import from Conductor's), shown under the sources. */
+  notice?: string;
 }
 export const OPS = {
   detect: "cmux.importHistory.detect",
@@ -44,7 +58,7 @@ export const OPS = {
 } as const;
 export const ORIGINS: Origin[] = ["grok-bot", "muse", "dots", "instinct"];
 export const initialRows = (): HistoryRow[] => [
-  ...(["claude-code", "codex", "claude-memory"] as const).map((id) => ({
+  ...(["claude-code", "codex", "codex-sessions", "claude-memory"] as const).map((id) => ({
     id,
     kind: "local" as const,
     selected: false,
@@ -73,13 +87,16 @@ export function canImport(snapshot: HistorySnapshot): boolean {
   );
 }
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+/** The longest delay `setTimeout` holds (2^31 - 1 ms, about 24.8 days); a later end waits again from there. */
+const LONGEST_TIMEOUT_MS = 2_147_483_647;
 
-/** One owner for detection, explicit picks and the complete batch. No folder scan requests export discovery. */
+/** One owner for detection, explicit picks and the complete batch. Export discovery is explicit. */
 export class ImportHistoryStore {
   private snapshot: HistorySnapshot;
   private readonly listeners = new Set<() => void>();
   private detecting = false;
   private stopped = false;
+  private noticeTimer?: ReturnType<typeof setTimeout>;
   constructor(
     private readonly client: Pick<PageClient, "call"> | null,
     initial?: HistorySnapshot,
@@ -111,24 +128,94 @@ export class ImportHistoryStore {
     return this.snapshot.phase === "importing" || this.snapshot.undoing;
   }
   async start(): Promise<void> {
-    if (this.detecting || this.snapshot.phase !== "idle") return;
+    if (this.snapshot.phase !== "idle") return;
+    await this.detect(false);
+  }
+  async findExports(): Promise<void> {
+    await this.detect(true);
+  }
+  private async detect(exports: boolean): Promise<void> {
+    if (this.detecting || this.busy) return;
     this.detecting = true;
     this.set({ phase: "detecting" });
     try {
       if (!this.client) throw new Error("cmux.importHistory.unavailable");
-      const result = await this.client.call<{ sources: { source: string; title?: string }[] }>(OPS.detect, {});
+      const result = await this.client.call<{
+        sources: { source: string; kind?: string; title?: string; path?: string }[];
+        notice?: string | null;
+        noticeUntil?: number | null;
+      }>(OPS.detect, exports ? { exports: true } : {});
+      const detected = result.sources ?? [];
+      this.endNotice(result.notice ? result.noticeUntil : undefined);
       this.set({
         phase: "ready",
-        rows: this.snapshot.rows.map((row) => {
-          const found = result.sources.find((source) => source.source === row.id && row.kind === "local");
-          return found ? { ...row, selected: true, source: found.source } : row;
-        }),
+        notice: result.notice && !this.noticeEnded(result.noticeUntil) ? result.notice : undefined,
+        rows: this.snapshot.rows
+          .filter((row) => !row.id.startsWith("detected-"))
+          .map((row) => {
+            if (row.kind === "zip" && row.source && !row.detected) return row;
+            const found = detected.find((source) => source.source === row.id || source.kind === row.id);
+            const exportKind =
+              row.id === "chatgpt" ? "chatgpt-export" : row.id === "claude" ? "claude-ai-export" : undefined;
+            const exportFound = exportKind && detected.find((source) => source.kind === exportKind);
+            const match = found ?? exportFound;
+            return match
+              ? {
+                  ...row,
+                  selected: true,
+                  expanded: row.kind === "text" ? true : row.expanded,
+                  source: match.source,
+                  detected: true,
+                  name: match.title ?? match.path,
+                }
+              : row.detected
+                ? { ...row, selected: false, detected: false, source: undefined, name: undefined }
+                : row;
+          })
+          .concat(
+            detected
+              .filter(
+                (source) =>
+                  source.source.startsWith("zip:") &&
+                  !["chatgpt-export", "claude-ai-export"].includes(source.kind ?? ""),
+              )
+              .map((source, index) => ({
+                id: `detected-${index}` as const,
+                kind: "zip" as const,
+                selected: true,
+                source: source.source,
+                name: source.title ?? source.path,
+                title: source.kind === "dots-export" ? "Dot export (.zip)" : "Saved export (.zip)",
+                icon: source.kind === "dots-export" ? "D" : "↗",
+                detected: true,
+                phase: "idle" as const,
+              })),
+          ),
       });
     } catch (error) {
       this.set({ phase: "error", error: message(error) });
     } finally {
       this.detecting = false;
     }
+  }
+  private noticeEnded(until: number | null | undefined): boolean {
+    return typeof until === "number" && until <= Date.now();
+  }
+  /** One timer to the host's end for the notice (Conductor Cloud's shutdown), so a page left open past it drops the line. */
+  private endNotice(until: number | null | undefined): void {
+    clearTimeout(this.noticeTimer);
+    this.noticeTimer = undefined;
+    if (typeof until !== "number" || !Number.isFinite(until)) return;
+    const wait = until - Date.now();
+    if (wait <= 0) return;
+    if (wait > LONGEST_TIMEOUT_MS) {
+      this.noticeTimer = setTimeout(() => this.endNotice(until), LONGEST_TIMEOUT_MS);
+      return;
+    }
+    this.noticeTimer = setTimeout(() => {
+      this.noticeTimer = undefined;
+      this.set({ notice: undefined });
+    }, wait);
   }
   async retryDetection(): Promise<void> {
     if (this.detecting || this.busy) return;
@@ -164,12 +251,12 @@ export class ImportHistoryStore {
       this.set({ error: message(error) });
     }
   }
-  async pickZip(id: "chatgpt" | "claude" | "dot"): Promise<void> {
+  async pickZip(id: RowID): Promise<void> {
     if (!this.client || this.busy || this.snapshot.picking) return;
     this.set({ picking: id, error: undefined });
     try {
       const result = await this.client.call<{ source: string; name: string } | null>(OPS.pickZip, {
-        kind: id,
+        kind: id.startsWith("detected-") ? "dot" : id,
       });
       if (!result) return;
       if (id === "dot" && !this.snapshot.rows.some((row) => row.id === "dot")) {
@@ -179,6 +266,7 @@ export class ImportHistoryStore {
       } else
         this.row(id, {
           ...result,
+          detected: false,
           selected: true,
           report: undefined,
           phase: "idle",
@@ -216,8 +304,12 @@ export class ImportHistoryStore {
       try {
         const origin = row.kind === "text" ? (row.id as Origin) : undefined;
         const source = origin
-          ? (await client.call<{ source: string }>(OPS.prepareText, { summaryOrigin: origin, text: row.text ?? "" }))
-              .source
+          ? (
+              await client.call<{ source: string }>(OPS.prepareText, {
+                summaryOrigin: origin,
+                text: row.text ?? "",
+              })
+            ).source
           : row.source;
         if (this.stopped) return;
         if (!source) throw new Error("cmux.importHistory.missing_source");

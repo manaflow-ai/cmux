@@ -283,7 +283,7 @@ class Measure:
         self.tab("Settings")
         rows = self.settings_rows()
         self.log(f"  settings pages: {rows}")
-        external = {"Help", "Report a problem", "Terms of Use", "Privacy Policy"}
+        external = {"Help", "Send feedback", "Terms of Use", "Privacy Policy"}
         if getattr(self, "only_pages", None):
             rows = [r for r in rows if any(r.startswith(p) for p in self.only_pages)]
         for first in rows:

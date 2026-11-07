@@ -128,6 +128,24 @@ export default componentEntry<Props>({
       note: "A failed line, a retrying one, a finished one and one acpmux gave up on: only the failed lines take the grid; Retry and the time line up between them.",
       props: { lines: MIXED },
     },
+    "grid-long-cells": {
+      note: "The grid's growing cells: Ask parent to retry on a subagent acpmux cannot retry, and a run past an hour. Retry and the time grow instead of spilling into the next column.",
+      props: {
+        lines: [
+          THREE[0]!,
+          agent("Task worker", "Rebuild the nightly signing picker", {
+            error: API_ERROR,
+            endedAt: minutesAgo(40 - 20.5),
+          }),
+          agent("Long soak", "Soak the pause and resume path for an hour", {
+            retryable: true,
+            error: API_ERROR,
+            startedAt: minutesAgo(130),
+            endedAt: minutesAgo(40),
+          }),
+        ],
+      },
+    },
     before: {
       note: "Before: Leo's two rows as the base draws them, the failure in the danger color and no way to run them again but Restart on hover.",
       props: { lines: [overview({ retryable: true }), relay({ retryable: true })], base: true },

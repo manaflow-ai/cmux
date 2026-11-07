@@ -2,6 +2,11 @@
 //! context on the target machine, whatever profile started it: Claude Code's project file,
 //! Codex's rollout, pi's session file, OpenCode's exported session.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// No agent starts here: the stores are files the tests write.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::native;
 use acpmux::store::SessionMeta;
 use serde_json::json;

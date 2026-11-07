@@ -55,6 +55,14 @@ pub struct EngineConfig {
     pub input_gap_timeout_us: u64,
     /// The main display stream (0 by convention); more with `add_stream`.
     pub stream: u16,
+    /// Frames of each display stream that may be unacknowledged at once (at least one):
+    /// one keeps the latency lowest on a short path; a path whose round trip spans
+    /// several frame intervals needs more (`frames_in_flight_for`).
+    pub frames_in_flight: u32,
+    /// After injected input, frames skip the frame-rate cap for a short window
+    /// (`cmux_rd_core::flow::INPUT_FRAME_WINDOW_US`), so the input's effect goes out as soon
+    /// as the capture delivers it instead of on the next interval.
+    pub input_frame_now: bool,
 }
 
 impl Default for EngineConfig {
@@ -70,6 +78,8 @@ impl Default for EngineConfig {
             path: PathKind::ViaCloudRegion,
             input_gap_timeout_us: 200_000,
             stream: 0,
+            frames_in_flight: 1,
+            input_frame_now: false,
         }
     }
 }
@@ -262,11 +272,11 @@ struct StreamState {
 }
 
 impl StreamState {
-    fn new(width: u32, height: u32, max_fps: u32) -> Self {
+    fn new(width: u32, height: u32, max_fps: u32, frames_in_flight: u32) -> Self {
         Self {
             width,
             height,
-            gate: FrameGate::new(1, max_fps.max(1)),
+            gate: FrameGate::new(frames_in_flight.max(1), max_fps.max(1)),
             history: BTreeMap::new(),
             last_frame: 0,
             force_idr: true,
@@ -305,7 +315,10 @@ impl MediaEngine {
         let cc_cfg =
             CcConfig { start_bps: cfg.start_bps, max_bps: cfg.max_bps, ..CcConfig::default() };
         let mut streams = BTreeMap::new();
-        streams.insert(cfg.stream, StreamState::new(cfg.width, cfg.height, cfg.max_fps));
+        streams.insert(
+            cfg.stream,
+            StreamState::new(cfg.width, cfg.height, cfg.max_fps, cfg.frames_in_flight),
+        );
         Self {
             streams,
             cc: CongestionController::new(cc_cfg, cfg.path),
@@ -331,7 +344,10 @@ impl MediaEngine {
         if self.streams.len() >= MAX_STREAMS {
             return Err(StreamError::TooMany);
         }
-        self.streams.insert(stream, StreamState::new(width, height, self.cfg.max_fps));
+        self.streams.insert(
+            stream,
+            StreamState::new(width, height, self.cfg.max_fps, self.cfg.frames_in_flight),
+        );
         Ok(())
     }
 
@@ -538,6 +554,7 @@ impl MediaEngine {
                 if may_inject {
                     out.inject = self.applier.accept(&packet, now_us);
                     out.release_all = self.applier.take_skipped_gap();
+                    self.note_input(&out, now_us);
                 } else {
                     // Discard and acknowledge: a view-only viewer stops
                     // repeating, and a late repeat never applies after
@@ -618,8 +635,19 @@ impl MediaEngine {
         if may_inject {
             out.inject = events;
             out.release_all = self.applier.take_skipped_gap();
+            self.note_input(&out, now_us);
         }
         out
+    }
+
+    /// Input goes to the source now: with `input_frame_now`, every stream's gate opens its
+    /// input window.
+    fn note_input(&mut self, out: &Output, now_us: u64) {
+        if self.cfg.input_frame_now && !out.inject.is_empty() {
+            for state in self.streams.values_mut() {
+                state.gate.input(now_us);
+            }
+        }
     }
 
     /// Forgets held input (control ended or the session stopped); the source
@@ -688,4 +716,13 @@ impl MediaEngine {
         d.extend_from_slice(&self.applier.applied().to_le_bytes());
         d
     }
+}
+
+/// Frames in flight for a path with this round trip at this frame rate: enough to
+/// cover the round trip plus one being encoded, at most 6 (the viewer's reassembly
+/// holds each frame until its deadline, and more only queues).
+pub fn frames_in_flight_for(rtt_us: u64, max_fps: u32) -> u32 {
+    let interval_us = 1_000_000 / u64::from(max_fps.max(1));
+    let covering = rtt_us.div_ceil(interval_us.max(1));
+    u32::try_from(covering + 1).unwrap_or(6).clamp(1, 6)
 }

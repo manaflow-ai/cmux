@@ -133,15 +133,33 @@ struct AgentPanePeerApprovalsNoticeTests {
     /// late reply of the connection before says nothing, so it cannot take the new notice away.
     @Test func aLateReplyFromTheConnectionBeforeSaysNothing() {
         let decisions = AcpmuxDecisionContexts()
-        decisions.sent(pageID: "7", proved: true)
+        decisions.sent(pageID: "7", proved: true, single: true)
         decisions.reset()
         decisions.observe(["jsonrpc": "2.0", "id": 7, "result": [String: Any]()], replyTo: "_acpmux/permission_respond")
         decisions.observe(["jsonrpc": "2.0", "id": 8, "result": [String: Any]()], replyTo: "_acpmux/permission_group_respond")
         #expect(decisions.takeAnswers().isEmpty)
         // An answer this connection sent is read.
-        decisions.sent(pageID: "9", proved: false)
+        decisions.sent(pageID: "9", proved: false, single: true)
         decisions.observe(["jsonrpc": "2.0", "id": 9, "result": [String: Any]()], replyTo: "_acpmux/permission_respond")
         #expect(decisions.takeAnswers() == [.counted])
+    }
+
+    /// A peer's refusal of an unsigned answer reads as "this Mac had no record" only for one
+    /// prompt's answer: a group's unsigned answer (Allow for this chat) was already said, and a
+    /// signed one's refusal offers to enroll.
+    @Test func onlyASinglePromptsUnsignedRefusalReadsAsNotRecorded() {
+        let decisions = AcpmuxDecisionContexts()
+        let refusal: (Int) -> [String: Any] = { id in
+            ["jsonrpc": "2.0", "id": id, "error": ["code": -32000, "message": "approve this on the Mac app",
+                                                    "data": ["reason": "permission.person_required", "peer": "far"]]]
+        }
+        decisions.sent(pageID: "1", proved: false, single: true)
+        decisions.sent(pageID: "2", proved: false, single: false)
+        decisions.sent(pageID: "3", proved: true, single: false)
+        decisions.observe(refusal(1), replyTo: "_acpmux/permission_respond")
+        decisions.observe(refusal(2), replyTo: "_acpmux/permission_group_respond")
+        decisions.observe(refusal(3), replyTo: "_acpmux/permission_group_respond")
+        #expect(decisions.takeAnswers() == [.unproved(peer: "far"), .refused(peer: "far")])
     }
 
     /// Enroll runs against the daemon this app registered its key with on the pane's socket (a

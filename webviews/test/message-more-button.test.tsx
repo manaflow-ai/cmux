@@ -88,12 +88,19 @@ test("an answer's turn footer has More, which reports the answer as its right-cl
   expect(button).not.toBeNull();
   const report = (await press(button!))!;
   expect(report).toMatchObject({ text: "Here is the chart.", markdown: "Here is **the chart**." });
+  expect(typeof report.replyTime).toBe("string");
+  expect(report.replyTime).not.toBe("");
   const { popUp } = report;
   expect(popUp).toBeDefined();
   expect(button!.hasAttribute("data-popup-open")).toBe(true);
   expect(typeof report.popupId).toBe("string");
   doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: report.popupId }));
   expect(button!.hasAttribute("data-popup-open")).toBe(false);
+});
+
+test("only a reply reports a timestamp header to the native menu", () => {
+  expect(messageMenuTarget(snapshot, prompt.id)?.replyTime).toBeUndefined();
+  expect(messageMenuTarget(snapshot, answer.id)?.replyTime).toBeDefined();
 });
 
 test("a stale native dismissal cannot clear a newer More menu", async () => {

@@ -9,6 +9,7 @@
 //! since). Without either it is `unknown`, never a guess from missing
 //! credential files.
 
+mod agent_files;
 pub mod auto;
 pub mod channel;
 mod codex_provider;
@@ -290,7 +291,11 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
                 Err(why) => (Auth::SignedOut, Some(why)),
             })
         }
-        _ => None,
+        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok and Muse: their login files and keys.
+        family => {
+            let env = crate::login_env::effective_for(Some(family), &s.env);
+            agent_files::file_auth(family, &program, &env)
+        }
     }
 }
 
@@ -343,6 +348,17 @@ fn codex_login_in_file(env: &BTreeMap<String, String>) -> bool {
         None => true,
         Some(value) => value.as_str() == Some("file"),
     }
+}
+
+/// Why the plan usage of the Codex login in `home` is not read at rest (`_acpmux/account/usage`),
+/// or None: a model provider other than the OpenAI sign-in has no plan limits (`provider`), and
+/// a login Codex may keep in the keychain is never asked for (`keychain`, cx-hh0vu).
+pub fn codex_usage_unreadable(home: &Path) -> Option<&'static str> {
+    let env = BTreeMap::from([("CODEX_HOME".to_owned(), home.display().to_string())]);
+    if codex_provider::provider_auth(&env) != codex_provider::ProviderAuth::OpenAiLogin {
+        return Some("provider");
+    }
+    (!codex_login_in_file(&env)).then_some("keychain")
 }
 
 /// Why starting harness `id` may read the login keychain, or None. A

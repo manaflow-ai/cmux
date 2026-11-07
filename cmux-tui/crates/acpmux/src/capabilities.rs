@@ -97,6 +97,10 @@ pub const CAPABILITIES: &[Capability] = &[
         id: crate::vault::CAPABILITY,
         wire: &[method::MUX_VAULT_PULL, method::MUX_VAULT_FORGET, method::MUX_VAULT_STATUS],
     },
+    // Proxy-delivered vault entries reach agents as `cmux-secret://NAME`,
+    // filled in by the daemon's egress proxy for their allowed hosts only;
+    // `machine vault status` names each entry's delivery and hosts.
+    Capability { id: crate::vault::EGRESS_CAPABILITY, wire: &[method::MUX_VAULT_STATUS] },
     Capability {
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
@@ -122,6 +126,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.
     Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
+    // Who else works on these files, topic, branch or folder, here and on peers
+    // (`hub/touched.rs`).
+    Capability { id: "who-else-v1", wire: &[method::MUX_WHO_ELSE] },
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
     Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },

@@ -12,14 +12,14 @@ public nonisolated enum SettingsSchema {
     /// reads it twice before the first window (about 20 ms in all on a cold launch, bd cx-z9kz0).
     public static let all: [SettingDescriptor] = {
         let next = general + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
-            + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + [MachineColorsSetting.descriptor, SSHLinkHostsSetting.descriptor] + CloudNewWorkspaceSetting.descriptors + CloudLoginCopyConsentSetting.descriptors + CloudAgentStartSetting.descriptors + SubsessionSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + TrustSettingsSchema.descriptors + MobileSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
+            + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + [MachineColorsSetting.descriptor, SSHLinkHostsSetting.descriptor] + CloudNewWorkspaceSetting.descriptors + CloudLoginCopyConsentSetting.descriptors + CloudCodexSignInConsentSetting.descriptors + CloudAgentStartSetting.descriptors + SubsessionSettingsSchema.descriptors + AgentGuidanceSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + TrustSettingsSchema.descriptors + MobileSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefPermissionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors + ChiefSidebarSettingsSchema.descriptors
             + NotificationSettingsSchema.descriptors + NotificationSoundSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
             + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
-            + MacScreenSettingsSchema.descriptors + MacScreenDebugSettingsSchema.descriptors
+            + MacScreenSettingsSchema.descriptors + MacScreenDebugSettingsSchema.descriptors + RemoteSettingsSchema.descriptors
             + DeviceHubSettingsSchema.descriptors + [ContextMenusSetting.showCustomizeItemDescriptor] + CmuxConfigSnapshot.imessageDescriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
@@ -56,7 +56,8 @@ public nonisolated enum SettingsSchema {
     /// availability come from the action registry).
     public static func actions(in section: SettingsSection) -> [ActionID] {
         switch section {
-        case .general: ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
+        case .general: ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates", "liveWeb.start", "liveWeb.stop",
+                        "palette.clearSearchHistory"]
         case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .editor: ["fileEditor.importEditorSettings"]
@@ -68,7 +69,8 @@ public nonisolated enum SettingsSchema {
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
         case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
         // The page draws Open <settings file> itself, named from the loaded path.
-        case .advanced: ["reloadConfiguration"]
+        // Start and Stop Swift Live Mode, beside Labs > Live Code.
+        case .advanced: ["reloadConfiguration", "liveSwift.start", "liveSwift.stop"]
         case .development: []
         }
     }
@@ -209,11 +211,13 @@ public nonisolated enum SettingsSchema {
             TabSettingsSchema.newTabTemplate(group: tabs),
             TabSettingsSchema.nativeNewTabPage(group: tabs),
             TabSettingsSchema.newTabPosition(group: tabs),
+            TabSettingsSchema.newTabButtonPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
         ] + TabBarSettingsSchema.descriptors(group: tabs) + TabWidthSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
             TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
         ] + TabSettingsSchema.verticalTabs(group: tabs) + [
+            TabSettingsSchema.hideLoneChatTab(group: tabs),
             TabSettingsSchema.swapCmdTAndCmdN(group: tabs),
         ] + TabSettingsSchema.closeWarnings(group: tabs) + [
             SettingDescriptor(
