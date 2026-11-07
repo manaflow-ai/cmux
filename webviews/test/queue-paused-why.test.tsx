@@ -165,7 +165,10 @@ test("a failed turn's hold of only an inbox notice draws nothing", async () => {
 // Resume (acpmux `cancel.rs`), so acpmux reads the queue as paused, and the note keeps its Resume
 // though none of the held prompts is the person's.
 test("a Stop's hold of only agent messages keeps the paused note and its Resume", async () => {
-  const held = mergeQueue([], [{ promptId: "m1", prompt: "Merged #1", client: "acpmux", held: true, fromAgent: "lane-a" }]);
+  const held = mergeQueue(
+    [],
+    [{ promptId: "m1", prompt: "Merged #1", client: "acpmux", held: true, fromAgent: "lane-a" }],
+  );
   expect(ownQueue(held)).toEqual([]);
   await draw(true, undefined, held);
   expect(host.querySelector(".acpmux-queue-paused")).not.toBeNull();
