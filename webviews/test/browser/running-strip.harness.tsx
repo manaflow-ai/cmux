@@ -148,4 +148,64 @@ const command = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178
     </section>,
   );
 };
+// Leo's hat (2026-11-07): a running subagent with a long task, a finished one, and a running command
+// whose shell line runs long (`window.__showRows`). What a line's click calls is kept in
+// `window.__opened`, so a test can tell a line that expands in place from one that navigates.
+const opened: string[] = [];
+(window as unknown as { __opened: string[] }).__opened = opened;
+(window as unknown as { __showRows: (width?: number) => void }).__showRows = (width = 720) => {
+  const now = Date.now();
+  const agents = [
+    {
+      id: "long",
+      parent: null,
+      name: "Reviewer",
+      task: "Audit every background task row in the composer hat for clipped titles and misaligned trailing columns",
+      state: "running",
+      startedAt: now - 374_000,
+    },
+    {
+      id: "done",
+      parent: null,
+      name: "Tester",
+      task: "Run the tray tests",
+      state: "completed",
+      startedAt: now - 90_000,
+      endedAt: now - 54_000,
+    },
+  ];
+  const wait = "glaeda-gh wait file ~/Projects/checkouts/cmux/composer-hat-row-check/.done --timeout 3600";
+  view.render(
+    <section className="acpmux-shell" style={{ width }}>
+      <div className="acpmux-main">
+        <div className="acpmux-dock">
+          <SubagentTray
+            items={trayItems(
+              agents,
+              [
+                {
+                  id: "w/1",
+                  command: wait,
+                  state: "running",
+                  processId: "w/1",
+                  toolCallId: "call-w",
+                  startedAt: now - 60_000,
+                },
+              ],
+              [],
+              true,
+            )}
+            finished={finishedTrayItems(agents, [])}
+            working
+            waiting={new Set()}
+            onOpen={(id) => opened.push(`agent:${id}`)}
+            onOpenCommand={(entry) => opened.push(`command:${entry.id}`)}
+            stop={async () => {}}
+            stopProcess={async () => {}}
+          />
+        </div>
+      </div>
+    </section>,
+  );
+};
 document.documentElement.dataset.harnessReady = "1";
