@@ -1,0 +1,245 @@
+{
+  "version": 1,
+  "build": "4231077138301",
+  "notes": "notes/4231077138301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37314,
+      "title": "acpmux: a refused sign-in's end runs once per turn and only on the agent it was meant for",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37243,
+      "title": "Cloud: private repos cmux clones onto a machine push from it; cmux gitlab credential for GitLab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37317,
+      "title": "os-matrix smoke: go through the first-run steps right after launch (Agents, then Bring your history)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37310,
+      "title": "New Tab box: solid composer surface under Reduce Transparency (glass levels follow-up)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37189,
+      "title": "cmux-remote: carrier grant auth, checked by a verifier the daemon installs at start (default deny)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37242,
+      "title": "iOS: start a Cloud chat from the phone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37152,
+      "title": "Agent chat: opening a run of many commands costs the same at any length",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37191,
+      "title": "Agent chat: a paste goes as pasted, and one that reads as another agent's names that agent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37205,
+      "title": "Session Info: opening a list costs the same at any length",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37184,
+      "title": "relay: park a Connect until the daemon registers, with a Parked frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37257,
+      "title": "cmux NEXT Home: the Messages sheets and New Message in React",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37280,
+      "title": "fix(cmux-host): the Cloud updater's flip looks at the connect hold too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37290,
+      "title": "hot-apply: on Linux, find an app's daemon by /proc/PID/exe",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37218,
+      "title": "Cloud carrier: an owner's grant reaches the desktop socket (local-socket service)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37228,
+      "title": "perf(sidebar): a group header hover crossing changes paint only (HOVER COMMIT 2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36450,
+      "title": "ci(base-red): bound the classifier's run and refuse a placeholder sha",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37266,
+      "title": "fix(webviews): center new chat hero on the pushed column",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37204,
+      "title": "cmux-next: two-finger Back/Forward swipe on app pages, following the fingers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37236,
+      "title": "acpmux: a Claude turn whose model API refuses the sign-in ends typed auth.signed_out at its third retry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37238,
+      "title": "cmux NEXT: a chat on another machine that is thinking draws no attention ring",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37246,
+      "title": "Chief memory import: the oldest item is always taken, so an oversized first item cannot stall it (review F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37253,
+      "title": "cloud start-chat: the answer says new_machine when this run made the machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37256,
+      "title": "fix(cmux-host): the Cloud updater holds its restart while a new or resumed machine's first link comes up",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37186,
+      "title": "cmux NEXT glass, native: GlassLevel (chrome, popover, menu, chip) for every native glass tint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37241,
+      "title": "cmux NEXT first run: one step at a time (Agents, then Bring your history; hang card from the second launch)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37237,
+      "title": "Cloud relay chat: login_unverified says how to sign in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37227,
+      "title": "acpmux: clear stale foreground calls; move work only after the steer is written",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37224,
+      "title": "hot-apply: find an app's daemon by its executable path; the proof prints what ran when it finds none",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37197,
+      "title": "Session Info: scrolling draws it no more than once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37225,
+      "title": "perf(browser): Chromium's occlusion checker skips embedded page windows; no orderedWindows wait in Cmd-N",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37240,
+      "title": "ci(nightly-next): submit the DMG again when notarytool never reached Apple",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37249,
+      "title": "Settings harnesses: resolve the async fetch defaults in the init body (freed pointer abort on macOS 27 minis)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37247,
+      "title": "dev pages: Chromium renders a dev server's HTML; a document that is not HTML falls back to the bundled page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37206,
+      "title": "perf(next): Cmd-N's window swaps in the key's frame, not in its handler (SWITCH STALL 6)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37156,
+      "title": "Agent chat: hovering a running command's line moves nothing, and a message's time has no plate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36879,
+      "title": "Prompt rail: keep the 480 px max, ticks 10 px apart again, a rail as tall as its ticks that grows down",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35119,
+      "title": "cmux NEXT: Invite People hides the empty link row from VoiceOver; Copied clears with the link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35770,
+      "title": "cmux NEXT Cloud: a chat moves from the relay to the direct link without a gap or a repeat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36269,
+      "title": "cmux NEXT: workflow card and Background tasks: running/finished, phase rows, words, one clock",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
