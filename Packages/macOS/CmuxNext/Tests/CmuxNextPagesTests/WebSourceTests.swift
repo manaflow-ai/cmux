@@ -8,8 +8,8 @@ import Testing
 /// files, and builds that do not show it, carry no tag.
 @MainActor
 struct WebSourceTests {
-    private static let token = "0123456789abcdef0123456789abcdef01234567"
-    private static let page = "<!doctype html><html><head><title>t</title></head><body></body></html>"
+    private nonisolated static let token = "0123456789abcdef0123456789abcdef01234567"
+    private nonisolated static let page = "<!doctype html><html><head><title>t</title></head><body></body></html>"
 
     @Test func theDevServersDocumentNamesTheServer() async throws {
         let bundled = try temporaryDirectory()
