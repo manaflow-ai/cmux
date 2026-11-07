@@ -247,8 +247,8 @@ impl Hub {
                 if hub.peer(&peer).is_none_or(|p| (p.generation, p.link_epoch()) != link) {
                     return;
                 }
-                let (hub, peer, rows) = (hub.clone(), peer.clone(), rows.clone());
-                ahead = tokio::task::spawn_blocking(move || hub.peer_snapshots.ahead(&peer, rows))
+                let (h, p, rows) = (hub.clone(), peer.clone(), rows.clone());
+                ahead = tokio::task::spawn_blocking(move || h.peer_snapshots.ahead(&p, rows))
                     .await
                     .ok()
                     .flatten();

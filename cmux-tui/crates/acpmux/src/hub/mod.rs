@@ -223,10 +223,13 @@ mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
-/// Debug builds only: a test seam for the Mac's reads of its copies (see `peer_snapshot`).
+/// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
+/// out or dead store would (`peer_snapshot/restore.rs`).
 #[cfg(debug_assertions)]
 #[doc(hidden)]
-pub use peer_snapshot::reads_fail as peer_snapshot_reads_fail;
+pub fn peer_snapshot_reads_fail(peer: &str, n: u32) {
+    peer_snapshot::reads_fail(peer, n);
+}
 mod peers;
 mod remote_rows;
 pub(crate) use peers::{
