@@ -52,12 +52,12 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
         item = statusItem
     }
 
-    /// Removes the item and closes its popover.
+    /// Removes the item and closes its popover and cards (an open invite's session ends).
     func hide() {
         popover?.close()
         popover = nil
-        card?.orderOut(nil)
-        card = nil
+        card.take()?.orderOut(nil)
+        cards.take()?.dismiss()
         model?.stop()
         model = nil
         if let item { NSStatusBar.system.removeStatusItem(item) }
