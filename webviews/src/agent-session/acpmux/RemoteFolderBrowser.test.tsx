@@ -74,8 +74,8 @@ async function mount(list: (params: BrowseParams) => Promise<BrowseReply>, size?
   await act(async () => {
     root!.render(
       <RemoteFolderBrowser
-        machine="big-red"
-        peer="big-red"
+        machine="build-box"
+        peer="build-box"
         list={list}
         size={size}
         onPick={(path) => picked.push(path)}
@@ -113,7 +113,7 @@ test("opens one folder at a time and picks the folder shown", async () => {
   expect(document.querySelector<HTMLButtonElement>(".acpmux-browse-use")!.disabled).toBe(true);
   await click(rows()[0]!);
   expect(asked.map((a) => a.path)).toEqual([undefined, `${HOME}/Projects`]);
-  expect(asked.every((a) => a.dirsOnly === true && a.peer === "big-red")).toBe(true);
+  expect(asked.every((a) => a.dirsOnly === true && a.peer === "build-box")).toBe(true);
   expect(rows().map((r) => r.textContent)).toEqual(["cmux", "etc-link"]);
   await click(document.querySelector(".acpmux-browse-use")!);
   expect(picked).toEqual([`${HOME}/Projects`]);
@@ -138,7 +138,7 @@ test("Up at the machine's top goes back to the menu's list", async () => {
 test("an acpmux without the browse method says to update it", async () => {
   await mount(() => Promise.reject({ code: -32601, message: "Method not found" }));
   expect(document.querySelector('[role="alert"]')!.textContent).toBe(
-    translate("composer.browseUnsupported", { machine: "big-red" }),
+    translate("composer.browseUnsupported", { machine: "build-box" }),
   );
 });
 

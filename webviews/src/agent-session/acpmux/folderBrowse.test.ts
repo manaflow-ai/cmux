@@ -19,7 +19,7 @@ function machine() {
   const views: BrowseView[] = [];
   const list = (params: BrowseParams) =>
     new Promise<BrowseReply>((resolve, reject) => asked.push({ params, resolve, reject }));
-  const browse = new FolderBrowse(list, "big-red", (view) => views.push(view), 60_000);
+  const browse = new FolderBrowse(list, "build-box", (view) => views.push(view), 60_000);
   return { asked, views, browse };
 }
 
@@ -44,8 +44,8 @@ test("asks the peer for one page of folders only, of the directory shown", () =>
   browse.open(null);
   browse.open("/home/leo/src");
   expect(asked.map((a) => a.params)).toEqual([
-    { peer: "big-red", dirsOnly: true, limit: BROWSE_PAGE },
-    { peer: "big-red", path: "/home/leo/src", dirsOnly: true, limit: BROWSE_PAGE },
+    { peer: "build-box", dirsOnly: true, limit: BROWSE_PAGE },
+    { peer: "build-box", path: "/home/leo/src", dirsOnly: true, limit: BROWSE_PAGE },
   ]);
 });
 
@@ -82,7 +82,7 @@ test("pages: the next page is asked once, from the reply's offset, and appended"
   browse.more();
   expect(asked.length).toBe(2);
   expect(asked[1]!.params).toEqual({
-    peer: "big-red",
+    peer: "build-box",
     path: "/home/leo",
     dirsOnly: true,
     limit: BROWSE_PAGE,
@@ -162,7 +162,7 @@ test("a machine that never answers is told as unreachable", async () => {
   const told = new Promise<BrowseView>((resolve) => (failed = resolve));
   const browse = new FolderBrowse(
     () => new Promise<BrowseReply>(() => undefined),
-    "big-red",
+    "build-box",
     (view) => view.failure && failed(view),
     0,
   );

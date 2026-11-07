@@ -50,8 +50,8 @@ const answer =
   };
 
 const base: Props = {
-  machine: "big-red",
-  peer: "big-red",
+  machine: "build-box",
+  peer: "build-box",
   list: answer(),
   start: `${HOME}/Projects`,
   size: { width: 280, height: 300 },
@@ -110,7 +110,7 @@ export default componentEntry<Props>({
       play: openCmux,
     },
     top: {
-      note: "Browse big-red… opens on the folders big-red starts chats in; Use waits for a folder.",
+      note: "Browse build-box… opens on the folders build-box starts chats in; Use waits for a folder.",
       props: { ...base, start: null },
       play: rowsShown,
     },
@@ -124,7 +124,7 @@ export default componentEntry<Props>({
       play: rowsShown,
     },
     unsupported: {
-      note: "big-red's acpmux predates browsing: the browser says to update it; the known folders stay in the list.",
+      note: "build-box's acpmux predates browsing: the browser says to update it; the known folders stay in the list.",
       props: { ...base, list: () => Promise.reject({ code: -32601, message: "Method not found" }) },
     },
   },

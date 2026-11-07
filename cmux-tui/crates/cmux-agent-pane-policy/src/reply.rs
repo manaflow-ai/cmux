@@ -57,14 +57,16 @@ pub fn filtered_reply(object: &Map<String, Value>, shape: &ReplyShape, page_id: 
     if let Some(error) = object.get("error").and_then(Value::as_object) {
         let code = error.get("code").and_then(integer_code).unwrap_or(-32603);
         let message = error.get("message").and_then(Value::as_str).unwrap_or_default();
-        let mut kept = json!({"code": code, "message": message});
+        let mut kept = Map::new();
+        kept.insert("code".into(), json!(code));
+        kept.insert("message".into(), json!(message));
         if let Some(reason) =
             error.get("data").and_then(|d| d.get("reason")).and_then(Value::as_str)
             && KEPT_ERROR_REASONS.contains(&reason)
         {
-            kept["data"] = json!({"reason": reason});
+            kept.insert("data".into(), json!({"reason": reason}));
         }
-        reply.insert("error".into(), kept);
+        reply.insert("error".into(), Value::Object(kept));
     } else {
         let result = object
             .get("result")
