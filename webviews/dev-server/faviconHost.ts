@@ -1,8 +1,9 @@
 // The dev server's stand-in for the app's `link.favicons` (AgentPaneSiteIcons.swift), so the agent
 // pane's `?mock` page shows real site icons in a plain browser. Same rules as the app, in Node: a
-// public host name only, asked of the favicon service T3 Code uses, over https, every address of
-// every hop public, at most 3 redirects, 64 KiB, 5 s, an image type, no cookies or referrer. The
-// app also redraws the icon as a PNG; here the bytes go back as they came, and Node's fetch looks
+// public host name only, asked of the favicon service T3 Code uses, over https, only the service's
+// hosts and every address of every hop public, at most 3 redirects, 64 KiB, 5 s, an image type, no
+// cookies or referrer. The app asks only a site's registrable domain and caps its rate; this
+// loopback dev server sends the host name as it is. The app also redraws the icon as a PNG; here the bytes go back as they came, and Node's fetch looks
 // the name up again after the check (the app pins the checked address): fine for a loopback dev
 // server, not a pattern for shipped code. Answers are kept per host for the server's life (at most
 // 256).
@@ -14,6 +15,15 @@ const TIMEOUT_MS = 5_000;
 const MAX_REDIRECTS = 3;
 const MAX_HOSTS = 32;
 const MAX_KEPT = 256;
+/// The only hosts a fetch may reach, every hop: the service and its image servers (the app's
+/// `AgentPaneSiteIcons.serviceHosts`).
+const SERVICE_HOSTS = new Set([
+  "www.google.com",
+  "t0.gstatic.com",
+  "t1.gstatic.com",
+  "t2.gstatic.com",
+  "t3.gstatic.com",
+]);
 const cache = new Map<string, Promise<string | null>>();
 
 const PRIVATE_SUFFIX =
@@ -57,7 +67,8 @@ async function fetchIcon(host: string): Promise<string | null> {
   url.searchParams.set("sz", "32");
   const deadline = AbortSignal.timeout(TIMEOUT_MS);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    if (url.protocol !== "https:" || url.username || url.password || isIP(url.hostname)) return null;
+    if (url.protocol !== "https:" || url.username || url.password || url.port || !SERVICE_HOSTS.has(url.hostname))
+      return null;
     const addresses = await lookup(url.hostname, { all: true }).catch(() => []);
     if (!addresses.length || !addresses.every((entry) => isPublicAddress(entry.address))) return null;
     const response = await fetch(url, {

@@ -2,7 +2,20 @@ import CmuxNextRemoteFetch
 import CoreGraphics
 import Foundation
 import ImageIO
+import CmuxNextWakeups
 import UniformTypeIdentifiers
+
+/// Turns a host name into its registrable domain (its public suffix plus one label, "eTLD+1"):
+/// the app's Public Suffix List (CmuxNextBrowser `PublicSuffixList`), read once, off the main actor,
+/// the first time a site icon is asked for. `load` answers nil when there is no list; then
+/// ``AgentPaneSiteIcons`` asks the favicon service nothing (it fails closed).
+public nonisolated struct AgentPaneSiteDomains: Sendable {
+    public let load: @Sendable () -> (@Sendable (String) -> String?)?
+
+    public init(load: @escaping @Sendable () -> (@Sendable (String) -> String?)?) {
+        self.load = load
+    }
+}
 
 /// The favicon of each web site a reply, a prompt or a fetch tool row links to (`link.favicons
 /// {hosts}`), for the mark the page draws before the link (chips/SiteIcon.tsx). The page loads no
@@ -11,13 +24,17 @@ import UniformTypeIdentifiers
 /// no network); else the host asks a public favicon service for the site's icon, as T3 Code does
 /// (Lucas 2026-10-29). The service knows icons a site declares only in its page (`rust-lang.org` has
 /// no `/favicon.ico`) and those of sites that refuse a direct fetch: 97% of 106 common developer
-/// sites against 65% for `/favicon.ico` (outputs/2026-10-29-chat-t3/favicons.md). It learns the host
-/// name of each site a chat links, never the link's path or query.
+/// sites against 65% for `/favicon.ico` (outputs/2026-10-29-chat-t3/favicons.md). It learns the
+/// registrable domain of each site a chat links, never a subdomain, path, query or port.
 ///
 /// The host name is reply text an agent wrote, so the fetch is narrow:
 /// - only a public DNS name is asked (``publicHost(of:)``): no address literal, single label,
-///   local or reserved name, or company host (`*.corp.*`, `*.internal.*`, `*.intranet.*`), and no
-///   path, query or port of the link;
+///   local, tailnet or reserved name, or company host (`*.corp.*`, `*.internal.*`, `*.intranet.*`);
+/// - only its registrable domain (``AgentPaneSiteDomains``): `c2VjcmV0.evil.com` asks `evil.com`,
+///   so a prompt-injected link cannot carry data out in its subdomains, and no list asks nothing;
+/// - at most ``burst`` new fetches per ``refillEvery`` for all panes, so a reply with thousands of
+///   sites cannot make the Mac flood the service; a site past it is answered `later` at once (the
+///   page asks again after the window), so one busy window never holds a page's other icons;
 /// - through ``GuardedRemoteFetch`` (https only; every address of every hop public, so no local,
 ///   private or rebinding target; at most 3 redirects, each checked; no cookies, credentials,
 ///   cache, proxy or referrer), at most ``maximumBytes`` within ``timeout``;
@@ -26,9 +43,9 @@ import UniformTypeIdentifiers
 ///   that only claim to be an image never reach the page;
 /// - `agentPane.images.remote` = `never` fetches nothing (the page keeps its globes).
 ///
-/// Answers, an icon or none, are kept per host, at most ``capacity`` of them; a host is fetched
-/// once however many links or requests name it at the same time. The app's panes share one
-/// (``AgentPaneShared``), so a site is fetched once per app run, not once per chat.
+/// Answers, an icon or none, are kept per site (registrable domain), at most ``capacity`` of them; a
+/// site is fetched once however many links or requests name it at the same time. The app's panes
+/// share one (``AgentPaneShared``), so a site is fetched once per app run, not once per chat.
 final class AgentPaneSiteIcons {
     static let maximumBytes = 64 << 10
     static let timeout: Duration = .seconds(5)
@@ -73,36 +90,77 @@ final class AgentPaneSiteIcons {
     /// Fetches past ``maximumRunning`` wait here for a slot, oldest first.
     private var active = 0
     private var waiting: [CheckedContinuation<Void, Never>] = []
+    /// New fetches allowed per ``refillEvery`` window.
+    var burst = 64
+    /// The rate window: its timer runs only while fetches started in it.
+    var refillEvery: Duration = .seconds(30)
+    private var spent = 0
+    private let window: DemandTimer
+    private let domains: AgentPaneSiteDomains
+    /// The loaded ``AgentPaneSiteDomains``: unset until the first ask, then the list or nil.
+    private var registrable: (@Sendable (String) -> String?)??
+    private var loadingDomains: Task<(@Sendable (String) -> String?)?, Never>?
 
-    init() {}
+    /// A store over `domains` (none: tests and previews, which fetch nothing) and `clock` (the rate window's).
+    init(domains: AgentPaneSiteDomains = AgentPaneSiteDomains { nil }, clock: any Clock<Duration> = ContinuousClock()) {
+        self.domains = domains
+        window = DemandTimer(owner: "agent-pane.site-icons", clock: clock)
+    }
 
-    /// The icon of each of `hosts` that has one, by host. `known` holds icons cmux already has
+    /// The icon of each of `hosts` that has one, by host, and the hosts the rate window had no room
+    /// for (`later`: not fetched, not kept as having none). `known` holds icons cmux already has
     /// (by host); `fetch` false asks no site.
-    func icons(for hosts: [String], known: [String: String], fetch: Bool) async -> [String: String] {
+    func icons(for hosts: [String], known: [String: String], fetch: Bool) async -> (icons: [String: String], later: [String]) {
         var out: [String: String] = [:]
+        var later: [String] = []
         var waits: [(host: String, task: Task<String?, Never>)] = []
+        let registrable = hosts.allSatisfy { known[$0] != nil } ? nil : await registrableDomains()
         for host in hosts {
             if let icon = known[host] {
                 out[host] = icon
                 continue
             }
-            guard let name = Self.publicHost(of: host) else { continue }
+            guard let checked = Self.publicHost(of: host), let site = registrable?(checked),
+                  let name = Self.publicHost(of: site) else { continue }
             switch answers[name] {
             case .icon(let icon)?: out[host] = icon
             case .missing(let since)? where ContinuousClock.now - since < Self.missingFor: continue
             case .missing?, nil:
                 guard fetch else { continue }
-                waits.append((host, load(name)))
+                if let task = load(name) { waits.append((host, task)) } else { later.append(host) }
             }
         }
         for wait in waits {
             if let icon = await wait.task.value { out[wait.host] = icon }
         }
-        return out
+        return (out, later)
     }
 
-    private func load(_ host: String) -> Task<String?, Never> {
+    /// The registrable-domain function, loaded once off the main actor; nil when there is no list.
+    private func registrableDomains() async -> (@Sendable (String) -> String?)? {
+        if let registrable { return registrable }
+        if let loadingDomains { return await loadingDomains.value }
+        let load = domains.load
+        // task-owner: reads the suffix list once (a bundled file); every ask waits on this one read.
+        let task = Task { await Self.read(load) }
+        loadingDomains = task
+        let loaded = await task.value
+        registrable = .some(loaded)
+        loadingDomains = nil
+        return loaded
+    }
+
+    @concurrent nonisolated static func read(_ load: @Sendable () -> (@Sendable (String) -> String?)?) async
+        -> (@Sendable (String) -> String?)? {
+        load()
+    }
+
+    /// The fetch of `host`'s icon, shared by every ask of it; nil when the rate window is full.
+    private func load(_ host: String) -> Task<String?, Never>? {
         if let task = running[host] { return task }
+        guard spent < burst else { return nil }
+        spent += 1
+        openWindow()
         let guarded = guarded
         // task-owner: one host's favicon fetch and decode, bounded by the fetch's timeout; it
         // records its answer and leaves `running` when it ends.
@@ -115,6 +173,17 @@ final class AgentPaneSiteIcons {
         }
         running[host] = task
         return task
+    }
+
+    /// Starts the rate window's timer when a fetch counts in it and it is not running.
+    private func openWindow() {
+        guard spent > 0 else { return }
+        window.scheduleIfIdle(after: refillEvery) { @MainActor [weak self] in self?.windowEnded() }
+    }
+
+    /// The window ends: its fetches no longer count, and the timer stops until the next fetch.
+    private func windowEnded() {
+        spent = 0
     }
 
     /// Waits for one of the ``maximumRunning`` fetch slots.
@@ -173,8 +242,10 @@ final class AgentPaneSiteIcons {
     }
 
     /// Names that are never a public site (T3 Code's list, and the local and reserved names).
-    nonisolated static let privateSuffixes = ["localhost", "local", "internal", "intranet", "corp", "private", "home", "home.arpa", "lan",
-                                              "alt", "test", "example", "invalid", "onion"]
+    /// Tailnet names (`ts.net`, `tailscale.net`) and reverse lookups (`arpa`) name private machines too.
+    nonisolated static let privateSuffixes = ["localhost", "local", "localdomain", "internal", "intranet", "corp", "private", "home",
+                                              "home.arpa", "arpa", "lan", "alt", "test", "example", "invalid", "onion", "ts.net",
+                                              "tailscale.net"]
     /// Labels that mark a company's own host anywhere in a public name (`jira.corp.acme.com`): such a
     /// name is never sent to the service.
     nonisolated static let internalLabels: Set<String> = ["corp", "internal", "intranet"]

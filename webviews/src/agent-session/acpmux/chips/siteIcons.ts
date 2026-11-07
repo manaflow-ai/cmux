@@ -38,6 +38,13 @@ let scheduled = false;
 let inFlight = false;
 let notificationScheduled = false;
 const listeners = new Set<() => void>();
+/// Sites the host answered `later` (its rate window was full): asked again once, together, after
+/// the delay it named, by one timer that runs only while such sites wait.
+const retry = new Set<string>();
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+/// Bounds on the host's `retryAfterMs`.
+const MIN_RETRY_MS = 10;
+const MAX_RETRY_MS = 120_000;
 
 function changed() {
   if (!listeners.size || notificationScheduled) return;
@@ -61,19 +68,44 @@ function flush() {
   inFlight = true;
   void callChipHost("link.favicons", { hosts: batch })
     .then((reply) => {
-      const answered = ((reply ?? {}) as { icons?: Record<string, unknown> }).icons ?? {};
+      const answer = (reply ?? {}) as { icons?: Record<string, unknown>; later?: unknown; retryAfterMs?: unknown };
+      const answered = answer.icons ?? {};
+      const later = new Set(Array.isArray(answer.later) ? answer.later : []);
       for (const host of batch) {
+        if (later.has(host)) {
+          // Still marked as none, so a render does not ask again before the retry.
+          pending.delete(host);
+          retry.add(host);
+          continue;
+        }
         const icon = answered[host];
         // Only an inline raster image: anything else is no icon (the CSP would refuse it anyway).
         icons.set(host, typeof icon === "string" && PNG_DATA_URL.test(icon) ? icon : null);
         pending.delete(host);
       }
+      if (later.size) scheduleRetry(answer.retryAfterMs);
     })
     .finally(() => {
       inFlight = false;
       changed();
       if (queued.length) scheduleFlush();
     });
+}
+
+function scheduleRetry(after: unknown) {
+  if (retryTimer !== undefined || !retry.size) return;
+  const delay = Math.min(MAX_RETRY_MS, Math.max(MIN_RETRY_MS, typeof after === "number" ? after : 30_000));
+  retryTimer = setTimeout(() => {
+    retryTimer = undefined;
+    for (const host of retry) {
+      // A site forgotten meanwhile is asked by its link's next render instead.
+      if (icons.get(host) !== null || pending.has(host)) continue;
+      pending.add(host);
+      queued.push(host);
+    }
+    retry.clear();
+    scheduleFlush();
+  }, delay);
 }
 
 function ask(host: string) {
@@ -139,16 +171,13 @@ export function useSiteIcon(host: string | undefined): string | undefined {
 
 /// Tests and the gallery start from nothing.
 export function resetSiteIcons(): void {
+  if (retryTimer !== undefined) clearTimeout(retryTimer);
+  retryTimer = undefined;
+  retry.clear();
   icons.clear();
   pending.clear();
   queued = [];
   scheduled = false;
   inFlight = false;
-  changed();
-}
-
-/// Gallery host fixtures can prime the same cache the native call would fill (`null`: no icon).
-export function seedSiteIcons(seed: Record<string, string | null>): void {
-  for (const [host, icon] of Object.entries(seed)) icons.set(host, icon);
   changed();
 }

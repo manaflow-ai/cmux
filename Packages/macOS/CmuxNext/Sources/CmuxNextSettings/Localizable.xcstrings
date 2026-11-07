@@ -85627,127 +85627,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "تُحمَّل صورة الويب من موقعها، فيعرف الموقع أنك قرأت الرد."
+            "value" : "تُحمَّل صورة الويب من موقعها، فيعرف الموقع أنك قرأت الرد. تُحمَّل أيقونات المواقع قبل روابط الويب دون نقرة من خدمة أيقونات، ولا ترى إلا نطاق كل موقع. «أبدًا» يوقف الاثنين."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Web slika se učitava sa svoje stranice, koja tada vidi da ste pročitali odgovor."
+            "value" : "Web slika se učitava sa svoje stranice, koja tada vidi da ste pročitali odgovor. Ikone stranica ispred web veza učitavaju se bez klika iz servisa za ikone, koji vidi samo domenu svake stranice. „Nikad” isključuje oboje."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Et webbillede hentes fra sit websted, som så kan se, at du har læst svaret."
+            "value" : "Et webbillede hentes fra sit websted, som så kan se, at du har læst svaret. Webstedsikoner foran weblinks hentes uden et klik fra en ikontjeneste, som kun ser hvert websteds domæne. „Aldrig” slår begge fra."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ein Webbild lädt von seiner Website, die dann sieht, dass Sie die Antwort lesen."
+            "value" : "Ein Webbild lädt von seiner Website, die dann sieht, dass Sie die Antwort lesen. Website-Symbole vor Weblinks laden ohne Klick von einem Symboldienst, der nur die Domain jeder Website sieht. „Nie“ schaltet beides aus."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A web image loads from its site, which then sees that you read the reply."
+            "value" : "A web image loads from its site, which then sees that you read the reply. Site icons before web links load without a click from an icon service, which sees only each site's domain. Never turns both off."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Una imagen web se carga desde su sitio, que así sabe que leíste la respuesta."
+            "value" : "Una imagen web se carga desde su sitio, que así sabe que leíste la respuesta. Los iconos de sitio delante de los enlaces web se cargan sin un clic desde un servicio de iconos, que solo ve el dominio de cada sitio. «Nunca» desactiva ambos."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Une image web se charge depuis son site, qui voit alors que vous lisez la réponse."
+            "value" : "Une image web se charge depuis son site, qui voit alors que vous lisez la réponse. Les icônes de site devant les liens web se chargent sans clic depuis un service d’icônes, qui ne voit que le domaine de chaque site. « Jamais » désactive les deux."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Un’immagine web si carica dal suo sito, che così vede che hai letto la risposta."
+            "value" : "Un’immagine web si carica dal suo sito, che così vede che hai letto la risposta. Le icone dei siti prima dei link web si caricano senza clic da un servizio di icone, che vede solo il dominio di ogni sito. «Mai» disattiva entrambi."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Web 画像はそのサイトから読み込まれ、サイトはあなたが返信を読んだことを知ります。"
+            "value" : "Web 画像はそのサイトから読み込まれ、サイトはあなたが返信を読んだことを知ります。Web リンクの前のサイトアイコンは、クリックなしでアイコンサービスから読み込まれます。サービスが知るのは各サイトのドメインだけです。「しない」にすると両方とも読み込みません。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "រូបភាពវេបផ្ទុកពីគេហទំព័ររបស់វា ដែលបន្ទាប់មកដឹងថាអ្នកបានអានការឆ្លើយតប។"
+            "value" : "រូបភាពវេបផ្ទុកពីគេហទំព័ររបស់វា ដែលបន្ទាប់មកដឹងថាអ្នកបានអានការឆ្លើយតប។ រូបតំណាងគេហទំព័រនៅមុខតំណវេបផ្ទុកដោយមិនចាំបាច់ចុច ពីសេវារូបតំណាង ដែលឃើញតែដែននៃគេហទំព័រនីមួយៗប៉ុណ្ណោះ។ «មិនដែល» បិទទាំងពីរ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "웹 이미지는 해당 사이트에서 불러오며, 사이트는 내가 답장을 읽었다는 것을 알게 됩니다."
+            "value" : "웹 이미지는 해당 사이트에서 불러오며, 사이트는 내가 답장을 읽었다는 것을 알게 됩니다. 웹 링크 앞의 사이트 아이콘은 클릭 없이 아이콘 서비스에서 불러오며, 이 서비스는 각 사이트의 도메인만 봅니다. ‘안 함’은 둘 다 끕니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Et nettbilde lastes fra nettstedet sitt, som da ser at du leser svaret."
+            "value" : "Et nettbilde lastes fra nettstedet sitt, som da ser at du leser svaret. Nettstedsikoner foran nettlenker lastes uten klikk fra en ikontjeneste, som bare ser domenet til hvert nettsted. «Aldri» slår av begge."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Obraz z sieci wczytuje się ze swojej witryny, która wtedy widzi, że czytasz odpowiedź."
+            "value" : "Obraz z sieci wczytuje się ze swojej witryny, która wtedy widzi, że czytasz odpowiedź. Ikony witryn przed linkami wczytują się bez kliknięcia z usługi ikon, która widzi tylko domenę każdej witryny. „Nigdy” wyłącza oba."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Uma imagem da web carrega do site dela, que então vê que você leu a resposta."
+            "value" : "Uma imagem da web carrega do site dela, que então vê que você leu a resposta. Os ícones de site antes dos links da web carregam sem clique de um serviço de ícones, que vê só o domínio de cada site. “Nunca” desativa os dois."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Веб-изображение загружается со своего сайта, и сайт видит, что вы прочитали ответ."
+            "value" : "Веб-изображение загружается со своего сайта, и сайт видит, что вы прочитали ответ. Значки сайтов перед веб-ссылками загружаются без щелчка из сервиса значков, который видит только домен каждого сайта. «Никогда» отключает и то, и другое."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "รูปภาพจากเว็บโหลดจากเว็บไซต์ของมัน ซึ่งจะรู้ว่าคุณอ่านคำตอบแล้ว"
+            "value" : "รูปภาพจากเว็บโหลดจากเว็บไซต์ของมัน ซึ่งจะรู้ว่าคุณอ่านคำตอบแล้ว ไอคอนเว็บไซต์หน้าลิงก์เว็บโหลดโดยไม่ต้องคลิกจากบริการไอคอน ซึ่งเห็นเพียงโดเมนของแต่ละเว็บไซต์ “ไม่เลย” จะปิดทั้งสองอย่าง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Bir web görseli kendi sitesinden yüklenir; site de yanıtı okuduğunuzu görür."
+            "value" : "Bir web görseli kendi sitesinden yüklenir; site de yanıtı okuduğunuzu görür. Web bağlantılarının önündeki site simgeleri tıklamadan bir simge hizmetinden yüklenir; hizmet yalnızca her sitenin alan adını görür. “Asla” ikisini de kapatır."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Вебзображення завантажується зі свого сайту, і сайт бачить, що ви прочитали відповідь."
+            "value" : "Вебзображення завантажується зі свого сайту, і сайт бачить, що ви прочитали відповідь. Значки сайтів перед вебпосиланнями завантажуються без клацання із сервісу значків, який бачить лише домен кожного сайту. «Ніколи» вимикає і те, і інше."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hình ảnh web tải từ trang của nó, và trang đó biết bạn đã đọc câu trả lời."
+            "value" : "Hình ảnh web tải từ trang của nó, và trang đó biết bạn đã đọc câu trả lời. Biểu tượng trang trước liên kết web tải mà không cần nhấp từ một dịch vụ biểu tượng, dịch vụ này chỉ thấy tên miền của mỗi trang. “Không bao giờ” tắt cả hai."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "网页图片从其网站加载，该网站会因此知道你阅读了这条回复。"
+            "value" : "网页图片从其网站加载，该网站会因此知道你阅读了这条回复。网页链接前的网站图标无需点按即从图标服务加载，该服务只能看到每个网站的域名。“永不”会同时关闭两者。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "網頁圖片從其網站載入，該網站會因此知道你讀了這則回覆。"
+            "value" : "網頁圖片從其網站載入，該網站會因此知道你讀了這則回覆。網頁連結前的網站圖示無需點按即從圖示服務載入，該服務只看得到每個網站的網域。「永不」會同時關閉兩者。"
           }
         }
       }

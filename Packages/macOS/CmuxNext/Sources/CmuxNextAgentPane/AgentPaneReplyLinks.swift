@@ -262,8 +262,11 @@ extension AgentPaneModel {
             known[host] = "data:image/png;base64," + png.base64EncodedString()
         }
         let fetch = replyLinks.settings().remoteImages != .never
-        let icons = await replyLinks.siteIcons.icons(for: hosts, known: known, fetch: fetch)
-        return AgentPaneReply.success(["icons": icons])
+        let answer = await replyLinks.siteIcons.icons(for: hosts, known: known, fetch: fetch)
+        guard !answer.later.isEmpty else { return AgentPaneReply.success(["icons": answer.icons]) }
+        let retry = replyLinks.siteIcons.refillEvery.components
+        return AgentPaneReply.success(["icons": answer.icons, "later": answer.later,
+                                       "retryAfterMs": Int(retry.seconds) * 1000 + Int(retry.attoseconds / 1_000_000_000_000_000)])
     }
 
     /// Opens a path chip (D4): the deny list first, then a gesture; inside a root it opens in

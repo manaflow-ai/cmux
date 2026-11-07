@@ -12,23 +12,26 @@ public import CmuxNextDesign
 ///   app sections). Nil (tests): the page has no `cmux.apps.panels.*` ops.
 /// - `actAsMe`: the app's one "Computer use can act as me" grant (``AgentPaneActAsMe``); nil (tests) grants nothing.
 /// - `flickerLog`: the app run's flicker ring file (``AgentPageFlickerLog/forAppRun()``); nil (tests) writes none.
-/// - `siteIcons`: the site favicons before web links (`link.favicons`), so a site is fetched once per app run.
+/// - `siteIcons`: the site favicons before web links (`link.favicons`), so a site is fetched once per app run,
+///   over `siteDomains` (the app's Public Suffix List); none (tests) fetches nothing.
 public struct AgentPaneShared {
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
     public let apps: AppsClient?
     public let actAsMe: AgentPaneActAsMe?
     public let flickerLog: AgentPageFlickerLog?
-    let siteIcons = AgentPaneSiteIcons()
+    let siteIcons: AgentPaneSiteIcons
 
     /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant and no flicker log.
     public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil,
-                actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil) {
+                actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil,
+                siteDomains: AgentPaneSiteDomains = AgentPaneSiteDomains { nil }) {
         self.openPanel = openPanel
         self.eventSources = eventSources
         self.apps = apps
         self.actAsMe = actAsMe
         self.flickerLog = flickerLog
+        siteIcons = AgentPaneSiteIcons(domains: siteDomains)
     }
 }
 
