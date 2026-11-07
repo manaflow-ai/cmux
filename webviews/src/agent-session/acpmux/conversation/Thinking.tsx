@@ -16,6 +16,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
 import { liveLineTokens } from "./liveLineTokens.experiment";
+import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
@@ -169,6 +170,7 @@ export function Thinking({
   sendSession,
   draft = false,
   done = false,
+  call,
   doneMs,
   liveState,
   liveAgents = 0,
@@ -196,6 +198,10 @@ export function Thinking({
   draft?: boolean;
   /// `doing` is the latest step, finished ("Ran grep …"): the line holds it until the next one.
   done?: boolean;
+  /// The id of the call `doing` names (turns.ts `codexLiveTurn`): while it stays the same, its words
+  /// change in place ("Writing a file", "Writing gen.py", "Wrote gen.py"), one row from pending to
+  /// done; only the next call rolls in (oneRowPerCall.experiment.ts).
+  call?: string;
   /// How long that finished step took (turns.ts `liftedStep`): the time beside it with `turnTotal`.
   doneMs?: number;
   /// With no call named: the agent waits on `liveAgents` foreground subagents, or writes its reply
@@ -276,7 +282,8 @@ export function Thinking({
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
   // A retry or a start look draws other words in place of the line: coming back rolls nothing.
   const away = waiting !== undefined || retry !== undefined || startLook !== "thinking";
-  const roll = useRoll(away ? undefined : decorative ? "" : label, label, lead);
+  const sameCall = call !== undefined && doing !== undefined && experimentArm(oneRowPerCall) === "morph";
+  const roll = useRoll(away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label, label, lead);
   const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // Past the first step a finished step's own time stands beside the label, and the turn's clock
   // follows it after a dot: "Ran grep -n x 2s · 15s" (Leo, 2026-11-03: "i think the "thinking"
