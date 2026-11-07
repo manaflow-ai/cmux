@@ -921,7 +921,8 @@ fn steps(
 ) -> Outcome {
     let began = runner.now();
     // 1. Signed in, and the machine names in use.
-    let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
+    let mut listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
+    {
         Ok(listed) => listed,
         Err(error) => return app_failure(error),
     };
@@ -936,6 +937,44 @@ fn steps(
     // 2. The relay-first chat (cmuxterm-hq#7086): the prompt goes over HTTPS and down the socket the machine
     // holds from boot, with no link to the machine. Whatever kept it from the machine (an app or a machine
     // without the relay) leaves the link path below, on the machine it found or made.
+    // A `--cwd` on a machine that already exists may be a repository its bootstrap is still cloning
+    // (`cloud new-machine --repo`): wait for the clone rather than fail "cwd is not a directory" (folder.rs).
+    let existing = match &request.machine {
+        Machine::Target(id) => Some(id.clone()),
+        Machine::Named(name) => at(&listed, "machines")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| at(row, "title").as_str() == Some(name.as_str()))
+            .and_then(|row| at(row, "machine_id").as_str().map(str::to_owned)),
+        Machine::New => None,
+    };
+    // `--environment` always makes a new machine (in_environment refuses an existing name first), so it has
+    // no folder of an earlier bootstrap to wait for. A `--name` still being made is waited on until it is
+    // listed, then checked like any machine.
+    if request.environment.is_none()
+        && let Some(cwd) = &request.cwd
+    {
+        let machine = match (existing, &request.machine) {
+            (Some(id), _) => Some(id),
+            (None, Machine::Named(name)) => {
+                match folder::created(runner, request, name, deadline, &mut listed, began) {
+                    Ok(id) => id,
+                    Err(outcome) => return outcome,
+                }
+            }
+            (None, _) => None,
+        };
+        if let Some(machine) = machine {
+            // A wait that answers past the deadline is `run`'s late answer: it names the machine waited on.
+            progress.machine = Some(Machine::Target(machine.clone()));
+            if let Some(outcome) =
+                folder::wait(runner, request, &machine, cwd, deadline, &listed, began)
+            {
+                return outcome;
+            }
+        }
+    }
     let mut wanted = request.machine.clone();
     if request.environment.is_some() && deadline.passed(runner) {
         return out_of_time(request, &request.machine, Value::Null);
@@ -2097,6 +2136,7 @@ fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
 }
 
 mod cap;
+mod folder;
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;
