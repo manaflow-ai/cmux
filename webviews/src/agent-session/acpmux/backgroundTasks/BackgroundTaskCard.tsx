@@ -19,7 +19,7 @@ import { Icon } from "../icons/Icon";
 import "./backgroundTaskCard.css";
 
 /// How many of the last lines of output a card shows.
-export const CARD_TAIL_LINES = 12;
+const CARD_TAIL_LINES = 12;
 
 /// The command and its latest output, with `children` (the surface's actions) under them. Reads
 /// only while `open`; with `readOutput` false (a host that cannot read it) it shows the command alone.
