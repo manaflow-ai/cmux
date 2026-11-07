@@ -44,7 +44,12 @@ report() { echo "$1 $2"; { echo "result=$1"; echo "sha=$3"; } >> "$out"; }
 
 # `push_try` is the push retry counter; `attempt` is the workflow run attempt that names the image.
 for push_try in 1 2 3 4 5; do
-  git fetch -q --depth 50 origin "refs/heads/${branch}"
+  # A depth only bounds the download of an already shallow (CI) checkout; never make a full clone shallow.
+  if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+    git fetch -q --depth 50 origin "refs/heads/${branch}"
+  else
+    git fetch -q origin "refs/heads/${branch}"
+  fi
   git checkout -q --detach FETCH_HEAD
   git reset -q --hard FETCH_HEAD
   case "$action" in

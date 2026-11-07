@@ -371,21 +371,25 @@ describe("auto-roll scripts", () => {
 // repository secrets, which reach a called workflow only when passed.
 describe("auto-roll bake secrets", () => {
   const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
-  const load = (name: string) => YAML.parse(readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), "utf8")) as any;
+  type Workflow = {
+    on: { workflow_call: { inputs: Record<string, unknown>; secrets: Record<string, unknown> } };
+    jobs: Record<string, { secrets?: Record<string, string>; steps: Array<{ name?: string; run?: string }> }>;
+  };
+  const load = (name: string) => YAML.parse(readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), "utf8")) as Workflow;
   const NAMES = ["FREESTYLE_API_KEY", "CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD"];
 
   test("the bake declares exactly the three secrets, all optional, and the roll passes exactly those", () => {
     const call = load("cloud-vm-image-bake.yml").on.workflow_call;
     expect(Object.keys(call.secrets).sort()).toEqual([...NAMES].sort());
     for (const name of NAMES) expect(call.secrets[name]).toEqual({ required: false });
-    const bake = load("cloud-vm-image-roll.yml").jobs.bake;
+    const bake = load("cloud-vm-image-roll.yml").jobs["bake"]!;
     expect(bake.secrets).toEqual(Object.fromEntries(NAMES.map((n) => [n, `\${{ secrets.${n} }}`])));
   });
 
   test("prod-copy still refuses when called: workflow_call has no dev_snapshot, and the input check rejects an empty one", async () => {
     const bakeWorkflow = load("cloud-vm-image-bake.yml");
     expect(bakeWorkflow.on.workflow_call.inputs).not.toHaveProperty("dev_snapshot");
-    const check = (bakeWorkflow.jobs.bake.steps as Array<{ name?: string; run?: string }>).find((s) => s.name === "Check the production copy inputs")!;
+    const check = bakeWorkflow.jobs["bake"]!.steps.find((s) => s.name === "Check the production copy inputs")!;
     const r = await runChild("bash", ["-c", check.run!], {
       env: { PATH: process.env["PATH"], GITHUB_REF: "refs/heads/feat-cmux-next", DEV_SNAPSHOT: "", FLAG_INPUTS: "", HAS_KEY: "yes", HAS_EMAIL: "yes", HAS_PASSWORD: "yes" },
     });
