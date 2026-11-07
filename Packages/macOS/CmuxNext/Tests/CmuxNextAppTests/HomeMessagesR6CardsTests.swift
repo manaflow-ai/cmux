@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxHomeRender
 import CmuxNextHome
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 import Testing
 

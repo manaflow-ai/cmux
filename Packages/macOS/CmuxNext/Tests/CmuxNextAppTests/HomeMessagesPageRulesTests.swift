@@ -96,7 +96,7 @@ struct HomeMessagesPageRulesTests {
     @Test func newMessageKeepsTheConversationOpenBeforeIt() {
         let services = HomeChiefDefaultTests.services()
         Self.kept.append(services)
-        let host = HomeMessagesHostProvider(services: services)
+        let host = HomeMessagesHostProvider(services: services, widthKey: "test")
         var heard: [(CmuxHomeCore.ConversationID?, Bool)] = []
         host.onShown = { heard.append(($0, $1)) }
         host.reportShown(HomeChiefRosterTests.ada, composing: false)
