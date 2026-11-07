@@ -539,6 +539,7 @@ fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
 }
 
 mod detach_and_browser;
+mod divider_menu;
 mod event_shape_tests;
 mod host_size_policy;
 mod identify_and_protocol;

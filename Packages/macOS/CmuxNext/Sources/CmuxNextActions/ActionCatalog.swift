@@ -158,6 +158,7 @@ public nonisolated enum ActionCatalog {
         ChromeStyleActionCatalog.self,
         BackdropActionCatalog.self,
         PaneBackgroundActionCatalog.self,
+        DividerActionCatalog.self,
         HibernationActionCatalog.self,
         AutoArchiveActionCatalog.self,
         WorkspaceBulkArchiveActionCatalog.self,

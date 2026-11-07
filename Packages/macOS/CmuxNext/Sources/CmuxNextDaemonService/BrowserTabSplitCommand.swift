@@ -17,15 +17,18 @@ public struct BrowserTabSplitCommand: Sendable {
     public let direction: SplitDirection
     /// The address the tab opens (its stand-in shows it as its title).
     public let url: String
+    /// Set for Insert New at a divider: the split wraps `around` and shows its sizing instead of the even one.
+    public let insertion: DividerInsertion?
 
     /// - Parameters:
     ///   - pane: the pane the split is made from.
     ///   - direction: the side of `pane` the new pane goes.
     ///   - url: the address the tab opens.
-    public init(pane: CmuxNextDaemon.PaneID, direction: SplitDirection, url: String) {
+    public init(pane: CmuxNextDaemon.PaneID, direction: SplitDirection, url: String, insertion: DividerInsertion? = nil) {
         self.pane = pane
         self.direction = direction
         self.url = url
+        self.insertion = insertion
     }
 
     /// Whether `daemon` opens a browser tab straight into a split; else the caller makes it in
@@ -42,13 +45,14 @@ public struct BrowserTabSplitCommand: Sendable {
     @MainActor
     public func intendNow(on daemon: DaemonService, layout: LayoutModel?, shown: CmuxNextLayout.PaneID)
         -> @MainActor (_ create: (ConversationTabSplit) async throws -> SurfaceID) async throws -> SurfaceID? {
-        let changes = layout?.splitSizingChanges(splitting: shown, axis: direction == .right ? .horizontal : .vertical) ?? []
+        let changes = insertion?.sizing ?? layout?.splitSizingChanges(splitting: shown, axis: direction == .right ? .horizontal : .vertical) ?? []
         let sizing = layout?.showSplitSizing(changes)
-        let provisional = ProvisionalPane(holding: ProvisionalTab().browser(url))
+        let provisional = ProvisionalPane(holding: ProvisionalTab().browser(url)).wrapping(insertion?.around)
         let transaction = ClientTransactionID.generate(), store = daemon.store
         store.intend(.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional), transaction: transaction)
         let request = ConversationTabSplit(direction: direction, paneID: provisional.paneID,
-                                           splitID: daemon.supports(DaemonCapability.splitClientSplitID.rawValue) ? provisional.splitID : nil)
+                                           splitID: daemon.supports(DaemonCapability.splitClientSplitID.rawValue) ? provisional.splitID : nil,
+                                           around: insertion?.around)
         return { create in
             let surface: SurfaceID
             do { surface = try await create(request) } catch {
@@ -94,12 +98,16 @@ public struct BrowserTabSplitRequest {
     /// Runs with the new tab's surface once the daemon made it, or nil when it was refused or the
     /// person closed the new pane first.
     public let finished: @MainActor (SurfaceID?) -> Void
+    /// Set for Insert New at a divider (``BrowserTabSplitCommand/insertion``).
+    public let insertion: DividerInsertion?
 
     /// - Parameters:
     ///   - direction: the side of the pane the split goes.
+    ///   - insertion: Insert New at a divider's target, `around` and sizing; nil for a plain split.
     ///   - finished: runs with the new surface, or nil, once the daemon answered.
-    public init(direction: SplitDirection, finished: @escaping @MainActor (SurfaceID?) -> Void) {
+    public init(direction: SplitDirection, insertion: DividerInsertion? = nil, finished: @escaping @MainActor (SurfaceID?) -> Void) {
         self.direction = direction
+        self.insertion = insertion
         self.finished = finished
     }
 }

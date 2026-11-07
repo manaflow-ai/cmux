@@ -244,6 +244,7 @@ impl Mux {
                     created,
                     spawned,
                 )?),
+                divider_hidden: false,
             }),
             LayoutSpec::Stack { pane_count, expanded_index } => {
                 if *pane_count == 0 {

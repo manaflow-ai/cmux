@@ -131,6 +131,12 @@ public final class LayoutRootView: NSView {
     /// view drawn over them from a snapshot of their places (the modifier-hold shortcut chips) can
     /// follow. Runs on the frame's turn: keep it to a flag or a coalesced refresh.
     public var onFramePlaced: (() -> Void)?
+    /// The right-click menu of split `SplitID`'s divider (Insert New, Hide or Show Divider), asked when the
+    /// person right-clicks its grab band; nil: no menu.
+    public var dividerMenu: ((SplitID) -> NSMenu?)? {
+        get { context.dividerMenu }
+        set { context.dividerMenu = newValue }
+    }
     /// Whether a split or a pane close holds the terminals' grids now (``onTerminalGridHold``).
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
@@ -386,6 +392,7 @@ public final class LayoutRootView: NSView {
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
             let old = before[screen.id]
+            view.hiddenDividers = screen.hiddenDividers
             // A zoomed pane shows full size over its canvas (canvas-layout.md).
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
             let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged

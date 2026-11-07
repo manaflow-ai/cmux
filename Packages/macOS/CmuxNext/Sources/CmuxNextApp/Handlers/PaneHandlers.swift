@@ -68,7 +68,7 @@ enum PaneHandlers {
     /// can split a background workspace). Left and up split right or down,
     /// then swap the original into the new slot, so the new pane lands on
     /// that side. A shown workspace focuses the new pane.
-    static func split(_ ctx: AppActionContext, _ invocation: ActionInvocation, direction: PaneDirection) {
+    static func split(_ ctx: AppActionContext, _ invocation: ActionInvocation, direction: PaneDirection, insertion: DividerInsertion? = nil) {
         guard let pane = ctx.daemonPane(invocation) else { return }
         // The pane's own daemon: a CLI run can target a pane of a machine
         // other than the active window's.
@@ -91,8 +91,8 @@ enum PaneHandlers {
         // else the chat's, else the daemon's resolver, NEW-TERMINAL-INHERITS-CWD).
         // A person's split of a browser tab, the New Tab page or a chat opens the New Tab page (cx-jfo7),
         // unless it asked for a terminal (the chat header's Terminal).
-        let page = !invocation.opensTerminal && NewTabPage.splitsToPage(controller, direction: direction, byPerson: invocation.origin == .user)
-        switch ctx.services.toolSplit(from: pane, edge: edge(direction), byPerson: invocation.origin == .user) {
+        let page = insertion == nil && !invocation.opensTerminal && NewTabPage.splitsToPage(controller, direction: direction, byPerson: invocation.origin == .user)
+        switch insertion != nil ? .split : ctx.services.toolSplit(from: pane, edge: edge(direction), byPerson: invocation.origin == .user) {
         case .split:
             if page, let controller { NewTabPage.split(controller, edge: edge(direction)); return }
         case .refused(let reason):
@@ -108,7 +108,7 @@ enum PaneHandlers {
             return
         }
         let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
-        let sizing = controller.flatMap { controller in
+        let sizing = insertion?.sizing ?? controller.flatMap { controller in
             content?.layoutModel.splitSizingChanges(splitting: controller.layoutPaneID, axis: axis)
         } ?? []
         let daemonDirection: SplitDirection = direction == .left || direction == .right ? .right : .down
@@ -119,7 +119,7 @@ enum PaneHandlers {
         }
         let intent = content?.beginFocusIntent()
         let command = PaneSplitCommand(pane: handle, direction: daemonDirection,
-                                       options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep), swapTowards: swapTowards)
+                                       options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep), swapTowards: swapTowards, around: insertion?.around)
         // Cmd+D on a daemon with client keys: the new pane shows and takes focus in this frame
         // (plans/cmux-next/remote-state-ownership.md S3); otherwise after the reply.
         let provisional = command.isOptimistic(on: daemon) ? ProvisionalPane() : nil

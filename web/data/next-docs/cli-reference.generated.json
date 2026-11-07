@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 817,
-    "mcp": 732
+    "verbs": 820,
+    "mcp": 735
   },
   "nouns": [
     {
@@ -1810,6 +1810,32 @@
       ]
     },
     {
+      "noun": "divider",
+      "verbs": [
+        {
+          "command": "cmux divider hide",
+          "title": "Hide Divider",
+          "id": "divider.hide",
+          "mcp": true,
+          "mcpTool": "app_divider_hide"
+        },
+        {
+          "command": "cmux divider insert",
+          "title": "Insert New",
+          "id": "divider.insertNew",
+          "mcp": true,
+          "mcpTool": "app_divider_insert"
+        },
+        {
+          "command": "cmux divider show",
+          "title": "Show Divider",
+          "id": "divider.show",
+          "mcp": true,
+          "mcpTool": "app_divider_show"
+        }
+      ]
+    },
+    {
       "noun": "extension",
       "verbs": [
         {
@@ -2053,7 +2079,7 @@
         },
         {
           "command": "cmux home open-chief-dock",
-          "title": "Open Chief Dock",
+          "title": "Show/Hide Chief",
           "id": "home.openChiefDock",
           "mcp": true,
           "mcpTool": "app_home_open_chief_dock"

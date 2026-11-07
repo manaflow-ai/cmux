@@ -240,3 +240,29 @@ extension WorkspaceContentController {
         }
     }
 }
+
+extension WorkspaceContentController: DividerWorkspace {
+    var dividerFocusedPane: LayoutPaneID? { focusedPane?.layoutPaneID }
+    func openAtDivider(_ kind: DividerInsertKind, from id: LayoutPaneID, horizontal: Bool, insertion: DividerInsertion, origin: ActionOrigin) -> String? {
+        guard let pane = panes[id] else { return RefusalStrings.noDivider }
+        switch kind {
+        case .terminal:
+            let aimed = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: origin).onMachine(daemon.machineID)
+            PaneHandlers.split(AppActionContext(services: pane.services), aimed, direction: horizontal ? .right : .down, insertion: insertion)
+        case .browser:
+            guard PaneBrowserTabOpener(controller: pane).opensInSplit else { return RefusalStrings.dividerBrowser }
+            pane.newBrowserTab(split: BrowserTabSplitRequest(direction: horizontal ? .right : .down, insertion: insertion) { _ in })
+        case .newTabPage: NewTabPage.split(pane, edge: horizontal ? .right : .bottom, insertion: insertion)
+        case .agentChat: // the sizing shows with its pane, goes with a refusal (as a New Tab page split's)
+            let sizing = layoutModel.showSplitSizing(insertion.sizing), model = layoutModel
+            let started = pane.services.agentTabs.openTab(in: pane, split: horizontal ? .right : .down, around: insertion.around) { _ in
+                model.commitSplitSizing(sizing)
+            } failed: { model.cancelSplitSizing(sizing) }
+            if started { applyCurrent() } else { model.cancelSplitSizing(sizing) }
+        }
+        return nil
+    }
+}
+extension AppActionContext {
+    func dividerContent(_ invocation: ActionInvocation) -> WorkspaceContentController? { scope(invocation).workspace.flatMap(content(showing:)) }
+}

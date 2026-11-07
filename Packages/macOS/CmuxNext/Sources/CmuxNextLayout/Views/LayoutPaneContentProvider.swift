@@ -74,6 +74,8 @@ final class LayoutViewContext {
     }
     /// The first split or close started (true) or the last one landed (false): `LayoutRootView.onTerminalGridHold`.
     var gridHoldDidChange: (Bool) -> Void = { _ in }
+    /// The right-click menu of a split's divider (``LayoutRootView/dividerMenu``).
+    var dividerMenu: ((SplitID) -> NSMenu?)?
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot

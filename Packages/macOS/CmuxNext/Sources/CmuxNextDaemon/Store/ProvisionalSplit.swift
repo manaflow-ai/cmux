@@ -167,14 +167,18 @@ import Foundation
         if let row = provisional.row {
             return applyRow(row, below: target, leaf: leaf, daemon: daemon, provisional: provisional, screen: screen, in: store)
         }
-        guard let layout = split(screen.layout, target, direction, ratio, leaf, provisional.splitID) else { return nil }
+        let around = provisional.around
+        // Around a split, only the tree that holds it takes the new pane (cmux-tui `split_around`); the screen's compat
+        // tree beside its columns may not name it.
+        guard let layout = split(screen.layout, target, direction, ratio, leaf, provisional.splitID, around: around)
+            ?? (around != nil && !screen.columns.isEmpty ? screen.layout : nil) else { return nil }
         // The target's column tree (and row tree) take the split too; a tree the split cannot
         // reach leaves the intent unapplied, as cmux-tui would refuse it.
         var reached = true
         let columns = screen.columns.map { column -> ColumnSnapshot in
             guard column.layout.paneIDs.contains(target) else { return column }
             var column = column
-            guard let tree = split(column.layout, target, direction, ratio, leaf, provisional.splitID) else {
+            guard let tree = split(column.layout, target, direction, ratio, leaf, provisional.splitID, around: around) else {
                 reached = false
                 return column
             }
@@ -182,7 +186,7 @@ import Foundation
             column.rows = column.rows.map { row -> RowSnapshot in
                 guard row.layout.paneIDs.contains(target) else { return row }
                 var row = row
-                guard let rowTree = split(row.layout, target, direction, ratio, leaf, provisional.splitID) else {
+                guard let rowTree = split(row.layout, target, direction, ratio, leaf, provisional.splitID, around: around) else {
                     reached = false
                     return row
                 }
@@ -304,18 +308,24 @@ import Foundation
 
     /// `node` with the leaf `target` replaced by a split of `target` and `new`, or nil when the
     /// leaf is not in it (or sits in a stack, which `split` turns into its own layout). The new
-    /// split has no handle until the daemon's arrives; `splitID` is its public id.
+    /// split has no handle until the daemon's arrives; `splitID` is its public id. With `around`, the
+    /// split `around` (whose last pane is `target`) is wrapped whole instead, `new` after it
+    /// (cmux-tui `split_around`; cmux-layout-reducer `divider_insert::split_around`).
     private static func split(_ node: LayoutNode, _ target: PaneID, _ direction: SplitDirection, _ ratio: Double,
-                              _ new: PaneID, _ splitID: String) -> LayoutNode? {
+                              _ new: PaneID, _ splitID: String, around: SplitID? = nil) -> LayoutNode? {
         switch node {
-        case .leaf(let pane) where pane == target:
+        case .leaf(let pane) where pane == target && around == nil:
             return .split(id: nil, resourceID: ResourceID(rawValue: splitID), direction: direction, ratio: ratio,
                           a: .leaf(target), b: .leaf(new))
+        case .split(let id, _, _, _, _, _) where id != nil && id == around:
+            guard node.paneIDs.last == target else { return nil }
+            return .split(id: nil, resourceID: ResourceID(rawValue: splitID), direction: direction, ratio: ratio,
+                          a: node, b: .leaf(new))
         case .split(let id, let resourceID, let dir, let r, let a, let b):
-            if let a = split(a, target, direction, ratio, new, splitID) {
+            if let a = split(a, target, direction, ratio, new, splitID, around: around) {
                 return .split(id: id, resourceID: resourceID, direction: dir, ratio: r, a: a, b: b)
             }
-            if let b = split(b, target, direction, ratio, new, splitID) {
+            if let b = split(b, target, direction, ratio, new, splitID, around: around) {
                 return .split(id: id, resourceID: resourceID, direction: dir, ratio: r, a: a, b: b)
             }
             return nil

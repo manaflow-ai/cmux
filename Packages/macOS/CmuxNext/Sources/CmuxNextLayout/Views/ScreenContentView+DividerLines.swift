@@ -9,6 +9,7 @@ extension ScreenContentView {
     func showsIdleLine(_ kind: DividerHandleView.Kind) -> Bool {
         let style = context.style
         if kind.usesRowSeparator { return style.showsRowSeparator }
+        if case let .split(id) = kind, hiddenDividers.contains(id) { return false }
         if style.showsDividerLine { return true }
         guard style.drawsLines, style.showsPaneBorder, case let .split(id) = kind,
               let divider = baseGeometry.dividers.first(where: { $0.id == id }) else { return false }
@@ -21,6 +22,18 @@ extension ScreenContentView {
             baseGeometry.fixedPanes.contains(pane) == docked && frame.intersects(area)
                 && context.hosts[pane]?.framesContent == false
         }
+    }
+
+    /// Hide Divider or Show Divider changed which of this screen's splits draw no line: their handles
+    /// (``DividerHandleView/isLineHidden``) and the lines the overlay reports follow at once.
+    func hiddenDividersDidChange(from old: Set<SplitID>) {
+        guard hiddenDividers != old else { return }
+        for split in old.symmetricDifference(hiddenDividers) {
+            guard let view = dividerViews[.split(split)] else { continue }
+            view.isLineHidden = hiddenDividers.contains(split)
+        }
+        paneFramingDidChange()
+        context.overlayNeedsSync()
     }
 
     /// A pane's content started or stopped drawing its own outline: each handle reads its line at

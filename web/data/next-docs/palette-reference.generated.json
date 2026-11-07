@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1329,
+    "entries": 1332,
     "shortcuts": 189
   },
   "sections": [
@@ -352,12 +352,6 @@
           "command": "cmux home open-chief"
         },
         {
-          "id": "home.openChiefDock",
-          "title": "Open Chief Dock",
-          "shortcut": "⌘I",
-          "command": "cmux home open-chief-dock"
-        },
-        {
           "id": "history.open",
           "title": "Open History Entry…",
           "shortcut": null,
@@ -578,6 +572,12 @@
           "title": "Show/Hide All Windows",
           "shortcut": "⌃⌥⌘.",
           "command": null
+        },
+        {
+          "id": "home.openChiefDock",
+          "title": "Show/Hide Chief",
+          "shortcut": "⌘I",
+          "command": "cmux home open-chief-dock"
         },
         {
           "id": "window.toggleDock",
@@ -2062,10 +2062,22 @@
           "command": null
         },
         {
+          "id": "divider.hide",
+          "title": "Hide Divider",
+          "shortcut": null,
+          "command": "cmux divider hide"
+        },
+        {
           "id": "increaseWorkspaceTerminalFontSize",
           "title": "Increase Workspace Font Size",
           "shortcut": "⌘=",
           "command": null
+        },
+        {
+          "id": "divider.insertNew",
+          "title": "Insert New",
+          "shortcut": null,
+          "command": "cmux divider insert"
         },
         {
           "id": "column.moveLeft",
@@ -2240,6 +2252,12 @@
           "title": "Show Artifacts",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "divider.show",
+          "title": "Show Divider",
+          "shortcut": null,
+          "command": "cmux divider show"
         },
         {
           "id": "pane.focus",
