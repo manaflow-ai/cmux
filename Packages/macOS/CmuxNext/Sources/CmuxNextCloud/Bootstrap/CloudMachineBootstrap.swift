@@ -20,10 +20,16 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
     }
 
     /// The paths, limits and fixed texts Rust names (`cloud_bootstrap_facts`).
-    nonisolated struct Facts: Decodable, Sendable {
-        var directory = "", logPath = "", statusPath = "", noScript = "", waitCommand = ""
-        var configDirectory = "", configStatusPath = "", configLogPath = ""
-        /// Zero when the FFI does not answer: every file is then too large, never read unchecked.
+    /// When the FFI does not answer, the paths stay the machine's fixed folders (the secrets
+    /// receiver and its ticket live in the config folder, never at `/`), and the limits are zero:
+    /// every file is then too large, never read unchecked. `CloudNewMachineTests` checks these
+    /// paths against Rust's answer.
+    nonisolated struct Facts: Decodable, Equatable, Sendable {
+        var directory = "/home/cmux/.cmux/bootstrap", logPath = "/home/cmux/.cmux/bootstrap/bootstrap.log"
+        var statusPath = "/home/cmux/.cmux/bootstrap/status.json", noScript = "", waitCommand = ""
+        var configDirectory = "/home/cmux/.cmux/machine-config"
+        var configStatusPath = "/home/cmux/.cmux/machine-config/status.json"
+        var configLogPath = "/home/cmux/.cmux/machine-config/setup.log"
         var maxBytes = 0, configMaxBytes = 0
     }
 

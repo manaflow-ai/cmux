@@ -1,6 +1,6 @@
 import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextCloud
+@testable import CmuxNextCloud
 import CmuxNextWakeups
 import CmuxNextDaemonService
 import Foundation
@@ -127,6 +127,17 @@ struct CloudNewMachineTests {
                     return command.contains("systemd-run") ? self.startAnswer : CloudExecResult(exitCode: 0, stdout: "", stderr: "")
                 })
         }
+    }
+
+    @Test func theFallbackPathsAreRustsPaths() throws {
+        let answered = try #require(CloudStartCore().call("cloud_bootstrap_facts", [String: String](), as: CloudMachineBootstrap.Facts.self))
+        let fallback = CloudMachineBootstrap.Facts()
+        #expect([answered.directory, answered.logPath, answered.statusPath, answered.configDirectory, answered.configStatusPath, answered.configLogPath]
+            == [fallback.directory, fallback.logPath, fallback.statusPath, fallback.configDirectory, fallback.configStatusPath, fallback.configLogPath],
+            "with no FFI answer the secrets receiver still lands in the config folder")
+        #expect(CloudMachineSecrets.receiverPath.hasPrefix(fallback.configDirectory + "/"))
+        #expect(CloudMachineRepo(owner: "o", name: "r", ref: "main").spec == "o/r@main")
+        #expect(CloudMachineRepo(owner: "g/s", name: "r", host: "gitlab.com").spec == "https://gitlab.com/g/s/r")
     }
 
     @Test func theBootstrapUploadsTheScriptItsEnvironmentAndTheRunnerThenStartsIt() async {

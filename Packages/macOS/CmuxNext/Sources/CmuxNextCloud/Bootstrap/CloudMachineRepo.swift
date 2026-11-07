@@ -45,7 +45,9 @@ public struct CloudMachineRepo: Equatable, Sendable, Encodable {
     public var url: String { facts?.url ?? "https://\(host)/\(owner)/\(name).git" }
     /// Relative to the machine user's home.
     public var directory: String { facts?.directory ?? "work/\(name)" }
-    public var spec: String { facts?.spec ?? "" }
+    public var spec: String {
+        facts?.spec ?? (isGitHub ? "\(owner)/\(name)" : "https://\(host)/\(owner)/\(name)") + (ref.map { "@\($0)" } ?? "")
+    }
     /// `repo.json`: what the machine was asked to clone, for a person or a tool reading the machine.
     public var record: Data { Data((facts?.record ?? "").utf8) }
     /// The `repo` step (`~/.cmux/bootstrap/repo`); empty when the app's rules do not answer.
