@@ -239,6 +239,8 @@ impl FocusPass {
 
 /// The report over `records` (in time order) from `from_ms` to `to_ms`.
 pub fn build(records: &[Record], from_ms: u64, to_ms: u64) -> Report {
+    // The window starts at its first record when the files begin later than it.
+    let from_ms = records.first().map_or(from_ms, |r| r.at.max(from_ms));
     let mut report = Report { from_ms, to_ms, records: records.len(), ..Report::default() };
     for r in records {
         *report.by_source.entry(name(&r.src)).or_default() += 1;
