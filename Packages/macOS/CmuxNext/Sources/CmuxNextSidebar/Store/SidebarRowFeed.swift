@@ -400,7 +400,8 @@ public final class SidebarRowFeed {
     }
 
     private func markDirty(_ id: WorkspaceID, generation: UInt64) {
-        guard let entry = entries[id], entry.generation == generation else { return }
+        // A batched row's other observation firing on the same change finds it already dirty.
+        guard let entry = entries[id], entry.generation == generation, entry.armed else { return }
         entry.armed = false
         entry.lingering = true
         SidebarPerfCounters.add(.rowInvalidations)
