@@ -1,4 +1,4 @@
-/* The looks the outside-dictation mark was weighed against (OutsideDictation.gallery.tsx). Only the
+/* Tokens only (the app's attention color and breathing clock). The looks the outside-dictation mark was weighed against (OutsideDictation.gallery.tsx). Only the
    wave ships (dictation.css); these restyle the same button for comparison. */
 .outside-gallery--dot .acpmux-mic[data-outside] .acpmux-mic-outside,
 .outside-gallery--ring .acpmux-mic[data-outside] .acpmux-mic-outside { display: none; }
@@ -8,23 +8,23 @@
 .outside-gallery--dot .acpmux-mic[data-outside]::after {
   content: "";
   position: absolute;
-  top: 3px;
-  right: 3px;
+  top: var(--ds-space-1);
+  right: var(--ds-space-1);
   width: 6px;
-  height: 6px;
+  aspect-ratio: 1;
   border-radius: 50%;
-  background: #ff9f0a;
-  animation: outside-gallery-dot 1.6s ease-in-out infinite;
+  background: var(--ds-color-attention);
+  animation: outside-gallery-dot var(--cmux-breath-period, 2.4s) var(--cmux-ease-out) infinite;
 }
 @keyframes outside-gallery-dot { 50% { opacity: 0.35; } }
 .outside-gallery--ring .acpmux-mic[data-outside] { position: relative; }
 .outside-gallery--ring .acpmux-mic[data-outside]::after {
   content: "";
   position: absolute;
-  inset: 2px;
+  inset: 0;
   border-radius: inherit;
-  box-shadow: 0 0 0 1.5px color-mix(in srgb, #ff9f0a 70%, transparent);
-  animation: outside-gallery-ring 1.8s ease-in-out infinite;
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ds-color-attention) 70%, transparent);
+  animation: outside-gallery-ring var(--cmux-breath-period, 2.4s) var(--cmux-ease-out) infinite;
   pointer-events: none;
 }
 @keyframes outside-gallery-ring { 50% { opacity: 0.25; transform: scale(1.08); } }

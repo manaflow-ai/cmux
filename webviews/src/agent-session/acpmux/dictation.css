@@ -136,23 +136,23 @@
 .acpmux-mic-outside {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 2px;
+  justify-content: space-evenly;
   width: 16px;
-  height: 16px;
+  aspect-ratio: 1;
   pointer-events: none;
 }
 .acpmux-mic-outside > span {
   width: 2px;
-  height: 12px;
-  border-radius: 1px;
+  height: 75%;
+  border-radius: 999px;
   background: var(--agent-soft);
   transform: scaleY(0.35);
   transform-origin: center;
-  animation: acpmux-mic-outside 1.4s ease-in-out infinite;
+  /* The app's shared breathing clock (conversation.css), so it moves with the other live marks. */
+  animation: acpmux-mic-outside var(--cmux-breath-period, 2.4s) var(--cmux-ease-out) infinite;
 }
-.acpmux-mic-outside > span:nth-child(2) { animation-delay: -0.45s; }
-.acpmux-mic-outside > span:nth-child(3) { animation-delay: -0.9s; }
+.acpmux-mic-outside > span:nth-child(2) { animation-delay: calc(var(--cmux-breath-period, 2.4s) / -3); }
+.acpmux-mic-outside > span:nth-child(3) { animation-delay: calc(var(--cmux-breath-period, 2.4s) * -2 / 3); }
 @keyframes acpmux-mic-outside {
   0%, 100% { transform: scaleY(0.35); }
   50% { transform: scaleY(1); }
