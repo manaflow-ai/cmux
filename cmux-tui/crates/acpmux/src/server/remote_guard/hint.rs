@@ -177,8 +177,10 @@ pub(in crate::server) fn try_asking(host: &str, params: &Value, mut e: RpcError)
         let mut words: Vec<String> =
             argv.iter().filter_map(Value::as_str).map(str::to_owned).collect();
         if !change_option(&mut words, "--policy", Some("ask")) {
-            // After `new`, before any prompt words.
-            words.insert(1.min(words.len()), "--policy=ask".to_owned());
+            // After the subcommand (the first word that is no global switch, such as `--json`),
+            // before any prompt words: acpmux takes `--policy` only as a `new` option.
+            let sub = words.iter().position(|w| !w.starts_with('-')).unwrap_or(words.len());
+            words.insert((sub + 1).min(words.len()), "--policy=ask".to_owned());
         }
         *argv = words.into_iter().map(Value::String).collect();
     }
@@ -635,6 +637,32 @@ newlines')"#
             ["new", "--machine=x", "hi"].into_iter().map(str::to_owned).collect();
         assert!(change_option(&mut words, "--host", None));
         assert_eq!(words, ["new", "hi"]);
+    }
+
+    /// A full-access refusal's way out names `--policy` after the subcommand, also when a global
+    /// switch comes first (`acpmux --json new ...`).
+    #[test]
+    fn try_asking_puts_the_policy_after_the_subcommand() {
+        let refused =
+            || RpcError::invalid_params("refused").with_data(json!({"fullAccessRefusedBy": "b"}));
+        for (argv, want) in [
+            (
+                json!(["--json", "new", "--machine", "b", "-d", "hi"]),
+                "acpmux --json new --policy=ask --machine=b -d hi",
+            ),
+            (json!(["new", "--machine=b", "hi"]), "acpmux new --policy=ask --machine=b hi"),
+            (
+                json!(["new", "--policy", "approve-all", "--machine=b", "hi"]),
+                "acpmux new --policy=ask --machine=b hi",
+            ),
+        ] {
+            let params = json!({"_meta": {"acpmux": {"argv": argv}}});
+            let e = try_asking("b", &params, refused());
+            assert_eq!(e.data.as_ref().unwrap()["try"], want, "{argv}");
+        }
+        // Any other refusal is left as it was.
+        let other = RpcError::invalid_params("other");
+        assert!(try_asking("b", &json!({}), other).data.is_none());
     }
 
     #[test]

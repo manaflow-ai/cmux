@@ -9,7 +9,10 @@
 //!   `start_session` tool (`subsessions.rs`). `session` is S, `workspace` S's workspace.
 //! - `person`: this host's app or a connection that proved it is the person (`person_asks`),
 //!   and a Web client (the person's phone or browser).
-//! - `script`: any other client: the CLI outside a chat, a script, a trigger.
+//! - `script`: any other client: the CLI outside a chat, a script, a Cloud trigger
+//!   (`server/trigger_chat.rs`, from the trigger's workspace).
+//!
+//! A workflow's agent activity (`workflow_activity.rs`) is its owning agent's.
 //!
 //! A peer daemon forwarding a start stamps its own answer as `_meta.acpmux.createdBy`
 //! ([`FIELD`]); the host takes it only from a proven peer (`Control::Peer`), else ignores it.
@@ -42,6 +45,16 @@ pub(crate) fn agent(id: &str, m: &SessionMeta) -> CreatedBy {
         kind: CreatorKind::Agent,
         workspace: m.workspace_id.clone(),
         session: Some(id.to_owned()),
+    }
+}
+
+/// Agent session `id` created it, from its workspace when it is here.
+pub(crate) fn owner(hub: &Hub, id: &str) -> CreatedBy {
+    match hub.session_meta_by_id(id) {
+        Some(m) => agent(id, &m),
+        None => {
+            CreatedBy { kind: CreatorKind::Agent, workspace: None, session: Some(id.to_owned()) }
+        }
     }
 }
 
