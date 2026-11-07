@@ -96,7 +96,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// headline, so the composer stays where it sat with the greeting off; nil keeps the room.
     public var headlineOff: Bool?
     /// true: the page lists only its own connection's chats, not the store every page shares
-    /// (Debug Settings `newTab.privateChatLists`, ``AgentPaneTunables/newTabPrivateChatLists``).
+    /// (another machine's page, ``warmedOnThisMac(_:)``); nil shares it.
     public var privateChatLists: Bool?
     /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent
     /// chats only, never All chats; nil lists All chats where the template does.
@@ -129,7 +129,6 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.inputToken = nil
         // nil follows the Debug Settings toggle, read as each page context is made.
         self.widgets = (widgets ?? AgentPaneTunables.newTabWidgets.value) ? true : nil
-        self.privateChatLists = AgentPaneTunables.newTabPrivateChatLists.value ? true : nil
     }
 }
 

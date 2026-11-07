@@ -257,7 +257,7 @@ pub fn turn_preset(
         BTreeMap::new()
     };
     if family == Family::Claude {
-        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+        env.extend(session_dir::claude_session_env());
     }
     // Only acpmux's cmux MCP server (cx-4a5w2), as acpmux's built-in turn
     // presets set it for a Chief that sends no env.
@@ -392,7 +392,7 @@ pub fn subagent_preset(
     };
     env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
     if family == Family::Claude {
-        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+        env.extend(session_dir::claude_session_env());
     }
     // Subagents' cmux calls reach the same app daemon as the Chief's.
     env.extend(pinned.clone());

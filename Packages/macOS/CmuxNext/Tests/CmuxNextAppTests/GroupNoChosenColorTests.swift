@@ -93,13 +93,12 @@ struct GroupNoChosenColorTests {
         #expect(!(abs(rgb.red - tokens.sidebarBackground.red) < 0.006 && abs(rgb.green - tokens.sidebarBackground.green) < 0.006
             && abs(rgb.blue - tokens.sidebarBackground.blue) < 0.006), "the bar is the theme's own background color")
 
-        let editor = SidebarGroupEditorPanel()
+        let editor = SidebarGroupEditor()
         var picked: GroupTint?
-        editor.onColor = { picked = $0 }
-        editor.pick(.grey)
+        editor.onColor = { _, tint in picked = tint }
+        editor.pick(.grey, for: GroupID("g"))
         #expect(picked == GroupTint.none, "the No color dot clears the color")
-        #expect(try #require(editor.swatches.first { $0.color == .grey }).isChosen)
-        editor.pick(.green)
+        editor.pick(.green, for: GroupID("g"))
         #expect(picked == .palette(.green))
     }
 }

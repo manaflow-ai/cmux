@@ -38,6 +38,7 @@ class DynamicResource : public CefResourceHandler {
     response->SetStatus(status_);
     response->SetStatusText(PageStatusText(status_));
     response->SetMimeType(mime_);
+    if (!charset_.empty()) response->SetCharset(charset_);
     CefResponse::HeaderMap headers;
     // A live page file (cmux_shim_page_scheme_set_live) carries the policy the page host chose for
     // it (a dev server's adds its HMR socket); every other answer keeps the page's own.
@@ -71,7 +72,8 @@ class DynamicResource : public CefResourceHandler {
       if (answered_ || !callback_) return false;
       answered_ = true;
       status_ = status;
-      mime_ = mime.empty() ? "application/octet-stream" : std::move(mime);
+      SplitPageMimeType(mime, &mime_, &charset_);
+      if (mime_.empty()) mime_ = "application/octet-stream";
       body_ = std::move(body);
       range_headers_ = PageRangeHeaders(range_headers);
       answer_csp_ = PageHeaderValue(csp);
@@ -95,6 +97,7 @@ class DynamicResource : public CefResourceHandler {
   bool answered_ = false;
   int status_ = 404;
   std::string mime_ = "text/plain";
+  std::string charset_;
   std::string body_;
   std::vector<std::pair<std::string, std::string>> range_headers_;
   std::string answer_csp_;
