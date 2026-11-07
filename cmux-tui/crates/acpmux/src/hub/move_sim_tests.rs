@@ -18,7 +18,12 @@
 //! - no prompt whose end (its result, or its removal from the queue) the owner's copy wrote
 //!   ever runs again ("settled work resurrected");
 //! - no prompt ran in two generations; no delivery goes while open or unsettled;
-//! - no copy goes while it holds a record of its generation the machine lacks.
+//! - no copy goes while it holds a record of its generation the machine lacks, unless the
+//!   machine wrote another record at one of its seqs (another history).
+//!
+//! A prompt whose delivery a later link released (its machine held every record of its proof
+//! then) and that a restart from a disk older still loses afterwards is past what the release
+//! rule promises (`open_delivery.rs`): it is counted and printed, not failed.
 //!
 //! `Rules::Before` replays the rules of 0c98c292 (a write's report closes a delivery for good,
 //! and a copy replaced past a gap carries its `queued` and `user_message` records alone), which
