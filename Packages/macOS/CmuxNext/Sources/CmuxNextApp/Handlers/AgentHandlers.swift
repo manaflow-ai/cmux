@@ -14,6 +14,7 @@ import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWindowRules
 import Observation
 
 /// Agent actions. Fork Conversation (``AgentForkDestination``): an agent chat tab forks through
@@ -198,17 +199,10 @@ enum AgentHandlers {
             context.services.palette.show(page: AgentChatsPalettePage(services: context.services).page(),
                                           relativeTo: context.activeWindow?.window)
         })
-        let permissionCommands: [(ActionID, String)] = [
-            ("agentPane.permission.allowOnce", "permissionAllowOnce"),
-            ("agentPane.permission.allowChat", "permissionAllowChat"),
-            ("agentPane.permission.deny", "permissionDeny"),
-            ("agentPane.permission.expand", "permissionExpand"),
-            ("agentPane.permission.retry", "permissionRetry"),
-            ("agentPane.permission.revoke", "permissionRevoke"),
-            ("agentPane.permission.refresh", "permissionRefresh"),
-        ]
-        for (id, command) in permissionCommands {
-            registry.bind(id, run: { invocation in
+        // The permission rows and their page commands (cmux-window-rules `chat::agent::tables`).
+        for row in WindowRules.chatAgentTables?.permissionCommands ?? [] {
+            let command = row.command
+            registry.bind(ActionID(rawValue: row.action), run: { invocation in
                 guard let view = selectedChat(context, invocation) else { return context.refuse(MiscHandlerStrings.noAgentChat) }
                 view.runPermissionAction(command, byPerson: invocation.origin == .user)
             })
@@ -313,12 +307,12 @@ enum AgentHandlers {
     private static func stepAgentPaneZoom(by delta: Double, context: AppActionContext) throws -> Double {
         try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
         let current = context.services.settings.map { $0.snapshot.agentPaneZoom } ?? Double(context.design.agentPaneZoom)
-        let next = min(max(current + delta,
-                           AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound)
-        context.design.agentPaneZoom = CGFloat(next)
-        context.writeSetting("set agent chat zoom", agentPaneZoomPath, .number(next), reloadOnFailure: true)
-        SurfaceZoomIndicator.show(percent: Int((next * 100).rounded()), in: context.services.windows.active?.window)
-        return next
+        // The step and its clamp are cmux-window-rules `chat::agent::zoom`; no answer leaves the zoom as it is.
+        guard let step = WindowRules().chatZoom(current: current, delta: delta, range: AgentPaneZoomSetting.range) else { return current }
+        context.design.agentPaneZoom = CGFloat(step.zoom)
+        context.writeSetting("set agent chat zoom", agentPaneZoomPath, .number(step.zoom), reloadOnFailure: true)
+        SurfaceZoomIndicator.show(percent: step.percent, in: context.services.windows.active?.window)
+        return step.zoom
     }
 
     /// `agentPane.zoom` back to 100%, live and in cmux.json.
@@ -471,23 +465,34 @@ enum AgentHandlers {
     /// invocation's pane, else the focused one.
     private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws {
         let path = invocation["path"]?.stringValue ?? ""
-        // No path (the File menu, a shortcut, `cmux file open`): the cmux picker (R89).
-        guard !path.isEmpty else { return try ViewerHandlers.openFilePicker(invocation, context: context) }
-        // The palette and the control socket accept only the catalog's choices;
-        // an in-app caller that passes another place is refused, not ignored.
-        let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
-        guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
-        // A path named in a Cloud pane belongs to that machine, so a local editor is refused there. The
-        // editor needs no pane: with none named or focused (no window open), the file is this Mac's.
-        let paneless = target == .editor && !context.namesPane(invocation) && context.services.windows.active?.focusedPane == nil
+        // The place and the path checks are cmux-window-rules `chat::agent::file_place` and `file_check`: no path
+        // opens the cmux picker (R89); a place outside the catalog's is refused, not ignored; the editor needs no
+        // pane when none is named or focused (no window open), so the file is this Mac's. A path named in a Cloud
+        // pane belongs to that machine, so a local editor is refused there.
+        let rules = WindowRules()
+        let place = rules.chatFilePlace(path: path, place: invocation["where"]?.stringValue, namesPane: context.namesPane(invocation),
+                                        hasFocusedPane: context.services.windows.active?.focusedPane != nil)
+        let target: AgentPaneFileTarget, paneless: Bool
+        switch place {
+        case .picker?: return try ViewerHandlers.openFilePicker(invocation, context: context)
+        case .invalidPlace(let place)?: throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place))
+        case .open(let name, let opensPaneless)?:
+            guard let named = AgentPaneFileTarget(rawValue: name) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(name)) }
+            target = named
+            paneless = opensPaneless
+        case nil: throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
+        }
         let pane = paneless ? nil : context.paneController(invocation)
         guard paneless || pane != nil else { return }
         // Open as Text applies on the file's machine, including Cloud Markdown.
         let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
         if let pane, !pane.daemon.isLocal {
-            guard path.hasPrefix("/"), !path.contains("\u{0}") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             let url = URL(fileURLWithPath: path)
-            guard target == .tab else { throw ActionFailure(message: RemoteFilePageFiles.remotePreview(url.lastPathComponent)) }
+            switch rules.chatFileCheck(path: path, target: target.rawValue, remote: true) {
+            case .some(nil): break
+            case .some(.remotePreview?): throw ActionFailure(message: RemoteFilePageFiles.remotePreview(url.lastPathComponent))
+            case .some(.notAbsolute?), nil: throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
+            }
             if let reason = context.services.viewers.openFile(url, on: pane.daemon, from: pane, userChose: invocation.origin == .user, asText: asText) {
                 throw ActionFailure(message: reason)
             }
@@ -496,7 +501,9 @@ enum AgentHandlers {
         // A tab is the file pages (diff-host S6, S7) or, for HTML and SVG, a browser tab that
         // renders the page (u18051); Open as Text and Edit Source show its source.
         if target == .tab, let pane {
-            guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
+            guard case .some(nil) = rules.chatFileCheck(path: path, target: target.rawValue, remote: false) else {
+                throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
+            }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
             // `cmux open` run from an agent chat: a quote from the file's viewer goes back to that chat.
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
