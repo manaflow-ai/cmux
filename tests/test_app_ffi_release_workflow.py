@@ -232,39 +232,41 @@ REPIN = ROOT / "scripts/cmux-next/repin-app-ffi.sh"
 
 class RePin(unittest.TestCase):
     @staticmethod
-    def canonical(sha, checksum, extra=""):
-        return ("// CmuxNextCloud -> CCmuxAppFFI\nlet appFFI: Target = .binaryTarget(\n"
-                '    name: "CCmuxAppFFI",\n'
-                f'    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{sha}/CCmuxAppFFI.xcframework.zip",\n'
-                f'    checksum: "{checksum}"\n)\n'
-                '            dependencies: ["CmuxNextDesign", "CCmuxAppFFI"],\n'
-                f'let other = [1] // checksum is {"a" * 64}\n{extra}')
+    def canonical(sha, checksum):
+        """app-ffi-pin.json in its one format (scripts/ci/app_ffi_pin.py render)."""
+        return json.dumps({"url": f"https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{sha}/"
+                                  "CCmuxAppFFI.xcframework.zip", "checksum": checksum}) + "\n"
 
     def test_repin_rewrites_only_the_url_sha_and_checksum(self):
         with tempfile.TemporaryDirectory() as temp:
-            manifest = Path(temp) / "Package.swift"
-            old_sum = "a" * 64
-            manifest.write_text(self.canonical(SHA, old_sum).replace(f"is {'a' * 64}", "unchanged"))
+            pin_file = Path(temp) / "app-ffi-pin.json"
+            pin_file.write_text(self.canonical(SHA, "a" * 64))
             new_sha, new_sum = "d" * 40, "e" * 64
-            subprocess.run(["bash", str(REPIN), new_sha, new_sum, str(manifest)], check=True, capture_output=True)
-            self.assertEqual(manifest.read_text(),
-                             self.canonical(new_sha, new_sum).replace(f"is {'a' * 64}", "unchanged"))
+            subprocess.run(["bash", str(REPIN), new_sha, new_sum, str(pin_file)], check=True, capture_output=True)
+            self.assertEqual(pin_file.read_text(), self.canonical(new_sha, new_sum))
             for bad in (("x", new_sum), (new_sha, "y")):
-                result = subprocess.run(["bash", str(REPIN), *bad, str(manifest)], capture_output=True)
+                result = subprocess.run(["bash", str(REPIN), *bad, str(pin_file)], capture_output=True)
                 self.assertNotEqual(result.returncode, 0, bad)
+            self.assertEqual(pin_file.read_text(), self.canonical(new_sha, new_sum))
 
-    def test_repin_refuses_a_manifest_that_is_not_canonical(self):
+    def test_repin_refuses_a_pin_file_that_is_not_canonical(self):
         with tempfile.TemporaryDirectory() as temp:
-            manifest = Path(temp) / "Package.swift"
-            for text in (self.canonical(SHA, "a" * 64, extra='let s = """\nx\n"""\n'),
-                         self.canonical(SHA, "a" * 64).replace('name: "CCmuxAppFFI"', "name: ffiName"),
-                         self.canonical(SHA, "a" * 64, extra='.binaryTarget(name: "Other", path: "x"),\n')):
-                manifest.write_text(text)
-                result = subprocess.run(["bash", str(REPIN), "d" * 40, "e" * 64, str(manifest)], capture_output=True,
+            pin_file = Path(temp) / "app-ffi-pin.json"
+            good = self.canonical(SHA, "a" * 64)
+            for text in (good.replace('", "checksum"', '", "extra": 1, "checksum"'),
+                         json.dumps(json.loads(good), indent=2) + "\n",
+                         good.replace("manaflow-ai/cmux", "someone/cmux"),
+                         "let x = 1\n"):
+                pin_file.write_text(text)
+                result = subprocess.run(["bash", str(REPIN), "d" * 40, "e" * 64, str(pin_file)], capture_output=True,
                                         text=True)
                 self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertIn("error: Package.swift", result.stderr)
-                self.assertEqual(manifest.read_text(), text)
+                self.assertIn("error: Packages/macOS/CmuxNext/app-ffi-pin.json", result.stderr)
+                self.assertEqual(pin_file.read_text(), text)
+
+    def test_the_repin_never_writes_package_swift(self):
+        for script in (REPIN, ROOT / "scripts/cmux-next/publish-app-ffi-repin.sh"):
+            self.assertNotIn("Package.swift", script.read_text().split("set -euo pipefail", 1)[1], script)
 
     def test_repin_job_opens_or_updates_a_pull_request(self):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
@@ -357,9 +359,9 @@ class RePinPublication(unittest.TestCase):
             work = Path(temp)
             scripts = work / "scripts/cmux-next"
             scripts.mkdir(parents=True)
-            manifest = work / "Packages/macOS/CmuxNext/Package.swift"
-            manifest.parent.mkdir(parents=True)
-            manifest.write_text("pin\n")
+            pin_file = work / "Packages/macOS/CmuxNext/app-ffi-pin.json"
+            pin_file.parent.mkdir(parents=True)
+            pin_file.write_text("pin\n")
             bin_dir = work / "bin"
             bin_dir.mkdir()
             for command in ("git", "gh"):
@@ -453,7 +455,7 @@ class NewestPublishedRelease(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(self.work)], check=True)
         self.git("remote", "add", "origin", str(self.origin))
         self.commits = [self.commit(f"c{i}") for i in range(6)]
-        self.manifest = self.temp / "Package.swift"
+        self.pin_file = self.temp / "app-ffi-pin.json"
         self.pin(self.commits[1], "1" * 64)
 
     def git(self, *args):
@@ -465,7 +467,7 @@ class NewestPublishedRelease(unittest.TestCase):
         return self.git("rev-parse", "HEAD")
 
     def pin(self, sha, checksum):
-        self.manifest.write_text(RePin.canonical(sha, checksum).replace("manaflow-ai/cmux", REPO))
+        self.pin_file.write_text(RePin.canonical(sha, checksum).replace("manaflow-ai/cmux", REPO))
 
     def publish(self, sha, checksum, *, sums=True, source=None):
         """A release: its tag on origin, and the files its downloads serve (a missing one is a 404)."""
@@ -479,7 +481,7 @@ class NewestPublishedRelease(unittest.TestCase):
 
     def pick(self):
         env = dict(os.environ, CMUX_APP_FFI_RELEASE_DOWNLOAD=self.releases.as_uri())
-        return subprocess.run([sys.executable, str(self.PICKER), "--manifest", str(self.manifest)], cwd=self.work,
+        return subprocess.run([sys.executable, str(self.PICKER), "--pin-file", str(self.pin_file)], cwd=self.work,
                               env=env, capture_output=True, text=True, timeout=30)
 
     def test_the_newest_published_release_wins(self):
@@ -519,12 +521,12 @@ class NewestPublishedRelease(unittest.TestCase):
         self.assertEqual(result.stdout.split(), [self.commits[1], "1" * 64])
         self.assertIn("nothing newer", result.stderr)
 
-    def test_a_manifest_with_no_pin_fails(self):
-        self.manifest.write_text("let x = 1\n")
+    def test_a_pin_file_with_no_pin_fails(self):
+        self.pin_file.write_text("let x = 1\n")
         self.assertNotEqual(self.pick().returncode, 0)
 
-    def test_a_manifest_whose_pin_is_not_canonical_fails(self):
-        self.manifest.write_text(self.manifest.read_text() + 'let s = #"x"#\n')
+    def test_a_pin_file_that_is_not_canonical_fails(self):
+        self.pin_file.write_text(self.pin_file.read_text().replace('", "checksum"', '",  "checksum"'))
         result = self.pick()
         self.assertEqual(result.returncode, 1)
         self.assertIn("no canonical cmux-app-ffi pin", result.stderr)

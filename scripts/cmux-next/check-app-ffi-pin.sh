@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Checks the app FFI pin (CCmuxAppFFI: the remote desktop core and the sidebar
-# layout reducer over one Rust runtime) in Packages/macOS/CmuxNext/Package.swift.
+# layout reducer over one Rust runtime) in Packages/macOS/CmuxNext/app-ffi-pin.json,
+# which Package.swift's one fixed loader block reads at manifest time.
 #
-#   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release] [--base REF]
+#   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release] [--resolve] [--base REF]
 #   scripts/cmux-next/check-app-ffi-pin.sh --list-inputs
+#
+# With --resolve (a Mac with the Swift 6.2 tools: a fleet step) it also evaluates
+# the manifest with `swift package dump-package`, fails unless the CCmuxAppFFI
+# binary target it yields carries the pin file's url and checksum, then runs
+# `swift package resolve`.
 #
 # Fails when the FFI sources at HEAD differ from the pinned source sha (the tag
 # is cmux-app-ffi-<source sha>): change the Rust code, let
@@ -14,20 +20,24 @@
 set -euo pipefail
 
 verify=0
+resolve=0
 list_inputs=0
 base_ref=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --verify-release) verify=1 ;;
+    --resolve) resolve=1 ;;
     --base) base_ref="${2:?--base needs a ref}"; shift ;;
     --list-inputs) list_inputs=1 ;;
-    *) echo "usage: $0 [--verify-release] [--base REF]" >&2; exit 2 ;;
+    *) echo "usage: $0 [--verify-release] [--resolve] [--base REF]" >&2; exit 2 ;;
   esac
   shift
 done
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 manifest="$root/Packages/macOS/CmuxNext/Package.swift"
+pin_file="$root/Packages/macOS/CmuxNext/app-ffi-pin.json"
+pin_reader="$root/scripts/ci/app_ffi_pin.py"
 asset="CCmuxAppFFI.xcframework.zip"
 
 # The FFI sources: cmux-app-ffi and every crate it reaches through Cargo path
@@ -65,13 +75,19 @@ if [[ "$list_inputs" -eq 1 ]]; then
   exit 0
 fi
 
-url="$(grep -oE "https://github\.com/[^\"]+/releases/download/cmux-app-ffi-[0-9a-f]{40}/${asset//./\\.}" "$manifest" | head -n 1)"
-checksum="$(grep -A3 'name: "CCmuxAppFFI"' "$manifest" | grep -oE 'checksum: "[0-9a-f]{64}"' | grep -oE '[0-9a-f]{64}' | head -n 1)"
-if [[ -z "$url" || -z "$checksum" ]]; then
-  echo "error: no cmux-app-ffi pin (url with a 40-character sha and a 64-character checksum) in $manifest" >&2
+# The pin is read only through scripts/ci/app_ffi_pin.py: the pin file strictly,
+# and Package.swift only for its one fixed loader block and no pin of its own
+# (the classifier, the repin picker and the repin script read it the same way).
+if ! pinned="$(python3 "$pin_reader" read "$pin_file" 2>&1)"; then
+  echo "error: no canonical cmux-app-ffi pin in $pin_file: ${pinned#error: }" >&2
   exit 1
 fi
-sha="$(grep -oE 'cmux-app-ffi-[0-9a-f]{40}' <<<"$url" | sed 's/cmux-app-ffi-//')"
+if ! loader="$(python3 "$pin_reader" check-manifest "$manifest" 2>&1)"; then
+  echo "error: $manifest does not read the pin through its one loader block: ${loader#error: }" >&2
+  exit 1
+fi
+read -r sha checksum <<<"$pinned"
+url="https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-$sha/$asset"
 
 cd "$root"
 if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
@@ -88,9 +104,9 @@ fi
 own_change=1
 if [[ -n "$base_ref" ]]; then
   if base_commit="$(git rev-parse --verify --quiet "$base_ref^{commit}")"; then
-    base_pin="$(git show "$base_commit:Packages/macOS/CmuxNext/Package.swift" 2>/dev/null \
-      | grep -oE 'cmux-app-ffi-[0-9a-f]{40}' | head -n 1 || true)"
-    if git diff --quiet "$base_commit" HEAD -- "${paths[@]}" && [[ "$base_pin" == "cmux-app-ffi-$sha" ]]; then
+    base_pin="$(git show "$base_commit:Packages/macOS/CmuxNext/app-ffi-pin.json" 2>/dev/null \
+      | python3 "$pin_reader" read /dev/stdin 2>/dev/null | awk '{print $1}' || true)"
+    if git diff --quiet "$base_commit" HEAD -- "${paths[@]}" && [[ "$base_pin" == "$sha" ]]; then
       own_change=0
     fi
   else
@@ -117,7 +133,7 @@ elif ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
   echo "Owning lane(s), which publish the release and update the pin:$(sort -u <<<"$owners")" >&2
   echo "Commits since the pin:" >&2
   git log --format='  %h %an: %s' "$sha..HEAD" -- "${paths[@]}" >&2 || true
-  echo "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run says so), then pin the new URL and checksum in Package.swift in one commit, in the same push as the source change when possible." >&2
+  echo "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run says so), then pin the new URL and checksum in Packages/macOS/CmuxNext/app-ffi-pin.json in one commit, in the same push as the source change when possible." >&2
   exit 1
 else
   echo "app FFI pin: sources match $sha"
@@ -137,4 +153,21 @@ if [[ "$verify" -eq 1 ]]; then
   grep -qxF "$checksum  $asset" "$work/SHA256SUMS" \
     || { echo "error: release SHA256SUMS does not carry the pinned checksum $checksum" >&2; exit 1; }
   echo "app FFI pin: release built from $sha with checksum $checksum"
+fi
+
+if [[ "$resolve" -eq 1 ]]; then
+  package="$root/Packages/macOS/CmuxNext"
+  dump="$(mktemp)"
+  swift package --package-path "$package" dump-package > "$dump" \
+    || { echo "error: swift package dump-package failed for $package" >&2; rm -f "$dump"; exit 1; }
+  if ! evaluated="$(python3 "$pin_reader" check-dump "$dump" "$pin_file" 2>&1)"; then
+    rm -f "$dump"
+    echo "error: ${evaluated#error: }" >&2
+    exit 1
+  fi
+  rm -f "$dump"
+  echo "app FFI pin: the evaluated manifest pins CCmuxAppFFI to cmux-app-ffi-$sha ($checksum)"
+  swift package --package-path "$package" resolve \
+    || { echo "error: swift package resolve failed for $package" >&2; exit 1; }
+  echo "app FFI pin: swift package resolve passed"
 fi

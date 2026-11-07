@@ -8,14 +8,17 @@
 set -euo pipefail
 
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/check-app-ffi-pin.sh"
+# The script reads the pin only through scripts/ci/app_ffi_pin.py, so the scratch tree carries it too.
+pin_reader="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../ci" && pwd)/app_ffi_pin.py"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 repo="$tmp/repo"
-mkdir -p "$repo/scripts/cmux-next" "$repo/Packages/macOS/CmuxNext"
+mkdir -p "$repo/scripts/cmux-next" "$repo/scripts/ci" "$repo/Packages/macOS/CmuxNext"
 cp "$script" "$repo/scripts/cmux-next/check-app-ffi-pin.sh"
+cp "$pin_reader" "$repo/scripts/ci/app_ffi_pin.py"
 crate() { # crate NAME [DEP...]
   local dir="$repo/cmux-tui/crates/$1"; shift
   mkdir -p "$dir/src"
@@ -35,13 +38,15 @@ git -C "$repo" init -q
 git -C "$repo" add -A
 git -C "$repo" commit -qm sources
 pinned="$(git -C "$repo" rev-parse HEAD)"
-cat > "$repo/Packages/macOS/CmuxNext/Package.swift" <<EOF
-.binaryTarget(
-    name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-$pinned/CCmuxAppFFI.xcframework.zip",
-    checksum: "$(printf '0%.0s' {1..64})"
-)
-EOF
+python3 - "$pin_reader" "$repo/Packages/macOS/CmuxNext" "$pinned" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("app_ffi_pin", sys.argv[1])
+pin = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(pin)
+package, sha = sys.argv[2], sys.argv[3]
+open(f"{package}/Package.swift", "w").write("import Foundation\nimport PackageDescription\n\n" + pin.LOADER)
+open(f"{package}/app-ffi-pin.json", "w").write(pin.render(sha, "0" * 64))
+PY
 git -C "$repo" add -A
 git -C "$repo" commit -qm pin
 
@@ -70,5 +75,22 @@ if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
   fail "a cmux-remote-browser change kept the pin current: $out"
 fi
 [[ "$out" == *"cmux-remote-browser"* ]] || fail "the stale report does not name cmux-remote-browser: $out"
+
+# A pin file off its one format, or a manifest with a pin of its own, fails
+# closed, naming the reader's reason.
+git -C "$repo" checkout -q HEAD~1
+pin_json="$repo/Packages/macOS/CmuxNext/app-ffi-pin.json"
+sed -i.bak 's/", "checksum"/",  "checksum"/' "$pin_json"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+  fail "a pin file off its format passed: $out"
+fi
+[[ "$out" == *"no canonical cmux-app-ffi pin"* ]] || fail "the pin file report does not say so: $out"
+mv "$pin_json.bak" "$pin_json"
+echo '// url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-x"' \
+  >> "$repo/Packages/macOS/CmuxNext/Package.swift"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+  fail "a manifest with a pin of its own passed: $out"
+fi
+[[ "$out" == *"does not read the pin through its one loader block"* ]] || fail "the manifest report does not say so: $out"
 
 echo "check-app-ffi-pin.test.sh: ok"

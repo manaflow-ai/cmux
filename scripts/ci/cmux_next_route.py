@@ -71,6 +71,8 @@ TREE_INPUTS = "scripts/cmux-next/cmux-tui-tree-inputs.txt"
 # the workflow. A change selects every tier.
 FULL_INPUTS = (
     PACKAGE + "Package.swift",
+    # The app FFI pin Package.swift reads at manifest time (scripts/ci/app_ffi_pin.py): a re-pin changes it alone.
+    PACKAGE + "app-ffi-pin.json",
     PACKAGE + "Package.resolved",
     GRAPH,
     ".github/workflows/cmux-next.yml",
@@ -193,6 +195,8 @@ GENERATED_INPUTS = (
 # compile.
 MAC_RELEASE_INPUTS = (
     "Packages/*/Package.swift", "Packages/*/Package.resolved", "Packages/*.xcassets/*",
+    # The app FFI pin that Packages/macOS/CmuxNext/Package.swift reads: which binary xcodebuild links.
+    "Packages/macOS/CmuxNext/app-ffi-pin.json",
     "Packages/*.plist", "Packages/*.xcconfig", "Packages/*.entitlements",
     # check-release-compile.sh and what it sources or runs. (scripts/ci/ files are CI-only: the
     # router sends them to the Linux CI tests, never to a Mac tier, before and after this.)
@@ -532,7 +536,7 @@ def _app_ffi_inputs(root: Path) -> list[str]:
     """The CCmuxAppFFI sources, the only Rust the Swift compiles link: cmux-app-ffi and every crate it
     reaches through Cargo path dependencies (its own or the workspace's), the toolchain and the build
     script, as scripts/cmux-next/check-app-ffi-pin.sh derives them, plus the swift test job's crates. A
-    change to one also needs a new pin (Package.swift, which runs every tier)."""
+    change to one also needs a new pin (app-ffi-pin.json, which runs every tier)."""
     workspace: dict[str, str] = {}
     try:
         manifest = (root / "cmux-tui/Cargo.toml").read_text(encoding="utf-8")

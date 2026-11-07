@@ -3,8 +3,9 @@
 # reducer and the cmux-motion C ABIs over one Rust runtime, universal macOS arm64 + x86_64; see
 # scripts/cmux-next/build-app-ffi.sh), and publishes it as a prerelease in this
 # repository, tagged cmux-app-ffi-<full commit sha>.
-# Packages/macOS/CmuxNext/Package.swift pins one release by URL and SwiftPM
-# checksum, so every build (app, tests, release, nightly) links the same FFI.
+# Packages/macOS/CmuxNext/app-ffi-pin.json pins one release by URL and SwiftPM
+# checksum (Package.swift reads it at manifest time), so every build (app,
+# tests, release, nightly) links the same FFI.
 #
 # Publishing runs only for a push to feat-cmux-next or a manual dispatch from
 # that ref. A release is never overwritten: an existing tag must carry the
@@ -393,7 +394,7 @@ jobs:
         --repo ${{ github.repository }} --target ${{ github.sha }} --title ${{ needs.build.outputs.tag }}
         --notes "cmux app FFI CCmuxAppFFI.xcframework, source ${{ github.sha }}, SwiftPM checksum ${{ needs.build.outputs.checksum }}"
         --prerelease --latest=false
-        ; then pin the URL and checksum ${{ needs.build.outputs.checksum }} in Packages/macOS/CmuxNext/Package.swift
+        ; then pin the URL and checksum ${{ needs.build.outputs.checksum }} in Packages/macOS/CmuxNext/app-ffi-pin.json
         and run scripts/cmux-next/check-app-ffi-pin.sh --verify-release
         (runbook: docs/ci/app-ffi-release.md)
     steps:

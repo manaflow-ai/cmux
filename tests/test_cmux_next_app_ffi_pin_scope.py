@@ -3,6 +3,7 @@
 2026-10-07: three source changes on feat-cmux-next without a re-pin (2914fa52,
 d7167cb6, 45845b2d) each made `swift test` red on every pull request into it.
 """
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -14,14 +15,15 @@ import git_fixture_env  # noqa: F401  (turns off git's background maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/check-app-ffi-pin.sh"
+PIN_READER = ROOT / "scripts/ci/app_ffi_pin.py"
+_spec = importlib.util.spec_from_file_location("app_ffi_pin", PIN_READER)
+app_ffi_pin = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(app_ffi_pin)
 SOURCE = "cmux-tui/crates/cmux-rd-core/src/lib.rs"
 CHECKSUM = "c" * 64
 
 
-def manifest(sha: str) -> str:
-    return (".binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
-            f"    url: \"https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{sha}/CCmuxAppFFI.xcframework.zip\",\n"
-            f"    checksum: \"{CHECKSUM}\"\n)\n")
+MANIFEST = "import Foundation\nimport PackageDescription\n\n" + app_ffi_pin.LOADER
 
 
 class PullRequestScope(unittest.TestCase):
@@ -30,6 +32,8 @@ class PullRequestScope(unittest.TestCase):
         self.root = Path(self.tmp.name)
         (self.root / "scripts/cmux-next").mkdir(parents=True)
         shutil.copy(SCRIPT, self.root / "scripts/cmux-next/check-app-ffi-pin.sh")
+        (self.root / "scripts/ci").mkdir(parents=True)
+        shutil.copy(PIN_READER, self.root / "scripts/ci/app_ffi_pin.py")
         self.env = git_fixture_env.without_auto_maintenance(dict(
             os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="t",
             GIT_COMMITTER_EMAIL="t@e"))
@@ -39,7 +43,7 @@ class PullRequestScope(unittest.TestCase):
         self.write("cmux-tui/crates/cmux-rd-core/Cargo.toml", "[package]\nname = \"cmux-rd-core\"\nversion = \"0.1.0\"\n")
         self.write(SOURCE, "v1\n")
         self.pinned = self.commit("ffi v1")
-        self.write("Packages/macOS/CmuxNext/Package.swift", manifest(self.pinned))
+        self.pin(self.pinned)
         self.commit("pin v1")
 
     def tearDown(self):
@@ -48,6 +52,10 @@ class PullRequestScope(unittest.TestCase):
     def git(self, *args):
         return subprocess.run(["git", "-C", str(self.root), *args], env=self.env, check=True,
                               capture_output=True, text=True).stdout.strip()
+
+    def pin(self, sha):
+        self.write("Packages/macOS/CmuxNext/Package.swift", MANIFEST)
+        self.write("Packages/macOS/CmuxNext/app-ffi-pin.json", app_ffi_pin.render(sha, CHECKSUM))
 
     def write(self, path, text):
         target = self.root / path
@@ -93,11 +101,11 @@ class PullRequestScope(unittest.TestCase):
         base = self.git("rev-parse", "HEAD")
         self.write(SOURCE, "v2\n")
         source = self.commit("ffi v2")
-        self.write("Packages/macOS/CmuxNext/Package.swift", manifest(source))
+        self.pin(source)
         self.commit("re-pin v2")
         self.assertEqual(self.check("--base", base).returncode, 0)
         # A re-pin to a sha whose sources are not the head's still fails.
-        self.write("Packages/macOS/CmuxNext/Package.swift", manifest(self.pinned))
+        self.pin(self.pinned)
         self.write(SOURCE, "v3\n")
         self.commit("re-pin back, change again")
         self.assertNotEqual(self.check("--base", base).returncode, 0)

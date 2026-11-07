@@ -1,5 +1,6 @@
 // swift-tools-version: 6.2
 
+import Foundation
 import PackageDescription
 
 // Umbrella package for the cmux-next app (plans/cmux-next/shell.md).
@@ -174,13 +175,31 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// holds at most three personality routines per image (C++, iroh, this one),
 /// so a new in-tree C ABI joins cmux-app-ffi, never another static library
 /// (scripts/cmux-next/check-app-personalities.sh fails the app build above
-/// three). A pin change updates the URL (tag cmux-app-ffi-<source sha>) and the
-/// checksum together; scripts/cmux-next/check-app-ffi-pin.sh fails CI
-/// when the FFI sources differ from the pinned source sha.
+/// three). The pin lives in app-ffi-pin.json next to this file: the release
+/// url (its tag names the source sha) and checksum, read below by one
+/// fixed loader block (scripts/ci/app_ffi_pin.py LOADER, which every gate
+/// checks); a re-pin rewrites that file alone, never this one.
+/// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
+/// differ from the pinned source sha.
+struct AppFFIPin: Decodable {
+    let url: String
+    let checksum: String
+}
+
+let appFFIPin: AppFFIPin = {
+    let file = Foundation.URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("app-ffi-pin.json")
+    do {
+        return try Foundation.JSONDecoder().decode(AppFFIPin.self, from: Foundation.Data(contentsOf: file))
+    } catch {
+        fatalError("Packages/macOS/CmuxNext/app-ffi-pin.json: cannot read the CCmuxAppFFI pin (\(file.path)): \(error)")
+    }
+}()
+
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-eaa253411d5f4d3dfb32ae8ec7d0ec4ad2981c43/CCmuxAppFFI.xcframework.zip",
-    checksum: "f6f8c21811e00ca1de153462a7f0931c982b2419aca932b3cbda925afff0588f"
+    url: appFFIPin.url,
+    checksum: appFFIPin.checksum
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf

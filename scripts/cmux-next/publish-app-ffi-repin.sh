@@ -3,7 +3,7 @@
 set -euo pipefail
 branch=app-ffi-repin
 staging="${branch}-stage-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}"
-manifest=Packages/macOS/CmuxNext/Package.swift
+pin_file=Packages/macOS/CmuxNext/app-ffi-pin.json
 remote_head() { git ls-remote origin "refs/heads/$1" | cut -f1; }
 
 # Latest wins: pin the newest published release on feat-cmux-next, whichever run
@@ -18,7 +18,7 @@ read -r pin_sha CHECKSUM <<<"$picked"
   || { echo "::error::no published app FFI release to pin (picked: $picked)" >&2; exit 1; }
 TAG="cmux-app-ffi-$pin_sha"
 scripts/cmux-next/repin-app-ffi.sh "$pin_sha" "$CHECKSUM"
-if git diff --quiet -- "$manifest"; then
+if git diff --quiet -- "$pin_file"; then
   echo "feat-cmux-next already pins $TAG, the newest published release"
   exit 0
 fi
@@ -32,19 +32,19 @@ cleanup() {
 }
 trap cleanup EXIT
 git push origin "$tip:refs/heads/$staging"
-blob="$(git rev-parse "$tip:$manifest")"
-base64 -w0 "$manifest" > "$RUNNER_TEMP/manifest.b64"
+blob="$(git rev-parse "$tip:$pin_file")"
+base64 -w0 "$pin_file" > "$RUNNER_TEMP/pin-file.b64"
 jq -n --arg branch "$staging" --arg sha "$blob" --arg message "cmux-next: pin CCmuxAppFFI to $TAG" \
-  --rawfile content "$RUNNER_TEMP/manifest.b64" '{$branch, $sha, $message, $content}' > "$RUNNER_TEMP/repin.json"
-pinned="$(git hash-object "$manifest")"
+  --rawfile content "$RUNNER_TEMP/pin-file.b64" '{$branch, $sha, $message, $content}' > "$RUNNER_TEMP/repin.json"
+pinned="$(git hash-object "$pin_file")"
 for attempt in 1 2 3 4 5; do
-  if pin_commit="$(GH_TOKEN="$APP_TOKEN" gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/$manifest" \
+  if pin_commit="$(GH_TOKEN="$APP_TOKEN" gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/$pin_file" \
       --input "$RUNNER_TEMP/repin.json" --jq '.commit.sha')"; then
     break
   fi
   # A successful write whose response was lost must not be repeated with the
   # old blob SHA. Find both the file and its signed commit on the staging ref.
-  on_branch="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/contents/$manifest?ref=$staging" --jq '.sha' || true)"
+  on_branch="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/contents/$pin_file?ref=$staging" --jq '.sha' || true)"
   if [[ "$on_branch" == "$pinned" ]]; then
     pin_commit="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$staging" --jq '.object.sha')"
     break
