@@ -152,7 +152,7 @@ public actor ImportCookieSync {
             }
             // A newer report came while importing: it is imported before anything commits. A paused or
             // restarted sync is gone, and the next one reports again.
-            if latest[source] == nil, sync == generation { handle?.commit(source) }
+            if latest[source] == nil, sync == generation, let reported = report.generation { handle?.commit(source, generation: reported) }
         }
     }
 
@@ -254,6 +254,8 @@ struct CookieSyncConfig: Encodable {
 struct CookieSyncReport: Decodable, Sendable, Equatable {
     var kind: String
     var source: String
+    /// A `changed` report's number, which its commit names (a later one covers it).
+    var generation: UInt64?
     var changed: [String] = []
     var removed: [String] = []
     var rows: Int?
@@ -263,14 +265,15 @@ struct CookieSyncReport: Decodable, Sendable, Equatable {
     var reason: String?
 
     enum CodingKeys: String, CodingKey {
-        case kind, source, changed, removed, rows, hosts, reason
+        case kind, source, generation, changed, removed, rows, hosts, reason
         case scanMs = "scan_ms"
         case cpuMs = "cpu_ms"
     }
 
-    init(kind: String, source: String, changed: [String] = [], removed: [String] = [], reason: String? = nil) {
+    init(kind: String, source: String, generation: UInt64? = nil, changed: [String] = [], removed: [String] = [], reason: String? = nil) {
         self.kind = kind
         self.source = source
+        self.generation = generation
         self.changed = changed
         self.removed = removed
         self.reason = reason
@@ -280,6 +283,7 @@ struct CookieSyncReport: Decodable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         kind = try container.decode(String.self, forKey: .kind)
         source = try container.decodeIfPresent(String.self, forKey: .source) ?? ""
+        generation = try container.decodeIfPresent(UInt64.self, forKey: .generation)
         changed = try container.decodeIfPresent([String].self, forKey: .changed) ?? []
         removed = try container.decodeIfPresent([String].self, forKey: .removed) ?? []
         rows = try container.decodeIfPresent(Int.self, forKey: .rows)
@@ -338,10 +342,10 @@ final class CookieSyncHandle {
         scopes.forEach { $0.stopAccessingSecurityScopedResource() }
     }
 
-    /// The last reported change of `source` was imported: it becomes the source's baseline.
+    /// The change `source` reported as `generation` was imported: it becomes the source's baseline.
     @discardableResult
-    func commit(_ source: String) -> Bool {
+    func commit(_ source: String, generation: UInt64) -> Bool {
         let id = Array(source.utf8)
-        return id.withUnsafeBufferPointer { cmux_cookie_sync_commit(pointer, $0.baseAddress, $0.count) }
+        return id.withUnsafeBufferPointer { cmux_cookie_sync_commit(pointer, $0.baseAddress, $0.count, generation) }
     }
 }
