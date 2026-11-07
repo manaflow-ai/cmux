@@ -106,7 +106,13 @@ function RemoveQuestion({ row, strings, store }: { row: MachineRow; strings: Str
           >
             {strings.t("machines.joined.cancel")}
           </DialogButton>
-          <DialogButton dialogKey="return" type="submit" ref={confirm} className="machines-dialog-button" data-danger="">
+          <DialogButton
+            dialogKey="return"
+            type="submit"
+            ref={confirm}
+            className="machines-dialog-button"
+            data-danger=""
+          >
             {strings.t("machines.joined.removeButton")}
           </DialogButton>
         </div>
