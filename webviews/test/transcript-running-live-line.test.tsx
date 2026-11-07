@@ -94,8 +94,8 @@ test("a backgrounded command stays in its run and never takes the line", () => {
     row("a", "assistant", { text: LONG_NOTE }),
     row("r2", "activity", { items: [call("git log")] }),
   ]);
-  // The line holds the latest finished step instead, never the backgrounded command.
-  expect(shaped.at(-1)).toMatchObject({ doing: "git log", doingDone: true });
+  // The line reads Thinking, never the backgrounded command.
+  expect(shaped.at(-1)!.doing).toBeUndefined();
   expect(shaped.some((entry) => entry.id === "r1")).toBe(true);
 });
 
