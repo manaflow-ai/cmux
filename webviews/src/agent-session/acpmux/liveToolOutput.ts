@@ -184,10 +184,9 @@ export function toolOutputOnly(
   // A call's first output makes it more than a draft (toolGroups.ts `isDraftCall`), and the output
   // of a send (single or batch: each recipient's queued, delivered or failed), a who-else question
   // or a dispatch is read into rows of their own (toolGroups.ts `outputShapesRows`): both shape the
-  // transcript's rows in the pane. Such a shell call names acpmux, or prints JSON a dispatch card
-  // reads its kind from, so other commands skip the readers.
+  // transcript's rows in the pane.
   if (!from.output) return undefined;
-  if ((to.command?.includes("acpmux") || JSON_START.test(from.output)) && outputShapesRows(item)) return undefined;
+  if (shapesRows(item, to)) return undefined;
   const old = from.output;
   const output = to.output;
   if (typeof output !== "string" || output.length <= old.length || !output.startsWith(old)) return undefined;
@@ -196,6 +195,40 @@ export function toolOutputOnly(
 }
 
 const JSON_START = /^\s*[[{]/;
+
+/// Whether the row readers (toolGroups.ts `outputShapesRows`) make rows of their own from this
+/// running shell call. They decide that from the call's command, title and input alone, which an
+/// output update leaves as they were (`TOOL_KEYS`), save one: a dispatch card also takes its kind
+/// from an output that is JSON (`{"event":{"kind":…}}`). So the readers run once per call on its
+/// unchanging fields, without its output (`staticShapes`), and again on each update only when its
+/// output is JSON. Ordinary output costs a lookup and one regular expression per update.
+function shapesRows(item: AcpmuxActivity, tool: Tool): boolean {
+  if (staticShapes(item, tool)) return true;
+  return JSON_START.test(tool.output ?? "") && outputShapesRows(item);
+}
+
+type ShapesMemo = {
+  readonly command: string | undefined;
+  readonly title: string;
+  readonly inputSummary: string | undefined;
+  readonly shapes: boolean;
+};
+/// The running calls' readings, by call id, newest last. Few calls run at once; past the cap the
+/// oldest goes, and a call read again costs one more run of the readers.
+const shapesMemo = new Map<string, ShapesMemo>();
+const SHAPES_MEMO_CAP = 64;
+
+function staticShapes(item: AcpmuxActivity, tool: Tool): boolean {
+  const kept = shapesMemo.get(tool.id);
+  if (kept && kept.command === tool.command && kept.title === tool.title && kept.inputSummary === tool.inputSummary)
+    return kept.shapes;
+  // Without its output: what the readers make of the call whatever it prints.
+  const shapes = outputShapesRows({ ...item, tool: { ...tool, output: undefined } });
+  shapesMemo.delete(tool.id);
+  shapesMemo.set(tool.id, { command: tool.command, title: tool.title, inputSummary: tool.inputSummary, shapes });
+  if (shapesMemo.size > SHAPES_MEMO_CAP) shapesMemo.delete(shapesMemo.keys().next().value!);
+  return shapes;
+}
 const ROW_KEYS = new Set(["version", "items"]);
 const ITEM_KEYS = new Set(["tool"]);
 const TOOL_KEYS = new Set(["output"]);

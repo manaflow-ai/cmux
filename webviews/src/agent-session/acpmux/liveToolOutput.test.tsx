@@ -134,6 +134,72 @@ test("a who-else answer's or a dispatch's output updates go through the pane", (
   expect(toolOutputOnly(sent.previous, sent.next)).toBeUndefined();
 });
 
+test("a `cmux acp send` batch's queued, then delivered, output goes through the pane to its rows", () => {
+  // The form names no `acpmux`, and its plain lines start as no JSON: the readers still parse it.
+  const command = "for s in lane-a lane-b; do cmux acp send --no-wait $s 'Merged.' 2>&1 | tail -1; done";
+  const batch = (output: string) => call(output, { command });
+  const states = (item: AcpmuxActivity) =>
+    sendEntries(toolGroups([item])).map(({ send }) => [send.target, send.state, send.delivery]);
+  const steps = ["queued\n", "queued\ndelivered\n"];
+  const pair = update(batch(steps[0]!), batch(steps[1]!));
+  expect(toolOutputOnly(pair.previous, pair.next)).toBeUndefined();
+  expect(states(batch(steps[0]!))).toEqual([
+    ["lane-a", "sent", "queued"],
+    ["lane-b", "sending", undefined],
+  ]);
+  expect(states(batch(steps[1]!))).toEqual([
+    ["lane-a", "sent", "queued"],
+    ["lane-b", "sent", "delivered"],
+  ]);
+  // A single send of the same form, its output piped through a filter.
+  const single = (output: string) => call(output, { command: "cmux acp send --no-wait lane-a 'Merged.' | tail -1" });
+  const one = update(single("sending\n"), single("sending\nqueued\n"));
+  expect(toolOutputOnly(one.previous, one.next)).toBeUndefined();
+});
+
+test("every command form the row readers parse goes through the pane", () => {
+  const forms: [string, Partial<Tool>][] = [
+    ["a path-qualified cmux", { command: "/usr/local/bin/cmux acp send lane-a 'hi'" }],
+    ["an env prefix", { command: "env CMUX_SOCKET=/tmp/cmux.sock cmux acp send lane-a 'hi'" }],
+    ["an assignment prefix", { command: "CMUX_SOCKET=/tmp/cmux.sock cmux acp send lane-a 'hi'" }],
+    ["a timeout wrapper", { command: "timeout 30 cmux acp send lane-a 'hi'" }],
+    ["a shell -c", { command: "bash -c 'cmux acp send lane-a hi'" }],
+    ["a reach wrapper", { command: "reach big-red 'cmux acp send lane-a hi'" }],
+    [
+      "a shell function",
+      { command: "tell() { cmux acp send --no-wait \"$1\" 'Merged.' 2>&1 | tail -1; }; tell lane-a; tell lane-b" },
+    ],
+    ["the debug cli", { command: "acpmux-debug-cli send lane-a 'hi'" }],
+    ["an upper-case who-else", { command: "ACPMUX who-else --json src/app.ts" }],
+    ["an upper-case dispatch", { command: "ACPMUX dispatch --to lane-a brief.md" }],
+    ["a who-else by title", { command: "./ask.sh", title: "who_else" }],
+    ["a dispatch by title", { command: "./brief.sh", title: "dispatch" }],
+  ];
+  for (const [name, extra] of forms) {
+    const pair = update(call("working\n", extra), call("working\nqueued\n", extra));
+    expect(toolOutputOnly(pair.previous, pair.next), name).toBeUndefined();
+  }
+  // A dispatch card takes its kind from JSON output, after a blank first line.
+  const report = (output: string) => call(output, { command: "./notify.sh" });
+  const json = update(report("\n"), report('\n{"event":{"kind":"report"},"summary":"done"}'));
+  expect(toolOutputOnly(json.previous, json.next)).toBeUndefined();
+});
+
+test("plain command output still takes the fast path", () => {
+  for (const command of ["bun test", "acpmux logs lane-a --follow", "cmux acp status lane-a"]) {
+    const plain = (output: string) => call(output, { command });
+    for (let at = 1; at < 4; at += 1) {
+      const before = "line\n".repeat(at);
+      const pair = update(plain(before), plain(before + "line\n"));
+      expect(toolOutputOnly(pair.previous, pair.next), command).toEqual({
+        id: "call-1",
+        output: before + "line\n",
+        before,
+      });
+    }
+  }
+});
+
 test("the client marks a snapshot that changed one row in place, and only that", () => {
   const rows = new OrderedRows();
   rows.current = 1;
