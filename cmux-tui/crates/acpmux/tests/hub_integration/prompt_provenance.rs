@@ -208,7 +208,17 @@ async fn a_local_prompt_records_its_provenance_on_its_user_message() {
 /// proves no person (`hub/person.rs`), so its unnamed prompt is unverified.
 #[tokio::test]
 async fn an_unnamed_web_prompt_is_the_persons_only_from_a_paired_device() {
-    let hub = hub();
+    // A paired device prompts only a session in an asking mode (`remote.mode_not_asking`).
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all",
+        "webAskingModes": {"codex": ["normal"]},
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
     let mut local = Client::open(&hub);
     let session = local.new_session(json!({"harness": "fake"})).await;
     for (auth, id, kind) in [
