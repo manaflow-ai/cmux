@@ -22,9 +22,10 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use super::cloud_client_session::{secure_origin, valid_machine};
+use super::cloud_client_session::secure_origin;
 use super::inference_gateway::{TokenSource, backend_token};
 use cmux_cloud_api::machine_io::{Op, Request, RouteChoice, perform};
+use cmux_cloud_api::session::valid_machine;
 
 const PLACEHOLDER: &str = "cmux-vm-edge-placeholder";
 /// How long the person has to approve the device login (Codex's code lives 15 minutes).
