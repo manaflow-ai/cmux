@@ -6,6 +6,26 @@
       "wait": 2
     },
     {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Hint"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Hint workspace",
+      "cmux": [
+        "workspace",
+        "name:Hint",
+        "focus"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
       "title": "Split right: two terminal panes",
       "cmux": [
         "action",
