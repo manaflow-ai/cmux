@@ -32,6 +32,11 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
     private var changedFields: [String: Int] = [:]
     /// Lines the daemon sent that answer no request (events), and their bytes.
     private var events = (count: 0, bytes: 0)
+    /// Per stream: the highest delta revision delivered, and deltas whose revision was delivered before (replays).
+    private var streamRevisions: [String: Int] = [:]
+    private var replayedDeltas = 0
+    /// The first delta seen with more than 100 changes: its line without the changes, and its change count.
+    private var bigDelta: String?
 
     /// Reply times by command and the event volume so far (``Timings``).
     struct Timings: Sendable {
@@ -39,9 +44,17 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
         var events: (count: Int, bytes: Int)
         var eventsByName: [String: (count: Int, bytes: Int)]
         var changedFields: [String: Int]
+        var replayedDeltas: Int
+        var streams: Int
+        var bigDelta: String?
     }
 
-    func timings() -> Timings { lock.withLock { Timings(replies: replies, events: events, eventsByName: eventsByName, changedFields: changedFields) } }
+    func timings() -> Timings {
+        lock.withLock {
+            Timings(replies: replies, events: events, eventsByName: eventsByName, changedFields: changedFields,
+                    replayedDeltas: replayedDeltas, streams: streamRevisions.count, bigDelta: bigDelta)
+        }
+    }
 
     init() throws {
         path = "/tmp/cntap-\(UUID().uuidString.prefix(8).lowercased()).sock"
@@ -217,6 +230,22 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
                 events.bytes += reply.count
                 var name = object?["event"] as? String ?? "?"
                 if let item = (object?["item"] as? [String: Any])?["kind"] as? String { name += "/" + item }
+                if let item = object?["item"] as? [String: Any], item["kind"] as? String == "delta" {
+                    let stream = "\(ObjectIdentifier(connection)) \(object?["stream_id"] ?? object?["stream"] ?? "?")"
+                    let revision = Int((item["revision"] as? String) ?? "") ?? -1
+                    if revision <= streamRevisions[stream, default: -1] { replayedDeltas += 1 }
+                    streamRevisions[stream] = max(revision, streamRevisions[stream, default: -1])
+                    let changes = (item["changes"] as? [Any])?.count ?? 0
+                    if bigDelta == nil, changes > 100 {
+                        var head = object ?? [:]
+                        var bare = item
+                        bare["changes"] = changes
+                        head["item"] = bare
+                        let sample = ((item["changes"] as? [Any])?.prefix(3)).map { Array($0) } ?? []
+                        head["sample_changes"] = sample
+                        bigDelta = (try? JSONSerialization.data(withJSONObject: head)).map { String(decoding: $0, as: UTF8.self) }
+                    }
+                }
                 // A delta's changes by resource (and op): which record grows.
                 for change in (object?["item"] as? [String: Any])?["changes"] as? [[String: Any]] ?? [] {
                     let key = "change \(change["resource"] as? String ?? "?") \(change["op"] as? String ?? change["kind"] as? String ?? "")"
