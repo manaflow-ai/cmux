@@ -238,3 +238,39 @@ test("C1: the page opens no Chief by itself on its first load; a reconnect reope
   expect(store.getSnapshot().conversations.size).toBe(2);
   expect(store.getSnapshot().selected).toBeUndefined();
 });
+
+// Review round 2 (BLOCK at b4208b06), F1: the mic shows only once the host has accepted the
+// dictation stream; a host without dictation (it refuses the subscription) shows none.
+const { useHostDictation } = await import("../src/pages/home-messages/detail/detailHost");
+
+async function micOffered(subscribe: () => Promise<() => void>): Promise<boolean[]> {
+  const container = installDom();
+  const seen: boolean[] = [];
+  const host = {
+    call: async () => ({}),
+    subscribe,
+    handle: () => () => {},
+  };
+  function Probe() {
+    seen.push(useHostDictation(host as never) !== undefined);
+    return null;
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Probe />);
+  });
+  await settle();
+  return seen;
+}
+
+test("round 2 F1: a host that refuses the dictation stream shows no mic", async () => {
+  const seen = await micOffered(() => Promise.reject(new Error("cmux.protocol.unknown_op")));
+  expect(seen.length).toBeGreaterThan(0);
+  expect(seen.every((offered) => !offered)).toBe(true);
+});
+
+test("round 2 F1: a host that accepts the dictation stream shows the mic", async () => {
+  const seen = await micOffered(async () => () => {});
+  expect(seen[0]).toBe(false);
+  expect(seen.at(-1)).toBe(true);
+});

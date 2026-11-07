@@ -164,23 +164,26 @@ export function useHostStream<T>(host: PageClient | null, stream: string, parse:
 
 const unknownOp = (error: unknown) => isPageError(error) && error.code === "cmux.protocol.unknown_op";
 
-/** The host's dictation for the composer, or undefined (no host, or a host without the op: no
- * mic). Its events go to every composer listening (`deliverDictation`). */
+/** The host's dictation for the composer, or undefined: no mic until the host has accepted the
+ * dictation stream (its capability: a host without dictation refuses the subscription), and none
+ * again once a call says the op is unknown. Its events go to every composer listening
+ * (`deliverDictation`). */
 export function useHostDictation(host: PageClient | null): DictationCall | undefined {
-  const [available, setAvailable] = useState(true);
+  // The host that accepted the stream; a new host starts without a mic until it does too.
+  const [offered, setOffered] = useState<PageClient | null>(null);
   const call = useMemo<DictationCall | undefined>(
     () =>
       host
         ? (method, params) =>
             host.call<unknown>(DetailOps.dictation, { method, params: params ?? {} }).catch((error: unknown) => {
-              if (unknownOp(error)) setAvailable(false);
+              if (unknownOp(error)) setOffered((current) => (current === host ? null : current));
               throw error;
             })
         : undefined,
     [host],
   );
   useEffect(() => {
-    if (!host || !available) return;
+    if (!host) return;
     let stop: (() => void) | undefined;
     let ended = false;
     void host
@@ -189,16 +192,18 @@ export function useHostDictation(host: PageClient | null): DictationCall | undef
         if (update) deliverDictation(update);
       })
       .then((unsubscribe) => {
-        if (ended) unsubscribe();
-        else stop = unsubscribe;
+        if (ended) return unsubscribe();
+        stop = unsubscribe;
+        setOffered(host);
       })
       .catch(() => undefined);
     return () => {
       ended = true;
       stop?.();
+      setOffered((current) => (current === host ? null : current));
     };
-  }, [host, available]);
-  return available ? call : undefined;
+  }, [host]);
+  return offered === host ? call : undefined;
 }
 
 // ---------- Links ----------
