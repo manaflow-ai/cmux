@@ -135,8 +135,16 @@ pub(super) fn invite_chat(
             Some(share_id) => (None, share_id),
             None => {
                 let provisioning = new_room.as_ref().map_err(|code| *code)?.is_some();
-                let created =
-                    push(all, now, &connected, ids, session.clone(), p.surface, terms, provisioning)?;
+                let created = push(
+                    all,
+                    now,
+                    &connected,
+                    ids,
+                    session.clone(),
+                    p.surface,
+                    terms,
+                    provisioning,
+                )?;
                 let share_id =
                     created.get("share_id").and_then(Value::as_str).unwrap_or_default().to_owned();
                 (Some(created), share_id)
