@@ -145,36 +145,91 @@ function stages(step: string): Word[][] {
 }
 
 /// A stage that only trims or reshapes what came before it: `| head -12`, `| cut -c1-220`, `| wc -l`,
-/// `| sort | uniq`, `| grep -v test`, `| jq .`.
-const FILTERS = new Set([
-  "head",
-  "tail",
-  "cut",
-  "wc",
-  "sort",
-  "uniq",
-  "jq",
-  "column",
-  "tr",
-  "nl",
-  "fold",
-  "less",
-  "more",
-]);
+/// `| sort | uniq`, `| grep -v test`, `| jq .`. None of these can write a file or run a program;
+/// `sort -o`, `uniq IN OUT` and `sort --compress-program` can, so those are not filters.
+const FILTERS = new Set(["head", "tail", "cut", "wc", "jq", "column", "tr", "nl", "fold", "less", "more"]);
 function isFilter(stage: Word[]): boolean {
   const name = baseName(stage[0]!.text);
+  const args = stage.slice(1).map((word) => word.text);
   if (FILTERS.has(name)) return true;
   if (name === "cat") return stage.length === 1;
+  if (name === "sort") return !args.some((arg) => /^-[A-Za-z]*o|^--output|^--compress-program/.test(arg));
+  if (name === "uniq") return args.filter((arg) => !arg.startsWith("-") || arg === "-").length < 2;
   if (name === "grep" || name === "rg") return stage.some((word) => /^-[A-Za-z]*v[A-Za-z]*$/.test(word.raw));
   return false;
 }
 
 /// A later pipeline stage that only reads what came before it and prints a part of it, for a label
-/// read off the first stage (`commandAction`): the filters, any grep, `sed` without -i, `awk`.
+/// read off the first stage (`commandAction`): the filters, any grep, a `sed` or `awk` that can only
+/// print. `tee`, `xargs`, a shell or anything unknown can write or run, so the line stays.
 function passesThrough(stage: Word[]): boolean {
   const name = baseName(stage[0]!.text);
-  if (isFilter(stage) || ["grep", "egrep", "fgrep", "rg", "awk"].includes(name)) return true;
-  return name === "sed" && !stage.some((word) => /^-[A-Za-z]*i|^--in-place/.test(word.text));
+  const args = stage.slice(1).map((word) => word.text);
+  if (isFilter(stage) || ["grep", "egrep", "fgrep"].includes(name)) return true;
+  // `rg --pre CMD` runs CMD on every file.
+  if (name === "rg") return !args.some((arg) => /^--pre(?:=|$)/.test(arg));
+  if (name === "sed") return sedPrintsOnly(args);
+  if (name === "awk") return awkPrintsOnly(args);
+  return false;
+}
+
+/// One sed command that only prints, deletes or substitutes on its stream: an optional address
+/// (`12`, `$`, `/re/`, `1,20`), then `p`, `d`, `q`, `=`, `n`, `N`, `P`, `D`, `{`/`}`, or `s///` with
+/// flags from g, p, i, I, m, M and a count. `w`, `W`, `r`, `R`, `e` and the `s///w`/`s///e` flags write
+/// files or run commands, so they never pass; anything this cannot read does not pass either.
+const SED_ADDRESS = String.raw`(?:\d+|\$|/(?:[^/\\]|\\.)*/[IM]*)(?:\s*,\s*(?:\d+|\$|/(?:[^/\\]|\\.)*/[IM]*|[+~]\d+))?`;
+const SED_PLAIN = new RegExp(String.raw`^(?:${SED_ADDRESS})?\s*!?\s*(?:[pdqQ=nNPDgGhHxl{}]|[qQ]\s*\d+)?$`);
+function sedCommandPrintsOnly(command: string): boolean {
+  const text = command.trim();
+  if (SED_PLAIN.test(text)) return true;
+  const sub = new RegExp(String.raw`^(?:${SED_ADDRESS})?\s*!?\s*s(.)`).exec(text);
+  if (!sub) return false;
+  const delim = sub[1]!;
+  if (delim === "\\" || delim === "\n") return false;
+  // Walk past the pattern and the replacement, honouring escapes, then read the flags.
+  let i = sub[0].length;
+  for (let part = 0; part < 2; part += 1) {
+    while (i < text.length && text[i] !== delim) i += text[i] === "\\" ? 2 : 1;
+    if (i >= text.length) return false;
+    i += 1;
+  }
+  return /^[gpiImM0-9]*$/.test(text.slice(i));
+}
+function sedPrintsOnly(args: string[]): boolean {
+  const scripts: string[] = [];
+  let positional = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (arg === "-e" || arg === "--expression") scripts.push(args[(i += 1)] ?? "");
+    else if (arg.startsWith("--expression=")) scripts.push(arg.slice("--expression=".length));
+    else if (/^-[nEr]+$/.test(arg) || ["--quiet", "--silent", "--regexp-extended", "-u", "--unbuffered"].includes(arg))
+      continue;
+    // -i edits in place, -f reads a script this cannot see, -s/-z and the rest change nothing here
+    // but are rare enough to keep the line.
+    else if (arg.startsWith("-")) return false;
+    else if (!positional && scripts.length === 0) {
+      scripts.push(arg);
+      positional = true;
+    }
+  }
+  if (scripts.length === 0) return false;
+  // Commands split on `;` and newlines; a `;` inside a substitution makes a part unreadable, and an
+  // unreadable part keeps the line.
+  return scripts.every((script) => script.split(/[;\n]/).every(sedCommandPrintsOnly));
+}
+
+/// An awk program that only prints to its stream: no `>`/`|` (print to a file or a command, which
+/// also rules out comparisons, kept as the line), no system(), no getline, no -f program file, no
+/// gawk `-i inplace`. Only -F and -v flags pass.
+function awkPrintsOnly(args: string[]): boolean {
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (arg === "-F" || arg === "-v") i += 1;
+    else if (/^-[Fv]./.test(arg)) continue;
+    else if (arg.startsWith("-")) return false;
+    else if (/[>|]|system\s*\(|getline|@include|@load/.test(arg)) return false;
+  }
+  return true;
 }
 
 /// The step's main part and whether steps follow it: shortCommand's first step that is not setup
@@ -371,7 +426,11 @@ const GH: Record<string, Record<string, Rule>> = {
     list: () => ({ key: "command.gh.prList" }),
     checks: (args) => target("command.gh.prChecks", "pr", ghTarget(args)),
     diff: (args) => target("command.gh.prDiff", "pr", ghTarget(args)),
-    merge: (args) => target("command.gh.prMerge", "pr", ghTarget(args)),
+    // `--auto` only schedules the merge and `--disable-auto` cancels one: neither merged, so the line stays.
+    merge: (args) =>
+      args.some((arg) => /^--(?:auto|disable-auto)(?:=|$)/.test(arg))
+        ? undefined
+        : target("command.gh.prMerge", "pr", ghTarget(args)),
     create: () => ({ key: "command.gh.prCreate" }),
   },
   issue: {
@@ -798,6 +857,31 @@ function unwrap(words: string[]): string[] {
   }
 }
 
+/// Labels that say a command only looked: a redirect into a file makes them untrue.
+const READS = new Set<StringKey>([
+  "command.read",
+  "tools.read.other",
+  "command.searched",
+  "command.searchedMemory",
+  "command.searchedGithub",
+  "command.listed",
+  "command.listedFiles",
+]);
+
+/// Whether an output redirect in the step writes a file: `> out.txt`, `>>log`, `&> all.log`, but
+/// not `2>/dev/null` or `2>&1`.
+function writesFile(step: string): boolean {
+  const words = shellWords(step);
+  return words.some((word, i) => {
+    if (word === "|") return false;
+    const kind = redirect(word);
+    if (!kind) return false;
+    const next = words[i + 1];
+    const file = kind === "self" ? REDIRECT.exec(word.raw)![1]! : next && next !== "|" ? next.text : "";
+    return !/^(?:&?\d+|&?-|\/dev\/(?:null|stdout|stderr))$/.test(file);
+  });
+}
+
 /// What a command did, from the table; undefined for anything it does not list.
 export function commandAction(command: string): CommandAction | undefined {
   const { step, more } = mainStep(command);
@@ -810,6 +894,8 @@ export function commandAction(command: string): CommandAction | undefined {
   if (!program) return undefined;
   const rule = own(PROGRAMS, baseName(program));
   const act = rule?.(args);
+  // `cat a > b` copied a and `rg x > hits.txt` wrote hits.txt: a read never hides a file it wrote.
+  if (act && READS.has(act.key) && writesFile(step)) return undefined;
   return act && { ...act, ...(more ? { more } : {}) };
 }
 
