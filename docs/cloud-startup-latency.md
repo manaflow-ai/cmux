@@ -365,6 +365,9 @@ Both scripts use the development API, create only their own machines, and
 clean up by exact machine id. The old `cloud-vm` benchmark names remain only
 as compatibility aliases that print this migration pointer.
 
+PostHog queries are in `docs/cloud-startup-latency/posthog-*.txt` headers
+(HogQL over `cloud_vm_request` and `cmux_cloud_vm_request`, project 244066).
+
 ## 11. Incidental findings from the benchmark runs
 
 - **A create request can leave a second, untracked machine running.** In the
