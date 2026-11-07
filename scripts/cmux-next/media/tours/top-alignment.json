@@ -48,6 +48,28 @@
    "shot": false
   },
   {
+   "title": "A plain prompt (no host name in the stills)",
+   "daemon": true,
+   "cmux": [
+    "workspace",
+    "name:Align",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "export PS1='$ '; clear\r"
+   ],
+   "wait": 1,
+   "shot": false,
+   "optional": "terminal write"
+  },
+  {
    "title": "Wide window",
    "rpc": {
     "method": "debug.window_frame",
@@ -67,12 +89,11 @@
   {
    "title": "Density ultraCompact",
    "cmux": [
-    "settings",
-    "set",
-    "appearance.density",
-    "ultraCompact"
+    "action",
+    "run",
+    "appearance.density.ultraCompact"
    ],
-   "wait": 1.5,
+   "wait": 2,
    "shot": false
   },
   {
@@ -93,7 +114,7 @@
     "appearance.metrics.sidebarWidth",
     "300"
    ],
-   "wait": 1,
+   "wait": 4,
    "shot": false,
    "optional": "metric key"
   },
@@ -195,12 +216,11 @@
   {
    "title": "Density compact",
    "cmux": [
-    "settings",
-    "set",
-    "appearance.density",
-    "compact"
+    "action",
+    "run",
+    "appearance.density.compact"
    ],
-   "wait": 1.5,
+   "wait": 2,
    "shot": false
   },
   {
@@ -221,7 +241,7 @@
     "appearance.metrics.sidebarWidth",
     "300"
    ],
-   "wait": 1,
+   "wait": 4,
    "shot": false,
    "optional": "metric key"
   },
@@ -323,12 +343,11 @@
   {
    "title": "Density cozy",
    "cmux": [
-    "settings",
-    "set",
-    "appearance.density",
-    "cozy"
+    "action",
+    "run",
+    "appearance.density.cozy"
    ],
-   "wait": 1.5,
+   "wait": 2,
    "shot": false
   },
   {
@@ -349,7 +368,7 @@
     "appearance.metrics.sidebarWidth",
     "300"
    ],
-   "wait": 1,
+   "wait": 4,
    "shot": false,
    "optional": "metric key"
   },
@@ -451,12 +470,11 @@
   {
    "title": "Density comfortable",
    "cmux": [
-    "settings",
-    "set",
-    "appearance.density",
-    "comfortable"
+    "action",
+    "run",
+    "appearance.density.comfortable"
    ],
-   "wait": 1.5,
+   "wait": 2,
    "shot": false
   },
   {
@@ -477,7 +495,7 @@
     "appearance.metrics.sidebarWidth",
     "300"
    ],
-   "wait": 1,
+   "wait": 4,
    "shot": false,
    "optional": "metric key"
   },
@@ -579,12 +597,11 @@
   {
    "title": "Density spacious",
    "cmux": [
-    "settings",
-    "set",
-    "appearance.density",
-    "spacious"
+    "action",
+    "run",
+    "appearance.density.spacious"
    ],
-   "wait": 1.5,
+   "wait": 2,
    "shot": false
   },
   {
@@ -605,7 +622,7 @@
     "appearance.metrics.sidebarWidth",
     "300"
    ],
-   "wait": 1,
+   "wait": 4,
    "shot": false,
    "optional": "metric key"
   },
@@ -719,12 +736,11 @@
   {
    "title": "Density compact",
    "cmux": [
-    "settings",
-    "set",
-    "appearance.density",
-    "compact"
+    "action",
+    "run",
+    "appearance.density.compact"
    ],
-   "wait": 1.5,
+   "wait": 2,
    "shot": false
   },
   {
@@ -740,12 +756,11 @@
   {
    "title": "Density cozy",
    "cmux": [
-    "settings",
-    "set",
-    "appearance.density",
-    "cozy"
+    "action",
+    "run",
+    "appearance.density.cozy"
    ],
-   "wait": 1.5,
+   "wait": 2,
    "shot": false
   },
   {
@@ -761,12 +776,11 @@
   {
    "title": "Density spacious",
    "cmux": [
-    "settings",
-    "set",
-    "appearance.density",
-    "spacious"
+    "action",
+    "run",
+    "appearance.density.spacious"
    ],
-   "wait": 1.5,
+   "wait": 2,
    "shot": false
   },
   {
@@ -792,11 +806,11 @@
    "optional": "DEBUG only"
   },
   {
-   "title": "Density reset",
+   "title": "Density back to Compact",
    "cmux": [
-    "settings",
-    "unset",
-    "appearance.density"
+    "action",
+    "run",
+    "appearance.density.compact"
    ],
    "wait": 1,
    "shot": false

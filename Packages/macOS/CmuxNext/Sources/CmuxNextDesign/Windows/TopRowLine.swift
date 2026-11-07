@@ -9,8 +9,8 @@ public nonisolated enum TopRowLineLook: String, Sendable, CaseIterable, Hashable
     /// The default: everything centers on the traffic lights' line, the one line the window cannot
     /// move; the top row's pills move inside their strip to reach it.
     case lights
-    /// The controls follow the tabs: the band and the + center on the top row's pill center (the
-    /// lights stay where macOS draws them).
+    /// The controls follow the tabs: the band and the + center on the top-row strip's middle, where
+    /// its pills sit on their own padding (the lights stay where macOS draws them).
     case tabs
     /// One titlebar height: the band, the + and the pills center on the middle of the
     /// `titlebarHeight` row (the lights stay where macOS draws them).
@@ -46,14 +46,13 @@ public nonisolated struct TopRowLine: Equatable, Sendable {
     /// corners stay inside the window at the roomiest densities.
     public static let pillMinTopGap: CGFloat = 1
 
-    /// The line for `look`: the lights' center (`lights`, `off`), the top row's natural pill center
-    /// (`tabs`: the card top `chrome` gives that pill, from `naturalCardTop`), or the titlebar row's
-    /// middle (`titlebar`).
-    public static func resolve(_ look: TopRowLineLook, lightsCenterY: CGFloat, chrome: PaneChromeMetrics,
-                               naturalCardTop: CGFloat, titlebarHeight: CGFloat, scale: CGFloat) -> TopRowLine {
+    /// The line for `look`: the lights' center (`lights`, `off`), the top-row strip's middle, where its
+    /// pills sit on their own padding (`tabs`), or the titlebar row's middle (`titlebar`).
+    public static func resolve(_ look: TopRowLineLook, lightsCenterY: CGFloat, stripHeight: CGFloat,
+                               titlebarHeight: CGFloat) -> TopRowLine {
         switch look {
         case .lights, .off: TopRowLine(centerY: lightsCenterY)
-        case .tabs: TopRowLine(centerY: naturalCardTop + chrome.tabGap(scale: scale) + chrome.tabHeight / 2)
+        case .tabs: TopRowLine(centerY: stripHeight / 2)
         case .titlebar: TopRowLine(centerY: titlebarHeight / 2)
         }
     }
@@ -85,9 +84,7 @@ extension WindowTitlebar {
         guard settings.titlebar == .minimal, settings.tabBarPosition == .top,
               let lights = trafficLightsFrame(in: window), let content = window.contentView else { return nil }
         let lightsCenter = content.bounds.maxY - content.convert(lights, from: nil).midY
-        let chrome = PaneChromeMetrics.current, scale = window.backingScaleFactor
-        let natural = min(Metrics.mainPaneGutter, chrome.cardTop(centeringPillOn: lightsCenter, scale: scale))
-        return TopRowLine.resolve(look, lightsCenterY: lightsCenter, chrome: chrome, naturalCardTop: natural,
-                                  titlebarHeight: Metrics.titlebarHeight, scale: scale)
+        return TopRowLine.resolve(look, lightsCenterY: lightsCenter, stripHeight: Metrics.tabStripHeight,
+                                  titlebarHeight: Metrics.titlebarHeight)
     }
 }

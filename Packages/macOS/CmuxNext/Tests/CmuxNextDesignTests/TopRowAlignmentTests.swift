@@ -3,60 +3,49 @@ import CoreGraphics
 import Testing
 
 /// The window top's one line (Leo 2026-11-07: "align the top bit of the sidebar with the tabs/vice
-/// versa"): at every density the top row's tab pill centers on the traffic lights' line within half
-/// a point, and only where the pill cannot fit under the window's top edge does it stop one point
-/// below it. The band's buttons and the sidebar's + center on the same line (`controlTop`).
+/// versa"). The top row's strip starts at the window's top edge under the minimal titlebar; its pill
+/// centers on the traffic lights' line wherever the strip holds it (within half a point, the 1x
+/// pixel grid's rounding), and otherwise comes as near as the strip and the window's top edge allow.
+/// The numbers are the live `debug.top_alignment` values of the `top-alignment` tour on a 1x display.
 @Suite struct TopRowAlignmentTests {
-    /// One density's pane chrome: the strip, the pill and the pane padding (DensityTokens at the
-    /// five built-ins' levels, Ultra-compact to Spacious; #37274 keeps these ids and moves only levels).
     struct Mode: CustomTestStringConvertible, Sendable {
-        var name: String, strip: CGFloat, tab: CGFloat, padding: CGFloat
+        var name: String, strip: CGFloat, tab: CGFloat
+        /// The pill center the live capture measured after the change, at 1x.
+        var measured: CGFloat
         var testDescription: String { name }
     }
 
+    /// The strip and pill heights each density gave in the capture (Ultra-compact to Spacious).
     static let modes: [Mode] = [
-        Mode(name: "ultraCompact", strip: 24, tab: 21, padding: 1.5),
-        Mode(name: "compact", strip: 28, tab: 24, padding: 2),
-        Mode(name: "cozy", strip: 32, tab: 27, padding: 3),
-        Mode(name: "comfortable", strip: 36, tab: 30, padding: 4),
-        Mode(name: "comfortable (#37274)", strip: 37, tab: 31.5, padding: 4.5),
-        Mode(name: "spacious", strip: 42, tab: 35, padding: 5),
-        Mode(name: "spacious (#37274)", strip: 44, tab: 37.5, padding: 5),
+        Mode(name: "ultraCompact", strip: 23, tab: 21, measured: 12.5),
+        Mode(name: "compact", strip: 28, tab: 24, measured: 16),
+        Mode(name: "cozy", strip: 31, tab: 27, measured: 16.5),
+        Mode(name: "comfortable", strip: 36, tab: 30, measured: 16),
+        Mode(name: "spacious", strip: 41, tab: 35, measured: 18.5),
     ]
 
-    /// macOS draws the lights' center 14 to 16 points below the window's top, by version and style.
-    static let lightsCenters: [CGFloat] = [14, 16]
-    static let gutter: CGFloat = 6
+    /// The lights' center below the window's top edge, as the capture measured it.
+    static let lights: CGFloat = 16
 
-    /// The pill's center from the window's top, laid out as the app does: the card's top inset
-    /// (`WindowTitlebar.cardTopInset`), the pane padding, then the strip's pill top on the line.
-    static func pillCenter(_ mode: Mode, lights: CGFloat, look: TopRowLineLook = .lights, scale: CGFloat = 2) -> CGFloat {
-        let chrome = PaneChromeMetrics(stripHeight: mode.strip, tabHeight: mode.tab, panePadding: mode.padding)
-        let natural = min(gutter, chrome.cardTop(centeringPillOn: lights, scale: scale))
-        let line = TopRowLine.resolve(look, lightsCenterY: lights, chrome: chrome, naturalCardTop: natural, titlebarHeight: 40, scale: scale)
-        let cardTop = min(gutter, chrome.cardTop(centeringPillOn: line.centerY, scale: scale))
-        let stripTop = cardTop + mode.padding
-        if look == .off { return stripTop + chrome.pillTop(scale: scale) + mode.tab / 2 }
-        return stripTop + line.pillTop(stripTop: stripTop, stripHeight: mode.strip, tabHeight: mode.tab, scale: scale) + mode.tab / 2
+    static func center(_ mode: Mode, scale: CGFloat) -> CGFloat {
+        TopRowLine(centerY: lights).pillTop(stripTop: 0, stripHeight: mode.strip, tabHeight: mode.tab, scale: scale) + mode.tab / 2
     }
 
-    @Test(arguments: modes) func thePillCentersOnTheLightsLineWhereverItFits(_ mode: Mode) {
-        for lights in Self.lightsCenters {
-            let center = Self.pillCenter(mode, lights: lights)
-            if lights - mode.tab / 2 >= TopRowLine.pillMinTopGap {
-                #expect(abs(center - lights) <= 0.5, "\(mode.name) lights \(lights): pill center \(center)")
-            } else {
-                // Too tall to center under the window's top: it stops one point below the edge, the nearest it can come.
-                #expect(abs(center - (TopRowLine.pillMinTopGap + mode.tab / 2)) <= 0.5, "\(mode.name) lights \(lights): \(center)")
-            }
+    @Test(arguments: modes) func thePillCentersOnTheLightsLineWhereverTheStripHoldsIt(_ mode: Mode) {
+        for scale in [1, 2] as [CGFloat] {
+            let center = Self.center(mode, scale: scale)
+            let nearest = min(max(Self.lights, TopRowLine.pillMinTopGap + mode.tab / 2), mode.strip - mode.tab / 2)
+            #expect(abs(center - nearest) <= 0.5 / scale, "\(mode.name) @\(scale)x: \(center), nearest \(nearest)")
+            if nearest == Self.lights { #expect(abs(center - Self.lights) <= 0.5) }
         }
+        #expect(Self.center(mode, scale: 1) == mode.measured, "\(mode.name): the live capture measured \(mode.measured)")
     }
 
-    @Test func beforeTheFixTheRoomierDensitiesSatBelowTheLine() {
-        // The `off` look is the old layout: Cozy and roomier put the pill under the lights' line.
-        let spacious = Self.modes.first { $0.name == "spacious" }!
-        #expect(Self.pillCenter(spacious, lights: 16, look: .off) - 16 > 5)
-        #expect(abs(Self.pillCenter(spacious, lights: 16) - (TopRowLine.pillMinTopGap + spacious.tab / 2)) <= 0.5)
+    @Test func compactComfortableAndCozyShareTheLine() {
+        for name in ["compact", "cozy", "comfortable"] {
+            let mode = Self.modes.first { $0.name == name }!
+            #expect(abs(Self.center(mode, scale: 2) - Self.lights) <= 0.25, "\(name)")
+        }
     }
 
     @Test func controlsCenterOnTheLineOnThePixelGrid() {
@@ -68,8 +57,15 @@ import Testing
         }
     }
 
-    @Test func thePillNeverLeavesItsStrip() {
-        let line = TopRowLine(centerY: 40)
-        #expect(line.pillTop(stripTop: 0, stripHeight: 28, tabHeight: 24, scale: 2) == 4)
+    @Test func thePillNeverLeavesItsStripNorTheWindowTop() {
+        #expect(TopRowLine(centerY: 40).pillTop(stripTop: 0, stripHeight: 28, tabHeight: 24, scale: 2) == 4)
+        #expect(TopRowLine(centerY: 4).pillTop(stripTop: 0, stripHeight: 41, tabHeight: 35, scale: 2) == TopRowLine.pillMinTopGap)
+    }
+
+    @Test func theVariantsResolveTheirOwnLines() {
+        #expect(TopRowLine.resolve(.lights, lightsCenterY: 16, stripHeight: 36, titlebarHeight: 40).centerY == 16)
+        #expect(TopRowLine.resolve(.off, lightsCenterY: 16, stripHeight: 36, titlebarHeight: 40).centerY == 16)
+        #expect(TopRowLine.resolve(.tabs, lightsCenterY: 16, stripHeight: 36, titlebarHeight: 40).centerY == 18)
+        #expect(TopRowLine.resolve(.titlebar, lightsCenterY: 16, stripHeight: 36, titlebarHeight: 40).centerY == 20)
     }
 }
