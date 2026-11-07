@@ -20,14 +20,14 @@ extension CloudStartChat {
     @MainActor static func loginCopyConsent(_ services: AppServices) -> Bool? {
         guard let settings = services.settings else { return nil }
         return CloudLoginCopyConsentSetting().consent(file: settings.fileRoot, effective: settings.snapshot.root,
-                                                     managed: settings.managedKey(forPath: CloudLoginCopyConsentSetting.path) != nil)
+                                                     managed: settings.managedKey(forPath: CloudLoginCopyConsentSetting.configPath) != nil)
     }
 
     /// Asks the one-time consent and keeps the answer as the person's (yes or no; no window shown
     /// keeps nothing, so it is asked next time). Answers whether they said yes.
     @MainActor static func askLoginCopyConsent(_ services: AppServices) async -> Bool {
         guard let answer = await CloudPresenter.confirmLoginCopy(services: services) else { return false }
-        try? await services.settings?.setSetting(at: CloudLoginCopyConsentSetting.path, to: .bool(answer), by: .user)
+        try? await services.settings?.setSetting(at: CloudLoginCopyConsentSetting.configPath, to: .bool(answer), by: .user)
         return answer
     }
 

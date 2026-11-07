@@ -15,7 +15,7 @@ extension CloudStartChat {
     @MainActor static func codexSignInConsent(_ services: AppServices) -> Bool? {
         guard let settings = services.settings else { return nil }
         return CloudCodexSignInConsentSetting().consent(file: settings.fileRoot, effective: settings.snapshot.root,
-                                                       managed: settings.managedKey(forPath: CloudCodexSignInConsentSetting.path) != nil)
+                                                       managed: settings.managedKey(forPath: CloudCodexSignInConsentSetting.configPath) != nil)
     }
 
     /// The Mac's current Codex access, read off the main actor; nil when there is none to offer.
@@ -46,7 +46,7 @@ extension CloudStartChat {
             let answer = await CmuxDialogCenter.shared.present(CloudCodexSignInConsent.spec, in: target)
             if answer.isDismissal { return false } // no answer kept: asked again next time
             let yes = answer.button == CloudCodexSignInConsent.accept
-            try? await services.settings?.setSetting(at: CloudCodexSignInConsentSetting.path, to: .bool(yes), by: .user)
+            try? await services.settings?.setSetting(at: CloudCodexSignInConsentSetting.configPath, to: .bool(yes), by: .user)
             return yes
         }
     }
