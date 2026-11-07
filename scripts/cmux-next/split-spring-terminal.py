@@ -71,6 +71,17 @@ if "--suite=open-panel" in sys.argv:
 if "--suite=first-click" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-click-live.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first-click"])
+# `--suite=right-pane-open`: right-side opens of a chat, or with --drag the divider between a chat and its right split
+# dragged one move per frame (scripts/cmux-next/right-pane-open-bench.py); its report goes to --json, its table beside it.
+if "--suite=right-pane-open" in sys.argv:
+    here = os.path.dirname(os.path.abspath(__file__))
+    rest = [a for a in sys.argv[1:] if a != "--suite=right-pane-open"]
+    if "--out" in rest:
+        out = rest.pop(rest.index("--out") + 1)
+        rest.remove("--out")
+        rest += ["--md", os.path.join(out, "right-pane-open.md")]
+    os.environ["CMUX_BENCH_LAUNCH"] = "direct"  # a fleet step has no LaunchServices session (right-pane-open.sh)
+    os.execv(sys.executable, [sys.executable, os.path.join(here, "right-pane-open-bench.py")] + rest)
 # `--suite=split-resize`: a Chromium page beside a dragged split divider (scripts/cmux-next/split-resize-bench.py).
 if "--suite=split-resize" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-resize-bench.py")
