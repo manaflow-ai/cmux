@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42355424100",
+  "recorded_at": "2026-11-07T08:33:19Z",
+  "reason": "cmux-tui d3e739b655d0 changes the image's cmux-tui (pinned f49e5e124061)",
+  "dry_run": false,
+  "cmux_tui": "d3e739b655d09a750caec61415dbfb91f1350e03",
+  "fixes": [
+    {
+      "sha": "d3e739b655d09a750caec61415dbfb91f1350e03",
+      "mergedAt": "2026-11-07T00:12:01-08:00",
+      "subject": "cmux vm short verbs: an unloaded list or a VM being made is a retry; ls takes no name (#37602)"
+    },
+    {
+      "sha": "baba68691f954f0f45c50789c38b506bd504c2e2",
+      "mergedAt": "2026-11-07T08:06:50Z",
+      "subject": "chore(next): base autofix at 8c22261e0589"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T08:33:19Z",
+    "snapshot_id": "sh-5118a1cde7134549bbc51663aae87368",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42355424100): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "db447a3bf82b11e45739fb7ebb9f057d1935776e",
+    "image": "cloud-native-auto-d3e739b6-42355424100-1",
+    "revision": "ci-42355424100-1",
+    "at": "2026-11-07T08:33:19Z"
+  },
+  "rolled_back": false
+}
