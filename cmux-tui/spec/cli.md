@@ -82,9 +82,8 @@ unlock, this device only); elsewhere each dial makes its own.
 The ok line also has `"vmk":"owner"` or `"vmk":"team"`, the person's role on the
 machine from the carrier grant's `vmk` claim; a grant without one leaves it out.
 `--answer-fd N` hands over the first attempt's answer, the `carrier` that a create or
-spare claim answered with: the descriptor's first line is `{"carrier_answer":{relay,
-slot, ticket, expires_at, grant, daemon_key?}}` (with 0, stdin's first line, and the
-stream follows it). That attempt dials at once without asking the platform. Without
+spare claim answered with: the descriptor's first line is `{"carrier_answer":{…}}`
+holding that object as answered (with 0, stdin's first line, and the stream follows it). That attempt dials at once without asking the platform. Without
 `daemon_key`, it asks for the key while the relay holds the connect, and once more when
 the daemon registers if needed. The handshake always waits for the pin. A stale answer is
 dropped and the attempt asks; any line that is not an answer is `bad_request` (64).
