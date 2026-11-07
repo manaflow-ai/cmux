@@ -224,6 +224,8 @@ export function chipRemoved(state: {
 /// Reads `given` into chips (useAttachmentIntake's `attach`); `again`, a failed chip's Retry.
 type Intake = (given: (File | MadeFile)[], uploads?: boolean, kind?: SourceKind, again?: string) => Promise<void>;
 
+const NO_FAILURES: Readonly<Record<string, string>> = Object.freeze({});
+
 /// How many cancelled loading chips keep their file for an undo (`revive`).
 const PARKED_MAX = 16;
 
@@ -714,6 +716,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// Each staged image whose original's save failed: how often it was tried again on its own, and
   /// what stops a try still waiting (its x, a send or a settle ends it).
   const originalTries = useRef(new Map<string, { tries: number; stop: () => void }>());
+  /// False once the composer went: a save that fails after that arms no try again (its listeners
+  /// would outlive the cleanup and upload the file through a chat no longer shown).
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   /// The original of staged image `id` was not saved (`failed`, why). A chat on another machine
   /// shows Retry on the thumbnail at once: the agent there reads the original only once it arrives.
   /// A chat on this Mac shows nothing: its preview sends as it is, nothing about it is blocked, and
@@ -721,6 +732,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// (Leo, 2026-11-07: "we dont need to right? since they're local chats anyways? idk why we even
   /// show the retry symbol then").
   const [originalMissed] = useState(() => (id: string, failed: string) => {
+    if (!mounted.current) {
+      originals.current.delete(id);
+      return;
+    }
     const { localPaths, localChat } = live.current.options;
     if (!localPaths && localChat !== true) {
       setOriginalFailures((now) => ({ ...now, [id]: failed }));
@@ -729,6 +744,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const kept = originalTries.current.get(id);
     kept?.stop();
     const tries = kept?.tries ?? 0;
+    // A failure shown while the chat was on another machine goes: here nothing is blocked by it.
+    setOriginalFailures((now) => {
+      if (!(id in now)) return now;
+      const { [id]: _, ...rest } = now;
+      return rest;
+    });
     // Counted before the try runs, so spent tries stay spent.
     originalTries.current.set(id, { tries: tries + 1, stop: () => {} });
     const stop = retryUploadLater(
@@ -870,7 +891,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     attachments,
     setAttachments,
     pending: shown,
-    originalFailures,
+    // A chat on this Mac shows none, also one carried in from a chat on another machine.
+    originalFailures: options.localPaths || options.localChat === true ? NO_FAILURES : originalFailures,
     originalUploads,
     loading,
     unsettled,

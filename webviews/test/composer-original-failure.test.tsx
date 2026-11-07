@@ -272,6 +272,35 @@ test("Retry on a staged image uploads its original again; the preview sends mean
   expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
 });
 
+// Leo, 2026-11-07: "since they're local chats anyways? idk why we even show the retry symbol then".
+// A chat on this Mac shows no Retry over an image whose original was not saved, also when the chip
+// failed in a chat on another machine and the prompt was carried here; the preview still sends.
+test("a chat on this Mac shows no Retry over an image whose original was not saved", async () => {
+  const options = (scope: string, localChat: boolean): AttachmentIntakeOptions => ({
+    allowImages: true,
+    pasteTarget: () => undefined,
+    scope,
+    carries: () => true,
+    localChat,
+    upload: async () => ({ error: "The disk is full." }),
+  });
+  const handle: { current: Intake | null } = { current: null };
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={options("remote", false)} handle={handle} />));
+  await act(() => handle.current!.attach([png("shot.png")], true));
+  await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
+  expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
+  act(() => root!.render(<Harness options={options("local", true)} handle={handle} />));
+  expect(handle.current!.originalFailures).toEqual({});
+  expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
+  await act(() => handle.current!.attach([png("other.png")], true));
+  await until(() => handle.current!.attachments.length === 2);
+  await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(handle.current!.originalFailures).toEqual({});
+  expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
+  expect(promptBlocks("", handle.current!.attachments).map((block) => block.type)).toEqual(["image", "image"]);
+});
+
 // Review (Astra): Retry's upload stops once its chip leaves the strip, also after the chip moved
 // with the composer to another chat, and a chip out of the strip keeps no file for a Retry it
 // cannot show, also when it left with a switch to another chat.
