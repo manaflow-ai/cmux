@@ -1102,18 +1102,6 @@ impl Hub {
             hub.refresh_web_modes(&c);
         }
         hub.recover_staged_replacements();
-        // A copy's write tells the records of prompts it put on disk: their deliveries keep
-        // them as proof (`open_delivery.rs`).
-        {
-            let weak = Arc::downgrade(&hub);
-            let written: peer_snapshot::Written =
-                Arc::new(move |key, generation, link, records| {
-                    if let Some(hub) = weak.upgrade() {
-                        hub.proof_written(&key.0, &key.1, (generation, link), &records);
-                    }
-                });
-            *hub.peer_snapshots.written.lock().unwrap_or_else(|e| e.into_inner()) = Some(written);
-        }
         if loading {
             hub.logs_ready.send_replace(false);
             hub.adoption_ready.send_replace(false);
@@ -1124,6 +1112,17 @@ impl Hub {
             hub.load_logs();
         }
         if tokio::runtime::Handle::try_current().is_ok() {
+            // A copy's write tells the records of prompts it put on disk: their deliveries keep
+            // them as proof (`open_delivery.rs`). Only a runtime-backed hub has peers to copy;
+            // one built outside Tokio keeps a unique Arc, so a test can set fields first.
+            let weak = Arc::downgrade(&hub);
+            let written: peer_snapshot::Written =
+                Arc::new(move |key, generation, link, records| {
+                    if let Some(hub) = weak.upgrade() {
+                        hub.proof_written(&key.0, &key.1, (generation, link), &records);
+                    }
+                });
+            *hub.peer_snapshots.written.lock().unwrap_or_else(|e| e.into_inner()) = Some(written);
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             if !loading {
