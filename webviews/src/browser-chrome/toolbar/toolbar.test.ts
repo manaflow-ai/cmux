@@ -13,7 +13,7 @@ import { admitsKey, dispositionFor, editKindFor, omnibarKeyFor, type KeyPress } 
 import { indexAtX, layoutChanged, wireRect, wordRangeAt, type LayoutReport } from "./layout";
 import { ToolbarSession } from "./session";
 import { draftOf, TabSlotStore } from "./slots";
-import { chipFor, emphasisFor, starFor, wireCommand } from "./view";
+import { barFills, chipFor, emphasisFor, starFor, wireCommand } from "./view";
 import type { OmnibarDraft, ToolbarHostEvent, ToolbarHostState, ToolbarPageCommand } from "./wire";
 
 const press = (key: string, modifiers: Partial<KeyPress> = {}): KeyPress => ({
@@ -285,6 +285,35 @@ describe("runner (OmnibarController)", () => {
 });
 
 describe("view", () => {
+  test("the bar's tonal fill always draws, over the theme background at the coverage", () => {
+    const step = (percent: number, under: string) => `color-mix(in srgb, var(--ds-color-fg) ${percent}%, ${under})`;
+    const surface = (percent: number) => `color-mix(in srgb, var(--ds-color-surface) ${percent}%, transparent)`;
+    // 0 (the default): as see-through as the window, the step and its hover still drawn.
+    expect(barFills({ material: "off", backgroundOpacity: 0 })).toEqual({
+      fill: step(7, "transparent"),
+      hover: step(10, "transparent"),
+    });
+    // 0.5: half the theme background under the step.
+    expect(barFills({ material: "off", backgroundOpacity: 0.5 })).toEqual({
+      fill: step(7, surface(50)),
+      hover: step(10, surface(50)),
+    });
+    // 1: the theme background covers the window fully; the step sits over it.
+    expect(barFills({ material: "off", backgroundOpacity: 1 })).toEqual({
+      fill: step(7, surface(100)),
+      hover: step(10, surface(100)),
+    });
+    // The host's legibility floor raises the coverage; out-of-range values clamp.
+    expect(barFills({ material: "off", backgroundOpacity: 0, coverage: 0.34 }).fill).toBe(step(7, surface(34)));
+    expect(barFills({ material: "off", backgroundOpacity: 3 }).fill).toBe(step(7, surface(100)));
+    expect(barFills({ material: "off", backgroundOpacity: Number.NaN }).fill).toBe(step(7, "transparent"));
+    // Transparent: no fill at rest, the hover alone.
+    expect(barFills({ material: "transparent", backgroundOpacity: 1 })).toEqual({
+      fill: "transparent",
+      hover: step(10, "transparent"),
+    });
+  });
+
   const secure = { kind: "web", connection: "secure", displayName: "example.com" } as const;
 
   test("the chip for each presentation", () => {
@@ -530,5 +559,45 @@ describe("drafts move with their tab (two panes, two toolbar pages)", () => {
       expect(focus.count).toBe(0);
       expect(document.activeElement).not.toBe(input);
     });
+  });
+  test("a query of the tab left behind never fills the tab restored (B, A, back to B)", () => {
+    const a = page();
+    type Effect = Extract<ToolbarPageCommand, { type: "effect" }>["effect"];
+    const effects = () => a.sent.flatMap((command) => (command.type === "effect" ? [command.effect] : []));
+    const lastQuery = () =>
+      effects()
+        .filter((effect): effect is Extract<Effect, { type: "query" }> => effect.type === "query")
+        .at(-1);
+    const row = (url: string) => ({ kind: "navigate" as const, title: url, detail: url, url, score: 900 });
+    // Typing in B, then in A: each sends a query.
+    typeUnsent(a.session, "tab-b", "https://b.example/", "bee", [3, 0], 1);
+    const queryB = lastQuery();
+    typeUnsent(a.session, "tab-a", "https://a.example/", "aye", [3, 0], 2);
+    const queryA = lastQuery();
+    expect(queryA?.generation).not.toBe(queryB?.generation);
+    // Leaving A cancels its outstanding query on the host.
+    const cancelsBefore = effects().filter((effect) => effect.type === "cancelQuery").length;
+    a.session.applyHostState(
+      hostState("tab-b", "https://b.example/", { events: [event(3, { kind: "focus", source: "programmatic" })] }),
+    );
+    expect(effects().filter((effect) => effect.type === "cancelQuery").length).toBeGreaterThan(cancelsBefore);
+    expect(a.session.state.phase).toBe("editing");
+    expect(a.session.state.edit.userText).toBe("bee");
+    // A's delayed result (and B's own, issued before it left) arrive: neither fills B.
+    a.session.applyHostState(
+      hostState("tab-b", "https://b.example/", {
+        events: [
+          event(4, { kind: "suggestions", generation: queryA!.generation, rows: [row("https://a-result.example/")] }),
+          event(5, { kind: "suggestions", generation: queryB!.generation, rows: [row("https://b-stale.example/")] }),
+        ],
+      }),
+    );
+    expect(a.session.state.popup.rows).toEqual([]);
+    expect(a.session.state.generation).toBeGreaterThan(Math.max(queryA!.generation, queryB!.generation));
+    // Enter navigates to what B typed, never A's result.
+    a.session.runner.send({ type: "key", key: { kind: "enter", disposition: "currentTab" } });
+    const opened = JSON.stringify(effects().at(-1));
+    expect(opened).not.toContain("a-result");
+    expect(opened).not.toContain("b-stale");
   });
 });

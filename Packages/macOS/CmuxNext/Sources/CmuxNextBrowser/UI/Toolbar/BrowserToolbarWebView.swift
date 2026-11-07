@@ -228,6 +228,9 @@ public final class BrowserToolbarWebView: NSView {
         let site = PageInfoSite(url: reportedURL, security: security)
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         let look = OmnibarGlassLook.current
+        // The bar's coverage raised to the text's legibility floor, which needs the window's own
+        // opacity: only the host knows it (`AddressBarSurface.resolvedCoverage`).
+        let coverage: Double = performWithTheme { Palette.addressBar.resolvedCoverage(look.backgroundOpacity) }
         return [
             "tab": tabSlot,
             "draft": tabDraft?.wire ?? NSNull(),
@@ -242,7 +245,7 @@ public final class BrowserToolbarWebView: NSView {
             "extensions": extensionsWire,
             "buttons": buttonsWire,
             "omnibar": omnibarConfig,
-            "look": ["material": look.material.rawValue, "backgroundOpacity": look.backgroundOpacity],
+            "look": ["material": look.material.rawValue, "backgroundOpacity": look.backgroundOpacity, "coverage": coverage],
             "metrics": ToolbarRowMetrics.wire(scale: scale, withButtons: showsButtons, barTop: barTop(scale: scale)),
             "events": events.map { ["seq": $0.seq, "event": $0.event] as [String: Any] },
         ]

@@ -14,20 +14,16 @@ import { toolbarStrings } from "../../browser-chrome/ui/strings";
 import { resolveLayout, type BrowserToolbarCommand } from "../../browser-chrome/ui/toolbarModel";
 import type { OmnibarPresentation } from "../../browser-chrome/omnibox/presentation";
 import { ToolbarSession } from "../../browser-chrome/toolbar/session";
-import { chipFor, emphasisFor, starFor, wireCommand } from "../../browser-chrome/toolbar/view";
+import { barFills, chipFor, emphasisFor, starFor, wireCommand } from "../../browser-chrome/toolbar/view";
 import { TOOLBAR_PAGE, type OmnibarLookWire, type ToolbarHostState } from "../../browser-chrome/toolbar/wire";
 import "../../ui/ui.css";
 import "../shared/pageBase.css";
 import "./styles.css";
 
-/** The bar's fill at rest (`browser.omnibar.glass`, `backgroundOpacity`). */
+/** The bar's fills (`browser.omnibar.glass`, `backgroundOpacity`): `barFills`. */
 function lookStyle(look: OmnibarLookWire): CSSProperties {
-  if (look.material === "transparent") return { "--bc-bar-fill": "transparent" } as CSSProperties;
-  const opacity = Math.min(1, Math.max(0, look.backgroundOpacity));
-  return {
-    "--bc-bar-fill": `color-mix(in srgb, var(--ds-color-fg) ${7 * opacity}%, transparent)`,
-    "--bc-bar-hover": `color-mix(in srgb, var(--ds-color-fg) ${10 * opacity}%, transparent)`,
-  } as CSSProperties;
+  const { fill, hover } = barFills(look);
+  return { "--bc-bar-fill": fill, "--bc-bar-hover": hover } as CSSProperties;
 }
 
 function useViewportWidth(): number {

@@ -102,6 +102,11 @@ export class ToolbarSession {
   private pendingRelease = false;
   private readonly slots = new TabSlotStore();
   private tab: string | null = null;
+  /**
+   * The highest query generation any tab of this page used. A restored tab resumes above it, so a
+   * generation is never reused across tabs and a late delivery for another tab's query is stale.
+   */
+  private queryEpoch = 0;
   private lastSeq = 0;
   private readonly typoMemory = new HostTypoMemory();
   private readonly intranetHosts = new IntranetHostMemory();
@@ -209,12 +214,16 @@ export class ToolbarSession {
    */
   private switchTab(next: ToolbarHostState, options: { home: string; showsFullURLs: boolean }): void {
     if (hasFocus(this.state)) this.loseFocus();
+    // The outgoing tab's query stops on the host; its deliveries already queued are stale below.
+    this.post({ type: "effect", effect: { type: "cancelQuery" } });
+    this.queryEpoch = Math.max(this.queryEpoch, this.state.generation) + 1;
     if (this.tab !== null) this.slots.set(this.tab, this.state);
     this.tab = next.tab;
     const saved = this.slots.get(next.tab);
-    this.runner.restore(
-      saved ? { ...saved, home: options.home } : withDraft(initialOmnibarState(next.url, options), next.draft),
-    );
+    const resting = saved
+      ? { ...saved, home: options.home }
+      : withDraft(initialOmnibarState(next.url, options), next.draft);
+    this.runner.restore({ ...resting, generation: this.queryEpoch });
     this.send({ type: "pageURLChanged", url: next.url });
     if (this.state.showsFullURLs !== options.showsFullURLs) {
       this.send({ type: "showFullURLsChanged", full: options.showsFullURLs });
