@@ -1,8 +1,9 @@
 public import AppKit
 
 /// A toast: the message, the action button and a close button on the shared
-/// neutral Liquid Glass (``FloatingGlassStyle/toast``: gray glass, a top-lit
-/// rim, 9 pt continuous corners; user 2026-10-20, after Rex), opaque under
+/// Liquid Glass (``FloatingGlassStyle/toast``: the theme's tint, a top-lit
+/// rim, 9 pt continuous corners; user 2026-10-20, after Rex; the tint follows the theme since
+/// Leo 2026-11-07: "these toasts are still coloured unthemed"), opaque under
 /// Reduce Transparency, with the popups' shadow. VoiceOver reads the message; the buttons are reachable with
 /// VoiceOver and by click. The pointer on it holds it (`onHover`). A Details action
 /// (``CmuxToast/Action/revealsDetails``) shows the whole message and its detail under it, in the
@@ -118,7 +119,7 @@ public final class CmuxToastView: NSView {
         let content = NSView()
         content.addSubview(row)
         if toast.action?.revealsDetails == true, let detail = toast.detail { addDetailLabel(detail, in: content, below: row) }
-        // The shared neutral glass; the material follows this Mac (opaque under Reduce Transparency).
+        // The toast role's glass; the material follows this Mac (opaque under Reduce Transparency).
         let surface = OverlaySurfaceView(interactive: true, cornerRadius: Self.cornerRadius,
                                          reduceTransparency: reduceTransparency, tone: SurfaceRole.toast.tone)
         surface.translatesAutoresizingMaskIntoConstraints = false
