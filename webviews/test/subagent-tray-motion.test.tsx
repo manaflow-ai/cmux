@@ -276,6 +276,31 @@ describe("subagent tray motion", () => {
     await act(async () => root.unmount());
   });
 
+  test("a count rolling mid-slide keeps the sliding words: the slide plays on, never starting over", async () => {
+    // Review of #37671 (F1): a subagent joining while the header's words slide must not remount them.
+    motion(true);
+    const animate = proto.animate;
+    proto.animate = () => ({ cancel() {} });
+    const { element, root } = mount();
+    const tick = (text: string) => createElement(Tick, { text, steadyCounts: true, slide: true });
+    await act(async () => root.render(tick("Thinking · 3 waits")));
+    await act(async () => root.render(tick("Bash · 3 waits")));
+    const out = element.querySelector<HTMLElement>(".acpmux-tick__out")!;
+    const rising = element.querySelector<HTMLElement>(".acpmux-tick__in")!;
+    await act(async () => root.render(tick("Bash · 4 waits")));
+    expect(element.querySelector(".acpmux-tick__out")).toBe(out);
+    expect(element.querySelector(".acpmux-tick__in")).toBe(rising);
+    expect(rising.querySelector(".acpmux-tick__roll-in")!.textContent).toBe("4");
+    // The slide still settles on its own ends.
+    await act(async () => ended(out));
+    expect(element.querySelector(".acpmux-tick__out")).toBeNull();
+    await act(async () => ended(rising));
+    expect(element.querySelector(".acpmux-tick__in")).toBeNull();
+    proto.animate = animate;
+    await act(async () => root.unmount());
+    motion(false);
+  });
+
   test("with no motion the tray neither marks an entrance nor leaves a copy", async () => {
     motion(false);
     const shown = { current: "chat-a" as string | undefined };

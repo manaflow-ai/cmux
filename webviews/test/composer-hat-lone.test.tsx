@@ -155,6 +155,35 @@ describe("one item heads the hat", () => {
     }
   });
 
+  test("a lone failed or waiting subagent, folded, says its state in its line's tone", async () => {
+    // Review of #37671 (F2): folded, the header is all that says a lone line failed or waits.
+    for (const [agent, waiting, status] of [
+      [agentItem({ id: "a1", task: "Diagnose nightly lag", state: "failed", endedAt: now - 1_000 }), [], "failed"],
+      [agentItem({ id: "a2", task: "Ask before pushing" }), ["a2"], "waiting"],
+    ] as const) {
+      resetTrayOpenMemory();
+      const host = dom.window.document.getElementById("root")!;
+      const root = createRoot(host);
+      try {
+        await act(async () =>
+          root.render(
+            createElement(SubagentTray, {
+              items: [agent],
+              working: true,
+              waiting: new Set<string>(waiting),
+              onOpen: () => {},
+            }),
+          ),
+        );
+        const end = host.querySelector(".acpmux-running-tray__time[data-lone]");
+        expect(end?.getAttribute("data-status")).toBe(status);
+        expect(end?.querySelector(".acpmux-running-tray__lone-state")?.textContent).not.toBe("");
+      } finally {
+        await act(async () => root.unmount());
+      }
+    }
+  });
+
   test("a second item joining a folded hat changes only its words: same header, still folded, no list", async () => {
     // Leo, 2026-11-07, on the hat when a new command comes in: "we don't want it to, like, jitter. We
     // don't want it to be indecisive." A lone line used to turn into a header and a folding list.
