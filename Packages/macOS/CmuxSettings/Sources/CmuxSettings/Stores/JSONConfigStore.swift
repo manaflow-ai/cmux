@@ -374,7 +374,7 @@ public actor JSONConfigStore {
     /// Mirrors `ConfigSource.configWriteURL(for:)`, which already does this for
     /// the ghostty-format config surface; the JSON store had not been given the
     /// same treatment.
-    private static func resolvedWriteURL(
+    static func resolvedWriteURL(
         for url: URL,
         fileManager: FileManager = .default
     ) -> URL {
