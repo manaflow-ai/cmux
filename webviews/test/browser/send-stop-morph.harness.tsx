@@ -54,10 +54,13 @@ const draw = () => {
 
 Object.assign(window, {
   __set(next: Partial<State>) {
+    if (next.sessionId !== undefined && next.sessionId !== state.sessionId)
+      Object.assign(window, { __scopeAt: performance.now() });
     state = { ...state, ...next };
     // In the same task, as a snapshot push commits: the test reads the next frame.
     flushSync(draw);
   },
   __sends: () => sends.slice(),
+  __scopeAt: performance.now(),
 });
 draw();
