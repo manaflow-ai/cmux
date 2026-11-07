@@ -77,6 +77,7 @@ type SizeResult = {
   notch_events: number;
   js_writes: number;
   js_write_max_px: number;
+  write_stacks: string[];
   reversals: number;
   moved_frames: number;
 };
@@ -176,10 +177,25 @@ async function tickRun({
     if (isWheelNotch(event)) notchEvents += 1;
   };
   const offset = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+  // Who wrote it: the first callers of each distinct write that moved the view, as the engine names them.
+  const writeStacks = new Map<string, number>();
   const wrote = (before: number) => {
     if (performance.now() - lastWheel > 200) return;
     jsWrites += 1;
-    jsWriteMax = Math.max(jsWriteMax, Math.abs(offset.get!.call(scroller) - before));
+    const moved = Math.abs(offset.get!.call(scroller) - before);
+    jsWriteMax = Math.max(jsWriteMax, moved);
+    if (moved < 1) return;
+    const stack = (new Error().stack ?? "")
+      .split("\n")
+      .slice(2, 8)
+      .map((line) =>
+        line
+          .trim()
+          .replace(/https?:\/\/[^/]+/, "")
+          .replace(/\?[^:]*/, ""),
+      )
+      .join(" < ");
+    if (writeStacks.size < 8 || writeStacks.has(stack)) writeStacks.set(stack, (writeStacks.get(stack) ?? 0) + 1);
   };
   if (input === "precise") {
     scroller.addEventListener("wheel", onWheel, { passive: true });
@@ -351,6 +367,7 @@ async function tickRun({
     notch_events: notchEvents,
     js_writes: jsWrites,
     js_write_max_px: Math.round(jsWriteMax),
+    write_stacks: [...writeStacks].map(([stack, count]) => `${count}x ${stack}`),
     reversals,
     moved_frames: movedFrames,
   };
@@ -475,10 +492,25 @@ try {
       });
       // A tick or a flick as a smoothing tool sends it: `events` pixel deltas 8 ms apart, easing out, `total`
       // px in all. Deltas are fractional, never a legacy 120-unit notch. The pause between is input pacing.
+      // Chromium's mouse.wheel sends legacy 120-unit ticks, which the glide takes as a notch; its synthetic
+      // scroll gesture from a mouse sends precise wheel deltas, as a trackpad or Mos does.
+      const box = (await page.locator(".acpmux-scroll").boundingBox())!;
+      const gesture = ENGINE === "chromium" ? (cdp ?? (await page.context().newCDPSession(page))) : undefined;
       const flick = async (total: number, events: number) => {
         await page.evaluate((direction) => {
           (window as unknown as { cmuxTickDirection?: number }).cmuxTickDirection = direction;
         }, Math.sign(total));
+        if (gesture) {
+          await gesture.send("Input.synthesizeScrollGesture", {
+            x: Math.round(box.x + box.width / 2),
+            y: Math.round(box.y + box.height / 2),
+            yDistance: -total,
+            speed: Math.round(Math.abs(total) / ((events * 8) / 1000)),
+            gestureSourceType: "mouse",
+          });
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          return;
+        }
         const weights = Array.from({ length: events }, (_, index) => (1 - index / events) ** 2);
         const sum = weights.reduce((a, b) => a + b, 0);
         for (const weight of weights) {
@@ -515,7 +547,8 @@ try {
         `stalls=${result.stalls} long_tasks=${result.long_tasks} long_task_max=${result.long_task_max} ` +
         `heap_mb=${result.heap_mb} dom_nodes=${result.dom_nodes} open_ms=${result.open_ms} spans_p95/max=${result.spans}` +
         (INPUT === "precise"
-          ? ` moved_frames=${result.moved_frames} reversals=${result.reversals} js_writes=${result.js_writes} js_write_max_px=${result.js_write_max_px} notch_events=${result.notch_events}`
+          ? ` moved_frames=${result.moved_frames} reversals=${result.reversals} js_writes=${result.js_writes} js_write_max_px=${result.js_write_max_px} notch_events=${result.notch_events}` +
+            result.write_stacks.map((stack) => `\n    write ${stack}`).join("")
           : ""),
     );
     perfRow({
