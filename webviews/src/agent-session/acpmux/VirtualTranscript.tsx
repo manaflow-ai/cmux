@@ -1283,6 +1283,11 @@ export function VirtualTranscript({
   /// A row in view and its layout top on screen (its box less the chase's translate) as of the last
   /// followed pass: the next pass measures how far the rows the reader sees moved from it.
   const chaseAnchor = useRef<{ id: string; top: number } | undefined>(undefined);
+  /// Jump to latest landed: the reader asked for the latest row, so what streams on keeps it over the
+  /// bottom stack (the chase draws it down at most the live line's room, in every arm, as base's glide
+  /// did). Cleared by a send, by any stop of the jump (reader input, a chat switch), and away from the
+  /// latest row; the chase then lets content pass under the composer again.
+  const chaseHeld = useRef(false);
   /// Ends the follow motion in flight where the rows lay out, and forgets where they were.
   const stopFollowMotion = useCallback(() => {
     followGlide.current?.stop();
@@ -1299,6 +1304,7 @@ export function VirtualTranscript({
     shown: readonly AcpmuxRow[],
     below = Number.POSITIVE_INFINITY,
     moveAtOnce = false,
+    held = false,
   ) => {
     const chase = followChase.current!;
     const rowTop = (id: string) => {
@@ -1309,7 +1315,7 @@ export function VirtualTranscript({
     const before = chaseAnchor.current;
     const now = before ? rowTop(before.id) : undefined;
     chase.fit(below);
-    if (before && now !== undefined && !moveAtOnce) chase.shift(thread.current, now - before.top, below);
+    if (before && now !== undefined && !moveAtOnce) chase.shift(thread.current, now - before.top, below, held);
     const first = visibleLayoutRange(placed, layoutScrollTop(node), node.clientHeight, 0).first;
     const id = shown[Math.min(first, shown.length - 1)]?.id;
     const top = id === undefined ? undefined : rowTop(id);
@@ -1332,6 +1338,7 @@ export function VirtualTranscript({
     wheelGlide.current?.stop();
     stopFollowMotion();
     jumpTarget.current = undefined;
+    chaseHeld.current = false;
     // A footnote also owns the shared runner and must end on session/send/Find transitions.
     if (ref.current) stopScroll(ref.current);
   }, [stopFollowMotion]);
@@ -2947,15 +2954,32 @@ export function VirtualTranscript({
         // the bottom stack's fold move the thread on their own frames, and Jump to latest rides on
         // its own: those end it.
         if (chasing) {
-          // Ended, the rows in view are still noted, so the first move after it chases from them.
+          // Those move the rows between passes on their own frames (the jump's ride, a fold, a
+          // rewrap): it ends, and nothing is noted, so the first pass after them measures no move
+          // from a row they moved (that drew the thread back by the ride's last step, under the card).
+          // The turn ending (the live line leaves for the footer, and what ran folds above the reply)
+          // lands at once, the chase with it: nothing settles on after the turn rests (base's glide
+          // ended there too, its room gone).
+          const lineLeft = Boolean(oldRows.at(-1)?.below) && !rows.at(-1)?.below;
           if (jumping || bottomStacking || resizing || heightFoldPlaying()) stopFollowMotion();
-          // New text lands in the room the quiet live line keeps under the reply, and at most a line
-          // under the bottom stack while it catches up (followGlide.ts kept it to the room and moved
-          // the rest at once). A send's rows rise out from behind the composer they left: no cap.
-          // Only the passes that bring the send's own rows (the prompt, the live line, as `sendRows`
-          // below): a reply streaming right after it keeps to the room.
-          const sentRows = (sends !== seenSends.current || now < sendRiseUntil.current) && rows.length > oldRows.length;
-          chaseFollow(node, layout, rows, sentRows ? Number.POSITIVE_INFINITY : room + CHASE_UNDER_STACK_PX, dockMoved);
+          else if (lineLeft) {
+            followChase.current?.stop();
+            chaseFollow(node, layout, rows, 0, true);
+          } else {
+            // New text lands in the room the quiet live line keeps under the reply, and at most a line
+            // under the bottom stack while it catches up (followGlide.ts kept it to the room and moved
+            // the rest at once). A send's rows rise out from behind the composer they left: no cap.
+            // Only the passes that bring the send's own rows (the prompt, the live line, as `sendRows`
+            // below): a reply streaming right after it keeps to the room.
+            const sentRows =
+              (sends !== seenSends.current || now < sendRiseUntil.current) && rows.length > oldRows.length;
+            // After Jump to latest what streams on keeps to the room (chaseHeld) until the reader
+            // sends: the send's rows rise from behind the composer again.
+            if (sentRows) chaseHeld.current = false;
+            const held = chaseHeld.current;
+            const below = held ? room : sentRows ? Number.POSITIVE_INFINITY : room + CHASE_UNDER_STACK_PX;
+            chaseFollow(node, layout, rows, below, dockMoved, held);
+          }
         }
         // A glide holding the rows back further than the room now under the last row (the live line
         // came into view to name a call) rests at once, so nothing stays under the bottom stack.
@@ -2982,6 +3006,7 @@ export function VirtualTranscript({
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Away from the latest row nothing chases: the next followed pass measures from scratch.
         chaseAnchor.current = undefined;
+        chaseHeld.current = false;
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
         // so the row is found again by its id; at offset 0 too, when older history arrived above.
@@ -3583,6 +3608,8 @@ export function VirtualTranscript({
       JUMP_CURVE,
       () => {
         jumpTarget.current = undefined;
+        // What streams on after the landing keeps the latest row over the bottom stack.
+        chaseHeld.current = chasing;
         scrolledTo.current = { top: node.scrollTop, atLatest: true };
         seenAnchor.current = null;
         followTrace.set(node.scrollTop);

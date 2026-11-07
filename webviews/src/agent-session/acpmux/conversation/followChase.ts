@@ -72,8 +72,9 @@ export type FollowChase = {
   /// The rows the reader sees moved `moved` px on screen in this pass (negative: up). The thread is
   /// drawn back by that and chases home, drawn down at most `below` px (what may lie under the
   /// bottom stack: the room under the last row and a line, VirtualTranscript); the rest moves at
-  /// once. False when it moved at once (motion off, nothing to move).
-  shift(thread: HTMLElement | null, moved: number, below?: number): boolean;
+  /// once. `held` keeps to `below` in every arm (Jump to latest just landed). False when it moved at
+  /// once (motion off, nothing to move).
+  shift(thread: HTMLElement | null, moved: number, below?: number, held?: boolean): boolean;
   /// What may lie under the bottom stack is now `below` px: a chase drawn further down rests there.
   fit(below: number): void;
   /// How far the thread is drawn from its layout (px, positive: drawn down), 0 at rest.
@@ -211,7 +212,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
         else draw();
       }
     },
-    shift(node, moved, below = Number.POSITIVE_INFINITY) {
+    shift(node, moved, below = Number.POSITIVE_INFINITY, held = false) {
       // A shell that opts out (`data-follow-glide="off"`, the gallery's and harnesses' before) steps.
       if (!node || !(Math.abs(moved) > 0.5) || arm === "instant" || node.closest(FOLLOW_GLIDE_OFF)) return false;
       const speed = speedOf(node);
@@ -229,7 +230,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // A send's rows rise out from behind the composer (`below` unbounded). In the `blocks` arm
       // (the default) everything may pass under the glass composer while it settles, held only by
       // the trail bound; the `spring` arm keeps a line to `below`, the rest of it moving at once.
-      if (arm === "blocks" || below === Number.POSITIVE_INFINITY) rising = true;
+      if ((arm === "blocks" && !held) || below === Number.POSITIVE_INFINITY) rising = true;
       x = Math.max(-most, Math.min(most, rising ? most : Math.max(0, below), x - moved));
       // Past the trail bound: back within it BURST_S after the landing that first put it past
       // (more landing before then speeds it up), at no more than a line a frame.
