@@ -122,4 +122,26 @@ import Testing
             }
         }
     }
+
+    /// Router review F2: under the Wallpaper palette, a new desktop picture's color repaints a header already drawn, with
+    /// no other event (`DesignSettings.groupWallpaperTint` is read under the header's observation).
+    @Test func aNewWallpaperColorRepaintsTheHeaders() async throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let before = DesignSettings.shared.sidebarSections.groupPalette
+        defer {
+            DesignSettings.shared.sidebarSections.groupPalette = before
+            DesignSettings.shared.groupWallpaperTint = nil
+        }
+        DesignSettings.shared.sidebarSections.groupPalette = .wallpaper
+        DesignSettings.shared.groupWallpaperTint = WallpaperTint(red: 0.15, green: 0.3, blue: 0.75)
+        let (sidebar, headers) = try Self.headers(in: Self.latte())
+        defer { sidebar.window?.close() }
+        let header = try #require(headers.first { $0.1 == .red }?.0)
+        header.displayIfNeeded()
+        #expect(!header.needsDisplay)
+        DesignSettings.shared.groupWallpaperTint = WallpaperTint(red: 0.8, green: 0.2, blue: 0.15)
+        for _ in 0 ..< 20 where !header.needsDisplay { await Task.yield() }
+        #expect(header.needsDisplay, "the header did not hear of the new wallpaper color")
+    }
 }

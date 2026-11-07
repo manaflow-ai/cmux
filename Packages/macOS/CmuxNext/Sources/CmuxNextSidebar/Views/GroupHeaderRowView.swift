@@ -298,11 +298,13 @@ final class GroupHeaderRowView: SidebarRowView {
         needsLayout = true
     }
 
-    /// The Debug Settings look (`sidebar.groupHeader`, cx-7yywz), the group palette (`sidebar.groupPalette`) and line
+    /// The Debug Settings look (`sidebar.groupHeader`, cx-7yywz), the group palette (`sidebar.groupPalette`, and the
+    /// Wallpaper palette's color) and line
     /// layout (its joined corner, `sidebar.groupLineLayout`); a change lays the header out and paints it again.
     private var look: (style: SidebarGroupHeaderStyle, palette: GroupPalette) {
         let read = {
-            _ = (SidebarStyle.groupLineLayout, SidebarGroupGlass.tunable.value)
+            // The Wallpaper palette's color too: a new desktop picture repaints the header (`DesignSettings.groupWallpaperTint`).
+            _ = (SidebarStyle.groupLineLayout, SidebarGroupGlass.tunable.value, DesignSettings.shared.groupWallpaperTint)
             return (SidebarGroupHeaderStyle.tunable.value, DesignSettings.shared.sidebarSections.groupPalette)
         }
         guard !observesLook else { return read() }
