@@ -30,6 +30,10 @@ struct CloudWorkspaceNoGroupTests {
         private var reply: SidebarDocReply { SidebarDocReply(revision: 2, inverse: Data("[]".utf8)) }
     }
 
+    @MainActor private final class Refusals {
+        var messages: [String] = []
+    }
+
     @Test func aCloudMachinesFirstWorkspaceMakesNoGroupForItsMachine() async throws {
         let services = UnopenedCloudMachinesTests.services()
         defer { UnopenedCloudMachinesTests.closeWindows(services) }
@@ -42,16 +46,21 @@ struct CloudWorkspaceNoGroupTests {
         services.sidebarDoc.store = store
         // The marks go only to a shown document (`SidebarDocument.activeStore`).
         try #require(services.sidebarDoc.activeStore === store)
+        // A mark the document's reducer refuses still counts: it was an attempt to make a group.
+        let refusals = Refusals()
+        store.onRefused = { refusals.messages.append($0) }
         let context = AppActionContext(services: services)
         // Two new machines, one workspace each: neither machine's section becomes a group. Their daemons are not
         // connected, so the open fails after the point where it marked the section.
         for id in ["vm-a", "vm-b"] {
             let session = UnopenedCloudMachinesTests.machine(services, id: id, workspaces: [])
+            try #require(session.daemon.store.registryID == "s-\(id)", "the mark names the machine's section by this id")
             _ = try? await CloudHandlers.creationFlow(context).open(session)
         }
         // A mark is one op sent from the store's own task: give it the time it took on the base.
-        await RapidWorkspaceCreateTests.wait(within: .seconds(2)) { remote.applied.contains { $0.contains("host_group") } }
+        await RapidWorkspaceCreateTests.wait(within: .seconds(2)) { remote.applied.contains { $0.contains("host_group") } || !refusals.messages.isEmpty }
         #expect(!remote.applied.contains { $0.contains("host_group") }, "a Cloud create made a remote group: \(remote.applied)")
+        #expect(refusals.messages.isEmpty, "a Cloud create tried to make a remote group: \(refusals.messages)")
         #expect(store.records.sections.values.allSatisfy { !$0.hostGroup })
     }
 }
