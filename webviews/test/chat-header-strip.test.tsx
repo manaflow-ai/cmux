@@ -137,14 +137,16 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
     "Browser",
     "Chat actions",
   ]);
-  const lit = "var(--agent-lit-glyph, var(--agent-accent))";
   const [toggle, ...symbolTools] = buttons;
   const pack = toggle!.querySelector<SVGElement>("svg[data-icon]")!;
   expect(pack.getAttribute("data-icon")).toBe("view.list.short");
   expect(pack.getAttribute("width")).toBe("16");
   expect(pack.classList.contains("acpmux-header-glyph")).toBe(true);
-  expect(pack.style.color).toBe(lit);
+  // The pressed button supplies the lit ink; the pack SVG stays on its Line drawing and
+  // inherits that color instead of changing its inline style.
+  expect(pack.style.color).toBe("");
   expect(toggle!.querySelector("[data-symbol]")).toBeNull();
+  const lit = "var(--agent-lit-glyph, var(--agent-accent))";
   for (const button of symbolTools) {
     const glyph = button.querySelector<HTMLElement>("[data-symbol]")!;
     expect(glyph).not.toBeNull();
@@ -162,4 +164,22 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
   act(() => {
     setHarnessSymbolHost(undefined);
   });
+});
+
+test("a pressed panel toggle keeps the list glyph's Line drawing", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { PanelToggle } = await import("../src/agent-session/acpmux/header/PanelToggle");
+  root ??= createRoot(host);
+  await act(async () => {
+    root!.render(<PanelToggle label="Session Info" shown={true} onToggle={() => {}} />);
+  });
+  const pressed = host.querySelector<SVGElement>('svg[data-icon="view.list.short"]')!;
+  const pressedMarkup = pressed.innerHTML;
+  const pressedStroke = pressed.querySelector("path[stroke]")?.getAttribute("stroke-width");
+  await act(async () => {
+    root!.render(<PanelToggle label="Session Info" shown={false} onToggle={() => {}} />);
+  });
+  const unpressed = host.querySelector<SVGElement>('svg[data-icon="view.list.short"]')!;
+  expect(pressedMarkup).toBe(unpressed.innerHTML);
+  expect(pressedStroke).toBe(unpressed.querySelector("path[stroke]")?.getAttribute("stroke-width"));
 });

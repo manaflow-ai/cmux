@@ -94,6 +94,14 @@ const nowPlayingTrack = (playing: boolean) => ({
   labels: { play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track" },
 });
 
+const restoreProjectBadgePlate = async (ctx: PlayContext) => {
+  const style = ctx.document.createElement("style");
+  style.textContent =
+    ".nt-screen .acpmux-project-badge { background: color-mix(in srgb, var(--agent-text) 7%, transparent); border-radius: 6px; }";
+  ctx.document.head.append(style);
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-screen .acpmux-project-badge") !== null);
+};
+
 // The variants were drawn on Cards, the page an unset template showed before Minimal (Leo
 // 2026-10-20) became the default; they keep it unless they name another (the minimal-* ones do).
 const newTab = (fields: Record<string, unknown> = {}) => ({
@@ -862,6 +870,37 @@ export default agentPaneEntry({
         const composer = ctx.document.querySelector(".nt-composer")!.getBoundingClientRect();
         const env = ctx.document.querySelector(".nt-env")!.getBoundingClientRect();
         if (env.bottom > composer.top) throw new Error("the environment card is not above the composer");
+      },
+    },
+    "project-badge-before": {
+      note: "Before: the New Tab folder/project glyph sits on its own rounded plate in the location row.",
+      ready: newTab({ template: "minimal", projects: WIDGET_PROJECTS }),
+      snapshot: noChat(manySessions(3)),
+      play: restoreProjectBadgePlate,
+    },
+    "project-badge-after": {
+      note: "Chosen: the New Tab folder/project glyph keeps the shared 20px slot but draws plainly; the row remains the only selected surface.",
+      ready: newTab({ template: "minimal", projects: WIDGET_PROJECTS }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-screen .acpmux-project-badge") !== null);
+        const badge = ctx.document.querySelector<HTMLElement>(".nt-screen .acpmux-project-badge")!;
+        const style = ctx.document.defaultView!.getComputedStyle(badge);
+        if (style.backgroundColor !== "rgba(0, 0, 0, 0)" && style.backgroundColor !== "transparent")
+          throw new Error(`New Tab project badge still has a plate: ${style.backgroundColor}`);
+        if (style.width !== "20px" || style.height !== "20px") throw new Error("New Tab project slot changed size");
+      },
+    },
+    "project-badge-stage": {
+      note: "Sweep: stage project rows use the same plain folder glyph and keep their row geometry.",
+      ready: newTab({ template: "default", projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .acpmux-project-badge") !== null);
+        const badge = ctx.document.querySelector<HTMLElement>(".nt-stage .acpmux-project-badge")!;
+        const style = ctx.document.defaultView!.getComputedStyle(badge);
+        if (style.backgroundColor !== "rgba(0, 0, 0, 0)" && style.backgroundColor !== "transparent")
+          throw new Error(`stage project badge still has a plate: ${style.backgroundColor}`);
       },
     },
     "stage-hover": {

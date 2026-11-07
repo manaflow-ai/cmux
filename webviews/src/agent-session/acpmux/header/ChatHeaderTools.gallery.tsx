@@ -89,12 +89,13 @@ const menuRows = (): ChatMenuItem[] => [
 ];
 
 // The summary's panel toggle as the App passes it (summary/SummaryButton.tsx).
-const panelToggle = (shown: boolean, icon = "view.list.short") =>
+const panelToggle = (shown: boolean, icon = "view.list.short", selectedGlyph = false) =>
   createElement(PanelToggle, {
     className: "acpmux-summary-button",
     label: "Chat summary",
     shown,
     icon,
+    selectedGlyph,
     onToggle: () => undefined,
   });
 const summary = panelToggle(false);
@@ -652,6 +653,18 @@ export default componentEntry<HeaderToolsProps>({
     "panel-icon-session": {
       note: "Panel icon option: the session speech-bubble glyph, shown for comparison with the list control.",
       props: { ...base, summary: panelToggle(false, "agent.session") },
+    },
+    "panel-weight-before": {
+      note: "Before: opening the panel changed the list glyph to the pack's heavier Solid drawing, even though the button already had a selected square.",
+      props: { ...base, summary: panelToggle(true, "view.list.short", true) },
+    },
+    "panel-weight-after": {
+      note: "Chosen: the list glyph keeps the same Line weight while the existing pressed square and lit ink show that the panel is open.",
+      props: { ...base, summary: panelToggle(true) },
+    },
+    "panel-weight-background-only": {
+      note: "Alternative: pressed background only, with the same Line glyph and muted ink. The chosen treatment keeps the established lit ink as well.",
+      props: { ...base, summary: panelToggle(true) },
     },
     "plain-icons": {
       note: "Plain icons: the panel and Terminal's split open, Terminal hovered, the chat menu open; no tool at rest draws a box, and the open panel's toggle is the filled rounded square with the lit ink.",
