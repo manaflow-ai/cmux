@@ -111,7 +111,8 @@ pub(super) struct ShareTerms {
     pub(super) ttl_secs: u64,
     pub(super) uses: u32,
     pub(super) create_id: Option<String>,
-    /// What a guest who joins by the link may do (`None`: talk, every prompt held for the owner).
+    /// The role the link is made for (`view` lifts its uses cap); a guest who joins by the link
+    /// watches only whatever it says.
     pub(super) role: Option<Role>,
 }
 
