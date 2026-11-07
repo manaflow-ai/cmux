@@ -1209,6 +1209,8 @@ export type AcpmuxSnapshot = {
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
+  /// Those asks, in the order they come next (the composer hat steps to each, question/hatModel.ts).
+  permissionsQueued?: readonly AcpmuxPermission[];
   secret?: AcpmuxSecretAsk;
   /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts); the same
   /// array until one comes or goes.
