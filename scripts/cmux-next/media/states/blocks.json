@@ -26,12 +26,12 @@
    "optional": "the showcase fixture is DEBUG only"
   },
   {
-   "title": "Workspace Blocks",
+   "title": "Workspace blocks",
    "cmux": [
     "workspace",
     "new",
     "--name",
-    "Blocks"
+    "blocks"
    ],
    "wait": 2
   },
@@ -39,7 +39,7 @@
    "title": "Show it",
    "cmux": [
     "workspace",
-    "name:Blocks",
+    "name:blocks",
     "focus"
    ],
    "wait": 1.5
@@ -48,7 +48,7 @@
    "title": "A Markdown file, and a prompt that names no host",
    "cmux": [
     "workspace",
-    "name:Blocks",
+    "name:blocks",
     "screen",
     "current",
     "pane",
@@ -87,7 +87,7 @@
    "title": "The new pane's prompt names no host",
    "cmux": [
     "workspace",
-    "name:Blocks",
+    "name:blocks",
     "screen",
     "current",
     "pane",
@@ -117,7 +117,7 @@
    "title": "The workspace",
    "cmux": [
     "workspace",
-    "name:Blocks",
+    "name:blocks",
     "focus"
    ],
    "wait": 1.5
@@ -148,7 +148,7 @@
    "title": "The workspace",
    "cmux": [
     "workspace",
-    "name:Blocks",
+    "name:blocks",
     "focus"
    ],
    "wait": 1.5

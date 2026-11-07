@@ -168,7 +168,7 @@ public nonisolated enum ChromeStyle: String, Sendable, CaseIterable, Codable {
         case .panes: nil
         case .twoTone: isDark ? 0.12 : 0.02
         case .floating: isDark ? 0.14 : 0.03
-        case .blocks: isDark ? 0.24 : 0.05
+        case .blocks: isDark ? 0.34 : 0.08
         }
     }
 }

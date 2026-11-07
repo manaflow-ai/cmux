@@ -258,8 +258,8 @@
         "layout.paneSeparation": "cards",
         "sidebar.border": false,
         "appearance.sidebarSurface": "separate",
-        "chrome.mainPane.shadeDark": 0.24,
-        "chrome.mainPane.shadeLight": 0.05,
+        "chrome.mainPane.shadeDark": 0.34,
+        "chrome.mainPane.shadeLight": 0.08,
         "chrome.floatingPanes": true,
         "appearance.borders": "none"
       }

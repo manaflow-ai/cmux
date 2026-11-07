@@ -1,5 +1,5 @@
 {
- "title": "Borderless block chrome, Blocks with the deepest shade and wider gaps: the sidebar, the corner, the tab bar and the top-right tools, light and dark",
+ "title": "Borderless block chrome, Blocks with wider gaps (the compared shade is now the style's own): the sidebar, the corner, the tab bar and the top-right tools, light and dark",
  "launch_args": [
   "--showcase"
  ],
@@ -55,12 +55,12 @@
    "optional": "the showcase fixture is DEBUG only"
   },
   {
-   "title": "Workspace Blocks",
+   "title": "Workspace blocks-deep",
    "cmux": [
     "workspace",
     "new",
     "--name",
-    "Blocks"
+    "blocks-deep"
    ],
    "wait": 2
   },
@@ -68,7 +68,7 @@
    "title": "Show it",
    "cmux": [
     "workspace",
-    "name:Blocks",
+    "name:blocks-deep",
     "focus"
    ],
    "wait": 1.5
@@ -77,7 +77,7 @@
    "title": "A Markdown file, and a prompt that names no host",
    "cmux": [
     "workspace",
-    "name:Blocks",
+    "name:blocks-deep",
     "screen",
     "current",
     "pane",
@@ -116,7 +116,7 @@
    "title": "The new pane's prompt names no host",
    "cmux": [
     "workspace",
-    "name:Blocks",
+    "name:blocks-deep",
     "screen",
     "current",
     "pane",
@@ -146,13 +146,13 @@
    "title": "The workspace",
    "cmux": [
     "workspace",
-    "name:Blocks",
+    "name:blocks-deep",
     "focus"
    ],
    "wait": 1.5
   },
   {
-   "title": "Blocks with the deepest shade and wider gaps (light)",
+   "title": "Blocks with wider gaps (the compared shade is now the style's own) (light)",
    "rpc": {
     "method": "debug.window_snapshot",
     "params": {
@@ -177,13 +177,13 @@
    "title": "The workspace",
    "cmux": [
     "workspace",
-    "name:Blocks",
+    "name:blocks-deep",
     "focus"
    ],
    "wait": 1.5
   },
   {
-   "title": "Blocks with the deepest shade and wider gaps (dark)",
+   "title": "Blocks with wider gaps (the compared shade is now the style's own) (dark)",
    "rpc": {
     "method": "debug.window_snapshot",
     "params": {
