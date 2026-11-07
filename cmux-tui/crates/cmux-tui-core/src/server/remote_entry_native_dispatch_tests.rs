@@ -355,6 +355,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "agent-session-share-invite",
     "agent-session-share-kick",
     "agent-session-share-list",
+    "agent-session-share-open-link",
     "agent-session-share-revoke",
     "agent-session-share-room",
     "agent-session-share-uninvite",

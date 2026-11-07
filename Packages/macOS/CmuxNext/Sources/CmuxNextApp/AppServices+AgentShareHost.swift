@@ -21,6 +21,19 @@ extension AppServices: AgentShareHost {
     func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { await AgentShareConsentSheet.ask(ask, feed: feed) }
     func shareShowInvites(_ model: AgentShareInviteSheetModel) { AgentShareInviteSheetPresenter.present(model, services: self) }
     func shareOpenSettings(route: String) { try? settingsWindow.show(section: nil, route: route) }
+
+    /// A chat share link's page as the daemon answers it (`agent-session-share-open-link`), with the person's
+    /// cmux access token for the room's one-time hand-off; nil when the daemon refuses or is not there.
+    func shareLinkPage(_ link: URL) async -> URL? {
+        guard let connection = machines.local.connection else { return nil }
+        var token: String?
+        if cloud.auth.isSignedIn { token = try? await cloud.auth.tokens().access }
+        let request = AgentSessionShareOpenLinkRequest(link: link.absoluteString, token: token)
+        // timeout: a room that never answers the hand-off (the daemon gives it 10 s); past this the link
+        // still opens as itself, signed out (ExternalOpenController.openShareLink's fallback).
+        guard let opened = try? await connection.request(request, timeout: .seconds(20)) else { return nil }
+        return URL(string: opened.url)
+    }
 }
 
 /// The owner's consent sheet for a guest link a run they did not start asks for (#30263): a cmux

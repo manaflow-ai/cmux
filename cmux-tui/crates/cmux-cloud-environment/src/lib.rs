@@ -147,6 +147,11 @@ pub const PRODUCTION_API: &str = "https://cloud-api.cmux.dev";
 pub const DEVELOPMENT_PLATFORM: &str = "https://cmux-platform-development.debussy.workers.dev";
 pub const STAGING_PLATFORM: &str = "https://cmux-platform-staging.debussy.workers.dev";
 pub const PRODUCTION_PLATFORM: &str = "https://cmux-platform-production.debussy.workers.dev";
+/// Each platform deployment's short chat share host (cmux-platform `SHARE_PAGE_ORIGIN`, a custom domain of
+/// the same Worker): links made there and on the platform origin are the same deployment's.
+pub const DEVELOPMENT_SHARE: &str = "https://share-dev.cmux.dev";
+pub const STAGING_SHARE: &str = "https://share-staging.cmux.dev";
+pub const PRODUCTION_SHARE: &str = "https://share.cmux.dev";
 pub const STACK_ORIGIN: &str = "https://api.stack-auth.com";
 pub const DEVELOPMENT_STACK_PROJECT: &str = "454ecd03-1db2-4050-845e-4ce5b0cd9895";
 pub const DEVELOPMENT_STACK_CLIENT_KEY: &str = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g";

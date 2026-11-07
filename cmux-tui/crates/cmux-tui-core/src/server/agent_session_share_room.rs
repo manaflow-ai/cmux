@@ -186,7 +186,7 @@ impl Bridge {
         self.room().map(|room| room.timing).unwrap_or_default()
     }
 
-    fn runtime(&self) -> Option<&tokio::runtime::Runtime> {
+    pub(super) fn runtime(&self) -> Option<&tokio::runtime::Runtime> {
         let runtime = self.runtime.get_or_init(|| {
             let _ = rustls::crypto::ring::default_provider().install_default();
             let mut builder = tokio::runtime::Builder::new_multi_thread();
@@ -343,7 +343,7 @@ enum Put {
 const MAX_ROOM_RESPONSE_BYTES: usize = 64 * 1024;
 
 /// One HTTP call to the room with `bearer`: its status and bounded JSON body.
-async fn call(
+pub(super) async fn call(
     method: reqwest::Method,
     url: &str,
     bearer: &str,
