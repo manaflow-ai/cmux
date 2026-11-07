@@ -51,9 +51,21 @@ enum NewAtPlacement {
         }
         var aimed = invocation.onMachine(pane.daemon.machineID)
         aimed.target = ActionTargetRef(kind: .pane, id: pane.paneKey)
-        if plan.madeInPlace, inPlace(kind, plan.op, pane: pane, aimed, ctx) { return .done }
-        madeThenMoved(kind, plan.op, from: pane, ctx)
+        // A browser the CLI, MCP or a script opens is an agent's: no saved password fills in it
+        // (TabLifecycle.newBrowser, plans/cmux-next/browser.md). Split Browser does not mark its tab, so an
+        // automated browser is always made here, marked before its first load, then moved.
+        let route = Self.route(kind, plan, origin: invocation.origin)
+        if route.ownCreate, inPlace(kind, plan.op, pane: pane, aimed, ctx) { return .done }
+        madeThenMoved(kind, plan.op, from: pane, agentDriven: route.agentDriven, ctx)
         return .done
+    }
+
+    /// How `kind` reaches `plan`'s place for a run from `origin`: by the kind's own create, or made here and
+    /// moved, and whether the tab made here is marked agent-driven before its first load. A browser from the
+    /// CLI, MCP or a script is agent-driven; its own create at a new tab (openBrowser) marks it, Split Browser does not.
+    nonisolated static func route(_ kind: String, _ plan: NewPlacementPlan, origin: ActionOrigin) -> (ownCreate: Bool, agentDriven: Bool) {
+        let agentDriven = kind == "browser" && [.cli, .mcp, .script].contains(origin)
+        return (plan.madeInPlace && !(agentDriven && plan.op != .tab), agentDriven)
     }
 
     /// The kind's own create at `op`, in one daemon commit. False when the kind has none there.
@@ -69,7 +81,10 @@ enum NewAtPlacement {
             return true
         case ("terminal", .column(let left)): return registry.perform(left ? "newColumnLeft" : "newColumn", invocation: aimed)
         case ("terminal", .row): return registry.perform("newRow", invocation: aimed)
-        case ("terminal", .tab): return registry.perform("newSurface", invocation: aimed)
+        case ("terminal", .tab):
+            // In this pane, as asked: newSurface would follow `newTerminal.opensWorkspace`.
+            pane.newTerminalTab(fromSelectedTab: true)
+            return true
         case ("browser", .split(edge: "right")): return registry.perform("splitBrowserRight", invocation: aimed)
         case ("browser", .split(edge: "bottom")): return registry.perform("splitBrowserDown", invocation: aimed)
         case ("browser", .tab): return registry.perform("openBrowser", invocation: aimed)
@@ -107,18 +122,25 @@ enum NewAtPlacement {
     }
 
     /// `kind` made unselected in `pane` and kept out of its strip, then moved to `op`'s place.
-    @MainActor static func madeThenMoved(_ kind: String, _ op: NewPlacementPlan.Op, from pane: PaneController, _ ctx: AppActionContext) {
+    @MainActor static func madeThenMoved(_ kind: String, _ op: NewPlacementPlan.Op, from pane: PaneController, agentDriven: Bool = false,
+                                         _ ctx: AppActionContext) {
         let services = pane.services, store = pane.daemon.store, machineID = pane.daemon.machineID
         switch kind {
         case "terminal", "browser":
             let outbound = OutboundTab.begin(in: pane)
+            let cache = services.cache
             let placed: @MainActor (SurfaceID) -> Void = { surface in
+                // Before the page exists: its first load fills no saved password (TabContentCache.markAgentDriven).
+                if kind == "browser", agentDriven { cache.markAgentDriven(surface: surface) }
                 outbound.made(surface)
                 place({ store.tab(surface: surface).flatMap { services.locateTab(model: $0) } }, from: pane, op, ctx) { outbound.finish(moved: $0) }
             }
             let made: Bool
             if kind == "terminal" {
-                pane.newTerminalTab(fromSelectedTab: true, placementOwner: true, then: placed)
+                // The selected tab's folder, without `fromSelectedTab`: from another machine's terminal that opens
+                // a terminal there, which never reports its surface here, so the move could not run.
+                let cwd = NewTerminalStart.inherited(besides: pane.selectedTab, in: pane.pane, services: services) ?? pane.selectedTab?.cwd
+                pane.newTerminalTab(cwd: cwd, placementOwner: true, then: placed)
                 made = true
             } else {
                 made = pane.newBrowserTab(background: true, placementOwner: true, then: placed)
@@ -186,9 +208,7 @@ enum NewAtPlacement {
             let moved = left()
             finished(moved)
             guard moved else { return "new: the move to its place failed (see the app log)" }
-            // A split, a new workspace or a new window focuses the moved tab itself; a strip column or row does not.
-            if case .split = op { return nil }
-            if op == .workspace || op == .window { return nil }
+            // The tab was made unselected and its move does not focus it: focus it where it landed.
             _ = registry.perform("tab.focus", invocation: ActionInvocation(target: target, origin: .user))
             return nil
         })

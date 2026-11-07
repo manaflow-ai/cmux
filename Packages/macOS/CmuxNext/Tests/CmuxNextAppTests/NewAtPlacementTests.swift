@@ -79,6 +79,24 @@ struct NewAtPlacementTests {
         #expect(NewPlacementPlan.fallback(place: "nowhere") == nil)
     }
 
+    /// A browser the CLI, MCP or a script opens at any place is made here and marked agent-driven before its
+    /// first load (no saved password fills in it); only a new tab uses openBrowser, which marks it itself.
+    @Test func anAutomatedBrowserIsMarkedAgentDrivenAtEveryPlace() throws {
+        for place in ForkConversationTests.destinations.map(\.1.rawValue) {
+            let plan = try #require(NewPlacementPlan(kind: "browser", place: place, tabSplit: true) ?? NewPlacementPlan.fallback(place: place))
+            for origin in [ActionOrigin.cli, .mcp, .script] {
+                let route = NewAtPlacement.route("browser", plan, origin: origin)
+                #expect(route.agentDriven, "\(place) from \(origin)")
+                #expect(route.ownCreate == (place == "tab"), "\(place) from \(origin)")
+            }
+            // A person's browser keeps the fast path and is not marked.
+            let person = NewAtPlacement.route("browser", plan, origin: .user)
+            #expect(!person.agentDriven && person.ownCreate == plan.madeInPlace, "\(place)")
+            // Only browsers are marked.
+            #expect(!NewAtPlacement.route("terminal", plan, origin: .cli).agentDriven)
+        }
+    }
+
     /// Cmd-D's split on a terminal opens toward the place's edge.
     @Test func aSplitEdgeIsItsPaneDirection() {
         #expect(NewAtPlacement.direction("right") == .right)
