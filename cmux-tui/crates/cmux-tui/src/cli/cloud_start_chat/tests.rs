@@ -288,7 +288,7 @@ fn a_failure_carries_the_steps_it_ran() {
 }
 
 /// A run that made its machine and then failed still names it, so its caller can delete what it
-/// made (the start matrix, `cmux chat --vm new`); a failure on a machine it did not make does not.
+/// made (the start matrix, `cmux chat --on vm:new`); a failure on a machine it did not make does not.
 #[test]
 fn a_failure_after_making_the_machine_names_it() {
     let refused = || Ran {

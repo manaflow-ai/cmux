@@ -125,7 +125,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 }
 
 /// Runs `request` with this binary's own app verbs and prints the answer: `cloud start-chat`
-/// and `cmux chat --vm` (chat_start.rs) are the same run.
+/// and `cmux chat --on vm:…` (chat_start.rs) are the same run.
 pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
     let mut runner = SelfRunner { globals: forwarded_globals(global) };
     let outcome = run(&mut runner, request);

@@ -709,20 +709,20 @@ fn vm_runs_every_cloud_verb_and_keeps_its_machine_verbs() {
     }
 }
 
-/// No `vm chat`: a Cloud chat is `cmux chat --vm`.
+/// No `vm chat`: a Cloud chat is `cmux chat --on vm:…`.
 #[test]
 fn vm_has_no_chat_verb() {
     for verb in ["start-chat", "chat"] {
         assert_eq!(cloud_alias(&args(&["vm", verb, "--prompt", "hi"])), None);
         let error = planned(&["vm", verb, "--prompt", "hi"]).unwrap_err();
-        assert!(error.0.contains("cmux chat --vm"), "{}", error.0);
+        assert!(error.0.contains("cmux chat --on vm:"), "{}", error.0);
     }
 }
 
 #[test]
 fn cloud_names_its_new_spelling() {
     assert!(rename_note(Some("list-machines"), false).contains("`cmux vm list-machines`"));
-    assert!(rename_note(Some("start-chat"), false).contains("cmux chat --vm"));
+    assert!(rename_note(Some("start-chat"), false).contains("cmux chat --on vm:"));
     assert!(rename_note(None, false).contains("`cmux vm`"));
     assert!(rename_note(Some("list-machines"), true).contains("cmux vm"));
 }

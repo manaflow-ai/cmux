@@ -183,10 +183,10 @@ fn quick_start_commands_parse() {
             .filter(|line| !line.contains("secret") && !line.contains("client-session"))
             .filter(|line| !line.starts_with("cmux vm env "))
             .collect::<Vec<_>>();
-        // Two `cmux chat --vm` lines, three follow-ups and five machine lines; the quick
+        // Two `cmux chat --on vm:` lines, three follow-ups and five machine lines; the quick
         // start's create is `cmux machine new`. No line is a `vm start-chat` or `vm chat`.
         assert_eq!(commands.len(), 10, "{commands:?}");
-        assert!(commands[0].starts_with("cmux chat --vm "), "the chat leads: {commands:?}");
+        assert!(commands[0].starts_with("cmux chat --on vm:"), "the chat leads: {commands:?}");
         assert!(!text.contains("vm start-chat") && !text.contains("vm chat"), "{text}");
         for command in commands {
             if let Some(rest) = command.strip_prefix("cmux chat ") {
@@ -196,7 +196,7 @@ fn quick_start_commands_parse() {
                     .collect::<Vec<_>>();
                 assert!(
                     matches!(
-                        crate::cli::chat_start::parse(&words),
+                        crate::cli::chat_start::parse(&words, None),
                         Ok(crate::cli::chat_start::Parsed::Run(_))
                     ),
                     "quick start command does not parse: {command}"

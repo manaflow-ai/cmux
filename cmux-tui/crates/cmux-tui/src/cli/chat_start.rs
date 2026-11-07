@@ -1,22 +1,26 @@
-//! `cmux chat [--device ID|NAME|cloud | --vm MACHINE|new] [flags] [PROMPT]`: start an agent chat,
-//! here by default, or on another device, a Cloud machine or in cmux Cloud (Leo, 2026-11-07: "the
-//! goal is like... cmux chat is normal, and cmux chat with the flag/arguments can separate if you
-//! want it on a different device/vm/cloud/whatevret").
+//! `cmux chat [--on TARGET] [flags] [PROMPT]`: start an agent chat, here by default, or on a
+//! device, a Cloud VM or in cmux Cloud (Leo, 2026-11-07: "the goal is like... cmux chat is normal,
+//! and cmux chat with the flag/arguments can separate if you want it on a different
+//! device/vm/cloud/whatevret"; the one-flag shape, Leo, 2026-11-07: "i think this will be good").
 //!
-//! - No target: the chat starts right here, as `cmux agents chat new` starts it (a chat tab in the
-//!   app, in this machine's acpmux).
-//! - `--vm MACHINE`: a chat on that Cloud machine (`machine:ID`, a name, made when no machine has
-//!   it, or `new`). It is the run `cmux cloud start-chat` does (cloud_start_chat.rs); that verb
-//!   stays as its old spelling.
-//! - `--device SELECTOR`: `cloud` (a new Cloud machine), or a device of the daemon's machine
-//!   catalog by its machine id (a name that names exactly one device is read as its id). Every
-//!   device goes through the SDK's [`cmux::resolve_chat_target`] first, with the catalog read now
+//! One flag, `--on`, whose value decides the kind of target, so it is learned once for every verb
+//! that runs something somewhere:
+//!
+//! - no `--on` (and no `CMUX_TARGET`), or `--on here`: right here, as `cmux agents chat new`
+//!   starts it (a chat tab in the app, in this machine's acpmux);
+//! - `--on cloud`: cmux Cloud, today a new Cloud VM;
+//! - `--on vm:new`: a new Cloud VM; `--on vm:ID|NAME`: the app's existing Cloud VM with that id,
+//!   or the one VM with that title, never one made for it. Both are the run `cmux cloud
+//!   start-chat` does (cloud_start_chat.rs), which stays as that run's old name;
+//! - `--on DEVICE`: a device of the daemon's machine catalog by its id, or the one device with
+//!   that name. It goes through the SDK's [`cmux::resolve_chat_target`] first, with the catalog
 //!   and the app's cloud sign-in read now, so a device the person may not use, one that does not
-//!   run agent chats, or one not running is refused before anything starts. Nothing here lists
-//!   devices of its own.
+//!   run agent chats or one not running is refused before anything starts. Nothing here keeps a
+//!   device list of its own.
 //!
-//! The selector `cloud` and a device id stay apart: `cloud` is never looked up in the catalog, and
-//! a device called "cloud" is reached by its id.
+//! `CMUX_TARGET` names the target when `--on` is absent, as `DOCKER_CONTEXT` does. A refusal says
+//! what to run next. `cloud`, `here` and `vm:…` are selectors, never device names: a device called
+//! "cloud" is reached by its id.
 
 use std::time::Duration;
 
@@ -27,39 +31,35 @@ use super::cloud_start_chat::{self, Machine};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 /// This command's flags that take the next word as their value.
-const TAKES_VALUE: &[&str] = &[
-    "--device",
-    "--vm",
-    "--prompt",
-    "-p",
-    "--agent",
-    "--harness",
-    "--model",
-    "--cwd",
-    "--name",
-    "--timeout",
-];
+const TAKES_VALUE: &[&str] =
+    &["--on", "--prompt", "-p", "--agent", "--harness", "--model", "--cwd", "--name", "--timeout"];
 
 /// The `chat` verbs other modules own (chief/chat_scope.rs and the app's `chat …` actions).
 const OTHER_VERBS: &[&str] = &["send", "read", "wait", "list", "create", "replies", "colors"];
 
+/// The environment variable that names the target when `--on` is absent.
+pub(super) const TARGET_ENV: &str = "CMUX_TARGET";
+
 /// How long the catalog read may take.
 const CATALOG_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// What a refusal says to run next.
+const LIST_DEVICES: &str = "run `cmux machine list` for your devices and their ids";
+const LIST_VMS: &str = "run `cmux vm list-machines` for your VMs, or use --on vm:new";
+
 pub(super) const USAGE: &str = "\
-usage: cmux chat [--device ID|NAME|cloud | --vm MACHINE|machine:ID|new]
-                 [--agent AGENT] [--model MODEL] [--cwd DIR] [--name NAME]
-                 [--wait] [--timeout SECONDS] [--json] [[--prompt] TEXT]
+usage: cmux chat [--on TARGET] [--agent AGENT] [--model MODEL] [--cwd DIR]
+                 [--name NAME] [--wait] [--timeout SECONDS] [--json] [[--prompt] TEXT]
 
-Starts an agent chat. With no target it starts right here, as a tab in the
-cmux app. A target sends it elsewhere:
+Starts an agent chat, right here unless --on names another target:
 
-  --device ID|NAME   A connected device by its machine id (`cmux machine list`);
-                     a name that names exactly one device works too.
-                     The device must be yours, running, and run agent chats.
-  --device cloud     cmux Cloud: a new Cloud machine.
-  --vm MACHINE       A Cloud machine: machine:ID, or a name (made when no
-                     machine has it). --vm new makes a new one.
+  --on here          This machine, as a tab in the cmux app (the default)
+  --on cloud         cmux Cloud (a new Cloud VM)
+  --on vm:new        A new Cloud VM
+  --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm list-machines`)
+  --on DEVICE        A connected device by its id or name (`cmux machine list`);
+                     it must be yours, running, and run agent chats
+  CMUX_TARGET=TARGET names the target when --on is absent.
 
   --agent AGENT      claude (default), codex, ...
   --model MODEL      The agent's model (a chat here)
@@ -71,30 +71,21 @@ cmux app. A target sends it elsewhere:
 
 EXAMPLES
   cmux chat 'Summarize README.md'
-  cmux chat --device machine_3f2a 'Run the tests'
-  cmux chat --vm new --prompt 'Summarize README.md' --wait --json
-  cmux chat --vm dev --cwd /home/cmux/work --prompt 'Run the tests' --json
+  cmux chat --on studio-mac 'Run the tests'
+  cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
+  cmux chat --on vm:dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
 Messages to a chat: cmux chat send|read|wait|list (`cmux chat send --help`).
-Refusals: chat_target.unknown_device, chat_target.ambiguous_device,
-chat_target.not_permitted, chat_target.unavailable, chat_target.signed_out,
-chat_target.no_route. Exit codes: 0 ok, 1 refused, 2 bad arguments.
+A refused target exits 1 and says what to run next (chat_target.unknown_device,
+ambiguous_device, unknown_vm, not_permitted, unavailable, signed_out, no_route).
+Exit codes: 0 ok, 1 refused, 2 bad arguments.
 ";
-
-/// Where the chat goes, as typed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Target {
-    Here,
-    /// `--device`: `cloud` or a device id or name, checked against the catalog when it runs.
-    Device(String),
-    /// `--vm`: a Cloud machine.
-    Vm(Machine),
-}
 
 /// A parsed `cmux chat …` start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Start {
-    pub target: Target,
+    /// `--on`'s value, else `CMUX_TARGET`'s; None is here.
+    pub on: Option<String>,
     pub agent: Option<String>,
     pub model: Option<String>,
     pub cwd: Option<String>,
@@ -115,7 +106,7 @@ pub(super) enum Parsed {
 pub(super) enum Route {
     /// This machine's acpmux and app (`agents chat new`).
     Here,
-    /// A Cloud machine (`cloud start-chat`'s run).
+    /// A Cloud VM (`cloud start-chat`'s run).
     Cloud(Machine),
 }
 
@@ -136,7 +127,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     };
     let prefix = args.get(..args.len().saturating_sub(command.len())).unwrap_or_default();
     let words = cloud_start_chat::lift_output_of(rest, &mut global.output, TAKES_VALUE);
-    let start = match parse(&words) {
+    let start = match parse(&words, std::env::var(TARGET_ENV).ok()) {
         Ok(Parsed::Help) => {
             print!("{USAGE}");
             return Some(0);
@@ -147,10 +138,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(run(&global, prefix, start))
 }
 
-/// The words after `chat` (or `chat new`).
-pub(super) fn parse(words: &[String]) -> Result<Parsed, UsageError> {
+/// The words after `chat` (or `chat new`); `env_target` is `CMUX_TARGET`, read when `--on` is
+/// absent (an empty one is unset).
+pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Parsed, UsageError> {
     let mut start = Start {
-        target: Target::Here,
+        on: None,
         agent: None,
         model: None,
         cwd: None,
@@ -159,8 +151,6 @@ pub(super) fn parse(words: &[String]) -> Result<Parsed, UsageError> {
         wait: false,
         timeout: None,
     };
-    let mut device = None;
-    let mut vm = None;
     let mut index = 0;
     while let Some(word) = words.get(index).map(String::as_str) {
         if word == "--" {
@@ -194,8 +184,18 @@ pub(super) fn parse(words: &[String]) -> Result<Parsed, UsageError> {
         };
         match flag {
             "-h" | "--help" => return Ok(Parsed::Help),
-            "--device" => device = Some(value()?),
-            "--vm" => vm = Some(value()?),
+            "--on" => {
+                if start.on.is_some() {
+                    return Err(UsageError::new("give --on once"));
+                }
+                let on = value()?.trim().to_owned();
+                if on.is_empty() {
+                    return Err(UsageError::new(
+                        "--on needs a target: here, cloud, vm:new, vm:ID|NAME or a device",
+                    ));
+                }
+                start.on = Some(on);
+            }
             "--prompt" | "-p" => {
                 let text = value()?;
                 set_prompt(&mut start.prompt, text)?;
@@ -211,15 +211,12 @@ pub(super) fn parse(words: &[String]) -> Result<Parsed, UsageError> {
         }
         index += 1;
     }
-    start.target = match (device, vm) {
-        (Some(_), Some(_)) => return Err(UsageError::new("give --device or --vm, not both")),
-        (Some(device), None) if device.trim().is_empty() => {
-            return Err(UsageError::new("--device needs a machine id, a name, or cloud"));
-        }
-        (Some(device), None) => Target::Device(device.trim().to_owned()),
-        (None, Some(vm)) => Target::Vm(vm_machine(&vm)?),
-        (None, None) => Target::Here,
-    };
+    if start.on.is_none() {
+        start.on = env_target.map(|target| target.trim().to_owned()).filter(|t| !t.is_empty());
+    }
+    if start.on.as_deref() == Some("vm:") {
+        return Err(UsageError::new("--on vm: needs new, or a VM's id or name"));
+    }
     Ok(Parsed::Run(start))
 }
 
@@ -231,84 +228,100 @@ fn set_prompt(slot: &mut Option<String>, text: String) -> Result<(), UsageError>
     Ok(())
 }
 
-/// `--vm`'s value: `new`, `machine:ID`, or a machine's name.
-fn vm_machine(value: &str) -> Result<Machine, UsageError> {
-    let value = value.trim();
-    if value.is_empty() {
-        return Err(UsageError::new("--vm needs machine:ID, a machine name, or new"));
-    }
-    if value == "new" {
-        return Ok(Machine::New);
-    }
-    match value.strip_prefix("machine:") {
-        Some("") => Err(UsageError::new("--vm machine:MACHINE_ID")),
-        Some(id) => Ok(Machine::Target(id.to_owned())),
-        None => Ok(Machine::Named(value.to_owned())),
-    }
+/// What `route` reads, each only when the target needs it.
+pub(super) struct Reads<C, S, L> {
+    /// The daemon's machine catalog (`machine.list`, `catalog: true`).
+    pub catalog: C,
+    /// The app's cloud sign-in now.
+    pub signed_in: S,
+    /// The app's `cloud list-machines` answer.
+    pub cloud_machines: L,
 }
 
-/// Where `selector` runs a chat, checked against `catalog` (`machine.list` with `catalog: true`,
-/// read for this call) by the SDK's [`cmux::resolve_chat_target`]. `signed_in` reads the app's
-/// cloud sign-in, and only when the target needs it. A name that names exactly one device is read
-/// as that device's id; the id is what the check sees. A connected Cloud device runs on the app's
-/// Cloud machine that `cloud_machines` (the app's `cloud list-machines` rows) names by that id or,
-/// failing that, by exactly that title: never a machine made for it.
-pub(super) fn route(
-    selector: &str,
-    catalog: &Value,
-    signed_in: impl FnOnce() -> bool,
-    cloud_machines: impl FnOnce() -> Result<Value, Value>,
-) -> Result<Route, Value> {
-    let id = if selector == "cloud" { selector.to_owned() } else { device_id(selector, catalog)? };
-    let record = machines(catalog).iter().find(|machine| text(machine, "id") == Some(id.as_str()));
+/// Where target `on` runs a chat (module docs). A device is checked by the SDK's
+/// [`cmux::resolve_chat_target`] against the catalog read now; a name that names exactly one
+/// device is read as its id, and the id is what the check sees.
+pub(super) fn route<C, S, L>(on: Option<&str>, reads: Reads<C, S, L>) -> Result<Route, Value>
+where
+    C: FnOnce() -> Result<Value, Value>,
+    S: FnOnce() -> bool,
+    L: FnOnce() -> Result<Value, Value>,
+{
+    let Some(on) = on else { return Ok(Route::Here) };
+    if on == "here" {
+        return Ok(Route::Here);
+    }
+    if on == "cloud" {
+        return match cmux::resolve_chat_target("cloud", &Value::Null, (reads.signed_in)()) {
+            Ok(_) => Ok(Route::Cloud(Machine::New)),
+            Err(refusal) => Err(refused(&refusal)),
+        };
+    }
+    if let Some(vm) = on.strip_prefix("vm:") {
+        if vm == "new" {
+            return Ok(Route::Cloud(Machine::New));
+        }
+        let vm = vm.strip_prefix("machine:").unwrap_or(vm);
+        return existing_vm(vm, Some(vm), &(reads.cloud_machines)()?).map(Route::Cloud).map_err(
+            |found| {
+                refusal(
+                    "chat_target.unknown_vm",
+                    format!("no one VM of yours has the id or name {vm}"),
+                    LIST_VMS,
+                    json!({"vm": vm, "matches": found}),
+                )
+            },
+        );
+    }
+    let catalog = (reads.catalog)()?;
+    let id = device_id(on, &catalog)?;
+    let record = machines(&catalog).iter().find(|machine| text(machine, "id") == Some(id.as_str()));
     let origin = record.and_then(|machine| text(machine, "origin")).unwrap_or("local");
-    let needs_sign_in = id == "cloud" || origin == "cloud";
-    let signed_in = needs_sign_in && signed_in();
-    match cmux::resolve_chat_target(&id, catalog, signed_in) {
+    let signed_in = origin == "cloud" && (reads.signed_in)();
+    match cmux::resolve_chat_target(&id, &catalog, signed_in) {
         Err(refusal) => Err(refused(&refusal)),
         Ok(ChatTarget::Cloud) => Ok(Route::Cloud(Machine::New)),
         Ok(ChatTarget::Device { local: true, .. }) => Ok(Route::Here),
         Ok(ChatTarget::Device { id, local: false }) => match (origin, record) {
             ("cloud", Some(machine)) => {
-                cloud_machine(&id, text(machine, "name"), &cloud_machines()?).map(Route::Cloud)
+                existing_vm(&id, text(machine, "name"), &(reads.cloud_machines)()?)
+                    .map(Route::Cloud)
+                    .map_err(|found| {
+                        refusal(
+                            "chat_target.unavailable",
+                            format!("device {id} is a Cloud VM the app does not list as one VM"),
+                            LIST_VMS,
+                            json!({"device": id, "matches": found}),
+                        )
+                    })
             }
-            _ => Err(json!({
-                "code": "chat_target.no_route",
-                "message": format!(
-                    "device {id} ({origin}) runs agent chats, but the CLI cannot start one there \
-                     yet; open a workspace on it in the cmux app and start the chat there"
+            _ => Err(refusal(
+                "chat_target.no_route",
+                format!(
+                    "device {id} ({origin}) runs agent chats, but the CLI cannot start one there yet"
                 ),
-                "details": {"device": id, "origin": origin},
-                "retryable": false,
-            })),
+                "open a workspace on it in the cmux app and start the chat there",
+                json!({"device": id, "origin": origin}),
+            )),
         },
     }
 }
 
-/// The app's Cloud machine for catalog device `id` (shown as `name`), from the app's
-/// `cloud list-machines` answer: the row with that machine id, else the one row with that title.
-fn cloud_machine(id: &str, name: Option<&str>, listed: &Value) -> Result<Machine, Value> {
+/// The app's existing Cloud VM with machine id `id`, else the one VM titled `name`, from its
+/// `cloud list-machines` answer. Err: the ids that matched (none, or several).
+fn existing_vm(id: &str, name: Option<&str>, listed: &Value) -> Result<Machine, Vec<String>> {
     let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     if rows.iter().any(|row| text(row, "machine_id") == Some(id)) {
         return Ok(Machine::Target(id.to_owned()));
     }
-    let titled: Vec<&str> = rows
+    let titled: Vec<String> = rows
         .iter()
         .filter(|row| name.is_some() && text(row, "title") == name)
-        .filter_map(|row| text(row, "machine_id"))
+        .filter_map(|row| text(row, "machine_id").map(str::to_owned))
         .collect();
     match titled.as_slice() {
-        [machine] => Ok(Machine::Target((*machine).to_owned())),
-        found => Err(json!({
-            "code": "chat_target.unavailable",
-            "message": format!(
-                "device {id} is a Cloud machine the app does not list as one machine{}; run \
-                 `cmux vm list-machines` and use `cmux chat --vm machine:ID`",
-                name.map(|name| format!(" ({name})")).unwrap_or_default()
-            ),
-            "details": {"device": id, "matches": found},
-            "retryable": false,
-        })),
+        [machine] => Ok(Machine::Target(machine.clone())),
+        _ => Err(titled),
     }
 }
 
@@ -326,18 +339,30 @@ fn device_id(selector: &str, catalog: &Value) -> Result<String, Value> {
     match named.as_slice() {
         [id] => Ok((*id).to_owned()),
         [] => Err(refused(&ChatTargetRefusal::UnknownDevice { id: selector.to_owned() })),
-        ids => Err(json!({
-            "code": "chat_target.ambiguous_device",
-            "message": format!("{} devices are named {selector}; give one id: {}", ids.len(),
-                               ids.join(", ")),
-            "details": {"name": selector, "ids": ids},
-            "retryable": false,
-        })),
+        ids => Err(refusal(
+            "chat_target.ambiguous_device",
+            format!("{} devices are named {selector}", ids.len()),
+            &format!("give one id: {}", ids.join(", ")),
+            json!({"name": selector, "ids": ids}),
+        )),
     }
 }
 
+/// The SDK's refusal, with what to run next.
 fn refused(refusal: &ChatTargetRefusal) -> Value {
-    json!({"code": refusal.code(), "message": refusal.to_string(), "details": {},
+    let next = match refusal {
+        ChatTargetRefusal::SignedOut => "run `cmux vm sign-in`, then this command again",
+        _ => LIST_DEVICES,
+    };
+    self::refusal(refusal.code(), refusal.to_string(), next, json!({}))
+}
+
+/// A refusal whose message and `details.next` say what to run next.
+fn refusal(code: &str, message: String, next: &str, mut details: Value) -> Value {
+    if let Some(map) = details.as_object_mut() {
+        map.insert("next".to_owned(), json!(next));
+    }
+    json!({"code": code, "message": format!("{message}; {next}"), "details": details,
            "retryable": false})
 }
 
@@ -350,20 +375,14 @@ fn text<'a>(machine: &'a Value, key: &str) -> Option<&'a str> {
 }
 
 fn run(global: &GlobalArgs, prefix: &[String], start: Start) -> i32 {
-    let route = match &start.target {
-        Target::Here => Route::Here,
-        Target::Vm(machine) => Route::Cloud(machine.clone()),
-        Target::Device(selector) => {
-            let catalog = match read_catalog(global) {
-                Ok(catalog) => catalog,
-                Err(error) => return super::wire::print_local_error(&error, global.output, 1),
-            };
-            let signed_in = || cloud_start_chat::app_signed_in(global);
-            match route(selector, &catalog, signed_in, || cloud_start_chat::app_machines(global)) {
-                Ok(route) => route,
-                Err(error) => return super::wire::print_local_error(&error, global.output, 1),
-            }
-        }
+    let reads = Reads {
+        catalog: || read_catalog(global),
+        signed_in: || cloud_start_chat::app_signed_in(global),
+        cloud_machines: || cloud_start_chat::app_machines(global),
+    };
+    let route = match route(start.on.as_deref(), reads) {
+        Ok(route) => route,
+        Err(error) => return super::wire::print_local_error(&error, global.output, 1),
     };
     match route {
         Route::Here => match here_words(prefix, &start) {

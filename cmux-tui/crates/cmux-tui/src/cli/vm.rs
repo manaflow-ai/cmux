@@ -181,7 +181,7 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
         }
         "start-chat" | "chat" => {
             return Err(usage(
-                "a chat on a Cloud machine is `cmux chat --vm MACHINE|machine:ID|new` (`cmux chat --help`)",
+                "a chat on a Cloud machine is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`)",
             ));
         }
         "resize" => {
@@ -343,7 +343,7 @@ pub(super) fn machine_alias(args: &[String]) -> Option<Vec<String>> {
 /// `vm VERB …` as `cloud VERB …`: `cmux cloud` is now `cmux vm` (Linear CMUX-43). `vm` keeps
 /// every verb it had as `machine`'s old name; any other word is a Cloud verb. `exec` and
 /// `client-session` are both: with `--target` (the Cloud form, `--target machine:ID`) they are
-/// Cloud's. `vm start-chat` and `vm chat` are not verbs: a Cloud chat is `cmux chat --vm`.
+/// Cloud's. `vm start-chat` and `vm chat` are not verbs: a Cloud chat is `cmux chat --on vm:…`.
 /// `None` for anything else.
 pub(super) fn cloud_alias(args: &[String]) -> Option<Vec<String>> {
     let (_, scope, after) = split_raw(args)?;
@@ -393,10 +393,10 @@ pub(super) fn cloud_rename_note(args: &[String]) {
 pub(super) fn rename_note(verb: Option<&str>, japanese: bool) -> String {
     match (verb, japanese) {
         (Some("start-chat"), false) => {
-            "cmux: `cmux cloud start-chat` is now `cmux chat --vm MACHINE|new`; both work.".into()
+            "cmux: `cmux cloud start-chat` is now `cmux chat --on vm:ID|NAME|new`; both work.".into()
         }
         (Some("start-chat"), true) => {
-            "cmux: `cmux cloud start-chat` は `cmux chat --vm MACHINE|new` になりました。どちらも使えます。".into()
+            "cmux: `cmux cloud start-chat` は `cmux chat --on vm:ID|NAME|new` になりました。どちらも使えます。".into()
         }
         (Some(verb), false) if !verb.starts_with('-') => {
             format!("cmux: `cmux cloud` is now `cmux vm` (`cmux vm {verb}`); both work.")

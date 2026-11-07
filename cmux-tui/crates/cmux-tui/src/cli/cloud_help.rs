@@ -427,8 +427,8 @@ QUICK START
   Start a Cloud chat, send it a prompt and print the reply, in one command
   (it answers reply, machine_id, session_id, workspace_id and tab_id;
   `cmux chat --help` has every flag):
-  cmux chat --vm new --prompt 'Summarize README.md' --wait --json
-  cmux chat --vm dev --prompt 'Run the tests' --json
+  cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
+  cmux chat --on vm:dev --prompt 'Run the tests' --json
 
   Then, on that chat (MACHINE_ID and SESSION_ID from the answer):
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
@@ -458,8 +458,8 @@ const INTRO_JA: &str = "\
   Cloud チャットを開始し、プロンプトを送り、返信を表示する（1 コマンド。
   reply、machine_id、session_id、workspace_id、tab_id を返す。
   全フラグは `cmux chat --help`）:
-  cmux chat --vm new --prompt 'Summarize README.md' --wait --json
-  cmux chat --vm dev --prompt 'Run the tests' --json
+  cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
+  cmux chat --on vm:dev --prompt 'Run the tests' --json
 
   続けて同じチャットに（MACHINE_ID と SESSION_ID は返答から）:
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
@@ -525,7 +525,7 @@ usage: cmux cloud start-chat --prompt TEXT [--agent AGENT] [--cwd DIR]
 
 Starts an agent chat on a Cloud machine and sends it a prompt, in one step.
 The chat opens as a tab in the machine's workspace in the cmux app.
-This is `cmux chat --vm MACHINE|machine:ID|new` (`cmux chat --help`), by its
+This is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`), by its
 older name; both run the same start.
 
   --prompt TEXT      What to send (`-` reads it from stdin)
