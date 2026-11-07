@@ -62,12 +62,21 @@ import Testing
         }
     }
 
+    /// Whether `label` shows its whole text: its frame holds the text and the label cell's 2-point side insets
+    /// (the capture of the fix showed "Ligh…After" and "2…4" with the text's bare width).
+    static func whole(_ label: NSTextField) -> Bool {
+        label.frame.width >= ceil(label.attributedStringValue.size().width) + 4
+    }
+
     @Test func theComposeButtonAboveTheViewerLeavesTheTitleWhole() async throws {
         let (viewer, button) = try await Self.open(width: 620, title: Self.short, compose: true)
         let compose = try #require(button)
-        let title = try #require(viewer.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == Self.short })
+        let labels = viewer.subviews.compactMap { $0 as? NSTextField }
+        let title = try #require(labels.first { $0.stringValue == Self.short })
         #expect(!title.frame.intersects(compose), "title \(title.frame) under the compose button \(compose)")
-        #expect(title.frame.width >= ceil(title.attributedStringValue.size().width), "title \(title.frame) cut short")
+        #expect(Self.whole(title), "title \(title.frame) cut short")
+        let counter = try #require(labels.first { $0.stringValue.contains("4") && $0.stringValue != Self.short })
+        #expect(Self.whole(counter), "counter \(counter.stringValue) \(counter.frame) cut short")
     }
 
     @Test(arguments: [320, 620, 1200] as [CGFloat], [short, long, ""])
