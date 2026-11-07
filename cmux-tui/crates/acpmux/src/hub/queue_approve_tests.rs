@@ -558,14 +558,14 @@ async fn a_restart_keeps_a_continuations_goal_mark_and_an_edit_drops_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A subagent retry the person rewrote in the queue is their prompt now: a restart keeps it.
-/// The retry's own control state goes with the edit, so the load that drops an old daemon's
-/// unsent retries (`subagent_retry.rs` `drop_unsent_subagent_retries`) never takes the person's
-/// words with it (Codex review of #37497: the edit kept `kind: subagent_retry`, and the restart
-/// deleted the rewritten prompt).
+/// A prompt of acpmux's own control state the person rewrote in the queue is their prompt now:
+/// a restart keeps it, for every kind a restart or its cleanup leaves out (`queue_edit.rs`
+/// `controls`). Before, the edit kept the kind, so the load dropped the person's words: an inbox
+/// notice in `restore_queue`, a subagent retry in `drop_unsent_subagent_retries` (Codex reviews
+/// of #37497).
 #[tokio::test]
-async fn a_restart_keeps_a_subagent_retry_the_person_rewrote() {
-    let dir = std::env::temp_dir().join(format!("acpmux-edited-retry-{}", uuid::Uuid::now_v7()));
+async fn a_restart_keeps_control_prompts_the_person_rewrote() {
+    let dir = std::env::temp_dir().join(format!("acpmux-edited-control-{}", uuid::Uuid::now_v7()));
     let durable = || {
         let mut cfg: Config = serde_json::from_value(json!({
             "harnesses": {"fake": {"argv": ["python3", FAKE]}},
@@ -583,30 +583,40 @@ async fn a_restart_keeps_a_subagent_retry_the_person_rewrote() {
     };
     let session = hub.new_session(new).await.unwrap();
     let id = session.id.clone();
-    let retry = json!({"kind": super::super::subagent_retry::PROVENANCE_KIND,
-        "subagentId": "s/t9", "agentId": "agent-s/t9", "attempt": 1});
-    insert(&hub, &session, "rewritten", Some(&retry));
-    let edit = json!({"sessionId": id, "promptId": "rewritten", "op": "update", "text": "Do this instead"});
-    hub.queue_edit(&session, &edit, Control::Local, false, None).await.unwrap();
+    let kinds = [
+        ("notice", json!({"kind": super::super::inbox::NOTICE_KIND})),
+        (
+            "retry",
+            json!({"kind": super::super::subagent_retry::PROVENANCE_KIND,
+                "subagentId": "s/t9", "agentId": "agent-s/t9", "attempt": 1}),
+        ),
+        ("trigger", json!({"kind": "trigger"})),
+    ];
+    for (prompt_id, provenance) in &kinds {
+        insert(&hub, &session, prompt_id, Some(provenance));
+        let text = format!("Do {prompt_id} instead");
+        let edit = json!({"sessionId": id, "promptId": prompt_id, "op": "update", "text": text});
+        hub.queue_edit(&session, &edit, Control::Local, false, None).await.unwrap();
+    }
     hub.shutdown_all().await;
     drop((session, hub));
 
     let hub = durable();
     let session = hub.resolve(&id).unwrap();
     hub.load_session_log(&session);
-    let left: Vec<(String, String, bool)> = session
+    let left: Vec<(String, String, Option<Value>)> = session
         .queue()
         .into_iter()
         .map(|q| {
-            let retry = super::super::subagent_retry::is_retry(q.run.provenance.as_ref());
-            (q.prompt_id, q.preview, retry)
+            let kind = q.run.provenance.as_ref().and_then(|p| p.get("kind")).cloned();
+            (q.prompt_id, q.preview, kind)
         })
         .collect();
-    assert_eq!(
-        left,
-        [("rewritten".to_owned(), "Do this instead".to_owned(), false)],
-        "the person's rewritten retry after a restart"
-    );
+    let want: Vec<(String, String, Option<Value>)> = kinds
+        .iter()
+        .map(|(prompt_id, _)| ((*prompt_id).to_owned(), format!("Do {prompt_id} instead"), None))
+        .collect();
+    assert_eq!(left, want, "the person's rewritten control prompts after a restart");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
