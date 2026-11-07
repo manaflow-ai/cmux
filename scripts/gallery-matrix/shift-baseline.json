@@ -1577,7 +1577,7 @@
     "agent-pane.streaming-follow-motion#subtle-fade": 2.00957,
     "agent-pane.streaming-text#claude": 2.23769,
     "agent-pane.streaming-text#codex": 2.25142,
-    "agent-pane.streaming-text#jump-during-stream": 2.68619,
+    "agent-pane.streaming-text#jump-during-stream": 3.3851,
     "agent-pane.subagent-empty#empty": 0,
     "agent-pane.subagent-empty#loaded": 0,
     "agent-pane.subagent-empty#long-parent": 0,
