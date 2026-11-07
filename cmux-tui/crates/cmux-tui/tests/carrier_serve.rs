@@ -19,6 +19,16 @@ use std::time::Duration;
 use carrier_support::*;
 use serde_json::{Value, json};
 
+/// The next stderr line: a connection's ok line, with `vmk` when given.
+fn assert_served(stderr: &mut BufReader<ChildStderr>, vmk: Option<&str>) {
+    let served: Value = serde_json::from_str(&line(stderr)).unwrap();
+    let mut want = json!({"ok": true, "route": "carrier"});
+    if let Some(vmk) = vmk {
+        want["vmk"] = json!(vmk);
+    }
+    assert_eq!(served, want, "one ok line per connected connection");
+}
+
 fn serve(world: &World, socket: &Path) -> Child {
     serve_with_token(world, socket, TOKEN)
 }
@@ -93,9 +103,11 @@ fn two_connections_each_get_their_own_session_on_an_owner_only_socket() {
     drop(child.stdin.take());
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0), "serve ends with its stdin");
     assert!(!socket.exists(), "the socket is removed on exit");
+    assert_served(&mut stderr, None);
+    assert_served(&mut stderr, None);
     let mut rest = String::new();
     stderr.read_to_string(&mut rest).unwrap();
-    assert_eq!(rest, "", "nothing on stderr after the ready line");
+    assert_eq!(rest, "", "one line per connection and nothing else");
     let log = connect_log(&world);
     let connects: Vec<_> = log.lines().collect();
     assert_eq!(connects.len(), 2, "{log}");
@@ -119,6 +131,7 @@ fn a_refused_dial_closes_only_its_connection_and_serve_goes_on() {
 
     let mut kept = open(&socket);
     let session = ask(&mut kept, 1);
+    assert_served(&mut stderr, None);
 
     world.status.store(403, Ordering::SeqCst);
     let mut refused = open(&socket);
@@ -206,7 +219,28 @@ fn a_token_line_on_stdin_is_the_credential_of_later_dials() {
 
     let mut after = open(&socket);
     ask(&mut after, 1);
+    assert_served(&mut stderr, None);
     drop(stdin);
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
     assert!(!socket.exists(), "the socket is removed on exit");
+}
+
+#[test]
+fn each_connected_connection_says_the_grant_s_vmk() {
+    let world = world_signed(
+        200,
+        Arc::new(AtomicUsize::new(0)),
+        "mux-control",
+        DaemonKey::Real,
+        Some("owner"),
+    );
+    let socket = socket_path(&world);
+    let mut child = serve(&world, &socket);
+    let (ready, mut stderr) = first_line(&mut child);
+    assert_eq!(ready["ok"], true, "{ready}");
+    let mut conn = open(&socket);
+    ask(&mut conn, 1);
+    assert_served(&mut stderr, Some("owner"));
+    drop(child.stdin.take());
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
 }

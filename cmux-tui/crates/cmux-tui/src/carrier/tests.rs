@@ -9,8 +9,8 @@ use serde_json::{Value, json};
 use super::answer::{TicketCache, grant_vmk, key_text, parse_answer, read_reply};
 use super::client::{classify, pinned_daemon, resume_outcome};
 use super::contract::{
-    Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, Step, Vmk, connected_line, failure_line,
-    parse_deadline, route_line, serving_line,
+    Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, StdinLine, Step, Vmk, connected_line,
+    failure_line, parse_deadline, route_line, served_line, serving_line, stdin_line,
 };
 use super::{DialArgs, ServeArgs, parse, parse_serve, with_team_env};
 
@@ -33,6 +33,10 @@ fn the_reply_line_is_one_json_line_the_app_server_reads() {
             json!({"ok": true, "path_state": "relay", "route": "carrier", "vmk": name})
         );
     }
+    let served: Value = serde_json::from_str(served_line(None).trim()).unwrap();
+    assert_eq!(served, json!({"ok": true, "route": "carrier"}));
+    let served: Value = serde_json::from_str(served_line(Some(Vmk::Team)).trim()).unwrap();
+    assert_eq!(served, json!({"ok": true, "route": "carrier", "vmk": "team"}));
     let ready: Value = serde_json::from_str(serving_line("/s/carrier.sock").trim()).unwrap();
     assert_eq!(ready, json!({"ok": true, "socket": "/s/carrier.sock", "route": "carrier"}));
 
