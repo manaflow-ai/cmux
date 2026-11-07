@@ -31,7 +31,6 @@ pub const DOCS_URL_HOSTS: &[&str] = &[
     "developers.openai.com",
     "docs.anthropic.com",
     "docs.claude.com",
-    "dev.meta.ai",
     "github.com",
     "opencode.ai",
     "vercel.com",
