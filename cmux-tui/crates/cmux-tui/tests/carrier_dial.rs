@@ -204,8 +204,7 @@ const OTHER_DEVICE: &str = "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU";
 fn a_handed_over_answer_is_the_first_attempt_s_without_asking_the_platform() {
     // Off a Mac each dial makes its own Noise key, so the handed-over grant
     // names another device's: the daemon refusing it shows the dial used it.
-    let asked = Arc::new(AtomicUsize::new(0));
-    let world = world(200, asked.clone());
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
     let mut child = dial_with(&world, &["--answer-fd", "0"]);
     let mut stdin = child.stdin.take().unwrap();
     stdin.write_all(world.answer_line(OTHER_DEVICE, true).as_bytes()).unwrap();
