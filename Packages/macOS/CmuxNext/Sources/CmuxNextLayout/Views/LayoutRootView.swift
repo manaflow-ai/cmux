@@ -397,7 +397,7 @@ public final class LayoutRootView: NSView {
                 // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
                 // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
                 if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
-                               animated: (animated || reflows) && !view.isHidden) {
+                               animated: (animated || reflows) && !view.isHidden, snapWaitsForFrame: isLive && driver.isAttached) {
                     needsFrames = true
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
