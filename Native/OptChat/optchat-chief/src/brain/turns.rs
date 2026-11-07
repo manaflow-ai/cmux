@@ -519,10 +519,9 @@ impl Brain {
         // change, and under approve-all acpmux would answer every ask with
         // allow: it runs under `ask`, so each ask comes to `turn_permission`
         // and is refused (nobody answers a turn session's request).
-        let permission_mode = (!self.turn_ask)
-            .then(|| self.chief_permission_mode(&self.next_engine().2).0);
-        let manual =
-            permission_mode == Some("default") && family == crate::acpmux::Family::Claude;
+        let permission_mode =
+            (!self.turn_ask).then(|| self.chief_permission_mode(&self.next_engine().2).0);
+        let manual = permission_mode == Some("default") && family == crate::acpmux::Family::Claude;
         let policy = if self.turn_ask || manual {
             crate::approval::ASK.to_owned()
         } else {

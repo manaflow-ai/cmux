@@ -64,7 +64,10 @@ fn first_turn_mode(saved: Value, user: Option<Value>) -> Option<String> {
 fn a_manual_chief_turn_runs_under_ask_so_its_asks_are_refused_not_allowed() {
     for (saved, user) in [
         (json!({"permission_mode": "default"}), None),
-        (json!({}), Some(json!({"chief": {"permissionMode": "default"}}))),
+        (
+            json!({}),
+            Some(json!({"chief": {"permissionMode": "default"}})),
+        ),
         (
             json!({"permission_mode": "bypassPermissions"}),
             Some(json!({"chief.permissionMode": "manual"})),
@@ -86,10 +89,17 @@ fn an_unreadable_settings_file_caps_the_chief_at_manual() {
     use optchat_chief::agent_memory::settings::document_checked;
     let home = tempfile::tempdir().unwrap();
     assert_eq!(document_checked(home.path()), Ok(None));
-    assert_eq!(engine::user_permission_mode_checked(Ok::<_, String>(None)), None);
+    assert_eq!(
+        engine::user_permission_mode_checked(Ok::<_, String>(None)),
+        None
+    );
     let dir = home.path().join(".config/cmux");
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("cmux-next.json"), "{\"chief\": {\"permissionMode\": \"default\"").unwrap();
+    std::fs::write(
+        dir.join("cmux-next.json"),
+        "{\"chief\": {\"permissionMode\": \"default\"",
+    )
+    .unwrap();
     let read = document_checked(home.path());
     assert!(read.is_err(), "{read:?}");
     let user = engine::user_permission_mode_checked(read.as_ref().map(Option::as_ref));
@@ -98,9 +108,16 @@ fn an_unreadable_settings_file_caps_the_chief_at_manual() {
         engine::permission_mode(&EngineChoice::default(), user.as_deref()),
         ("default", "settings")
     );
-    std::fs::write(dir.join("cmux-next.json"), "{\"chief\": {\"permissionMode\": \"auto\"}}").unwrap();
+    std::fs::write(
+        dir.join("cmux-next.json"),
+        "{\"chief\": {\"permissionMode\": \"auto\"}}",
+    )
+    .unwrap();
     let read = document_checked(home.path()).unwrap();
-    assert_eq!(engine::user_permission_mode(read.as_ref()).as_deref(), Some("auto"));
+    assert_eq!(
+        engine::user_permission_mode(read.as_ref()).as_deref(),
+        Some("auto")
+    );
 }
 
 #[test]

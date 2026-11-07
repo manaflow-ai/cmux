@@ -139,7 +139,9 @@ pub fn user_permission_mode(doc: Option<&serde_json::Value>) -> Option<String> {
 /// The user's `chief.permissionMode` from a settings read that may have
 /// failed: a file that is there but does not read or parse gives `default`
 /// (Manual), the narrowest mode, never the bypass default (cmux#37392).
-pub fn user_permission_mode_checked<E>(doc: Result<Option<&serde_json::Value>, E>) -> Option<String> {
+pub fn user_permission_mode_checked<E>(
+    doc: Result<Option<&serde_json::Value>, E>,
+) -> Option<String> {
     match doc {
         Ok(doc) => user_permission_mode(doc),
         Err(_) => Some("default".to_owned()),
