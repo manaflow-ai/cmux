@@ -71,7 +71,7 @@ import { noticeMarkdown } from "./agentNotice";
 import { useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
 import { useSessionRef } from "./SessionRef";
-import { useSessionHover } from "../started/SessionHoverCard";
+import { useSessionHover } from "../started/useSessionHover";
 import { resolveSessionRef, senderRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
