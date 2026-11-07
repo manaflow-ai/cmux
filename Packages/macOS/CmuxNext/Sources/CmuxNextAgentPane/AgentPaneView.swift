@@ -480,7 +480,10 @@ public final class AgentPaneView: NSView {
             dictation.toggle(from: event)
             return
         }
-        let handOff = byPerson || model.composer.dictationSource == .cmux
+        // A hand-off types into another app: only for the person's own key or click (Globe-D, the
+        // Edit menu, the palette), never a posted one or a script's run.
+        let person = byPerson && (event ?? NSApp.currentEvent).map { AgentPanePersonInput.isPerson($0, sources: eventSources) } == true
+        let handOff = person || model.composer.dictationSource == .cmux
         switch handOff ? model.dictationHandoff.handOff(model.composer) : .notPersons {
         case nil: return
         case .ownDictation: dictation.toggle(from: event)

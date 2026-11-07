@@ -16,7 +16,12 @@ extension AgentPaneView {
     /// `agent.systemDictation` Debug toggle is on.
     @discardableResult
     public static func takeStartDictation(in keyWindow: NSWindow?, sender: Any?) -> Bool {
-        guard let keyWindow, let pane = dictationOwner(in: keyWindow), !pane.usesSystemDictation else { return false }
+        guard let keyWindow, let pane = dictationOwner(in: keyWindow) else { return false }
+        // macOS's dictation takes the microphone: cmux's own session (any pane's) ends first, keeping its words.
+        if pane.usesSystemDictation {
+            pane.model.dictationHandoff.stopOwnDictation()
+            return false
+        }
         pane.dictationKey.pane(pane)
         return true
     }
