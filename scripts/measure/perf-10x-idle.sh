@@ -13,7 +13,7 @@
 # agents: also measure that many idle agent chats (one workspace each, on the
 # acpmux test agent cmux-tui/crates/acpmux/tests/fake_agent.py, its first turn
 # answered), as PERF-IDLE app-agents lines (resource-efficiency-DESIGN.md).
-# purge=1: after each agent count, Chromium's memory purge of every hidden chat's renderer (no
+# purge=1 (with agents=): after each agent count, Chromium's memory purge of every hidden chat's renderer (no
 # reload; bench_memory.py --purge-hidden), sampled again as purged-N.
 # Output: PERF-IDLE lines; JSON under .build/perf-idle.
 set -euo pipefail
@@ -84,7 +84,7 @@ PY
 
 echo "PERF-IDLE-LOAD app $(uptime | sed 's/.*load averages*: //')"
 python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
-  --settle 20 --measure "$measure" --top 8 ${purge[@]+"${purge[@]}"} --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
+  --settle 20 --measure "$measure" --top 8 --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
 python3 - "$work/app.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
@@ -97,7 +97,7 @@ if [[ -n "$agents" ]]; then
   echo "PERF-IDLE-LOAD agents $(uptime | sed 's/.*load averages*: //')"
   python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
     --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
-    --settle 20 --measure "$measure" --top 8 --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
+    --settle 20 --measure "$measure" --top 8 ${purge[@]+"${purge[@]}"} --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
   python3 - "$work/agents.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
