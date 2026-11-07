@@ -34,6 +34,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-tailnet",
  "cmux-unix-socket",
+ "cmux-usage",
  "cmux-vault-egress",
  "cmux-wg",
  "cmux-worktree-care",

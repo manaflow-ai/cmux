@@ -387,6 +387,12 @@ impl Hub {
         // No `git` record exists yet; retain that baseline even if the chat grows before attach.
         self.restore_git_branch(&session, session.meta().git_branch);
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+        // Usage recording, shape only: the harness family and this machine (`usage_record.rs`).
+        self.usage.record(|| cmux_usage::Event::Session {
+            session: cmux_usage::Id::new(session.id.as_str()),
+            harness: cmux_usage::Token::new(&family),
+            machine: cmux_usage::Id::new("local"),
+        });
         if let Some(a) = &adopt {
             let adopted = if fork_from.is_some() {
                 json!({"agentSessionId": a.agent_session_id, "fork": true})
