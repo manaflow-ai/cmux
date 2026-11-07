@@ -822,13 +822,23 @@ impl RelaySender {
         json!({"by": self.by, "machine": self.machine, "session": self.session})
     }
 
-    /// How the sender reads: `MACHINE/SESSION`, or the machine alone.
+    /// How the sender reads as its label (`fromAgent`): `MACHINE/SESSION`, or the machine alone,
+    /// cut to [`relayed_label`]'s length. The record keeps the whole name.
     pub fn name(&self) -> String {
         match &self.session {
-            Some(session) => format!("{}/{session}", self.machine),
+            Some(session) => relayed_label(&format!("{}/{session}", self.machine)),
             None => self.machine.clone(),
         }
     }
+}
+
+/// A relayed `MACHINE/SESSION` as a sender label: one line within `fromAgent`'s length
+/// (`hub::declared_sender`), so a long session name never refuses the send. Who sent it is the
+/// relay record's ([`FROM_RELAY`]), whole; the label only names it.
+pub fn relayed_label(name: &str) -> String {
+    let name: String =
+        name.chars().filter(|c| !unshown(*c)).take(crate::hub::MAX_FROM_AGENT_CHARS).collect();
+    name.trim().to_owned()
 }
 
 /// The relay record a prompt's provenance carries ([`FROM_RELAY`]).

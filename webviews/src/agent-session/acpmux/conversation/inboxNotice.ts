@@ -156,7 +156,8 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
 }
 
 /// A thread's messages as acpmux records them (a notice's `messages`, `_acpmux/inbox_thread`), each
-/// without the broker label it came in (relayEnvelope.ts): every one is another agent's.
+/// without the broker label it came in (relayEnvelope.ts): every one is another agent's. An opened
+/// thread's sender is its `fromName`, the name alone; its `from` is the agent's words for it.
 export function inboxMessages(records: unknown[]): InboxMessage[] {
   return records.flatMap((m): InboxMessage[] => {
     const r = m as Record<string, unknown> | null;
@@ -166,7 +167,7 @@ export function inboxMessages(records: unknown[]): InboxMessage[] {
     const sender = senderRef(record);
     return [
       {
-        from: name.name,
+        from: text(r.fromName) || name.name,
         ...(sender && { sender }),
         text: withoutRelayEnvelope(r.text),
         ...(senderUnverified(record, name.declared) && { unverified: true as const }),
