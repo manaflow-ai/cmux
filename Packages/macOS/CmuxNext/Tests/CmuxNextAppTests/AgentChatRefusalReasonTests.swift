@@ -40,11 +40,13 @@ struct AgentChatRefusalReasonTests {
         #expect(reason.contains(title), "\(id): \"\(reason)\" does not name \(title)")
     }
 
+    /// Dictation's refusal is its own: it never takes a chat action's words.
     @Test func dictationKeepsItsOwnReason() {
         let services = Self.services()
-        let refusal = services.registry.capturingRefusal {
+        let reason = services.registry.capturingRefusal {
             _ = services.registry.perform("palette.toggleDictation", invocation: Self.noChatRun())
-        }
-        #expect(refusal == nil || refusal == MiscHandlerStrings.noAgentChat)
+        } ?? ""
+        let borrowed = Self.chatActions.compactMap { services.registry.descriptor(for: $0)?.title }.filter { reason.contains($0) }
+        #expect(borrowed.isEmpty, "Dictation refused with \"\(reason)\"")
     }
 }
