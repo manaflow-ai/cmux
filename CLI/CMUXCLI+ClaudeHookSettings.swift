@@ -78,6 +78,10 @@ extension CMUXCLI {
         ]
         hooks["PostToolUse"] = [
             Self.claudeQueuedHookGroup(
+                matcher: "AskUserQuestion|ExitPlanMode",
+                subcommand: "post-tool-use"
+            ),
+            Self.claudeQueuedHookGroup(
                 matcher: "PushNotification",
                 subcommand: "push-notification"
             ),
