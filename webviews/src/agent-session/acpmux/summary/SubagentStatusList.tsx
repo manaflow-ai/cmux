@@ -25,7 +25,8 @@ import {
   waitingLine,
 } from "../subagents/subsessions";
 import type { StartedSession } from "../started/startedSessions";
-import { ChildSessionRows, sessionStatus } from "../session-info/ChildSessionRows";
+import { ChildSessionRows } from "../session-info/ChildSessionRows";
+import { sessionStatus } from "../session-info/childSessionRowsModel";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 import { AgentIdentity } from "../subagents/AgentIdentity";

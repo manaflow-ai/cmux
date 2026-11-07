@@ -1,0 +1,384 @@
+{
+  "$comment": "HAND-EDITED source of the Appearance section's Markdown Viewer rows (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the row format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here.",
+  "lists": [
+    {
+      "name": "markdownViewer",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.markdownViewer",
+        "text": "Markdown Viewer"
+      },
+      "note": "The markdown viewer's rows (diff-host S6, reading settings 2026-10-19): the keys the viewer's Reading Settings popover (the toolbar's Aa button) writes, with the page's defaults and ranges (webviews/src/pages/markdown/settings.ts MARKDOWN_READING).",
+      "rows": [
+        {
+          "key": "markdown.remoteImages",
+          "title": {
+            "key": "settings.markdown.remoteImages",
+            "text": "Load Web Images Automatically"
+          },
+          "help": {
+            "key": "settings.markdown.remoteImages.help",
+            "text": "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "markdown",
+            "viewer",
+            "reading",
+            "image",
+            "web",
+            "remote",
+            "privacy",
+            "tracking",
+            "automatic"
+          ]
+        },
+        {
+          "key": "markdown.layout.width",
+          "name": "width",
+          "note": "The widest the text column gets, in characters of the body font. Wide enough for an ultrawide monitor (1000 characters is about 8,800 points at 16 points); Full Width is its own key, never the top of this range. The default is the page's (MARKDOWN_READING.width).",
+          "title": {
+            "key": "settings.markdown.width",
+            "text": "Text Width"
+          },
+          "help": {
+            "key": "settings.markdown.width.help",
+            "text": "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box."
+          },
+          "kind": "number",
+          "range": {
+            "min": 30,
+            "max": 1000,
+            "step": 1,
+            "unit": "count",
+            "placeholder": 72
+          },
+          "default": 72,
+          "keywords": [
+            "markdown",
+            "viewer",
+            "reading",
+            "width",
+            "max width",
+            "column",
+            "measure",
+            "line length",
+            "wide",
+            "ultrawide",
+            "monitor"
+          ]
+        },
+        {
+          "key": "markdown.layout.fullWidth",
+          "title": {
+            "key": "settings.markdown.fullWidth",
+            "text": "Full Width"
+          },
+          "help": {
+            "key": "settings.markdown.fullWidth.help",
+            "text": "Text fills the whole pane instead of the text width."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "markdown",
+            "viewer",
+            "reading",
+            "full",
+            "width",
+            "wide"
+          ]
+        },
+        {
+          "key": "markdown.font.size",
+          "name": "fontSize",
+          "note": "The body text size in points (CSS pixels in the page) every viewer starts at; Cmd-0 there goes back to it after Cmd-= and Cmd--, which the page clamps to the same range. The default is the page's (--cmux-md-font-size).",
+          "title": {
+            "key": "settings.markdown.fontSize",
+            "text": "Default Font Size"
+          },
+          "help": {
+            "key": "settings.markdown.fontSize.help",
+            "text": "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size."
+          },
+          "kind": "number",
+          "range": {
+            "min": 8,
+            "max": 40,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 16
+          },
+          "default": 16,
+          "keywords": [
+            "markdown",
+            "font",
+            "size",
+            "text",
+            "zoom",
+            "viewer",
+            "reading"
+          ]
+        },
+        {
+          "key": "markdown.font.preset",
+          "name": "fontPreset",
+          "title": {
+            "key": "settings.markdown.fontPreset",
+            "text": "Font"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "system",
+              "title": {
+                "key": "settings.choice.markdownFontSystem",
+                "text": "System"
+              }
+            },
+            {
+              "value": "serif",
+              "title": {
+                "key": "settings.choice.markdownFontSerif",
+                "text": "Serif"
+              }
+            },
+            {
+              "value": "mono",
+              "title": {
+                "key": "settings.choice.markdownFontMono",
+                "text": "Monospaced"
+              }
+            }
+          ],
+          "default": "system",
+          "keywords": [
+            "markdown",
+            "viewer",
+            "reading",
+            "font",
+            "family",
+            "serif",
+            "monospace",
+            "typeface"
+          ]
+        },
+        {
+          "key": "markdown.font.lineHeight",
+          "name": "lineHeight",
+          "title": {
+            "key": "settings.markdown.lineHeight",
+            "text": "Line Height"
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 2.4,
+            "step": 0.05,
+            "unit": "fraction",
+            "placeholder": 1.6
+          },
+          "default": 1.6,
+          "keywords": [
+            "markdown",
+            "viewer",
+            "reading",
+            "line height",
+            "leading",
+            "line spacing"
+          ]
+        },
+        {
+          "key": "markdown.spacing.paragraph",
+          "name": "paragraphSpacing",
+          "title": {
+            "key": "settings.markdown.paragraphSpacing",
+            "text": "Paragraph Spacing"
+          },
+          "help": {
+            "key": "settings.markdown.paragraphSpacing.help",
+            "text": "The gap after each paragraph, as a share of the text size."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3,
+            "step": 0.1,
+            "unit": "fraction",
+            "placeholder": 1
+          },
+          "default": 1,
+          "keywords": [
+            "markdown",
+            "viewer",
+            "reading",
+            "paragraph",
+            "spacing",
+            "gap",
+            "margin"
+          ]
+        },
+        {
+          "key": "markdown.code.scale",
+          "name": "codeScale",
+          "note": "Code size as a share of the body text size; the default is the page's (--cmux-md-code-scale, as GitHub's 85%).",
+          "title": {
+            "key": "settings.markdown.codeSize",
+            "text": "Code Font Size"
+          },
+          "help": {
+            "key": "settings.markdown.codeScale.help",
+            "text": "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0.6,
+            "max": 1.25,
+            "step": 0.025,
+            "unit": "fraction",
+            "placeholder": 0.875
+          },
+          "default": 0.875,
+          "keywords": [
+            "markdown",
+            "viewer",
+            "reading",
+            "code",
+            "font",
+            "size",
+            "monospace",
+            "scale"
+          ]
+        },
+        {
+          "key": "markdown.code.family",
+          "name": "codeFamily",
+          "title": {
+            "key": "settings.markdown.codeFont",
+            "text": "Code Font"
+          },
+          "help": {
+            "key": "settings.markdown.codeFont.help",
+            "text": "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own."
+          },
+          "kind": "font_family",
+          "default": null,
+          "keywords": [
+            "markdown",
+            "viewer",
+            "reading",
+            "code",
+            "font",
+            "family",
+            "monospace"
+          ]
+        },
+        {
+          "key": "markdown.code.blockSize",
+          "name": "codeBlockSize",
+          "note": "A fixed code block size in pixels; code.scale is the row. Kept so cmux.json files that set it still validate and the viewer can clear it when the user picks a code size.",
+          "title": {
+            "key": "settings.markdown.codeBlockSize",
+            "text": "Code Block Size"
+          },
+          "kind": "number",
+          "range": {
+            "min": 8,
+            "max": 32,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 14
+          },
+          "default": null,
+          "keywords": [
+            "markdown",
+            "viewer",
+            "reading",
+            "code",
+            "font",
+            "size",
+            "monospace"
+          ],
+          "page_hidden": "a fixed pixel size; Code Font Size (markdown.code.scale) is the row"
+        },
+        {
+          "key": "markdown.tables",
+          "title": {
+            "key": "settings.markdown.tables",
+            "text": "Wide Tables"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "scroll",
+              "title": {
+                "key": "settings.choice.markdownTablesScroll",
+                "text": "Scroll Sideways"
+              }
+            },
+            {
+              "value": "wrap",
+              "title": {
+                "key": "settings.choice.markdownTablesWrap",
+                "text": "Wrap to Fit"
+              }
+            }
+          ],
+          "default": "scroll",
+          "keywords": [
+            "markdown",
+            "viewer",
+            "reading",
+            "table",
+            "wrap",
+            "scroll",
+            "wide"
+          ]
+        },
+        {
+          "key": "markdown.theme",
+          "title": {
+            "key": "settings.markdown.theme",
+            "text": "Page Theme"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "app",
+              "title": {
+                "key": "settings.choice.markdownThemeApp",
+                "text": "Match App"
+              }
+            },
+            {
+              "value": "light",
+              "title": {
+                "key": "settings.choice.markdownThemeLight",
+                "text": "Light"
+              }
+            },
+            {
+              "value": "dark",
+              "title": {
+                "key": "settings.choice.markdownThemeDark",
+                "text": "Dark"
+              }
+            }
+          ],
+          "default": "app",
+          "keywords": [
+            "markdown",
+            "viewer",
+            "reading",
+            "theme",
+            "light",
+            "dark",
+            "appearance",
+            "paper"
+          ]
+        }
+      ]
+    }
+  ]
+}

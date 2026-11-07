@@ -36,7 +36,8 @@ import {
   type WorkflowCommands,
 } from "../summary/workflowView";
 import { commandLabel, sendLabel, type BackgroundCommand } from "./processes";
-import { COMMAND_STATE, StopButton } from "./TasksSection";
+import { StopButton } from "./TasksSection";
+import { COMMAND_STATE } from "./tasksSectionModel";
 import { TASK_ICONS } from "./taskIcons";
 import "./sessionInfo.css";
 import "./WorkflowTasks.css";
