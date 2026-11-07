@@ -33,7 +33,7 @@ import { PlanRow } from "./PlanRow";
 import { BackgroundTaskRow } from "./BackgroundTaskRow";
 import { CompactionRow } from "./CompactionRow";
 import { FailoverRow } from "./FailoverRow";
-import { RecapRow } from "./RecapRow";
+import { ReadOnlyRecapRow, RecapRow } from "./RecapRow";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
 import { AgentPairRow } from "./AgentPairRow";
 import { SessionStartRow } from "./SessionStartRow";
@@ -118,6 +118,7 @@ export const readOnlyRegistry: NativeRegistry = {
   permission: ReadOnlyPermissionRow,
   [QUEUED_MESSAGE]: ReadOnlyQueuedMessageRow,
   agentPair: ReadOnlyAgentPairRow,
+  recap: ReadOnlyRecapRow,
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,

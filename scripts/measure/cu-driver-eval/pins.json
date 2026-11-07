@@ -77,10 +77,10 @@
     },
     "codex": {
       "version": "0.164.0",
-      "url": "https://github.com/openai/codex/releases/download/rust-v0.164.0/codex-aarch64-apple-darwin.tar.gz",
-      "sha256": "aa8299c169d80111aac05543ad2621c9bdbedb9bc252c905fe3f5a5baf9a4142",
-      "binary": "codex-aarch64-apple-darwin",
-      "why": "the Codex CLI the team's lanes run (codex-cli 0.164.0)"
+      "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.164.0-darwin-arm64.tgz",
+      "sha256": "9b5a35be1975ceb332eaf274032f375b017ab644ff0165737ead03277fae77cd",
+      "bin_dir": "package/vendor/aarch64-apple-darwin/bin",
+      "why": "the Codex CLI the team's lanes run (codex-cli 0.164.0), as npm installs it: codex and the codex-code-mode-host it runs MCP tools through (the release tarball has no host, and every tool call failed without it)"
     }
   }
 }

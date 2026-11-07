@@ -63,6 +63,9 @@ public struct AgentPaneHeaderHooks {
     /// This chat's tab follows its shown subagent. An identity update without a loaded title keeps
     /// the name bound at open; returning to the chat clears both name and tone.
     public var showsSubagent: @MainActor (_ title: String?, _ tone: Int?, _ keepingTitle: Bool) -> Void
+    /// The subagent this pane shows is in state `facts` (nil: it shows its chat again), for its tab's
+    /// hover card and spinner (``SubagentTabTitles/showFacts(_:inTab:)``).
+    public var showsSubagentFacts: @MainActor (_ facts: SubagentTabFacts?) -> Void
     /// Opens `viewer` (a background process's read-only terminal) in a tab beside the chat; false
     /// when no tab opened.
     public var openProcess: @MainActor (_ viewer: AgentPaneProcessViewer) -> Bool
@@ -120,6 +123,7 @@ public struct AgentPaneHeaderHooks {
                 openTab: @escaping @MainActor (String, AgentForkDestination) -> Bool = { _, _ in false },
                 openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
                 showsSubagent: @escaping @MainActor (String?, Int?, Bool) -> Void = { _, _, _ in },
+                showsSubagentFacts: @escaping @MainActor (SubagentTabFacts?) -> Void = { _ in },
                 openProcess: @escaping @MainActor (AgentPaneProcessViewer) -> Bool = { _ in false },
                 newChat: @escaping @MainActor (String) -> Bool = { _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
@@ -142,6 +146,7 @@ public struct AgentPaneHeaderHooks {
         self.openTab = openTab
         self.openSubagent = openSubagent
         self.showsSubagent = showsSubagent
+        self.showsSubagentFacts = showsSubagentFacts
         self.openProcess = openProcess
         self.newChat = newChat
         self.sideTabs = sideTabs
@@ -255,6 +260,10 @@ extension AgentPaneModel {
         case .sessionInfoOverlays(let rects):
             sessionInfo.updateOverlays(rects)
             return AgentPaneReply.success()
+        case .hostGlass(let surfaces):
+            // Drawn before the reply: the page shows a surface once this answers (hostGlass.ts).
+            hostGlass.update(surfaces)
+            return AgentPaneReply.success()
         case .copyText(let text):
             guard transport.gestures.consume() else {
                 return Self.transportFailure(.gestureRequired)
@@ -294,12 +303,14 @@ extension AgentPaneModel {
             // Its tab is named after the subagent, not the chat (SubagentTabTitles).
             SubagentTabTitles.shared.name(agent, of: sessionId, title: title, tone: tone)
             return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
-        case .subagentShown(let agent, let title, let tone):
+        case .subagentShown(let agent, let title, let tone, let facts):
             // A subagent pane's own page: its tab's name follows what it shows. Not from a New Tab page.
             guard newTab == nil, let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentShown")
             }
             header.showsSubagent(agent == nil ? nil : title, agent == nil ? nil : tone, agent != nil && title == nil)
+            // Its hover card and spinner say the subagent's own state, not its chat's.
+            header.showsSubagentFacts(agent == nil ? nil : facts)
             return AgentPaneReply.success()
         case .processTerminal(let call):
             return AgentPaneProcessViewer.open(call, in: self)

@@ -2,9 +2,9 @@ public import Foundation
 public import Observation
 import CmuxNextWakeups
 
-/// A Revoke or Rotate on a joined machine (a row shows the last one that failed).
+/// A Revoke, Rotate or Remove on a joined machine (a row shows the last one that failed).
 public nonisolated enum JoinedMachineChange: String, Sendable {
-    case revoke, rotate
+    case revoke, rotate, remove
 }
 
 /// The person's machines joined through the hub (a pair code or a one-line token), for the Machines
@@ -164,7 +164,7 @@ public final class JoinedMachineStore {
         finishRead(rows, ticket: beginRead())
     }
 
-    /// Revokes or rotates `id`, then reads the list again. False when the platform refused or the
+    /// Revokes, rotates or removes `id`, then reads the list again (a removed machine is not in it). False when the platform refused or the
     /// run failed (the row says so).
     @discardableResult
     public func perform(_ change: Change, _ id: String) async -> Bool {
@@ -176,6 +176,7 @@ public final class JoinedMachineStore {
         let ok = switch change {
         case .revoke: await service.revoke(id)
         case .rotate: await service.rotate(id)
+        case .remove: await service.remove(id)
         }
         await refresh()
         if !ok { failed[id] = change }

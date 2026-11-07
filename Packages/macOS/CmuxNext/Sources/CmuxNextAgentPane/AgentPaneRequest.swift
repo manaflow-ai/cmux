@@ -120,6 +120,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Share with Me on a teammate's Cloud machine's refused start (`machine.share.self`): the app
     /// grants the signed-in person chats there, after a real gesture (``AgentPaneMachineShare``).
     case shareMachineWithMe
+    /// The Share dialog's op on this pane's own chat (`share.op {op, ...}`, ``AgentPaneShareOp``).
+    /// `session`, when the page names one, is the chat the dialog opened on: refused once the tab shows another.
+    case shareOp(AgentPaneShareOp, session: String? = nil)
     /// The summary panel's Attach files or folders (`chat.attach.choose`): the native open panel,
     /// after a real gesture, for a chat on this Mac.
     case chooseAttachments
@@ -234,6 +237,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
     /// natively drawn Session Info steps behind; empty when none shows.
     case sessionInfoOverlays([AgentPaneSessionInfoOverlay])
+    /// `pane.glass {surfaces}`: the page's floating glass the App draws under the page
+    /// (``AgentPaneHostGlass``); empty when none shows.
+    case hostGlass([AgentPaneHostGlassSurface])
     /// Copies a native Session Info menu item through the platform clipboard.
     case copyText(String)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
@@ -263,9 +269,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
     case subagentPane(String, focus: Bool, title: String? = nil, tone: Int? = nil)
-    /// `chat.subagentShown {subagent?, title?}`: a pane opened on a subagent now shows that subagent
-    /// (named `title`), or its chat again (no subagent): its tab's name follows (``SubagentTabTitles``).
-    case subagentShown(String?, title: String?, tone: Int? = nil)
+    /// `chat.subagentShown {subagent?, title?, state?, sinceMs?, model?}`: a pane opened on a subagent
+    /// now shows that subagent (named `title`, in state `facts`), or its chat again (no subagent): its
+    /// tab's name and hover card follow (``SubagentTabTitles``).
+    case subagentShown(String?, title: String?, tone: Int? = nil, facts: SubagentTabFacts? = nil)
     /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
     /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
     case processTerminal(toolCall: String)
@@ -305,6 +312,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// card), in a browser tab of the pane. Only loopback http(s) pages
     /// (`URL.isAgentPanePreview`); anything else is unsupported.
     case openPreview(URL)
+    /// `cloud.preview.open {port}`: open the authenticated Cloud preview for this chat's machine.
+    case openCloudPreview(port: Int)
     /// The quick panel's page: Esc hides the panel, keeping its draft.
     case quickDismiss
     /// The quick panel's page: open its chat in the main window and hide

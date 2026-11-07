@@ -30,7 +30,7 @@ struct KeyResizeFirstTickPinTests {
     /// The grids `pane`'s terminal asked its PTY for since the last call.
     static func grids(_ pane: PaneID, _ rig: Ground.Rig) async throws -> [TerminalGridSize] {
         let session = try #require(rig.provider.sessions[pane])
-        // cmux-ad m18: a grid in the coalescer's 25 ms window counts as asked for (it goes when the window ends).
+        // cmux-ad m18: a grid in the coalescer's window counts as asked for (it goes at the next refresh).
         session.session.surfaceView.gridReports.flush()
         session.session.surfaceView.bridge.takeUnretainedValue().input.focusGained()
         return await session.io.gridsUntilMarker()
