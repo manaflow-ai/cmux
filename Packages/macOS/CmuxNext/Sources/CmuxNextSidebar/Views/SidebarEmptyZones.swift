@@ -65,7 +65,9 @@ import AppKit
                 zones.append(Zone(id: id, top: block.y, at: block.maxY, height: height, half: (under?.height ?? list.metrics.rowHeight) / 2))
             }
         }
+        let pinnedItems = list.blocks?.sections[SidebarDocStore.pinnedSection]?.items ?? []
         if !zones.contains(where: { $0.id == SidebarDocStore.pinnedSection }), !drag.keepsPinned,
+           pinnedItems.allSatisfy({ drag.docItems?.contains($0.id.rawValue) == true }),
            !list.displayed.rows.contains(where: { isPinnedZone($0.key) }) {
             drag.openZone = SidebarDocStore.pinnedSection
             let open = SidebarLayout.make(sections: list.listSections, metrics: list.metrics, options: list.options(includeGap: false))
