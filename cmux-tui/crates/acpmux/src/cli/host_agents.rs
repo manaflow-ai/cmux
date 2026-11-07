@@ -359,7 +359,9 @@ mod tests {
         let bin = home.path().join(".local/bin");
         std::fs::create_dir_all(&bin).unwrap();
         let fake = |logged_in: bool| {
-            format!("#!/bin/sh\n[ \"$1 $2\" = 'auth status' ] && printf '{{\"loggedIn\":{logged_in}}}\\n'\n")
+            format!(
+                "#!/bin/sh\n[ \"$1 $2\" = 'auth status' ] && printf '{{\"loggedIn\":{logged_in}}}\\n'\n"
+            )
         };
         std::fs::write(bin.join("claude"), fake(true)).unwrap();
         #[cfg(unix)]
