@@ -77,6 +77,8 @@ mod pr;
 mod send;
 #[path = "acpmux_mcp_watch.rs"]
 mod watch;
+#[path = "acpmux_mcp_send_status.rs"]
+mod send_status;
 #[path = "acpmux_mcp_who_else.rs"]
 mod who_else;
 #[path = "acpmux_mcp_wrap_up.rs"]
@@ -91,6 +93,7 @@ fn tools() -> Value {
         list.push(who_else::tool());
         list.extend(goal::tools());
         list.extend(watch::tools());
+        list.push(send_status::tool());
     }
     all
 }
@@ -304,6 +307,9 @@ pub async fn run() -> Result<()> {
                 }
                 if name == wrap_up::NAME {
                     return wrap_up::call(&args);
+                }
+                if name == send_status::NAME {
+                    return send_status::call(&daemon, &session, &args).await;
                 }
                 if name == who_else::NAME {
                     return who_else::call(&daemon, &session, &args).await;
