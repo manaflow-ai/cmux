@@ -13,4 +13,11 @@ import Testing
             #expect(AgentPaneRequest(body: ["method": "cloud.preview.open", "params": params]) == .unsupported("cloud.preview.open"))
         }
     }
+
+    /// The old host (`agent.pageHost` off, the default) gets a script; an empty one dropped every card.
+    @Test func theOldHostGetsThePortThroughTheStoresWindowHook() {
+        let event = AgentPageEvent.cloudPreviewPort(port: 3000, process: "vite", machineID: "vm_a")
+        #expect(event.cloudPreviewPortScript.hasPrefix("window.cmuxAcpmuxCloudPreviewPort?.({"))
+        #expect(event.cloudPreviewPortScript.contains(#""port":3000"#))
+    }
 }

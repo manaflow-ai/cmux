@@ -169,7 +169,7 @@ extension AgentTabStore {
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         tabs.cloudMachines.wire(services)
         services.cloud.portChanged = { [weak tabs] change in
-            guard let tabs else { return }
+            guard let tabs, change.isBrowserPreview else { return }
             for (key, view) in tabs.views where tabs.remoteMachineID(of: key) == change.machineID {
                 view.cloudPreviewPortOpened(port: change.port, process: change.process, machineID: change.machineID, state: change.state.rawValue, known: change.known)
             }

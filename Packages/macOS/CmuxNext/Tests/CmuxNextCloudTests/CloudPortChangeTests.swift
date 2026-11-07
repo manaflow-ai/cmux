@@ -39,6 +39,13 @@ struct CloudPortChangeTests {
         #expect(CloudPortChange.parseWireFrame(frame) == nil)
     }
 
+    @Test func onlyTCPListenersArePreviews() throws {
+        let udp = Data(#"{"t":"ephemeral","event":"cloud.machine.event","data":{"machine":"vm_a","kind":"service.port.opened","data":{"port":5353,"proto":"udp"}}}"#.utf8)
+        #expect(try #require(CloudPortChange.parseWireFrame(udp)).isBrowserPreview == false)
+        let unnamed = Data(#"{"t":"ephemeral","event":"cloud.machine.event","data":{"machine":"vm_a","kind":"service.port.opened","data":{"port":3000}}}"#.utf8)
+        #expect(try #require(CloudPortChange.parseWireFrame(unnamed)).isBrowserPreview)
+    }
+
     @Test func ignoresUnrelatedWireFrames() throws {
         let data = try JSONSerialization.data(withJSONObject: ["t": "ephemeral", "event": "other", "data": [:]])
         #expect(CloudPortChange.parseWireFrame(data) == nil)

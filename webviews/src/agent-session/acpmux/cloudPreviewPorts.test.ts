@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   addCloudPreviewPort,
   cloudPreviewPorts,
+  installCloudPreviewPortHook,
   resetCloudPreviewPorts,
   seedCloudPreviewPorts,
   setCloudPreviewContext,
@@ -25,6 +26,14 @@ describe("Cloud preview port cards", () => {
       { port: 3000, process: "vite" },
       { port: 3001, process: "node" },
     ]);
+  });
+
+  test("the old host's window hook adds a card (agent.pageHost off, the default)", () => {
+    setCloudPreviewContext({ machineID: "machine-a", sessionId: "chat-a", turnId: "turn-a", active: true });
+    const target = {} as Window;
+    installCloudPreviewPortHook(target);
+    target.cmuxAcpmuxCloudPreviewPort?.({ port: 5173, process: "vite", machineID: "machine-a", state: "up", known: false });
+    expect(cloudPreviewPorts()).toEqual([{ port: 5173, process: "vite" }]);
   });
 
   test("does not add a card for a port already known by the machine", () => {

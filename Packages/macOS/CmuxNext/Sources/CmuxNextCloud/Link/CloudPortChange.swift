@@ -16,6 +16,8 @@ public struct CloudPortChange: Equatable, Sendable {
     public let state: State
     /// Replayed inventory establishes a baseline; it is not a newly opened app.
     public let known: Bool
+    /// A browser can open it: a UDP listener never answers HTTP, so it gets no Open app card.
+    public var isBrowserPreview: Bool { proto.lowercased() == "tcp" }
 
     public init(machineID: String, port: Int, proto: String, process: String?, state: State, known: Bool = false) {
         self.machineID = machineID

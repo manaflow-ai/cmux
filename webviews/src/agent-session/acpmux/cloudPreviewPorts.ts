@@ -179,3 +179,14 @@ export function subscribeCloudPreviewPorts(listener: () => void): () => void {
 export function useCloudPreviewPorts(): readonly CloudPreviewPort[] {
   return useSyncExternalStore(subscribeCloudPreviewPorts, cloudPreviewPorts, cloudPreviewPorts);
 }
+
+declare global {
+  interface Window {
+    /// The old host's script for the `cloudPreviewPort` event (CmuxNextAgentPane AgentPaneView).
+    cmuxAcpmuxCloudPreviewPort?: (value: unknown) => void;
+  }
+}
+export function installCloudPreviewPortHook(target: Window): void {
+  target.cmuxAcpmuxCloudPreviewPort = (value) => void addCloudPreviewPort(value);
+}
+if (typeof window !== "undefined") installCloudPreviewPortHook(window);

@@ -99,6 +99,9 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
         return AgentPageEvent(kind: "cloudPreviewPort", value: JSONValue(foundation: value) ?? .null)
     }
 
+    /// The old host's script for a ``cloudPreviewPort(port:process:machineID:state:known:)`` event.
+    var cloudPreviewPortScript: String { "window.cmuxAcpmuxCloudPreviewPort?.(\(value.compactText));" }
+
     /// Focus Location Bar on a new tab page.
     public static let focusLocation = AgentPageEvent(kind: "focusLocation")
 }
