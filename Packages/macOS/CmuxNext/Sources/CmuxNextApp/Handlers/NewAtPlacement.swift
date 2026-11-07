@@ -1,0 +1,207 @@
+import CmuxNextActions
+import CmuxNextBridge
+import CmuxNextCompat
+import CmuxNextDaemon
+import CmuxNextDaemonService
+import CmuxNextLayout
+import CmuxNextWakeups
+import Foundation
+
+/// New ▸ Kind ▸ Placement (`new.<kind>.<place>`): one function opens a Terminal, a Browser, an
+/// Agent Chat or a New Tab Page at any of Fork To's ten places, from the pane's New menu, its •••
+/// menu, the palette and `cmux pane new-…`. The plan is the layout reducer's (``NewPlacementPlan``):
+/// a kind whose own create makes it there in one daemon commit runs that create (Cmd-D's split,
+/// New Column, Split Browser, a split's New Tab Page or chat), which shows its pane through the
+/// one split transition (`showSplitSizing`, then the daemon, then commit or cancel); any other is
+/// made unselected in the pane and out of its strip, then moved there in one daemon move, as a
+/// link's tab or a fork is (`TabMoves`, `DaemonService.placeFork`, Move Tab to New Workspace / Window).
+enum NewAtPlacement {
+    /// How long a move waits for the new tab to be listed, then to leave its pane.
+    static let listLimit: Duration = .seconds(30)
+
+    static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
+        for id in ActionID.newPlacementActions {
+            guard let (kind, place) = id.newPlacement else { continue }
+            // A new row needs rows on and `rows-v1`; Cmd-D's terminal column on the left needs
+            // `column-left-v1` (the moves place a column on the left without it, as a fork's does).
+            let unavailable: @MainActor () -> String? = switch (kind, place) {
+            case (_, "row"): { ColumnHandlers.newRowUnavailableReason(ctx) }
+            case ("terminal", "columnLeft"): { ColumnHandlers.newColumnLeftUnavailableReason(ctx) }
+            default: { nil }
+            }
+            _ = registry.bindEffect(id, unavailable: unavailable, effect: { invocation in
+                open(kind, at: place, invocation, ctx)
+            })
+        }
+        // A kind's submenu row: `cmux action run new.<kind>` opens it on the right, Fork To's default.
+        for submenu in ActionID.newPlacementSubmenus {
+            let kind = String(submenu.rawValue.dropFirst("new.".count))
+            _ = registry.bindEffect(submenu, effect: { open(kind, at: "right", $0, ctx) })
+        }
+    }
+
+    /// Opens `kind` at `place` from the invocation's pane (the focused one when it names none).
+    @MainActor static func open(_ kind: String, at place: String, _ invocation: ActionInvocation, _ ctx: AppActionContext) -> ActionEffect {
+        guard let pane = ctx.paneController(invocation) else { return .refused(MiscHandlerStrings.noPane) }
+        let tabSplit = pane.daemon.supports(DaemonCapability.conversationTabSplit.rawValue)
+        // An app FFI from before `new_placement` answers nothing: the item is made and moved, which reaches every place.
+        guard let plan = NewPlacementPlan(kind: kind, place: place, tabSplit: tabSplit) ?? NewPlacementPlan.fallback(place: place) else {
+            return .done
+        }
+        var aimed = invocation.onMachine(pane.daemon.machineID)
+        aimed.target = ActionTargetRef(kind: .pane, id: pane.paneKey)
+        if plan.madeInPlace, inPlace(kind, plan.op, pane: pane, aimed, ctx) { return .done }
+        madeThenMoved(kind, plan.op, from: pane, ctx)
+        return .done
+    }
+
+    /// The kind's own create at `op`, in one daemon commit. False when the kind has none there.
+    @MainActor static func inPlace(_ kind: String, _ op: NewPlacementPlan.Op, pane: PaneController, _ aimed: ActionInvocation,
+                                   _ ctx: AppActionContext) -> Bool {
+        let registry = ctx.registry
+        switch (kind, op) {
+        case ("terminal", .split(let edge)):
+            // Cmd-D's split, a terminal even beside a page or a chat (where a person's split opens the New Tab page).
+            var terminal = aimed
+            terminal.opensTerminal = true
+            PaneHandlers.split(ctx, terminal, direction: direction(edge))
+            return true
+        case ("terminal", .column(let left)): return registry.perform(left ? "newColumnLeft" : "newColumn", invocation: aimed)
+        case ("terminal", .row): return registry.perform("newRow", invocation: aimed)
+        case ("terminal", .tab): return registry.perform("newSurface", invocation: aimed)
+        case ("browser", .split(edge: "right")): return registry.perform("splitBrowserRight", invocation: aimed)
+        case ("browser", .split(edge: "bottom")): return registry.perform("splitBrowserDown", invocation: aimed)
+        case ("browser", .tab): return registry.perform("openBrowser", invocation: aimed)
+        case ("newTabPage", .split(let edge)):
+            // Left and above split right or below, then swap back, as Split Left does.
+            return NewTabPage.split(pane, edge: edge == "left" || edge == "right" ? .right : .bottom, swapsBack: edge == "left" || edge == "top")
+        case ("newTabPage", .tab):
+            pane.newTabPage()
+            return true
+        case ("agentChat", .tab):
+            // In this pane, whatever the chat dock would do with a New Agent Chat.
+            return pane.services.agentTabs.openTab(in: pane, seed: pane.agentSeedFromSelectedTab())
+        case ("agentChat", .split(let edge)) where edge == "right" || edge == "bottom":
+            return chatInSplit(pane, direction: edge == "right" ? .right : .down)
+        default:
+            return false
+        }
+    }
+
+    /// A new chat made in its own split (`conversation-tab-split-v1`), its pane and the chain's even
+    /// sizing shown in this frame and committed with the daemon's answer, as a split's New Tab Page is.
+    @MainActor private static func chatInSplit(_ pane: PaneController, direction: SplitDirection) -> Bool {
+        let layout = pane.workspace?.layoutModel
+        let sizing = layout?.splitSizingChanges(splitting: pane.layoutPaneID, axis: direction == .right ? .horizontal : .vertical) ?? []
+        let shown = layout?.showSplitSizing(sizing)
+        let cancel = { if let shown { layout?.cancelSplitSizing(shown) } }
+        let started = pane.services.agentTabs.openTab(in: pane, seed: pane.agentSeedFromSelectedTab(), select: false, split: direction,
+                                                      then: { _ in if let shown { layout?.commitSplitSizing(shown) } }, failed: cancel)
+        guard started else {
+            cancel()
+            return true // refused with its reason (AgentTabStore.openTab)
+        }
+        BenchSpans.measure("split.layout") { pane.workspace?.applyCurrent() }
+        return true
+    }
+
+    /// `kind` made unselected in `pane` and kept out of its strip, then moved to `op`'s place.
+    @MainActor static func madeThenMoved(_ kind: String, _ op: NewPlacementPlan.Op, from pane: PaneController, _ ctx: AppActionContext) {
+        let services = pane.services, store = pane.daemon.store, machineID = pane.daemon.machineID
+        switch kind {
+        case "terminal", "browser":
+            let outbound = OutboundTab.begin(in: pane)
+            let placed: @MainActor (SurfaceID) -> Void = { surface in
+                outbound.made(surface)
+                place({ store.tab(surface: surface).flatMap { services.locateTab(model: $0) } }, from: pane, op, ctx) { outbound.finish(moved: $0) }
+            }
+            let made: Bool
+            if kind == "terminal" {
+                pane.newTerminalTab(fromSelectedTab: true, placementOwner: true, then: placed)
+                made = true
+            } else {
+                made = pane.newBrowserTab(background: true, placementOwner: true, then: placed)
+            }
+            if !outbound.started(made) { outbound.finish(moved: false) }
+        case "agentChat":
+            _ = services.agentTabs.openTab(in: pane, seed: pane.agentSeedFromSelectedTab(), select: false, hidden: true) { [weak pane] key in
+                guard let pane else { return }
+                place({ services.locateTab(key, onMachine: machineID) }, from: pane, op, ctx) { [weak pane] _ in pane?.dockFinished(key) }
+            }
+        case "newTabPage":
+            NewTabPage.split(pane, edge: .right, placed: { [weak pane] key in
+                guard let pane else { return }
+                place({ services.locateTab(key, onMachine: machineID) }, from: pane, op, ctx) { [weak pane] _ in pane?.dockFinished(key) }
+            })
+        default:
+            break
+        }
+    }
+
+    /// Moves the new tab `locate` finds, once the store lists it, to `op`'s place, then focuses it.
+    /// `finished` gets whether it left its pane (the source's strip may list it again either way).
+    @MainActor static func place(_ locate: @escaping @MainActor () -> (TabModel, PaneModel)?, from source: PaneController,
+                                 _ op: NewPlacementPlan.Op, _ ctx: AppActionContext, finished: @escaping @MainActor (Bool) -> Void) {
+        let services = source.services, registry = ctx.registry
+        let rowHeight = source.workspace?.layoutModel.newRowHeight(below: source.layoutPaneID) ?? 1000
+        // main-hop-allow: the action's effect already ran in its turn (the tab is made); this tracked work only waits
+        // for the store to list the tab and then sends one daemon move, as NewTabPage.moveToSplit does. Each wakeup is
+        // one locateTab lookup, and both waits end at `listLimit` (DemandTimer).
+        services.registry.track(Task { @MainActor () -> ActionWorkFailure? in
+            guard await within(listLimit, { locate() != nil }), case let (tab, home)? = locate() else {
+                finished(false)
+                return "new: the new tab did not open"
+            }
+            let target = ActionTargetRef(kind: .tab, id: tab.id)
+            switch op {
+            case .split(let edge):
+                TabMoves.toNewSplit(tab, pane: home, edge: PaneEdge(rawValue: edge) ?? .right, services: services)
+            case .column(let left):
+                services.daemon(for: home).placeFork(tab.surface, beside: home, left: left, rowHeight: rowHeight) {
+                    TabMoves.toNewColumn(tab, anchor: home, afterColumn: $0, services: services, completion: $1)
+                }
+            case .row:
+                services.daemon(for: home).placeFork(tab.surface, beside: home, left: nil, rowHeight: rowHeight) {
+                    TabMoves.toNewColumn(tab, anchor: home, afterColumn: $0, services: services, completion: $1)
+                }
+            case .workspace:
+                _ = registry.perform("palette.moveTabToNewWorkspace", invocation: ActionInvocation(target: target, origin: .user))
+            case .window:
+                _ = registry.perform("tab.moveToNewWindow", invocation: ActionInvocation(target: target, origin: .user))
+            case .tab:
+                finished(true)
+                return nil
+            }
+            let machineID = services.daemon(for: home).machineID
+            let moved = await within(listLimit) { services.locateTab(tab.id, onMachine: machineID).map { $0.1 !== home } ?? false }
+            finished(moved)
+            guard moved else { return "new: the move to its place failed (see the app log)" }
+            _ = registry.perform("tab.focus", invocation: ActionInvocation(target: target, origin: .user))
+            return nil
+        })
+    }
+
+    /// Whether `holds` turns true within `limit`, read now and on every change it observes.
+    @MainActor private static func within(_ limit: Duration, _ holds: @escaping @MainActor () -> Bool) async -> Bool {
+        if holds() { return true }
+        // main-hop-allow: an ObservationStream read of `holds` (one store lookup) per change, cancelled at `limit`.
+        let found = Task { @MainActor () -> Bool in
+            for await now in ObservationStream({ holds() }) where now { return true }
+            return false
+        }
+        let bound = DemandTimer(owner: "NewAtPlacement.within")
+        bound.schedule(after: limit) { @MainActor in found.cancel() }
+        let value = await found.value
+        bound.cancel()
+        return value
+    }
+
+    static func direction(_ edge: String) -> PaneDirection {
+        switch edge {
+        case "left": .left
+        case "top": .up
+        case "bottom": .down
+        default: .right
+        }
+    }
+}
