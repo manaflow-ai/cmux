@@ -2256,3 +2256,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_recovery_app_archive.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_check_cef_sums.py"
+lane = "linux-guard"

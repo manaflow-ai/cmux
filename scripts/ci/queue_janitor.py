@@ -162,6 +162,13 @@ belong to release or nightly runs. ci-queue-janitor.yml uploads it as the
 pick a pull request run's pool (and, through it, e2e_runner_pool.py an E2E
 run's) without listing every in-flight run's jobs itself.
 
+When the existing ``CI_RUNNER_STATE`` variable carries the optional
+``hosted_light_candidates`` envelope, a complete sweep copies its strictly
+sanitized projection into ``hosted-light-candidates`` in that same artifact.
+This is discovery only: a consumer still validates the current run, PR head
+and complete jobs before taking any action. Missing or stale runner state is
+omitted, and a truncated janitor sweep never presents candidate completeness.
+
 An owned Mac pool (``glaeda-<class>-xcode-<version>``) is one more pool
 here: stale pull request runs (b) on it are cancelled whatever its queue,
 which frees minis, and the other categories only while it is backed up. With
@@ -198,8 +205,10 @@ started in between is kept. Its own cap; no force-cancel.
 from __future__ import annotations
 
 import argparse
+import base64
 import dataclasses
 import datetime as dt
+import gzip
 import http.client
 import io
 import json
@@ -234,6 +243,22 @@ from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_starte
 from delivery_workflows import delivers, is_delivery_event, is_delivery_workflow  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
 from delivery_workflows import dev_publish_published, dev_publish_source, dev_publish_superseded  # noqa: E402
+
+
+# CI_RUNNER_STATE is an optional, already-sanitized source published by the
+# trusted runner-state publisher.  The janitor only copies its hosted-light
+# hints into the public pool artifact after independently checking the source.
+RUNNER_STATE_SCHEMA = "runner-state/v1"
+RUNNER_STATE_REPOSITORY = "manaflow-ai/cmux"
+HOSTED_LIGHT_CANDIDATES_SCHEMA = "hosted-light-candidates/v1"
+HOSTED_LIGHT_CANDIDATES_KEY = "hosted-light-candidates"
+HOSTED_LIGHT_SOURCE_KEY = "hosted_light_candidates"
+RUNNER_STATE_MAX_AGE_S = 300
+RUNNER_STATE_CLOCK_SKEW_S = 5
+RUNNER_STATE_MAX_ENCODED = 48 * 1024
+RUNNER_STATE_MAX_DECODED = 2 * 1024 * 1024
+HOSTED_LIGHT_WORKFLOW = re.compile(r"\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml\Z")
+HOSTED_LIGHT_SHA = re.compile(r"[0-9a-f]{40}\Z")
 
 
 API = "https://api.github.com"
@@ -869,6 +894,113 @@ def fleet_gates(raw: str | None) -> tuple[dict[str, Any] | None, str | None]:
                       **{key: row[key] for key in FLEET_GATES_COUNTS[2:]},
                       "as_of": stamp(row.get("as_of")) or as_of}
     return {"version": FLEET_GATES_VERSION, "as_of": as_of, "labels": dict(sorted(out.items()))}, None
+
+
+def _runner_state_moment(value: Any) -> dt.datetime:
+    if not isinstance(value, str):
+        raise ValueError("missing source timestamp")
+    result = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if result.tzinfo is None:
+        raise ValueError("undated source timestamp")
+    return result.astimezone(UTC)
+
+
+def _runner_state_fresh(value: Any, now: dt.datetime, *, max_age: int = RUNNER_STATE_MAX_AGE_S) -> str:
+    stamp = _runner_state_moment(value)
+    age = (now - stamp).total_seconds()
+    if not -RUNNER_STATE_CLOCK_SKEW_S <= age <= max_age:
+        raise ValueError("source timestamp is stale or future-dated")
+    return stamp.isoformat().replace("+00:00", "Z")
+
+
+def hosted_light_candidates(raw: str | None, *, now: dt.datetime) -> dict[str, Any] | None:
+    """Decode and sanitize the optional runner-state candidate envelope.
+
+    This is deliberately a one-way projection: no runner-state or controller
+    payload is forwarded to the public artifact. Invalid optional input is
+    unknown and leaves the existing pool snapshot usable.
+    """
+    if not raw or len(raw) > RUNNER_STATE_MAX_ENCODED:
+        return None
+    try:
+        encoded = base64.b64decode(raw, validate=True)
+        with gzip.GzipFile(fileobj=io.BytesIO(encoded)) as source:
+            body = source.read(RUNNER_STATE_MAX_DECODED + 1)
+        if len(body) > RUNNER_STATE_MAX_DECODED:
+            return None
+        state = json.loads(body)
+        if (not isinstance(state, dict) or state.get("schema") != RUNNER_STATE_SCHEMA
+                or state.get("repository") != RUNNER_STATE_REPOSITORY or state.get("complete") is not True):
+            return None
+        _runner_state_fresh(state.get("generated_at"), now)
+        source = state.get(HOSTED_LIGHT_SOURCE_KEY)
+        if (not isinstance(source, dict) or source.get("schema") != HOSTED_LIGHT_CANDIDATES_SCHEMA
+                or source.get("repository") != RUNNER_STATE_REPOSITORY
+                or source.get("coverage") != "partial" or source.get("complete") is not False
+                or source.get("truncated") is not True):
+            return None
+        generated_at = _runner_state_fresh(source.get("generated_at"), now)
+        controller_generated_at = _runner_state_fresh(source.get("controller_generated_at"), now)
+        receiver_last_delivery = _runner_state_fresh(source.get("receiver_last_delivery"), now)
+        jobs_since = _runner_state_moment(source.get("jobs_since"))
+        controller_clock = _runner_state_moment(source["controller_generated_at"])
+        if (jobs_since > controller_clock + dt.timedelta(seconds=5)
+                or _runner_state_moment(source["receiver_last_delivery"]) > controller_clock + dt.timedelta(seconds=5)):
+            return None
+        source_rows = source.get("runs")
+        total_runs = source.get("total_runs")
+        truncated = source.get("truncated")
+        if (not isinstance(source_rows, list) or type(total_runs) is not int or total_runs < 0
+                or type(truncated) is not bool
+                or total_runs < len(source_rows)):
+            return None
+        rows: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        for row in source_rows:
+            if not isinstance(row, dict):
+                continue
+            run_id = row.get("id")
+            path = row.get("path")
+            event = row.get("event")
+            attempt = row.get("run_attempt")
+            status = row.get("status")
+            head_sha = row.get("head_sha")
+            created_at = row.get("created_at")
+            try:
+                created = _runner_state_moment(created_at)
+                age = (now - created).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if (type(run_id) is not int or run_id <= 0 or run_id in seen
+                    or not isinstance(path, str) or not HOSTED_LIGHT_WORKFLOW.fullmatch(path)
+                    or event != "pull_request" or attempt != 1
+                    or status not in ("queued", "in_progress")
+                    or not isinstance(head_sha, str) or not HOSTED_LIGHT_SHA.fullmatch(head_sha)
+                    or not -RUNNER_STATE_CLOCK_SKEW_S <= age <= 90 * 60):
+                continue
+            seen.add(run_id)
+            rows.append({"id": run_id, "path": path, "event": event, "run_attempt": attempt,
+                         "status": status, "head_sha": head_sha, "created_at": created_at})
+        rows.sort(key=lambda row: (_runner_state_moment(row["created_at"]), row["id"]))
+        return {"schema": HOSTED_LIGHT_CANDIDATES_SCHEMA, "repository": RUNNER_STATE_REPOSITORY,
+                "generated_at": generated_at, "controller_generated_at": controller_generated_at,
+                "receiver_last_delivery": receiver_last_delivery,
+                "jobs_since": jobs_since.isoformat().replace("+00:00", "Z"),
+                "coverage": "partial", "complete": False, "runs": rows,
+                "truncated": True, "total_runs": total_runs}
+    except (ValueError, TypeError, OSError, EOFError, OverflowError, json.JSONDecodeError, zlib.error):
+        return None
+
+
+def attach_hosted_light_candidates(snapshot: dict[str, Any], raw: str | None, *, now: dt.datetime) -> None:
+    """Attach candidates only to a complete outer janitor sweep."""
+    if snapshot.get("truncated") or snapshot.get("starved_incomplete"):
+        return
+    if os.environ.get("CI_HOSTED_LIGHT_CANDIDATES_DISABLED") == "1":
+        return
+    envelope = hosted_light_candidates(raw, now=now)
+    if envelope is not None:
+        snapshot[HOSTED_LIGHT_CANDIDATES_KEY] = envelope
 
 
 MAX_ARTIFACT_PAGES = 5
@@ -4434,6 +4566,10 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         else:
             snapshot["gates_error"] = gates_error
             print(f"queue-janitor: fleet gates: {gates_error}", file=sys.stderr)
+        # This optional hint is copied only after the ordinary listing has
+        # proved complete. A partial janitor sweep must retain its existing
+        # unknown/unsafe semantics, even when runner-state has candidates.
+        attach_hosted_light_candidates(snapshot, os.environ.get("CI_RUNNER_STATE"), now=now)
         args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
     if unread or listing["truncated"]:

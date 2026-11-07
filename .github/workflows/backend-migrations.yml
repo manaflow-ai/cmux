@@ -111,8 +111,8 @@ jobs:
               echo "migrations=false" >> "$GITHUB_OUTPUT"; echo "no migration changes (backend/db/migrations matches the base)"; exit 0
             fi
             files_jq='.[] | "\(.status)\t\(.filename)\t\(.previous_filename // "")"'
-            if [ -z "${READ_TOKEN:-}" ] || ! GH_TOKEN="$READ_TOKEN" gh api --paginate "repos/$REPO/pulls/$PR/files" --jq "$files_jq" > changes.tsv; then
-              gh api --paginate "repos/$REPO/pulls/$PR/files" --jq "$files_jq" > changes.tsv
+            if [ -z "${READ_TOKEN:-}" ] || ! GH_TOKEN="$READ_TOKEN" gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq "$files_jq" > changes.tsv; then
+              gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq "$files_jq" > changes.tsv
             fi
           else
             gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq '.files[] | "\(.status)\t\(.filename)\t\(.previous_filename // "")"' > changes.tsv

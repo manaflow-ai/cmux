@@ -7738,6 +7738,22 @@ class OpenHeadPortablePlacementRerun(unittest.TestCase):
         self.assertIsNotNone(found.plan)
         self.assertIn("blacksmith-4vcpu-ubuntu-2404", found.why)
 
+    def test_finished_resolve_keeps_post_queued_without_an_ineffective_retry(self):
+        def resolved(seconds):
+            jobs = self.jobs(seconds, started_at=10)
+            jobs[1].update(status="completed", conclusion="success", runner_name="bs-linux")
+            return jobs
+
+        clock, api, target = self.world(started_at=10)
+        api.rerun_jobs = resolved
+        self.assertIsNotNone(rescue.failover_plan(api, target, resolved(0), clock.sleep, lambda _: None))
+        lines = []
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lines.append, failed_only=True)
+        self.assertNotIn("cancel", api.calls)
+        self.assertFalse([call for call in api.calls if call.startswith("rerun")], api.calls)
+        self.assertTrue(any("cannot refresh portable placement" in line for line in lines), lines)
+
     def test_watch_offers_the_paid_route_to_open_head_failover(self):
         clock, api, target = self.world(started_at=10)
         outcome, reason = rescue.watch(api, target, budget_seconds=180, now=clock.now, sleep=clock.sleep,

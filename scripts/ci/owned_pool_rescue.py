@@ -4086,6 +4086,9 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
     to bring back every job the cancel stops; a later look, once the others finished, moves it. Run 40997814347 (PR #27853,
     2026-10-30) had 28 of 29 jobs finished, its swift test and daemon tests red below the placement, and its Release
     compile queued on glaeda-std-xcode-26.6 for over four hours while that label ran nothing.
+
+    Portable light jobs require a fresh placement on the next attempt. A settled-only re-run would keep the
+    placement's old outputs and return the waiting job to its paid fallback, so it leaves the run intact instead.
     """
     push = push_tip_failover(target)
     if not (target.pr_number or push) or target.nightly or target.main or (target.push_branch and not push) \
@@ -4140,6 +4143,10 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
             # the run rather than cancel it back onto the same paid label.
             return NO_FAILOVER
         settled = any(failover_loses(job, plan) for job in jobs)
+        if settled and target.path in PORTABLE_LIGHT_WORKFLOW_PATHS:
+            log(f"run {target.run_id} cannot refresh portable placement without repeating a finished job; "
+                "a settled-only retry would keep the paid fallback, so the open head keeps the run")
+            return NO_FAILOVER
         if settled and any(job_running(job) for job in jobs):
             return NO_FAILOVER
         left = [each for each in jobs if each.get("status") != "completed"]
