@@ -101,7 +101,7 @@ public final class ChiefSession {
             // then what is written (and what flushes) is still the current Chief's.
             if backend is ChiefOfflineBackend {
                 outboxTarget = Self.target(of: backend, macID: macID, previous: outboxTarget)
-                store.useTranscriptCache(transcripts, key: outboxTarget)
+                store.useTranscriptCache(transcripts, key: transcriptKey)
                 refreshOutbox()
             }
             guard !engineReportIsCurrent else { return }
@@ -149,7 +149,7 @@ public final class ChiefSession {
         outboxTarget = Self.target(of: backend, macID: nil, previous: nil)
         store = ConversationStore(backend: backend)
         control = (backend as? ChiefDaemonBackend)?.control
-        store.useTranscriptCache(transcripts, key: outboxTarget)
+        store.useTranscriptCache(transcripts, key: transcriptKey)
         refreshOutbox()
         ChiefAlerts.shared.install()
         attach()
@@ -161,10 +161,27 @@ public final class ChiefSession {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.loadEngine() }
         }
+        // Leaving the foreground: what shows now is what the phone shows when it comes back.
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.store.saveTranscript() }
+        }
         #endif
     }
 
     @ObservationIgnored private var foregroundObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var backgroundObserver: (any NSObjectProtocol)?
+
+    /// The kept transcript's key: the Chief the outbox writes to. DEBUG's mock Chief (no Mac,
+    /// no Cloud) keeps its own, so simulator runs show the same behavior.
+    private var transcriptKey: String? {
+        if let outboxTarget { return outboxTarget }
+        #if DEBUG
+        if backend is ChiefMockBackend { return "mock" }
+        #endif
+        return nil
+    }
 
     /// Every Chief conversation's newest messages, kept on this phone (Messages-style): a
     /// store built again after the app comes back, or on a relaunch, shows them at once.
@@ -222,7 +239,7 @@ public final class ChiefSession {
         outboxTarget = Self.target(of: backend, macID: macID, previous: outboxTarget)
         // The Chief's newest messages as this phone last saw them show at once (an offline
         // backend keeps the Chief that was open), until this backend reads the newest page.
-        store.useTranscriptCache(transcripts, key: outboxTarget)
+        store.useTranscriptCache(transcripts, key: transcriptKey)
         refreshOutbox()
         attach()
     }
