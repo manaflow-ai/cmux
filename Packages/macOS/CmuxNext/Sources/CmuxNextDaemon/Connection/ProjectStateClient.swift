@@ -81,8 +81,8 @@ public struct ProjectStateClient: Sendable {
     /// daemon leaves a recipe the project already has as it is.
     public func saveWorktreeRecipe(path: String, worktree: JSONValue, keepSaved: Bool = false,
                                    idempotencyKey: String) async throws {
-        var params: [String: JSONValue] = ["path": .string(path), "worktree": worktree]
-        if keepSaved { params["keep_saved_worktree"] = .bool(true) }
+        let params: [String: JSONValue] = ["path": .string(path), "worktree": worktree]
+            .merging(keepSaved ? ["keep_saved_worktree": .bool(true)] : [:]) { _, new in new }
         _ = try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: "project.update", params: params,
                                     idempotencyKey: idempotencyKey)
