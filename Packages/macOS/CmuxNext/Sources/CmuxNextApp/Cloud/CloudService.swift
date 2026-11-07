@@ -477,6 +477,8 @@ final class CloudService {
     /// after the account's machines were dropped (sign-out, another account),
     /// or after this app added or removed a machine, is stale.
     @ObservationIgnored private var listGeneration = 0
+    /// Each plan read's turn: an older read that lands late does not replace a newer one.
+    @ObservationIgnored private var planGeneration = 0
     /// Orders every read of machine records (a list, Machine Status's one record) by when it was asked.
     @ObservationIgnored private var recordReads = 0
     /// Per machine, the read whose record it holds: an older read's answer that lands later changes nothing.
@@ -521,7 +523,7 @@ final class CloudService {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
             lastError = nil
             reconcile(list, read: read, connectsAtRead: connectsAtRead)
-            readPlan(generation: generation, account: account)
+            readPlan(account: account)
             changes.listed(machines.cloud.map(\.machine)) { [weak self] in _ = await self?.refresh() }
             hasLoadedMachines = true
             loadedAccount = account
@@ -533,14 +535,20 @@ final class CloudService {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
+            // The plan is its own read: a list that fails (the API not answering at launch) must not
+            // leave a paying account behind a paywall until the next list.
+            readPlan(account: account)
             return false
         }
     }
 
     /// The team's plan (`cloud.plan.get`) as the limits every plan gate reads (the Chief's Computer
-    /// tab, the create gate, the phone's Cloud links), after the list it belongs to. The list no longer
-    /// carries them; a plan that cannot be read keeps the last one, so a blip shows no paywall.
-    private func readPlan(generation: Int, account: [String?]) {
+    /// tab, the create gate, the phone's Cloud links), read with each list, whether the list answered
+    /// or not. The list no longer carries them; a plan that cannot be read keeps the last one, so a
+    /// blip shows no paywall. Only the latest read for the account signed in now lands.
+    private func readPlan(account: [String?]) {
+        planGeneration += 1
+        let generation = planGeneration
         Task { [weak self] in
             guard let self else { return }
             let answer: JSONValue
@@ -548,7 +556,7 @@ final class CloudService {
                 logger.error("plan read failed: \(String(describing: error), privacy: .public)")
                 return
             }
-            guard listGeneration == generation, listAccount == account, auth.isSignedIn else { return }
+            guard planGeneration == generation, listAccount == account, auth.isSignedIn else { return }
             let limits = CloudMachineLimits(nextPlan: answer)
             machines.cloudLimits = limits
             logger.info("plan: \(limits?.planId ?? "unreadable", privacy: .public) pays=\(limits?.paysForCloud == true, privacy: .public)")
