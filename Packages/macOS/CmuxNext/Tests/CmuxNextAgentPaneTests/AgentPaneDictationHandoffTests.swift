@@ -128,8 +128,8 @@ import Testing
         #expect(event.value.value(at: ["code"])?.stringValue == "dictation.accessibility")
     }
 
-    /// The hand-off posts keys into the app in front: page script with no click or key in the pane
-    /// gets nothing posted; a real gesture goes through.
+    /// The hand-off posts keys into the app in front: page script, or a gesture only the page saw,
+    /// gets nothing posted; the person's own click in the pane goes through, once.
     @Test func theHandoffNeedsAUserGesture() async {
         let posted = Posted()
         let model = AgentPaneModel(host: NoHost())
@@ -137,7 +137,14 @@ import Testing
         model.composer = setting(.chatgpt)
         let refused = await model.respond(to: .dictationHandoff, userGesture: false)
         #expect(refused["ok"] as? Bool != true)
+        // A page's gesture alone is not enough: it counts a click another process posted too.
+        let pageOnly = await model.respond(to: .dictationHandoff, userGesture: true)
+        #expect(pageOnly["ok"] as? Bool != true)
         #expect(posted.presses.isEmpty)
+        // The person's own click in the pane (AgentPaneView's judge records it), spent once.
+        model.transport.gestures.record(click: true)
+        _ = await model.respond(to: .dictationHandoff, userGesture: true)
+        #expect(posted.presses.count == 1)
         _ = await model.respond(to: .dictationHandoff, userGesture: true)
         #expect(posted.presses.count == 1)
     }

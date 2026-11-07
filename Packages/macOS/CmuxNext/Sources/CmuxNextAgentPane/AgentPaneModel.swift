@@ -735,9 +735,10 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .dictationHandoff:
-            // It posts keys into whichever app is in front: only for a real click or key in the pane,
-            // never for page script alone (the old bridge has no call context, so it spends gesture credit).
-            guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            // It posts keys into whichever app is in front: only for the person's own click or key in the
+            // pane, spent once. Not the page's `userGesture`: a page counts a click another process
+            // posted as a gesture too, and posted input never earns this credit (AgentPaneUserGestures).
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
             return dictationHandoff.reply(composer)
         case .dictationSources:
             let sources = dictationHandoff.sources()
