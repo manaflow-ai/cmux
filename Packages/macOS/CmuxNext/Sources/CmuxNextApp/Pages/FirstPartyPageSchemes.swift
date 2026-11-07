@@ -56,7 +56,7 @@ enum FirstPartyPageSchemes {
     static let descriptors: [PageDescriptor] = [
         .agent, .history, .cloud, .apps, .settings, .keybindings, .diff, .markdown, .iconPicker, .groupEditor, .passwords, .editor,
         .chiefInspector, .debugSettings, .homeChannels, .homeMessages, .changelog, .coderouter, .files, .artifacts, .stats, .chiefUsage,
-        .mobilePairing, .agentActivity, .importHistory, .github, .cloudProgress, .machines,
+        .mobilePairing, .agentActivity, .importHistory, .github, .cloudProgress, .machines, .tasks,
     ]
 
     /// The accepted entries of `roots`, each with its page's own CSP.

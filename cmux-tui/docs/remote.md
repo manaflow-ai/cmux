@@ -47,8 +47,8 @@ owner and its workspaces. Use `cmux daemon status|reload-config|stop` for the
 local owner. An absent local stop succeeds, but an absent local status fails.
 
 Bare `cmux-tui` keeps normal tmux-style local behavior. Outbound remote-client
-behavior begins only with `remote connect`, `remote ssh`, `remote forward`, or
-`remote rpc`.
+behavior begins only with `remote connect`, `remote ssh`, `remote forward`,
+`remote dial-tcp`, or `remote rpc`.
 
 ## Enroll and revoke devices
 
@@ -131,7 +131,7 @@ The hub owns the tunnel and serves SOCKS5 CONNECT on an owner-only Unix socket (
 
 ## Client option reference
 
-`connect`, `ssh`, `forward`, and `rpc` share these connection options:
+`connect`, `ssh`, `forward`, `dial-tcp`, and `rpc` share these connection options:
 
 | Option | Effect and default |
 | --- | --- |
@@ -144,7 +144,7 @@ The hub owns the tunnel and serves SOCKS5 CONNECT on an owner-only Unix socket (
 | `--state-dir <path>` | Override client identity and known-daemon storage |
 | `--remote-state-dir <path>` | Select a non-default state directory on an SSH server |
 | `--local-socket <path>` | Override the local mux-compatible socket created by the remote client runtime |
-| `--headless` | For `connect` or `ssh`, print the local socket and keep the connection alive without starting the TUI; `forward` and `rpc` are already headless |
+| `--headless` | For `connect` or `ssh`, print the local socket and keep the connection alive without starting the TUI; `forward`, `dial-tcp`, and `rpc` are already headless |
 | `--headless --json` | Emit a credential-free JSON snapshot at startup and whenever the generation, state, lane bindings, provider, route, or selected Iroh path changes |
 | `--iroh-relay <url>` | Override the Iroh relay routing hint |
 | `--iroh-address <addr>` | Add an Iroh direct address; repeat for several addresses |
@@ -209,6 +209,18 @@ cmux-tui remote forward <route> \
 ```
 
 The command prints a local URL such as `http://127.0.0.1:53142`. A cmux WebView can load that URL without knowing whether the underlying path is SSH, Iroh, direct WebSocket, or a relay. Each accepted local TCP connection becomes a separate `tcp-tunnel` stream. Tunnel bytes are not replayed after carrier failure, so the local browser reconnects the affected HTTP connection while the cmux session resumes.
+
+## Dial a remote port over stdin and stdout
+
+`remote dial-tcp` carries one TCP connection to a loopback port on the remote machine on its own stdin and stdout, so ssh can use it as a `ProxyCommand`. It takes the same route and connection options as `forward`, including relay routes such as `relay+do://` with `--relay-slot` and `--relay-ticket-file` or `--relay-ticket-command`:
+
+```sshconfig
+Host build-box
+  User me
+  ProxyCommand cmux-tui remote dial-tcp relay+do://relay-worker.example --relay-slot <base64url-slot> --relay-ticket-command relay-token --host 127.0.0.1 --port 22
+```
+
+The route uses the same loopback-only policy as `forward`, so the daemon refuses a host that does not resolve to a loopback address. The daemon scopes every route to a workspace the client holds open, so `dial-tcp` opens one: `/` by default, or `--workspace-root PATH`. EOF on stdin half-closes the connection and the command keeps reading until the remote side closes; it then exits 0. A refused route, a remote reset, a lost session, or a signal ends it with status 1 and one line on stderr. Stdout carries only the stream. Stdin carries the stream too, so `--wireguard-hub-token-stdin` and `--invite-file -` are refused. Tunnel bytes are not replayed after carrier failure: a carrier failure ends the connection, and ssh sees it drop.
 
 ## Coding-agent RPC
 

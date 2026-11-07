@@ -30,7 +30,11 @@
 //!   No line holds the text `cloud.connect`.
 //! - stdin carries JSON lines: `{"access_token":"…"}` replaces the
 //!   credential for every later dial (and ticket refresh); sessions already
-//!   up stay up. Blank lines are skipped; any other line is refused with one
+//!   up stay up. `{"carrier_answer":{relay, slot, ticket, expires_at, grant,
+//!   daemon_key?}}` (a create's or spare claim's `carrier`) is used by the
+//!   next accepted connection's first attempt instead of asking the platform
+//!   (see `dial --answer-fd`); a later one replaces one no connection took.
+//!   Blank lines are skipped; any other line is refused with one
 //!   `bad_request` line and changes nothing.
 //! - Each accepted connection gets its own dial, exactly `dial`'s: a fresh
 //!   grant, the required daemon key pin, its own deadline (default 180 s)
@@ -60,7 +64,7 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
-use super::answer::{CarrierSource, HttpSource};
+use super::answer::{CarrierSource, HttpSource, Prefetched};
 use super::contract::{self, BAD_REQUEST, MAX_STDIN_LINE, SOCKET, SOCKET_EXIT, StdinLine};
 use super::{STDIO_SHUTDOWN_TIMEOUT, ServeArgs, client, reply, route_log};
 
@@ -78,6 +82,8 @@ struct Shared {
     /// The same source, for stdin's credential lines.
     http: Arc<HttpSource>,
     identity: StaticIdentity,
+    /// stdin's last `carrier_answer`, for the next connection's first attempt.
+    prefetched: Arc<Prefetched>,
     log: Arc<dyn Fn(String) + Send + Sync>,
 }
 
@@ -101,6 +107,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         source: source.clone(),
         http: source,
         identity,
+        prefetched: Arc::new(Prefetched::default()),
         log: Arc::new(move |line| {
             if let Some(path) = &connect_log {
                 route_log::append(path, &line);
@@ -127,7 +134,7 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
     let permits = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     let mut tasks = JoinSet::new();
     let mut backoff = UnixAcceptBackoff::new();
-    let ended = ended(shared.http.clone(), terminate, interrupt);
+    let ended = ended(shared.clone(), terminate, interrupt);
     tokio::pin!(ended);
     let code = loop {
         tokio::select! {
@@ -165,8 +172,8 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
 }
 
 /// Ends when stdin ends or fails, or on SIGTERM or SIGINT. Until then each
-/// stdin line is read as a credential for later dials.
-async fn ended(source: Arc<HttpSource>, terminate: Option<Signal>, interrupt: Option<Signal>) {
+/// stdin line is read as a credential or a carrier answer for later dials.
+async fn ended(shared: Arc<Shared>, terminate: Option<Signal>, interrupt: Option<Signal>) {
     async fn on(signal: Option<Signal>) {
         match signal {
             Some(mut signal) => {
@@ -176,7 +183,7 @@ async fn ended(source: Arc<HttpSource>, terminate: Option<Signal>, interrupt: Op
         }
     }
     tokio::select! {
-        () = read_stdin(&source) => {}
+        () = read_stdin(&shared) => {}
         () = on(terminate) => {}
         () = on(interrupt) => {}
     }
@@ -184,9 +191,11 @@ async fn ended(source: Arc<HttpSource>, terminate: Option<Signal>, interrupt: Op
 
 /// Applies stdin's lines until it ends or fails: `{"access_token":"…"}`
 /// replaces the credential of later dials (sessions already up keep
-/// theirs); anything else gets one `bad_request` line on stderr. A line past
-/// [`MAX_STDIN_LINE`] bytes is skipped to its end and refused.
-async fn read_stdin(source: &HttpSource) {
+/// theirs); `{"carrier_answer":{…}}` is the next connection's first attempt
+/// (in place of an earlier one no connection took); anything else gets one
+/// `bad_request` line on stderr. A line past [`MAX_STDIN_LINE`] bytes is
+/// skipped to its end and refused.
+async fn read_stdin(shared: &Shared) {
     let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
     let mut line = Zeroizing::new(Vec::new());
     loop {
@@ -216,7 +225,8 @@ async fn read_stdin(source: &HttpSource) {
         let text = line.strip_suffix(b"\n").unwrap_or(&line[..]);
         match contract::stdin_line(text) {
             StdinLine::Blank => {}
-            StdinLine::Token(token) => source.replace_credential(token),
+            StdinLine::Token(token) => shared.http.replace_credential(token),
+            StdinLine::Answer(answer) => shared.prefetched.put(*answer),
             StdinLine::Invalid(why) => reply(&contract::failure_line(BAD_REQUEST, Some(why))),
         }
     }
@@ -239,6 +249,7 @@ async fn connection(
         source: shared.source.clone(),
         identity: shared.identity.clone(),
         deadline,
+        prefetched: shared.prefetched.clone(),
         log: shared.log.clone(),
     };
     let dialed = tokio::select! {
