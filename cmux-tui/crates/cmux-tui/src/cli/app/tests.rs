@@ -2080,3 +2080,29 @@ fn exchange_within_reads_a_whole_line() {
     answer.join().unwrap();
     assert_eq!(reply, Ok(Ok(json!({ "value": "cloud" }))));
 }
+
+/// `exchange_within` asks the app to catch up with the daemon first (`after: "sync"`), as every
+/// app request does, so `cmux chat` right after `cmux config set on cloud` reads the new
+/// `chat.on` (#37485's review at 7103f6c0, F1; #37663).
+#[test]
+fn exchange_within_reads_after_the_daemon_sync() {
+    let (mut ours, mut app) = UnixStream::pair().unwrap();
+    let request = std::thread::spawn(move || {
+        let mut line = Vec::new();
+        let mut byte = [0_u8; 1];
+        while app.read(&mut byte).unwrap_or(0) == 1 && byte != [b'\n'] {
+            line.extend_from_slice(&byte);
+        }
+        app.write_all(b"{\"id\":1,\"ok\":true,\"result\":{\"value\":\"cloud\"}}\n").unwrap();
+        serde_json::from_slice::<Value>(&line).unwrap()
+    });
+    let reply = exchange_within(
+        &mut ours,
+        "settings.get",
+        json!({ "path": "chat.on" }),
+        Duration::from_secs(5),
+    );
+    let sent = request.join().unwrap();
+    assert_eq!(reply, Ok(Ok(json!({ "value": "cloud" }))));
+    assert_eq!(sent.get("params"), Some(&json!({ "path": "chat.on", "after": "sync" })), "{sent}");
+}
