@@ -131,3 +131,34 @@ test("a toast that ends leaves the stack at once when motion is off", () => {
     "2",
   ]);
 });
+
+// Review 1 of #37289 (F1): a removed toast reported no toasts and no fading copy before its copy drew,
+// so the host took the page off the overlay at once and the fade never showed. The stack reports the
+// fading copy while it fades, then nothing once it is gone.
+test("a closed toast is reported fading until its fade ends", () => {
+  const fades: { onfinish: (() => void) | null }[] = [];
+  const reports: [number, number][] = [];
+  const view = (toasts: ToastState[]) => (
+    <ToastStack
+      toasts={toasts}
+      floor={16}
+      words={words}
+      onAction={() => {}}
+      onClose={() => {}}
+      onLayout={(rects, fading) => reports.push([rects.length, fading.length])}
+    />
+  );
+  const doc = render(view([toast(1)]));
+  doc.documentElement.dataset.cmuxMotion = "reduced";
+  (dom!.window.HTMLElement.prototype as unknown as { animate: unknown }).animate = function () {
+    const animation = { onfinish: null as (() => void) | null, oncancel: null, cancel() {} };
+    fades.push(animation);
+    return animation;
+  };
+  expect(reports.at(-1)).toEqual([1, 0]);
+  act(() => root!.render(view([])));
+  expect(reports).not.toContainEqual([0, 0]);
+  expect(reports.at(-1)).toEqual([0, 1]);
+  act(() => fades.at(-1)?.onfinish?.());
+  expect(reports.at(-1)).toEqual([0, 0]);
+});
