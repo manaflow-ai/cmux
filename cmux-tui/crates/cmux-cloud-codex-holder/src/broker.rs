@@ -253,29 +253,33 @@ impl Broker {
     /// One refresh at a time: a second caller waits for the one in flight. Like the Swift
     /// holder's unstructured task, a caller's cancel does not end it; shutdown does.
     pub(crate) async fn refresh_access(self: &Arc<Self>, schedule: bool) -> Result<Grant, Error> {
-        let in_flight = self.st().refresh_in_flight.as_ref().map(|(_, shared, _)| shared.clone());
-        if let Some(shared) = in_flight {
-            return shared.await;
-        }
-        let cx = Cx::new();
-        let weak = Arc::downgrade(self);
-        let task_cx = cx.clone();
-        let handle = tokio::spawn(async move {
-            match weak.upgrade() {
-                Some(this) => this.perform_refresh(&task_cx).await,
-                None => Err(BrokerError::BrokerUnavailable.into()),
-            }
-        });
-        let shared =
-            async move { handle.await.unwrap_or(Err(BrokerError::BrokerUnavailable.into())) }
+        // The check and the claim are one step under the state lock, so two callers on different
+        // workers never both start a refresh (each would rotate the Codex credential).
+        let (shared, token) = {
+            let mut state = self.st();
+            if let Some((_, shared, _)) = state.refresh_in_flight.as_ref() {
+                (shared.clone(), None)
+            } else {
+                let cx = Cx::new();
+                let weak = Arc::downgrade(self);
+                let task_cx = cx.clone();
+                let handle = tokio::spawn(async move {
+                    match weak.upgrade() {
+                        Some(this) => this.perform_refresh(&task_cx).await,
+                        None => Err(BrokerError::BrokerUnavailable.into()),
+                    }
+                });
+                let shared = async move {
+                    handle.await.unwrap_or(Err(BrokerError::BrokerUnavailable.into()))
+                }
                 .boxed()
                 .shared();
-        let token = {
-            let mut state = self.st();
-            let token = state.token();
-            state.refresh_in_flight = Some((token, shared.clone(), cx));
-            token
+                let token = state.token();
+                state.refresh_in_flight = Some((token, shared.clone(), cx));
+                (shared, Some(token))
+            }
         };
+        let Some(token) = token else { return shared.await };
         let result = shared.await;
         {
             let mut state = self.st();

@@ -8,6 +8,11 @@
 //! and `answer {"id","value"}`. Any line may carry `"current": scope|null` (the signed-in scope
 //! now) and `"acpmux": path` (the holder child's executable).
 //!
+//! A holder the app starts again (the last one ended) gets `restore {"scopes":[scope],"live":[ids]}`
+//! right after the config, under the `current` the last one held: what that one knew. Every
+//! later line but `answer` and `cancel` waits until the restore is done, so a sign-out, switch or
+//! off switch that follows erases what the last holder delivered.
+//!
 //! Holder to app: `{"reply":id,"ok":true,"value":V}` or
 //! `{"reply":id,"ok":false,"error":code,"message":text}`, and questions
 //! `{"ask":"credential"|"owner"|"live"|"consent"|"local_sign_in"|"device_code","id",...}` the
@@ -15,7 +20,7 @@
 //!
 //! End of input (the app quit or died) detaches: delivered access stays on each machine.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -145,6 +150,8 @@ struct Holder {
     current: Arc<Mutex<Option<Scope>>>,
     acpmux: Arc<Mutex<Option<PathBuf>>>,
     runs: Mutex<Runs>,
+    /// Lines held while a restore runs, acted on in order once it is done.
+    held: Mutex<Option<VecDeque<Value>>>,
 }
 
 /// The runs in flight by request id, and the highest request id read so far. The app numbers
@@ -241,18 +248,79 @@ impl Holder {
             }
             .boxed()
         })));
-        Arc::new(Self { adapter, app, config, current, acpmux, runs: Mutex::default() })
+        Arc::new(Self {
+            adapter,
+            app,
+            config,
+            current,
+            acpmux,
+            runs: Mutex::default(),
+            held: Mutex::default(),
+        })
     }
 
     /// Takes one app line. Returns false at a line that is not JSON.
     fn take(self: &Arc<Self>, line: &str) -> bool {
         let Ok(message) = serde_json::from_str::<Value>(line) else { return false };
+        let op = message.get("op").and_then(Value::as_str).unwrap_or_default();
+        // A restore's own questions need their answers, and a cancel may end a held run.
+        if op != "answer" && op != "cancel" {
+            let mut held = lock(&self.held);
+            if let Some(queue) = held.as_mut() {
+                queue.push_back(message);
+                return true;
+            }
+            if op == "restore" {
+                *held = Some(VecDeque::new());
+                drop(held);
+                self.restore(message);
+                return true;
+            }
+        }
+        self.act(message);
+        true
+    }
+
+    /// Takes back what the last holder knew, then acts on the lines held meanwhile.
+    fn restore(self: &Arc<Self>, message: Value) {
+        self.note(&message);
+        let scopes: Vec<Scope> = message
+            .get("scopes")
+            .and_then(Value::as_array)
+            .map(|all| all.iter().filter_map(Scope::from_json).collect())
+            .unwrap_or_default();
+        let live = ids(&message, "live");
+        let this = self.clone();
+        tokio::spawn(async move {
+            this.adapter.restore(scopes, live).await;
+            loop {
+                let next = {
+                    let mut held = lock(&this.held);
+                    match held.as_mut().and_then(VecDeque::pop_front) {
+                        Some(next) => next,
+                        None => {
+                            *held = None;
+                            break;
+                        }
+                    }
+                };
+                this.act(next);
+            }
+        });
+    }
+
+    /// The scope and holder child a line names.
+    fn note(&self, message: &Value) {
         if let Some(current) = message.get("current") {
             *lock(&self.current) = Scope::from_json(current);
         }
         if let Some(path) = message.get("acpmux").and_then(Value::as_str) {
             *lock(&self.acpmux) = Some(PathBuf::from(path));
         }
+    }
+
+    fn act(self: &Arc<Self>, message: Value) {
+        self.note(&message);
         match message.get("op").and_then(Value::as_str).unwrap_or_default() {
             "answer" => {
                 if let Some(id) = message.get("id").and_then(Value::as_u64) {
@@ -267,15 +335,9 @@ impl Holder {
                 self.adapter
                     .set_available(message.get("enabled").and_then(Value::as_bool) != Some(false));
             }
-            "listed" => {
-                let live: HashSet<String> = message
-                    .get("live")
-                    .and_then(Value::as_array)
-                    .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-                    .unwrap_or_default();
-                self.adapter.machines_listed(live);
-            }
-            "" => {}
+            "listed" => self.adapter.machines_listed(ids(&message, "live")),
+            // Only a holder's first line after its config restores (above).
+            "" | "restore" => {}
             op => {
                 if let Some(id) = message.get("id").and_then(Value::as_u64) {
                     lock(&self.runs).read(id, op == "run");
@@ -284,7 +346,6 @@ impl Holder {
                 tokio::spawn(async move { this.reply(message).await });
             }
         }
-        true
     }
 
     async fn reply(self: Arc<Self>, message: Value) {
@@ -379,6 +440,15 @@ impl Holder {
         let machine = message.get("machine").and_then(Value::as_str).unwrap_or_default();
         self.adapter.run(cx, machine, scope, flag("confirmed"), flag("force"), ask, present).await
     }
+}
+
+/// The string ids in `message[key]`.
+fn ids(message: &Value, key: &str) -> HashSet<String> {
+    message
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default()
 }
 
 fn mac_access(user_home: &Path) -> Option<crate::types::Grant> {

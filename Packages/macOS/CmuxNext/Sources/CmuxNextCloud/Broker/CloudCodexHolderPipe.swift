@@ -32,6 +32,16 @@ actor CloudCodexHolderPipe {
     private var generation = 0
     private var sent: Set<Int> = []
     private var available = true
+    /// What the running holder knows, replayed into the next one (``replay``): the scopes it
+    /// served, the current scope it last held and the live machines of the last list. Without it
+    /// a holder started again could not erase what the last one delivered.
+    private var known = Known()
+
+    private struct Known {
+        var scopes: [String: [String: Any]] = [:]
+        var current: [String: Any]?
+        var live: [String] = []
+    }
 
     init(binary: URL, config: Data, events: AsyncStream<Event>.Continuation) {
         self.binary = binary
@@ -58,7 +68,34 @@ actor CloudCodexHolderPipe {
         if process == nil, !start(acpmux: acpmux) { return false }
         guard write(line.data) else { return false }
         if let id = line.id { sent.insert(id) }
+        if line.answerFor == nil { remember(line.data) }
         return true
+    }
+
+    /// Notes what a line told the holder. Answers carry none of it.
+    private func remember(_ data: Data) {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+        if let current = object["current"] {
+            known.current = current as? [String: Any]
+            if let scope = known.current { known.scopes[Self.key(scope)] = scope }
+        }
+        if let scope = object["scope"] as? [String: Any] { known.scopes[Self.key(scope)] = scope }
+        if object["op"] as? String == "listed", let live = object["live"] as? [String] { known.live = live }
+    }
+
+    private static func key(_ scope: [String: Any]) -> String {
+        "\((scope["user"] as? String ?? "").utf8.count):\(scope["user"] as? String ?? "")|\(scope["team"] as? String ?? "\u{0}")"
+    }
+
+    /// The `restore` line for a holder started again: what the last one knew, under the current
+    /// scope it held. Nil for the first holder (nothing to replay).
+    private func replay() -> Data? {
+        guard !known.scopes.isEmpty || !known.live.isEmpty else { return nil }
+        let fields: [String: Any] = [
+            "op": "restore", "scopes": Array(known.scopes.values), "live": known.live,
+            "current": known.current ?? NSNull(),
+        ]
+        return try? JSONSerialization.data(withJSONObject: fields)
     }
 
     /// The generation of the running child (answers are tagged with it).
@@ -116,6 +153,8 @@ actor CloudCodexHolderPipe {
         var hello: [String: Any] = ["op": "available", "enabled": available]
         if let acpmux { hello["acpmux"] = acpmux.path }
         if let data = try? JSONSerialization.data(withJSONObject: hello) { opening.append(data) }
+        // Config, availability, then what the last holder knew, before any line the app sends now.
+        if let restore = replay() { opening.append(restore) }
         return opening.allSatisfy { write($0) }
     }
 

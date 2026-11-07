@@ -252,6 +252,32 @@ impl Adapter {
         }));
     }
 
+    /// A holder started again while the app runs (the last one ended): the app replays what the
+    /// last one knew, `scopes` it served and the `live` machines of the last list, under the
+    /// scope that one held as current. The current scope's recorded live machines are taken back
+    /// first (renewal goes on, and the next sign-out, switch or off switch erases them); every
+    /// other scope is registered so its end erases what its record holds. Bounded by
+    /// `CLEANUP_BOUND`; a pass still running then is cancelled and its machines stay recorded.
+    pub async fn restore(self: &Arc<Self>, scopes: Vec<Scope>, live: HashSet<String>) {
+        let current = (self.current_scope)();
+        {
+            let mut state = self.st();
+            if state.observed.is_none() {
+                state.observed = current.clone();
+            }
+            state.scopes.extend(scopes.into_iter().filter(|s| Some(s) != current.as_ref()));
+        }
+        let Some(scope) = current else { return };
+        let cx = Cx::new();
+        let (this, pass_cx) = (self.clone(), cx.clone());
+        let pass = tokio::spawn(async move {
+            this.resume(&pass_cx, &scope, &live).await;
+        });
+        if tokio::time::timeout(CLEANUP_BOUND, pass).await.is_err() {
+            cx.cancel();
+        }
+    }
+
     /// After a relaunch and each machine list: takes back the machines in `live` an earlier run
     /// delivered Codex access to for `scope` (the delivery record), so renewal picks back up
     /// (cmux#33878) and a sign-out, switch or off switch erases them (cmux#33877). One whose

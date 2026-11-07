@@ -449,3 +449,21 @@ async fn interrupted_delivery(interruption: u32) {
     assert_eq!(machine.paths().len(), 1);
     assert_eq!(machine.text(MODE_PATH), "team\n");
 }
+
+/// Refreshes that start together on different workers share one holder request: two would each
+/// rotate the Codex credential.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_refreshes_share_one_holder_request() {
+    let root = tempfile::tempdir().unwrap();
+    let script = counting_holder(r#"expiry=2147483647; sleep 0.3"#);
+    let broker = broker(root.path(), &script, fixed_scope(scope()), LONG);
+    let calls: Vec<_> = (0..8)
+        .map(|_| {
+            let broker = broker.clone();
+            tokio::spawn(async move { broker.refresh_access(false).await })
+        })
+        .collect();
+    for call in calls {
+        assert_eq!(call.await.unwrap().unwrap().access_token, "access-1");
+    }
+}

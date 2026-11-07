@@ -196,3 +196,146 @@ fn a_cancel_before_its_run_line_starts_the_run_cancelled() {
     runs.cancel(3);
     assert!(runs.live.is_empty(), "a cancel after its run ended keeps nothing");
 }
+
+/// One holder process over a pipe, its app side answering every question as a person who owns
+/// the machine and signed in to Codex.
+struct Pipe {
+    input: tokio::io::DuplexStream,
+    replies: tokio::io::Lines<tokio::io::BufReader<tokio::io::DuplexStream>>,
+    served: tokio::task::JoinHandle<Result<(), Error>>,
+}
+
+impl Pipe {
+    fn start(files: &Arc<Files>) -> Self {
+        let (input, holder_in) = tokio::io::duplex(64 * 1024);
+        let (holder_out, output) = tokio::io::duplex(64 * 1024);
+        let machines = files.clone();
+        let served =
+            tokio::spawn(async move { serve(holder_in, holder_out, move |_, _| machines).await });
+        Self { input, replies: tokio::io::BufReader::new(output).lines(), served }
+    }
+
+    async fn send(&mut self, value: Value) {
+        self.input.write_all(format!("{value}\n").as_bytes()).await.unwrap();
+    }
+
+    /// Answers questions until request `id`'s reply, which it returns.
+    async fn reply(&mut self, id: u64) -> Value {
+        loop {
+            let line: Value =
+                serde_json::from_str(&self.replies.next_line().await.unwrap().unwrap()).unwrap();
+            if line.get("reply").is_some() {
+                if line["reply"] == id {
+                    return line;
+                }
+                continue;
+            }
+            let Some(kind) = line["ask"].as_str() else { continue };
+            let value = json!(matches!(kind, "owner" | "live" | "device_code"));
+            self.send(json!({"op": "answer", "id": line["id"], "value": value})).await;
+        }
+    }
+
+    /// The app quits: input ends and the holder detaches.
+    async fn quit(self) {
+        drop(self.input);
+        self.served.await.unwrap().unwrap();
+    }
+}
+
+struct World {
+    root: tempfile::TempDir,
+    home: PathBuf,
+    acpmux: PathBuf,
+    files: Arc<Files>,
+}
+
+fn scope() -> Value {
+    json!({"user": "user-1", "team": "team-1"})
+}
+
+impl World {
+    fn new() -> Self {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("home");
+        std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+        let codex = home.join(".local/bin/codex");
+        std::fs::write(&codex, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let acpmux = holder_script(root.path(), HOLDER);
+        Self { root, home, acpmux, files: Arc::new(Files::default()) }
+    }
+
+    fn config(&self) -> Value {
+        json!({"op": "config", "root": self.root.path().join("cloud"), "user_home": self.home})
+    }
+
+    fn delivered(&self) -> bool {
+        lock(&self.files.0).contains_key(ACCESS_PATH)
+    }
+
+    /// A first holder delivers to `vm_1` and then ends, leaving the access there.
+    async fn delivered_by_a_holder_that_ended(&self) {
+        let mut pipe = Pipe::start(&self.files);
+        pipe.send(self.config()).await;
+        pipe.send(
+            json!({"op": "run", "id": 1, "machine": "vm_1", "scope": scope(), "confirmed": true,
+            "current": scope(), "acpmux": self.acpmux}),
+        )
+        .await;
+        assert_eq!(pipe.reply(1).await["ok"], true);
+        pipe.quit().await;
+        assert!(self.delivered());
+    }
+
+    /// The next holder, given what the last one knew.
+    async fn restarted(&self, replay: bool) -> Pipe {
+        let mut pipe = Pipe::start(&self.files);
+        pipe.send(self.config()).await;
+        if replay {
+            pipe.send(json!({"op": "restore", "scopes": [scope()], "live": ["vm_1"],
+                "current": scope(), "acpmux": self.acpmux}))
+                .await;
+        }
+        pipe
+    }
+}
+
+/// cmux#37306 review: a holder started again after the last one ended knew nothing of the
+/// machines that one delivered to, so a sign-out left their access in place. Replayed, it erases.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restarted_holder_given_the_replay_erases_on_sign_out() {
+    let world = World::new();
+    world.delivered_by_a_holder_that_ended().await;
+    let mut pipe = world.restarted(true).await;
+    pipe.send(json!({"op": "sign_out", "id": 2, "current": scope()})).await;
+    assert_eq!(pipe.reply(2).await["ok"], true);
+    assert!(!world.delivered(), "the sign-out erased the last holder's access");
+    pipe.quit().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restarted_holder_given_the_replay_erases_on_a_team_switch() {
+    let world = World::new();
+    world.delivered_by_a_holder_that_ended().await;
+    let mut pipe = world.restarted(true).await;
+    pipe.send(
+        json!({"op": "scope_changed", "id": 2, "current": {"user": "user-1", "team": "team-2"}}),
+    )
+    .await;
+    assert_eq!(pipe.reply(2).await["ok"], true);
+    assert!(!world.delivered(), "the switch erased the old team's access");
+    pipe.quit().await;
+}
+
+/// Without the replay the same sign-out reaches nothing: the restore is what fixes it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restarted_holder_without_the_replay_cannot_erase() {
+    let world = World::new();
+    world.delivered_by_a_holder_that_ended().await;
+    let mut pipe = world.restarted(false).await;
+    pipe.send(json!({"op": "sign_out", "id": 2, "current": scope()})).await;
+    assert_eq!(pipe.reply(2).await["ok"], true);
+    assert!(world.delivered());
+    pipe.quit().await;
+}
