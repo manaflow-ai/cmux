@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42407536324",
+  "recorded_at": "2026-11-07T19:50:46Z",
+  "reason": "cmux-tui 4da39d838442 changes the image's cmux-tui (pinned 8fbd3e6ad26a)",
+  "dry_run": false,
+  "cmux_tui": "4da39d8384424d96e9ed19df7e83512fa0b1d79f",
+  "fixes": [
+    {
+      "sha": "4da39d8384424d96e9ed19df7e83512fa0b1d79f",
+      "mergedAt": "2026-11-07T19:27:19Z",
+      "subject": "acpmux: createdBy from connection proof only, and across a peer dispatch (#37937)"
+    },
+    {
+      "sha": "61fb9545dc731e369e5f24c62a99973f0da8018e",
+      "mergedAt": "2026-11-07T11:26:37-08:00",
+      "subject": "Sidebar tree: a workspace's creator link, detach, attach, collapse and tree rows (Rust) (#37513)"
+    },
+    {
+      "sha": "76d669b7708e03d9d212c6a103d827920e8894f4",
+      "mergedAt": "2026-11-07T11:24:02-08:00",
+      "subject": "cmux-action-catalog: cloud new-machine --environment and cloud relay-chat --login, as the app's catalog has them since #37159 (#37979)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T19:50:46Z",
+    "snapshot_id": "sh-28feb9e066dc49f791ecb6289b132219",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42407536324): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d0674d3b3f520b599e1b7ea1a49c59c2a9ffabc4",
+    "image": "cloud-native-auto-4da39d83-42407536324-1",
+    "revision": "ci-42407536324-1",
+    "at": "2026-11-07T19:50:46Z"
+  },
+  "rolled_back": false
+}
