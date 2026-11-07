@@ -111,6 +111,11 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
+                    # The app's daemon client: the cmux SDK and its C ABI.
+                    "cmux-sdk",
+                    "cmux-sdk-ffi",
+                    # The window handlers' rules (cmux-window-rules).
+                    "cmux-window-rules",
                 ]
             ),
         )

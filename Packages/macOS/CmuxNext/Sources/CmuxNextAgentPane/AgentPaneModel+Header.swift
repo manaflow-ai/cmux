@@ -1,6 +1,7 @@
 import AppKit
 public import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 
 /// A destination the chat can move to. The page only receives targets the host can route through
@@ -254,6 +255,10 @@ extension AgentPaneModel {
         case .sessionInfoOverlays(let rects):
             sessionInfo.updateOverlays(rects)
             return AgentPaneReply.success()
+        case .hostGlass(let surfaces):
+            // Drawn before the reply: the page shows a surface once this answers (hostGlass.ts).
+            hostGlass.update(surfaces)
+            return AgentPaneReply.success()
         case .copyText(let text):
             guard transport.gestures.consume() else {
                 return Self.transportFailure(.gestureRequired)
@@ -306,6 +311,9 @@ extension AgentPaneModel {
             // Only a chat this pane made (its fork's or handoff start's reply put it in the pane's
             // scope), never the chat itself, and not from a New Tab page. A refusal (another
             // machine's pane, no daemon) answers so: the page then opens the chat in this tab.
+            #if DEBUG || CMUX_BENCH_HOOKS
+            ChatOpenTrace.shared.mark(.forkOpenAsked)
+            #endif
             guard let sessionId, newTab == nil, chat != sessionId, AgentPaneSideChat.holds(chat, chat: sessionId, in: self), let header,
                   header.openTab(chat, destination) else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.openTab")
