@@ -33,6 +33,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "reply",
     "empty",
     "ephemeral",
+    // `agent skills install --global`: the person's own skill folders (the only scope).
+    "global",
     // `workspace create --top`: first in the sidebar, whatever workspaces.newPlacement says.
     "top",
     "left",
