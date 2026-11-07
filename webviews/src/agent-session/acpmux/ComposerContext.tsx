@@ -41,6 +41,8 @@ import {
   type OffloadKind,
 } from "./environments";
 import { FolderPopover } from "./FolderPopover";
+import type { BrowseFolders } from "./folderBrowse";
+import { RemoteFolderBrowser } from "./RemoteFolderBrowser";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
   addExtraFolder,
@@ -140,6 +142,7 @@ export function ComposerContext({
   onProject,
   projectChoices,
   machineFolders,
+  browseFolders,
   onBrowseProject,
   onNewWorktree,
   onNoProject,
@@ -192,6 +195,9 @@ export function ComposerContext({
   /// A chat on another machine: that machine's own folders (its `project.list`), listed in its
   /// folder menu while the chat's own machine is picked; a pick there is this chat's folder.
   machineFolders?: Project[];
+  /// Lists a directory of this daemon or a peer (`_acpmux/browse`): another machine picked, its folder
+  /// menu browses that machine's folders under the known ones.
+  browseFolders?: BrowseFolders;
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
@@ -632,6 +638,12 @@ export function ComposerContext({
     pickComputer(id);
   };
   const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
+  // Another machine's folders beyond the ones known here: its own acpmux lists them, one folder at a
+  // time. This Mac has its folder panel (Add folder…) instead; a Cloud machine is still picked as Cloud.
+  const browseMachine =
+    browseFolders && !readOnly && selectedComputer !== "local" && currentComputer && !cloudPicked && !sandboxPicked
+      ? { machine: currentComputer.label, peer: selectedComputer, list: browseFolders }
+      : undefined;
   // The new chat's extra folders on the picked machine (a pick of the chat's own folder is never one).
   // A Cloud or Sandboxed start carries none (cmux#34403), so those modes offer no Add another folder… or +N.
   const extraShown =
@@ -889,6 +901,7 @@ export function ComposerContext({
               middle={currentFolder !== undefined}
               allowPath
               {...(extra ? { extra } : {})}
+              {...(browseMachine ? { browse: browseMachine } : {})}
               onBrowse={newChats ? browseNewChat : undefined}
               extras={
                 newChats && currentFolder
@@ -1141,6 +1154,19 @@ function availableComputers(
   return computers;
 }
 
+/// The room inside a menu (its box less padding and border), which the browser takes over.
+function innerSize(menu: Element | null | undefined): { width: number; height: number } {
+  if (!menu) return { width: 0, height: 0 };
+  const box = menu.getBoundingClientRect();
+  const style = menu.ownerDocument.defaultView?.getComputedStyle(menu);
+  const edge = (...names: string[]) =>
+    names.reduce((sum, name) => sum + (parseFloat(style?.getPropertyValue(name) ?? "") || 0), 0);
+  return {
+    width: Math.max(0, box.width - edge("padding-left", "padding-right", "border-left-width", "border-right-width")),
+    height: Math.max(0, box.height - edge("padding-top", "padding-bottom", "border-top-width", "border-bottom-width")),
+  };
+}
+
 function formatFreeMemory(gb: number): string {
   return Number.isInteger(gb) ? String(gb) : gb.toFixed(1);
 }
@@ -1303,6 +1329,7 @@ function LocationPicker({
   onOpen,
   closeOnTrustAsk = false,
   extra,
+  browse,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -1330,14 +1357,23 @@ function LocationPicker({
   /// A new chat's extra folders on this machine (extraFolders.ts): Add another folder… turns the list into a
   /// pick of one more folder of it, and the ones added are listed under it.
   extra?: ExtraFolderRows;
+  /// Another machine's folders, browsed in the menu (RemoteFolderBrowser): Browse <machine>… under the
+  /// known folders, which stay the fast path above it.
+  browse?: { machine: string; peer?: string; list: BrowseFolders };
 }) {
   const [query, setQuery] = useState("");
   const [addingExtra, setAddingExtra] = useState(false);
+  // Browse <machine>… was chosen: the menu's size then, which the browser keeps.
+  const [browsing, setBrowsing] = useState<{ width: number; height: number } | undefined>(undefined);
+  const content = useRef<HTMLDivElement>(null);
   const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
   const setOpen = (next: boolean) => {
     if (next && closeOnTrustAsk) return;
     setPopoverOpen(next);
-    if (!next) setAddingExtra(false);
+    if (!next) {
+      setAddingExtra(false);
+      setBrowsing(undefined);
+    }
   };
   const changeOpen = (next: boolean) => {
     setOpen(next);
@@ -1427,131 +1463,164 @@ function LocationPicker({
         side={side}
         flip={flip}
       >
-        <Combobox
-          key={addingExtra ? "extra" : "pick"}
-          suggestions={suggestions}
-          onQuery={setQuery}
-          onSubmit={(id) => {
-            const option = options.find((candidate) => candidate.id === id);
-            if (option?.disabled) return;
-            if (option || (allowPath && /^(?:\/|~\/)/.test(id))) pick(id);
-          }}
-          onCancel={() => changeOpen(false)}
-          cancelOnBlur={false}
-          autoHighlight={kind === "computer" ? "always" : false}
-          // Escape closes back onto the folder chip (escapeFocus.ts).
-          onCommand={(event) => {
-            if (event.key === "Escape") focusAfterEscape(trigger.current);
-          }}
-          label={addingExtra ? t("composer.addFolderSearch") : label}
-          placeholder={
-            addingExtra
-              ? t("composer.addFolderSearch")
-              : t(allowPath ? CONTEXT_LABELS.folderSearch : "composer.environmentSearch")
-          }
-          inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"
-          listClassName="acpmux-location-folders m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
-          itemClassName="acpmux-menu-item rounded-lg data-[highlighted]:bg-hover"
-          itemLabel={(id) => {
-            const option = options.find((candidate) => candidate.id === id);
-            return allowPath ? [option?.label, id].filter(Boolean).join(" ") : (option?.label ?? id);
-          }}
-          completionText={(id) => (allowPath ? id : (options.find((option) => option.id === id)?.label ?? id))}
-          isItemCurrent={(id) => !addingExtra && id === selected}
-          renderItem={(path) => {
-            const folder = options.find((option) => option.id === path);
-            const suffix = suffixes?.get(path);
-            const index = shown.indexOf(folder!);
-            const section =
-              folder?.section && (index <= 0 || shown[index - 1]!.section !== folder.section)
-                ? folder.section
-                : undefined;
-            return (
-              // tooltip-allow: the row shows the folder's name; the tooltip is its full path
-              <span
-                className="acpmux-menu-text acpmux-location-name"
-                title={path}
-                data-section={section}
-                data-first-section={section && index === 0 ? "" : undefined}
-                data-ready={folder?.disabled ? "false" : undefined}
-                data-warning={folder?.warning ? "true" : undefined}
-                aria-disabled={folder?.disabled ? true : undefined}
-              >
-                <span className="acpmux-menu-label">{folder?.label ?? path}</span>
-                {!allowPath && folder?.detail && <span className="acpmux-menu-description">{folder.detail}</span>}
-                {suffix && (
-                  <>
-                    {" "}
-                    <span className="acpmux-location-suffix-dot" aria-hidden="true">
-                      ·
-                    </span>{" "}
-                    <span className="acpmux-location-suffix">{suffix}</span>
-                  </>
-                )}
-              </span>
-            );
-          }}
-          inline
-          keepHeight
-        />
-        {extra && !addingExtra && (
-          <>
-            <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />
-            <hr className="ui-separator" />
-            <button
-              type="button"
-              className="acpmux-menu-item acpmux-location-choose"
-              data-add-folder=""
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                setQuery("");
-                setAddingExtra(true);
-              }}
-            >
-              {t("composer.addAnotherFolder")}
-            </button>
-          </>
-        )}
-        {extras && extras.length > 0 && <hr className="ui-separator" />}
-        {extras?.map((extra) => (
-          <button
-            key={extra.id}
-            type="button"
-            className="acpmux-menu-item acpmux-location-choose"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              setOpen(false);
-              setQuery("");
-              extra.onSelect();
+        {browse && browsing ? (
+          <RemoteFolderBrowser
+            machine={browse.machine}
+            {...(browse.peer ? { peer: browse.peer } : {})}
+            list={browse.list}
+            size={browsing}
+            onPick={(path) => {
+              setBrowsing(undefined);
+              pick(path);
             }}
-          >
-            {extra.detail ? (
-              <span className="acpmux-menu-text">
-                <span className="acpmux-menu-label">{extra.label}</span>
-                <span className="acpmux-menu-description">{extra.detail}</span>
-              </span>
-            ) : (
-              extra.label
-            )}
-          </button>
-        ))}
-        {onBrowse && (
-          <>
-            <hr className="ui-separator" />
-            <button
-              type="button"
-              className="acpmux-menu-item acpmux-location-choose"
-              // The field keeps the keyboard: its blur closes the picker before the click.
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                setOpen(false);
-                setQuery("");
-                onBrowse();
+            onBack={() => setBrowsing(undefined)}
+          />
+        ) : (
+          <div ref={content} className="acpmux-location-content">
+            <Combobox
+              key={addingExtra ? "extra" : "pick"}
+              suggestions={suggestions}
+              onQuery={setQuery}
+              onSubmit={(id) => {
+                const option = options.find((candidate) => candidate.id === id);
+                if (option?.disabled) return;
+                if (option || (allowPath && /^(?:\/|~\/)/.test(id))) pick(id);
               }}
-            >
-              {t(CONTEXT_LABELS.chooseFolderMenu)}
-            </button>
-          </>
+              onCancel={() => changeOpen(false)}
+              cancelOnBlur={false}
+              autoHighlight={kind === "computer" ? "always" : false}
+              // Escape closes back onto the folder chip (escapeFocus.ts).
+              onCommand={(event) => {
+                if (event.key === "Escape") focusAfterEscape(trigger.current);
+              }}
+              label={addingExtra ? t("composer.addFolderSearch") : label}
+              placeholder={
+                addingExtra
+                  ? t("composer.addFolderSearch")
+                  : t(allowPath ? CONTEXT_LABELS.folderSearch : "composer.environmentSearch")
+              }
+              inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"
+              listClassName="acpmux-location-folders m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
+              itemClassName="acpmux-menu-item rounded-lg data-[highlighted]:bg-hover"
+              itemLabel={(id) => {
+                const option = options.find((candidate) => candidate.id === id);
+                return allowPath ? [option?.label, id].filter(Boolean).join(" ") : (option?.label ?? id);
+              }}
+              completionText={(id) => (allowPath ? id : (options.find((option) => option.id === id)?.label ?? id))}
+              isItemCurrent={(id) => !addingExtra && id === selected}
+              renderItem={(path) => {
+                const folder = options.find((option) => option.id === path);
+                const suffix = suffixes?.get(path);
+                const index = shown.indexOf(folder!);
+                const section =
+                  folder?.section && (index <= 0 || shown[index - 1]!.section !== folder.section)
+                    ? folder.section
+                    : undefined;
+                return (
+                  // tooltip-allow: the row shows the folder's name; the tooltip is its full path
+                  <span
+                    className="acpmux-menu-text acpmux-location-name"
+                    title={path}
+                    data-section={section}
+                    data-first-section={section && index === 0 ? "" : undefined}
+                    data-ready={folder?.disabled ? "false" : undefined}
+                    data-warning={folder?.warning ? "true" : undefined}
+                    aria-disabled={folder?.disabled ? true : undefined}
+                  >
+                    <span className="acpmux-menu-label">{folder?.label ?? path}</span>
+                    {!allowPath && folder?.detail && <span className="acpmux-menu-description">{folder.detail}</span>}
+                    {suffix && (
+                      <>
+                        {" "}
+                        <span className="acpmux-location-suffix-dot" aria-hidden="true">
+                          ·
+                        </span>{" "}
+                        <span className="acpmux-location-suffix">{suffix}</span>
+                      </>
+                    )}
+                  </span>
+                );
+              }}
+              inline
+              keepHeight
+            />
+            {extra && !addingExtra && (
+              <>
+                <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />
+                <hr className="ui-separator" />
+                <button
+                  type="button"
+                  className="acpmux-menu-item acpmux-location-choose"
+                  data-add-folder=""
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setQuery("");
+                    setAddingExtra(true);
+                  }}
+                >
+                  {t("composer.addAnotherFolder")}
+                </button>
+              </>
+            )}
+            {extras && extras.length > 0 && <hr className="ui-separator" />}
+            {extras?.map((extra) => (
+              <button
+                key={extra.id}
+                type="button"
+                className="acpmux-menu-item acpmux-location-choose"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  setOpen(false);
+                  setQuery("");
+                  extra.onSelect();
+                }}
+              >
+                {extra.detail ? (
+                  <span className="acpmux-menu-text">
+                    <span className="acpmux-menu-label">{extra.label}</span>
+                    <span className="acpmux-menu-description">{extra.detail}</span>
+                  </span>
+                ) : (
+                  extra.label
+                )}
+              </button>
+            ))}
+            {browse && !addingExtra && (
+              <>
+                <hr className="ui-separator" />
+                <button
+                  type="button"
+                  className="acpmux-menu-item acpmux-location-choose"
+                  data-browse-machine=""
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setQuery("");
+                    setBrowsing(innerSize(content.current?.parentElement));
+                  }}
+                >
+                  {t("composer.browseMachine", { machine: browse.machine })}
+                </button>
+              </>
+            )}
+            {onBrowse && (
+              <>
+                <hr className="ui-separator" />
+                <button
+                  type="button"
+                  className="acpmux-menu-item acpmux-location-choose"
+                  // The field keeps the keyboard: its blur closes the picker before the click.
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setOpen(false);
+                    setQuery("");
+                    onBrowse();
+                  }}
+                >
+                  {t(CONTEXT_LABELS.chooseFolderMenu)}
+                </button>
+              </>
+            )}
+          </div>
         )}
       </Popover>
     </span>

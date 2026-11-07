@@ -70,6 +70,7 @@ import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
+import type { BrowseParams, BrowseReply } from "./folderBrowse";
 import {
   forgetTail,
   keptTail,
@@ -4464,6 +4465,12 @@ export class AcpmuxDirectClient {
   /// Marks or unmarks the prompt logged at `seq`; acpmux answers with the session's marks.
   setBookmark(sessionId: string, seq: number, bookmarked: boolean): Promise<unknown> {
     return this.request("_acpmux/bookmark_set", { sessionId, seq, bookmarked });
+  }
+
+  /// One page of a directory's entries on this daemon or, with `peer`, on that machine
+  /// (`_acpmux/browse`; folderBrowse.ts): names and kinds only, never a file's contents.
+  browse(params: BrowseParams): Promise<BrowseReply> {
+    return this.request("_acpmux/browse", params, 10_000);
   }
 
   /// Files under `path` (else the selected session's folder) whose path matches `query`, best

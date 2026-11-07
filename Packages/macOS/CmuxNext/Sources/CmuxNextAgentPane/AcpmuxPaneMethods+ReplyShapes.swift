@@ -53,6 +53,16 @@ nonisolated extension AcpmuxPaneMethods {
                 ]),
             ])),
         ]),
+        // The folder browser's listing: names, kinds, paths and a file's size, and the page's
+        // bounds. A null `parent` (the machine's top) is dropped, which the page reads the same.
+        "_acpmux/browse": .object([
+            "path": .string, "parent": .string, "home": .string, "roots": .list(.string), "peer": .string,
+            "entries": .list(.object([
+                "name": .string, "path": .string, "kind": .string, "target": .string, "outside": .bool, "size": .number,
+            ])),
+            "total": .number, "offset": .number, "nextOffset": .number,
+            "truncated": .object(["reason": .string, "scanned": .number]),
+        ]),
         // Reconnect returns the same safe peer state needed by the offline copy's banner. The
         // relay derives transport from `url` and drops the endpoint and all other metadata.
         "_acpmux/peer_reconnect": .object([

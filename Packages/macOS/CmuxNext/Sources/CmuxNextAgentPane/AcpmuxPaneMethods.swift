@@ -155,6 +155,11 @@ nonisolated enum AcpmuxPaneMethods {
         // it names (hub/locate.rs). Read only, one `query`; the pane already lists every session
         // (`_acpmux/sessions`), so it learns nothing new.
         "_acpmux/resolve",
+        // The composer's folder browser (folderBrowse.ts, RemoteFolderBrowser.tsx; acpmux
+        // server/browse.rs, hq#7442 row 4): one folder's entries on this Mac or on a peer the page
+        // names. Names and kinds only (``replyShapes``), never a file's contents; a peer lists only
+        // inside the folders it may start a chat in.
+        "_acpmux/browse",
         // Use tools in the summary's Sources + (direct.ts setTool, cx-thur3): turns one of a chat's
         // MCP servers off or on again for that chat only; acpmux restarts its Claude Code and
         // resumes it (now, after the running turn, or at its next start).

@@ -167,6 +167,7 @@ import { cloudChatRecoveryActive, cloudChatUnavailable, type CloudChatIdentity }
 import { cloudSendWakes, cloudTypingWakes, type CloudWakeState } from "./cloudWake";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
+import type { BrowseFolders } from "./folderBrowse";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
 import { answerFromHome } from "./HomeInbox";
 import { HomeLists } from "./HomeLists";
@@ -8729,6 +8730,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       void requestFolder(cwd, start, text ? () => isCurrent() && setDraft(text) : undefined);
     else start(startFolder);
   };
+  // The page's daemon lists a directory of itself or a peer; no client yet (a page booting) fails the
+  // listing, which the browser says, as a machine that does not answer.
+  const browseFolders = useCallback<BrowseFolders>(
+    (params) =>
+      directClient.current?.browse(params) ??
+      // l10n-allow: internal; the browser shows its own localized line for it.
+      Promise.reject(Object.assign(new Error("not connected"), { code: "native.not_connected" })),
+    [],
+  );
   const loadNewTabProjects = useCallback(
     () =>
       callNative<{ projects?: string[]; repos?: unknown; machine?: boolean }>("project.list").then((result) => {
@@ -9961,6 +9971,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // panel lists them before its first prompt (cx-hkat).
             projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
             {...(machineFolders ? { machineFolders } : {})}
+            // A new chat on another machine browses that machine's folders (`_acpmux/browse`).
+            {...(freshChat && !quick ? { browseFolders } : {})}
             // An unsent chat's Add folder…: folders it sees beside its project, or beside its private
             // folder with none (Leo, 2026-11-03: "and you can also just start with nothing").
             {...(freshChat && !quick && !snapshot.sessionId

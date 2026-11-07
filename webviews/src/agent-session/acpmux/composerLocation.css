@@ -1668,3 +1668,31 @@
 .acpmux-extra-folder-remove { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; color: var(--agent-muted); }
 .acpmux-extra-folder-remove:hover,
 .acpmux-extra-folder-remove:focus-visible { color: var(--agent-text); }
+
+/* A machine's folders, browsed in place in the folder menu (RemoteFolderBrowser.tsx). It takes the
+   size the menu had, so the switch from the list moves no edge; the rows scroll between a fixed
+   header, field and Use row. */
+.acpmux-browse { display: flex; flex-direction: column; min-width: 200px; max-width: 320px; box-sizing: border-box; }
+.acpmux-browse-head { display: flex; flex: none; align-items: center; gap: 4px; min-height: 32px; padding: 0; }
+.acpmux-browse-up { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 24px; height: 24px; border: 0; background: none; color: var(--agent-muted); }
+.acpmux-browse-up:hover, .acpmux-browse-up:focus-visible { color: var(--agent-text); }
+.acpmux-browse-title { min-width: 0; }
+.acpmux-browse-title .acpmux-menu-description { direction: rtl; text-align: left; }
+.acpmux-browse-crumbs { display: flex; min-width: 0; align-items: center; gap: 0; overflow-x: auto; color: var(--agent-muted); white-space: nowrap; scrollbar-width: none; }
+.acpmux-browse-crumb { flex: none; padding: 0 4px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; }
+.acpmux-browse-crumb[aria-current] { color: var(--agent-text); }
+.acpmux-browse-crumb:hover { background: var(--acpmux-menu-hover); }
+.acpmux-browse-path { flex: 1; min-width: 0; height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: color-mix(in srgb, var(--agent-text) 6%, transparent); color: inherit; font: inherit; }
+.acpmux-browse-filter { flex: none; }
+.acpmux-browse-rows { flex: 1; min-height: 32px; overflow-y: auto; border-top: 0.5px solid color-mix(in srgb, var(--agent-text) 12%, transparent); padding-top: 4px; }
+.acpmux-browse-row { display: flex; align-items: center; gap: 0; height: 28px; border: 0; background: none; color: inherit; font: inherit; }
+.acpmux-browse-row[data-highlighted] { background: var(--acpmux-menu-hover); }
+.acpmux-browse-row[aria-disabled] { color: var(--agent-muted); }
+.acpmux-browse-row .acpmux-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-browse-chevron { display: inline-flex; flex: none; color: var(--agent-muted); opacity: 0; }
+.acpmux-browse-row[data-highlighted] .acpmux-browse-chevron { opacity: 1; }
+.acpmux-browse-note { flex: none; margin: 4px 0 0; padding: 0 8px; color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-browse-use { flex: none; }
+.acpmux-browse-use:disabled { color: var(--agent-muted); }
+/* The list's own content, measured when the browser takes its place; it adds no box of its own. */
+.acpmux-location-content { display: contents; }
