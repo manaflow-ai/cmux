@@ -102,6 +102,13 @@ uint8_t cmux_pane_edge_split_axis(uint8_t edge);
  *   daemon_move_index  {visible, moving, index, held} -> {final, current}
  * Layout nodes and columns use the daemon's wire shapes. Called per intent
  * apply and overlay restore, never per frame. */
+/* New > Kind > Placement, operation "new_placement" of cmux_layout_reducer_json
+ * (cmux-layout-reducer new_placement.rs): open a terminal, browser, agent chat
+ * or New Tab Page at one of the fork's ten places.
+ *   {kind, placement, tabSplit?} -> {op, edge?, left?, make}
+ * op is split (edge right|left|top|bottom), column (left), row, tab,
+ * workspace or window; make is in_place or made_then_moved. Called once per
+ * New action run. */
 /* Focus operations of cmux_layout_reducer_json (cmux-focus-core wire.rs):
  *   focus_input_world   InputObservation -> {violations:[{invariant,window?,detail}], unsettled:[window]}
  *   focus_input_step    {old, event, new, window?} (FocusState read views, a FocusEvent) -> {violations}
