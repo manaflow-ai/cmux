@@ -114,6 +114,53 @@ struct UpdatedCardHoverPreviewTests {
         host.configure(nil)
     }
 
+    /// Review F3 of #37615: a card of higher priority (here Now Playing) takes the slot while the
+    /// preview is open. The hidden card is no longer under the pointer: its x hides and the page hears
+    /// the pointer leave, so it closes the preview and hands the room back, and the card comes back
+    /// closed when the slot is its again.
+    @Test func aCardHiddenByTheSlotTellsThePageThePointerLeft() throws {
+        UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightKey)
+        UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightsKey)
+        defer {
+            UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightKey)
+            UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightsKey)
+        }
+        let surfaces = FakeSurfaces()
+        let model = SidebarModel(sections: [])
+        model.updatedCard = Self.card
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.updateSurfaces = surfaces
+        let host = sidebar.updatedCardView
+        host.configure(Self.card)
+        let island = try #require(surfaces.islands.first)
+        island.report(height: 48, overlay: 0)
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(!host.isHidden)
+
+        host.setHovered(true)
+        island.report(height: 48, overlay: 248)
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(island.pointer == [true])
+
+        let labels = SidebarNowPlaying.Labels(play: "Play", pause: "Pause", previous: "Previous", next: "Next")
+        sidebar.nowPlayingCardView.configure(SidebarNowPlaying(title: "Weightless", isPlaying: true, labels: labels))
+        sidebar.needsLayout = true
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(host.isHidden, "Now Playing has the slot")
+        #expect(island.pointer == [true, false], "the page hears the pointer leave the hidden card")
+        #expect(!host.isHovered)
+        #expect(!host.closeShown, "the hidden card's x does not come back with it")
+
+        sidebar.nowPlayingCardView.configure(nil)
+        island.report(height: 48, overlay: 0)
+        sidebar.needsLayout = true
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(!host.isHidden)
+        #expect(island.pointer == [true, false], "the card comes back closed until the pointer moves onto it")
+        host.configure(nil)
+    }
+
     /// Through the App's real island and page provider: the page hears the pointer (now, then each
     /// change) and the room its preview asks for reaches the host.
     @Test func theAppsIslandStreamsThePointerAndTakesThePreviewsRoom() async throws {
