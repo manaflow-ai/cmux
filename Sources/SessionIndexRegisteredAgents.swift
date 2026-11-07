@@ -233,6 +233,7 @@ struct GrokSessionLocator {
 extension SessionIndexStore {
     private struct RegisteredAgentJSONLMetadata {
         var title: String = ""
+        var entrypoint: String?
         var cwd: String?
         var branch: String?
         var sessionId: String?
@@ -248,6 +249,7 @@ extension SessionIndexStore {
 
     private struct GrokSessionMetadata {
         var title: String = ""
+        var entrypoint: String?
         var model: String?
         var permissionMode: String?
         var sandboxMode: String?
@@ -362,6 +364,7 @@ extension SessionIndexStore {
                 agent: agent,
                 sessionId: sessionId,
                 title: metadata.title,
+                entrypoint: metadata.entrypoint,
                 cwd: cwd,
                 gitBranch: metadata.branch,
                 pullRequest: nil,
@@ -524,6 +527,7 @@ extension SessionIndexStore {
                 agent: .registered(RegisteredSessionAgent(registration: registration)),
                 sessionId: sessionId,
                 title: metadata.title,
+                entrypoint: metadata.entrypoint,
                 cwd: metadata.cwd,
                 gitBranch: metadata.branch,
                 pullRequest: nil,
@@ -693,6 +697,9 @@ extension SessionIndexStore {
             if metadata.title.isEmpty {
                 metadata.title = grokTitle(in: object) ?? ""
             }
+            if metadata.entrypoint == nil {
+                metadata.entrypoint = firstString(in: object, keys: ["entrypoint", "entryPoint"])
+            }
             if metadata.model == nil {
                 metadata.model = firstString(in: object, keys: ["model", "modelId", "modelID", "model_id"])
                     ?? firstString(
@@ -746,6 +753,9 @@ extension SessionIndexStore {
         forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
             if metadata.sessionId == nil {
                 metadata.sessionId = firstString(in: object, keys: registeredJSONLSessionIDKeys())
+            }
+            if metadata.entrypoint == nil {
+                metadata.entrypoint = firstString(in: object, keys: ["entrypoint", "entryPoint"])
             }
             if metadata.cwd == nil {
                 metadata.cwd = firstString(in: object, keys: registeredJSONLCWDKeys())
