@@ -519,9 +519,9 @@ final class CloudService {
         do {
             let list = try await appServerMachines()
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
-            machines.cloudLimits = nil
             lastError = nil
             reconcile(list, read: read, connectsAtRead: connectsAtRead)
+            readPlan(generation: generation, account: account)
             changes.listed(machines.cloud.map(\.machine)) { [weak self] in _ = await self?.refresh() }
             hasLoadedMachines = true
             loadedAccount = account
@@ -534,6 +534,17 @@ final class CloudService {
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
             return false
+        }
+    }
+
+    /// The team's plan (`cloud.plan.get`) as the limits every plan gate reads (the Chief's Computer
+    /// tab, the create gate, the phone's Cloud links), after the list it belongs to. The list no longer
+    /// carries them; a plan that cannot be read keeps the last one, so a blip shows no paywall.
+    private func readPlan(generation: Int, account: [String?]) {
+        Task { [weak self] in
+            guard let self, let answer = try? await appOps("cloud.plan.get", .object([:]), nil, .script),
+                  listGeneration == generation, listAccount == account, auth.isSignedIn else { return }
+            machines.cloudLimits = CloudMachineLimits(nextPlan: answer)
         }
     }
 
