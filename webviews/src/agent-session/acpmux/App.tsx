@@ -64,7 +64,8 @@ import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
-import { ContextScreen, type ContextOverride } from "./context/ContextScreen";
+import { ContextScreen } from "./context/ContextScreen";
+import { contextAccess, contextSave } from "./context/contextAccess";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import {
   injectedNewTabContext,
@@ -4578,8 +4579,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A Usage row opens that chat, this Mac's or a peer's, beside this one or in the tab showing it.
     onOpenChat: openSenderChat,
     onCompact: compactChat,
-    // acpmux hands cmux's prompt text and its editing only to this Mac's app (server/requests/context.rs).
-    onViewPrompt: quick || snapshot.origin !== "local" || !snapshot.sessionId ? undefined : openContext,
+    // Only where the chat's daemon admits this connection to its context (context/contextAccess.ts).
+    onViewPrompt: quick || !contextAccess(snapshot) ? undefined : openContext,
     onShowUsage: refreshUsage,
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
@@ -10373,16 +10374,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       </SubagentClockContext.Provider>
     </SubagentStopContext.Provider>
   );
+  const contextSaveFn = contextSave(snapshot, directClient.current, contextSessionId);
   const contextPage = (
     <ContextScreen
       load={loadContext}
-      {...(snapshot.origin === "local" && directClient.current && contextSessionId
-        ? {
-            save: (change: ContextOverride) =>
-              directClient.current?.setContextOverride(change, contextSessionId) ??
-              Promise.reject(new Error(translate("error.notOpen"))),
-          }
-        : {})}
+      {...(contextSaveFn ? { save: contextSaveFn } : {})}
       onClose={() => setContextOpen(false)}
     />
   );
