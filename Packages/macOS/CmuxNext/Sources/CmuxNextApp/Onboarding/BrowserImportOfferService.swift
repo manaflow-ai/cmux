@@ -184,10 +184,3 @@ final class BrowserImportOfferService {
         }
     }
 }
-
-/// A browser on this Mac that cmux can import from, with its app icon
-/// (`InstalledImportBrowsers` finds them).
-struct InstalledImportBrowser {
-    let browser: ImportBrowser
-    let icon: NSImage
-}
