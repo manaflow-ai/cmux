@@ -394,9 +394,10 @@ for (const agentFamily of ["claude", "codex"])
       const header = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
       expect(header.getAttribute("aria-expanded")).toBe("false");
       await act(async () => header.click());
-      // A live turn keeps its latest call on the continuous status line until the next step.
-      expect(container.querySelectorAll("[data-mixed-tool-steps] > .cv-step")).toHaveLength(working ? 4 : 5);
-      if (working) expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(true);
+      // A finished call stays in its run while the live line reads Thinking (#37635), so a live
+      // turn of finished calls lists every step, as the ended turn does.
+      expect(container.querySelectorAll("[data-mixed-tool-steps] > .cv-step")).toHaveLength(5);
+      expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
     });
 
 test("a click opens a long run with only a window's steps drawn, the rest reserved and drawn after the fold", async () => {
