@@ -98,8 +98,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
 
   const open = async (width: number, state: State) => {
     const page = await pane!.open({ width, height: 700 }, async (page) => {
-      if (state.look)
-        await page.addInitScript((look) => localStorage.setItem("cmux.composer.look", look), state.look);
+      if (state.look) await page.addInitScript((look) => localStorage.setItem("cmux.composer.look", look), state.look);
     });
     if (state.info === "push") await sessionInfoPushAlways(page);
     if (state.info !== "closed") await sessionInfo(page, true);

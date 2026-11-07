@@ -5802,10 +5802,17 @@ a.cv-sha:focus-visible {
    in place: it never slides, so the frames of its fade all draw it on the same pixels (Leo
    2026-10-28: "I don't want to see that fucking, like, jump to bottom button be jumping around").
    The 6px rise it once faded in with moved its box on each of the fade's frames, read as a jump the
-   moment the reader scrolled up. */
+   moment the reader scrolled up.
+   It stands on the composer's center line, not the stage's middle (Leo, 2026-11-07: "the jump to
+   bottom button is still not centered with the composer yet"). The composer card spans the column
+   from --cv-inset to --cv-inset-end (styles.css .acpmux-composer, computerUsePreview.css,
+   sessionInfo.css), and the stage and the dock are both .acpmux-main's width, so the same insets
+   give the button the card's center: while Session Info pushes the column left, or the computer use
+   preview takes its end, the button goes with the card, in the same frames of the push's slide
+   (--acpmux-session-info-shift). With no column (the gallery's bare stage) it is the middle. */
 .acpmux-jump-latest {
   position: absolute;
-  left: 50%;
+  left: calc((100% + var(--cv-inset, 0px) - var(--cv-inset-end, var(--cv-inset, 0px))) / 2);
   /* Over the bottom stack, which lies over the stage's foot (App.tsx passes its height). */
   bottom: calc(12px + var(--acpmux-dock-space, 0px));
   z-index: var(--layer-sticky);
