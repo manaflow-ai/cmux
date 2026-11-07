@@ -201,6 +201,7 @@ Socket control and automation settings from Settings > Automation.
 | `automation.canonicalAgentScratch` | boolean | `false` | Use a cmux-owned scratch directory for native agent panels, organized per session. |
 | `automation.piIntegration` | boolean | `true` | Enable cmux integration hooks for Pi. |
 | `automation.claudeBinaryPath` | string | `""` | Custom path to the claude binary. |
+| `automation.codexLaunchCommand` | string | `""` | Shell command prefix for new and restored Codex terminals, such as `subcodex`. Empty uses normal executable resolution. |
 | `automation.cursorIntegration` | boolean | `true` | Enable cmux integration hooks for Cursor. |
 | `automation.geminiIntegration` | boolean | `true` | Enable cmux integration hooks for Gemini. |
 | `automation.portBase` | integer | `9100` | Starting value for workspace CMUX_PORT assignments. |

@@ -12,6 +12,7 @@ public struct AutomationSection: View {
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
     @State private var codexModel: DefaultsValueModel<Bool>
+    @State private var codexLaunchCommandModel: DefaultsValueModel<String>
     @State private var piModel: DefaultsValueModel<Bool>
     @State private var claudePathModel: DefaultsValueModel<String>
     @State private var autoNamingModel: DefaultsValueModel<Bool>
@@ -40,6 +41,16 @@ public struct AutomationSection: View {
     @State private var automationRulesActionIsError = false
     @State private var automationRulesRefreshID = 0
     private struct SocketPasswordStatus: Equatable { let message: String; let isError: Bool }
+    /// Creates automation controls backed by the supplied settings stores and host actions.
+    ///
+    /// - Parameters:
+    ///   - defaultsStore: Store for ordinary persisted preference values.
+    ///   - jsonStore: Configuration store parameter; currently unused by this section.
+    ///   - secretStore: Store for the socket password.
+    ///   - catalog: Keys and defaults shared with the other settings surfaces.
+    ///   - errorLog: Sink for settings read/write failures.
+    ///   - hostActions: App-owned operations exposed by the settings window.
+    ///   - socketPolicyResolver: Resolver for effective socket access policy.
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
@@ -53,6 +64,10 @@ public struct AutomationSection: View {
         self.defaultsStore = defaultsStore
         self.hostActions = hostActions
         self.socketPolicyResolver = socketPolicyResolver
+        _codexLaunchCommandModel = State(initialValue: DefaultsValueModel(
+            store: defaultsStore,
+            key: catalog.automation.codexLaunchCommand
+        ))
         _socketPolicyResolution = State(initialValue: socketPolicyResolver.resolve())
         _socketPasswordModel = State(initialValue: SecretValueModel(
             store: secretStore,
@@ -88,6 +103,7 @@ public struct AutomationSection: View {
         _portRangeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portRange))
     }
     private static let columnWidth: CGFloat = 196
+    /// Renders the automation cards and keeps their observed settings and status projections current.
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation"), section: .automation)
@@ -143,7 +159,7 @@ public struct AutomationSection: View {
             ))
         }
         .task {
-            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, canonicalAgentScratchModel, agentMessagesModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, codexLaunchCommandModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, canonicalAgentScratchModel, agentMessagesModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
         }
         .task(id: automationRulesRefreshID) {
             await refreshAutomationRulesStatus()
@@ -362,6 +378,7 @@ public struct AutomationSection: View {
             SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
         }
     }
+    /// Presents Codex hook integration and the launch-command preference used by new or restored terminals.
     @ViewBuilder
     private var codexCard: some View {
         SettingsCard {
@@ -374,6 +391,20 @@ public struct AutomationSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsCodexHooksToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("automation.codexLaunchCommand"),
+                String(localized: "settings.automation.codex.launchCommand", defaultValue: "Codex Launch Command", bundle: .module),
+                subtitle: String(localized: "settings.automation.codex.launchCommand.subtitle", defaultValue: "Custom command for new and restored Codex terminals. Shell commands use your login shell; executable files run directly. Leave empty to use PATH.", bundle: .module)
+            ) {
+                TextField(
+                    String(localized: "settings.automation.codex.launchCommand.placeholder", defaultValue: "e.g. subcodex", bundle: .module),
+                    text: Binding(get: { codexLaunchCommandModel.current }, set: { codexLaunchCommandModel.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+                .accessibilityIdentifier("SettingsCodexLaunchCommand")
             }
             SettingsCardDivider()
             SettingsCardNote(String(localized: "settings.automation.codex.note", defaultValue: "When enabled, cmux wraps the codex command to inject session tracking and notification hooks. Disable if you prefer to manage Codex hooks yourself. cmux still tracks live Codex sessions it can observe even when this is off. To also track Codex launched through a custom launcher that bypasses the wrapper (e.g. a subrouter), run `cmux hooks setup --agent codex`, which installs hooks into ~/.codex/hooks.json."))

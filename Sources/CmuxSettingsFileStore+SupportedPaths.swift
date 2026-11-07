@@ -171,6 +171,7 @@ extension CmuxSettingsFileStore {
         "automation.claudeCodeIntegration",
         "automation.piIntegration",
         "automation.claudeBinaryPath",
+        "automation.codexLaunchCommand",
         "automation.codexIntegration",
         "automation.canonicalAgentScratch",
         "automation.workspaceAutoNaming",

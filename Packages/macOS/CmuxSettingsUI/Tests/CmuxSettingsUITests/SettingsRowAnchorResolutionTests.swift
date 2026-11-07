@@ -72,6 +72,7 @@ struct SettingsRowAnchorResolutionTests {
         "chief.model",
         "automation.agentAutoResume",
         "automation.claudeBinaryPath",
+        "automation.codexLaunchCommand",
         "automation.claudeCodeIntegration",
         "automation.piIntegration",
         "automation.canonicalAgentScratch",
