@@ -27,6 +27,9 @@
 //! the app (`cmux_agent_cursor_visibility`, [`agent_cursor`]: typed, no JSON,
 //! per input event and per motion frame),
 //! the sidebar document mirror (`cmux_sidebar_mirror_*`, [`sidebar_mirror`]),
+//! the sidebar's drop rules per drag (`cmux_sidebar_drag_*`,
+//! `cmux_sidebar_tab_drag_*`, `cmux_sidebar_base_y`, [`drag_handle`]: the rows
+//! cross once per drag, each move with numbers only),
 //! the sidebar row face (`cmux_sidebar_face_*`, [`sidebar_face`]: typed
 //! requests and replies, no JSON), and the column scroll reducer
 //! (`cmux_scroll_*`, [`scroll`]: a handle per scrolling strip, typed events
@@ -41,6 +44,7 @@ pub mod close_focus;
 pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
+pub mod drag_handle;
 pub mod focus;
 mod imessage;
 pub mod input;
