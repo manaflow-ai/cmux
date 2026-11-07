@@ -391,7 +391,7 @@ fn chief_script_runs_pages_every_summary_and_reads_a_runs_steps() {
     for index in 0..total {
         chief.request(
             "conversation-run-append",
-            super::conversation_runs::append(
+            append(
                 &conversation,
                 json!({"id": format!("turn:runs:{index}"), "status": "done",
                        "started_at": 1_000 + index / 2 * 2, "title": format!("run {index}")}),
@@ -401,7 +401,7 @@ fn chief_script_runs_pages_every_summary_and_reads_a_runs_steps() {
     }
     chief.request(
         "conversation-run-append",
-        super::conversation_runs::append(
+        append(
             &conversation,
             json!({"id": "turn:runs:steps", "status": "done", "started_at": 5_000}),
             json!([{"id": "tool:1", "kind": "tool", "status": "done",
