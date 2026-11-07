@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42371773324",
+  "recorded_at": "2026-11-07T12:23:52Z",
+  "reason": "cmux-tui 26ab56ac6bcf changes the image's cmux-tui (pinned 6ce59d55bc1e)",
+  "dry_run": false,
+  "cmux_tui": "26ab56ac6bcf57d97443b471a3584f9c71a95b4d",
+  "fixes": [
+    {
+      "sha": "bd6bfc6aa80ee11caca42fee21c3f2563f9ae523",
+      "mergedAt": "2026-11-07T04:02:59-08:00",
+      "subject": "cmux-sdk-ffi: the SDK's daemon client as the app's C ABI (#37370)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T12:23:52Z",
+    "snapshot_id": "sh-fe72d0a2fc1a4c6b8476c98087fa2c55",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42371773324): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "629c83554da180212f4b0284ed263510638dbf76",
+    "image": "cloud-native-auto-26ab56ac-42371773324-1",
+    "revision": "ci-42371773324-1",
+    "at": "2026-11-07T12:23:52Z"
+  },
+  "rolled_back": false
+}
