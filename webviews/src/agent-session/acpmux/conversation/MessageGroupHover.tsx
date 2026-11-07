@@ -12,7 +12,7 @@ import { SenderMark } from "./IncomingMessageCard";
 import { messagePreview } from "./AgentMessageRow";
 import type { IncomingMessage } from "./incomingMessage";
 import type { InboxThread } from "./inboxNotice";
-import { withoutRelayLabel } from "./relayEnvelope";
+import { withoutRelayLabelOfMessage } from "./relayEnvelope";
 import { senderName } from "./senderIdentity";
 import { UnverifiedMark } from "./UnverifiedMark";
 import "./MessageGroupHover.css";
@@ -104,7 +104,7 @@ export function inboxHover(threads: readonly InboxThread[]): GroupHoverList {
 /// A message's first lines as they read, for two lines in the hover: each line's Markdown marks out
 /// (messagePreview), the broker's label out, joined.
 function hoverText(text: string): string {
-  return withoutRelayLabel(text)
+  return withoutRelayLabelOfMessage(text)
     .split("\n")
     .filter((line) => line.trim())
     .slice(0, 3)
@@ -126,7 +126,7 @@ export function MessageGroupHover({ list }: { list: GroupHoverList }) {
   return (
     <div className="cv-group-hover" data-look={look}>
       {listed.map((message, index) => {
-        const preview = look === "messages" ? hoverText(message.text) : messagePreview(withoutRelayLabel(message.text));
+        const preview = look === "messages" ? hoverText(message.text) : messagePreview(withoutRelayLabelOfMessage(message.text));
         return (
           <div key={`${message.msgId ?? ""}:${index}`} className="cv-group-hover__item">
             <div className="cv-group-hover__who">

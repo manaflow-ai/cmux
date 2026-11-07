@@ -1,6 +1,6 @@
 // The thread minimap's model: one tick per user message at the pane's left edge
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
-import { withoutRelayLabel } from "../conversation/relayEnvelope";
+import { withoutRelayLabelOfMessage } from "../conversation/relayEnvelope";
 import { senderName } from "../conversation/senderIdentity";
 import { transcriptColumn, type AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
@@ -579,7 +579,7 @@ export function promptSender(row: AcpmuxRow): string | undefined {
 /// it (conversation/relayEnvelope.ts), the person's as written.
 function promptText(row: AcpmuxRow): string {
   const text = (row.text ?? "").trim();
-  return row.incoming?.kind === "message" ? withoutRelayLabel(text).trim() : text;
+  return row.incoming?.kind === "message" ? withoutRelayLabelOfMessage(text).trim() : text;
 }
 
 /// The turns of `rows`, the ticks they draw, and the rows they were read from.
