@@ -369,16 +369,16 @@ impl Machine {
             });
         }
         match answer {
-            Err("append_failed") => {
+            Err(e @ "append_failed") => {
                 self.holding = true;
-                return answer;
+                return Err(e);
             }
-            Err(_) => {
+            Err(e) => {
                 self.holding = false;
                 if std::mem::take(&mut self.pending) {
                     self.recover();
                 }
-                return answer;
+                return Err(e);
             }
             Ok(_) => self.holding = false,
         }
