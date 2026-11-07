@@ -156,7 +156,10 @@ fn an_agent_terminal_workspace_goes_below_its_creator() {
     let ids = [&a, &b, &x].map(String::as_str);
     let [a, b, x] = ids;
     assert_eq!(listed(&mux, &ids), [a, x, b].map(str::to_string).to_vec());
-    assert_eq!(workspace(&mux, x)["extra"]["created_by"], json!({"kind": "script", "workspace": a}));
+    assert_eq!(
+        workspace(&mux, x)["extra"]["created_by"],
+        json!({"kind": "script", "workspace": a})
+    );
     mux.shutdown();
 }
 
