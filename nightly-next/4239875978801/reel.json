@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "build": "4239875978801",
+  "notes": "notes/4239875978801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37921,
+      "title": "Sidebar: a restored row keeps its live height, so a restart doesn't flicker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37776,
+      "title": "Agent chat: a repository's short name in a reply links to its pull request (subrouter-internal#54)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37960,
+      "title": "gateway-e2e: Codex names the stub's model; the Mac job waits for its client",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37834,
+      "title": "cmux-next: one entry per line in Package.swift dependency lists and the page lists, so additions merge by line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37883,
+      "title": "Agent chat: another agent's message and the calls beside it stay in a finished turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37159,
+      "title": "Cloud start-chat: --login, --environment, and no --prompt (the start matrix axes)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37923,
+      "title": "Chief pet: a working chat looks around as it thinks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37862,
+      "title": "New Tab: a held permission pick survives the first send; a leaving menu row closes fully",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37900,
+      "title": "Background tasks: a command renders as a card with its full command and live output",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37787,
+      "title": "Sidebar: a drag's start moves no row; an empty Pinned opens at the top edge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37867,
+      "title": "bench: time lossless discard and restore of hidden agent chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37592,
+      "title": "settings: the Browser rows move to schemas/settings/source (browser.json, browser-app.json)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37864,
+      "title": "Agent chat: a tool call opened or closed at the bottom always plays its fold",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37635,
+      "title": "Agent pane live line: compaction is not Thinking; Thinking the moment a call completes; times named",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37927,
+      "title": "gateway-e2e: time the gateway route (hop cost); fix run 7's no-login false positive",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37352,
+      "title": "cmux NEXT: the agent chat placement, chat dock, column and agent chat handler rules move to cmux-window-rules",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37946,
+      "title": "ci(cmux-tui): publish-tree's pid loops survive an empty array on bash 3.2",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37950,
+      "title": "docs(next): regenerate the palette reference for Show in Mini",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37951,
+      "title": "cu-driver-bench: print the guest's progress every 5 minutes",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
