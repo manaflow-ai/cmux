@@ -49,9 +49,12 @@ Page to native (`callNative`):
 `composer.capture` and `capture.record.start` keep the existing rule: the page asks only after the
 person's own click or key in the pane (`gestures.consume()`).
 
-A recording stops by itself after 5 minutes (`maxSeconds`), when the window closes, or when the
-app quits, and its stream and writer are released then. A recording that is never attached is
-deleted with the temporary folder.
+Only the pane whose page started a recording may stop it and take its movie; another pane's
+`capture.record.stop` answers `{cancelled}`. A collected movie of a chat on this Mac moves into
+that chat's Chat Uploads folder, so a draft or a sent message keeps its video past a relaunch, as
+long as the chat's other uploads. A recording stops by itself after 5 minutes (`maxSeconds`), when
+the window closes, or when the app quits, and its stream and writer are released then. A recording
+that is never collected is deleted with the temporary folder, after a day.
 
 ## Not in this step
 

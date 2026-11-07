@@ -19,7 +19,7 @@ extension AgentPaneCapture {
             }
             return await AgentPaneRecorder.shared.start(in: window, for: model, cursor: cursor, clicks: clicks)
         case .recordStop:
-            let reply = await AgentPaneRecorder.shared.stop()
+            let reply = await AgentPaneRecorder.shared.stop(for: model)
             // The page attaches the movie as a local file link: this chat's video tile and open may read it.
             if let path = (reply["value"] as? [String: Any])?["path"] as? String { model.droppedPaths.retain([path]) }
             return reply

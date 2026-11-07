@@ -16,20 +16,40 @@ extension AgentPaneRecorder {
     }
 
     /// Pure: `path` as a file URL when it is absolute, has no empty, `.` or `..` part, lies under
-    /// `folder` (as spelled, or under `/private` as realpath spells `/var` and `/tmp`) and is
-    /// exactly one of `written`.
-    nonisolated static func owned(_ path: String, in folder: URL, written: Set<String>) -> URL? {
+    /// one of `folders` (as spelled, or under `/private` as realpath spells `/var` and `/tmp`) and
+    /// is exactly one of `written`.
+    nonisolated static func owned(_ path: String, in folders: [URL], written: Set<String>) -> URL? {
         guard path.hasPrefix("/"), !path.utf8.contains(0), written.contains(path) else { return nil }
         let parts = path.split(separator: "/", omittingEmptySubsequences: false).dropFirst()
         guard !parts.contains(where: { $0 == ".." || $0 == "." || $0.isEmpty }) else { return nil }
-        let root = folder.path.hasSuffix("/") ? folder.path : folder.path + "/"
-        guard path.hasPrefix(root) || path.hasPrefix("/private" + root) else { return nil }
-        return URL(fileURLWithPath: path)
+        let inside = folders.contains { folder in
+            let root = folder.path.hasSuffix("/") ? folder.path : folder.path + "/"
+            return path.hasPrefix(root) || path.hasPrefix("/private" + root)
+        }
+        return inside ? URL(fileURLWithPath: path) : nil
+    }
+
+    /// Off the main actor: moves `movie` into `upload` (made here) and removes its temporary
+    /// folder; nil, with `movie` left in place and `upload` gone, when it could not.
+    nonisolated static func keep(_ movie: URL, in upload: URL) -> URL? {
+        let kept = upload.appendingPathComponent(movie.lastPathComponent)
+        let files = FileManager.checked
+        do {
+            try files.createDirectory(at: upload, withIntermediateDirectories: true)
+            try files.moveItem(at: movie, to: kept)
+        } catch {
+            try? files.removeItem(at: upload)
+            return nil
+        }
+        try? files.removeItem(at: movie.deletingLastPathComponent())
+        return kept
     }
 
     /// Off the main actor: removes the folders in `folder` that are not `keeping` (the movies this
-    /// process handed out, and the one starting) and are over a day old. Another cmux on this Mac
-    /// writes here too; a day is past any recording it still holds unattached.
+    /// process handed out, and the one starting) and are over a day old. A handed-out movie of a
+    /// local chat lives in its Chat Uploads folder, not here (``keep(_:in:)``); what stays here is
+    /// one nobody was given, or one a chat on another computer had copied. Another cmux on this
+    /// Mac writes here too; a day is past any recording it still holds unattached.
     nonisolated static func sweep(_ folder: URL, keeping: Set<String>, now: Date) {
         let files = FileManager.checked
         guard let items = try? files.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }

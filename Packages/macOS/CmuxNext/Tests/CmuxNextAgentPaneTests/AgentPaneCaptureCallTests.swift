@@ -80,13 +80,13 @@ struct AgentPaneCaptureCallTests {
         let folder = URL(fileURLWithPath: "/var/folders/xy/T/cmux-capture", isDirectory: true)
         let movie = "/private/var/folders/xy/T/cmux-capture/ID/Recording 2026-11-07 09.04.05.mp4"
         let written: Set<String> = [movie]
-        #expect(AgentPaneRecorder.owned(movie, in: folder, written: written)?.path == movie)
+        #expect(AgentPaneRecorder.owned(movie, in: [folder], written: written)?.path == movie)
         // Not written by it, though inside its folder; outside the folder; a dotted or relative spelling.
-        #expect(AgentPaneRecorder.owned("/private/var/folders/xy/T/cmux-capture/ID/other.mp4", in: folder, written: written) == nil)
-        #expect(AgentPaneRecorder.owned("/etc/passwd", in: folder, written: written.union(["/etc/passwd"])) == nil)
+        #expect(AgentPaneRecorder.owned("/private/var/folders/xy/T/cmux-capture/ID/other.mp4", in: [folder], written: written) == nil)
+        #expect(AgentPaneRecorder.owned("/etc/passwd", in: [folder], written: written.union(["/etc/passwd"])) == nil)
         let dotted = "/private/var/folders/xy/T/cmux-capture/ID/../../../../etc/passwd"
-        #expect(AgentPaneRecorder.owned(dotted, in: folder, written: written.union([dotted])) == nil)
-        #expect(AgentPaneRecorder.owned("cmux-capture/ID/a.mp4", in: folder, written: ["cmux-capture/ID/a.mp4"]) == nil)
+        #expect(AgentPaneRecorder.owned(dotted, in: [folder], written: written.union([dotted])) == nil)
+        #expect(AgentPaneRecorder.owned("cmux-capture/ID/a.mp4", in: [folder], written: ["cmux-capture/ID/a.mp4"]) == nil)
     }
 
     /// Movies nobody attached go after a day: kept ones, the one starting and recent ones stay.
@@ -103,6 +103,26 @@ struct AgentPaneCaptureCallTests {
         AgentPaneRecorder.sweep(root, keeping: ["kept"], now: Date())
         let left = try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
         #expect(left == ["fresh", "kept"])
+    }
+
+    /// A handed-out movie moves into its chat's upload folder, out of the folder the sweep clears,
+    /// and its temporary folder goes; a move that fails leaves the movie where it was.
+    @Test func aCollectedMovieMovesIntoItsChatUploadFolder() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-keep-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let movie = root.appendingPathComponent("capture/ID/Recording.mp4")
+        try FileManager.default.createDirectory(at: movie.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("movie".utf8).write(to: movie)
+        let upload = root.appendingPathComponent("uploads/sessions/S/U")
+        let kept = try #require(AgentPaneRecorder.keep(movie, in: upload))
+        #expect(kept == upload.appendingPathComponent("Recording.mp4"))
+        #expect(try Data(contentsOf: kept) == Data("movie".utf8))
+        #expect(!FileManager.default.fileExists(atPath: movie.deletingLastPathComponent().path))
+        #expect(AgentPaneRecorder.owned(kept.path, in: [root.appendingPathComponent("capture"), root.appendingPathComponent("uploads")], written: [kept.path]) == kept)
+        // A movie that is gone: nothing moves and no upload folder is left.
+        let other = root.appendingPathComponent("uploads/sessions/S/V")
+        #expect(AgentPaneRecorder.keep(movie, in: other) == nil)
+        #expect(!FileManager.default.fileExists(atPath: other.path))
     }
 
     /// A moved window is filmed where it is now: its part of the display, from the display's corner.

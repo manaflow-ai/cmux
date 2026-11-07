@@ -87,7 +87,11 @@ export function useCaptureBar(host: CaptureBarHost) {
             // cmux took it: its chip wears cmux's icon (composer/attachmentSources.ts).
             const file = withSource(new File([bytes], name, { type: mimeType }), attachmentSource(shot.source));
             const read = await readAttachment(file, true);
-            if ("id" in read) attach(read);
+            // Reading it takes a moment: a chat switched meanwhile gets no chip, the clipboard does.
+            if (hostRef.current.chat() !== takenFor) {
+              await callNative("capture.copy", { data: shot.data, mimeType });
+              notice(say("capture.copied"));
+            } else if ("id" in read) attach(read);
           }
           finish();
         })

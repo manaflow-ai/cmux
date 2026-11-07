@@ -49,6 +49,10 @@ final class AgentPaneRecorder {
     private var press: Press?
     /// The chat whose page started the running recording: it hears when the recording ends by itself.
     private weak var recordingView: AgentPaneView?
+    /// The pane whose page started it, the only one that may stop it and take the movie, and its
+    /// chat then, whose Chat Uploads folder keeps the movie.
+    private weak var recordingModel: AgentPaneModel?
+    private var recordingSession: String?
 
     func pressed(_ view: AgentPaneView, paneImage: (@MainActor () async -> CGImage?)?) {
         press = Press(view: view, paneImage: paneImage)
@@ -102,6 +106,8 @@ final class AgentPaneRecorder {
         }
         current = recording
         recordingView = view(for: model)
+        recordingModel = model
+        recordingSession = model.onLocalPaths?() == true ? model.sessionId : nil
         // The stream follows the window when it moves or resizes; a close or the quit ends it.
         observers = [NSWindow.willCloseNotification, NSWindow.didMoveNotification, NSWindow.didResizeNotification].map { name in
             MainActorObservation(name, object: window) { [weak window] in
@@ -114,15 +120,24 @@ final class AgentPaneRecorder {
         return AgentPaneReply.success(["started": true])
     }
 
-    /// Ends the recording and answers `{path, name, seconds}`, or `{cancelled: true}` when none
-    /// runs or it has no frame (its folder is removed then).
-    func stop() async -> [String: Any] {
-        guard let recording = current else { return AgentPaneReply.success(["cancelled": true]) }
+    /// Ends the recording `model`'s page started and answers `{path, name, seconds}`, or
+    /// `{cancelled: true}` when none runs, another pane started it (chat B's page never stops chat
+    /// A's recording or learns its file), or it has no frame (its folder is removed then). The movie
+    /// moves into its chat's Chat Uploads folder (``ChatUploadFolders``), which lives as long as the
+    /// chat's other uploads, so a draft or a sent message keeps its video past a relaunch.
+    func stop(for model: AgentPaneModel) async -> [String: Any] {
+        guard let recording = current, recordingModel === model else { return AgentPaneReply.success(["cancelled": true]) }
         current = nil
         removeObservers()
         guard let made = await recording.finish() else { return AgentPaneReply.success(["cancelled": true]) }
-        written.insert(made.path)
-        return AgentPaneReply.success(["path": made.path, "name": made.name, "seconds": made.seconds])
+        var path = made.path
+        if let upload = model.chatUploadFolders?.freshUpload(session: recordingSession) {
+            let movie = URL(fileURLWithPath: made.path)
+            let kept = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { Self.keep(movie, in: upload) }.value
+            if let kept { path = kept.path }
+        }
+        written.insert(path)
+        return AgentPaneReply.success(["path": path, "name": made.name, "seconds": made.seconds])
     }
 
     /// A recording ended (any path, on the main actor after it): its observers go. One that ended by
@@ -144,7 +159,9 @@ final class AgentPaneRecorder {
     }
 
     /// The file at `path` when this bridge wrote it; nil otherwise.
-    func owned(_ path: String) -> URL? { Self.owned(path, in: Self.folder, written: written) }
+    func owned(_ path: String) -> URL? {
+        Self.owned(path, in: [Self.folder] + (ChatUploadFolders.standard.map { [$0.root] } ?? []), written: written)
+    }
 
     private func removeObservers() {
         observers.forEach { $0.cancel() }
