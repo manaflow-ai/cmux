@@ -279,7 +279,7 @@ SECTIONS = [
         "source": "schemas/settings/source/appearance.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Appearance.generated.swift",
         "type": "AppearanceSettingsSchema",
-        "lists": {"appTheme": ("appTheme", None), "windowBackground": ("windowBackground", None), "tuning": ("tuning", None),
+        "lists": {"iconTheme": ("iconTheme", None), "appTheme": ("appTheme", None), "windowBackground": ("windowBackground", None), "tuning": ("tuning", None),
                   "look": ("look", None), "chromeStyle": ("chromeStyle", None), "lookMotion": ("lookMotion", None),
                   "panes": ("panes", None), "focusRing": ("focusRing", None)},
     },
