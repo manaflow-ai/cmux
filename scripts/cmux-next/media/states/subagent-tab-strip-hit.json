@@ -1,0 +1,127 @@
+{
+ "title": "Subagent panes open beside a chat; every pane's tab strip must take its own hover and right-click, never a Chromium page window over it (Leo 2026-11-07: a subagent tab with no close button whose right-click opened the chat's menu). Compare each strip (debug.pane_chrome) with the page windows (debug.window_list). Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/subagent-tab-strip-hit.json",
+ "launch_args": [
+  "--showcase"
+ ],
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Open a main workspace",
+   "cmux": [
+    "action",
+    "run",
+    "newTab",
+    "--name",
+    "Right column",
+    "--focus",
+    "--cwd",
+    "/tmp"
+   ]
+  },
+  {
+   "title": "Open a chat",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ]
+  },
+  {
+   "title": "Wait for the chat page",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "shot": false
+  },
+  {
+   "title": "Start the chat's session (the showcase mock answers)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Start the subagents"
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "2 subagents start (debug seed_rows fixture \"subagents\", agents 2)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "seed_rows",
+     "fixture": "subagents",
+     "count": 1,
+     "agents": 2
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Open subagent 1's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "open_subagent",
+     "index": 1
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "After subagent 1: pane strips (debug.pane_chrome)",
+   "rpc": {
+    "method": "debug.pane_chrome",
+    "params": {}
+   },
+   "shot": false
+  },
+  {
+   "title": "After subagent 1: Chromium page windows (debug.window_list)",
+   "rpc": {
+    "method": "debug.window_list",
+    "params": {}
+   },
+   "shot": false
+  },
+  {
+   "title": "Open subagent 2's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "open_subagent",
+     "index": 2
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "Where the two subagents landed",
+   "wait": 2
+  },
+  {
+   "title": "After both subagents: pane strips (debug.pane_chrome)",
+   "rpc": {
+    "method": "debug.pane_chrome",
+    "params": {}
+   },
+   "shot": false
+  },
+  {
+   "title": "After both subagents: Chromium page windows (debug.window_list)",
+   "rpc": {
+    "method": "debug.window_list",
+    "params": {}
+   },
+   "shot": false
+  }
+ ]
+}
