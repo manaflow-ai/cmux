@@ -163,9 +163,6 @@ public final class ControlSnapshotStore: Sendable {
             self?.resolve(id, with: nil)
         }
         defer { timer.cancel() }
-        // A stale snapshot (a publish put off until a layout motion lands) is built for this reader now: the publish that
-        // would resume it may not come until then.
-        if isStale, let refresh = refresher.withLock({ $0 }) { Task { await refresh() } }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 // Resume now when already satisfied or cancelled (the

@@ -397,7 +397,7 @@ final class NewTabSparePool {
     private var unparked: AgentPaneView? { slot.all.first { $0.superview == nil } }
 
     func warmNow() {
-        if targetLayout()?.deferringWhileMoving("NewTabSparePool.warm", on: fits, { [weak self] in self?.warmNow() }) == true { return } // never in a motion's frames
+        if targetLayout()?.deferringWhileMoving("NewTabSparePool.warm", on: fits, { [weak self] in self?.armWarmTimer() }) == true { return } // never in a motion's frames; its quiet input restarts at the landing
         if refills.settled() { schedulePrepare() } // the backstop ends an open whose page never reported its frame
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
