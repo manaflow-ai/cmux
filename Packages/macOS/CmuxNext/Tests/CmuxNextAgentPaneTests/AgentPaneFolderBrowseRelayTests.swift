@@ -95,7 +95,12 @@ struct AgentPaneFolderBrowseRelayTests {
     @Test func aLocalBrowseMustNameAFolderInsideTheRoots() throws {
         let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().path
         let scope = AcpmuxPathPolicy.Scope(roots: [root], fillCwd: root, workspaceID: "0f8a2c1e-5b3d-4e6f-9a7b-1c2d3e4f5a6b")
-        for params: [String: Any] in [["hidden": true], ["peer": "", "hidden": true], [:]] {
+        let shapes: [[String: Any]] = [
+            ["hidden": true], ["peer": "", "hidden": true], [:],
+            ["path": [String](), "hidden": true], ["path": [root], "hidden": true], ["path": "", "hidden": true],
+            ["path": 7], ["path": ["p": root]], ["peer": 5, "path": [String]()],
+        ]
+        for params in shapes {
             let frame = try Self.browse(params)
             #expect(AcpmuxPathPolicy.needsCheck(frame), "\(params)")
             guard case .failure(let refusal) = AcpmuxPathPolicy.checkNow(frame, scope: scope) else {

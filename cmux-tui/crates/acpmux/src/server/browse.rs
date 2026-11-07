@@ -14,7 +14,7 @@
 //! - One listing reads at most `SCAN_CAP` entries within `DEADLINE` and says which bound cut
 //!   it (`truncated`); a page holds at most `PAGE_MAX` of them.
 
-use super::{Conn, str_param};
+use super::Conn;
 use crate::hub::{Control, Hub};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
@@ -93,8 +93,15 @@ struct Ask {
 impl Ask {
     fn from(params: &Value) -> Result<Self, RpcError> {
         let count = |key: &str| params.get(key).and_then(Value::as_u64).map(|n| n as usize);
+        // No `path` (or null) is the top level; anything else must be a folder's name. An empty
+        // string or an array is refused, never read as "none" (that would list the home folder).
+        let path = match params.get("path") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(p)) if !p.is_empty() => Some(p.clone()),
+            Some(_) => return Err(refused("browse.path", "path must be a nonempty string")),
+        };
         Ok(Ask {
-            path: str_param(params, "path").filter(|p| !p.is_empty()).map(str::to_owned),
+            path,
             hidden: params.get("hidden").and_then(Value::as_bool) == Some(true),
             dirs_only: params.get("dirsOnly").and_then(Value::as_bool) == Some(true),
             offset: count("offset").unwrap_or(0),
@@ -564,6 +571,18 @@ mod tests {
         let reply =
             list(&Ask { dirs_only: true, ..ask(t.path()) }, None, SCAN_CAP, later()).unwrap();
         assert_eq!(names(&reply), ["b-dir"]);
+    }
+
+    #[test]
+    fn a_path_that_is_not_a_folder_name_is_refused_not_read_as_none() {
+        for path in [json!(""), json!([]), json!(["/"]), json!(7), json!({"p": "/"}), json!(true)] {
+            let Err(e) = Ask::from(&json!({"path": path, "hidden": true})) else {
+                panic!("{path} was taken as a path or as none");
+            };
+            assert_eq!(reason(e), "browse.path", "{path}");
+        }
+        assert!(Ask::from(&json!({"path": null})).unwrap().path.is_none());
+        assert!(Ask::from(&json!({})).unwrap().path.is_none());
     }
 
     #[test]

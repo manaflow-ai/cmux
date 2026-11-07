@@ -138,10 +138,11 @@ nonisolated enum AcpmuxPathPolicy {
             peerPath = path
             params = fields
         } else if method == "_acpmux/browse" {
-            // This Mac's folders: only one the page names, which the roots below hold it to. With
-            // none, acpmux would list the home folder, past every root.
+            // This Mac's folders: only one the page names as a nonempty string, which the roots
+            // below hold it to. With none (or an array, which the path walk passes when empty),
+            // acpmux would list the home folder, past every root.
             let fields = params as? [String: Any] ?? [:]
-            if (fields["peer"] as? String ?? "").isEmpty, fields["path"] == nil {
+            if (fields["peer"] as? String ?? "").isEmpty, (fields["path"] as? String ?? "").isEmpty {
                 return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
             }
         }
