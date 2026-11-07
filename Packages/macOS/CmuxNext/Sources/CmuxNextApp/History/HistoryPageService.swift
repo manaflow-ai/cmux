@@ -170,7 +170,7 @@ extension TabContentCache {
     }
 
     static func isAppPage(_ url: URL?) -> Bool {
-        HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
+        HistoryPageAddress.matches(url) || url?.isBookmarkPage == true || AgentActivityPageAddress.matches(url)
             || ScreenshotsPageAddress.matches(url) || VaultPageAddress.matches(url)
             || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url) || MachineBrowserRecord.matches(url)
     }
@@ -235,7 +235,7 @@ extension TabContentCache {
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }
-        if BookmarkPageAddress.matches(url) {
+        if url?.isBookmarkPage == true {
             let page = services.bookmarkPages.makePage(key: key, engine: engine, profile: profile)
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
             page.webPage?.onOpenExternal = { [weak self] target in self?.leaveAppPage(key, to: target) }

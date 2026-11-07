@@ -23,7 +23,7 @@ final class BookmarkPageService {
     func open(selecting id: String? = nil) {
         guard let window = services.windows.active else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
         for pane in window.content?.panes.values.map({ $0 }) ?? [] {
-            if let tab = pane.pane.tabs.first(where: { BookmarkPageAddress.matches($0.url.flatMap(URL.init(string:))) }) {
+            if let tab = pane.pane.tabs.first(where: { $0.url.flatMap(URL.init(string:))?.isBookmarkPage == true }) {
                 pane.select(StripTabID(tab.id))
                 if let id, let page = services.cache.existingBrowser(tab.id)?.tab as? BookmarkPageTab { page.reveal(id) }
                 return
@@ -33,10 +33,10 @@ final class BookmarkPageService {
         pendingReveal = id
         if let tab = pane.selectedTab, tab.kind == .browser, let page = services.cache.existingBrowser(tab.id)?.tab,
            BrowserNewTabPage.isNewTabPage(page.state.url) {
-            services.cache.showAppPage(BookmarkPageAddress.url, in: tab)
+            services.cache.showAppPage(.bookmarkPage, in: tab)
             return
         }
-        pane.newBrowserTab(url: BookmarkPageAddress.url)
+        pane.newBrowserTab(url: .bookmarkPage)
     }
 
     /// A manager page for tab `key`; `reveal` shows that bookmark once the page has its tree.
