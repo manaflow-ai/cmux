@@ -174,3 +174,212 @@ fn panes_terminal_tables_answer_over_the_channel() {
     assert_eq!(call(c"window_tabs_nope", b"{}").0, ERR_INVALID);
     assert_eq!(call(c"window_panes_split", b"[").0, ERR_INVALID);
 }
+
+#[test]
+fn chat_agent_tables_list_the_page_commands_and_team_lines() {
+    let (code, body) = call_json(c"window_chat_agent_tables", &json!({}));
+    assert_eq!(code, OK);
+    assert_eq!(
+        body["pageCommands"][2],
+        json!({"action": "agentPane.editInstructions", "command": "editProjectInstructions", "refusesRemote": true})
+    );
+    assert_eq!(body["teams"][1]["shellLine"], "codex -c features.multi_agent=true\n");
+    assert_eq!(
+        body["copyFiles"][0],
+        json!({"action": "agentChat.copyTranscriptFile", "kinds": ["transcript"]})
+    );
+}
+
+#[test]
+fn chat_agent_zoom_clamps() {
+    let (code, body) = call_json(
+        c"window_chat_agent_zoom",
+        &json!({"current": 1.95, "delta": 0.1, "lower": 0.5, "upper": 2.0}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"zoom": 2.0, "percent": 200}));
+}
+
+#[test]
+fn chat_agent_open_file_place_and_check() {
+    let (code, body) =
+        call_json(c"window_chat_agent_file_place", &json!({"path": "/a", "place": "editor"}));
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"decision": "open", "target": "editor", "paneless": true}));
+    let (_, body) =
+        call_json(c"window_chat_agent_file_place", &json!({"path": "/a", "place": "x"}));
+    assert_eq!(body, json!({"decision": "invalidPlace", "place": "x"}));
+    let (code, body) = call_json(
+        c"window_chat_agent_file_check",
+        &json!({"path": "/a", "target": "editor", "remote": true}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"refusal": "remotePreview"}));
+}
+
+#[test]
+fn chat_agent_routes_a_new_chat() {
+    let (code, body) = call_json(c"window_chat_agent_pane_route", &json!({"topPage": true}));
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"route": "overTopPage"}));
+    let (code, body) = call_json(
+        c"window_chat_agent_host_plan",
+        &json!({"route": {"kind": "peer", "peer": "blue"}, "ready": true, "activeLocal": false}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"host": "blue", "open": {"kind": "localPlacement"}}));
+    let (code, body) = call_json(
+        c"window_chat_agent_targeted_route",
+        &json!({"applies": true, "found": true, "shown": false}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"route": "store", "selects": true}));
+}
+
+#[test]
+fn chat_agent_places_the_memory_inspector() {
+    let (code, body) = call_json(
+        c"window_chat_agent_inspector_placement",
+        &json!({"focused": 1, "inHome": true, "columns": [{"panes": [1], "dock": true}, {"panes": [2]}]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"placement": {"kind": "tab", "pane": 2}}));
+    let (code, body) = call_json(
+        c"window_chat_agent_inspector_anchor",
+        &json!({"workspaces": [{"home": true, "hasPane": true}, {"hasPane": true}]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"kind": "workspace", "index": 1}));
+}
+
+#[test]
+fn chat_agent_memory_routes_round_trip() {
+    let (code, body) = call_json(c"window_chat_agent_memory_route", &json!({"chief": "01J"}));
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"route": "local:01J"}));
+    let (code, body) =
+        call_json(c"window_chat_agent_memory_place", &json!({"route": "server:mini"}));
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"place": {"kind": "server", "machineId": "mini"}}));
+    let (_, body) = call_json(c"window_chat_agent_memory_place", &json!({"route": "cloud:x"}));
+    assert_eq!(body, json!({"place": null}));
+}
+
+#[test]
+fn chat_agent_model_catalog_and_session_placement() {
+    let (code, body) = call_json(
+        c"window_chat_agent_model_catalog",
+        &json!({"harnesses": [{"harness": "local/claude", "models": [{"id": "opus", "name": "Opus"}]}]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        body["harnesses"][0],
+        json!({"harness": "claude", "models": [{"value": "opus", "title": "Opus"}]})
+    );
+    let (code, body) = call_json(c"window_chat_agent_session_placement", &json!({"top": true}));
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"joinsGroup": false, "belowCaller": false, "defaultSlot": "top"}));
+}
+
+#[test]
+fn chat_column_reads_a_lone_chat_that_docks() {
+    let (code, body) = call_json(
+        c"window_chat_column",
+        &json!({"pane": "c", "columns": [{"panes": ["c"], "loneChat": true}], "recent": [], "zoomed": false}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body["placement"], json!({"placement": "dockChat"}));
+    assert_eq!(body["newChat"], json!({"placement": "here"}));
+    assert_eq!(body["pagePick"], Value::Null);
+    assert_eq!(body["refusesMove"], json!(false));
+}
+
+#[test]
+fn chat_column_sends_the_docks_new_tab_to_the_strip_and_refuses_a_tool() {
+    let (code, body) = call_json(
+        c"window_chat_column",
+        &json!({"pane": "chat", "columns": [{"panes": ["chat"], "dock": {"role": "agentChat"}}, {"panes": ["page"]}],
+                "moving": {"samePane": false, "chat": false}}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body["placement"], json!({"placement": "tab", "pane": "page"}));
+    assert_eq!(body["newChat"], json!({"placement": "dock", "pane": "chat"}));
+    assert_eq!(body["keepsNewTabPage"], json!(true));
+    assert_eq!(body["pagePick"], json!("page"));
+    assert_eq!(body["chatDock"], json!(true));
+    assert_eq!(body["splitsDown"], json!(true));
+    assert_eq!(body["refusesMove"], json!(true));
+    assert_eq!(body["chatDockTop"], json!("chat"));
+}
+
+#[test]
+fn chat_docked_open_focuses_the_chat_dock() {
+    let (code, body) = call_json(
+        c"window_chat_docked_open",
+        &json!({"user": true, "canHost": true, "dockRoles": true, "shown": true, "pane": "t", "chatDockTop": "d"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"open": "focus", "pane": "d"}));
+    let (_, body) = call_json(c"window_chat_docked_open", &json!({"pane": "t"}));
+    assert_eq!(body, json!({"open": "notHandled"}));
+}
+
+#[test]
+fn chat_drop_and_destinations() {
+    let (code, body) =
+        call_json(c"window_chat_drop", &json!({"intoChatDock": true, "chatDocks": [true, false]}));
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"split": "refusedChatDock", "pane": 1}));
+    let workspaces = json!([{"id": "a", "key": "k", "panes": [{"id": "a1", "focusedAt": 1}, {"id": "a2", "focusedAt": 4}]}]);
+    let (code, body) = call_json(
+        c"window_chat_destination",
+        &json!({"windows": [{"workspace": "a", "remembered": {"a": "a1"}}], "workspaces": workspaces}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"destination": {"workspace": 0, "pane": "a1"}}));
+    let (_, body) = call_json(c"window_chat_latest", &json!({"workspaces": workspaces}));
+    assert_eq!(body, json!({"destination": {"workspace": 0, "pane": "a2"}}));
+    let (_, body) = call_json(
+        c"window_chat_target",
+        &json!({"kind": "workspace", "id": "k", "workspaces": workspaces}),
+    );
+    assert_eq!(body, json!({"destination": {"workspace": 0, "pane": "a2"}}));
+    let (_, body) = call_json(
+        c"window_chat_cwd",
+        &json!({"tabs": ["/a", null], "selected": 1, "agentFolder": null}),
+    );
+    assert_eq!(body, json!({"cwd": null}));
+}
+
+#[test]
+fn columns_plan_and_availability() {
+    let (code, body) = call_json(c"window_columns_actions", &json!({}));
+    assert_eq!(code, OK);
+    assert_eq!(body["canvas"][0], json!({"id": "canvasTidy", "arrangement": "tidy"}));
+    let (code, body) = call_json(
+        c"window_columns_plan",
+        &json!({"action": "column.moveRight", "column": {"width": 0.5, "panes": ["p"]}, "right": ["r"], "handle": true}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"plan": "swapPane", "side": "right", "pane": "p"}));
+    let (_, body) = call_json(
+        c"window_columns_plan",
+        &json!({"action": "column.widthFull", "column": {"width": 1.0}}),
+    );
+    assert_eq!(
+        body,
+        json!({"plan": "refuse", "refusal": {"reason": "alreadyHasWidth"}, "quiet": true})
+    );
+    let (_, body) = call_json(
+        c"window_columns_availability",
+        &json!({"action": "column.moveLeft", "column": {"implicit": true}}),
+    );
+    assert_eq!(body, json!({"unavailable": "addSecondColumn"}));
+    let (_, body) = call_json(c"window_columns_dock", &json!({"band": true, "dockColumns": true}));
+    assert_eq!(body, json!({"needs": "edge-docks-v1"}));
+    let (_, body) = call_json(
+        c"window_columns_dock_move",
+        &json!({"pane": "p", "paneTabs": 1, "columnPanes": ["p"], "hasTab": true, "edgeDocks": true, "tabColumnRespawn": true}),
+    );
+    assert_eq!(body, json!({"move": "move", "respawn": true, "anchor": "p"}));
+}
