@@ -139,7 +139,7 @@ public nonisolated enum OmnibarPageEffect: Equatable, Sendable {
 
 extension OmnibarEndReason {
     /// `OmnibarEndReason` in omnibox/types.ts.
-    public init?(wire: [String: Any]) {
+    public nonisolated init?(wire: [String: Any]) {
         let url = (wire["url"] as? String).flatMap(URL.init(string:))
         let disposition = (wire["disposition"] as? String).flatMap(OmnibarDisposition.init(rawValue:)) ?? .currentTab
         switch wire["kind"] as? String {
@@ -235,7 +235,7 @@ public nonisolated enum OmniboxPopupCommand: Equatable, Sendable {
 
 extension BrowserSuggestion.Kind {
     /// The kind's name on the wire (`SuggestionKind`).
-    var wire: String {
+    nonisolated var wire: String {
         switch self {
         case .navigate: "navigate"
         case .search: "search"
@@ -247,7 +247,7 @@ extension BrowserSuggestion.Kind {
         }
     }
 
-    init?(wire: String) {
+    nonisolated init?(wire: String) {
         switch wire {
         case "navigate": self = .navigate
         case "search": self = .search
@@ -266,7 +266,7 @@ extension BrowserSuggestion.Kind {
 
 extension BrowserSuggestion {
     /// The row as the page's `BrowserSuggestion`.
-    var wire: [String: Any] {
+    nonisolated var wire: [String: Any] {
         var row: [String: Any] = ["kind": kind.wire, "title": title, "detail": detail, "url": url.absoluteString, "score": score,
                                   "inlineCompletable": inlineCompletable]
         if let content { row["content"] = content }
@@ -274,7 +274,7 @@ extension BrowserSuggestion {
         return row
     }
 
-    init?(wire: [String: Any]) {
+    nonisolated init?(wire: [String: Any]) {
         guard let kind = (wire["kind"] as? String).flatMap(Kind.init(wire:)), let url = (wire["url"] as? String).flatMap(URL.init(string:)) else { return nil }
         self.init(kind: kind, title: wire["title"] as? String ?? "", detail: wire["detail"] as? String ?? "", url: url,
                   score: (wire["score"] as? NSNumber)?.doubleValue ?? 0)
@@ -317,11 +317,11 @@ extension BrowserToolbarButtonState {
 /// One-shot host requests to the toolbar page (`ToolbarHostEvent`).
 nonisolated enum BrowserToolbarHostEvent {
     static func focus(_ source: String) -> [String: Any] { ["kind": "focus", "source": source] }
-    static let blur: [String: Any] = ["kind": "blur"]
+    static var blur: [String: Any] { ["kind": "blur"] }
     static func key(_ key: [String: Any]) -> [String: Any] { ["kind": "key", "key": key] }
     static func enter(_ disposition: OmnibarDisposition) -> [String: Any] { key(["kind": "enter", "disposition": disposition.rawValue]) }
-    static let focusLocation: [String: Any] = key(["kind": "focusLocation"])
-    static let searchWithDefaultEngine: [String: Any] = key(["kind": "searchWithDefaultEngine"])
+    static var focusLocation: [String: Any] { key(["kind": "focusLocation"]) }
+    static var searchWithDefaultEngine: [String: Any] { key(["kind": "searchWithDefaultEngine"]) }
     static func suggestions(_ generation: UInt64, _ rows: [BrowserSuggestion]) -> [String: Any] {
         ["kind": "suggestions", "generation": generation, "rows": rows.map(\.wire)]
     }
@@ -334,7 +334,7 @@ nonisolated enum BrowserToolbarHostEvent {
     static func rowClick(_ row: Int, meta: Bool, shift: Bool, alt: Bool) -> [String: Any] {
         ["kind": "rowClick", "row": row, "modifiers": ["meta": meta, "shift": shift, "alt": alt]]
     }
-    static let showPageURL: [String: Any] = ["kind": "showPageURL"]
+    static var showPageURL: [String: Any] { ["kind": "showPageURL"] }
     static func pasteAndGo(_ text: String) -> [String: Any] { ["kind": "pasteAndGo", "text": text] }
     static func dropped(_ text: String) -> [String: Any] { ["kind": "dropped", "text": text] }
     static func forgetTab(_ tab: String) -> [String: Any] { ["kind": "forgetTab", "tab": tab] }

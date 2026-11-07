@@ -58,7 +58,7 @@ public final class BrowserToolbarWebView: NSView {
     /// The page's title, for a drag of the address out of the chip.
     public var pageTitle: (() -> String?)?
     /// The site icon of a page suggestion row (the App names the site's icon address). Nil: kind glyphs.
-    public var rowFavicon: ((URL) async -> NSImage?)?
+    public var rowFavicon: ((URL) async -> NSImage?)? { didSet { popup.faviconSource = rowFavicon } }
     /// Enter loads typed text over https that may fall back to http (`HTTPSUpgradeFallback`).
     public var onTypedHTTPSUpgrade: ((URL) -> Void)?
     /// The page's URL changed (the host refreshes the bookmark star).
@@ -101,7 +101,7 @@ public final class BrowserToolbarWebView: NSView {
         popup.onPick = { [weak self] row, meta, shift, alt in
             self?.send(BrowserToolbarHostEvent.rowClick(row, meta: meta, shift: shift, alt: alt))
         }
-        popup.faviconSource = { [weak self] url in await self?.rowFavicon?(url) }
+        popup.faviconSource = rowFavicon
         return popup
     }()
     /// The omnibar as the page reported it last.
