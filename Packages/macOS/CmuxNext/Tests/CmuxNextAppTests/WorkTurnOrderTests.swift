@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextDaemon
 @testable import CmuxNextApp
 import CmuxNextWakeups
 import Testing
@@ -44,6 +45,27 @@ import Testing
             first.fill(firstWork)
             _ = await (firstWork.value, secondWork.value)
             #expect(ran.order == [1, 2])
+        }
+    }
+
+    /// A new tab whose creation fails drops its reply callback: its move's turn is released at once, so the next new tab's
+    /// move does not wait (a timer did hold it 2 s, and before that 10 s).
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func aFailedCreationDoesNotDelayTheNextMove() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let pane = try #require(services.windows.active?.focusedPane)
+            let surface = try await connection.newTab(in: pane.pane.handle).surface
+            try await PasswordManagerRouteTests.until { services.daemon.store.tab(surface: surface) != nil }
+            let anchor = try #require(services.daemon.store.tab(surface: surface))
+            var failed = NewTabSlot.placing(.after(anchor), services: services, then: nil as (@MainActor (SurfaceID) -> Void)?)
+            #expect(failed != nil)
+            let next = try #require(NewTabSlot.reserve(pane.pane, services: services))
+            failed = nil // the creation failed: its callback is dropped uncalled
+            let start = ContinuousClock.now
+            let work: ActionWork = Task { @MainActor in _ = await next.earlier?.value; return nil }
+            next.fill(work)
+            _ = await next.place.value
+            #expect(ContinuousClock.now - start < .milliseconds(500), "the next move waited \(ContinuousClock.now - start)")
         }
     }
 }
