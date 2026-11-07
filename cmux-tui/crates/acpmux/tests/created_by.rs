@@ -33,6 +33,8 @@ fn hub() -> Arc<Hub> {
         "permissionPolicy": "approve-all",
         // A peer's start may use this folder (`remote.cwd_outside_roots` otherwise).
         "webRoots": [std::env::temp_dir()],
+        // A peer's start runs in an asking mode (`remote.mode_not_asking` otherwise).
+        "webAskingModes": {"fake": ["normal", "strict"]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
