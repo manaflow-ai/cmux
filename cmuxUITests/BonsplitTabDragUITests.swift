@@ -113,6 +113,111 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
+    /// Regression for #20194: a tab dropped onto a pane edge turns that pane into a
+    /// split. On macOS 27 a pane host then laid out during the drop trapped on its
+    /// `@Environment(BonsplitController.self)` read and the app exited. macOS 26
+    /// does not trap there, so only a macOS 27 run shows a regression.
+    func testDroppingTabsOntoPaneEdgesBuildsNestedSplitsWithoutCrashing() {
+        let socketTag = "ui-bonsplit-drop-\(UUID().uuidString.lowercased())"
+        let socketPath = "/tmp/cmux-debug-\(socketTag).sock"
+        let (app, dataPath) = launchConfiguredApp(fourTabSetup: true, socketTag: socketTag)
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for nested-split Bonsplit tab drop UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        guard let workspaceID = ready["workspaceId"], !workspaceID.isEmpty else {
+            XCTFail("Missing fixture workspace ID")
+            return
+        }
+
+        let window = app.windows.element(boundBy: 0)
+        let betaTab = app.buttons[ready["betaTitle"] ?? "UITest Beta"]
+        let gammaTab = app.buttons[ready["gammaTitle"] ?? "UITest Gamma"]
+        let deltaTab = app.buttons[ready["deltaTitle"] ?? "UITest Delta"]
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+        XCTAssertTrue(deltaTab.waitForExistence(timeout: 5.0), "Expected delta tab to exist")
+
+        // Each drop changes the split tree while the drag session is still delivering
+        // the drop, which is when the trap fired.
+        let drops: [(name: String, tab: XCUIElement, target: CGVector)] = [
+            ("delta to the right edge", deltaTab, CGVector(dx: 0.97, dy: 0.55)),
+            ("gamma to the bottom of the right pane", gammaTab, CGVector(dx: 0.80, dy: 0.95)),
+            ("beta to the bottom of the left pane", betaTab, CGVector(dx: 0.35, dy: 0.95)),
+        ]
+
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let gammaTitle = ready["gammaTitle"] ?? "UITest Gamma"
+        let deltaTitle = ready["deltaTitle"] ?? "UITest Delta"
+        let betaTitle = ready["betaTitle"] ?? "UITest Beta"
+        let expectedPaneGroups = [
+            [[alphaTitle, betaTitle, gammaTitle], [deltaTitle]],
+            [[alphaTitle, betaTitle], [gammaTitle], [deltaTitle]],
+            [[alphaTitle], [betaTitle], [gammaTitle], [deltaTitle]],
+        ]
+
+        XCTAssertNotNil(
+            waitForPaneLayout(
+                paneCount: 1,
+                titles: [alphaTitle, betaTitle, gammaTitle, deltaTitle],
+                workspaceID: workspaceID,
+                socketPath: socketPath,
+                timeout: 5.0
+            ),
+            "Expected the four-tab fixture to start in one pane. data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+
+        for (index, drop) in drops.enumerated() {
+            XCTAssertTrue(drop.tab.waitForExistence(timeout: 5.0), "Expected tab to exist before dropping \(drop.name)")
+            drop.tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .press(forDuration: 0.25, thenDragTo: window.coordinate(withNormalizedOffset: drop.target))
+            XCTAssertFalse(
+                waitForCondition(timeout: 2.0) { app.state == .notRunning },
+                "Expected the app to survive dropping \(drop.name)"
+            )
+
+            let expectedGroups = expectedPaneGroups[index]
+            guard let state = waitForPaneLayout(
+                paneCount: expectedGroups.count,
+                titles: expectedGroups.flatMap { $0 },
+                workspaceID: workspaceID,
+                socketPath: socketPath,
+                timeout: 5.0
+            ) else {
+                XCTFail(
+                    "Expected \(drop.name) to create \(expectedGroups.count) panes. " +
+                    "data=\(loadJSON(atPath: dataPath) ?? [:])"
+                )
+                continue
+            }
+            assertPaneGroups(
+                expectedGroups,
+                in: state,
+                after: drop.name
+            )
+        }
+
+        XCTAssertTrue(
+            waitForJSONKey("trackedPaneTabCount", equals: "1", atPath: dataPath, timeout: 5.0) != nil,
+            "Expected every drop to move its tab out of alpha's pane. data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+        XCTAssertTrue(
+            [betaTab, gammaTab, deltaTab].allSatisfy(\.exists),
+            "Expected the dropped tabs to stay in the window"
+        )
+    }
+
     func testMinimalModeReordersEarlierTabToMiddleIndex() {
         let (app, dataPath) = launchConfiguredApp(fourTabSetup: true)
 
@@ -973,7 +1078,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         alwaysShowShortcutHints: Bool = false,
         windowSize: String? = nil,
         actionButtonCount: Int? = nil,
-        fourTabSetup: Bool = false
+        fourTabSetup: Bool = false,
+        socketTag: String? = nil
     ) -> (XCUIApplication, String) {
         let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
@@ -982,6 +1088,15 @@ final class BonsplitTabDragUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
+        if let socketTag {
+            app.launchEnvironment["CMUX_TAG"] = socketTag
+            app.launchEnvironment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-\(socketTag).sock"
+            app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+            app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+            app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+            app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+            app.launchArguments += ["-socketControlMode", "allowAll"]
+        }
         if startWithHiddenSidebar {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] = "1"
         }
@@ -1080,6 +1195,112 @@ final class BonsplitTabDragUITests: XCTestCase {
             return data
         }
         return nil
+    }
+
+    /// Waits for the production control API to report the fixture's complete pane layout.
+    private func waitForPaneLayout(
+        paneCount: Int,
+        titles: [String],
+        workspaceID: String,
+        socketPath: String,
+        timeout: TimeInterval
+    ) -> [String: String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = readPaneLayout(workspaceID: workspaceID, socketPath: socketPath),
+               data["trackedPaneCount"] == String(paneCount),
+               let placements = panePlacements(from: data),
+               titles.allSatisfy({ placements[$0] != nil }) {
+                return data
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        guard let data = readPaneLayout(workspaceID: workspaceID, socketPath: socketPath),
+              data["trackedPaneCount"] == String(paneCount),
+              let placements = panePlacements(from: data),
+              titles.allSatisfy({ placements[$0] != nil }) else {
+            return nil
+        }
+        return data
+    }
+
+    /// Reads one atomic workspace snapshot without adding an app-side test recorder.
+    private func readPaneLayout(workspaceID: String, socketPath: String) -> [String: String]? {
+        guard let response = controlSocketJSONViaNetcat(
+            [
+                "id": UUID().uuidString,
+                "method": "system.tree",
+                "params": ["workspace_id": workspaceID, "all_windows": true]
+            ],
+            socketPath: socketPath,
+            responseTimeout: 1.0
+        ), response["ok"] as? Bool == true,
+           let result = response["result"] as? [String: Any],
+           let windows = result["windows"] as? [[String: Any]],
+           let workspace = windows.flatMap({ $0["workspaces"] as? [[String: Any]] ?? [] })
+               .first(where: { ($0["id"] as? String)?.lowercased() == workspaceID.lowercased() }),
+           let panes = workspace["panes"] as? [[String: Any]] else {
+            return nil
+        }
+
+        var placements: [String: String] = [:]
+        for pane in panes {
+            guard let paneID = pane["id"] as? String,
+                  let surfaces = pane["surfaces"] as? [[String: Any]] else { return nil }
+            for surface in surfaces {
+                guard let title = surface["title"] as? String,
+                      placements.updateValue(paneID, forKey: title) == nil else { return nil }
+            }
+        }
+        return [
+            "trackedPaneCount": String(panes.count),
+            "trackedPanePlacements": placements.keys.sorted()
+                .map { "\($0)=\(placements[$0]!)" }.joined(separator: "|")
+        ]
+    }
+
+    /// Asserts that each expected title group occupies one pane and groups are distinct.
+    private func assertPaneGroups(
+        _ groups: [[String]],
+        in data: [String: String],
+        after drop: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let placements = panePlacements(from: data) else {
+            XCTFail("Missing pane placements after \(drop). data=\(data)", file: file, line: line)
+            return
+        }
+
+        let groupPaneIds = groups.map { group in
+            Set(group.compactMap { placements[$0] })
+        }
+        XCTAssertTrue(
+            groupPaneIds.allSatisfy { $0.count == 1 },
+            "Expected each title group to share one pane after \(drop). placements=\(placements)",
+            file: file,
+            line: line
+        )
+        let paneIds = groupPaneIds.compactMap(\.first)
+        XCTAssertEqual(
+            Set(paneIds).count,
+            groups.count,
+            "Expected each pane group to occupy a distinct pane after \(drop). placements=\(placements)",
+            file: file,
+            line: line
+        )
+    }
+
+    /// Parses the test's stable title-to-pane layout snapshot.
+    private func panePlacements(from data: [String: String]) -> [String: String]? {
+        guard let rawPlacements = data["trackedPanePlacements"] else { return nil }
+        var placements: [String: String] = [:]
+        for entry in rawPlacements.split(separator: "|", omittingEmptySubsequences: true) {
+            let parts = entry.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { return nil }
+            placements[String(parts[0])] = String(parts[1])
+        }
+        return placements
     }
 
     private func waitForJSONNumber(
