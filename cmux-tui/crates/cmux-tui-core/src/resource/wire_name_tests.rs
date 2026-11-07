@@ -26,6 +26,7 @@ fn wire_name_round_trips_through_serde() {
         "cloud.vm.resize",
         "cloud.owner.acpmux_keyed_start",
         "cloud.machine.io",
+        "palette.rank",
     ] {
         let operation: ResourceOperation =
             serde_json::from_str(&format!("\"{name}\"")).expect("known operation");

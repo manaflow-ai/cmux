@@ -39,6 +39,7 @@ import type {
   HarnessesState,
   HostLists,
   IntegrationsState,
+  SharesState,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -58,6 +59,8 @@ export type SettingsPageVariant = VariantBase & {
   accounts?: AccountsState;
   /** Settings > Accounts > Cloud Environments fixture state. */
   environments?: CloudEnvironmentsState;
+  /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
+  sharedLinks?: SharesState;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */

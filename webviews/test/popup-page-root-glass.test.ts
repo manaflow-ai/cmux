@@ -16,6 +16,9 @@ const REPO = join(import.meta.dir, "../..");
 // (paths under webviews/src). A new transparent overlay host fails the next test until it is here.
 const POPUP_PAGES: Record<string, string[]> = {
   "Packages/macOS/CmuxNext/Sources/CmuxNextApp/IconPicker/IconPickerService.swift": ["pages/icon-picker/styles.css"],
+  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift": [
+    "pages/group-editor/styles.css",
+  ],
   "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/UpdateSurfaceIsland.swift": [
     // main.tsx is the bundle the popover opens (on #/surface/<kind>): its sheets are the document's.
     "pages/changelog/styles.css",

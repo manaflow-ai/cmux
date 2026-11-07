@@ -308,6 +308,13 @@ declare namespace Cmux {
   type PairingPreview = { code: Cmux.PairingCode; info: Cmux.PairingInfo; public_jwk: Cmux.PublicJwk; thumbprint: string; country: string | null; expires_at: number }
   type PairingRequestSnapshot = { id: string /* pairing_request_… */; session_id: string /* session_… */; peer: string; code: string; expires_in_seconds: string; status: "pending" | "accepted" | "rejected"; extra?: Record<string, Cmux.JsonValue> }
   type PairingResolutionResult = { pairing_request: Cmux.PairingRequestSnapshot }
+  type PaletteRankEntry = { title: string; keywords?: Array<string> | null; subtitle?: string | null; accessory?: string | null; rankBias?: number | null; frecencyKey?: string | null; isEnabled?: boolean | null; isVisibleWhenQueryEmpty?: boolean | null; queryPrefix?: string | null; hidesWhenTyping?: boolean | null; sectionIndex?: number | null; entersScope?: boolean | null; typingSectionIndex?: number | null; suggestedRank?: number | null; suggestedSectionIndex?: number | null; actionID?: string | null; demoted?: boolean | null; hasShortcut?: boolean | null; keycaps?: Array<string> | null; handles?: Array<string> | null }
+  type PaletteRankFrecency = { entries?: Record<string, Cmux.PaletteRankUse> | null; halfLife?: number | null; picks?: Array<Cmux.PaletteRankPick> | null; pickHalfLife?: number | null; hidden?: Array<string> | null }
+  type PaletteRankPick = { prefix: string; key: string; score: number; lastUsed: number; last: boolean }
+  type PaletteRankResult = { sections: Array<Cmux.PaletteRankSection> }
+  type PaletteRankRow = { index: number; score: number; highlights: Array<number> }
+  type PaletteRankSection = { sectionIndex: number | null; rows: Array<Cmux.PaletteRankRow> }
+  type PaletteRankUse = { score: number; lastUsed: number }
   type PaletteUsageImportResult = { revision: string; imported: boolean }
   type PaletteUsagePick = { prefix: string; key: string; score: number; last_used_ms: string; last: boolean }
   type PaletteUsageRecordResult = { revision: string }
