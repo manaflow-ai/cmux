@@ -643,7 +643,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextBrowserImport",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CCmuxAppFFI", // imported cookies' sync (cmux-cookie-sync; ImportCookieSync)
+                // CCmuxAppFFI: imported cookies' sync (cmux-cookie-sync; ImportCookieSync).
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
             ],
