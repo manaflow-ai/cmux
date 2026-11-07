@@ -2100,6 +2100,7 @@ dependencies = [
  "cmux-tui-util",
  "cmux-unix-socket",
  "cmux-url-input",
+ "cmux-usage",
  "flate2",
  "fs4",
  "futures-util",

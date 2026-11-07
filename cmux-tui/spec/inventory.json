@@ -591,6 +591,8 @@
       "set-terminal-command-history",
       "list-terminal-commands",
       "delete-terminal-commands",
+      "usage-record",
+      "usage-set-enabled",
       "register-browser-provider",
       "get-browser-provider",
       "unregister-browser-provider",

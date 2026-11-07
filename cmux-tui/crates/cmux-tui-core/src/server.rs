@@ -235,6 +235,7 @@ mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
 mod cmd_terminals;
+mod cmd_usage;
 mod creating_input;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
@@ -867,6 +868,9 @@ enum Command {
     SetTerminalCommandHistory(command_history::SetParams),
     ListTerminalCommands(command_history::ListParams),
     DeleteTerminalCommands(command_history::DeleteParams),
+    /// Opt-in usage recording, trusted local only (server/cmd_usage.rs).
+    UsageRecord(cmd_usage::RecordParams),
+    UsageSetEnabled(cmd_usage::SetEnabledParams),
     /// Gracefully hand this daemon's durable session to a replacement.
     /// The caller must fence the request with values from this daemon's `identify` response.
     ShutdownDaemon {

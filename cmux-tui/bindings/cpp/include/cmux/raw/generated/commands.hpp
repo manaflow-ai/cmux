@@ -332,6 +332,8 @@ public:
     [[nodiscard]] Result<GuestUrlClaimResult> url_open_claim(const UrlOpenClaimRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<GuestUrlAcknowledgeResult> url_open_result(const UrlOpenResultRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> url_open_subscribe(const UrlOpenSubscribeRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<UsageRecordResult> usage_record(const UsageRecordRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<UsageSetEnabledResult> usage_set_enabled(const UsageSetEnabledRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<VtStateResult> vt_state(const VtStateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WaitForResult> wait_for(const WaitForRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> ws_listen(const WsListenRequest& request = {}, RequestOptions options = {});
