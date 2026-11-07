@@ -1,5 +1,10 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: after the upgrade the Updated card's host holds no height the two-line card remembered (64 and 77 pt
+  under the old `cmux.sidebar.updatedCard.height[s]` keys): the composer-height card remembers its own under `.v2`
+  keys and the old ones go at the first write, so the host is the 48 pt card from its first frame (review F1 of
+  #37615, Leo: "the heights never match up with anything"). The doodle-decorated card paints the same composer
+  material, now that no native glass sits under the page.
 - 2026-11-07: the Updated card is the agent composer's twin, and resting on it opens a scrollable What's New preview.
   Leo, verbatim: "the border styles, the glass intensity is different. For two, it's like the heights never match up
   with anything" and "where is the hover for the What's New area? ... you hover over it and you get to, like, scroll

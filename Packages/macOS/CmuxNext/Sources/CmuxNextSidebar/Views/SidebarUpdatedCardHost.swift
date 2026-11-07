@@ -68,12 +68,18 @@ final class SidebarUpdatedCardHost: NSView {
     /// (Leo 2026-11-04: "i feel like the restarted after nightly update does too many layout
     /// shifts/flicker renderings"). The card's words and its shape change little between builds, so
     /// the previous build's height is the guess when this build's card has not drawn yet.
-    static let rememberedHeightKey = "cmux.sidebar.updatedCard.height"
+    ///
+    /// The keys are the composer-height card's own (`.v2`): the two-line card before it remembered 64 and
+    /// 77 pt, which held a tall view around the 48 pt card after the upgrade (review F1 of #37615). The old
+    /// keys are read by nothing and removed at the first write (``legacyHeightKeys``).
+    static let rememberedHeightKey = "cmux.sidebar.updatedCard.height.v2"
     /// The heights the card's page last reported at each card width, newest first (`[width, height]`
     /// pairs, at most ``rememberedWidthsLimit``). Windows with sidebars of different widths wrap the
     /// card's words on different lines (the relaunch bench at 7ed8d1ffedd: 77 pt at 196 pt wide, 64 pt
     /// at 300), so one height for every window moved the other window's card after its first frame.
-    static let rememberedHeightsKey = "cmux.sidebar.updatedCard.heights"
+    static let rememberedHeightsKey = "cmux.sidebar.updatedCard.heights.v2"
+    /// The keys the card before the composer-height one wrote its heights under.
+    static let legacyHeightKeys = ["cmux.sidebar.updatedCard.height", "cmux.sidebar.updatedCard.heights"]
     static let rememberedWidthsLimit = 8
 
     /// The height the page last reported at `width` (whole points), else the last one at any width
@@ -90,6 +96,7 @@ final class SidebarUpdatedCardHost: NSView {
 
     private static func remember(height: CGFloat, width: CGFloat) {
         let defaults = UserDefaults.standard
+        for key in legacyHeightKeys where defaults.object(forKey: key) != nil { defaults.removeObject(forKey: key) }
         if Double(height) != defaults.double(forKey: rememberedHeightKey) { defaults.set(Double(height), forKey: rememberedHeightKey) }
         guard width > 0 else { return }
         let key = Double(width.rounded())
