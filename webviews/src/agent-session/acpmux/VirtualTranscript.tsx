@@ -133,7 +133,8 @@ import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS } from "../../motion/scale.generated";
-import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade, wheelTarget } from "../../scrollers";
+import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
+import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
@@ -3671,11 +3672,13 @@ export function VirtualTranscript({
     const readerDownInput = (event: Event | undefined, pointer?: PointerEvent, touch?: Touch) => {
       if (event?.type === "wheel") {
         const wheel = event as WheelEvent;
-        return wheel.deltaY > 0 && wheelTarget(wheel) === node ? `wheel ${Math.round(wheel.deltaY)}` : undefined;
+        return wheel.deltaY > 0 && wheelScrollsDown(wheel, node) ? `wheel ${Math.round(wheel.deltaY)}` : undefined;
       }
       if (event?.type === "keydown") {
         const key = event as KeyboardEvent;
-        return !key.shiftKey && movingDown(key) ? `keydown ${key.metaKey ? "Meta+" : ""}${key.key}` : undefined;
+        return !key.shiftKey && !editableTarget(key.target) && movingDown(key)
+          ? `keydown ${key.metaKey ? "Meta+" : ""}${key.key}`
+          : undefined;
       }
       // A drag: the scrollbar's thumb moving down, or a finger moving up the page.
       if (
@@ -3730,16 +3733,13 @@ export function VirtualTranscript({
       return Boolean(movingUp);
     };
     const unsubscribeIntent = intent.subscribe(cancelProgrammatic);
-    // End or Cmd-Down with no row taking the keys (the page or the transcript itself focused): to
-    // the latest message, as a row's own End does (rowKeyDown).
+    // End or Cmd-Down with the page focused, where the browser scrolls nothing: to the latest
+    // message, as a row's own End does (rowKeyDown). A field keeps its keys (Find's search moves
+    // its caret), and the transcript itself focused scrolls natively, a downward scroll of the
+    // reader's own (`readerDown`).
     const endKey = (event: KeyboardEvent) => {
-      const target = event.target as Element | null;
-      if (event.defaultPrevented || !toLatestKey(event)) return;
-      if (
-        target !== node.ownerDocument.body &&
-        (target === null || !node.contains(target) || target.closest(".acpmux-row"))
-      )
-        return;
+      if (event.defaultPrevented || !toLatestKey(event) || event.target !== node.ownerDocument.body) return;
+      if (editableTarget(event.target)) return;
       event.preventDefault();
       jumpToLatestRef.current(false, "end-key");
     };
