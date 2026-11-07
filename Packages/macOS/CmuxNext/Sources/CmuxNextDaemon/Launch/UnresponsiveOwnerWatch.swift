@@ -5,7 +5,7 @@ import Foundation
 /// Restarts a session owner that stays alive but never answers, without the confirm of "Restart
 /// cmux-tui" (cx-jniyz.1). The launcher's `server ensure` runs feed it (``EnsureOutcome``): once
 /// ensures in a row failed the way a stuck owner makes them fail
-/// (``DaemonLauncher/isStuckOwnerFailure(_:)``), at least ``Policy/stuckEnsures`` of them over at
+/// (cmux-daemon-launch-core `classify_error`), at least ``Policy/stuckEnsures`` of them over at
 /// least ``Policy/sustained``, it runs `replace` (`server ensure --replace-unresponsive`), at most
 /// once per owner process and ``Policy/perLaunch`` times in all. Any other ensure ends the streak:
 /// one that worked, one that failed another way, and one refused at the connection limit
@@ -31,8 +31,8 @@ public final class UnresponsiveOwnerWatch: Sendable {
         }
     }
 
-    /// How one `server ensure` ended, for the watch.
-    public enum Ensure: Sendable, Equatable {
+    /// How one `server ensure` ended, for the watch (`{"kind": "ready"|"stuck"|"busy"|"failed", "pid"}`).
+    public enum Ensure: Sendable, Equatable, Codable {
         /// It worked; `pid` is the owner it found or started.
         case ready(pid: Int32?)
         /// It failed the way a stuck owner makes it fail.
@@ -42,40 +42,69 @@ public final class UnresponsiveOwnerWatch: Sendable {
         /// It failed another way (the owner did not start, another session...).
         case failed
 
-        /// Reads an ensure's error (nil: it worked, starting or finding `pid`).
+        /// Reads an ensure's error (nil: it worked, starting or finding `pid`) through the launch rules
+        /// (`classify_error`); a library that does not answer reads a plain failure, which ends a streak.
         public init(_ error: (any Error)?, pid: Int32?) {
             guard let error else {
                 self = .ready(pid: pid)
                 return
             }
-            if case .launchFailed(let detail)? = error as? DaemonError, detail.contains("\"server.busy\"") {
-                self = .busy
-            } else {
-                self = DaemonLauncher.isStuckOwnerFailure(error) ? .stuck : .failed
+            self = DaemonStartClassification(error)?.watch ?? .failed
+        }
+
+        private enum CodingKeys: String, CodingKey { case kind, pid }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            switch try container.decode(String.self, forKey: .kind) {
+            case "ready": self = .ready(pid: try container.decodeIfPresent(Int32.self, forKey: .pid))
+            case "stuck": self = .stuck
+            case "busy": self = .busy
+            default: self = .failed
+            }
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case .ready(let pid):
+                try container.encode("ready", forKey: .kind)
+                try container.encode(pid, forKey: .pid)
+            case .stuck: try container.encode("stuck", forKey: .kind)
+            case .busy: try container.encode("busy", forKey: .kind)
+            case .failed: try container.encode("failed", forKey: .kind)
             }
         }
     }
 
-    private struct State {
-        /// Stuck ensures in a row, and which streak it is (a timer of an ended streak does nothing).
-        var streak = 0
-        var streakID: UInt64 = 0
-        var windowPassed = false
-        /// The owner the last ensure that worked found; nil before any.
-        var owner: Int32?
-        var replacedOwners: Set<Int32?> = []
-        var replaces = 0
-        /// The streak whose replace is queued or running; nil when none is.
-        var replacing: UInt64?
-        /// The last streak whose claim said yes (its replace ran: it counts, whatever its result).
-        var claimed: UInt64?
-        /// ``stop()`` ran (the service shut its connection down): nothing is replaced any more.
-        var stopped = false
+    /// What the machine asks of the window's timer after a call.
+    private struct Effects: Decodable {
+        struct Schedule: Decodable { var streak: UInt64, afterMs: UInt64 }
+        var schedule: Schedule?
+        var cancel = false
+        var evaluate = false
+
+        private enum CodingKeys: String, CodingKey { case schedule, cancel, evaluate }
+
+        init() {}
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            schedule = try container.decodeIfPresent(Schedule.self, forKey: .schedule)
+            cancel = try container.decodeIfPresent(Bool.self, forKey: .cancel) ?? false
+            evaluate = try container.decodeIfPresent(Bool.self, forKey: .evaluate) ?? false
+        }
     }
 
-    private let state = Mutex(State())
+    /// A replace the machine started: its streak and the owner it replaces.
+    private struct Start: Decodable { var streak: UInt64, owner: Int32? }
+
+    /// The state machine (cmux-daemon-launch-core `watch`: the streak, the window, once per owner, the per-launch
+    /// cap, the claim and its give-back). Every call holds this lock, and the window's timer is scheduled and
+    /// cancelled under it, so an older outcome never cancels a newer streak's deadline (the timer's own lock is
+    /// taken inside this one, never the other way).
+    private let state: Mutex<DaemonLaunchWatchMachine>
     private let window: DemandTimer
-    private let policy: Policy
     private let isEnabled: @Sendable () -> Bool
     private let replace: @Sendable (_ claim: @escaping @Sendable () -> Bool) async -> Bool
 
@@ -94,14 +123,18 @@ public final class UnresponsiveOwnerWatch: Sendable {
     public init(policy: Policy = .standard, clock: any Clock<Duration> = ContinuousClock(),
                 isEnabled: @escaping @Sendable () -> Bool,
                 replace: @escaping @Sendable (_ claim: @escaping @Sendable () -> Bool) async -> Bool) {
-        self.policy = policy
+        struct Rules: Encodable { var sustainedMs: UInt64, stuckEnsures: Int, perLaunch: Int }
+        let rules = Rules(sustainedMs: DaemonLaunchRules.milliseconds(policy.sustained), stuckEnsures: max(0, policy.stuckEnsures), perLaunch: max(0, policy.perLaunch))
+        state = Mutex(DaemonLaunchWatchMachine(policy: (try? JSONEncoder().encode(rules)) ?? Data()))
         self.isEnabled = isEnabled
         self.replace = replace
         window = DemandTimer(owner: "daemon.unresponsiveOwner.window", clock: clock)
     }
 
     /// Replaces started so far (a claim that says no gives its replace back).
-    public var replaceCount: Int { state.withLock { $0.replaces } }
+    public var replaceCount: Int {
+        state.withLock { $0.call("replace_count", Empty(), as: Int.self) } ?? 0
+    }
 
     /// Whether the window's deadline is pending.
     public var isWaiting: Bool { window.isScheduled }
@@ -109,87 +142,62 @@ public final class UnresponsiveOwnerWatch: Sendable {
     /// Ends the watch for good: the deadline is cancelled and no replace is claimed after it
     /// (``DaemonRecovery/detach()``, when the service shuts its connection down).
     public func stop() {
-        state.withLock { state in
-            state.stopped = true
-            state.streak = 0
-            state.windowPassed = false
+        state.withLock { machine in
+            apply(machine.call("stop", Empty(), as: Effects.self) ?? Self.cancelOnly)
+            // The window ends with the watch whatever the machine said.
             window.cancel()
         }
     }
 
-    /// Records how one ensure ended; may start the replace. The deadline is scheduled and
-    /// cancelled under the state lock, so an older outcome never cancels a newer streak's
-    /// deadline (the timer's own lock is taken inside this one, never the other way).
-    ///
-    /// The deadline (``Policy/sustained``, one-shot) is pending only during a stuck streak with
-    /// the toggle on: an ensure that is not stuck cancels it, a stuck one with the toggle off ends
-    /// the streak and cancels it, ``stop()`` cancels it, and when it fires with the toggle off it
-    /// ends the streak.
+    /// Records how one ensure ended; may start the replace. The deadline (``Policy/sustained``,
+    /// one-shot) is pending only during a stuck streak with the toggle on.
     public func note(_ ensure: Ensure) {
+        struct Request: Encodable { var ensure: Ensure, enabled: Bool }
         let enabled = isEnabled()
-        let policy = policy
-        let evaluate = state.withLock { state -> Bool in
-            guard !state.stopped else { return false }
-            switch ensure {
-            case .stuck where enabled:
-                state.streak += 1
-                if state.streak == 1 {
-                    state.streakID &+= 1
-                    state.windowPassed = false
-                    let started = state.streakID
-                    // One bounded deadline per streak, not a poll: it only marks the window as passed.
-                    window.schedule(after: policy.sustained) { [weak self] in self?.windowPassed(streak: started) }
-                }
-                return true
-            case .stuck:
-                Self.endStreak(&state, window: window)
-                return false
-            case .ready(let pid):
-                state.owner = pid
-                Self.endStreak(&state, window: window)
-                return false
-            case .busy, .failed:
-                Self.endStreak(&state, window: window)
-                return false
-            }
+        let evaluate = state.withLock { machine -> Bool in
+            // A machine that does not answer ends the streak: nothing is replaced on a guess.
+            let effects = machine.call("note", Request(ensure: ensure, enabled: enabled), as: Effects.self) ?? Self.cancelOnly
+            apply(effects)
+            return effects.evaluate
         }
         if evaluate { self.evaluate() }
     }
 
-    private static func endStreak(_ state: inout State, window: DemandTimer) {
-        state.streak = 0
-        state.windowPassed = false
-        window.cancel()
+    private struct Empty: Encodable {}
+    private struct Streak: Encodable { var streak: UInt64, owner: Int32?, enabled: Bool }
+    private struct Enabled: Encodable { var enabled: Bool }
+
+    private static var cancelOnly: Effects {
+        var effects = Effects()
+        effects.cancel = true
+        return effects
+    }
+
+    /// Runs the timer side of `effects` (under the state lock).
+    private func apply(_ effects: Effects) {
+        if effects.cancel { window.cancel() }
+        if let schedule = effects.schedule {
+            let streak = schedule.streak
+            // One bounded deadline per streak, not a poll: it only marks the window as passed.
+            window.schedule(after: .milliseconds(Int64(clamping: schedule.afterMs))) { [weak self] in self?.windowPassed(streak: streak) }
+        }
     }
 
     private func windowPassed(streak: UInt64) {
         let enabled = isEnabled()
-        let current = state.withLock { state in
-            guard !state.stopped, state.streakID == streak, state.streak > 0 else { return false }
-            guard enabled else {
-                state.streak = 0
-                return false
-            }
-            state.windowPassed = true
-            return true
+        let evaluate = state.withLock { machine -> Bool in
+            let effects = machine.call("window_passed", Streak(streak: streak, owner: nil, enabled: enabled), as: Effects.self) ?? Effects()
+            apply(effects)
+            return effects.evaluate
         }
-        if current { evaluate() }
-    }
-
-    /// Whether the current streak is due for a replace now.
-    private func due(_ state: State) -> Bool {
-        !state.stopped && state.streak >= policy.stuckEnsures && state.windowPassed
-            && state.replaces < policy.perLaunch && !state.replacedOwners.contains(state.owner)
+        if evaluate { self.evaluate() }
     }
 
     private func evaluate() {
-        guard isEnabled() else { return }
-        let started: (streak: UInt64, owner: Int32?)? = state.withLock { state in
-            guard state.replacing == nil, due(state) else { return nil }
-            state.replacing = state.streakID
-            state.replacedOwners.insert(state.owner)
-            state.replaces += 1
-            return (state.streakID, state.owner)
+        let enabled = isEnabled()
+        guard enabled else { return }
+        let started = state.withLock { machine -> Start? in
+            machine.call("evaluate", Enabled(enabled: enabled), as: Start?.self) ?? nil
         }
         guard let started else { return }
         let replace = replace
@@ -205,34 +213,27 @@ public final class UnresponsiveOwnerWatch: Sendable {
     /// refused it first: the person's Restart was running) is given back like a claim that says
     /// no, so the same owner, still stuck, is replaced at a later stuck ensure.
     private func finish(_ streak: UInt64, owner: Int32?) {
-        state.withLock { state in
-            guard state.replacing == streak else { return }
-            if state.claimed != streak {
-                state.replaces -= 1
-                state.replacedOwners.remove(owner)
-            }
-            state.replacing = nil
+        state.withLock { machine in
+            _ = machine.call("finish", Streak(streak: streak, owner: owner, enabled: false), as: Effects.self)
         }
     }
 
     /// Whether the replace queued for `streak` may still run: the toggle is on, the watch was not
     /// stopped, and the same owner is still in the same stuck streak. When not, the replace is
     /// given back (its count and its owner), so that owner can be replaced on a later streak; a
-    /// claim that finds the toggle off also ends the streak.
+    /// claim that finds the toggle off also ends the streak. A machine that does not answer says no.
     nonisolated private func claim(_ streak: UInt64, owner: Int32?) -> Bool {
+        struct Reply: Decodable {
+            var yes: Bool
+            var cancel: Bool?
+        }
         let enabled = isEnabled()
-        return state.withLock { state in
-            let current = enabled && !state.stopped && state.replacing == streak && state.streakID == streak
-                && state.streak >= policy.stuckEnsures && state.windowPassed && state.owner == owner
-            if current {
-                state.claimed = streak
-            } else if state.replacing == streak {
-                state.replaces -= 1
-                state.replacedOwners.remove(owner)
-                state.replacing = nil
+        return state.withLock { machine in
+            guard let reply = machine.call("claim", Streak(streak: streak, owner: owner, enabled: enabled), as: Reply.self) else {
+                return false
             }
-            if !enabled { Self.endStreak(&state, window: window) }
-            return current
+            if reply.cancel == true { window.cancel() }
+            return reply.yes
         }
     }
 }

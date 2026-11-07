@@ -24,7 +24,7 @@ struct ChiefOwnerEnvironmentLazyTests {
 
         #expect(await calls.count == 0)
 
-        let environment = await launcher.ensureEnvironment()
+        let environment = try await launcher.ensureEnvironment().environment
         #expect(await calls.count == 1)
         #expect(environment["CMUX_TUI_CHIEF_BRAINS"] == "{}")
         #expect(environment["PATH"] == "/usr/bin")

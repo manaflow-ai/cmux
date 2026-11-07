@@ -19,9 +19,10 @@ public struct LastAppCLIPointer: Sendable, Equatable {
         file = userHome.appendingPathComponent("Library/Application Support/cmux/last-app-cli")
     }
 
-    /// Whether a launch with `environment` is the user's own.
+    /// Whether a launch with `environment` is the user's own (cmux-daemon-launch-core
+    /// `last_app_cli_publishes`); a library that does not answer publishes nothing.
     public static func shouldPublish(environment: [String: String]) -> Bool {
-        environment["CMUX_NEXT_NO_ACTIVATE"] != "1"
+        DaemonLaunchRules.call("last_app_cli_publishes", DaemonLaunchRules.Environment(environment: environment), as: Bool.self) ?? false
     }
 
     /// Points the pointer at `cliPath`. False, and nothing written, when the

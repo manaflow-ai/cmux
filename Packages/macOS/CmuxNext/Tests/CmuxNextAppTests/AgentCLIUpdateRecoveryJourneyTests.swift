@@ -15,7 +15,7 @@ struct AgentCLIUpdateRecoveryJourneyTests {
         let root = URL(fileURLWithPath: "/private/tmp/cn-uprecover-\(UUID().uuidString.prefix(8).lowercased())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let key = FrontendInstallKey.generate()
+        let key = try #require(FrontendInstallKey.generate())
         var configuration = DaemonLauncher.Configuration(binary: try #require(SameTreeDaemonBinary.url),
             session: root.lastPathComponent, stateDirectory: root.appendingPathComponent("state"), installKey: key)
         configuration.runtimeBase = root.appendingPathComponent("run")

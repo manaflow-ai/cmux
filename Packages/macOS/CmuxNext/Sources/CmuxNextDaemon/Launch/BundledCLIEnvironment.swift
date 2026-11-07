@@ -18,7 +18,7 @@ public import Foundation
 ///   a `vendor_conf.d` file on `XDG_DATA_DIRS`. Each layer removes its own
 ///   variables, so programs started in the terminal see none of them.
 ///
-/// The same bin dir holds the URL opener: `BROWSER` names it (``urlOpenerName``) unless set,
+/// The same bin dir holds the URL opener: `BROWSER` names it (`cmux-open-url`) unless set,
 /// and its `open` and `xdg-open` shims send an http(s) URL to it, so a program's browser opens
 /// in cmux (`TerminalLinkOpener`).
 ///
@@ -32,72 +32,20 @@ public struct BundledCLIEnvironment: Sendable, Equatable {
     /// the app writes.
     public var pathIntegration: String?
 
-    /// zsh: the `ZDOTDIR` that the layer's `.zshenv` restores (Ghostty's
-    /// integration dir or the user's). Absent when `ZDOTDIR` was unset.
-    public static let zshNextZDOTDIRKey = "CMUX_CLI_ZSH_ZDOTDIR"
-    /// bash: Ghostty's `ENV` script, which the layer sources.
-    public static let bashNextEnvKey = "CMUX_CLI_BASH_ENV"
-    /// fish: the `XDG_DATA_DIRS` entry the layer removes again.
-    public static let fishDataDirKey = "CMUX_CLI_FISH_XDG_DIR"
-    static let bashScript = "/bash/cmux-cli-path.bash"
-    /// The bundled URL opener `BROWSER` names (`scripts/cmux-next/url-open/cmux-open-url`):
-    /// it opens a URL where `terminal.linkOpener` says, falling back to the default browser.
-    public static let urlOpenerName = "cmux-open-url"
-
     public init(binDirectory: String, pathIntegration: String?) {
         self.binDirectory = binDirectory
         self.pathIntegration = pathIntegration
     }
 
     /// `env` with the bundled CLI first on `PATH` and, for the shell in
-    /// `env["SHELL"]`, the layer that keeps it first after the startup files.
-    /// Unchanged when the bundle has no executable `cmux`.
-    public func apply(
-        to env: [String: String],
-        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
-        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
-    ) -> [String: String] {
-        let cli = binDirectory + "/cmux"
-        guard !binDirectory.isEmpty, isExecutable(cli) else { return env }
-        var env = env
-        let rest = (env["PATH"] ?? "").split(separator: ":").filter { !$0.isEmpty && $0 != Substring(binDirectory) }
-        env["PATH"] = ([Substring(binDirectory)] + rest).joined(separator: ":")
-        env["CMUX_BUNDLED_CLI_PATH"] = cli
-        // Programs that open a browser (`aws login`, `gh auth login`, Python's webbrowser) reach
-        // cmux through `BROWSER`; `open` and `xdg-open` in the same bin dir catch the rest.
-        // A `BROWSER` already set is the user's and wins; the user's startup files run later
-        // and may set one too. The bare name, found on `PATH` through the bin dir above: tools
-        // such as gh split `BROWSER` on spaces, and an app path can hold one (`cmux NIGHTLY.app`).
-        if (env["BROWSER"] ?? "").isEmpty, isExecutable(binDirectory + "/" + Self.urlOpenerName) {
-            env["BROWSER"] = Self.urlOpenerName
-        }
-        guard let layer = pathIntegration, !layer.isEmpty,
-              let shell = env["SHELL"].map({ ($0 as NSString).lastPathComponent }) else { return env }
-        switch shell {
-        case "zsh":
-            guard fileExists(layer + "/zsh/.zshenv") else { break }
-            if let next = env["ZDOTDIR"] { env[Self.zshNextZDOTDIRKey] = next }
-            env["ZDOTDIR"] = layer + "/zsh"
-        case "bash":
-            // Only over Ghostty's integration: bash reads `ENV` only in the
-            // POSIX mode that integration starts it in.
-            guard let next = env["ENV"], next.hasSuffix(GhosttyShellIntegration.bashScript),
-                  env["GHOSTTY_BASH_INJECT"] != nil, fileExists(layer + Self.bashScript) else { break }
-            env[Self.bashNextEnvKey] = next
-            env["ENV"] = layer + Self.bashScript
-        case "fish":
-            guard fileExists(layer + "/fish/vendor_conf.d/cmux-cli-path.fish") else { break }
-            env[Self.fishDataDirKey] = layer
-            env["XDG_DATA_DIRS"] = layer + ":" + (env["XDG_DATA_DIRS"] ?? GhosttyShellIntegration.defaultXDGDataDirs)
-        default:
-            break
-        }
-        return env
-    }
-
-    /// Whether `env["ENV"]` is the bash layer over Ghostty's script.
-    static func wrapsGhosttyBash(_ env: [String: String]) -> Bool {
-        env["ENV"]?.hasSuffix(bashScript) == true
-            && env[bashNextEnvKey]?.hasSuffix(GhosttyShellIntegration.bashScript) == true
+    /// `env["SHELL"]`, the layer that keeps it first after the startup files
+    /// (cmux-daemon-launch-core `bundled_cli_apply`, which reads the bundle).
+    /// Unchanged when the bundle has no executable `cmux` or the library does not answer.
+    public func apply(to env: [String: String]) -> [String: String] {
+        struct Request: Encodable { var cli: BundledCLIEnvironment, env: [String: String] }
+        return DaemonLaunchRules.call("bundled_cli_apply", Request(cli: self, env: env), as: [String: String].self) ?? env
     }
 }
+
+/// `{binDirectory, pathIntegration}`, as the launch rules read it.
+extension BundledCLIEnvironment: Encodable {}

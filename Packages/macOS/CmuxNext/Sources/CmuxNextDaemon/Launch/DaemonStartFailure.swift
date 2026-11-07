@@ -23,25 +23,12 @@ public struct DaemonStartFailure: Sendable, Equatable {
 
     public var isDiskFull: Bool { kind == .diskFull }
 
-    /// Less free space than this on the state's volume reads as a full disk: SQLite and the
-    /// daemon's logs fail well before the last byte, so `server ensure` then fails with no word
-    /// about space ("the detached session owner did not become ready", restore fuzz h2).
-    static let lowSpaceBytes: UInt64 = 64 << 20
-
-    /// The words a failure caused by a full disk carries (ENOSPC, SQLite's SQLITE_FULL).
-    private static let diskFullMarkers = ["no space left on device", "os error 28", "enospc", "disk is full", "disk full"]
-
-    /// Whether `text` (an error's words) says the disk is full.
-    static func saysDiskFull(_ text: String) -> Bool {
-        let lowered = text.lowercased()
-        return diskFullMarkers.contains { lowered.contains($0) }
-    }
-
-    /// `error`'s failure; `freeBytes` is the free space on the state's volume (nil: unknown).
+    /// `error`'s failure; `freeBytes` is the free space on the state's volume (nil: unknown). The words and
+    /// the low-space bound are cmux-daemon-launch-core's (`classify_error`); a library that does not answer
+    /// reads a plain failure.
     init(_ error: any Error, freeBytes: UInt64?) {
-        let detail = String(describing: error)
-        let lowSpace = freeBytes.map { $0 < Self.lowSpaceBytes } ?? false
-        self.init(kind: Self.saysDiskFull(detail) || lowSpace ? .diskFull : .failed, detail: detail)
+        self = DaemonStartClassification(error, freeBytes: freeBytes)?.failure
+            ?? DaemonStartFailure(kind: .failed, detail: String(describing: error))
     }
 
     /// Free bytes on the volume that holds `url`, or on its nearest existing parent; nil when
@@ -62,20 +49,66 @@ public struct DaemonStartFailure: Sendable, Equatable {
     }
 }
 
+extension DaemonStartFailure: Decodable {
+    private enum CodingKeys: String, CodingKey { case kind, detail }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(String.self, forKey: .kind)
+        self.init(kind: Kind(rawValue: kind) ?? .failed, detail: try container.decode(String.self, forKey: .detail))
+    }
+}
+
+/// The app's daemon error as the launch rules read it (cmux-daemon-launch-core `ErrorInput`): its kind
+/// (`restore_timeout`, `timed_out`, `launch_failed`, `command` or `other`), the words they look at, and the
+/// error as the launcher saw it (Copy Details, `debug.daemon`).
+struct DaemonLaunchErrorInput: Encodable {
+    var kind: String
+    var detail: String?
+    var message: String?
+    var reason: String?
+    var description: String
+
+    init(_ error: any Error) {
+        description = String(describing: error)
+        switch error as? DaemonError {
+        case .sessionRestoreTimedOut?: kind = "restore_timeout"
+        case .timedOut?: kind = "timed_out"
+        case .launchFailed(let text)?:
+            kind = "launch_failed"
+            detail = text
+        case .command(_, let text, _, let details, _)?:
+            kind = "command"
+            message = text
+            if case .object(let fields)? = details { reason = fields["reason"]?.stringValue }
+        default: kind = "other"
+        }
+    }
+}
+
+/// What the launch rules read in one ensure's error (`classify_error`).
+struct DaemonStartClassification: Decodable {
+    /// It failed the way a stuck owner makes it fail.
+    var stuck: Bool
+    /// The volume under the daemon's state is full, by the error's own words.
+    var diskFull: Bool
+    /// What the unresponsive-owner watch gets.
+    var watch: UnresponsiveOwnerWatch.Ensure
+    var failure: DaemonStartFailure
+
+    init?(_ error: any Error, freeBytes: UInt64? = nil) {
+        struct Request: Encodable { var error: DaemonLaunchErrorInput, freeBytes: UInt64? }
+        guard let reply = DaemonLaunchRules.call("classify_error", Request(error: DaemonLaunchErrorInput(error), freeBytes: freeBytes),
+                                                 as: Self.self) else { return nil }
+        self = reply
+    }
+}
+
 extension DaemonError {
     /// The daemon refused, or could not start, because the volume under its state is full (SQLite's
     /// "database or disk is full", ENOSPC; restore fuzz h2 and h3). The person reads that reason in
     /// their language; a scripted caller still gets this error.
     public var isDiskFull: Bool {
-        switch self {
-        case .command(_, let message, _, let details, _):
-            if DaemonStartFailure.saysDiskFull(message) { return true }
-            guard case .object(let fields)? = details, let reason = fields["reason"]?.stringValue else { return false }
-            return DaemonStartFailure.saysDiskFull(reason)
-        case .launchFailed(let detail):
-            return DaemonStartFailure.saysDiskFull(detail)
-        default:
-            return false
-        }
+        DaemonStartClassification(self)?.diskFull ?? false
     }
 }

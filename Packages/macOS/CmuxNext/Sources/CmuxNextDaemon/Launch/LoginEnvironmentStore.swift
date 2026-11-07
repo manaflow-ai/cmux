@@ -13,14 +13,6 @@ import Foundation
 /// app captures the same environment, and a new dogfood tag starts with it
 /// on its first launch.
 struct LoginEnvironmentStore: Sendable {
-    /// The file's JSON.
-    struct Record: Codable {
-        var version: Int
-        var environment: [String: String]
-    }
-
-    static let version = 1
-
     private let read: @Sendable () -> Data?
     private let write: @Sendable (Data) -> Void
 
@@ -48,19 +40,19 @@ struct LoginEnvironmentStore: Sendable {
     }
 
     /// The remembered environment, or nil when there is none, it cannot be
-    /// read, or it has no `PATH`.
+    /// read, it is another version, or it has no `PATH` (cmux-daemon-launch-core `login_store_decode`, which
+    /// filters it again).
     func load() -> [String: String]? {
-        guard let data = read(),
-              let record = try? JSONDecoder().decode(Record.self, from: data),
-              record.version == Self.version else { return nil }
-        let environment = TerminalEnvironment.instance.filter(record.environment)
-        return environment["PATH"] == nil ? nil : environment
+        guard let data = read() else { return nil }
+        let text = DaemonLaunchRules.Text(text: String(decoding: data, as: UTF8.self))
+        return DaemonLaunchRules.call("login_store_decode", text, as: [String: String]?.self) ?? nil
     }
 
-    /// Remembers the allowlisted part of `environment`.
+    /// Remembers the allowlisted part of `environment` (`login_store_encode`); nothing without a `PATH`.
     func save(_ environment: [String: String]) {
-        let record = Record(version: Self.version, environment: TerminalEnvironment.instance.filter(environment))
-        guard record.environment["PATH"] != nil, let data = try? JSONEncoder().encode(record) else { return }
-        write(data)
+        let record = DaemonLaunchRules.call("login_store_encode", DaemonLaunchRules.Environment(environment: environment),
+                                            as: String?.self) ?? nil
+        guard let record else { return }
+        write(Data(record.utf8))
     }
 }

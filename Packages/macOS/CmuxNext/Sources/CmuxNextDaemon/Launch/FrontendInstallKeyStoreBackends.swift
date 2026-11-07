@@ -18,12 +18,12 @@ public struct FileFrontendInstallKeyStore: FrontendInstallKeyStore {
 
     public func loadOrCreate() -> FrontendInstallKey? {
         if let key = read() { return key }
+        guard let fresh = FrontendInstallKey.generate() else { return nil }
         // A tag's first launch asks before `server ensure` makes the state
         // directory: make it owner-only now (as ensure does), so the daemon
         // this launch starts gets the key.
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                  attributes: [.posixPermissions: 0o700])
-        let fresh = FrontendInstallKey.generate()
         // Created 0600 in one step (O_EXCL; never a chmod afterwards). A
         // racing launch that created it first wins; read that one.
         let fd = open(file.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)

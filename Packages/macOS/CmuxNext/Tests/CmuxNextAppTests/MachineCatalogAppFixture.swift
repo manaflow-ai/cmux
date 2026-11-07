@@ -33,7 +33,7 @@ final class MachineCatalogAppFixture {
         _ = NSApplication.shared
         let appRoot = root.appendingPathComponent("apps/inventory")
         try package.write(to: appRoot)
-        let key = FrontendInstallKey.generate()
+        let key = try #require(FrontendInstallKey.generate())
         var localEnvironment = try environment("local")
         localEnvironment["CMUX_APPS_DIRS"] = appRoot.deletingLastPathComponent().path
         localEnvironment["CMUX_APPS_DEFAULT"] = ""

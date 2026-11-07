@@ -39,8 +39,8 @@ nonisolated struct SidebarSnapshotFile: Sendable {
         if !launch.build.keepsAppNames, let state = launch.build.daemonStateDirectory(appSupport: cmux) {
             return state.deletingLastPathComponent()
         }
-        if let tag = launch.tag, !tag.isEmpty {
-            return DaemonLauncher.tagStateDirectory(tag: tag).deletingLastPathComponent()
+        if let tag = launch.tag, !tag.isEmpty, let state = DaemonLauncher.tagStateDirectory(tag: tag) {
+            return state.deletingLastPathComponent()
         }
         return support.appending(path: launch.bundleID ?? "com.cmuxterm.app.next", directoryHint: .isDirectory)
     }
