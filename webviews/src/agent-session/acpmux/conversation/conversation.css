@@ -201,9 +201,11 @@
    sides (both apps); the cards' 12 radius (claude.ai 12). Was 8 by 12 with a 10 radius (38.75 tall).
    model.ts measures it. Its look is the glass rule below. */
 .cv-user__bubble {
+  --cv-bubble-pad-block: max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2);
+  --cv-bubble-pad-inline: calc(4 * var(--grid-base));
   box-sizing: border-box;
   max-width: 70%;
-  padding: max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2) calc(4 * var(--grid-base));
+  padding: var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);
   border-radius: var(--grid-cards-radius);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
@@ -561,28 +563,21 @@
   -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
   mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
 }
-.cv-user__more {
-  display: block;
-  height: 20px;
-  margin: 4px 0 0;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: none;
-  font-family: var(--cv-font);
-  font-size: var(--text-detail);
+/* Show more / Show less under a long prompt or agent message (ExpandRow.tsx): 4px above a 20px
+   line (promptCollapse.ts PROMPT_MORE_HEIGHT), the 4px inside the row so all of it is the target. */
+.cv-expand-row.cv-user__more {
+  min-height: 24px;
+  margin: 0;
+  padding-top: 4px;
   line-height: 20px;
-  color: var(--cv-text-muted);
-  white-space: nowrap;
-  user-select: none;
-  letter-spacing: var(--text-detail--letter-spacing);
 }
-.cv-user__more:hover {
-  color: var(--cv-text);
-}
-.cv-user__more:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
-  outline-offset: 1px;
+/* In a prompt's bubble the row is the bubble's whole bottom: its full width, and down through the
+   bubble's bottom padding, which it takes in as its own, so the bubble is exactly as tall as with a
+   bare label and the words sit where they did. */
+.cv-user__bubble > .cv-expand-row.cv-user__more {
+  width: calc(100% + 2 * var(--cv-bubble-pad-inline));
+  margin: 0 calc(-1 * var(--cv-bubble-pad-inline)) calc(-1 * var(--cv-bubble-pad-block));
+  padding: 4px var(--cv-bubble-pad-inline) var(--cv-bubble-pad-block);
 }
 /* A pasted block: one card of the paste's own text, no outline, a quiet tint of the bubble's ink.
    Closed, its first PASTE_PREVIEW_LINES lines wrap in the prompt's font, the last fading out, over
@@ -1703,9 +1698,13 @@
   --cv-block-cut: calc(8 * var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px)) + var(--cv-lane));
   max-height: var(--cv-block-cut);
 }
-.cv-edit-diff > .cv-output-more {
+/* Show all N lines / Show less is the card's whole bottom row on the card's own fill (ExpandRow.tsx),
+   as tall as its header: a cut diff's last lines fade straight into it, and an open one's last line
+   ends on the same surface the row continues, with no strip of another colour under the lines. */
+.cv-edit-diff > .cv-expand-row {
+  min-height: calc(var(--cv-font-size) * 32 / 14);
   margin: 0;
-  padding: var(--ds-space-1) var(--ds-space-3) var(--ds-space-2);
+  padding-inline: var(--ds-space-3);
 }
 .cv-edit-diff__empty {
   padding: var(--ds-space-2) var(--ds-space-3);
@@ -1865,7 +1864,10 @@ pre.cv-math-source {
 .acpmux-scroll[data-cmux-shown-scroller] {
   overflow-x: hidden;
 }
-.acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
+/* `data-asks` (App.tsx), not `.acpmux-main:has(.acpmux-asks-stack)`: a `:has()` on a transcript ancestor that
+   looks at its whole subtree is checked again for every node a streamed chunk inserts, and each check restyles
+   the composer (test/agent-pane-stream-composer-still.test.ts). */
+.acpmux-main[data-asks] .acpmux-scroll {
   margin-bottom: 0;
 }
 /* The spacer is the scroller's extent, which a followed view's offset is set against in the same
@@ -3289,7 +3291,6 @@ button.cv-video-frames__name:focus-visible {
   gap: 4px;
   max-width: 100%;
   overflow-x: auto;
-  scrollbar-width: thin;
 }
 .cv-video-frames__grid {
   display: grid;
@@ -4388,10 +4389,11 @@ a.cv-sha:focus-visible {
 }
 /* Reserve the corner outside the text scroller, so even unwrapped lines stay clear of the buttons. */
 .cv-tool-output__box:has(> .cv-tool-output__actions) {
-  padding-right: 32px;
+  --cv-actions-room: 32px;
+  padding-right: var(--cv-actions-room);
 }
 .cv-tool-output__box:has(> .cv-tool-output__actions > :nth-child(2)) {
-  padding-right: calc(2 * 32px);
+  --cv-actions-room: calc(2 * 32px);
 }
 .cv-tool-output__box > .cv-tool-output {
   grid-column: 1;
@@ -4541,24 +4543,83 @@ a.cv-sha:focus-visible {
 .cv-output-cut {
   color: var(--cv-text-muted);
 }
-.cv-output-more {
+/* Show more / Show less under every cut block (ExpandRow.tsx): one button, its block's full width
+   and its whole bottom row, so a click anywhere along that edge toggles it (Leo, 2026-11-07: "what
+   if the whole bottom row area were clickable ... my mouse is in the general vicinity, it's in the
+   general height area"). On its block's own surface; under the pointer only its fill and ink change,
+   never its size, padding, border or weight, so pointing at it moves nothing. Its bottom corners
+   follow its block's; the focus ring is drawn inside it, so a card's clip never cuts it. Alone (a
+   search's files, an agent message) it is the text column's width, 4px under the text. No
+   transition: the tint comes and goes at once, and a prompt's row is already moving with its fold. */
+.cv-expand-row {
   all: unset;
-  display: block;
-  margin: 4px 0 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: calc(var(--grid-base) + var(--text-detail--line-height));
+  margin: 0;
+  padding-top: 4px;
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+  background-color: transparent;
+  color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
-  color: var(--cv-text-muted);
-  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
 }
-.cv-output-more:hover {
+.cv-expand-row:hover {
+  background-color: color-mix(in srgb, var(--cv-fg) 4%, transparent);
   color: var(--cv-text);
 }
-.cv-output-more:focus-visible {
+.cv-expand-row:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
-  outline-offset: 1px;
-  border-radius: 4px;
+  outline-offset: -2px;
+}
+/* In a card the row is a row: the card's header height, the words at the card's text inset. */
+:is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row {
+  padding-top: 0;
+}
+/* A Shell block's row runs out through the card's padding to its edges and takes in its bottom
+   padding, so the card is as tall as with the bare label under the output (12px padding, 4px and a
+   16px line: 32px). */
+.cv-shell > .cv-expand-row {
+  width: calc(100% + 2 * var(--grid-cards-padding));
+  min-height: calc(var(--grid-base) + var(--text-detail--line-height) + var(--grid-cards-padding));
+  margin: 0 calc(-1 * var(--grid-cards-padding)) calc(-1 * var(--grid-cards-padding));
+  padding-inline: var(--grid-cards-padding);
+}
+.cv-shell > .cv-expand-row:not(:last-child) {
+  margin-bottom: 0;
+}
+/* A call output's row is the box's second grid row, out under the corner buttons' room too. */
+.cv-tool-output__box > .cv-expand-row {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  width: auto;
+  min-height: calc(var(--cv-font-size) * 32 / 14);
+  margin-right: calc(-1 * var(--cv-actions-room, 0px));
+  padding-inline: 12px;
+}
+/* Arms of `expand-row-look` (expandRow.experiment.ts), set on the root by ExpandRow.tsx; the shipped
+   arm, the row continuing its block's surface, sets nothing. */
+:root[data-expand-row="fade"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row[aria-expanded="false"] {
+  position: relative;
+  margin-top: -24px;
+}
+:root[data-expand-row="hairline"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row {
+  background-color: color-mix(in srgb, var(--cv-fg) 4%, transparent);
+  box-shadow: inset 0 1px 0 var(--cv-card-ring);
+}
+:root[data-expand-row="hairline"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row:hover {
+  background-color: color-mix(in srgb, var(--cv-fg) 8%, transparent);
+}
+:root[data-expand-row="centred"] .cv-expand-row {
+  justify-content: center;
 }
 .cv-tool-output__raw {
   all: unset;
@@ -5558,53 +5619,6 @@ a.cv-sha:focus-visible {
   white-space: nowrap;
 }
 
-/* The preview card before the reader loads its frame (PreviewCard.tsx): one compact row
-   (previewUrl.ts PREVIEW_COMPACT_HEIGHT), the page's icon unboxed, no thumbnail box. "Load preview"
-   is a quiet text button among the row's actions; the frame appears only after the click. */
-.acpmux-turn-preview[data-compact] .acpmux-turn-preview-head {
-  gap: 8px;
-  min-height: 36px;
-  padding: 6px 8px 6px 12px;
-  box-shadow: none;
-}
-.acpmux-turn-preview[data-compact] .acpmux-turn-preview-icon {
-  width: 16px;
-  height: 16px;
-  background: none;
-}
-.acpmux-turn-preview-load {
-  flex: none;
-  height: 22px;
-  padding: 0 var(--ds-space-2);
-  border: 0;
-  border-radius: var(--ds-radius-control);
-  background: transparent;
-  color: var(--agent-muted);
-  font: inherit;
-  font-size: var(--text-detail);
-  cursor: default;
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.acpmux-turn-preview-load:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
-  color: var(--agent-text);
-}
-.acpmux-turn-preview-load:focus-visible {
-  outline: 1.5px solid var(--agent-muted);
-  outline-offset: 1px;
-}
-/* The head's "Open in tab" and "Open in" (OpenInMenu.tsx) read like Load preview and the link hover
-   card's actions: no outline, muted text, a background only under the pointer. */
-.acpmux-turn-preview-head .acpmux-review-changes {
-  padding: 0 var(--ds-space-2);
-  box-shadow: none;
-  color: var(--agent-muted);
-}
-.acpmux-turn-preview-head .acpmux-review-changes:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
-  color: var(--agent-text);
-}
-
 /* A render card (RenderCard.tsx): a quiet head over the live frame, which takes its page's height. */
 .acpmux-render-card {
   position: relative;
@@ -5802,10 +5816,17 @@ a.cv-sha:focus-visible {
    in place: it never slides, so the frames of its fade all draw it on the same pixels (Leo
    2026-10-28: "I don't want to see that fucking, like, jump to bottom button be jumping around").
    The 6px rise it once faded in with moved its box on each of the fade's frames, read as a jump the
-   moment the reader scrolled up. */
+   moment the reader scrolled up.
+   It stands on the composer's center line, not the stage's middle (Leo, 2026-11-07: "the jump to
+   bottom button is still not centered with the composer yet"). The composer card spans the column
+   from --cv-inset to --cv-inset-end (styles.css .acpmux-composer, computerUsePreview.css,
+   sessionInfo.css), and the stage and the dock are both .acpmux-main's width, so the same insets
+   give the button the card's center: while Session Info pushes the column left, or the computer use
+   preview takes its end, the button goes with the card, in the same frames of the push's slide
+   (--acpmux-session-info-shift). With no column (the gallery's bare stage) it is the middle. */
 .acpmux-jump-latest {
   position: absolute;
-  left: 50%;
+  left: calc((100% + var(--cv-inset, 0px) - var(--cv-inset-end, var(--cv-inset, 0px))) / 2);
   /* Over the bottom stack, which lies over the stage's foot (App.tsx passes its height). */
   bottom: calc(12px + var(--acpmux-dock-space, 0px));
   z-index: var(--layer-sticky);
@@ -5969,7 +5990,7 @@ a.cv-sha:focus-visible {
     100% 0,
     0 0;
 }
-.acpmux-scroll:has(> .acpmux-minimap [data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
+.acpmux-scroll:has(> .acpmux-minimap[data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
   -webkit-mask-position:
     0 0,
     100% 0,
@@ -6808,8 +6829,16 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
 }
 /* The selection's Reply chip (SelectionReply.tsx): a small pill over the selection's end, as
    Claude's and ChatGPT's, placed where no transcript text is under it. It shows on the selection's end with no fade-in and goes when the
-   selection does. `icon` draws the glyph alone. */
+   selection does. `icon` draws the glyph alone.
+   Its label reads over anything under it (Leo 2026-11-07: "this reply, it has too little opacity
+   here"): the chip is glass with a veil of the theme's solid surface (--glass-surface) at
+   --cv-selection-reply-veil, so a bubble, code or the wallpaper under it shows only as a blurred hint, and its
+   label is the full text color. Over a see-through window --agent-page-bg is clear, so the card fill
+   over it that the chip had drew 4% of the text color on nothing and its 60% label sank into the
+   transcript. test/selection-reply-contrast.test.ts holds the label at 4.5:1 or more over a black,
+   a white and a bubble backdrop in both themes. Reduce Transparency makes it solid. */
 .cv-selection-reply {
+  --cv-selection-reply-veil: 90%;
   position: fixed;
   z-index: var(--layer-dropdown);
   display: inline-flex;
@@ -6817,12 +6846,13 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   gap: 4px;
   height: 28px;
   padding-inline: 8px 12px;
-  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
+  border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 8px;
-  /* Opaque over the text it floats above: the page's colour under the cards' fill. */
-  background: linear-gradient(var(--cv-card-fill), var(--cv-card-fill)), var(--agent-page-bg, Canvas);
+  background: color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
+  -webkit-backdrop-filter: blur(var(--glass-frost)) saturate(1.4);
+  backdrop-filter: blur(var(--glass-frost)) saturate(1.4);
   box-shadow: var(--elevation-2);
-  color: var(--cv-tool-strong);
+  color: var(--agent-text);
   font-family: var(--cv-font);
   font-size: var(--text-control);
   line-height: 20px;
@@ -6836,9 +6866,18 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   justify-content: center;
 }
 .cv-selection-reply:hover {
-  color: var(--cv-text, currentColor);
-  background: linear-gradient(var(--cv-bubble), var(--cv-bubble)), linear-gradient(var(--cv-card-fill), var(--cv-card-fill)),
-    var(--agent-page-bg, Canvas);
+  background: linear-gradient(
+      color-mix(in srgb, var(--agent-text) 8%, transparent),
+      color-mix(in srgb, var(--agent-text) 8%, transparent)
+    ),
+    color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .cv-selection-reply {
+    background: var(--glass-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 /* A background task's result the person has not seen (ReactionMark.tsx): a 6px accent dot at the
    row's edge, before its check and time, until the next prompt. It never pulses. */
@@ -6889,11 +6928,15 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
 }
 
 /* "Worked for 22s ›" (Lucas, 2026-11-06, Codex parity): the whole line lights under the
-   pointer, its time too, and the fold's rows start a grid gap under its rule.
-   model.ts `WORKED_GAP_PT` estimates the gap. Its chevron is every row's (`.cv-rotor`). */
+   pointer, its time too. Its rule sits midway between its words and the next row, the reply or
+   the fold's rows: 4 under the line, 12 over the next row, and no stack gap after it
+   (transcriptGrid.ts MARK_WORKED; Lucas, 2026-11-07). model.ts `WORKED_GAP_PT` estimates the room.
+   Its chevron is every row's (`.cv-rotor`). */
 button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   color: var(--cv-text);
 }
 .cv-worked.has-divider.is-toggle {
-  margin-bottom: var(--grid-gap);
+  height: calc(var(--cv-tool-row-height) + var(--grid-gap-foot));
+  padding-bottom: var(--grid-gap-foot);
+  margin-bottom: var(--grid-gap-inner);
 }

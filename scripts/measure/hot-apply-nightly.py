@@ -57,6 +57,32 @@ def control_socket(app_pid: int) -> str | None:
     return None
 
 
+def explain_miss(app: Path, app_pid: int, control: str) -> None:
+    """What the copy started and which unix sockets it holds, so a daemon that was never found can be
+    read from the log: every process under the app's own and every cmux-named one, whatever path
+    form ps prints for it, and the app's own record of its daemon requests."""
+    rows = []
+    for line in subprocess.run(["ps", "-axww", "-o", "pid=,ppid=,comm=,command="], capture_output=True,
+                               text=True).stdout.splitlines():
+        pid, ppid, rest = (line.split(None, 2) + ["", ""])[:3]
+        rows.append((pid, ppid, rest))
+    tree, grew = {str(app_pid)}, True
+    while grew:
+        grew = False
+        for pid, ppid, _ in rows:
+            if ppid in tree and pid not in tree:
+                tree.add(pid)
+                grew = True
+    for pid, ppid, rest in rows:
+        if pid in tree or "cmux" in rest.lower():
+            held = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
+            paths = sorted({l[1:] for l in held.splitlines() if l.startswith("n/")})
+            print(f"HAN proc {pid} ppid {ppid} {'(app tree) ' if pid in tree else ''}{rest[:300]} sockets {paths}",
+                  file=sys.stderr)
+    requests = bench.rpc_at(control, "debug.daemon_requests", timeout=10)
+    print(f"HAN debug.daemon_requests answered {json.dumps(requests)[:2000]}", file=sys.stderr, flush=True)
+
+
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -108,21 +134,18 @@ def main() -> int:
     print(f"HAN workspace.newAtBottom answered {json.dumps(opened)[:400]}", file=sys.stderr, flush=True)
     workspace = next((str(i) for i in (opened or {}).get("created") or [] if str(i).startswith("ws_")), None) \
         if isinstance(opened, dict) else None
-    if workspace:
-        bench.rpc_at(control, "action.run", {"action": "goToWorkspace", "args": {"workspace": workspace}}, timeout=30)
+    went = bench.rpc_at(control, "action.run", {"action": "goToWorkspace", "args": {"workspace": workspace}},
+                        timeout=30) if workspace else {"error": "workspace.newAtBottom created no workspace"}
+    print(f"HAN goToWorkspace answered {json.dumps(went)[:400]}", file=sys.stderr, flush=True)
     surface = bench.rpc_at(control, "action.run", {"action": "newSurface"}, timeout=30)
     print(f"HAN newSurface answered {json.dumps(surface)[:400]}", file=sys.stderr, flush=True)
-    receipt["checks"]["opened_terminal"] = not any(isinstance(r, dict) and "error" in r for r in (opened, surface))
-    receipt["opened_replies"] = {"workspace": opened, "terminal": surface}
+    replies = (opened, went, surface)
+    receipt["checks"]["opened_terminal"] = all(isinstance(r, dict) and "error" not in r for r in replies)
+    receipt["opened_replies"] = {"workspace": opened, "went": went, "terminal": surface}
     try:
         sock = wait_until("the copy's daemon", time.monotonic() + 180, lambda: hot.find_socket(app, cli))
     except TimeoutError:
-        # What ran from the copy and which sockets it held, so a miss can be read from the log.
-        listing = subprocess.run(["ps", "-axww", "-o", "pid=,comm=,command="], capture_output=True, text=True).stdout
-        print("HAN copy processes:\n" + "\n".join(l for l in listing.splitlines() if str(app) in l), file=sys.stderr)
-        for pid in hot.app_pids(app):
-            held = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
-            print(f"HAN pid {pid} unix sockets: {held.split()}", file=sys.stderr)
+        explain_miss(app, app_pid, control)
         raise
     receipt["daemon_ready_secs"] = round(time.monotonic() - t0, 1)
     receipt["nightly_sha256"] = before = sha256(cli)

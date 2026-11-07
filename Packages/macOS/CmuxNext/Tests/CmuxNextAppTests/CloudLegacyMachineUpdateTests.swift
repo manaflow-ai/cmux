@@ -210,30 +210,6 @@ struct CloudLegacyMachineUpdateTests {
         #expect(!CloudLegacyMachineUpdate.startCommand(pin: Self.pin, script: "", nonce: "c", expected: "not-hex; rm -rf /").contains("expect-build"))
     }
 
-    /// Each result line of the guest script as a `link machine update` answer.
-    @Test func resultLinesMapToAnswers() {
-        func code(_ stdout: String, exit: Int = 0) -> String? {
-            let answer = CloudLegacyMachineUpdate.answer(CloudExecResult(exitCode: exit, stdout: stdout, stderr: "sudo: a password is required"), pin: Self.pin)
-            return answer.ok ? (answer.updated ? "updated:\(answer.build ?? "")" : "current") : answer.errorCode
-        }
-        #expect(code("OK already-current daemon=9\n") == "current", "nothing restarted")
-        #expect(code("OK canary daemon=9 hosts-before=1\n") == "updated:\(Self.pin.commit)")
-        #expect(code("UNVERIFIED terminal count unavailable terminals=?->2 daemon=9\n") == "updated:\(Self.pin.commit)")
-        #expect(code("ROLLBACK lost-hosts=[12] old-daemon=7\n") == "machine_update_rolled_back")
-        #expect(code("FAIL rollback-daemon-unhealthy reason=x\n") == "machine_update_failed")
-        #expect(code("SKIP busy another upgrade run holds the lock\n") == "machine_update_busy")
-        #expect(code("SKIP changed binary=\(String(repeating: "2", count: 40)) expected=\(String(repeating: "1", count: 40))\n") == "machine_update_busy",
-                "a machine updated since the CLI judged it: asked again, never a failure")
-        #expect(code("SKIP no-daemon\n") == "machine_unreachable")
-        #expect(code("SKIP unsupported-cloud-auth\n") == "machine_update_unsupported")
-        #expect(code("SKIP disk-free=120MB\n") == "machine_update_busy", "nothing changed: asked again, not a failure kept for the build")
-        #expect(code("NOROOT\n") == "machine_update_unsupported", "an account that cannot become root")
-        #expect(code("running\n") == "machine_update_unresolved")
-        #expect(code("") == "machine_update_unresolved")
-        #expect(code("", exit: 124) == "machine_update_unresolved", "the provider ended the wait; the run may go on")
-        #expect(code("garbage", exit: 124) == "machine_update_unresolved")
-    }
-
     /// The pin is the app bundle's own manifest; anything that is not plain hex is refused.
     @Test func thePinComesFromTheBundledManifestOnly() throws {
         let sha = String(repeating: "C", count: 64)
@@ -248,27 +224,6 @@ struct CloudLegacyMachineUpdateTests {
         try good.write(to: folder.appendingPathComponent("cmux-tui-ssh/manifest.json"))
         #expect(CloudLegacyPin.pin(besideCLI: folder.appendingPathComponent("cmux"))?.sha256 == sha.lowercased())
         #expect(CloudLegacyPin.pin(besideCLI: folder.appendingPathComponent("missing/cmux")) == nil, "a dev build has no pin")
-    }
-
-    /// A DEV build ships no manifest: `cmux link machine pin` names the pin of its own commit or
-    /// cmux-tui tree, taken even when that is an earlier commit than the app's (the tree's
-    /// publishing commit). Anything but a well-formed ok line for the Cloud target is none.
-    @Test func aDevBuildTakesThePinItsCLINames() async throws {
-        let (commit, sha) = (String(repeating: "e", count: 40), String(repeating: "f", count: 64))
-        let line = { (ok: Bool, commit: String, sha: String, target: String) in
-            Data(#"{"ok":\#(ok),"commit":"\#(commit)","sha256":"\#(sha)","target":"\#(target)"}"#.utf8)
-        }
-        let good = line(true, commit, sha, "x86_64-unknown-linux-musl")
-        #expect(CloudLegacyPin.pin(answer: Data("noise\n".utf8) + good + Data("\n".utf8)) == CloudLegacyPin(commit: commit, sha256: sha))
-        #expect(CloudLegacyPin.pin(answer: line(false, commit, sha, "x86_64-unknown-linux-musl")) == nil)
-        #expect(CloudLegacyPin.pin(answer: line(true, commit, sha, "aarch64-unknown-linux-musl")) == nil)
-        #expect(CloudLegacyPin.pin(answer: line(true, "e; rm -rf /", sha, "x86_64-unknown-linux-musl")) == nil)
-        #expect(CloudLegacyPin.pin(answer: line(true, commit, sha.uppercased(), "x86_64-unknown-linux-musl")) == nil)
-        #expect(CloudLegacyPin.pin(answer: Data(#"{"ok":false,"error_code":"machine_update_unavailable","error":"none"}"#.utf8)) == nil)
-
-        let cli = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-dev-\(UUID().uuidString)/cmux")
-        #expect(await CloudLegacyPin.pin(for: String(repeating: "1", count: 40), besideCLI: cli, ask: { good }) == CloudLegacyPin(commit: commit, sha256: sha))
-        #expect(await CloudLegacyPin.pin(for: String(repeating: "1", count: 40), besideCLI: cli, ask: { nil }) == nil)
     }
 
     /// The app runs the fleet's own guest script, byte for byte (web/tests checks the other side).

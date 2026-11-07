@@ -355,5 +355,5 @@ noisy automation never floods Home. A "Digest" option collects reports into one 
 ## 12. Status (landed)
 
 - Slice 1 (local): `cmux-automations` crate and `cmux automation create/list/show/run/pause/resume/edit/history/logs/delete/runner` on this Mac.
-- Cloud slice: `automation.create` with a `chief` body from the person's clients shares the free plan's one Cloud job (`chief-job-gate.ts`); the app's `cloud.automation` method (`CloudAutomationRelay`) forwards Cloud automation ops as the signed-in user; `cmux automation … --target cloud`; the Mac Chief makes jobs with `cmux automation` (prompt Jobs rule); the Automations page view and model (`CmuxNextCloudUI/Automations`).
+- Cloud slice: `automation.create` with a `chief` body from the person's clients shares the free plan's one Cloud job (`chief-job-gate.ts`); the app's `cloud.automation` method (`cmux cloud automation-relay`, rules in `cmux_cloud_wire::automation`) forwards Cloud automation ops as the signed-in user; `cmux automation … --target cloud`; the Mac Chief makes jobs with `cmux automation` (prompt Jobs rule); the Automations page view and model (`CmuxNextCloudUI/Automations`).
 - Not yet: the Automations sidebar row, its page provider and the Cmd+Shift+P entries (app wiring; the provider protocol lives in the app target), failover between targets, event triggers on the local runner.

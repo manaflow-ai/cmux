@@ -135,14 +135,16 @@ public final class SettingsHarnesses {
     /// read (onboarding).
     func refresh(recheck: Bool = false, plans: Bool = true) async {
         await refreshUpdates?()
+        // Before the guard: a read still running from an earlier refresh may not write over this one.
+        generation += 1
+        let mine = generation
         guard let environment = environment() else {
             rows = []
             listAnswered = false
+            loading = false
             problem = "unavailable"
             return
         }
-        generation += 1
-        let mine = generation
         loading = true
         let fresh: [AcpmuxHarnessRow]?
         do { fresh = try await fetch(environment) } catch { fresh = nil }

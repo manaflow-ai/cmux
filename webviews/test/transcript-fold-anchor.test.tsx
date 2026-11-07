@@ -11,6 +11,7 @@ import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+import { FOLD_SETTLE_MS } from "../src/agent-session/acpmux/conversation/foldAnchor";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -272,10 +273,23 @@ test("opening Worked for marks the thread, fades in the rows it reveals and slid
     }
     // No row's own entrance plays on top of the fold.
     expect(dom.window.document.querySelectorAll(".acpmux-row--enter").length).toBe(0);
-    // The state goes once the fold is over.
-    skew += 10_000;
-    await act(async () => render());
+    // The state goes once the fold is over, with no render of the transcript: a pane snapshot with
+    // the same rows draws nothing again (VirtualTranscript's memo), so the fold's own timer ends it.
+    const started = clock();
+    await act(
+      () =>
+        new Promise<void>((done) => {
+          const watch = new dom.window.MutationObserver(() => {
+            if (thread().hasAttribute("data-turn-fold")) return;
+            watch.disconnect();
+            done();
+          });
+          watch.observe(thread(), { attributes: true, attributeFilter: ["data-turn-fold"] });
+        }),
+    );
     expect(thread().hasAttribute("data-turn-fold")).toBe(false);
+    // On the fold's timer (its 180 ms and the settle hold), not before.
+    expect(clock() - started).toBeGreaterThan(FOLD_SETTLE_MS);
   } finally {
     await act(async () => root.unmount());
   }

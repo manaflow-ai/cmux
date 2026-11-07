@@ -65,11 +65,6 @@ const MCP_BATCH = tool("mcp__cmux__acpmux_send", "other", "completed", {
     failed: 0,
   }),
 });
-const RUNNING = bash(
-  'for lane in tests docs; do acpmux send "$lane" "$(cat "/tmp/briefs/$lane.md")"; done',
-  "Brief tests and docs and wait for replies",
-  "in_progress",
-);
 
 const turn = (calls: ReturnType<typeof tool>[], working = false) =>
   chat(
@@ -93,16 +88,16 @@ const openTurn: Play = async (ctx) => {
   const group = () => ctx.document.querySelector(GROUP);
   if (ctx.document.querySelector(".cv-worked.is-toggle")) {
     await ctx.click({ selector: ".cv-worked.is-toggle" });
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? run() ?? group());
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg") ?? run() ?? group());
   }
-  if (!ctx.document.querySelector(".cv-sent") && run()?.getAttribute("aria-expanded") === "false") {
+  if (!ctx.document.querySelector(".cv-sent-msg") && run()?.getAttribute("aria-expanded") === "false") {
     await ctx.click({ selector: "button[data-message-run]" });
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? group());
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg") ?? group());
   }
   // A run of sends is one closed group ("Sent 8 messages", SentMessageLine.tsx `SentMessageGroup`).
-  if (!ctx.document.querySelector(".cv-sent") && group()?.getAttribute("aria-expanded") === "false") {
+  if (!ctx.document.querySelector(".cv-sent-msg") && group()?.getAttribute("aria-expanded") === "false") {
     await ctx.click({ selector: GROUP });
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg"));
   }
 };
 
@@ -112,14 +107,14 @@ const GROUP = ".cv-sent-group .cv-message-group__head";
 /// shell function stays at most one click away.
 const openRaw: Play = async (ctx) => {
   await openTurn(ctx);
-  await ctx.click({ selector: ".cv-sent" });
+  await ctx.click({ selector: ".cv-sent-msg .cv-disclosure__toggle" });
   // A message whose words the transcript never held (its text read from a file) opens straight to
   // its call, with no Raw toggle (SentMessageLine.tsx); one with words keeps the call behind Raw.
-  const shell = () => ctx.document.querySelector(".cv-subsession__under .cv-shell");
-  const toggle = () => ctx.document.querySelector(".cv-subsession__under .cv-subsession__toggle");
+  const shell = () => ctx.document.querySelector(".cv-sent-msg :is(.cv-sent__raw, .cv-sent__call) [data-tool-id]");
+  const toggle = () => ctx.document.querySelector(".cv-sent-msg .cv-sent__raw > .cv-received__more");
   await ctx.waitFor(() => shell() ?? toggle());
   if (!shell()) {
-    await ctx.click({ selector: ".cv-subsession__under .cv-subsession__toggle" });
+    await ctx.click({ selector: ".cv-sent-msg .cv-sent__raw > .cv-received__more" });
     await ctx.waitFor(shell);
   }
 };
@@ -161,11 +156,6 @@ export default agentPaneEntry({
       note: 'The same group opened: a row per recipient, none repeating "and 1 more command", no Copy on any row.',
       snapshot: turn([LOOP_EIGHT]),
       play: openTurn,
-    },
-    "batch-sending": {
-      note: "A loop batch in flight: one live group line for its messages, with no spinner on the row.",
-      theme: { codexToolRuns: false },
-      snapshot: turn([RUNNING], true),
     },
   },
 });
