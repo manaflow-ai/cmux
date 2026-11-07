@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWindowRules
 
 /// `focusRing.*` palette actions: applied to `DesignSettings` at once, then
 /// written to cmux.json through the validated `setSetting` path
@@ -30,8 +31,10 @@ enum FocusRingHandlers {
         ring.style = style
         ring.enabled = true
         design.focusRing = ring
-        var edits: [([String], JSONValue?)] = [(["focusRing", "style"], .string(style.rawValue))]
-        if !wasEnabled { edits.append((["focusRing", "enabled"], .bool(true))) }
+        // The edits are Rust's (cmux-window-rules `appearance::focus_ring_style`).
+        let edits: [([String], JSONValue?)] = (WindowRules().focusRingStyle(style.rawValue, wasEnabled: wasEnabled) ?? []).map { edit in
+            (edit.path, edit.flag.map(JSONValue.bool) ?? edit.text.map(JSONValue.string))
+        }
         context.writeSettings("set focus ring style", edits)
     }
 

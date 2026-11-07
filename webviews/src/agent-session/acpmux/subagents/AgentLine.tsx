@@ -35,12 +35,12 @@ import { waveProps } from "../../../ui/wave";
 import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import type { SubagentStatus } from "../summary/SubagentStatusList";
+import type { SubagentStatus } from "../summary/subagentStatusListModel";
 import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
 import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
-import { DoneMark, type DoneLook } from "./DoneMark";
+import { DoneCheck, DoneMark, type DoneLook } from "./DoneMark";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -262,8 +262,9 @@ export function AgentLine({
                 <span className="acpmux-agent-line__sr">{state}</span>
               ) : status === "done" && doneLook !== "words" ? (
                 // A finished line's done mark (DoneMark.tsx) in place of the word and its dot; the
-                // line's own time follows in its column, as every line's does.
-                <DoneMark state={state} look={doneLook} />
+                // line's own time follows in its column, as every line's does, and the check sits in
+                // Stop's slot after it.
+                <DoneMark state={state} look={doneLook} checkInSlot />
               ) : (
                 <>
                   <Tick className="acpmux-summary-agent__state" text={state} />
@@ -281,7 +282,12 @@ export function AgentLine({
           </span>
           {/* Stop's track (the stop slot, outside this button, lies over it), then the chevron's,
               last at the line's end: the column the header's chevron ends in. */}
-          <span className="acpmux-agent-line__stop-track" aria-hidden="true" />
+          {/* A finished line's check takes the Stop square's place, same size and column, so nothing
+              moves when the line ends (Leo, 2026-11-07: "instead of the done on the left, you can just
+              put like a check mark right where this stop square would be"). */}
+          <span className="acpmux-agent-line__stop-track" aria-hidden="true">
+            {status === "done" && doneLook === "check" && <DoneCheck />}
+          </span>
           {chevron && onOpen ? (
             <span className="acpmux-agent-line__chevron" aria-hidden="true">
               <Icon name="disclosure.collapsed" size={ROW_ICON} row />

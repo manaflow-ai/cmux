@@ -19,6 +19,7 @@ import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
 import {
   AttachmentChip,
+  InstantPreview,
   KeepFileButton,
   RetryButton,
   UploadProgress,
@@ -364,23 +365,28 @@ const InlineChip = memo(function InlineChip({
             ) : (
               <FileDoc size={14} className="acpmux-attachment-failed-icon" />
             )}
-            <RetryButton
-              className="acpmux-attachment-retry acpmux-md-inline-retry"
-              reason={pending!.failed}
-              onRetry={() => onRetry(id)}
-            />
+            {pending!.retryable && (
+              <RetryButton
+                className="acpmux-attachment-retry acpmux-md-inline-retry"
+                reason={pending!.failed}
+                onRetry={() => onRetry(id)}
+              />
+            )}
           </>
         ) : (
-          <PasteLoadingMark
-            look={look}
-            size={14}
-            className="acpmux-md-inline-spinner"
-            upload={
-              pending!.progress === undefined ? undefined : (
-                <UploadProgress value={pending!.progress} name={name} size={14} />
-              )
-            }
-          />
+          <>
+            {pending!.preview && <InstantPreview src={pending!.preview} />}
+            <PasteLoadingMark
+              look={look}
+              size={14}
+              className="acpmux-md-inline-spinner"
+              upload={
+                pending!.progress === undefined ? undefined : (
+                  <UploadProgress value={pending!.progress} name={name} size={14} />
+                )
+              }
+            />
+          </>
         )}
         {remove}
       </span>

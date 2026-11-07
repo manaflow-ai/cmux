@@ -216,10 +216,9 @@ import Testing
             state.windows[Spaces.work] = []
             state.windows[play] = [1]
         case .newSubgroup:
-            let records = try SidebarDocRecords(document: document(state.items))
+            let (store, _) = try await store(state)
             for (parent, id) in [("itm_mw", "itm_new"), ("itm_cp", "itm_new2"), ("itm_bc", "itm_new3")] {
-                let plan = SidebarDocSubgroupPlan(parent: GroupID(parent), id: GroupID(id), name: "Sub", color: .palette(.blue), records: records)
-                state.apply(try #require(plan.ops, "\(parent): \(String(describing: plan.refusal))"))
+                state.apply(try store.subgroupOps(parent: GroupID(parent), id: GroupID(id), name: "Sub", color: .palette(.blue)))
             }
         case .nestUnderAnotherSpace:
             state.move("itm_ch", to: Spaces.pinned, parent: "itm_bp")
