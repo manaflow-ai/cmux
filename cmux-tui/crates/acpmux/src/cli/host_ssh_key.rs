@@ -105,10 +105,16 @@ pub(crate) fn create(home: &Path, hostname: &str) -> Result<LocalKey> {
         );
     }
     let dir = home.join(".ssh");
-    let key = dir.join("id_ed25519");
-    if key.exists() {
-        bail!("{} exists without its .pub; nothing was made", key.display());
+    // A private key of any of the names `find` reads, its .pub gone, is still this machine's key.
+    if let Some(private) = KEY_FILES
+        .iter()
+        .filter_map(|name| name.strip_suffix(".pub"))
+        .map(|name| dir.join(name))
+        .find(|path| path.exists())
+    {
+        bail!("{} exists without its .pub; nothing was made", private.display());
     }
+    let key = dir.join("id_ed25519");
     if !dir.is_dir() {
         std::fs::create_dir_all(&dir).with_context(|| format!("mkdir {}", dir.display()))?;
         #[cfg(unix)]
@@ -267,6 +273,11 @@ mod tests {
             std::fs::read_to_string(half.path().join(".ssh/id_ed25519")).unwrap(),
             "private"
         );
+        // Any of the key names counts, not only ed25519: an RSA key whose .pub is gone is still a key.
+        let rsa = home_with(&[("id_rsa", "private")]);
+        let err = create(rsa.path(), "mac.local").unwrap_err().to_string();
+        assert!(err.contains("without its .pub"), "{err}");
+        assert!(!rsa.path().join(".ssh/id_ed25519").exists());
     }
 
     #[test]
