@@ -223,14 +223,18 @@ fn the_first_scan_is_the_baseline_and_a_change_is_reported_until_committed() {
     let mut core = Core::new(&config);
     assert_eq!(scanned(core.check(0, Reason::Launch)), Reason::Launch);
 
-    // A later change that the next scan no longer sees is no longer pending.
+    // A change that goes back to the baseline before the commit is still
+    // reported (the app may have imported the value in between), then done.
     conn.execute("UPDATE cookies SET encrypted_value = x'03' WHERE host_key = '.example.com'", [])
         .unwrap();
-    let generation = changed_at(core.check(0, Reason::Watch)).3;
+    let first = changed_at(core.check(0, Reason::Watch)).3;
     conn.execute("UPDATE cookies SET encrypted_value = x'02' WHERE host_key = '.example.com'", [])
         .unwrap();
+    let (domains, _, _, second) = changed_at(core.check(0, Reason::Watch));
+    assert_eq!(domains, vec!["example.com"]);
+    assert!(!core.commit("chrome:Default", first));
+    assert!(core.commit("chrome:Default", second));
     assert_eq!(scanned(core.check(0, Reason::Watch)), Reason::Watch);
-    assert!(!core.commit("chrome:Default", generation));
 
     let files: Vec<_> =
         std::fs::read_dir(&state).unwrap().map(|e| e.unwrap().file_name()).collect();
@@ -347,4 +351,36 @@ fn a_commit_of_an_earlier_report_does_not_save_a_later_one() {
     assert!(core.commit("chrome:Default", second));
     let mut relaunched = Core::new(&config);
     assert_eq!(scanned(relaunched.check(0, Reason::Launch)), Reason::Launch);
+}
+
+#[test]
+fn a_domain_stays_reported_until_a_commit_even_after_it_reverts() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, conn) = store(dir.path());
+    let mut core = Core::new(&config(&dir.path().join("state"), &path));
+    scanned(core.check(0, Reason::Launch));
+
+    conn.execute("UPDATE cookies SET encrypted_value = x'09' WHERE host_key = '.example.com'", [])
+        .unwrap();
+    assert_eq!(changed(core.check(0, Reason::Watch)).0, vec!["example.com"]);
+    // example.com goes back to its baseline value while github.com changes and
+    // a new host comes and goes: every domain since the commit is named.
+    conn.execute(
+        "UPDATE cookies SET encrypted_value = ?1 WHERE host_key = '.example.com'",
+        [b"v10-cccc".to_vec()],
+    )
+    .unwrap();
+    conn.execute("UPDATE cookies SET encrypted_value = x'0a' WHERE host_key = 'github.com'", [])
+        .unwrap();
+    insert_at(&conn, "brief.example", "t", b"v10-eeee", "", 4);
+    assert_eq!(
+        changed(core.check(0, Reason::Watch)).0,
+        vec!["brief.example", "example.com", "github.com"]
+    );
+    conn.execute("DELETE FROM cookies WHERE host_key = 'brief.example'", []).unwrap();
+    let (changed_domains, removed, _, generation) = changed_at(core.check(0, Reason::Watch));
+    assert_eq!(changed_domains, vec!["example.com", "github.com"]);
+    assert_eq!(removed, vec!["brief.example"]);
+    assert!(core.commit("chrome:Default", generation));
+    assert_eq!(scanned(core.check(0, Reason::Watch)), Reason::Watch);
 }

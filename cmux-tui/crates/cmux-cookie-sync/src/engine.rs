@@ -3,7 +3,7 @@
 //! every source and scans it on schedule ([`CookieSync`]).
 
 use crate::baseline;
-use crate::diff::diff;
+use crate::diff::{diff, domain};
 use crate::fingerprint::{Fingerprint, Scan, ScanError, fingerprint};
 use crate::schedule::Scheduler;
 use crate::watch::{FileWatch, Stopper, Wake, refresh, sidecar, timeout};
@@ -171,6 +171,10 @@ struct State {
     /// its report's generation; `commit` of that generation saves it as the
     /// baseline.
     pending: Option<(u64, Fingerprint)>,
+    /// Every domain reported since the last commit. Each later report names
+    /// them again, also one whose cookies went back to the baseline: the app
+    /// may have imported the value in between.
+    touched: BTreeSet<String>,
     active: bool,
 }
 
@@ -193,6 +197,7 @@ impl Core {
                 baseline: baseline::load(&config.state_dir, &source.id),
                 source: source.clone(),
                 pending: None,
+                touched: BTreeSet::new(),
                 active: true,
             })
             .collect();
@@ -266,18 +271,23 @@ impl Core {
             });
         };
         let difference = diff(base, &scan.fingerprint);
-        if difference.is_empty() {
+        if difference.is_empty() && state.touched.is_empty() {
             state.pending = None;
             return Some(Report::Scanned { source, rows, hosts, scan_ms, cpu_ms, reason });
         }
+        state.touched.extend(difference.changed);
+        state.touched.extend(difference.removed);
+        let present: BTreeSet<&str> = scan.fingerprint.keys().map(|host| domain(host)).collect();
+        let (changed, removed): (Vec<String>, Vec<String>) =
+            state.touched.iter().cloned().partition(|name| present.contains(name.as_str()));
         self.generation = self.generation.saturating_add(1);
         let generation = self.generation;
         state.pending = Some((generation, scan.fingerprint));
         Some(Report::Changed {
             source,
             generation,
-            changed: difference.changed,
-            removed: difference.removed,
+            changed,
+            removed,
             rows,
             hosts,
             scan_ms,
@@ -304,6 +314,7 @@ impl Core {
             return false;
         }
         state.baseline = Some(pending);
+        state.touched.clear();
         true
     }
 }
@@ -392,6 +403,11 @@ impl Routes {
             .filter(|(_, (dirs, names))| dirs.contains(dir) && names.contains(name))
             .map(|(index, _)| index)
             .collect()
+    }
+
+    /// Whether `path` is source `index`'s directory.
+    fn is_dir_of(&self, index: usize, path: &Path) -> bool {
+        self.sources.get(index).is_some_and(|(dirs, _)| dirs.contains(path))
     }
 
     /// The sources whose directory is `path` or holds it.
@@ -513,9 +529,14 @@ fn run(config: &Config, core: &Mutex<Core>, mut watch: FileWatch, mut sink: Sink
                             }
                         }
                         // A change in a source's directory: a `-wal` may have
-                        // appeared or gone; watch what is there now.
+                        // appeared or gone; watch what is there now. The
+                        // directory itself moved: every watch is made again
+                        // (they follow the old directory) and it is scanned.
                         for index in routes.in_dir(path) {
-                            if let (Some(files), Some(database)) =
+                            if moved && routes.is_dir_of(index, path) {
+                                rearm.insert(index);
+                                schedule.event(index, started.elapsed());
+                            } else if let (Some(files), Some(database)) =
                                 (watched.get_mut(index), databases.get(index))
                                 && lock(core).database(index).is_some()
                                 && refresh(&mut watch, files, database, false)
