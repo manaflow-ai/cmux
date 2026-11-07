@@ -411,3 +411,119 @@ async fn a_retry_set_after_a_shutdown_began_waits_for_nothing() {
     assert!(waits.is_none(), "a retry waits after the shutdown began: {waits:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Cloud chaos fault `daemon-restart-session-new` (staging, e0a62c8d7, probe 42356980295): the
+/// daemon got SIGTERM while a chat's first prompt was checked against the folder-trust gate
+/// (`server/trust_gate.rs`), the read found no answer, and the prompt was answered
+/// `trust.pending`, which the CLI types as a non-retryable `agent_error`. The next daemon ran the
+/// next prompt in that folder with no question. A trust check with no answer once the shutdown
+/// began is no answer from the person: the prompt hears that the daemon restarts, and nothing
+/// settles it, so the next daemon checks the folder again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_trust_check_with_no_answer_during_a_restart_answers_that_the_daemon_restarts() {
+    let dir = std::env::temp_dir().join(format!("acpmux-handoff-{}", uuid::Uuid::now_v7()));
+    let folder = dir.join("folder");
+    std::fs::create_dir_all(&folder).unwrap();
+    let hub = hub_in(&dir.join("store"));
+    // Gate files nobody wrote: no folder has an answer.
+    hub.set_trust_gate(Some(crate::trust::Paths {
+        claude_json: dir.join("claude.json"),
+        codex_config: dir.join("config.toml"),
+        record: dir.join("trust.json"),
+        agent_home: None,
+        cmux_worktrees: None,
+    }));
+    let req = NewRequest { cwd: Some(folder.clone()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let prompt = |id: &str| {
+        let opts = PromptOptions {
+            prompt_id: Some(id.to_owned()),
+            trust_gate: true,
+            ..Default::default()
+        };
+        let blocks = vec![json!({"type": "text", "text": "hello"})];
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move { hub.prompt_with(&s, blocks, "test", false, opts).await })
+    };
+    let refused_for = |id: &str| -> Vec<Value> {
+        records(&hub, &s, "prompt_refused").into_iter().filter(|m| m["promptId"] == id).collect()
+    };
+    // The gate is on: before any shutdown, the folder's open question refuses the prompt.
+    let before = tokio::time::timeout(WAIT, prompt("p-before")).await.unwrap().unwrap();
+    let e = before.expect_err("a prompt in a folder with no answer was run");
+    assert_eq!(e.data.as_ref().map(|d| d["reason"].clone()), Some(json!("trust.pending")));
+    assert_eq!(refused_for("p-before").len(), 1);
+    // The next prompt holds before its dispatch check; the shutdown begins there.
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel::<()>();
+    *hub.prompt_start_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let run = prompt("p-restart");
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    hub.begin_shutdown();
+    release.send(()).unwrap();
+    let answer = tokio::time::timeout(WAIT, run).await.expect("the prompt never ended").unwrap();
+    let e = answer.expect_err("a prompt was run under the shutdown");
+    assert_eq!(e.message, crate::hub::SHUTTING_DOWN, "{e:?}");
+    // Not settled here: the next daemon's gate answers it.
+    let refused = refused_for("p-restart");
+    assert!(refused.is_empty(), "the shutdown's trust read refused the prompt: {refused:?}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review finding (F1 of #37665): the dispatch check read the shutdown's flag, and a shutdown
+/// that began after that read, before `prompt_refused` was written, still left the prompt
+/// answered `trust.pending` and settled though the shutdown had begun. The check decides and
+/// writes under the shutdown's lock, which the shutdown begins under (`start_shutdown`): the
+/// refusal is written wholly before the shutdown began, or the prompt hears it restarts.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_shutdown_cannot_begin_between_the_trust_check_and_its_refusal() {
+    let dir = std::env::temp_dir().join(format!("acpmux-handoff-{}", uuid::Uuid::now_v7()));
+    let folder = dir.join("folder");
+    std::fs::create_dir_all(&folder).unwrap();
+    let hub = hub_in(&dir.join("store"));
+    // Gate files nobody wrote: no folder has an answer.
+    hub.set_trust_gate(Some(crate::trust::Paths {
+        claude_json: dir.join("claude.json"),
+        codex_config: dir.join("config.toml"),
+        record: dir.join("trust.json"),
+        agent_home: None,
+        cmux_worktrees: None,
+    }));
+    let req = NewRequest { cwd: Some(folder.clone()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    // The prompt's refusal holds between its shutdown check and its write.
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel::<()>();
+    *hub.refuse_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let run = {
+        let opts =
+            PromptOptions { prompt_id: Some("p".into()), trust_gate: true, ..Default::default() };
+        let blocks = vec![json!({"type": "text", "text": "hello"})];
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move { hub.prompt_with(&s, blocks, "test", false, opts).await })
+    };
+    tokio::time::timeout(WAIT, arrived).await.expect("the refusal never reached its write").ok();
+    // The shutdown begins now, from another thread, while the refusal holds before its write.
+    let (began_tx, began) = std::sync::mpsc::channel();
+    let shutting = {
+        let hub = hub.clone();
+        std::thread::spawn(move || {
+            hub.begin_shutdown();
+            let _ = began_tx.send(());
+        })
+    };
+    let began_first = began.recv_timeout(Duration::from_secs(1)).is_ok();
+    release.send(()).unwrap();
+    let answer = tokio::time::timeout(WAIT, run).await.expect("the prompt never ended").unwrap();
+    shutting.join().unwrap();
+    assert!(!began_first, "the shutdown began between the trust check and its refusal's write");
+    // Checked before the shutdown began: the refusal is the folder's, written before it.
+    let e = answer.expect_err("a prompt in a folder with no answer was run");
+    assert_eq!(e.data.as_ref().map(|d| d["reason"].clone()), Some(json!("trust.pending")));
+    let refused: Vec<Value> =
+        records(&hub, &s, "prompt_refused").into_iter().filter(|m| m["promptId"] == "p").collect();
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
