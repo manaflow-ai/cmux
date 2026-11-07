@@ -34,6 +34,10 @@ jobs:
     # check of that name and read as a pass. The unit tests live in risk-tier-tests.yml for the
     # same reason. A newer event cancels an older grading run; gh-merge-green refuses a cancelled
     # check, so the newest finished run is always a real verdict.
+    # The one exception: a fix-cause:* label on a closed pull request, which nothing merges any more
+    # (tests/test_ci_fix_cause_labels_start_no_jobs.py). The fix-cause backfill labels thousands of
+    # merged pull requests, and an open one still grades on every label.
+    if: ${{ !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) }}
     name: risk evidence
     concurrency:
       group: risk-evidence-${{ github.event.pull_request.number }}
