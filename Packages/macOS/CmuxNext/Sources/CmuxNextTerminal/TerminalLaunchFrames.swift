@@ -6,8 +6,12 @@ import CmuxNextCompat
 /// The terminals' last frames, saved at quit and drawn over each terminal at launch until its live
 /// content draws (launch-speed-first: "the first frame is never blank"). A terminal pane is held
 /// clear for launch until its first live frame (`LaunchSettle`): about 150 ms on a capture mini
-/// with the daemon running, seconds when it starts cold. One JPEG per tab, named with its scale, as
-/// the agent pages' last pages are (`AgentPaneLaunchImages`); each is handed out once per launch. The
+/// with the daemon running, seconds when it starts cold. One image per tab, named with its scale, as
+/// the agent pages' last pages are (`AgentPaneLaunchImages`); each is handed out once per launch. A frame with
+/// clear pixels (a see-through window, where the terminal draws no background of its own;
+/// `CGImage.showsClearPixels`) is a PNG that keeps them, so the pane's glass shows through it as through the live
+/// terminal; a JPEG has no alpha and painted them one opaque color (white) until the live frame drew (Leo,
+/// 2026-11-07: "why did the background task become a white background?"). An opaque frame stays a JPEG. The
 /// launch reads and decodes every frame off the main thread from its start (``prefetch(on:keep:mark:markAt:)``, in
 /// the app's `main` before `NSApplication.run`): a pane shows its frame at once when the read has ended
 /// (``LaunchRead``: no main-actor hop), never waiting for it; one shown before then stays held clear, as with
@@ -450,7 +454,7 @@ public final class TerminalLaunchFrames {
     /// stay as they are (terminals on screen with no new frame).
     func save(images: [String: NSImage], keeping: Set<String> = []) async {
         guard let directory else { return }
-        // NSImage stays on the main actor; the JPEG encode and the writes run detached.
+        // NSImage stays on the main actor; the encode (and its choice of PNG or JPEG) and the writes run detached.
         var frames: [String: CGImage] = [:]
         var keeping = keeping
         for (key, image) in images where Self.isFileSafe(key) {
@@ -459,7 +463,7 @@ public final class TerminalLaunchFrames {
                 keeping.insert(key)
                 continue
             }
-            frames["\(key)@\(max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded()))))x.jpg"] = frame
+            frames["\(key)@\(max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded()))))x"] = frame
         }
         await Task.detached { [keeping] in Self.write(frames, keeping: keeping, to: directory) }.value
     }
@@ -467,12 +471,12 @@ public final class TerminalLaunchFrames {
     /// Every saved frame in `directory`, decoded, with its point size and scale, by tab key (for each
     /// key the first scale a save may have written).
     private nonisolated static func readAll(in directory: URL, _ reader: LaunchFileReader) -> [String: Frame] {
-        // Saved frames only, then the cap: files a killed write left (`<key>@1x.jpg.sb-<id>`) never take a slot.
+        // Saved frames only, then the cap: files a killed write left (`<key>@1x.png.sb-<id>`) never take a slot.
         let names = Set(((try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? [])
             .filter { owner(of: $0) != nil }.sorted().prefix(maximumFiles))
         var frames: [String: Frame] = [:]
-        for scale in [2, 1, 3] {
-            let suffix = "@\(scale)x.jpg"
+        for (scale, ext) in [2, 1, 3].flatMap({ scale in fileExtensions.map { (scale, $0) } }) {
+            let suffix = "@\(scale)x.\(ext)"
             for name in names where name.hasSuffix(suffix) {
                 let key = String(name.dropLast(suffix.count))
                 guard frames[key] == nil, isFileSafe(key),
@@ -483,16 +487,21 @@ public final class TerminalLaunchFrames {
         return frames
     }
 
+    /// Writes `frames` (by `<key>@<scale>x`, the name without its extension) as the saved set.
     private nonisolated static func write(_ frames: [String: CGImage], keeping: Set<String>, to directory: URL) {
+        let files = Dictionary(uniqueKeysWithValues: frames.map { stem, frame in
+            let png = frame.showsClearPixels
+            return ("\(stem).\(png ? "png" : "jpg")", (frame, png))
+        })
         let manager = FileManager.default
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where files[old] == nil {
             guard !keeping.contains(owner(of: old) ?? old) else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
-        for (name, frame) in frames {
+        for (name, (frame, png)) in files {
             let url = directory.appending(path: name)
-            guard let data = NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.9]),
+            guard let data = frame.pageImageData(png: png, jpegQuality: jpegQuality),
                   (try? data.write(to: url, options: [.atomic])) != nil else { continue }
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
@@ -506,9 +515,10 @@ public final class TerminalLaunchFrames {
                                      stillWanted: () -> Bool = { true }) {
         let manager = FileManager.checked
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let name = "\(key)@\(scale)x.jpg"
+        let png = frame.showsClearPixels
+        let name = "\(key)@\(scale)x.\(png ? "png" : "jpg")"
         let url = directory.appending(path: name)
-        if let data = NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.9]),
+        if let data = frame.pageImageData(png: png, jpegQuality: jpegQuality),
            stillWanted(),
            (try? data.blockingWrite(to: url, options: [.atomic])) != nil {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
@@ -529,11 +539,16 @@ public final class TerminalLaunchFrames {
         }
     }
 
-    /// The tab key of a saved frame (`<key>@<scale>x.jpg`, scale 1 to 3); nil for any other file, such as Foundation's
-    /// atomic-write file beside one before its rename (`<key>@2x.jpg.sb-<id>`).
+    /// A saved frame's file extensions, the one a read takes first first: a key has one file at a time.
+    nonisolated static let fileExtensions = ["png", "jpg"]
+    /// The quality of a frame saved as a JPEG (an opaque frame).
+    nonisolated static let jpegQuality = 0.9
+
+    /// The tab key of a saved frame (`<key>@<scale>x.png` or `.jpg`, scale 1 to 3); nil for any other file, such as
+    /// Foundation's atomic-write file beside one before its rename (`<key>@2x.png.sb-<id>`).
     nonisolated static func owner(of file: String) -> String? {
-        guard file.hasSuffix("x.jpg"), let at = file.lastIndex(of: "@") else { return nil }
-        let scale = file[file.index(after: at)..<file.index(file.endIndex, offsetBy: -"x.jpg".count)]
+        guard let ext = fileExtensions.first(where: { file.hasSuffix("x.\($0)") }), let at = file.lastIndex(of: "@") else { return nil }
+        let scale = file[file.index(after: at)..<file.index(file.endIndex, offsetBy: -"x.\(ext)".count)]
         guard scale.count == 1, let digit = scale.first, ("1"..."3").contains(digit) else { return nil }
         return String(file[..<at])
     }

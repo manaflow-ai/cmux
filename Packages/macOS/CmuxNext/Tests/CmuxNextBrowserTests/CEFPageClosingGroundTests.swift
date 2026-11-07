@@ -7,8 +7,8 @@ import Foundation
 import Testing
 
 /// CLOSE GROUND FIX (review of #37344): the ground a closing Chromium page pane shows (`CEFTab.pageGround`) is the color
-/// the page area showed: none of its own (the chrome's) before the first real page and under a see-through cmux page, the
-/// loading base while a committed document has not settled, then the document's own background. A page that follows
+/// the page area showed: none of its own (the chrome's) before the first real page, under a see-through cmux page and
+/// while a committed document has not settled (the page is see-through then), then the document's own background. A page that follows
 /// `prefers-color-scheme` changes that background when cmux's appearance changes, so the scheme change reads it again;
 /// before, it was read only at load end and at a window live-resize start, and the pane closed on the old color.
 @MainActor @Suite(.serialized, .closesItsWindows) struct CEFPageClosingGroundTests {
