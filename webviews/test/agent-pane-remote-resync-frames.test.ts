@@ -161,7 +161,7 @@ class Daemon {
         peer: "huge-blue",
         sessionId: SESSION,
         stale: true,
-        hasMore: false,
+        hasMore: this.log.length > 6,
         capturedAt: START,
         summary: this.summary(),
         events: this.log.slice(-6),
@@ -370,4 +370,42 @@ test("a chat that leaves the list for good says so once the hold ends", async ()
   expect(last.rows).toEqual([]);
   // Gone, not resynced: that frame is the chat's one replace.
   expect(chat.client.transcriptReplaces(SESSION)).toBe(1);
+});
+
+test("a chat with older pages read keeps them when its row leaves the list and is listed again", async () => {
+  const chat = await openChat();
+  await chat.client.loadOlder();
+  await flush();
+  const shown = chat.drawn.at(-1)!;
+  expect(shown.rows.length).toBeGreaterThan(chat.shown.rows.length);
+  const from = chat.drawn.length;
+  chat.daemon().purge();
+  await flush(4);
+  chat.daemon().announce();
+  await flush();
+  const { empty, rebuilt, left, ids } = frames(chat.drawn, from, shown);
+  expect(empty).toBe(0);
+  expect(left).toEqual([]);
+  expect(rebuilt).toEqual([]);
+  for (const row of shown.rows) expect(ids).toContain(row.id);
+});
+
+test("the machine back after records it missed draws no transcript with a hole in it", async () => {
+  const chat = await openChat();
+  chat.daemon().down = true;
+  chat.daemon().announce();
+  await flush();
+  await chat.reconnect();
+  // The machine ran on past one page while it was down: 17..24, of which the attach page holds 19..24.
+  for (let seq = 17; seq <= 24; seq += 1) chat.daemon().log.push(reply(seq, `missed ${seq}. `));
+  const from = chat.drawn.length;
+  chat.daemon().down = false;
+  chat.daemon().announce();
+  await flush();
+  for (const snapshot of chat.drawn.slice(from)) {
+    const text = JSON.stringify(snapshot.rows);
+    if (text.includes("missed 24.")) expect(text).toContain("missed 17.");
+  }
+  expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("missed 17.");
+  expect(frames(chat.drawn, from, chat.shown).left).toEqual([]);
 });

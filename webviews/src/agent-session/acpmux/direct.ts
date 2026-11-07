@@ -75,6 +75,7 @@ import {
   forgetTail,
   keptTail,
   KEPT_EVENTS,
+  type KeptTail,
   readHostTail,
   rememberReadAhead,
   rememberTail,
@@ -2259,6 +2260,8 @@ export class AcpmuxDirectClient {
   /// The rows a reset took off screen (`resetSessionState`), until the chat's next frame says
   /// whether it drew them again or replaced them (`noteReplace`).
   private cleared?: ShownRows & { cause: string };
+  /// The tail of the tab's chat that left the list while drawn, for its reopen (`select`).
+  private leftTail?: { sessionId: string; tail: KeptTail };
   /// The rows on screen when the chat was reset, for its next rebuild (`shownRowsToKeep`): a
   /// resync of the same chat lays its rows over these, so each unchanged row keeps its object, and
   /// the pane its node, instead of every row being built anew.
@@ -3202,8 +3205,16 @@ export class AcpmuxDirectClient {
   /// host alone and not into this page's map (tailCache.ts `rememberTail`).
   private rememberCurrentTail(forThisPage = true): void {
     const sessionId = this.selectedSessionId;
-    if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return;
-    if (this.attachedGeneration !== this.selectionGeneration) return;
+    const tail = this.currentTail();
+    if (sessionId && tail) rememberTail(sessionId, tail, forThisPage);
+  }
+
+  /// The selected chat's tail as this page read it (its newest `KEPT_EVENTS` records and what they
+  /// need to draw), once its attach answered; undefined before, or for a replay.
+  private currentTail(): KeptTail | undefined {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return undefined;
+    if (this.attachedGeneration !== this.selectionGeneration) return undefined;
     const events = this.events.slice(-KEPT_EVENTS);
     // The kept page may start inside a turn whose prompt was in the history we just cut off.
     // Keep that prompt beside the page, as attach does: without it the first cached frame draws
@@ -3220,22 +3231,18 @@ export class AcpmuxDirectClient {
         }
       }
     }
-    rememberTail(
-      sessionId,
-      {
-        events,
-        // The machine and session its rows are of, which the attach's detail does not name
-        // (`keptPeer`): a tail drawn later is told from another machine's journal by them (`attach`).
-        summary: this.provenSummary(),
-        turnOpener,
-        // Only a whole transcript is exhausted: a tail cut at KEPT_EVENTS has older events to read.
-        historyExhausted: this.historyExhausted && events.length === this.events.length,
-        queue: this.queue,
-        configSeq: this.configSeq,
-        usageFromSeq: this.usageFromSeq,
-      },
-      forThisPage,
-    );
+    return {
+      events,
+      // The machine and session its rows are of, which the attach's detail does not name
+      // (`keptPeer`): a tail drawn later is told from another machine's journal by them (`attach`).
+      summary: this.provenSummary(),
+      turnOpener,
+      // Only a whole transcript is exhausted: a tail cut at KEPT_EVENTS has older events to read.
+      historyExhausted: this.historyExhausted && events.length === this.events.length,
+      queue: this.queue,
+      configSeq: this.configSeq,
+      usageFromSeq: this.usageFromSeq,
+    };
   }
 
   /// The summary a kept tail carries: the row as listed now, but naming only the machine and the
@@ -3468,11 +3475,17 @@ export class AcpmuxDirectClient {
     const mine = ++this.copyAttaches;
     try {
       // Rows the machine drew itself continue as after a reconnect: its page joins them, and the
-      // records between them and the page are read (`fetchMissedEvents`), never dropped.
-      const page = await this.attach(sessionId, generation, copy.own ? 0 : copy.lastSeq);
-      const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
-      if (copy.own && oldest > copy.lastSeq + 1 && generation === this.selectionGeneration)
-        await this.fetchMissedEvents(sessionId, generation, copy.lastSeq, false);
+      // records between them and the page are read (`fetchMissedEvents`), never dropped. The frame
+      // drawn stays until both are in: no transcript with a hole in it between them.
+      const hold = copy.own ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
+      try {
+        const page = await this.attach(sessionId, generation, copy.own ? 0 : copy.lastSeq);
+        const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
+        if (copy.own && oldest > copy.lastSeq + 1 && generation === this.selectionGeneration)
+          await this.fetchMissedEvents(sessionId, generation, copy.lastSeq, false);
+      } finally {
+        if (hold !== undefined) this.releaseSnapshots(hold);
+      }
     } catch (error) {
       // A reconnect's attach took the copy over meanwhile: its outcome decides.
       if (mine !== this.copyAttaches) return;
@@ -4168,10 +4181,6 @@ export class AcpmuxDirectClient {
       (this.purgingSessionId === this.selectedSessionId || this.purgedSessionId === this.selectedSessionId);
     if (purging) this.purgedSessionId = undefined;
     const from = this.selectedSessionId;
-    this.selectedSessionId = this.host.sessionMustExist || purging ? undefined : this.sessions[0]?.sessionId;
-    if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
-    const generation = ++this.selectionGeneration;
-    this.fallback = from ? { from, generation } : undefined;
     // The tab's chat on another machine that left the list while drawn, and not by this pane's own
     // delete, keeps its frame for a switch's hold: a row its machine lists again at once (a peer's
     // list read anew) opens it on that frame, rows kept (`shownRowsToKeep`), instead of an empty pane
@@ -4183,6 +4192,14 @@ export class AcpmuxDirectClient {
       !!this.drawn?.rows.length &&
       from !== undefined &&
       this.drawn.peer !== undefined;
+    // What this page read of it, for a reopen while it is held (`select`): kept here only, never
+    // in the shared cache, which a purge cleared.
+    const tail = brief ? this.currentTail() : undefined;
+    this.leftTail = from !== undefined && tail ? { sessionId: from, tail } : undefined;
+    this.selectedSessionId = this.host.sessionMustExist || purging ? undefined : this.sessions[0]?.sessionId;
+    if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
+    const generation = ++this.selectionGeneration;
+    this.fallback = from ? { from, generation } : undefined;
     const hold = this.selectedSessionId || brief ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
     this.resetSessionState(reason);
     this.emit(reason);
@@ -9394,6 +9411,9 @@ export class AcpmuxDirectClient {
     const onScreen = this.drawn?.sessionId === sessionId && this.drawn.rows.length > 0;
     // The chat being left is kept for its own next open, while it is still the selected one.
     this.rememberCurrentTail();
+    // The tail of a chat that left the list while drawn (`selectFallbackSession`), taken once.
+    const leftTail = this.leftTail?.sessionId === sessionId ? this.leftTail.tail : undefined;
+    this.leftTail = undefined;
     const generation = ++this.selectionGeneration;
     if (this.purgedSessionId !== sessionId) this.purgedSessionId = undefined;
     // What the pane shows (the chat before, a new chat's hero) stays drawn until this chat's attach page is in.
@@ -9409,6 +9429,8 @@ export class AcpmuxDirectClient {
     // A chat this page read already draws from what that visit left, on the frame the switch lands;
     // its attach lays what acpmux holds now over that (Leo: "instant if cached").
     let keptThrough = this.drawKeptTail(sessionId);
+    // Listed again while held: its rows come back from what this page read, older pages too.
+    if (keptThrough === 0 && onScreen && leftTail) keptThrough = this.drawKeptTail(sessionId, leftTail);
     if (keptThrough === 0 && !onScreen) {
       // A chat this page never read, which another tab did: the host's tail draws it here too. It
       // costs one in-process round trip, where the attach it stands in for is a daemon one. A
