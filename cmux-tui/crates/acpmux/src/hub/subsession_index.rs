@@ -23,6 +23,10 @@ struct IndexState {
     /// Children whose harness is alive: a subset of `open`.
     live: HashMap<String, BTreeSet<String>>,
     reserved: HashMap<String, u32>,
+    /// Children not closed, by the session whose agent started them (`work_below.rs`
+    /// `work_parent`): a sub-session's parent, or the caller of an `acpmux new` (`lineage.rs`).
+    /// What may still run past that session's turn; never counts toward a width limit.
+    below: HashMap<String, BTreeSet<String>>,
     /// Every short name a child of each parent has or had, open or closed;
     /// a failed start keeps its name, so a name is never given twice.
     names: HashMap<String, BTreeSet<String>>,
@@ -49,6 +53,16 @@ impl Index {
         let mut s = self.lock();
         note(&mut s.open, parent, child, status != SessionStatus::Closed);
         note(&mut s.live, parent, child, holds_width_slot(status));
+    }
+
+    /// Notes `child`, started by `parent`'s agent, as open or closed from its status.
+    pub(in crate::hub) fn note_below(&self, parent: &str, child: &str, status: SessionStatus) {
+        note(&mut self.lock().below, parent, child, status != SessionStatus::Closed);
+    }
+
+    /// The open (not closed) sessions `parent`'s agent started, sub-sessions or not.
+    pub(in crate::hub) fn open_below(&self, parent: &str) -> Vec<String> {
+        self.lock().below.get(parent).map(|s| s.iter().cloned().collect()).unwrap_or_default()
     }
 
     /// Notes a loaded child's short name as taken.

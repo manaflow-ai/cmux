@@ -209,6 +209,7 @@ impl Hub {
                     meta.lineage = lineage;
                 }
                 self.subsessions.note_status(&session.id, &child.id, meta.status);
+                self.note_work_child(&meta);
             }
         } else if !self.with_open_offers(session, |open| Ok(open.remove(offer_id).is_some()))? {
             return Err(no_offer());
