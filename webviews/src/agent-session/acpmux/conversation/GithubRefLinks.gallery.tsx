@@ -17,7 +17,7 @@ const host: ChipHostFixture = {
         state: "merged",
         review: "approved",
         mergeable: "",
-        author: "teamleaderleo",
+        author: "example-dev",
         updatedAt: new Date(minutesAgo(42)).toISOString(),
         baseRef: "main",
         headRef: "lane/relay-deploy",
