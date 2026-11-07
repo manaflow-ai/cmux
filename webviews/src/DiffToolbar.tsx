@@ -245,26 +245,26 @@ export function SourceMenu({
                             }}
                           >
                             <div ref={submenuEdges} className="ui-popup-scroll ui-scroll-edge-fade">
-                            {entry.children.length === 0 ? (
-                              <div
-                                className="menu-item toolbar-menu-item"
-                                role="menuitem"
-                                aria-disabled="true"
-                                tabIndex={-1}
-                              >
-                                <span className="menu-label">{label("sourceNoCommits")}</span>
-                              </div>
-                            ) : (
-                              entry.children.map((child) => (
-                                <SourceMenuRow
-                                  key={child.id}
-                                  entry={child}
-                                  label={label}
-                                  text={entryText(child)}
-                                  onChoose={() => choose(child)}
-                                />
-                              ))
-                            )}
+                              {entry.children.length === 0 ? (
+                                <div
+                                  className="menu-item toolbar-menu-item"
+                                  role="menuitem"
+                                  aria-disabled="true"
+                                  tabIndex={-1}
+                                >
+                                  <span className="menu-label">{label("sourceNoCommits")}</span>
+                                </div>
+                              ) : (
+                                entry.children.map((child) => (
+                                  <SourceMenuRow
+                                    key={child.id}
+                                    entry={child}
+                                    label={label}
+                                    text={entryText(child)}
+                                    onChoose={() => choose(child)}
+                                  />
+                                ))
+                              )}
                             </div>
                           </div>
                         ) : null}
