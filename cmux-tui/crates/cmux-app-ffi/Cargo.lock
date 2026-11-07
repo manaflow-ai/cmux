@@ -70,6 +70,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "cmux-action-catalog"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
@@ -83,6 +90,7 @@ name = "cmux-app-ffi"
 version = "0.1.0"
 dependencies = [
  "cbindgen",
+ "cmux-action-catalog",
  "cmux-agent-pane-policy",
  "cmux-layout-reducer-ffi",
  "cmux-motion",
@@ -103,6 +111,16 @@ dependencies = [
 name = "cmux-cloud-config"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "cmux-cloud-machine"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]
@@ -114,6 +132,14 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "cmux-cloud-tasks"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -149,7 +175,9 @@ version = "0.1.0"
 dependencies = [
  "cmux-bookmarks-core",
  "cmux-cloud-config",
+ "cmux-cloud-machine",
  "cmux-cloud-start-core",
+ "cmux-cloud-tasks",
  "cmux-focus-core",
  "cmux-imessage",
  "cmux-layout-reducer",

@@ -143,12 +143,17 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-cloud-start-core/",
     "cmux-tui/crates/cmux-cloud-config/",
+    "cmux-tui/crates/cmux-cloud-machine/",
+    "cmux-tui/crates/cmux-cloud-tasks/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
     "cmux-tui/crates/cmux-layout-reducer-ffi/",
     "cmux-tui/crates/cmux-rd-core/",
     "cmux-tui/crates/cmux-rd-proto/",
     "cmux-tui/crates/cmux-rd-ffi/",
+    # The SDK's C ABI and the SDK it wraps (the app's daemon client).
+    "cmux-tui/crates/cmux-sdk-ffi/",
+    "cmux-tui/bindings/rust/",
     "cmux-tui/rust-toolchain.toml",
     "scripts/cmux-next/build-app-ffi.sh",
 )

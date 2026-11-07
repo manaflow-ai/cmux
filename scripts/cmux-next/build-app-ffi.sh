@@ -28,6 +28,7 @@ headers_in=("$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
             "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI"
             "$crates/cmux-app-ffi/include/cmux_motion_ffi.h:CCmuxMotionFFI"
             "$crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h:CCmuxAgentPanePolicyFFI"
+            "$crates/cmux-action-catalog/include/cmux_action_catalog.h:CCmuxActionCatalogFFI"
             "$crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h:CCmuxSdkFFI")
 
 for tool in cargo rustup xcodebuild lipo clang libtool; do
