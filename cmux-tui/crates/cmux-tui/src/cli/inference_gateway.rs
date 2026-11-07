@@ -66,6 +66,8 @@ const MAX_MESSAGE: usize = 2 * 1024 * 1024;
 const OUT_FRAMES: usize = 32;
 /// A provider call may take minutes before its first byte (a long reasoning turn).
 const UPSTREAM_HEADERS_TIMEOUT: Duration = Duration::from_secs(600);
+/// A provider answer that sends nothing for this long is given up, and its call's slot freed.
+const UPSTREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const CODEX_BACKEND: &str = "https://chatgpt.com/backend-api/codex";
 const CODEX_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -226,6 +228,21 @@ pub(super) fn parse(
                         .into(),
                 );
             }
+            // Plain http only stays on this computer or a private network (a LAN, a tailnet), and a key only
+            // goes over it to this computer.
+            match (url.scheme(), plain_http_reach(&url)) {
+                ("https", _) | ("http", Reach::Loopback) => {}
+                ("http", Reach::Private) if key_file.is_none() => {}
+                ("http", Reach::Private) => {
+                    return Err(
+                        "--upstream-key-file goes over https, or plain http to this computer"
+                            .into(),
+                    );
+                }
+                _ => {
+                    return Err("--upstream must be https, or plain http to this computer or a private network".into());
+                }
+            }
             Upstream::Proxy { base: base.trim_end_matches('/').to_owned(), key_file }
         }
         (Some(auth), None) => {
@@ -245,6 +262,56 @@ pub(super) fn parse(
         if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
     });
     Ok(Options { api, team, token, upstream })
+}
+
+#[derive(Debug, PartialEq)]
+enum Reach {
+    Loopback,
+    Private,
+    Public,
+}
+
+/// Where a plain-http upstream's traffic travels: this computer, a private network (RFC 1918, a tailnet's 100.64/10 or
+/// `*.ts.net`, IPv6 ULA), or the open internet.
+fn plain_http_reach(url: &reqwest::Url) -> Reach {
+    use std::net::IpAddr;
+    let ip = match url.host() {
+        Some(url::Host::Ipv4(ip)) => IpAddr::V4(ip),
+        Some(url::Host::Ipv6(ip)) => IpAddr::V6(ip),
+        Some(url::Host::Domain(name)) => {
+            let name = name.to_ascii_lowercase();
+            return if name == "localhost" {
+                Reach::Loopback
+            } else if name.ends_with(".ts.net") {
+                Reach::Private
+            } else {
+                Reach::Public
+            };
+        }
+        None => return Reach::Public,
+    };
+    if ip.is_loopback() {
+        return Reach::Loopback;
+    }
+    let private = match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            v4.is_private() || (a == 100 && (64..128).contains(&b))
+        }
+        IpAddr::V6(v6) => (v6.segments()[0] & 0xfe00) == 0xfc00,
+    };
+    if private { Reach::Private } else { Reach::Public }
+}
+
+/// A request path as the log shows it: no query, and nothing but plain path characters.
+fn log_path(path: &str) -> String {
+    let path = path.split(['?', '#']).next().unwrap_or_default();
+    printable(path)
+}
+
+/// A value for a log line: only letters, digits and `/_.:-`, at most 120 of them, so no value can forge a line.
+fn printable(value: &str) -> String {
+    value.chars().filter(|c| c.is_ascii_alphanumeric() || "/_.:-".contains(*c)).take(120).collect()
 }
 
 fn set_token(slot: &mut Option<TokenSource>, source: TokenSource) -> Result<(), String> {
@@ -628,15 +695,15 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
         .headers
         .iter()
         .find(|(k, _)| k == "x-cmux-machine")
-        .map(|(_, v)| v.clone())
+        .map(|(_, v)| printable(v))
         .unwrap_or_else(|| "-".into());
-    let path = call.path.clone();
+    let path = log_path(&call.path);
     let response = match upstream.call(&call).await {
         Ok(response) => response,
         Err((code, message)) => {
             log(&format!(
                 "{machine} {} {path} -> {code} ({} ms)",
-                call.method,
+                printable(&call.method),
                 started.elapsed().as_millis()
             ));
             return send(tx, &error_frame(id, code, &message)).await;
@@ -651,7 +718,24 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
     }
     send(tx, &json!({"v": 1, "t": "head", "id": id, "status": status, "headers": headers})).await;
     let mut body = response.bytes_stream();
-    while let Some(chunk) = body.next().await {
+    loop {
+        let chunk = match tokio::time::timeout(UPSTREAM_IDLE_TIMEOUT, body.next()).await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(_) => {
+                log(&format!(
+                    "{machine} {} {path} -> {status}, stalled ({} ms)",
+                    printable(&call.method),
+                    started.elapsed().as_millis()
+                ));
+                let stalled = error_frame(
+                    id,
+                    "inference.upstream_stalled",
+                    "the provider's answer sent nothing for 5 minutes",
+                );
+                return send(tx, &stalled).await;
+            }
+        };
         match chunk {
             Ok(bytes) => {
                 for part in bytes.chunks(CHUNK_BYTES) {
@@ -662,7 +746,7 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
             Err(_) => {
                 log(&format!(
                     "{machine} {} {path} -> {status}, stream broke ({} ms)",
-                    call.method,
+                    printable(&call.method),
                     started.elapsed().as_millis()
                 ));
                 return send(
@@ -679,7 +763,7 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
     }
     log(&format!(
         "{machine} {} {path} -> {status} ({} ms)",
-        call.method,
+        printable(&call.method),
         started.elapsed().as_millis()
     ));
     send(tx, &json!({"v": 1, "t": "end", "id": id})).await;
@@ -1125,6 +1209,33 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn plain_http_stays_on_this_computer_or_a_private_network() {
+        let parse_up = |up: &str, key: bool| {
+            let mut a = vec!["--api", "https://a.dev", "--upstream", up];
+            if key {
+                a.extend(["--upstream-key-file", "/k"]);
+            }
+            parse(&args(&a), &no_env).map(|_| ())
+        };
+        assert!(parse_up("http://127.0.0.1:8317", true).is_ok());
+        assert!(parse_up("http://localhost:8317/v1", true).is_ok());
+        assert!(parse_up("http://100.89.225.106:31415/v1", false).is_ok());
+        assert!(parse_up("http://192.168.1.4:8317", false).is_ok());
+        assert!(parse_up("http://sr.tail1234.ts.net:31415", false).is_ok());
+        assert!(parse_up("http://100.89.225.106:31415/v1", true).is_err());
+        assert!(parse_up("http://proxy.example.com", false).is_err());
+        assert!(parse_up("http://8.8.8.8", false).is_err());
+        assert!(parse_up("https://proxy.example.com/v1", true).is_ok());
+    }
+
+    #[test]
+    fn logs_show_no_query_and_no_control_characters() {
+        assert_eq!(log_path("/v1/responses?api_key=secret"), "/v1/responses");
+        assert_eq!(log_path("/v1/models\nfake line"), "/v1/modelsfakeline");
+        assert_eq!(printable("vm_abc\r\n x"), "vm_abcx");
     }
 
     #[test]
