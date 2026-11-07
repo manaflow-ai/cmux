@@ -185,7 +185,7 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       );
       await page.waitForFunction(() => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""));
       expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
-      const tile = page.locator('[data-attachment-id="send-video"] .acpmux-attachment');
+      const tile = page.locator('[data-gallery-chip="video"] .acpmux-attachment');
       await tile.waitFor();
       const chip = await tile.evaluate((element) => {
         const { left, top, width, height } = element.getBoundingClientRect();

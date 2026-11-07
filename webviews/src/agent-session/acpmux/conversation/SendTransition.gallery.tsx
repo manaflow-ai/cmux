@@ -12,7 +12,7 @@ import { SCREEN_RECORDING_POSTER_JPEG } from "../../../gallery/fixtures/videoPos
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { frameName, framesNote } from "../composer/videoPrompt";
 import { ImageViewerContext } from "./imageViewerContext";
-import { noteSendOrigins, type SendMorphStyle } from "./sendMorph";
+import { chipRef, noteSendOrigins, type SendMorphStyle } from "./sendMorph";
 import { TurnActionsContext } from "./turnActions";
 import { UserBubble } from "./UserBubble";
 
@@ -79,12 +79,12 @@ function SendTransitionGallery({ variant }: { variant: SendMorphStyle }) {
           <div className="ui-glass" style={{ borderRadius: 12, padding: 12, marginTop: 16 }}>
             {!sent && (
               <fieldset className="acpmux-attachments">
-                <div className="acpmux-attachment-slot" data-attachment-id="send-shot">
+                <div className="acpmux-attachment-slot" ref={chipRef("send-shot")}>
                   <div className="acpmux-attachment acpmux-attachment-image">
                     <img alt="Screenshot" src={shot} />
                   </div>
                 </div>
-                <div className="acpmux-attachment-slot" data-attachment-id="send-video">
+                <div className="acpmux-attachment-slot" data-gallery-chip="video" ref={chipRef("send-video")}>
                   <div className="acpmux-attachment acpmux-attachment-image acpmux-attachment-video">
                     <img alt="" src={POSTER} />
                   </div>

@@ -21,6 +21,7 @@ import { keptThumb } from "./imagePool";
 import { reordered } from "./stripReorder";
 import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { chipRef } from "../conversation/sendMorph";
 
 type Options = {
   field: RefObject<MarkdownFieldHandle | null>;
@@ -378,7 +379,7 @@ const InlineChip = memo(function InlineChip({
   // An image, a PDF, a video or a file: the strip's chip, so it previews, opens, plays and falls back
   // (an image that cannot be drawn) as it does there.
   return (
-    <span className="acpmux-md-inline-chip" data-state="ready" data-chip="strip" data-attachment-id={id}>
+    <span className="acpmux-md-inline-chip" data-state="ready" data-chip="strip" ref={chipRef(id)}>
       <AttachmentChip
         attachment={attachment}
         codex={codex}

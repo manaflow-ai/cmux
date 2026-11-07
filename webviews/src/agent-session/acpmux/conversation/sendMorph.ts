@@ -23,21 +23,30 @@ const ORIGIN_MS = 2000;
 /// Chips' places by attachment id and, for a video, by its path (a sent video tile knows only that).
 const origins = new Map<string, Origin>();
 
+/// The composer's chips on screen by attachment id: the strip's slot and a chip placed in the text
+/// register here (`chipRef`; attachmentIntake.tsx, inlineAttachments.tsx).
+const chips = new Map<string, Element>();
+
+/// A ref for the box that holds attachment `id`'s chip in the composer.
+export function chipRef(id: string): (element: Element | null) => void {
+  let held: Element | null = null;
+  return (element) => {
+    if (element) chips.set(id, (held = element));
+    else if (held && chips.get(id) === held) chips.delete(id);
+    if (!element) held = null;
+  };
+}
+
 /// Records where each of `attachments`' chips is in the composer, before the composer lets them go.
-/// The strip's slot and a chip placed in the text carry `data-attachment-id` (attachmentIntake.tsx,
-/// inlineAttachments.tsx). O(sent attachments).
-export function noteSendOrigins(
-  attachments: readonly { id: string; path?: string }[],
-  doc: Document | undefined = typeof document === "undefined" ? undefined : document,
-  now = performance.now(),
-): void {
-  if (!doc) return;
+/// O(sent attachments).
+export function noteSendOrigins(attachments: readonly { id: string; path?: string }[], now = performance.now()): void {
   for (const [key, origin] of origins) if (now - origin.at > ORIGIN_MS) origins.delete(key);
   for (const attachment of attachments) {
-    const slot = doc.querySelector(`[data-attachment-id="${CSS.escape(attachment.id)}"]`);
-    const chip = slot?.querySelector(".acpmux-attachment") ?? slot;
-    const rect = chip?.getBoundingClientRect();
-    if (!rect || !(rect.width > 0) || !(rect.height > 0)) continue;
+    const slot = chips.get(attachment.id);
+    if (!slot?.isConnected) continue;
+    // The strip's slot draws nothing of its own (display: contents): its chip has the box.
+    const rect = (slot.querySelector(".acpmux-attachment") ?? slot).getBoundingClientRect();
+    if (!(rect.width > 0) || !(rect.height > 0)) continue;
     origins.set(attachment.id, { rect, at: now });
     if (attachment.path) origins.set(`path:${attachment.path}`, { rect, at: now });
   }
@@ -120,4 +129,5 @@ function finishEntrances(element: HTMLElement): void {
 /// Forgets every noted chip (tests).
 export function clearSendOrigins(): void {
   origins.clear();
+  chips.clear();
 }
