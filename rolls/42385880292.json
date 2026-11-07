@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42385880292",
+  "recorded_at": "2026-11-07T15:29:03Z",
+  "reason": "cmux-tui a36e33e8d72f changes the image's cmux-tui (pinned 6de6e39ea20b)",
+  "dry_run": false,
+  "cmux_tui": "a36e33e8d72f718213ebdaadc8dee5b5450cc8a2",
+  "fixes": [
+    {
+      "sha": "e96988f47e7290a2fdd2c5c808ba850be7b51f63",
+      "mergedAt": "2026-11-07T07:03:30-08:00",
+      "subject": "cmux NEXT: Tasks is a React page over the daemon; the Swift Tasks module is gone (#37307)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T15:29:03Z",
+    "snapshot_id": "sh-50c09a8d70ea43eda9d31c629a260df2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42385880292): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c648d2e2b183ecc03e0bb387edb42bf2249679a3",
+    "image": "cloud-native-auto-a36e33e8-42385880292-1",
+    "revision": "ci-42385880292-1",
+    "at": "2026-11-07T15:29:03Z"
+  },
+  "rolled_back": false
+}
