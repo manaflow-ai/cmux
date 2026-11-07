@@ -122,10 +122,13 @@ fn parse(bytes: &[u8]) -> Option<i32> {
     let mut value: i32 = 0;
     let mut any = false;
     for &b in digits.iter().take_while(|b| b.is_ascii_digit()) {
-        value = value.checked_mul(10)?.checked_add(i32::from(b - b'0'))?;
+        value = value.checked_mul(10)?.checked_add(i32::from(b.checked_sub(b'0')?))?;
         any = true;
     }
-    any.then_some(if negative { -value } else { value })
+    if !any {
+        return None;
+    }
+    if negative { value.checked_neg() } else { Some(value) }
 }
 
 #[cfg(target_os = "linux")]
@@ -145,7 +148,7 @@ mod imp {
             libc::close(fd);
             n
         };
-        usize::try_from(n).ok().and_then(|n| super::parse(&buf[..n]))
+        usize::try_from(n).ok().and_then(|n| super::parse(buf.get(..n)?))
     }
 
     fn write(value: &[u8]) -> bool {
