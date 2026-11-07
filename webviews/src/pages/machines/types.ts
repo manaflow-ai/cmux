@@ -16,6 +16,9 @@ export const MachinesOps = {
    * for a row (New Workspace on This Machine) or for a joined machine (Check, Rotate Credential,
    * Revoke…), at the page point (x, y). */
   menu: "cmux.machines.menu",
+  /** `{row}` → `{removed}`: Remove a joined machine (asked first on the page). It is revoked if it can
+   * still join and leaves every machine list; a false answer leaves the row where it was. */
+  remove: "cmux.machines.remove",
 } as const;
 
 /** What a machine is: its icon and its group. */
@@ -59,15 +62,15 @@ export interface MachineRow {
   joined?: JoinedMachine;
 }
 
-/** A Revoke or Rotate on a joined machine. */
-export type JoinedMachineChange = "revoke" | "rotate";
+/** A Revoke, Rotate or Remove on a joined machine. */
+export type JoinedMachineChange = "revoke" | "rotate" | "remove";
 
 export interface MachinesSnapshot {
   rows: MachineRow[];
   style: MachineSectionStyle;
-  /** Joined machine ids with a Revoke or Rotate in flight. */
+  /** Joined machine ids with a Revoke, Rotate or Remove in flight. */
   busy: string[];
-  /** The last Revoke or Rotate that failed, by joined machine id. */
+  /** The last Revoke, Rotate or Remove that failed, by joined machine id. */
   failed: Record<string, JoinedMachineChange>;
   /** The joined machine whose menu shows as open (the capture fixture's). */
   openMenu?: string;

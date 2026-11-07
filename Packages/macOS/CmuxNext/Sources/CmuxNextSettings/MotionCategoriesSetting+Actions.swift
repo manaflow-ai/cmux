@@ -17,7 +17,7 @@ extension MotionCategoriesSetting {
             }
             design.animationsEnabled = on
         })
-        ActionTargetTitles.setPaletteState(ActionID(rawValue: masterActionID), in: registry) { design.animationsEnabled }
+        ActionTargetTitles.setPaletteSettingState(ActionID(rawValue: masterActionID), in: registry) { design.animationsEnabled }
         for category in MotionCategory.allCases {
             registry.bind(ActionID(rawValue: actionID(category)), invoke: { [weak registry] _ in
                 let on = design.disabledAnimationCategories.contains(category)
@@ -27,7 +27,7 @@ extension MotionCategoriesSetting {
                 }
                 if on { design.disabledAnimationCategories.remove(category) } else { design.disabledAnimationCategories.insert(category) }
             })
-            ActionTargetTitles.setPaletteState(ActionID(rawValue: actionID(category)), in: registry) { !design.disabledAnimationCategories.contains(category) }
+            ActionTargetTitles.setPaletteSettingState(ActionID(rawValue: actionID(category)), in: registry) { !design.disabledAnimationCategories.contains(category) }
         }
     }
 

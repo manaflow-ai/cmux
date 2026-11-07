@@ -61,7 +61,7 @@ enum AppearanceHandlers {
         }
         registry.bind("appearance.glass.lens.toggle", run: { _ in GlassLensMode.choose(GlassLensMode.tunable.value(in: tunables).lensToggled, in: tunables) })
         // On while the Debug choice refracts (Lens or Spectrum): the toggle turns either back to Plain Glass.
-        ActionTargetTitles.setPaletteState("appearance.glass.lens.toggle", in: registry) { GlassLensMode.tunable.value(in: tunables) != .plain }
+        ActionTargetTitles.setPaletteSettingState("appearance.glass.lens.toggle", in: registry) { GlassLensMode.tunable.value(in: tunables) != .plain }
         registry.bind("appearance.interfaceSize.reset", run: { _ in
             let path = context.design.interfaceSizePath; try requireUnmanaged(path, context); context.design.resetInterfaceSize()
             context.writeSetting("reset interface size", path, nil, reloadOnFailure: true)

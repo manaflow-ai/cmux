@@ -120,6 +120,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Share with Me on a teammate's Cloud machine's refused start (`machine.share.self`): the app
     /// grants the signed-in person chats there, after a real gesture (``AgentPaneMachineShare``).
     case shareMachineWithMe
+    /// The Share dialog's op on this pane's own chat (`share.op {op, ...}`, ``AgentPaneShareOp``).
+    /// `session`, when the page names one, is the chat the dialog opened on: refused once the tab shows another.
+    case shareOp(AgentPaneShareOp, session: String? = nil)
     /// The summary panel's Attach files or folders (`chat.attach.choose`): the native open panel,
     /// after a real gesture, for a chat on this Mac.
     case chooseAttachments
@@ -308,6 +311,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// card), in a browser tab of the pane. Only loopback http(s) pages
     /// (`URL.isAgentPanePreview`); anything else is unsupported.
     case openPreview(URL)
+    /// `cloud.preview.open {port}`: open the authenticated Cloud preview for this chat's machine.
+    case openCloudPreview(port: Int)
     /// The quick panel's page: Esc hides the panel, keeping its draft.
     case quickDismiss
     /// The quick panel's page: open its chat in the main window and hide
