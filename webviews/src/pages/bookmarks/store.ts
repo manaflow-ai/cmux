@@ -249,11 +249,15 @@ export class BookmarksStore {
     if (generation !== this.stateGeneration) return;
     const profile = state.browser_profile_id;
     const switched = profile !== this.snapshot.profile;
+    // A search of the old profile still in flight is dropped; the re-list searches the new one.
+    if (switched) this.searchGeneration += 1;
     this.set({
       profile,
       titles: { bar: state.bar_title, other: state.other_title },
       canSetFolderIcons: state.can_set_folder_icons,
-      ...(switched ? { folder: "bar", selection: [], focus: undefined, editor: undefined, revision: -1 } : {}),
+      ...(switched
+        ? { folder: "bar", selection: [], focus: undefined, editor: undefined, revision: -1, results: null }
+        : {}),
     });
     await this.relist();
   }
@@ -311,12 +315,10 @@ export class BookmarksStore {
   private async search(text: string): Promise<void> {
     if (!this.client) return;
     const generation = ++this.searchGeneration;
+    const profile = this.snapshot.profile;
     try {
-      const reply = await this.client.call<SearchResult>(BookmarkOps.search, {
-        browser_profile_id: this.snapshot.profile,
-        text,
-      });
-      if (generation !== this.searchGeneration) return;
+      const reply = await this.client.call<SearchResult>(BookmarkOps.search, { browser_profile_id: profile, text });
+      if (generation !== this.searchGeneration || profile !== this.snapshot.profile) return;
       const results = reply.bookmarks;
       const shown = new Set(results.map((row) => row.id));
       this.set({ results, selection: this.snapshot.selection.filter((id) => shown.has(id)) });
