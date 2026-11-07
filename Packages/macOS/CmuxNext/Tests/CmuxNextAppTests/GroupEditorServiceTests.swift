@@ -180,7 +180,10 @@ import Testing
         defer { panel.closeAfterTest() }
         #expect(service.open?.shown == false, "the page has not answered yet")
         #expect(panel.isKeyWindow, "keys typed before the page painted went to the window under the editor")
+        // Review of #37299 at 9c0b58c (F1): a close before the page answers gives the keys back too.
         service.dismiss()
+        #expect(!panel.isKeyWindow, "the closed, invisible editor kept the keys")
+        #expect(parent.isKeyWindow, "the window under the editor did not get the keys back")
     }
 
     /// Review of #37299 at 44de463 (F1): the page zooms with `app.uiScale`, so its CSS pixels are not points; the card
