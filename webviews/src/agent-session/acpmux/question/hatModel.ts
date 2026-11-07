@@ -23,7 +23,7 @@
 import { nextStepAsk, type NextStepAsk } from "../conversation/nextStepAsk";
 import { NEXT_STEP } from "../conversation/turns";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
-import { pillAsks } from "../needsYou/JumpPill";
+import { pillAsks } from "../needsYou/jumpPillModel";
 import { needsYouItems, type WatchedAsk } from "../needsYou/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import { hasPreviews, isPending, type AgentQuestion } from "./model";
