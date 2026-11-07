@@ -1,6 +1,7 @@
 public import CmuxNextCloud
 import CmuxNextCompat
 public import CmuxNextSettings
+import CmuxNextWakeups
 public import Foundation
 import os
 
@@ -491,7 +492,7 @@ enum CloudSignInEnd: Equatable, Sendable {
 struct CloudSignInWait {
     let generation: Int
     let done: CheckedContinuation<CloudSignInEnd, Never>
-    let deadline: Task<Void, Never>
+    let deadline: DemandTimer
 }
 
 extension AgentPaneModel {
@@ -508,9 +509,9 @@ extension AgentPaneModel {
         let limit = cloudSignInWaitLimit
         return await withCheckedContinuation { done in
             // Its stop: the wait ends (endCloudSignInWait cancels it) or the limit passes.
-            let deadline = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: limit)
-                guard !Task.isCancelled, let self, self.cloudSignInWait?.generation == generation else { return }
+            let deadline = DemandTimer(owner: "agent-pane.cloud-sign-in-wait")
+            deadline.schedule(after: limit) { @MainActor [weak self] in
+                guard let self, self.cloudSignInWait?.generation == generation else { return }
                 self.withdrawCloudSignIn(.expired)
             }
             cloudSignInWait = CloudSignInWait(generation: generation, done: done, deadline: deadline)
