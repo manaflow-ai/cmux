@@ -36,6 +36,17 @@
       "wait": 4
     },
     {
+      "title": "trust: the new chat's folder is trusted, so the prompt goes",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": ".acpmux-trust-ask-primary"
+        }
+      },
+      "wait": 5
+    },
+    {
       "title": "step: the pager's right chevron shows the second",
       "rpc": {
         "method": "debug.agent_pane",

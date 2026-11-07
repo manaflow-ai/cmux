@@ -36,6 +36,7 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
   const IN_CHAT = "0190a000-0000-7000-8000-0000000000d6";
   const TYPED = "0190a000-0000-7000-8000-0000000000d7";
   const TWO = "0190a000-0000-7000-8000-0000000000d8";
+  const STEERED = "0190a000-0000-7000-8000-0000000000d9";
   const START = Date.now() - 90_000;
   const PROMPT = "Which auth method should the API use?";
   const update = (update: Record<string, unknown>) => ({
@@ -142,6 +143,28 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
           request: { sessionId: "agent-1", toolCall: secondCall, options: (asked[3]![2] as any).request.options },
         },
       ],
+    ]),
+    // Two asks wait and the person steers a reply in: it answers the card's question, the first; the
+    // second, skipped later, still reads Skipped.
+    [STEERED]: log(STEERED, [
+      ...asked,
+      ["in", "tool_call", update({ sessionUpdate: "tool_call", ...secondCall })],
+      [
+        "mux",
+        "permission_request",
+        {
+          permissionId: "perm-two",
+          request: { sessionId: "agent-1", toolCall: secondCall, options: (asked[3]![2] as any).request.options },
+        },
+      ],
+      ["mux", "user_message", { text: "Passkeys, and keep API keys for the CLI", steer: true }],
+      decision({ outcome: "selected", optionId: "reject_once" }),
+      [
+        "mux",
+        "permission_decision",
+        { permissionId: "perm-two", outcome: { outcome: "selected", optionId: "reject_once" } },
+      ],
+      ...ended("Passkeys it is; I'll leave the setting alone.", "completed"),
     ]),
     // The person typed a reply instead of picking: the composer declined the question, then sent it.
     [IN_CHAT]: log(IN_CHAT, [
@@ -303,6 +326,13 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     const page = await open(IN_CHAT, "Passkeys it is");
     await page.locator(".acpmux-question-cancelled").first().waitFor({ timeout: 5_000 });
     expect(await records(page)).toEqual([`${PROMPT} Answered in chat`]);
+    await page.close();
+  });
+
+  test("one typed reply answers one question: a second, skipped later, still reads Skipped", async () => {
+    const page = await open(STEERED, "Passkeys it is");
+    await page.locator(".acpmux-question-cancelled").nth(1).waitFor({ timeout: 5_000 });
+    expect(await records(page)).toEqual([`${PROMPT} Answered in chat`, `${SECOND} Skipped`]);
     await page.close();
   });
 
