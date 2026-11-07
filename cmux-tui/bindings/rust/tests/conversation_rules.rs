@@ -2,7 +2,7 @@
 //! golden vector in tests/cases/conversation_rules.json, which encode what
 //! the Swift client did (each case names its Swift source).
 
-use cmux::conversation_rules::{call, policy};
+use cmux::conversation_rules::{call, policy, upload_plan};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -113,7 +113,7 @@ fn the_policy_names_the_daemon_limits() {
 fn an_upload_plan_covers_a_large_file_exactly() {
     let size: u64 = 1 << 30;
     let attachment = json!({"byte_count": size});
-    let plan = cmux::conversation_rules::upload_plan(&attachment, None, false, false).unwrap();
+    let plan = upload_plan(&attachment, None, false, false).unwrap();
     let piece = plan.pieces[0];
     assert_eq!(piece.chunk_count(), 256);
     let mut next = 0;
@@ -128,7 +128,7 @@ fn an_upload_plan_covers_a_large_file_exactly() {
 #[test]
 fn a_u64_max_original_plans_in_constant_memory() {
     let attachment = json!({"byte_count": u64::MAX});
-    let plan = cmux::conversation_rules::upload_plan(&attachment, None, false, false).unwrap();
+    let plan = upload_plan(&attachment, None, false, false).unwrap();
     let piece = plan.pieces[0];
     let last = piece.chunk_count() - 1;
     let end = piece.chunk(last, plan.total).unwrap();
