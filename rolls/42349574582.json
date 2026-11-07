@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42349574582",
+  "recorded_at": "2026-11-07T07:10:42Z",
+  "reason": "cmux-tui 17a8d73293ca changes the image's cmux-tui (pinned e0a62c8d72e4)",
+  "dry_run": false,
+  "cmux_tui": "17a8d73293ca540f20d772db7543ef3a9dd59fda",
+  "fixes": [
+    {
+      "sha": "17a8d73293ca540f20d772db7543ef3a9dd59fda",
+      "mergedAt": "2026-11-07T06:48:04Z",
+      "subject": "acpmux: a prompt cut by a restart keeps the trust gate it came with (#37523)"
+    },
+    {
+      "sha": "66a6e90de5544405749e538ecffc6596f029b6b1",
+      "mergedAt": "2026-11-07T06:47:18Z",
+      "subject": "cmux chat --on vm reuses my Cloud VM; --on cloud is cmux Cloud's choice (#37472)"
+    },
+    {
+      "sha": "c7480b77da338b4001f90a7333e5f5dd22c42a8e",
+      "mergedAt": "2026-11-06T22:46:47-08:00",
+      "subject": "cmux --help opens with what a person does first (#37492)"
+    },
+    {
+      "sha": "a2294c6b0aaff34325e4ff1f4192d7b0437cabc5",
+      "mergedAt": "2026-11-06T22:44:16-08:00",
+      "subject": "acpmux: Gemini and Muse sign in, keep their logins and report usage like Claude and Codex (#34553)"
+    },
+    {
+      "sha": "eaa253411d5f4d3dfb32ae8ec7d0ec4ad2981c43",
+      "mergedAt": "2026-11-06T22:39:03-08:00",
+      "subject": "cmux-cloud-api: refusals, GitHub App status and harness login copy use cmux-cloud-machine's rules (#37505)"
+    },
+    {
+      "sha": "b922c11a5222f88425effe3bd7bfee33da06cba9",
+      "mergedAt": "2026-11-06T22:35:58-08:00",
+      "subject": "Cloud: cmux-cloud-api review follow-ups (bounded answers, preview deadlines, run start validation) (#37526)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T07:10:42Z",
+    "snapshot_id": "sh-9709895ec8384a94869a46f7b6b85da2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42349574582): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "93a54574d699434adc4ec277d8a64dbbadb9c7a2",
+    "image": "cloud-native-auto-17a8d732-42349574582-1",
+    "revision": "ci-42349574582-1",
+    "at": "2026-11-07T07:10:42Z"
+  },
+  "rolled_back": false
+}
