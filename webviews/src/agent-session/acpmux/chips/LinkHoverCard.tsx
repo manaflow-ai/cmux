@@ -1,8 +1,8 @@
 // One hover card for every link in the transcript (Leo 2026-10-20): a reply's web link, a pull
 // request chip and the pull request bars above the composer. Its head is one compact row: the
 // site's icon (a pull request's glyph in its state's colour) inline beside the title (the page
-// title cmux already has, else the host; a pull request's own title), then Open (a cmux tab) and
-// Open in as quiet borderless buttons. A web link's address, with secret-looking values as •••
+// title cmux already has, else the host; a pull request's own title), then one quiet split button:
+// Open (a cmux tab) and its chevron, which offers the other browsers. A web link's address, with secret-looking values as •••
 // (linkDisplay.ts), sits under its title when it says more than the host already does; a pull
 // request has no address line, and adds its author, checks and files (PullRequestCard.tsx). Tight
 // spacing, no dividers, on the liquid glass (.ui-glass; styles.css .cv-link-preview; Leo
@@ -74,13 +74,15 @@ export function LinkHoverCard({
         {address && <span className="cv-link-preview__target">{address}</span>}
       </span>
       {!readOnly && (
-        <>
+        // One split control (Leo 2026-11-07: "the open and open in, why don't we just combine both
+        // of those?"): Open takes the click to a cmux tab, the chevron offers the other targets.
+        <span className="cv-link-preview__split">
           <button type="button" className="cv-link-preview__open" onClick={onOpen}>
             {t("image.open")}
             <span aria-hidden="true">↗</span>
           </button>
-          <OpenInMenu url={href} onOpenInPane={openInCmux} onOpenChange={hover.menuChanged} />
-        </>
+          <OpenInMenu url={href} onOpenInPane={openInCmux} onOpenChange={hover.menuChanged} chevron />
+        </span>
       )}
     </div>
   );

@@ -395,7 +395,7 @@ fn stderr_summary(tail: &[u8]) -> String {
 /// `cmux host cloud carrier-ticket` prints (cmux-host `cloud/carrier_ticket.rs`)
 /// and the platform codes it passes on. Only these exact words are copied out
 /// of stderr; any other word, however code-shaped (`dead.beef`), is not.
-const KNOWN_ERROR_CODES: [&str; 12] = [
+const KNOWN_ERROR_CODES: [&str; 14] = [
     "auth.forbidden",
     "auth.refused",
     "carrier.bad_answer",
@@ -406,6 +406,8 @@ const KNOWN_ERROR_CODES: [&str; 12] = [
     "cloud.machine.not_found",
     "owner.unreachable",
     "validation.invalid",
+    "vm.agent_bad_answer",
+    "vm.agent_stopping",
     "vm.agent_unreachable",
     "vm.unbound",
 ];
@@ -2530,6 +2532,9 @@ mod tests {
                 "vm.agent_unreachable",
             ),
             ("carrier.busy: too many asks are waiting; retry", "carrier.busy"),
+            // #37670 review F1 (98b5502a): the agent socket's own refusals.
+            ("vm.agent_stopping: the Cloud agent is stopping", "vm.agent_stopping"),
+            ("vm.agent_bad_answer: the Cloud agent's answer was not JSON", "vm.agent_bad_answer"),
         ] {
             let stderr = format!("cmux host cloud carrier-ticket: {line}\n");
             assert_eq!(
@@ -2543,7 +2548,8 @@ mod tests {
             ),
             "; stderr: 71 bytes, codes carrier.unavailable, owner.unreachable, HTTP 503"
         );
-        let five = b"auth.refused carrier.busy vm.unbound carrier.unreachable carrier.bad_answer HTTP 500";
+        let five =
+            b"auth.refused carrier.busy vm.unbound carrier.unreachable carrier.bad_answer HTTP 500";
         assert_eq!(
             stderr_summary(five),
             format!(
