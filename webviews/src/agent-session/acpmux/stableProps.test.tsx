@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { act, memo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { useStableProps } from "./stableProps";
+import { Stabilizer, useStableProps } from "./stableProps";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "IS_REACT_ACT_ENVIRONMENT"];
@@ -76,4 +76,21 @@ test("new objects, elements, callbacks and menu rows with the same parts draw a 
   expect(renders).toBe(4);
   expect(seen?.onPick).toBeUndefined();
   act(() => root.unmount());
+});
+
+test("a keyed row that leaves its list takes what it held with it", () => {
+  // Needs You asks come and go by key; each one's place must not stay held after it goes.
+  const stabilizer = new Stabilizer();
+  const ask = (id: number) => ({ id: `ask-${id}`, title: `Ask ${id}`, onOpen: () => id, meta: { at: id } });
+  const read = (items: readonly unknown[]) => stabilizer.run({ props: { items, onClose: () => 0 }, results: {} });
+  read([]);
+  const empty = stabilizer.size;
+  for (let id = 0; id < 1000; id += 1) read([ask(id), ask(id + 1)]);
+  expect(stabilizer.size).toBeLessThan(empty + 20);
+  read([]);
+  expect(stabilizer.size).toBe(empty);
+  // A row that stays keeps its caller.
+  const first = read([ask(1), ask(2)]) as { props: { items: { onOpen: () => number }[] } };
+  const kept = read([ask(1)]) as { props: { items: { onOpen: () => number }[] } };
+  expect(kept.props.items[0]!.onOpen).toBe(first.props.items[0]!.onOpen);
 });

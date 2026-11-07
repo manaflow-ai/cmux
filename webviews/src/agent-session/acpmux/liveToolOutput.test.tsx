@@ -19,6 +19,7 @@ import { ToolActivityRow } from "./rows/ToolActivityRow";
 import type { RowProps } from "./rows/rowProps";
 import { RowContent } from "./VirtualTranscript";
 import { sendEntries, toolGroups } from "./conversation/toolGroups";
+import { latestLocalUrl } from "./conversation/previewUrl";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -90,6 +91,66 @@ test("anything else goes through the pane", () => {
   expect(toolOutputOnly(previous, { ...next, isWorking: true })).toBeUndefined();
   // Rows the client did not mark are never compared row by row.
   expect(toolOutputOnly(previous, snapshot([prompt, activity(call("pass 1\npass 2\n"), 2)]))).toBeUndefined();
+});
+
+/// Each step's update in turn for call `id`, as the pane reads them: whether it took the fast path,
+/// and the Preview the pane would show from the output it drew (its own when the update went through
+/// it, else the one it drew last).
+function stream(id: string, steps: readonly string[]) {
+  const fast: boolean[] = [];
+  let drawn = steps[0]!;
+  for (let at = 1; at < steps.length; at += 1) {
+    const pair = update(call(steps[at - 1]!, { id }), call(steps[at]!, { id }));
+    const only = toolOutputOnly(pair.previous, pair.next) !== undefined;
+    fast.push(only);
+    if (!only) drawn = steps[at]!;
+  }
+  return { fast, preview: latestLocalUrl([drawn]) };
+}
+
+test("a link still being printed sends each update through the pane until it ends, colour codes and all", () => {
+  // A dev server colours the port: the scheme is well before the second update's text.
+  const colored = stream("url-colored", [
+    "vite v5\n",
+    "vite v5\n  Local: http://localhost:\x1b[1m",
+    "vite v5\n  Local: http://localhost:\x1b[1m5173\x1b[0m/\n",
+  ]);
+  expect(colored).toEqual({ fast: [false, false], preview: "http://localhost:5173/" });
+  // A path that goes on in the next update.
+  const path = stream("url-path", [
+    "start\n",
+    "start\nopen http://localhost:5173/ad",
+    "start\nopen http://localhost:5173/admin\n",
+  ]);
+  expect(path).toEqual({ fast: [false, false], preview: "http://localhost:5173/admin" });
+  // A long address over three updates, each past the earlier text's last 16 characters.
+  const long = "http://localhost:5173/" + "a".repeat(40) + "/" + "b".repeat(40) + "/page";
+  const three = stream("url-long", [
+    "serving\n",
+    `serving\nLocal: ${long.slice(0, 30)}`,
+    `serving\nLocal: ${long.slice(0, 70)}`,
+    `serving\nLocal: ${long}\n`,
+  ]);
+  expect(three).toEqual({ fast: [false, false, false], preview: long });
+  // A link the pane never saw begin (read first from its last word) counts the same.
+  const pair = update(
+    call("x\nLocal: http://localhost:\x1b[1m", { id: "url-unseen" }),
+    call("x\nLocal: http://localhost:\x1b[1m5173\x1b[0m/\n", { id: "url-unseen" }),
+  );
+  expect(toolOutputOnly(pair.previous, pair.next)).toBeUndefined();
+});
+
+test("plain output, and output after a link has ended, still takes the fast path", () => {
+  expect(
+    stream("plain", ["pass 1\n", "pass 1\npass 2", "pass 1\npass 2 done\n", "pass 1\npass 2 done\npass 3\n"]).fast,
+  ).toEqual([true, true, true]);
+  const after = stream("after-link", [
+    "boot\n",
+    "boot\n  Local: http://localhost:5173/\n",
+    "boot\n  Local: http://localhost:5173/\n\x1b[32mready\x1b[0m in 210 ms\n",
+    "boot\n  Local: http://localhost:5173/\n\x1b[32mready\x1b[0m in 210 ms\npage reload src/app.ts\n",
+  ]);
+  expect(after).toEqual({ fast: [false, true, true], preview: "http://localhost:5173/" });
 });
 
 test("a batch send's output updates go through the pane, so each recipient's row takes its state", () => {

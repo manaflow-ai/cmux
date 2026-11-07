@@ -15,6 +15,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { outputShapesRows } from "./conversation/toolGroups";
+import { stripAnsi } from "./conversation/toolOutput";
 import { oneRowChangeFrom } from "./rowChanges";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -172,6 +173,82 @@ const NAMES_SOMETHING = /:\/\/|#|github\.com|-R|--repo/;
 /// The earlier output's end read with the new text, so a name split across two updates is seen.
 const OVERLAP = 16;
 
+/// A running call's output's end, as its next update reads it (`namesSomething`): the raw length
+/// and last characters it was read to (`end`, `raw`), an escape sequence it stops inside
+/// (`carry`), its last OVERLAP characters without escape sequences (`text`), and whether its last
+/// word names something (`open`): a link or `#N` still being printed, which any more text without
+/// a space before it changes (`http://localhost:\x1b[1m` then `5173`, `/ad` then `min`; review of
+/// #37907), however long ago it started.
+type Tail = {
+  readonly end: number;
+  readonly raw: string;
+  readonly carry: string;
+  readonly text: string;
+  readonly open: boolean;
+};
+/// By call id, newest last; a call's entry goes when it stops running, and past the cap the oldest.
+const tails = new Map<string, Tail>();
+const TAILS_CAP = 64;
+/// How far back from an output's end its last word is looked for, the first time a call is read.
+const LAST_WORD_SCAN = 4096;
+/// An escape sequence that has not ended yet, at the end of the text; longer than CARRY_CAP, text.
+// eslint-disable-next-line no-control-regex
+const UNFINISHED_ESCAPE = /\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b]*|[()*+])?$/;
+const CARRY_CAP = 256;
+
+const isSpace = (code: number): boolean =>
+  code === 32 || (code >= 9 && code <= 13) || code === 0xa0 || code === 0x2028 || code === 0x2029 || code === 0xfeff;
+
+function lastSpace(text: string, from = text.length, stop = 0): number {
+  for (let at = from - 1; at >= stop; at -= 1) if (isSpace(text.charCodeAt(at))) return at;
+  return -1;
+}
+
+/// `tail` read on with `chunk`: whether the new text may name something the pane reads, with the
+/// end before it, and the end after it. O(chunk).
+function readOn(tail: Tail, chunk: string): { names: boolean; next: Tail } {
+  const rawText = tail.carry + chunk;
+  const unfinished = UNFINISHED_ESCAPE.exec(rawText);
+  const cut = unfinished && rawText.length - unfinished.index <= CARRY_CAP ? unfinished.index : rawText.length;
+  const plain = stripAnsi(rawText.slice(0, cut));
+  const scanned = tail.text + plain;
+  // A space first ends the open word as it was; any other text (or none yet) may change it.
+  const continues = !(plain.length > 0 && isSpace(plain.charCodeAt(0)));
+  const names = (tail.open && continues) || NAMES_SOMETHING.test(scanned);
+  const space = lastSpace(plain);
+  const open =
+    space >= 0
+      ? NAMES_SOMETHING.test(plain.slice(space + 1))
+      : tail.open || NAMES_SOMETHING.test(tail.text.slice(lastSpace(tail.text) + 1) + plain);
+  const end = tail.end + chunk.length;
+  const raw = (tail.raw + chunk).slice(-OVERLAP);
+  return { names, next: { end, raw, carry: rawText.slice(cut), text: scanned.slice(-OVERLAP), open } };
+}
+
+/// Call `id`'s output's end as of `old`: the one kept when it was read to there, else read again
+/// from its last word (O(that word), up to LAST_WORD_SCAN; a longer one counts as open).
+function tailOf(id: string, old: string): Tail {
+  const kept = tails.get(id);
+  if (kept && kept.end === old.length && old.endsWith(kept.raw)) return kept;
+  const stop = Math.max(0, old.length - LAST_WORD_SCAN);
+  const space = lastSpace(old, old.length, stop);
+  const from = space >= 0 ? Math.max(0, space - OVERLAP) : stop;
+  const start: Tail = { end: from, raw: "", carry: "", text: "", open: space < 0 && from > 0 };
+  return readOn(start, old.slice(from)).next;
+}
+
+/// Whether `output`, grown from `old`, may name something new the pane reads; keeps call `id`'s
+/// end for its next update.
+function namesSomething(id: string, old: string, output: string): boolean {
+  // The raw text too: a hyperlink's address is inside its escape sequence.
+  const rawNames = NAMES_SOMETHING.test(output.slice(Math.max(0, old.length - OVERLAP)));
+  const { names, next } = readOn(tailOf(id, old), output.slice(old.length));
+  tails.delete(id);
+  tails.set(id, next);
+  if (tails.size > TAILS_CAP) tails.delete(tails.keys().next().value!);
+  return rawNames || names;
+}
+
 /// The call whose output alone moved on from `previous` to `next`, with its output before and now,
 /// else undefined. The client tells which row changed (`markOneRowChange`), so this reads that row
 /// alone: O(1) in the transcript's length, and O(its items) plus the new text.
@@ -198,6 +275,7 @@ export function toolOutputOnly(
   }
   if (!changed) return undefined;
   const { from, to, item } = changed;
+  if (to.status !== "in_progress") tails.delete(to.id);
   if (to.kind !== "execute" || to.status !== "in_progress" || from.id !== to.id) return undefined;
   if (!sameExcept(from, to, TOOL_KEYS)) return undefined;
   // A call's first output makes it more than a draft (toolGroups.ts `isDraftCall`), and the output
@@ -209,7 +287,7 @@ export function toolOutputOnly(
   const old = from.output;
   const output = to.output;
   if (typeof output !== "string" || output.length <= old.length || !output.startsWith(old)) return undefined;
-  if (NAMES_SOMETHING.test(output.slice(Math.max(0, old.length - OVERLAP)))) return undefined;
+  if (namesSomething(to.id, old, output)) return undefined;
   return { id: to.id, output, before: from.output };
 }
 

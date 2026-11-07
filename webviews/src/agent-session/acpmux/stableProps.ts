@@ -41,7 +41,7 @@ function valueAt(root: unknown, path: Path): unknown {
   return at;
 }
 
-class Stabilizer {
+export class Stabilizer {
   latest: unknown;
   /// One caller per function's place.
   private calls = new Map<string, { fn: Fn; call: Fn }>();
@@ -49,6 +49,15 @@ class Stabilizer {
   /// places are as many as the largest props seen.
   private raw = new Map<string, unknown>();
   private held = new Map<string, unknown>();
+  /// The places each place held inside it last time it was read through, so a place that goes (a
+  /// keyed row that left its list, a field no longer handed) takes what it and everything inside it
+  /// held with it (review of #37907: 1,000 completed asks stayed held after the list emptied).
+  private children = new Map<string, Set<string>>();
+
+  /// How many places hold something (tests).
+  get size(): number {
+    return new Set([...this.raw.keys(), ...this.held.keys(), ...this.calls.keys(), ...this.children.keys()]).size;
+  }
 
   run(root: Record<string, unknown>): Record<string, unknown> {
     this.latest = root;
@@ -64,8 +73,7 @@ class Stabilizer {
   /// the same place after it. A place names its array rows by their `key` (or `id`) too, so a row
   /// kept from an earlier render (an open menu's) runs its own row's action, never the one that took
   /// its spot; and a caller is never handed to another stabilizer (another chat, `useStableProps`).
-  private caller(path: Path, fn: Fn): Fn {
-    const key = JSON.stringify(path);
+  private caller(key: string, fn: Fn): Fn {
     let entry = this.calls.get(key);
     if (!entry) {
       const made: { fn: Fn; call: Fn } = { fn, call: (...args: unknown[]) => made.fn(...args) };
@@ -76,19 +84,22 @@ class Stabilizer {
     return entry.call;
   }
 
-  private value(next: unknown, path: Path, depth: number): unknown {
-    if (typeof next === "function") return this.caller(path, next as Fn);
+  /// `seen`: the places of the parent's read, which this place joins.
+  private value(next: unknown, path: Path, depth: number, seen?: Set<string>): unknown {
+    const key = JSON.stringify(path);
+    seen?.add(key);
+    if (typeof next === "function") return this.caller(key, next as Fn);
     if (depth >= MAX_DEPTH) return next;
     const element = isValidElement(next);
     if (!element && !Array.isArray(next) && !isPlainObject(next)) return next;
-    const key = JSON.stringify(path);
     // The same object as last time holds the same parts: what it gave then stands.
     if (this.raw.get(key) === next && this.held.has(key)) return this.held.get(key);
     const before = this.held.get(key);
+    const inside = new Set<string>();
     let made: unknown;
     if (element) {
       const el = next as ReactElement<Record<string, unknown>>;
-      const props = this.fields(el.props, path, depth);
+      const props = this.fields(el.props, path, depth, inside);
       const prior = isValidElement(before) ? (before as ReactElement<Record<string, unknown>>) : undefined;
       made =
         prior && prior.type === el.type && prior.key === el.key && sameFields(prior.props, props)
@@ -97,24 +108,45 @@ class Stabilizer {
             ? el
             : createElement(el.type, el.key === null ? props : { ...props, key: el.key });
     } else if (Array.isArray(next)) {
-      const items = next.map((item, index) => this.value(item, [...path, rowPlace(item, index)], depth + 1));
+      const items = next.map((item, index) => this.value(item, [...path, rowPlace(item, index)], depth + 1, inside));
       const sameAs = (list: readonly unknown[]) =>
         list.length === items.length && items.every((item, index) => Object.is(item, list[index]));
       made = Array.isArray(before) && sameAs(before) ? before : sameAs(next) ? next : items;
     } else {
       const source = next as Record<string, unknown>;
-      const fields = this.fields(source, path, depth);
+      const fields = this.fields(source, path, depth, inside);
       made = isPlainObject(before) && sameFields(before, fields) ? before : sameFields(source, fields) ? next : fields;
     }
+    // What was inside this place before and is not now goes: O(its parts), as reading them was.
+    const was = this.children.get(key);
+    if (was) for (const child of was) if (!inside.has(child)) this.drop(child);
+    if (inside.size) this.children.set(key, inside);
+    else this.children.delete(key);
     this.raw.set(key, next);
     this.held.set(key, made);
     return made;
   }
 
-  private fields(source: Record<string, unknown>, path: Path, depth: number): Record<string, unknown> {
+  private fields(
+    source: Record<string, unknown>,
+    path: Path,
+    depth: number,
+    inside: Set<string>,
+  ): Record<string, unknown> {
     const out: Record<string, unknown> = {};
-    for (const [field, value] of Object.entries(source)) out[field] = this.value(value, [...path, field], depth + 1);
+    for (const [field, value] of Object.entries(source))
+      out[field] = this.value(value, [...path, field], depth + 1, inside);
     return out;
+  }
+
+  /// Place `key` is gone: what it and the places inside it held goes with it.
+  private drop(key: string): void {
+    this.raw.delete(key);
+    this.held.delete(key);
+    this.calls.delete(key);
+    const inside = this.children.get(key);
+    this.children.delete(key);
+    if (inside) for (const child of inside) this.drop(child);
   }
 }
 
