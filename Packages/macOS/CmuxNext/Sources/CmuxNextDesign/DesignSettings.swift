@@ -157,8 +157,13 @@ public final class DesignSettings {
     public var hideLoneChatTab = false
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
-    /// `sidebar.*`: section look and pinned band caps.
-    public var sidebarSections = SidebarSectionsPreferences.defaults
+    /// `sidebar.*`: section look and pinned band caps. A group palette that follows the desktop picture has it sampled.
+    public var sidebarSections = SidebarSectionsPreferences.defaults {
+        didSet {
+            guard sidebarSections.groupPalette != oldValue.groupPalette else { return }
+            BackdropImageStore.shared.desktop.samplesForGroups = sidebarSections.groupPalette.followsWallpaper
+        }
+    }
     /// `sidebar.hoverCards.enabled`: off, no hover card opens on hover (sidebar rows, tabs, and a
     /// user's custom card). A change posts `hoverCardsDidChange` so a shown card goes at once.
     public var hoverCardsEnabled = true {
