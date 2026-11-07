@@ -1734,7 +1734,7 @@
           "title": "New Workspace Position",
           "help": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
           "kind": "choice",
-          "default": "top",
+          "default": "afterCurrent",
           "group": "Sidebar",
           "values": [
             "top",
