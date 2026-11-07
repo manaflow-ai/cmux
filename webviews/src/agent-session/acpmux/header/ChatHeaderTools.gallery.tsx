@@ -9,7 +9,7 @@ import { miniRow } from "./miniRow";
 import { revokeAccessRows } from "./grantsMenu";
 import { cloudMachineRows } from "../cloudMachineMenu";
 import { translate } from "../i18n";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
 import type { NativeRowToolsHost } from "./useNativeRowTools";

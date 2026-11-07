@@ -14,7 +14,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { AgentMark } from "../../shared/AgentMark";
 import { useMinuteClock } from "../clock";
 import { agentDisplayName } from "../agents";
-import { HEADER_GLYPH } from "../header/ChatHeaderTools";
+import { HEADER_GLYPH } from "../header/chatHeaderToolsModel";
 import { HeaderIcon } from "../header/HeaderIcon";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
