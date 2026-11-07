@@ -48,6 +48,10 @@ export interface Intent {
   kind: IntentKind;
   /** The owner's sequence after the request (its reply); the intent leaves once the mirror has it. */
   settle?: number;
+  /** The connection broke before the owner's reply: it may or may not have applied. The intent stays
+   * shown and is sent again, with the same key, once the page reconnects (the owner answers a repeat
+   * of an applied key with its first reply). */
+  interrupted?: true;
 }
 
 export const EMPTY_MIRROR: Mirror = {

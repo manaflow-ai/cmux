@@ -229,6 +229,7 @@ export class TasksStore {
       this.cancelRetry();
       this.retryDelay = this.options.backoff?.initial ?? 200;
       this.setMirror(mirror, { connection: "connected", everConnected: true });
+      this.resendInterrupted();
     } catch (error) {
       if (lifetime !== this.lifetime) return;
       this.early = null;
@@ -379,13 +380,33 @@ export class TasksStore {
       this.recompute({ pending });
     } catch (error) {
       if (lifetime !== this.lifetime) return;
+      if (unreachable(error)) {
+        // Not a refusal: keep the intent (a New Task title is already cleared) and resend it on reconnect.
+        const pending = this.snapshot.pending.map((candidate) =>
+          candidate.key === intent.key ? { ...candidate, interrupted: true as const } : candidate,
+        );
+        this.recompute({ pending, connection: "unreachable" });
+        void this.read();
+        return;
+      }
       this.recompute({
         pending: this.snapshot.pending.filter((candidate) => candidate.key !== intent.key),
         reject: message(error),
-        ...(unreachable(error) ? { connection: "unreachable" as const } : {}),
       });
-      if (unreachable(error)) void this.read();
     }
+  }
+
+  /** Sends again, with their own keys, the intents a broken connection left without a reply. */
+  private resendInterrupted(): void {
+    const interrupted = this.snapshot.pending.filter((intent) => intent.interrupted);
+    if (!interrupted.length) return;
+    const pending = this.snapshot.pending.map((intent) => {
+      if (!intent.interrupted) return intent;
+      const { interrupted: _, ...rest } = intent;
+      return rest;
+    });
+    this.recompute({ pending });
+    for (const intent of pending) if (interrupted.some((old) => old.key === intent.key)) void this.dispatch(intent);
   }
 
   private newId(prefix: "task_" | "asess_"): string {

@@ -93,6 +93,26 @@ describe("TasksStore", () => {
     expect(store.getSnapshot().mirror.tasks.get(id!)?.key).toBe("CMX-12");
   });
 
+  test("a change cut off by a lost connection stays shown and is sent again with its key on reconnect", async () => {
+    const { store, provider, timers } = await started();
+    provider.ownerDown = true;
+    const id = store.createTask("Ship it");
+    await tick();
+    // No reply: not a refusal, so the typed task stays (its field is already cleared).
+    expect(store.getSnapshot().connection).toBe("unreachable");
+    expect(store.getSnapshot().reject).toBeUndefined();
+    expect(store.isPending(id!)).toBe(true);
+    expect(store.getSnapshot().tasks.some((t) => t.id === id)).toBe(true);
+    provider.ownerDown = false;
+    await timers.fire();
+    await tick();
+    expect(store.getSnapshot().connection).toBe("connected");
+    const creates = provider.calls.filter((call) => call.op === TasksOps.create);
+    expect(creates.at(-1)?.params).toMatchObject({ id, title: "Ship it", idempotency_key: "k1" });
+    expect(store.getSnapshot().mirror.tasks.get(id!)?.title).toBe("Ship it");
+    expect(store.isPending(id!)).toBe(false);
+  });
+
   test("a change made elsewhere arrives as an event and keeps the selection", async () => {
     const { store, provider } = await started();
     store.select("task_2");

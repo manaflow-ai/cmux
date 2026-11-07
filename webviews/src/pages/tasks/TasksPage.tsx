@@ -545,7 +545,9 @@ function BoardLayout({ store, state, strings }: LayoutProps) {
             label={status.name}
             count={tasks.length}
             estimateSize={() => 96}
-            renderRow={(index, style) => (
+            // A card grows with its title (up to three lines) and session progress: each slot is measured.
+            measureRows
+            renderRow={(index, style, measure) => (
               <BoardCard
                 key={tasks[index]!.id}
                 store={store}
@@ -553,6 +555,8 @@ function BoardLayout({ store, state, strings }: LayoutProps) {
                 strings={strings}
                 task={tasks[index]!}
                 style={style}
+                index={index}
+                measure={measure}
               />
             )}
           />
@@ -562,14 +566,27 @@ function BoardLayout({ store, state, strings }: LayoutProps) {
   );
 }
 
-function BoardCard({ store, state, strings, task, style }: LayoutProps & { task: Task; style: CSSProperties }) {
+function BoardCard({
+  store,
+  state,
+  strings,
+  task,
+  style,
+  index,
+  measure,
+}: LayoutProps & {
+  task: Task;
+  style: CSSProperties;
+  index: number;
+  measure?: (element: Element | null) => void;
+}) {
   const items = useTaskMenu(store, state, strings, task);
   const session = sessionFor(state.mirror, task.id);
   const selected = state.selection === task.id;
   const done = session ? session.plan.filter((step) => step.status === "completed").length : 0;
   return (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized row (absolute, transformed), not a flow <li>
-    <div style={style} className="tasks-card-slot" role="listitem">
+    <div ref={measure} data-index={index} style={style} className="tasks-card-slot" role="listitem">
       <ContextMenu items={items}>
         <button
           type="button"
