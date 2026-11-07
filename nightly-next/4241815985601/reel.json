@@ -1,0 +1,221 @@
+{
+  "version": 1,
+  "build": "4241815985601",
+  "notes": "notes/4241815985601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 38020,
+      "title": "cmux NEXT sidebar: the Updated card stays under the pointer at any scale and comes back at rest after a hidden drag",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38029,
+      "title": "Cloud VM image: the inventory retries a provider 5xx by its status, and a failed step stops the retry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37976,
+      "title": "ci(signing): trust glaeda runner hook 2596da27, 4d779c79",
+      "author": "cmux-bot[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37947,
+      "title": "agent pane: model and composer picker modules export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38018,
+      "title": "Agent chat: a remote chat's copy redraws offline from its first frame and keeps every row on relist",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38008,
+      "title": "Remove the dead @manaflowai X links from the READMEs and site (NEXT)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38000,
+      "title": "debug.chief_pet: motion as over an active cmux, and snapshots timed into the loop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37695,
+      "title": "Agent chat: scrolled up, only your own scroll down or an explicit action brings you back to the bottom",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38012,
+      "title": "agent pane: mount and virtual transcript export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37972,
+      "title": "Cloud first send: recover inline from a paid-plan refusal (carries #34104, #32045)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38014,
+      "title": "Cloud VM image: the inventory retries a connection the provider cut instead of failing the roll",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38021,
+      "title": "Closed chat keep: Low Power Mode already on, override included, keeps no page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38002,
+      "title": "acpmux: one ssh login per peer redial, and the first connect's two in parallel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38005,
+      "title": "ci(guards): clear four guard steps red at the feat-cmux-next tip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38011,
+      "title": "agent pane: time hover, soft breaks, skill words and math export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37851,
+      "title": "Session Info (native): a stronger edge, and the grip takes the count's place on the rows' edge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37767,
+      "title": "palette.rank: the whole catalog is searchable past the entry cap, and long CJK titles rank whole",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37879,
+      "title": "Agent chat: a sent message reads like a received one; Raw stays closed and opens to the plain command row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38016,
+      "title": "panic ratchet: list the files a change grew before the base's hits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37799,
+      "title": "cmux next: Ctrl-` then Cmd-T keeps the new tab right after the terminal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37438,
+      "title": "cmux NEXT browser: Page Info's windows are React pages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37930,
+      "title": "Agent chat: a streamed delta costs the same in a long transcript as in a short one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38009,
+      "title": "cloud idle: a garbled /proc/net/tcp row is unknown, and a move under way keeps the machine awake",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37623,
+      "title": "cmux-next: GitHub page checks are a live CI dashboard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37998,
+      "title": "cmux-next: the titlebar, auto namer and Copy Agent Identifier read their tabs from the Rust face",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37918,
+      "title": "Reopen Closed under load: the kept chat page stays drawn, so the right split opens in one motion",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38001,
+      "title": "test(cloud): make the locked-entity inbox event due",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37996,
+      "title": "agent pane: dispatch, subsession, repo recovery, who-else cards and selection reply export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37999,
+      "title": "cmux-layout-reducer: the sidebar face answers Copy Agent Identifier's chat (front_chat)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37994,
+      "title": "test(agent-chat): tool-fold-bottom waits for the stage's play before it settles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37802,
+      "title": "Sidebar: a press on the Updated card follows only its own pointer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38013,
+      "title": "fix(webviews): polish session info order and fold hover",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37953,
+      "title": "agent pane: attachment intake exports only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38010,
+      "title": "docs(next): regenerate the settings reference for agents.hiddenChats.discard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36336,
+      "title": "Agent pane: delete the local page preview card and its Debug toggle (agentPane.debug.turnPreviewCards)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
