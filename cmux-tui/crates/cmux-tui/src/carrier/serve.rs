@@ -18,12 +18,16 @@
 //!   writes `dial`'s failure line instead and exits: 64 bad usage or a path
 //!   that cannot be claimed (a live listener, a file that is not a socket),
 //!   2 no API or credential, 5 no device key.
-//! - After the ready line, stderr gets only failure lines in `dial`'s shape
-//!   (`{"ok":false,"error_code":…,"error_detail"?:…,"route":"carrier"}`):
-//!   one per connection whose dial failed, with `dial`'s codes (`ticket`,
-//!   `relay`, `parked_timeout`, `handshake`), one `bad_request` per stdin
-//!   line it could not use, and one `socket` if the listener fails for good.
-//!   None holds the text `cloud.connect`.
+//! - After the ready line, stderr gets one JSON line per accepted
+//!   connection, written before any of its bytes flow:
+//!   `{"ok":true,"route":"carrier","vmk"?:"owner"|"team"}` when its dial
+//!   connected (`vmk` from the grant's claim, left out when it has none), or
+//!   `dial`'s failure line
+//!   (`{"ok":false,"error_code":…,"error_detail"?:…,"route":"carrier"}`, with
+//!   `dial`'s codes `ticket`, `relay`, `parked_timeout`, `handshake`) when it
+//!   did not. Besides those, only one `bad_request` line per stdin line it
+//!   could not use, and one `socket` line if the listener fails for good.
+//!   No line holds the text `cloud.connect`.
 //! - stdin carries JSON lines: `{"access_token":"…"}` replaces the
 //!   credential for every later dial (and ticket refresh); sessions already
 //!   up stay up. Blank lines are skipped; any other line is refused with one
@@ -208,8 +212,9 @@ async fn read_stdin(source: &HttpSource) {
 
 /// One accepted connection: its own dial, then its bytes bridged to the
 /// session's mux control stream until either side ends or serve stops. A
-/// failed dial writes its failure line on stderr and drops the stream, so
-/// the caller reads end of stream.
+/// connected dial writes its ok line on stderr first; a failed one writes
+/// its failure line and drops the stream, so the caller reads end of
+/// stream.
 async fn connection(
     stream: UnixStream,
     shared: Arc<Shared>,
@@ -227,13 +232,14 @@ async fn connection(
         dialed = client::dial(&plan, super::jitter) => dialed,
         _ = stopped.wait_for(|stopped| *stopped) => return,
     };
-    let client::Dialed { connection, multiplexer, mux, .. } = match dialed {
+    let client::Dialed { connection, multiplexer, mux, vmk } = match dialed {
         Ok(dialed) => dialed,
         Err(failure) => {
             reply(&contract::failure_line(failure.step.error_code(), Some(&failure.detail)));
             return;
         }
     };
+    reply(&contract::served_line(vmk));
     let (reader, writer) = stream.into_split();
     tokio::select! {
         _ = mux.bridge(reader, writer) => {}

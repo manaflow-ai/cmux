@@ -164,6 +164,17 @@ pub(super) fn stdin_line(bytes: &[u8]) -> StdinLine {
     }
 }
 
+/// The line `carrier serve` writes for each connection whose dial
+/// connected: `{"ok":true,"route":"carrier","vmk"?:…}`, `vmk` as in
+/// [`connected_line`].
+pub(super) fn served_line(vmk: Option<Vmk>) -> String {
+    let mut value = json!({ "ok": true, "route": "carrier" });
+    if let Some(vmk) = vmk {
+        value["vmk"] = json!(vmk.name());
+    }
+    cmux_link::dial::line(&value)
+}
+
 /// The ready line of `carrier serve`, once it listens at `socket`.
 pub(super) fn serving_line(socket: &str) -> String {
     cmux_link::dial::line(&json!({ "ok": true, "socket": socket, "route": "carrier" }))

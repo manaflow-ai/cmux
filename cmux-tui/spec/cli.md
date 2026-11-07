@@ -85,10 +85,11 @@ connection having written nothing; the listener goes on, up to 64 connections at
 once. The socket is claimed like a daemon's (a live socket or another file at the
 path is refused, a stale socket is replaced, the directory must be the user's
 alone) and is 0600. Once listening, stderr gets
-`{"ok":true,"socket":PATH,"route":"carrier"}`; after it, only failure lines in the
-dial's shape: one per connection whose dial failed (`ticket`, `relay`,
-`parked_timeout`, `handshake`), one `bad_request` per unusable stdin line, one
-`socket` if the listener fails for good. None holds `cloud.connect`: route lines go
+`{"ok":true,"socket":PATH,"route":"carrier"}`; after it, one line per accepted
+connection before its bytes flow, `{"ok":true,"route":"carrier","vmk"?:…}` when its
+dial connected (`vmk` as on the dial's ok line) or the dial's failure line (`ticket`,
+`relay`, `parked_timeout`, `handshake`) when it did not, plus one `bad_request` per
+unusable stdin line and one `socket` if the listener fails for good. None holds `cloud.connect`: route lines go
 only to `connect.log`. stdin carries JSON lines: `{"access_token":"…"}` replaces the
 credential for every later dial, and sessions already up stay up. Before ready a
 failure writes the dial's failure line: exit 64 usage or a path it cannot claim (a
