@@ -50,6 +50,8 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.machines",
         "cmux.markdown",
         "cmux.mobile-pairing",
+        // What shows over a window's content (dialogs).
+        "cmux.overlay",
         "cmux.page-info",
         "cmux.passwords",
         "cmux.settings",
