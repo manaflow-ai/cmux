@@ -276,7 +276,7 @@ pub const TURN_DENIED_TOOLS: [&str; 24] = [
 /// Folded `acpmux_*` tools reach coordinator sessions. They are not in
 /// `approval::turn_allowed_tools`: an ask turn still refuses them.
 /// Background tasks stay out because a turn session is temporary.
-pub const CHIEF_CMUX_TOOLS: [&str; 22] = [
+pub const CHIEF_CMUX_TOOLS: [&str; 23] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -294,6 +294,7 @@ pub const CHIEF_CMUX_TOOLS: [&str; 22] = [
     "agents_chat_read",
     "agents_chat_state",
     "acpmux_send",
+    "acpmux_send_status",
     "acpmux_ls",
     "acpmux_last",
     "acpmux_info",
