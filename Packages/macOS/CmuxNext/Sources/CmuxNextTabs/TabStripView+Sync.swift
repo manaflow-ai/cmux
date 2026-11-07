@@ -113,18 +113,19 @@ extension TabStripView {
             }
         }
 
-        // A new tab grows into its slot while its neighbours slide, on one clock, only with
-        // `ui.animations.newTab` on (hq-1d). A closed tab goes in this frame and the tabs left take
-        // their places in it: close motion is the whole pane's (its last tab) and the whole window's,
-        // never a tab's (Lawrence 2026-10-19, msg 2833; plans/cmux-next/close-animation/DESIGN.md).
-        // Off or under Reduce Motion the strip takes its new places in one step, with no crossfade
-        // standing in for the motion (DESIGN P6). A tab that comes or goes during a person's gesture
-        // (a drag, a group drag, a drop settling) appears or leaves at once while the gesture's other
-        // springs keep running. Reorders keep their motion.
+        // A new tab grows into its slot while its neighbours slide, on one clock, and a closed one
+        // shrinks out while the tabs right of it slide into its room (close case A, Lawrence cmux-ad
+        // m49 2026-11-07: "A: animate the tab strip"; plans/cmux-next/close-animation/DESIGN.md), with
+        // `ui.animations.newTab` on (on by default, hq-1d). Off or under Reduce Motion the strip takes
+        // its new places in one step, with no crossfade standing in for the motion (DESIGN P6). A tab that
+        // comes or goes during a person's gesture (a drag, a group drag, a drop settling) appears or
+        // leaves at once while the gesture's other springs keep running. Reorders keep their motion.
         let ids = Set(ordered.map(\.id))
         let adding = ordered.contains { cells[$0.id] == nil }
         let removing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) }
-        let structureAnimates = adding ? Motion.tabs.animates(.newTab) : !removing
+        // A pane's last tab never shrinks out: its pane (or its workspace) closes as one (close cases B, C, D).
+        let closesLastTab = removing && ordered.isEmpty
+        let structureAnimates = (!(adding || removing) || Motion.tabs.animates(.newTab)) && !closesLastTab
         let inGesture = drag != nil || groups.drag != nil || pendingDrop != nil
         let animated = hasSynced && !reduceMotion && animating && (structureAnimates || inGesture)
         // Added/closed cells move only outside a gesture; a sync that adds no tab never re-tokens the strip.
@@ -135,8 +136,18 @@ extension TabStripView {
         }
         // A tab taking another's place (`TabStripModel.successors`) gets its cell's place; that cell goes now.
         let handed = model.takeSuccessions(shown: Set(cells.keys), next: ids)
-        for id in Array(cells.keys) where !ids.contains(id) && !dying.contains(id) && !handed.values.contains(id) {
-            removeTab(id)
+        for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) && !handed.values.contains(id) {
+            if cellsAnimate {
+                // Chrome: it shrinks to the close width with its left edge pinned to the previous
+                // tab's right edge (`relayout` pins x), no fade; it goes when the tween ends.
+                dying.insert(id)
+                let shown = displayed.filter { !dying.contains($0.id) || $0.id == id }.map(\.id)
+                if let i = shown.firstIndex(of: id) { closingAnchors[id] = .some(i > 0 ? shown[i - 1] : nil) }
+                placed[id]?.width = metrics.chrome.closeEndWidth
+                cell.beginClosing()
+            } else {
+                removeTab(id)
+            }
         }
 
         var added: Set<TabID> = []
@@ -144,6 +155,7 @@ extension TabStripView {
             if let cell = cells[item.id] {
                 dying.remove(item.id)
                 goesAt[item.id] = nil
+                closingAnchors[item.id] = nil
                 cell.update(item: item)
                 // A torn-out tab dropped back here takes the drop gap's geometry.
                 if pendingDrop?.id == item.id { added.insert(item.id) }
@@ -183,7 +195,8 @@ extension TabStripView {
         }
         newTabMenuButton.isHidden = !model.showsNewTabButton || !showsNewTabMenuButton
 
-        relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding)
+        relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding,
+                 token: cellsAnimate && removing && !adding ? .tabClose : nil)
 
         let selected = model.selectedID
         if let selected, selected != lastSelectedID || added.contains(selected) {
@@ -259,6 +272,7 @@ extension TabStripView {
         if let cell = cells[id] { noteAccessibilityFocus(ObjectIdentifier(cell.accessibility), false) }
         cells[id] = nil
         forgetPlace(id)
+        closingAnchors[id] = nil
         if hoveredID == id { hoveredID = nil }
         if closeHoveredID == id { closeHoveredID = nil }
         if audioHoveredID == id { setAudioHovered(nil) }

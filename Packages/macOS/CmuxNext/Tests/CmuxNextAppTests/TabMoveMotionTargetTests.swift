@@ -20,14 +20,16 @@ import Testing
 ///
 /// The strip animates only in a window on a screen (`TabStripView.stripMove`: `Motion.canAnimate` refuses a window
 /// out of sight, where Core Animation would never end the move), so these cases need a display worker (`--display`);
-/// without a screen they are skipped, as `TabCloseInstantTests` is.
+/// without a screen they are skipped.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct TabMoveMotionTargetTests {
+    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
+
     static func ids(_ count: Int) -> [TabID] { (0..<count).map { TabID("tab\($0)") } }
 
     /// tab0 moves from the first slot to the last: tab0 slides right over three slots, tab1 to tab3 one slot left.
-    @Test(.enabled("the strip animates only in a window on a screen") { await TabCloseInstantTests.hasDisplay() })
+    @Test(.enabled("the strip animates only in a window on a screen") { await Self.hasDisplay() })
     func aTabMovedToTheEndSlidesWithItsNeighbours() throws {
         let trace = try Self.trace(count: 4) { tabs in
             let moved = tabs.removeFirst()
@@ -38,7 +40,7 @@ struct TabMoveMotionTargetTests {
     }
 
     /// tab2 moves one slot left (a move-left key): tab2 and tab1 swap places on one tween.
-    @Test(.enabled("the strip animates only in a window on a screen") { await TabCloseInstantTests.hasDisplay() })
+    @Test(.enabled("the strip animates only in a window on a screen") { await Self.hasDisplay() })
     func aTabMovedOneSlotLeftSwapsWithItsNeighbour() throws {
         let trace = try Self.trace(count: 4) { tabs in
             tabs.swapAt(1, 2)
@@ -47,19 +49,15 @@ struct TabMoveMotionTargetTests {
         #expect(trace.violations.isEmpty, "\(trace.violations.count) frames break a motion target: \(trace.violations.prefix(4))")
     }
 
-    /// tab1 closes. A tab that is not its pane's last closes in one frame (Lawrence 2026-10-19, msg 2833:
-    /// "Close animation only for the whole pane (last tab) and the whole window; tab close instant";
-    /// `TabCloseInstantTests`): the tabs left are at their new places in the close's own frame, with no tween. That one
-    /// step is the settled design, so a jump at frame 1 is the close itself and is not counted; every other target holds:
-    /// nothing moves after that frame, nothing moves away from its rest, and nothing moves after the landing.
-    @Test(.enabled("the strip animates only in a window on a screen") { await TabCloseInstantTests.hasDisplay() })
-    func aTabClosedInTheMiddleLeavesItsNeighboursAtRestFromItsFrame() throws {
-        let trace = try Self.trace(count: 4, startsMove: false) { tabs in
+    /// tab1 closes (close case A, Lawrence cmux-ad m49 2026-11-07: "A: animate the tab strip"): the tabs right of it
+    /// slide into its room on the close tween (`TabCloseMotionTests`) and every motion target holds.
+    @Test(.enabled("the strip animates only in a window on a screen") { await Self.hasDisplay() })
+    func aTabClosedInTheMiddleSlidesItsNeighboursIntoItsRoom() throws {
+        let trace = try Self.trace(count: 4) { tabs in
             tabs.remove(at: 1)
         }
         Self.report("tab close, middle", trace)
-        let broken = trace.violations.filter { !($0.kind == .jump && $0.frame == 1) }
-        #expect(broken.isEmpty, "\(broken.count) frames break a motion target: \(broken.prefix(4))")
+        #expect(trace.violations.isEmpty, "\(trace.violations.count) frames break a motion target: \(trace.violations.prefix(4))")
     }
 
     // MARK: - The rig
@@ -67,9 +65,8 @@ struct TabMoveMotionTargetTests {
     /// A strip of `count` tabs in a window on a screen, with Reduce Motion off; `change` edits the model's tabs and the
     /// strip syncs, as the App's model echo does. Records every tab still shown after the change: its x before the
     /// change (frame 0), then at the move's begin plus k/120 s to its end and one frame past it, then its rest after one
-    /// more layout pass. `startsMove`: the change starts a strip move (a reorder); false (a close) samples the 200 ms
-    /// the move would have taken from the change on.
-    static func trace(count: Int, startsMove: Bool = true, _ change: (inout [TabItem]) -> Void) throws -> MotionTargetTrace {
+    /// more layout pass. A close moves on `ui.animations.newTab` (on by default): the rig turns it on.
+    static func trace(count: Int, _ change: (inout [TabItem]) -> Void) throws -> MotionTargetTrace {
         let tabs = Self.ids(count).enumerated().map { TabItem(id: $0.element, title: "Tab \($0.offset)") }
         let model = TabStripModel(tabs: tabs, selectedID: tabs[0].id)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 40), styleMask: [.borderless],
@@ -84,6 +81,9 @@ struct TabMoveMotionTargetTests {
         // Synchronous from here to the reset: the override is process-wide.
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
+        let enabledAnimations = DesignSettings.shared.enabledAnimations
+        DesignSettings.shared.enabledAnimations.insert(.newTab)
+        defer { DesignSettings.shared.enabledAnimations = enabledAnimations }
         try #require(Motion.tabs.animatesMovement, "SETUP: animation speed is off on this host")
         try #require(Self.moveKeys(strip).isEmpty, "SETUP: a strip move runs before the change")
 
@@ -100,20 +100,12 @@ struct TabMoveMotionTargetTests {
             let cell = try #require(strip.cells[id])
             return (id, cell)
         }
-        let begin: CFTimeInterval
-        let end: CFTimeInterval
-        if startsMove {
-            try #require(!Self.moveKeys(strip).isEmpty, "the change started no strip move")
-            begin = try #require(Self.moveBegin(cells.map(\.1)), "the strip move has no begin time")
-            end = cells.compactMap { _, cell in
-                [MotionPath(cell.layer, "position").end, MotionPath(cell.layer, "bounds.size").end].compactMap { $0 }.max()
-            }.max() ?? begin
-            try #require(end - begin > 3.0 / 120, "the move did not animate (\(end - begin) s)")
-        } else {
-            #expect(Self.moveKeys(strip).isEmpty, "the close started strip moves: \(Self.moveKeys(strip))")
-            begin = CACurrentMediaTime()
-            end = begin + (MotionMove.tween(.tabMove, in: Motion.tabs)?.duration ?? 0.2)
-        }
+        try #require(!Self.moveKeys(strip).isEmpty, "the change started no strip move")
+        let begin = try #require(Self.moveBegin(cells.map(\.1)), "the strip move has no begin time")
+        let end = cells.compactMap { _, cell in
+            [MotionPath(cell.layer, "position").end, MotionPath(cell.layer, "bounds.size").end].compactMap { $0 }.max()
+        }.max() ?? begin
+        try #require(end - begin > 3.0 / 120, "the move did not animate (\(end - begin) s)")
 
         var trace = MotionTargetTrace()
         for (id, _) in cells {

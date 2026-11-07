@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { copyTextResult } from "./conversation/clipboard";
 import { Icon } from "./icons/Icon";
 import { translate, type Translate, usePaneLanguage, useT } from "./i18n";
-import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
+import type { AcpmuxSnapshot } from "./model";
 import { useEscapeToDismiss } from "./paneSurface";
 import { usageLimitsLabel } from "./usageLimits";
 import { compactingUsage } from "./usageStats";
@@ -45,13 +45,9 @@ function listLabel(value: unknown, t: Translate): string {
   return values.length ? values.join(", ") : t("status.notReported");
 }
 
-function version(rows: readonly AcpmuxRow[], summary: Summary, t: Translate): string {
+function version(summary: Summary, t: Translate): string {
   const source = info(summary);
-  return (
-    text(source.version) ??
-    [...rows].reverse().find((row) => row.sessionStart?.version)?.sessionStart?.version ??
-    t("status.notReported")
-  );
+  return text(source.version) ?? text(summary.sessionStart?.version) ?? t("status.notReported");
 }
 
 function usageLabel(summary: Summary, t: Translate): string {
@@ -73,15 +69,7 @@ export function statusCardCopyText(fields: readonly StatusField[]): string {
 }
 
 /** The shared `/status` card. Values are normalized to labels and never render credential values. */
-export function HarnessStatusCard({
-  summary,
-  rows,
-  onDismiss,
-}: {
-  summary: AcpmuxSnapshot["summary"];
-  rows: readonly AcpmuxRow[];
-  onDismiss(): void;
-}) {
+export function HarnessStatusCard({ summary, onDismiss }: { summary: AcpmuxSnapshot["summary"]; onDismiss(): void }) {
   const t = useT();
   const locale = usePaneLanguage();
   // This card can be open while the composer owns focus. Capture an otherwise-unclaimed Escape
@@ -104,7 +92,7 @@ export function HarnessStatusCard({
   const limitsApply = reportedLimits !== undefined || summary.usageLimitsApply !== false;
   const usageLimits = reportedLimits ?? t("status.noLimitYet");
   const fields: readonly StatusField[] = [
-    [t("status.field.version"), version(rows, summary, t)],
+    [t("status.field.version"), version(summary, t)],
     [t("status.field.session"), display(summary.sessionId, t)],
     [t("status.field.cwd"), display(summary.cwd, t)],
     [t("status.field.host"), display(summary.host ?? summary.peer ?? summary.machine, t)],
