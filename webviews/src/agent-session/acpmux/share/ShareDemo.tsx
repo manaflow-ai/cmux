@@ -1,16 +1,15 @@
 // l10n-allow-file: gallery demo (made-up chat and people), not shipped UI.
-// The gallery's header row with who is here and Share (Share.gallery.ts), its dialog open on a
-// fixture, and the copied-link toast. The fixture host answers `share.op` from memory, so every
+// The gallery's chat header (who else is here, then the ••• menu's tools as they are; Share… lives
+// in that menu), the Share dialog open on a fixture, and the copied-link toast (Share.gallery.ts). The fixture host answers `share.op` from memory, so every
 // step in the dialog works in the gallery the way it does against the daemon.
 import { useEffect, useState } from "react";
 import { PresenceStack } from "../multiplayer/Faces";
 import type { Participant } from "../multiplayer/participants";
-import { ShareButton, shareToasts, type ShareLook } from "./ShareControl";
+import { ShareDialogHost, shareToasts } from "./ShareControl";
 import { shareView, type ChatShare, type ShareCall } from "./shareState";
 import "../header/header.css";
 
 export type ShareDemoProps = {
-  look: ShareLook;
   viewing: Participant[];
   shares: ChatShare[];
   /** Draw the dialog open. */
@@ -46,8 +45,9 @@ const LINK: ChatShare = {
   invitees: [],
 };
 
-export function ShareDemo({ look, viewing, shares, open = false, toast }: ShareDemoProps) {
+export function ShareDemo({ viewing, shares, open = false, toast }: ShareDemoProps) {
   const [call] = useState(() => fixtureHost(shares));
+  const [shown, setShown] = useState(open);
   useEffect(() => {
     if (!toast) return;
     const id = shareToasts.show({
@@ -65,12 +65,13 @@ export function ShareDemo({ look, viewing, shares, open = false, toast }: ShareD
         <strong style={{ flex: 1 }}>Add retries to the uploader</strong>
         <div className="acpmux-handoff-header-tools">
           <PresenceStack viewing={viewing} />
-          <ShareButton
+          <ShareDialogHost
             sessionId="demo"
             chat="Add retries to the uploader"
-            look={look}
+            open={shown}
+            onOpenChange={setShown}
             call={call}
-            initial={open ? shareView(shares) : undefined}
+            initial={shareView(shares)}
           />
         </div>
       </header>

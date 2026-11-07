@@ -1,9 +1,9 @@
 // l10n-allow-file: gallery fixtures (made-up people), not shipped UI.
 // Sharing an agent chat (Leo, 2026-11-07: "like the Figma and the Google Docs, like the
-// collaborators thing"): who is here and Share in the header's top right, the Share dialog, and
-// the copied-link toast. Three looks for the button; the pick is `icon`, the toolbar's own 24px
-// glyph beside the faces: it keeps the row's pitch and its no-resting-fill rule
-// (design/chat-header.md), where a word or a filled button would be the only labeled tool there.
+// collaborators thing"), opened from the chat's ••• menu, not a header button (Leo: "would that
+// defeat the minimalism? ... you'd want to put it in the dot dot dot area"). The header shows only
+// who else is here, and only while someone is. Variants: an unshared chat (nothing new), a shared
+// one with faces, the dialog empty and shared, and the copied-link toast.
 import { componentEntry } from "../../../gallery/format";
 import { ANA, JORDAN, MEI, SAM } from "../multiplayer/people.fixtures";
 import type { ShareDemoProps } from "./ShareDemo";
@@ -51,29 +51,25 @@ export default componentEntry<ShareDemoProps>({
   load: () => import("./ShareDemo").then((module) => module.ShareDemo),
   height: 560,
   variants: {
-    picked: {
-      note: "The pick: the faces, then Share as the toolbar's 24px glyph (same pitch, no resting fill).",
-      props: { look: "icon", viewing, shares: [] },
+    unshared: {
+      note: "An unshared chat: nothing new in the header (no Share button, no faces).",
+      props: { viewing: [], shares: [] },
     },
-    label: {
-      note: "Glyph and word: clearer, but the only labeled tool in the row.",
-      props: { look: "label", viewing, shares: [] },
-    },
-    filled: {
-      note: "Google Docs' filled Share button: loudest; the accent fill fights the tool row's quiet glyphs.",
-      props: { look: "filled", viewing, shares: [] },
+    shared: {
+      note: "A shared chat with people in it: their faces, overlapping with +N, and nothing else new.",
+      props: { viewing, shares: [people, link] },
     },
     "dialog-restricted": {
-      note: "The dialog for a chat shared with nobody yet: Restricted, only the owner.",
-      props: { look: "icon", viewing: [], shares: [], open: true },
+      note: "Share… from the ••• menu on a chat shared with nobody yet: Restricted, only the owner.",
+      props: { viewing: [], shares: [], open: true },
     },
     "dialog-shared": {
       note: "Two people invited (one in the chat now) and Anyone with the link as a viewer.",
-      props: { look: "icon", viewing, shares: [people, link], open: true },
+      props: { viewing, shares: [people, link], open: true },
     },
     toast: {
       note: "After Copy link with Anyone with the link: the toast and Manage links.",
-      props: { look: "icon", viewing, shares: [link], toast: "public" },
+      props: { viewing, shares: [link], toast: "public" },
     },
   },
 });

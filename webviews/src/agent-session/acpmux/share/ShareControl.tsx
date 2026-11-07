@@ -1,19 +1,17 @@
-// The chat header's Share control (Leo, 2026-11-07: "the Figma and the Google Docs, like the
-// collaborators thing ... at the top bar area section, the top right"): who has the chat open as
-// overlapping faces, then Share, which opens the Share dialog. Copy link puts the link on the
-// clipboard and says so in a toast with Manage links (Settings > Shared links).
+// The Share dialog's host. The chat's ••• menu opens it with Share… (Leo, 2026-11-07: "Actually
+// wait, would that defeat the minimalism? I think it kind of would, wouldn't it? I think you'd want
+// to put it in the dot dot dot area."), so the header gains no button. Copy link puts the link on
+// the clipboard and says so in a toast with Manage links (Settings > Shared links).
 //
 // Every step is the daemon's (`share.op` through the host, shareState.ts): the dialog re-reads the
 // chat's shares after each one, so what it shows is what the daemon holds. No timer and no
 // observer: the dialog reads on open and after a step; the toast queue arms its one timeout only
 // while a toast shows (NoticeStack.tsx).
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { NoticeStack, createNoticeQueue } from "../../../ui/NoticeStack";
 import { useT, translate } from "../i18n";
 import { copyTextResult } from "../conversation/clipboard";
-import { tooltipProps } from "../shortcuts";
-import { HeaderIcon } from "../header/HeaderIcon";
 import { ShareDialogBody } from "./ShareDialog";
 import {
   shareClient,
@@ -40,28 +38,26 @@ function failure(error: unknown): string {
   return typeof message === "string" && message ? message : translate("share.error.generic");
 }
 
-/// How Share draws in the header: the toolbar's 24px glyph (the pick: it fits the tool row's pitch
-/// and no-resting-fill rule, design/chat-header.md), the glyph with its word, or Docs' filled button.
-export type ShareLook = "icon" | "label" | "filled";
-
-export function ShareButton({
+export function ShareDialogHost({
   sessionId,
   chat,
+  open,
+  onOpenChange,
   call,
   initial,
-  look = "icon",
 }: {
   sessionId: string;
   chat: string;
+  /** Share… in the chat menu sets it; Done, Escape and a press outside clear it. */
+  open: boolean;
+  onOpenChange(open: boolean): void;
   /** The host's `share.op`; the gallery passes a fixture. */
   call?: ShareCall;
-  /** Open on first draw with this view (the gallery). */
+  /** The view drawn before the first read (the gallery). */
   initial?: ShareView;
-  look?: ShareLook;
 }) {
   const t = useT();
   const client = useMemo(() => shareClient(sessionId, call), [sessionId, call]);
-  const [open, setOpen] = useState(initial !== undefined);
   const [view, setView] = useState<ShareView>(initial ?? EMPTY);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -83,11 +79,19 @@ export function ShareButton({
     await reload();
     setBusy(false);
   };
-  const openDialog = () => {
+  // Each open reads the chat's shares afresh: what the dialog shows is what the daemon holds now.
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
     setStatus(null);
-    setOpen(true);
-    void reload();
-  };
+    client.state().then(
+      (next) => current && setView(next),
+      (error: unknown) => current && setStatus(failure(error)),
+    );
+    return () => {
+      current = false;
+    };
+  }, [open, client]);
   const copy = () =>
     void step(async () => {
       // Restricted copies the invite link (only invited people get in); Anyone copies the viewer link.
@@ -108,21 +112,7 @@ export function ShareButton({
     });
   return (
     <>
-      <button
-        type="button"
-        className="acpmux-header-tool share-button"
-        data-quick-action="share"
-        data-look={look}
-        aria-label={t("share.button")}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        {...(look === "icon" ? tooltipProps(t("share.button"), undefined) : {})}
-        onClick={openDialog}
-      >
-        <HeaderIcon name="action.share" selected={open} />
-        {look !== "icon" && <span className="share-button__label">{t("share.button")}</span>}
-      </button>
-      <Dialog open={open} onOpenChange={setOpen} label={t("share.title", { chat })} className="share-dialog-popup">
+      <Dialog open={open} onOpenChange={onOpenChange} label={t("share.title", { chat })} className="share-dialog-popup">
         <ShareDialogBody
           chat={chat}
           view={view}
@@ -133,7 +123,7 @@ export function ShareButton({
           onRemove={(account: string) => void step(() => client.remove(account))}
           onGeneral={general}
           onCopy={copy}
-          onDone={() => setOpen(false)}
+          onDone={() => onOpenChange(false)}
         />
       </Dialog>
       <NoticeStack queue={shareToasts} dismissLabel={t("share.dismiss")} />

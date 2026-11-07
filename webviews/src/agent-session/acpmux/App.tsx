@@ -15,7 +15,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
-import { ShareButton } from "./share/ShareControl";
+import { ShareDialogHost } from "./share/ShareControl";
 import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { chatOnThisMac, chatPlace } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, thisMacName } from "./environments";
@@ -1253,6 +1253,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// composer, not the New Tab page that would remount without it) until a chat starts here or the
   /// host hands the page another new chat.
   const [sandboxDraftMoved, setSandboxDraftMoved] = useState(false);
+  /// The Share dialog, opened by the chat menu's Share… (share/ShareControl.tsx).
+  const [shareOpen, setShareOpen] = useState(false);
   const [sandbox] = useState(
     () =>
       new SandboxTab(callNative, (text) => {
@@ -8383,6 +8385,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           if (outcome === "unavailable") ignoreFailure(copyText(markdown));
         }),
     );
+    const share: ChatMenuItem | undefined =
+      snapshot.sessionId && hasNativeHost()
+        ? { key: "share", label: t("share.menu"), icon: "action.share", onSelect: () => setShareOpen(true) }
+        : undefined;
     // Fork immediately; destination choices are a separate action and Option-click shortcut.
     const fork =
       forkable && lastForkSeq !== undefined ? forkMenuRows(lastForkSeq, () => turnActions.fork?.(lastForkSeq), t) : [];
@@ -8526,7 +8532,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ],
       [...opensBeside, ...fork],
       continueIn,
-      copy ? [copy] : [],
+      // Share… beside Copy (Leo, 2026-11-07: "put it in the dot dot dot area"): a started chat in the app.
+      [...(share ? [share] : []), ...(copy ? [copy] : [])],
       [
         {
           key: "moveRight",
@@ -10700,10 +10707,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                       fallback={snapshot.presence}
                     />
-                    {/* Share beside the faces, as Docs and Figma put it (Leo, 2026-11-07): a started
-                        chat in the app only; a guest's read-only page has nothing to share. */}
+                    {/* No Share button here: Share… lives in the ••• menu (Leo, 2026-11-07: "would that
+                        defeat the minimalism? ... you'd want to put it in the dot dot dot area").
+                        This only hosts its dialog; the faces before it draw only when someone else
+                        is here. */}
                     {snapshot.sessionId && !showNewTab && hasNativeHost() && (
-                      <ShareButton sessionId={snapshot.sessionId} chat={chatName} />
+                      <ShareDialogHost
+                        sessionId={snapshot.sessionId}
+                        chat={chatName}
+                        open={shareOpen}
+                        onOpenChange={setShareOpen}
+                      />
                     )}
                     {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
                     {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
