@@ -75,6 +75,9 @@ final class SidebarUpdatedCardHost: NSView {
     var droppedAt: CGPoint?
     /// The dropped card's way from where it was let go to its rest (each springs to 0).
     let settleX = SidebarCardSlotMotion(), settleY = SidebarCardSlotMotion()
+    /// The card was hidden while held: the page's moves and release for that press are dropped until
+    /// its release (``hideEndsDrag()``).
+    var dropsHiddenDrag = false
 
     /// The height the card's page last reported, kept across launches: a relaunch after an update
     /// lays the card out at it in its first frame instead of making room once the page has drawn
@@ -222,6 +225,9 @@ final class SidebarUpdatedCardHost: NSView {
             }
             (heldHeight, holdArmed, pendingRememberedHeight) = (0, false, nil)
             (heldOffset, heldBase, droppedAt) = (nil, .zero, nil)
+            // A card that comes back starts at its rest, not on the way from an old drop.
+            settleX.reset()
+            settleY.reset()
             // A card that comes back starts without its x until the pointer moves onto it.
             isHovered = false
             setHoverShown(closeButton, false, fades: false)
@@ -256,7 +262,12 @@ final class SidebarUpdatedCardHost: NSView {
     /// or with no card, its x hides and the page hears the pointer leave, so it closes the preview and
     /// hands the room back, and the card comes back closed (review F3 of #37615).
     override var isHidden: Bool {
-        didSet { if isHidden, !oldValue { pointerLeft() } }
+        didSet {
+            if isHidden, !oldValue {
+                pointerLeft()
+                hideEndsDrag()
+            }
+        }
     }
 
     private func pointerLeft() {

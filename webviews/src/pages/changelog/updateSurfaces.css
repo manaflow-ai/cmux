@@ -262,7 +262,7 @@
   overflow: hidden;
   border-radius: var(--composer-material-radius);
   background: var(--composer-material-tint);
-  box-shadow: var(--composer-material-ring), var(--composer-material-rim);
+  box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
 }
 /* A page with content under the card (the gallery over a wallpaper) frosts it as the composer does;
    the sidebar's card sits on the sidebar's own glass and frosts nothing. */
@@ -275,7 +275,7 @@
 .wn-card[data-decoration="doodle"] {
   border-radius: var(--composer-material-radius);
   background: var(--composer-material-tint);
-  box-shadow: var(--composer-material-ring), var(--composer-material-rim);
+  box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
 }
 .wn-card[data-decoration="doodle"][data-glass] {
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
@@ -419,8 +419,8 @@
    to"): held, it takes the grabbing cursor and its words do not select. Dropped at the top of the
    list, the card rests on its top edge: the preview opens below its two lines, its rows standing on
    the preview's top, with the hairline between them there. */
-.wn-updated[data-dragging],
-.wn-updated[data-dragging] * {
+:is(.wn-updated, .wn-card[data-decoration="doodle"])[data-dragging],
+:is(.wn-updated, .wn-card[data-decoration="doodle"])[data-dragging] * {
   cursor: grabbing;
   -webkit-user-select: none;
   user-select: none;

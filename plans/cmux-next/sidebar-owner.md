@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: the Updated card drag and preview, review follow-ups of #37669, #37743, #37790, #37802 and #37894.
+  Taking the card away resets its settle, so it comes back at its rest. A card hidden mid-drag (a card of higher
+  priority took the slot) is not held when it comes back, and the page's late moves and release for that press
+  move nothing (`SidebarUpdatedCardHost.hideEndsDrag`). The place the host sends the page carries its zoom, so the
+  page reads the pointer's screen deltas in CSS px and the card stays under the pointer at any interface scale
+  (`PageCardDrag`). The card's rim and depth are the composer's glass material where the composer wears it; the
+  doodle-decorated card drags too. Leo, verbatim: "what if you could, like, drag around the updated to nightly, and
+  you can drag that up to the top if you wanted to?" Regression: `UpdatedCardDragTests`, webviews
+  `updated-card-drag.test.tsx`, `updated-card-hover-preview.test.tsx`, `updated-card-composer-material.test.ts`.
 - 2026-11-07: the Updated card drag, review of #37790. A drop settles from where the page let the card go (the
   release's offset plus the held base), not from the frame of the last move, so a release between moves does not
   jump back before it springs (`SidebarUpdatedCardHost.pageDragged`). A drag that starts with the hover preview open

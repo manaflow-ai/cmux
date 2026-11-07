@@ -19,6 +19,11 @@ extension SidebarUpdatedCardHost {
 
     func pageDragged(_ drag: SidebarCardDrag) {
         guard card != nil else { return }
+        if dropsHiddenDrag {
+            // The press of a drag the card was hidden in: its moves and its release are not this card's.
+            if drag.drop != nil { dropsHiddenDrag = false }
+            return
+        }
         guard let drop = drag.drop else {
             if heldOffset == nil {
                 // Taken mid-settle: the drag carries on from where the card is shown, never from its rest.
@@ -42,6 +47,14 @@ extension SidebarUpdatedCardHost {
             if drop == .bottom { defaults.removeObject(forKey: Self.rememberedAnchorKey) } else { defaults.set(drop.rawValue, forKey: Self.rememberedAnchorKey) }
         }
         onHeightChange?()
+    }
+
+    /// A card hidden mid-drag (a card of higher priority took the slot) is not held when it comes back:
+    /// it shows at its rest, and the page's late moves and release for that press move nothing.
+    func hideEndsDrag() {
+        guard heldOffset != nil else { return }
+        (heldOffset, heldBase, droppedAt) = (nil, .zero, nil)
+        dropsHiddenDrag = true
     }
 
     /// The view's frame for a card resting at `rest`: where the page holds it, else on its way from
