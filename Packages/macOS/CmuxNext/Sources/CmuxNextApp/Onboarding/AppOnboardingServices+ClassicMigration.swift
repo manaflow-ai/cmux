@@ -306,7 +306,7 @@ extension AppOnboardingServices {
               saved.layout.tabs.contains(where: { $0.url == nil }), let connection = local.connection else { print("PARK-DIAG guard-out \(id) \(local.supports(DaemonCapability.tabPark.rawValue)) \(local.connection != nil)"); return }
         do {
             guard let shape = try await local.shape(of: WorkspaceKey(rawValue: id), after: connection) else { print("PARK-DIAG no-shape \(id)"); return }
-            let surfaces = shape.screens.flatMap(\.panes).flatMap(\.surfaces); print("PARK-DIAG surfaces \(id) \(surfaces) reply \(try await connection.request(ParkTabsRequest(surfaces: surfaces)))")
+            let surfaces = shape.screens.flatMap(\.panes).flatMap(\.surfaces); let reply = try await connection.request(ParkTabsRequest(surfaces: surfaces)); print("PARK-DIAG surfaces \(id) \(surfaces) reply \(reply)")
         } catch { print("PARK-DIAG error \(id) \(error)")
             services.daemon.logger.error("classic workspace not parked: \(String(describing: error), privacy: .public)")
         }
