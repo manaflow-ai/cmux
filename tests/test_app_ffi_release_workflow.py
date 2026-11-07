@@ -185,6 +185,16 @@ class PublishJob(unittest.TestCase):
         passed, log = self.run_publish(workflow_changed=False, existing=True)
         self.assertTrue(passed, log)
 
+    def test_the_hand_publish_command_is_one_shell_command_that_ends_with_the_pin_proved(self):
+        # Review of #37645 at ec4829a3, F1: it read "...; then pin it with ...", prose no shell accepts, so the
+        # command named on a failed publish could not be pasted as given.
+        command = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]["env"]["HAND_PUBLISH"]
+        command = re.sub(r"\$\{\{[^}]*\}\}", "X", command)
+        checked = subprocess.run(["bash", "-n", "-c", command], capture_output=True, text=True)
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        self.assertRegex(command, r"&& scripts/cmux-next/repin-app-ffi\.sh X X "
+                                  r"&& scripts/cmux-next/check-app-ffi-pin\.sh --verify-release$")
+
 
 APP_TOKEN_ACTION = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"
 

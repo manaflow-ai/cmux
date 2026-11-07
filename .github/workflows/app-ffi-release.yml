@@ -388,9 +388,10 @@ jobs:
     permissions:
       contents: read
     env:
-      # What a maintainer runs when this job cannot publish: download this
-      # run's artifact, check it, create the prerelease (never latest), then
-      # pin it and prove the pin.
+      # What a maintainer runs from a cmux checkout when this job cannot
+      # publish: download this run's artifact, check it, create the prerelease
+      # (never latest), then pin it and prove the pin. One shell command
+      # (runbook: docs/ci/app-ffi-release.md); commit the two pin files after.
       HAND_PUBLISH: >-
         gh run download ${{ github.run_id }} --repo ${{ github.repository }} --name CCmuxAppFFI.xcframework --dir app-ffi-${{ github.sha }}
         && (cd app-ffi-${{ github.sha }} && shasum -a 256 -c SHA256SUMS && test "$(cat SOURCE_SHA)" = ${{ github.sha }})
@@ -398,9 +399,8 @@ jobs:
         --repo ${{ github.repository }} --target ${{ github.sha }} --title ${{ needs.build.outputs.tag }}
         --notes "cmux app FFI CCmuxAppFFI.xcframework, source ${{ github.sha }}, SwiftPM checksum ${{ needs.build.outputs.checksum }}"
         --prerelease --latest=false
-        ; then pin it with scripts/cmux-next/repin-app-ffi.sh ${{ github.sha }} ${{ needs.build.outputs.checksum }}
-        (Packages/macOS/CmuxNext/app-ffi-pin.json and Package.swift's checksum line) and run scripts/cmux-next/check-app-ffi-pin.sh --verify-release
-        (runbook: docs/ci/app-ffi-release.md)
+        && scripts/cmux-next/repin-app-ffi.sh ${{ github.sha }} ${{ needs.build.outputs.checksum }}
+        && scripts/cmux-next/check-app-ffi-pin.sh --verify-release
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
