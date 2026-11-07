@@ -46,7 +46,7 @@ export const SCROLLING_HIDE_MS = 800;
  */
 export const SHOWN_SCROLLER_ATTRIBUTE = "data-cmux-shown-scroller";
 /** On `<html>` when shown scrollers fade out at rest instead (the agent pane sets it whenever its
-    host pushes a theme, acpmux App.tsx `applyPaneTheme`). */
+    host pushes a theme, acpmux paneTheme.ts `applyPaneTheme`). */
 export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
 /** A shown scroller's full ink, in percent of the text color (`--cmux-scroller-thumb`'s). */
 const SHOWN_INK = 38;
@@ -168,7 +168,9 @@ export function markScrolling(element: Element, timers: ScrollTimers = defaultTi
     element.removeAttribute(SCROLLING_ATTRIBUTE);
     return;
   }
-  element.setAttribute(SCROLLING_ATTRIBUTE, "");
+  // Set once per scroll, not on every step: each set is a DOM change that restyles the scroller and
+  // wakes every observer of the mark (Session Info's body took one per frame while it scrolled).
+  if (!element.hasAttribute(SCROLLING_ATTRIBUTE)) element.setAttribute(SCROLLING_ATTRIBUTE, "");
   pending.set(
     element,
     timers.set(() => {

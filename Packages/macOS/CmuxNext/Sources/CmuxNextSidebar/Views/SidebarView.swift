@@ -91,6 +91,16 @@ public final class SidebarView: NSView {
     let priorityPanelView = SidebarPriorityPanelView(), priorityButton = SidebarIconButton(icon: .notification, label: Strings.priorityTitle)
     /// The quiet Update Available button (``showUpdateAvailable(_:)``).
     let updateAvailableButton = SidebarIconButton(symbol: "arrow.down.circle", label: "")
+    /// Swift live mode's mark (LiveModeBadgeView), right of the profile avatar on the footer line
+    /// (Leo 2026-11-06: "at the bottom just to the right of the profile circle in the sidebar").
+    /// Nil while this app is not the live code build.
+    public var liveModeBadge: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            liveModeBadge.map { addSubview($0) }
+            needsLayout = true
+        }
+    }
     let priorityBellDot = CALayer()
     var priority: SidebarPriorityPanel?
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
@@ -123,6 +133,8 @@ public final class SidebarView: NSView {
     var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
     var lastState: RenderState?
+    /// A `renderInFrame` draw is queued for this turn's frame.
+    var renderQueued = false
     /// The sections the list showed at the last render (for the space slide and the provisional check).
     var lastSections: [SidebarSection] = []
     /// The bands' inputs changed since `updateBands` last ran (it runs in `layout`, only then).
@@ -385,6 +397,7 @@ public final class SidebarView: NSView {
         profileBar.isHidden = !showsProfiles
         footerRegion.isHidden = noFade
         searchButton.isHidden = noFade
+        liveModeBadge?.isHidden = noFade
         for fade in [edgeFade, aboveFade, belowFade] { fade.fades = !noFade }
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0

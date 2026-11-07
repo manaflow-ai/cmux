@@ -12,6 +12,7 @@ use super::require_all;
 /// Before-prompt requests require requestId and omit both throughSeq and live.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
 pub struct ForkParams {
     pub session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -24,6 +25,10 @@ pub struct ForkParams {
     /// Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    /// The caller's name for this fork while it is made, at most 128 bytes: `_acpmux/kill` with
+    /// `cancelFork` and this token stops it, or takes it back once made (`hub/fork_cancel.rs`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cancel_token: Option<String>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
 }
@@ -145,6 +150,13 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub waits_for_slot: bool,
+    /// Its agent is being started (a start, a wake or a mode change holds the session's spawn
+    /// lease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update
+    /// waits on it as on a turn. Always sent, so a row without it is from an older acpmux,
+    /// which an update reads by its row's age instead.
+    #[serde(default)]
+    #[schemars(default)]
+    pub starting: bool,
     /// Being moved to another daemon; it takes no prompt meanwhile.
     pub moving: bool,
     /// Moved to another daemon (`acpmux session move`): where it runs now,

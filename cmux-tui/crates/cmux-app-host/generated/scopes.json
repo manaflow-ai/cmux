@@ -229,6 +229,10 @@
       "scope": "calendar:read",
       "class": "read"
     },
+    "channel.create": {
+      "scope": "channel:write",
+      "class": "mutation"
+    },
     "chief.continue": {
       "scope": "chief:write",
       "class": "mutation"

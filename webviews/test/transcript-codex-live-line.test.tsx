@@ -167,14 +167,15 @@ test("each step replaces the line in place: Ran, Running, Ran, one id throughout
   expect(running.find((entry) => entry.id === "run")!.items).toHaveLength(1);
 });
 
-test("a command reads its description, or its short command line without the setup", () => {
+test("a command reads its short command line without the setup, never its description", () => {
   const described = codex([
     row("u", "user"),
     row("run", "activity", {
       items: [call('export PATH="/a:$PATH"; gh run list', "in_progress", { description: "List the runs" })],
     }),
   ]).at(-1)!;
-  expect(described).toMatchObject({ doing: "List the runs", doingShell: false });
+  // Codex parity: the command itself, as Codex draws it, never Bash's description.
+  expect(described).toMatchObject({ doing: "gh run list" });
   const raw = codex([
     row("u", "user"),
     row("run", "activity", { items: [call('export PATH="/a:$PATH"; B=~/x; gh run list -L 5', "in_progress")] }),

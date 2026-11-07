@@ -13,7 +13,8 @@ public import CmuxNextDesignTokens
 public nonisolated enum MotionTween: UInt8, Sendable, CaseIterable {
     /// A new tab opening at its slot, its neighbours and the + making room (`ui.animations.newTab`).
     case tabOpen = 0
-    /// A closing tab shrinking with its left edge pinned, the others closing the gap (`ui.animations.newTab`).
+    /// A closing tab shrinking with its left edge pinned, the others closing the gap (`ui.animations.newTab`; close
+    /// case A, cmux-ad m49); also the tabs widening back when Chrome's closing mode ends (the pointer left the strip).
     case tabClose = 1
     /// A reorder, a crowding change, a dragged tab settling on release. A gesture: no kind switch.
     case tabMove = 2

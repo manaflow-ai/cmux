@@ -1,0 +1,471 @@
+//! The daemon's hook for carrier grants (`ClientAuthMode::Grant`).
+//!
+//! A daemon admits a grant only through the [`GrantVerifier`] its owner
+//! installs at start ([`crate::identity::AuthDatabase::set_grant_verifier`]).
+//! With none installed, every grant is refused. The verifier sees the token
+//! and the Noise static key that just finished the handshake, after the
+//! handshake, and answers the session's services and a stable device id, or
+//! a refusal. The Cloud verifier is cmux-link's
+//! [`CarrierGrantVerifier`](cmux_link::carrier_grant::CarrierGrantVerifier).
+//!
+//! A grant only admits a new session (generation 0): an admitted session is
+//! never re-checked against the grant's expiry, and it ends only by the
+//! session's own rules (its resume lease, or a retire pushed to it). A resume
+//! (generation 1 and up) carries no grant: the daemon re-admits the Noise key
+//! a grant admitted before ([`AdmittedGrants`]), with the same device id and
+//! services. Its generation fence admits that only into the key's existing
+//! session, so a resume never opens a new one.
+
+use std::collections::{HashMap, VecDeque};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+use cmux_link::carrier_grant::{CarrierGrant, CarrierGrantVerifier};
+use cmux_link::keyset::Keyset;
+use cmux_link::token::{TokenRefusal, TokenRefused};
+use cmux_remote_protocol::{Service, SessionId};
+use serde_json::Value;
+use sha2::{Digest as _, Sha256};
+
+use crate::crypto::{ConnectionAttemptId, ServiceAuthority, public_key_fingerprint};
+
+/// The most grant-admitted Noise keys the daemon remembers for resumes.
+pub const MAX_ADMITTED_GRANTS: usize = 4096;
+
+/// The device id prefix of a session a carrier grant admitted.
+pub const GRANT_DEVICE_PREFIX: &str = "carrier:";
+
+/// What a presented grant is checked against.
+#[derive(Debug, Clone, Copy)]
+pub struct GrantPresentation<'a> {
+    pub token: &'a str,
+    /// The client's Noise static public key, from the finished handshake.
+    pub noise_key: &'a [u8; 32],
+    /// [`link_group`] of the handshake: every physical link of one new
+    /// session presents the same grant with the same group.
+    pub link_group: [u8; 32],
+}
+
+/// The daemon's digest of one new session's physical links: its session,
+/// generation and connection attempt. The daemon's generation fence makes a
+/// group that already registered unable to open a session again.
+pub fn link_group(session: SessionId, generation: u64, attempt: ConnectionAttemptId) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(b"cmux-carrier-grant-link-group-v1");
+    digest.update(session.0);
+    digest.update(generation.to_be_bytes());
+    digest.update(attempt.0);
+    digest.finalize().into()
+}
+
+/// The grants this daemon admitted, by Noise key, for resumes. Bounded and
+/// least recently used first: an admission or a resume makes a key the
+/// newest, so a key in use is forgotten only after [`MAX_ADMITTED_GRANTS`]
+/// other keys were used since. A forgotten key needs a new grant.
+#[derive(Debug, Default)]
+pub(crate) struct AdmittedGrants {
+    inner: Mutex<Admitted>,
+    capacity: Option<usize>,
+}
+
+#[derive(Debug, Default)]
+struct Admitted {
+    by_key: HashMap<[u8; 32], GrantAdmission>,
+    /// Oldest use first.
+    order: VecDeque<[u8; 32]>,
+}
+
+impl Admitted {
+    fn touch(&mut self, noise_key: [u8; 32]) {
+        if let Some(at) = self.order.iter().position(|key| *key == noise_key) {
+            self.order.remove(at);
+        }
+        self.order.push_back(noise_key);
+    }
+}
+
+impl AdmittedGrants {
+    #[cfg(test)]
+    fn with_capacity(capacity: usize) -> Self {
+        Self { inner: Mutex::default(), capacity: Some(capacity) }
+    }
+
+    pub(crate) fn remember(&self, noise_key: [u8; 32], admission: GrantAdmission) {
+        let capacity = self.capacity.unwrap_or(MAX_ADMITTED_GRANTS);
+        let mut guard = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.by_key.insert(noise_key, admission);
+        guard.touch(noise_key);
+        while guard.order.len() > capacity {
+            if let Some(oldest) = guard.order.pop_front() {
+                guard.by_key.remove(&oldest);
+            }
+        }
+    }
+
+    /// The admission of `noise_key` for a resume, which makes it the newest.
+    pub(crate) fn get(&self, noise_key: &[u8; 32]) -> Option<GrantAdmission> {
+        let mut guard = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let admission = guard.by_key.get(noise_key).cloned()?;
+        guard.touch(*noise_key);
+        Some(admission)
+    }
+}
+
+/// An admitted grant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantAdmission {
+    /// `carrier:<subject>:<key fingerprint>`; see [`grant_device_id`].
+    pub device_id: String,
+    pub authority: ServiceAuthority,
+}
+
+/// Checks carrier grants. Installed once at daemon start.
+pub trait GrantVerifier: Send + Sync {
+    /// Admit the grant, or say why not. The message goes back to the client,
+    /// so it never carries token or key bytes.
+    fn verify(&self, presentation: GrantPresentation<'_>) -> Result<GrantAdmission, String>;
+    /// The new session `link_group` presented for has registered: its
+    /// grant admits no further link.
+    fn seal(&self, link_group: [u8; 32]);
+}
+
+/// The stable device id of `subject`'s client with `noise_key`:
+/// `carrier:<subject>:<fingerprint>`. The subject never holds a `:`, so the
+/// id never collides with a trusted carrier's `carrier:<fingerprint>`.
+pub fn grant_device_id(subject: &str, noise_key: &[u8; 32]) -> String {
+    format!("{GRANT_DEVICE_PREFIX}{subject}:{}", public_key_fingerprint(noise_key))
+}
+
+/// Whether `device_id` names a grant-admitted session.
+pub fn is_grant_device_id(device_id: &str) -> bool {
+    device_id.strip_prefix(GRANT_DEVICE_PREFIX).is_some_and(|rest| rest.contains(':'))
+}
+
+/// A service name a grant may carry: the wire name of a cmux-remote
+/// [`Service`] (`mux-control`, `workspace-rpc`, `process-stream`,
+/// `terminal-bytes-v1`, `tcp-tunnel`, `computer-use`, `local-socket`).
+pub fn service_from_name(name: &str) -> Option<Service> {
+    serde_json::from_value(Value::String(name.to_owned())).ok()
+}
+
+/// The services only the machine's owner holds: [`Service::LocalSocket`]
+/// (the Cloud desktop). A grant gets them from its `vmk: "owner"` claim,
+/// never from its `svc` list, which the verifier strips of them.
+pub fn owner_services(owner: bool) -> impl Iterator<Item = Service> {
+    owner.then_some(Service::LocalSocket).into_iter()
+}
+
+impl GrantVerifier for CarrierGrantVerifier {
+    fn verify(&self, presentation: GrantPresentation<'_>) -> Result<GrantAdmission, String> {
+        let grant = CarrierGrantVerifier::verify(
+            self,
+            presentation.token,
+            presentation.noise_key,
+            presentation.link_group,
+        );
+        admit(grant, presentation.noise_key)
+    }
+
+    fn seal(&self, link_group: [u8; 32]) {
+        CarrierGrantVerifier::seal(self, link_group);
+    }
+}
+
+/// The admission of a verified grant: its services this daemon knows. A name
+/// it does not know grants nothing; a grant naming only unknown services
+/// admits nothing.
+fn admit(
+    grant: Result<CarrierGrant, TokenRefusal>,
+    noise_key: &[u8; 32],
+) -> Result<GrantAdmission, String> {
+    let grant = grant.map_err(|refusal| format!("carrier grant refused: {refusal}"))?;
+    // `local-socket` comes only from the owner claim, never from `svc`.
+    let mut services = grant
+        .services
+        .iter()
+        .filter_map(|name| service_from_name(name))
+        .filter(|service| *service != Service::LocalSocket)
+        .collect::<Vec<_>>();
+    services.extend(owner_services(grant.owner()));
+    if services.is_empty() {
+        return Err("carrier grant refused: no service this daemon serves".into());
+    }
+    Ok(GrantAdmission {
+        device_id: grant_device_id(&grant.subject, noise_key),
+        authority: ServiceAuthority::from_services(services),
+    })
+}
+
+/// The session daemon's grant configuration, a JSON file its host writes
+/// (`cmux-tui server --carrier-grant-config FILE`):
+///
+/// ```json
+/// {"issuer": "cmux:cloud:production", "machine": "vm_…", "team": "team_…",
+///  "keyset": {"version": "<16 hex>", "keys": {"<kid>": <Ed25519 public JWK>}}}
+/// ```
+///
+/// Every field is public: the issuer and ids name this machine, the keyset
+/// holds public keys.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantConfig {
+    pub issuer: String,
+    pub machine: String,
+    pub team: String,
+    pub keys: Keyset,
+}
+
+impl GrantConfig {
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let value: Value =
+            serde_json::from_str(text).map_err(|e| format!("grant config is not JSON: {e}"))?;
+        let object = value.as_object().ok_or("grant config is not an object")?;
+        if let Some(key) = object
+            .keys()
+            .find(|key| !matches!(key.as_str(), "issuer" | "machine" | "team" | "keyset"))
+        {
+            return Err(format!("grant config has an unknown key {key:?}"));
+        }
+        let field = |name: &str| {
+            object
+                .get(name)
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .ok_or_else(|| format!("grant config `{name}` is missing"))
+        };
+        let keys = cmux_link::keyset::read_keyset(object.get("keyset").unwrap_or(&Value::Null))
+            .map_err(|refused| format!("grant config keyset refused: {}", refused.as_str()))?;
+        Ok(Self {
+            issuer: field("issuer")?,
+            machine: field("machine")?,
+            team: field("team")?,
+            keys,
+        })
+    }
+}
+
+/// How often an unknown kid may re-read the grant config.
+pub const GRANT_CONFIG_RELOAD_INTERVAL: Duration = Duration::from_secs(30);
+
+/// The daemon's grant verifier over its [`GrantConfig`] file. A grant
+/// signed by a kid the held keyset lacks re-reads the file (at most every
+/// [`GRANT_CONFIG_RELOAD_INTERVAL`]) and installs its keyset when the
+/// issuer, machine and team are unchanged, then checks the grant again.
+/// Spent grants stay spent across a reload.
+pub struct FileGrantVerifier {
+    path: PathBuf,
+    config: GrantConfig,
+    inner: CarrierGrantVerifier,
+    reloaded_at: Mutex<Option<Instant>>,
+}
+
+impl std::fmt::Debug for FileGrantVerifier {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("FileGrantVerifier")
+            .field("path", &self.path)
+            .field("machine", &self.config.machine)
+            .finish_non_exhaustive()
+    }
+}
+
+impl FileGrantVerifier {
+    pub fn load(path: impl Into<PathBuf>) -> Result<Self, String> {
+        let path = path.into();
+        let config = read_config(&path)?;
+        let inner = CarrierGrantVerifier::with_system_clock(
+            config.issuer.clone(),
+            config.machine.clone(),
+            config.team.clone(),
+            config.keys.clone(),
+        )
+        .map_err(|_| "grant config names no valid issuer, machine, team or keyset".to_string())?;
+        Ok(Self { path, config, inner, reloaded_at: Mutex::new(None) })
+    }
+
+    pub fn config(&self) -> &GrantConfig {
+        &self.config
+    }
+
+    /// Re-reads the file for a new keyset; `true` when one was installed.
+    fn reload_keys(&self) -> bool {
+        let mut reloaded_at =
+            self.reloaded_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if reloaded_at.is_some_and(|at| at.elapsed() < GRANT_CONFIG_RELOAD_INTERVAL) {
+            return false;
+        }
+        *reloaded_at = Some(Instant::now());
+        let Ok(fresh) = read_config(&self.path) else { return false };
+        let same_binding = fresh.issuer == self.config.issuer
+            && fresh.machine == self.config.machine
+            && fresh.team == self.config.team;
+        same_binding && self.inner.replace_keys(fresh.keys).is_ok()
+    }
+}
+
+fn read_config(path: &Path) -> Result<GrantConfig, String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("cannot read grant config {}: {e}", path.display()))?;
+    GrantConfig::parse(&text)
+}
+
+impl GrantVerifier for FileGrantVerifier {
+    fn verify(&self, presentation: GrantPresentation<'_>) -> Result<GrantAdmission, String> {
+        let check = || {
+            self.inner.verify(presentation.token, presentation.noise_key, presentation.link_group)
+        };
+        let mut grant = check();
+        if matches!(&grant, Err(refusal) if refusal.kind == TokenRefused::UnknownKey)
+            && self.reload_keys()
+        {
+            grant = check();
+        }
+        admit(grant, presentation.noise_key)
+    }
+
+    fn seal(&self, link_group: [u8; 32]) {
+        self.inner.seal(link_group);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn admission(n: u8) -> GrantAdmission {
+        GrantAdmission {
+            device_id: grant_device_id("user", &[n; 32]),
+            authority: ServiceAuthority::from_services([Service::MuxControl]),
+        }
+    }
+
+    /// #37211 review F3: a key re-admitted or resumed while in use kept its
+    /// old place and was forgotten first, so its grant-free resume failed.
+    #[test]
+    fn a_key_in_use_is_the_newest_and_is_forgotten_last() {
+        let admitted = AdmittedGrants::with_capacity(2);
+        admitted.remember([1; 32], admission(1));
+        admitted.remember([2; 32], admission(2));
+        // Key 1 re-admits: key 2 is now the oldest.
+        admitted.remember([1; 32], admission(1));
+        admitted.remember([3; 32], admission(3));
+        assert_eq!(admitted.get(&[2; 32]), None);
+        assert_eq!(admitted.get(&[1; 32]), Some(admission(1)));
+        // A resume of key 3 makes key 1 the oldest.
+        assert_eq!(admitted.get(&[3; 32]), Some(admission(3)));
+        admitted.remember([4; 32], admission(4));
+        assert_eq!(admitted.get(&[1; 32]), None);
+        assert_eq!(admitted.get(&[3; 32]), Some(admission(3)));
+        assert_eq!(admitted.get(&[4; 32]), Some(admission(4)));
+        let guard = admitted.inner.lock().unwrap();
+        assert_eq!(guard.order.len(), guard.by_key.len());
+    }
+
+    mod file_verifier {
+        use base64::Engine as _;
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use ring::signature::{Ed25519KeyPair, KeyPair as _};
+        use serde_json::json;
+
+        use super::*;
+
+        const MACHINE: &str = "vm_00000000000000000001";
+        const TEAM: &str = "team_00000000000000000001";
+        const ISSUER: &str = "cmux:cloud:development";
+
+        /// A generated signing key; no key material is checked in.
+        fn signer() -> Ed25519KeyPair {
+            let rng = ring::rand::SystemRandom::new();
+            let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+            Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap()
+        }
+
+        fn config(kid: &str, key: &Ed25519KeyPair, machine: &str) -> String {
+            json!({
+                "issuer": ISSUER,
+                "machine": machine,
+                "team": TEAM,
+                "keyset": {
+                    "version": "0123456789abcdef",
+                    "keys": {kid: {
+                        "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": kid,
+                        "x": URL_SAFE_NO_PAD.encode(key.public_key().as_ref()),
+                    }},
+                },
+            })
+            .to_string()
+        }
+
+        fn grant(kid: &str, key: &Ed25519KeyPair, noise_key: &[u8; 32], jti: u8) -> String {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let header =
+                json!({"alg": "EdDSA", "kid": kid, "typ": cmux_link::carrier_grant::GRANT_TYP});
+            let claims = json!({
+                "iss": ISSUER, "aud": MACHINE, "team": TEAM, "sub": "user_1",
+                "svc": ["mux-control"],
+                "nk": cmux_link::carrier_grant::noise_key_digest(noise_key),
+                "jti": URL_SAFE_NO_PAD.encode([jti; 16]),
+                "iat": now - 5, "exp": now + 60,
+            });
+            let message = format!(
+                "{}.{}",
+                URL_SAFE_NO_PAD.encode(header.to_string()),
+                URL_SAFE_NO_PAD.encode(claims.to_string())
+            );
+            let signature = key.sign(message.as_bytes());
+            format!("{message}.{}", URL_SAFE_NO_PAD.encode(signature.as_ref()))
+        }
+
+        fn present<'a>(token: &'a str, noise_key: &'a [u8; 32]) -> GrantPresentation<'a> {
+            GrantPresentation { token, noise_key, link_group: [1; 32] }
+        }
+
+        #[test]
+        fn the_config_has_exactly_its_four_fields() {
+            let key = signer();
+            let parsed = GrantConfig::parse(&config("k1", &key, MACHINE)).unwrap();
+            assert_eq!((parsed.issuer.as_str(), parsed.machine.as_str()), (ISSUER, MACHINE));
+            assert_eq!(parsed.keys.kids(), ["k1"]);
+            let mut extra: Value = serde_json::from_str(&config("k1", &key, MACHINE)).unwrap();
+            extra["slot"] = json!("x");
+            for bad in ["", "[]", "{}", &extra.to_string()] {
+                assert!(GrantConfig::parse(bad).is_err(), "{bad}");
+            }
+        }
+
+        /// A rotated keyset reaches the daemon through its config file: an
+        /// unknown kid re-reads it once, and only a file for the same
+        /// machine, team and issuer is taken.
+        #[test]
+        fn an_unknown_kid_reloads_the_keyset_from_the_file() {
+            let dir = tempfile::tempdir().unwrap();
+            let file = dir.path().join("carrier-grant.json");
+            let (old, new) = (signer(), signer());
+            std::fs::write(&file, config("k1", &old, MACHINE)).unwrap();
+            let verifier = FileGrantVerifier::load(&file).unwrap();
+            let noise_key = [3_u8; 32];
+            verifier.verify(present(&grant("k1", &old, &noise_key, 1), &noise_key)).unwrap();
+
+            // A file for another machine is never taken.
+            std::fs::write(&file, config("k2", &new, "vm_00000000000000000002")).unwrap();
+            let rotated = grant("k2", &new, &noise_key, 2);
+            assert!(verifier.verify(present(&rotated, &noise_key)).is_err());
+
+            // A fresh daemon (its reload not yet spent) takes the rotation.
+            std::fs::write(&file, config("k1", &old, MACHINE)).unwrap();
+            let verifier = FileGrantVerifier::load(&file).unwrap();
+            std::fs::write(&file, config("k2", &new, MACHINE)).unwrap();
+            let admission = verifier.verify(present(&rotated, &noise_key)).unwrap();
+            assert!(is_grant_device_id(&admission.device_id));
+            // The reload is rate limited: a third kid waits for the interval.
+            let third = signer();
+            std::fs::write(&file, config("k3", &third, MACHINE)).unwrap();
+            assert!(
+                verifier.verify(present(&grant("k3", &third, &noise_key, 3), &noise_key)).is_err()
+            );
+        }
+    }
+}

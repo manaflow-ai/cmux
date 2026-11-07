@@ -237,46 +237,53 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     glides: number;
   };
   /// Reads every painted frame until `stop`.
-  const watch = (page: Page, text?: string) =>
-    page.evaluate((text) => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const sample = () => {
-        const view = scroller.getBoundingClientRect();
-        // The view's foot: the top of the bottom stack lying over the transcript, else its bottom.
-        const stack = document.querySelector(".acpmux-main[data-dock=float] > .acpmux-dock");
-        const foot = stack ? stack.getBoundingClientRect().top : view.bottom;
-        const thread = document.querySelector<HTMLElement>(".acpmux-thread");
-        const lines = [...scroller.querySelectorAll("p")];
-        const holds = (node: Element) => node.textContent?.includes(text!) ?? false;
-        const row = text
-          ? ([...scroller.querySelectorAll("button[aria-expanded]")].find(holds) ??
-            [...scroller.querySelectorAll(".acpmux-row")].find(holds))
-          : undefined;
-        return {
-          fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
-          scrollTop: Math.round(scroller.scrollTop),
-          lastLine: Math.round(foot - (lines.at(-1)?.getBoundingClientRect().bottom ?? foot)),
-          top: row ? Math.round(row.getBoundingClientRect().top) : null,
-          glides: thread?.getAnimations().length ?? 0,
+  /// `selector`: watch the first node it names instead of the one that holds `text` (a thought's
+  /// button reads its words while closed and "Thought" while open).
+  const watch = (page: Page, text?: string, selector?: string) =>
+    page.evaluate(
+      ([text, selector]) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const sample = () => {
+          const view = scroller.getBoundingClientRect();
+          // The view's foot: the top of the bottom stack lying over the transcript, else its bottom.
+          const stack = document.querySelector(".acpmux-main[data-dock=float] > .acpmux-dock");
+          const foot = stack ? stack.getBoundingClientRect().top : view.bottom;
+          const thread = document.querySelector<HTMLElement>(".acpmux-thread");
+          const lines = [...scroller.querySelectorAll("p")];
+          const holds = (node: Element) => node.textContent?.includes(text!) ?? false;
+          const row = selector
+            ? (scroller.querySelector(selector) ?? undefined)
+            : text
+              ? ([...scroller.querySelectorAll("button[aria-expanded]")].find(holds) ??
+                [...scroller.querySelectorAll(".acpmux-row")].find(holds))
+              : undefined;
+          return {
+            fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
+            scrollTop: Math.round(scroller.scrollTop),
+            lastLine: Math.round(foot - (lines.at(-1)?.getBoundingClientRect().bottom ?? foot)),
+            top: row ? Math.round(row.getBoundingClientRect().top) : null,
+            glides: thread?.getAnimations().length ?? 0,
+          };
         };
-      };
-      const frames: unknown[] = [];
-      (window as any).__frames = frames;
-      // A frame paints at the viewport its animation frame saw: the rendering steps apply a
-      // resize before that callback, and no task runs between it and the paint. A resize that
-      // lands after it is read here by a forced layout the page never painted (the rows rewrapped,
-      // not yet placed), so that read is not a frame.
-      let painted = "";
-      window.cmuxAfterPaint(
-        () => {
-          if ((window as any).__frames !== frames) return false;
-          if (`${innerWidth}x${innerHeight}` === painted) frames.push(sample());
-        },
-        () => {
-          painted = `${innerWidth}x${innerHeight}`;
-        },
-      );
-    }, text);
+        const frames: unknown[] = [];
+        (window as any).__frames = frames;
+        // A frame paints at the viewport its animation frame saw: the rendering steps apply a
+        // resize before that callback, and no task runs between it and the paint. A resize that
+        // lands after it is read here by a forced layout the page never painted (the rows rewrapped,
+        // not yet placed), so that read is not a frame.
+        let painted = "";
+        window.cmuxAfterPaint(
+          () => {
+            if ((window as any).__frames !== frames) return false;
+            if (`${innerWidth}x${innerHeight}` === painted) frames.push(sample());
+          },
+          () => {
+            painted = `${innerWidth}x${innerHeight}`;
+          },
+        );
+      },
+      [text, selector] as const,
+    );
   const stop = async (page: Page): Promise<Frame[]> => {
     // The frames run on until the last animation has played out and the view holds still.
     await settle(page);
@@ -590,7 +597,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
 
   // A long thought folds once done (conversation/ThoughtRow.tsx): only what is below it moves, so the rows above it stay put.
   const THOUGHT = Array.from({ length: 60 }, (_, index) => `Step ${index + 1}: check the retry path.`).join("\n");
-  const thoughtToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "Thought" });
+  // Closed, a thought's button reads its words (Codex parity); open, "Thought".
+  const thoughtToggle = (page: Page) => page.locator("button.cv-thought[aria-expanded]");
 
   test("a long thought streams, then folds when the next step starts without moving the rows above it", async () => {
     const chat = newChat();
@@ -633,7 +641,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const toggle = thoughtToggle(page);
     await toggle.waitFor();
     expect(await toggle.getAttribute("aria-expanded")).toBe("false");
-    await watch(page, "Thought");
+    await watch(page, undefined, "button.cv-thought");
     await toggle.click();
     await page.getByText("Step 60: check the retry path.", { exact: false }).waitFor({ state: "attached" });
     await settle(page);

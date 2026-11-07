@@ -1,6 +1,7 @@
 # cmux next: docked workspaces (the window frame)
 
-Status: prototype (2026-10-27), behind Debug Settings `window.dockedWorkspaces` (default off).
+Status: on by default since 2026-11-05 (the Chief window dock, below); Debug Settings `window.dockedWorkspaces`
+turns it off.
 User request (Lawrence, verbatim): "build some prototypes of docked columns/rows that are docked
 to window, not workspace … needs to have same tabbing/pane/column/row system, so it is in a
 sense, a workspace itself. so ig it should be a docked workspace. can you think of a better way
@@ -192,3 +193,35 @@ persisted per client), with the same action names in its menu and keymap.
 Edge drop bands (DD2), focus crossing (K2), a sidebar "Docked" section, resize handles on dock
 inner edges (today extent changes through `extent` arguments and cmux.json), and docks around top
 pages if people want them.
+
+## The window dock and the Chief window dock (2026-11-05)
+
+User (verbatim): "when i click it from chief, it will bring me to workspace, but with the chief still on the left,
+and workspace on the right … we travel to that workspace but the chief UI part does not change at all, state of
+chief UI part does not change at all, so if i have typed stuff, the typed stuff is still there, if i have scrolled in
+chief ui, im still scrolled there"; "make cmd + i open the chief dock from now on"; "ensure we make window dock
+generalizable, such that you can just drag panes in there, but have same mode as home chief, such that there can make
+it have no tabbar, ensure cmd shift p actions for it too".
+
+- The window dock is this design's dock (F): a workspace held at a window edge. The Chief window dock is the
+  window's Home docked there. Nothing new in the daemon: `WindowRecord.docks` gains `hide_tab_bar`.
+- Open Chief Dock (`home.openChiefDock`, Cmd-I, rebindable, in the palette; New Agent Chat keeps Cmd-J S) docks
+  Home at `home.chiefDock.edge` (left by default; right, top, bottom in Settings > Chief > Chief Dock and
+  cmux-next.json) and focuses its message box; run again it only focuses it.
+- A workspace, tab, agent link or subagent pill clicked in the Chief while Home fills the window arms the dock
+  (`WindowDockActions.chiefLinkWillOpen`, `WindowDockFrame.armChiefDock`): the show that follows docks Home first, so Home's content
+  controller and view stay mounted (same instance: draft, selection, scroll kept) and the target goes on the stage.
+  The arm lapses after 10 s, so a later sidebar pick never docks Home. Only with `home.chiefDock.openBeside` on (off by default, cmux#37365: the Chief is never pinned unless the
+  person docks it). A dock a link made is marked `by_link` in the record; on relaunch, a Home dock marked so, or
+  saved by a build before the mark, is dropped unless `openBeside` is on (`WindowController.dropUnchosenChiefDocks`).
+- A stage switch never touches a dock: the docked view is not hidden, moved or re-mapped (W8 extended to switches).
+- Per dock, the Home Chief pane's no-tab-bar mode: a pane of the dock showing one tab draws no tab bar; a second tab
+  dragged in brings it back (`WindowDocks.Dock.hidesTabBar`, read in `PaneController.structure`).
+- Panes move in with Move Pane to Dock (or a new docked workspace when the window has none) and drag in and out
+  as between any two workspaces on screen (DD1).
+- Palette: Open Chief Dock, Move Pane to Dock, Move Dock to Left/Right/Top/Bottom, Show or Hide Dock, Show or Hide
+  Dock Tab Bar, Focus Dock (CLI `home open-chief-dock`, `pane move-to-dock`, `window dock-edge-*`,
+  `window toggle-dock`, `window toggle-dock-tab-bar`, `window focus-dock`).
+- Code: the frame operations (`WindowDockFrame+Operations`) and every dock action (`WindowDockActions`) are
+  CmuxNextDaemonService's (`WindowDock/`); the App gives them one-line forwards (`WindowController: WindowDockFrame`,
+  `AppServices+WindowDockHost`).

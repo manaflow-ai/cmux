@@ -1,4 +1,4 @@
-// A new chat's extra folders in the composer's folder menu (Add folder…, extraFolders.ts): Leo,
+// A new chat's extra folders in the composer's folder menu (Add another folder…, extraFolders.ts): Leo,
 // 2026-11-03: "being able to have chatgpt (and in this case, any harnesses) see whatever
 // folders/files would be cool" and "and you can also just start with nothing".
 import { afterAll, expect, test } from "bun:test";
@@ -98,11 +98,11 @@ const press = async (element: HTMLElement) => {
 };
 const face = () => dom.window.document.querySelector(".acpmux-location-button")?.textContent ?? "";
 
-test("Add folder… adds a folder the new chat sees beside its project, and × removes it", async () => {
+test("Add another folder… adds a folder the new chat sees beside its project, and × removes it", async () => {
   const { root, changes } = await renderTray({});
   try {
     await openFolderMenu();
-    await press(menuItem("Add folder…")!);
+    await press(menuItem("Add another folder…")!);
     // The project itself is not offered again.
     const options = [...dom.window.document.querySelectorAll("[role=option]")].map((option) => option.textContent);
     expect(options.some((text) => text?.includes("notes"))).toBe(true);
@@ -120,12 +120,12 @@ test("Add folder… adds a folder the new chat sees beside its project, and × r
   }
 });
 
-test("Add folder…'s Choose folder… adds this Mac's pick", async () => {
+test("Add another folder…'s Add folder… adds this Mac's pick", async () => {
   const { root, changes } = await renderTray({});
   try {
     await openFolderMenu();
+    await press(menuItem("Add another folder…")!);
     await press(menuItem("Add folder…")!);
-    await press(menuItem("Choose folder…")!);
     expect(changes.at(-1)).toEqual({ machine: "local", folders: ["/Users/me/picked"] });
   } finally {
     await act(async () => root.unmount());
@@ -155,24 +155,24 @@ test("another machine's draft is not shown on this Mac", async () => {
   }
 });
 
-test("a started chat offers no Add folder…", async () => {
+test("a started chat offers no Add another folder…", async () => {
   const { root } = await renderTray({ started: true, summary: { sessionId: "s1", cwd: FOLDER, turnCount: 1 } });
   try {
     // Its folder is fixed (a label): no menu, and nothing that adds a folder.
-    expect(dom.window.document.body.textContent).not.toContain("Add folder…");
+    expect(dom.window.document.body.textContent).not.toContain("Add another folder…");
     expect(face()).not.toContain("+");
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-// cmux#34408: an outside dismiss after Add folder… ends add mode, so the next pick changes the project.
-test("an outside dismiss after Add folder… leaves the next pick changing the project", async () => {
+// cmux#34408: an outside dismiss after Add another folder… ends add mode, so the next pick changes the project.
+test("an outside dismiss after Add another folder… leaves the next pick changing the project", async () => {
   const picked: string[] = [];
   const { root, changes } = await renderTray({ onProject: (cwd: string) => picked.push(cwd) });
   try {
     await openFolderMenu();
-    await press(menuItem("Add folder…")!);
+    await press(menuItem("Add another folder…")!);
     const outside = dom.window.document.body;
     await act(async () => {
       for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"])
@@ -181,7 +181,7 @@ test("an outside dismiss after Add folder… leaves the next pick changing the p
     await settle();
     expect(dom.window.document.querySelector(".acpmux-folder-popover")).toBeNull();
     await openFolderMenu();
-    expect(menuItem("Add folder…")).toBeDefined();
+    expect(menuItem("Add another folder…")).toBeDefined();
     await press(menuItem("notes")!);
     expect(picked).toEqual(["/Users/me/notes"]);
     expect(changes).toEqual([]);
@@ -192,7 +192,7 @@ test("an outside dismiss after Add folder… leaves the next pick changing the p
 
 // cmux#34403: Cloud and Sandboxed starts carry no extra folders, so the composer offers none.
 for (const mode of ["cloud", "sandboxed"] as const) {
-  test(`${mode} run mode offers no Add folder… and shows no +N`, async () => {
+  test(`${mode} run mode offers no Add another folder… and shows no +N`, async () => {
     const { root } = await renderTray(
       { runMode: { mode, onMode: () => {} } },
       { machine: "local", folders: ["/Users/me/notes"] },
@@ -200,7 +200,7 @@ for (const mode of ["cloud", "sandboxed"] as const) {
     try {
       expect(face()).not.toContain("+1");
       await openFolderMenu();
-      expect(menuItem("Add folder…")).toBeUndefined();
+      expect(menuItem("Add another folder…")).toBeUndefined();
       expect(dom.window.document.querySelectorAll(".acpmux-extra-folder").length).toBe(0);
     } finally {
       await act(async () => root.unmount());

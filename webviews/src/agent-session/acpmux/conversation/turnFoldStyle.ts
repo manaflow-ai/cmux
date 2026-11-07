@@ -5,7 +5,8 @@
 // "i think it should be the top level collapsible thing IF POSSIBLE... SOMETIMES there's just claude
 // chatter that we could prob group up", and later, on Claude: "you can't do it for Claude ... it's
 // just too lossy if you do it for Claude". Spec: leo-workspace design/chat-transcript.md "Turn fold
-// per harness family".
+// per harness family". Lucas, 2026-11-06 (Codex parity for every model): every family
+// folds a finished turn under one "Worked for"; Claude's in-place runs stay as the experiment's other arm.
 import { experimentArm } from "../../../experiments/experiment";
 import { agentKey } from "../../shared/agentKey";
 import { claudeTurnFold } from "./claudeTurnFold.experiment";
@@ -29,33 +30,32 @@ export type TurnFoldStyle = {
 /// ChatGPT and Codex: the conclusion fold, under Codex's own header.
 const CODEX: TurnFoldStyle = { conclusion: true, runs: false, countsMessages: true };
 
+/// The fold every other family gets: one closed "Worked for 36s" over the
+/// conclusion, never a message count; opened, its runs fold per run.
+const WORKED_FOR: TurnFoldStyle = { conclusion: true, runs: true, countsMessages: false };
+
 /// Keyed by the harness family's agent (agentKey: "claude-sr2" is "claude"). A family missing here
 /// folds as Codex does, as every family but Claude did before this table.
 export const TURN_FOLD_STYLES: Readonly<Record<string, TurnFoldStyle>> = {
   codex: CODEX,
-  // Claude: no turn fold by default, each run of calls on its own line in place as Claude desktop
-  // draws it (cmux#30176), the prose between runs in sight. The whole-turn fold is an opt-in only
-  // (CLAUDE_WORKED_FOR): "it's just too lossy if you do it for Claude".
-  claude: { conclusion: false, runs: true, countsMessages: false },
-  // Gemini CLI draws a turn as it ran, with each run of calls grouped in one tool box and no
-  // turn-level fold: per-run lines, no "Worked for".
-  gemini: { conclusion: false, runs: true, countsMessages: false },
-  // Muse Code: no reference of how its app ends a turn, so no turn fold (the per-run lines Claude
-  // turns had before), until one shows otherwise.
-  muse: { conclusion: false, runs: true, countsMessages: false },
+  // Claude, Gemini and Muse: the whole-turn fold. Claude's in-place runs (Claude desktop's
+  // look, cmux#30176) are the `runs` arm of claudeTurnFold.experiment.ts.
+  claude: WORKED_FOR,
+  gemini: WORKED_FOR,
+  muse: WORKED_FOR,
 };
 
-/// Claude's opt-in (the `worked-for` arm of claudeTurnFold.experiment.ts): ChatGPT's "Worked for
-/// 12m 16s ›" over the conclusion, never a message count; opened, its runs fold per run.
-export const CLAUDE_WORKED_FOR: TurnFoldStyle = { conclusion: true, runs: true, countsMessages: false };
+/// Claude's other arm (`runs` in claudeTurnFold.experiment.ts): no turn fold, each run of calls on
+/// its own line in place as Claude desktop draws it, the prose between runs in sight.
+export const CLAUDE_IN_PLACE: TurnFoldStyle = { conclusion: false, runs: true, countsMessages: false };
 
 /// The fold style of a harness family (acpmux's summary `family`); undefined folds as Codex does.
-/// `claudeWorkedFor` defaults to the experiment's arm, so a Claude turn folds whole only when opted in.
+/// `claudeInPlace` defaults to the experiment's arm, so a Claude turn keeps its runs in place only there.
 export function turnFoldStyle(
   family: string | undefined,
-  claudeWorkedFor: () => boolean = () => experimentArm(claudeTurnFold) === "worked-for",
+  claudeInPlace: () => boolean = () => experimentArm(claudeTurnFold) === "runs",
 ): TurnFoldStyle {
   const key = agentKey(family);
-  if (key === "claude" && claudeWorkedFor()) return CLAUDE_WORKED_FOR;
+  if (key === "claude" && claudeInPlace()) return CLAUDE_IN_PLACE;
   return (key && Object.hasOwn(TURN_FOLD_STYLES, key) ? TURN_FOLD_STYLES[key] : undefined) ?? CODEX;
 }

@@ -723,7 +723,17 @@ test("Codex folds interim text under Worked for; Claude folds it into its run's 
   ];
 
   const now = START + 200_000;
+  // By default a Claude turn folds under Worked for, as Codex does (Codex parity).
+  expect(turnView(rows, new Set(), { now, agentFamily: "claude" }).map((each) => each.id)).toEqual([
+    "prompt",
+    "worked-prompt",
+    "final",
+    "summary",
+  ]);
+  // Claude's in-place arm (claudeTurnFold.experiment.ts "runs") folds it into its run's line.
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
   const claude = turnView(rows, new Set(), { now, agentFamily: "claude" });
+  globalThis.cmuxExperiments = undefined;
   expect(claude.map((each) => each.id)).toEqual(["prompt", "a-one", "final", "summary"]);
   const run = claude.find((each) => each.id === "a-one");
   expect(run?.foldRun).toBe(true);

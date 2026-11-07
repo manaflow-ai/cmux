@@ -28,6 +28,30 @@ def pool(label: str, capacity: int, running: int = 0, queued: int = 0, *, reserv
 
 
 class PickRuleTests(unittest.TestCase):
+    def test_declared_priority_bands_and_queued_only_preemption(self):
+        self.assertEqual(picker.PRIORITY_BANDS,
+                         (picker.PRIORITY_NIGHTLY, picker.PRIORITY_PROMOTE, picker.PRIORITY_PR,
+                          picker.PRIORITY_DEV, picker.PRIORITY_SIDE_JOB))
+        self.assertEqual(picker.priority_quota(picker.PRIORITY_NIGHTLY, 14), 14)
+        self.assertEqual(picker.priority_quota(picker.PRIORITY_PR, 14), 14)
+        self.assertEqual(picker.priority_quota(picker.PRIORITY_DEV, 14), 4)
+        self.assertEqual(picker.preemptible_queued({picker.PRIORITY_SIDE_JOB: 2}, picker.PRIORITY_NIGHTLY),
+                         (picker.PRIORITY_SIDE_JOB,))
+        self.assertEqual(picker.preemptible_queued({picker.PRIORITY_SIDE_JOB: 2}, picker.PRIORITY_SIDE_JOB), ())
+
+    def test_pick_reports_lower_queued_bands_without_preempting_running_jobs(self):
+        state = picker.State(
+            jobs=1,
+            band=picker.PRIORITY_NIGHTLY,
+            blacksmith=(pool(picker.BLACKSMITH[1], 10, running=9, queued=1),),
+        )
+        # No running count is included in the preemption metadata. The caller
+        # may reconcile only queued work represented by queued_bands.
+        state = dataclasses.replace(state, blacksmith=(dataclasses.replace(
+            state.blacksmith[0], queued_bands={picker.PRIORITY_SIDE_JOB: 3}),))
+        choice = picker.pick(state)
+        self.assertEqual(choice.preempted, (picker.PRIORITY_SIDE_JOB,))
+
     def test_table_driven_rule(self):
         cases = [
             (

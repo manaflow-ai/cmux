@@ -70,7 +70,7 @@ import Testing
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "codex", kind: "acp", source: "path")] },
             fetchHealth: { _, _ in Data(#"{"harnesses":[{"id":"codex","checkedAt":1700000000000}]}"#.utf8) },
-            openTerminal: { terminal.lines.append($0) },
+            openTerminal: { terminal.lines.append($0); return true },
             accountsCall: { _, method, params in
                 let flat = params.compactMapValues { value -> String? in
                     if let text = value as? String { return text }
@@ -124,6 +124,16 @@ import Testing
         #expect(usage["windows"]?.arrayValue?.last?["resetsAt"] == .number(1_790_500_000))
         #expect(accounts[1]["usage"] == .null)
         #expect(SettingsHarnesses.usageLimits(Data(#"{"id":"x","usageLimits":null,"skipped":"keychain"}"#.utf8)) == .null)
+    }
+
+    /// An API-key Codex account has no plan limits (acpmux refuses the read): it is never asked.
+    @Test func anApiKeyCodexAccountsUsageIsNotRead() throws {
+        let rows: [JSONValue] = [
+            ["id": "codex-login", "family": "codex", "signedIn": true],
+            ["id": "codex-key", "family": "codex", "signedIn": true, "key": true],
+            ["id": "claude-login", "family": "claude", "signedIn": true],
+        ]
+        #expect(SettingsHarnesses.usageAccounts(rows.compactMap(SettingsProviderAccount.init)) == ["codex-login"])
     }
 
     /// A refresh while an account's usage read runs starts no second one (the daemon caches only

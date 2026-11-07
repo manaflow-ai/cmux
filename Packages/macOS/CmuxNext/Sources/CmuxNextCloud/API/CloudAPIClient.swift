@@ -112,10 +112,6 @@ public struct CloudAPIClient: Sendable {
                               as: CloudMachine.self)
     }
 
-    public func openPort(_ id: String, port: Int) async throws -> CloudPortLink {
-        try await send("POST", "/api/vm/\(id)/open-port", body: ["port": port], timeout: .seconds(30), as: CloudPortLink.self)
-    }
-
     // MARK: Files and SCP
 
     /// Mints a short-lived private SCP route. The public key is the only key

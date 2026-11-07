@@ -1151,7 +1151,12 @@ enum RowBuilder {
                 // incoming side only (outgoing-thread-reply-take4: my reply under the preview of my root
                 // has no stub, and Instinct's replies take the line on the left). The mirrored arc ran
                 // from the root's centre through my root's text (hq-6d, cmux Home, 2026-10-11).
-                if !threadMode, !(outgoing && p.senderId == me) { connector = "part:\(r.messageId):\(r.partIndex)" }
+                // cmux (user 2026-11-05, msg 23140: "stray arcs" over the Chief's replies): the line runs in the leading
+                // column, so it joins only a reply and a root that are both there. A reply on one side of a root on the
+                // other drew an arc in the leading column that pointed at nothing in any pane wider than about 200 pt
+                // (my bubbles end 20 pt from the right edge, the arc's arm 63 pt from the left). The Chief's agent asides
+                // (its pills) hang under its words, not as a reply of their own: no arc either.
+                if !threadMode, !outgoing, p.senderId != me, m.cmuxAside != true { connector = "part:\(r.messageId):\(r.partIndex)" }
             } else if case .replies = rows.last?.kind ?? previousRow {
                 // Under a root's "N Replies" label the next bubble sits 8 pt under the label's text (3 pt under
                 // our 22 pt label row), with or without a sender change, also when the thread ends there; another
@@ -1186,7 +1191,13 @@ enum RowBuilder {
             if case .receipt = rows.last?.kind ?? previousRow, gap > 4 { gap = 4 }
             // A reply whose root is not directly above (and that does not
             // continue the same thread) gets a preview of the root.
-            if let r = m.replyTo, !threadMode, connector == nil, let p = prev, p.id != r.messageId, p.replyTo != r {
+            // cmux (user 2026-11-05, msg 23140: quotes of my messages repeated beside the Chief's replies): no quote when
+            // its root is one of the few messages right above (asides not counted), where it is in view with the reply.
+            let rootNearby = m.replyTo.map { r in
+                messages.prefix(idx).reversed().lazy.filter { $0.deletedAt == nil && $0.cmuxAside != true }
+                    .prefix(ThreadQuoteNearby.messages).contains { $0.id == r.messageId }
+            } ?? false
+            if let r = m.replyTo, !threadMode, connector == nil, !rootNearby, m.cmuxAside != true, let p = prev, p.id != r.messageId, p.replyTo != r {
                 let root = rootMessage(r.messageId)
                 let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
                 var pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
@@ -1202,9 +1213,8 @@ enum RowBuilder {
                 groupQuote = pv.cmuxGroup ? rows.count : nil
                 rows.append(RowSpec(key: "preview:\(m.id)", kind: .threadPreview(pv), gap: pvGap, height: pv.height(scale: scale)))
                 gap = ThreadPreview.replyGap
-                // cmux (2026-10-28, macOS 27 Messages reference): the Chief's reply under the quote of my root hangs from the
-                // quote on the grey arc, as a reply right under its root does (incoming side only, as there).
-                if pv.outgoing, !outgoing { connector = "preview:\(m.id)" }
+                // cmux (user 2026-11-05, msg 23140): no arc from my quote at the right edge to the Chief's reply on the
+                // left (it hung over nothing in a wide pane); the quote right above the reply says what it answers.
             }
 
             if m.retractedAt != nil {

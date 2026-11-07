@@ -98,7 +98,7 @@ test("a run between two messages is one line naming its work in the order it cam
   const work = shaped(mixed).find((entry) => entry.id === "work")!;
   expect(work.foldRun).toBe(true);
   expect(toggles(work)).toBe(1);
-  expect(words(work)).toContain("Edited 2 files, read 2 files, ran a command");
+  expect(words(work)).toContain("Edited 2 files, ran a command, and performed 2 other actions");
   // Closed: none of its calls draws under the line.
   expect(words(work)).not.toContain("bun test net");
 });
@@ -202,7 +202,7 @@ test("an edit waiting for its permission keeps its row in an ended turn's folded
   // The opened Worked for's folded run itself, not the edited-files card after it: the edit keeps
   // its own row between the summary lines.
   expect(ended.id).toBe("work3:fold");
-  expect(words(ended)).toContain("Read a file, ran a command");
+  expect(words(ended)).toContain("Read a file and ran a command");
   expect(words(ended)).toContain("Edit src/a.ts");
 });
 

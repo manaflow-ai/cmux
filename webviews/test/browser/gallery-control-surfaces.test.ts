@@ -45,6 +45,12 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
       kind: "plate",
       reason: "The standalone floating diff toolbar is its own glass surface, not trailing tools on a row.",
     },
+    {
+      selector: ".cv-table-tools.ui-glass",
+      kind: "plate",
+      reason:
+        "A reply table's Open and Copy float as one glass pill on the table's own corner, over its header or the line above (TableBlock.tsx); the glass keeps them legible over text.",
+    },
   ];
   type Finding = { kind: string; selector: string; detail: string };
 

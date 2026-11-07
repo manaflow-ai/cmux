@@ -66,7 +66,7 @@ test("reads, searches and commands with thoughts between them are one counted li
     command("git log -3"),
   ];
   const html = drawn(run(items));
-  expect(html).toContain("Read 2 files, ran a search, ran 2 commands");
+  expect(html).toContain("Read 2 files, ran 2 commands, and performed 1 other action");
   expect(lines(run(items))).toBe(1);
   // Closed until opened: no call shows under the line.
   expect(html).not.toContain("bun test retry");
@@ -107,7 +107,7 @@ test("an edit folds with the work around it, named on the line in the order it c
   const stretches = runStretches(run(items), toolGroups(items));
   expect(stretches.map((stretch) => stretch.fold)).toEqual([true]);
   const html = drawn(run(items));
-  expect(html).toContain("Read 2 files, ran a search, ran 2 commands, edited a file");
+  expect(html).toContain("Ran 2 commands, edited a file, and performed 3 other actions");
   expect(lines(run(items))).toBe(1);
 });
 
@@ -116,9 +116,9 @@ test("a coordination card stays in sight; the calls around it still fold", () =>
   const stretches = runStretches(run(items), toolGroups(items));
   expect(stretches.map((stretch) => stretch.fold)).toEqual([true, false, true]);
   const html = drawn(run(items));
-  expect(html).toContain("Read a file, ran a command");
+  expect(html).toContain("Read a file and ran a command");
   // Named in the order the run did them: the command came before the reads.
-  expect(html).toContain("Ran a command, read 2 files");
+  expect(html).toContain("Ran a command and read 2 files");
 });
 
 test("a failed call is counted on the run's line", () => {
@@ -135,7 +135,7 @@ test("a run that is not folded keeps every entry on its own line", () => {
 
 test("the summary counts distinct files read, and searches apart from reads", () => {
   const items = [read("a.ts"), read("a.ts"), read("b.ts"), search("x"), search("y")];
-  expect(toolRunSummary(translate, items)).toBe("Read 2 files, ran 2 searches");
+  expect(toolRunSummary(translate, items)).toBe("Read 2 files and ran 2 searches");
 });
 
 test("an ended turn's opened Worked for folds a run that edited, edit and all", () => {
@@ -157,7 +157,7 @@ test("an ended turn's opened Worked for folds a run that edited, edit and all", 
   )!;
   expect(work.foldRun).toBe(true);
   const html = drawn(work);
-  expect(html).toContain("Read 2 files, ran a search, edited a file, ran a command");
+  expect(html).toContain("Edited a file, ran a command, and performed 3 other actions");
   expect(lines(work)).toBe(1);
   // The reply is never folded: it stays its own row after the fold.
   expect(turnView(rows, new Set()).some((entry) => entry.id === "done")).toBe(true);

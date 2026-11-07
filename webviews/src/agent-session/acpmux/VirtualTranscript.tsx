@@ -84,7 +84,6 @@ import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
 import {
   ANCHORED_COLLAPSE_EVENT,
-  BOTTOM_PIN_SHARE,
   atFoldBottom,
   clickFold,
   FOLD_HOLD_MIN_MS,
@@ -118,7 +117,7 @@ import {
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { THINKING, WORKED, turnFooterFrom, WORKING, retryTargetIn } from "./conversation/turns";
+import { ACTIVITY_LINE, THINKING, WORKED, turnFooterFrom, WORKING, retryTargetIn } from "./conversation/turns";
 import { ArrowDown } from "./conversation/icons";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -129,7 +128,9 @@ import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
 import { useChatDisplay } from "./chatDisplay";
 import { type Folds } from "./conversation/viewFolds";
-import { SUBAGENT_DONE } from "./subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_OF } from "./subagents/subagentRows";
+import { SubagentOfRow } from "./subagents/SubagentGroup";
+import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
@@ -138,7 +139,7 @@ import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
 import { callNative } from "./callNative";
-import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
+import { type NativeRegistry, type OpenDiff, type RowProps } from "./rows/rowProps";
 import { NoticeRow } from "./rows/NoticeRow";
 import { defaultRegistry, readOnlyRegistry } from "./rows/registry";
 import { workEnds } from "./conversation/waterfallSpans";
@@ -270,32 +271,34 @@ function sameFields(previous: AcpmuxRow, next: AcpmuxRow): boolean {
   return keys.length === Object.keys(before).length && keys.every((key) => Object.is(before[key], after[key]));
 }
 
+/// Whether a row draws the same: renderers use id and version as their draw identity, so a clone of
+/// an unchanged row (snapshot rebuilding clones them when a prompt is sent) draws the same. The
+/// frame's own flags (`below`, `ended`) are compared too, as they are read outside the renderer.
+function sameRowDraw(before: AcpmuxRow, after: AcpmuxRow): boolean {
+  // The running turn's live, working and activity lines are drawn by turns.ts on every snapshot
+  // with a version that does not cover all they say (the call in flight, who a send goes to, its
+  // time, the clock offset): those are in their fields, so they redraw whenever a field changes.
+  if (after.kind === THINKING || after.kind === WORKING || after.kind === ACTIVITY_LINE)
+    return sameFields(before, after);
+  return (
+    before.id === after.id &&
+    before.version === after.version &&
+    before.below === after.below &&
+    before.ended === after.ended &&
+    // A turn footer's Timeline also redraws when a background shell ends after the turn, which
+    // leaves its version as it was (conversation/waterfallSpans.ts workEnds, cached per array).
+    (after.kind !== "turnSummary" || workEnds(before.turnWork) === workEnds(after.turnWork))
+  );
+}
+
 export function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
   const keys = Object.keys(next);
   if (keys.length !== Object.keys(previous).length) return false;
   return keys.every((key) => {
     if (key === "children") return true;
-    if (key === "row") {
-      // Snapshot rebuilding can clone unchanged rows when a prompt is sent. Row renderers already
-      // use id/version as their draw identity; comparing the object here made every mounted frame
-      // repaint on that send even though its content had not changed. Keep the frame's own flags in
-      // the comparison because they are read outside the child renderer.
-      const before = previous.row as AcpmuxRow;
-      const after = next.row as AcpmuxRow;
-      // The running turn's live and working lines are drawn by turns.ts on every snapshot with a
-      // fixed version: what they say (the call in flight, its time, the clock offset) is in their
-      // fields, so they redraw whenever a field changes.
-      if (after.kind === THINKING || after.kind === WORKING) return sameFields(before, after);
-      return (
-        before.id === after.id &&
-        before.version === after.version &&
-        before.below === after.below &&
-        before.ended === after.ended &&
-        // A turn footer's Timeline also redraws when a background shell ends after the turn, which
-        // leaves its version as it was (conversation/waterfallSpans.ts workEnds, cached per array).
-        (after.kind !== "turnSummary" || workEnds(before.turnWork) === workEnds(after.turnWork))
-      );
-    }
+    // Snapshot rebuilding can clone unchanged rows when a prompt is sent; comparing the object here
+    // made every mounted frame repaint on that send even though its content had not changed.
+    if (key === "row") return sameRowDraw(previous.row as AcpmuxRow, next.row as AcpmuxRow);
     if (key === "referenceScope")
       return sameReferenceScope(
         previous.referenceScope as ReferenceScope | undefined,
@@ -304,6 +307,35 @@ export function sameRowFrame(previous: Record<string, unknown>, next: Record<str
     return Object.is(previous[key], next[key]);
   });
 }
+
+/// What a row's content draws from (the registry component's props, and the component).
+type RowContentProps = { Component: React.ComponentType<RowProps> } & RowProps;
+
+/// A row's content, drawn again only when what it draws from changes: never for its frame's place
+/// (`top`, `index`, `gapBelow`), focus (`tabStop`, `active`, `selected`) or entrance flags. A scroll
+/// moves every mounted frame each time a row above is measured or an older page lands, and the
+/// roving tab stop follows the first row in view; with the content drawn inside the frame, each such
+/// change drew every mounted row's whole content again (Leo, 2026-11-06: "Still seeing the flicker
+/// re-render. Sometimes when I scroll up").
+///
+/// The row is compared by object, not by `sameRowDraw`: a renderer may draw from fields its row's
+/// version does not cover (ActivityLineRow's `doingSendTo`), and only its own comparator knows
+/// which. A new row object reaches the renderer, whose memo decides; a history row keeps its object
+/// across snapshots, so a scroll still draws none of them again.
+export const RowContent = React.memo(
+  function RowContent({ Component, ...props }: RowContentProps) {
+    // Counted when committed: a render React set aside (an interrupted concurrent pass) drew nothing.
+    useLayoutEffect(() => {
+      if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
+    });
+    return <Component {...props} />;
+  },
+  (previous, next) => {
+    const keys = Object.keys(next) as (keyof RowContentProps)[];
+    if (keys.length !== Object.keys(previous).length) return false;
+    return keys.every((key) => Object.is(previous[key], next[key]));
+  },
+);
 
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
@@ -419,9 +451,22 @@ const RowFrame = React.memo(function RowFrame({
     [index, onRowKeyDown],
   );
   const rowTabStop = rovingTabStopProps(tabStop, handleKeyDown);
-  const content = (
-    <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
-  );
+  // A frame drawn again for its place hands down the scope object it had while that names the same
+  // repositories (sameRowFrame compares it so): a new object would redraw its content's chips.
+  const [scope, setScope] = useState(referenceScope);
+  if (scope !== referenceScope && !sameReferenceScope(scope, referenceScope)) setScope(referenceScope);
+  const content = <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>;
+  useLayoutEffect(() => {
+    if (acpmuxPerf.enabled) acpmuxPerf.render(`frame:${row.id}`);
+  });
+  useLayoutEffect(() => {
+    // Mounts and same-commit remounts, counted only while measuring (loadDebug.ts `loadTick`).
+    const id = row.id;
+    acpmuxPerf.rowMounted(id);
+    return () => acpmuxPerf.rowUnmounted(id);
+    // A row keeps its id for its whole mount (its key).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
@@ -516,7 +561,7 @@ const speaker = (kind: string, t: Translate) =>
 export const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
 
 /// A row drawn as tool rows: tool calls and thoughts, a background task's or a subagent's end, a
-/// compaction, a failover, a policy the harness cannot keep or a session start note, and the one-line
+/// compaction, a failover, a policy the harness cannot keep, and the one-line
 /// rows drawn on the tool rows' line (model.ts `isLineRow`: another agent's message, a notice, an
 /// inbox notice, a report batch's or the waiting group's head), so they all sit one line apart.
 const isStepRow = (row: AcpmuxRow | undefined) =>
@@ -528,7 +573,6 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
     row.kind === "agentPair" ||
-    row.kind === "sessionStart" ||
     row.kind === BACKGROUND_TURN ||
     (row.kind === "activity" && !isEditRow(row)));
 
@@ -1902,6 +1946,20 @@ export function VirtualTranscript({
     flushSync(roomTaken);
   }, []);
   const thread = useRef<HTMLDivElement>(null);
+  // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
+  // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
+  // padding. Read when it comes and as the view resizes, never per streamed token.
+  const pinnedPill = paneRows[0]?.kind === SUBAGENT_OF ? paneRows[0] : undefined;
+  const pinned = pinnedPill !== undefined;
+  const [pinAt, setPinAt] = useState({ top: 0, pad: 0 });
+  useLayoutEffect(() => {
+    const scroller = ref.current;
+    if (!pinned || !scroller || !thread.current) return;
+    const style = thread.current.ownerDocument.defaultView?.getComputedStyle(thread.current);
+    const pad = Number.parseFloat(style?.paddingTop ?? "") || 0;
+    const top = scroller.offsetTop + pad;
+    setPinAt((now) => (now.top === top && now.pad === pad ? now : { top, pad }));
+  }, [pinned, height]);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
   /// Pointerover bubbles from every markdown descendant: moving between spans inside the same row
@@ -2017,6 +2075,32 @@ export function VirtualTranscript({
     if (followingRef.current) follow(false);
     scrolledTo.current = { top: node.scrollTop, atLatest: false };
     landForReader(stack.row);
+    return true;
+  };
+  /// The scroller's offset as a held line (foldAnchor) last left it: the click, then each pass that
+  /// put the line back.
+  const holdTop = useRef<number | undefined>(undefined);
+  /// A scroll made from code (scrollIntoView, Find, a link to a row) while a clicked line is held
+  /// (foldAnchor; an open at the very end holds its line too, Codex parity): the view is where the
+  /// code put it, so the hold lets go, or its next pass puts the line back (#34780, as
+  /// `releaseBottomStackFold` does for a close at the end). Only the offset moving off where the
+  /// hold left it counts: a layout change moves the line, not the offset, and a closing body's clamp
+  /// lands at the end. A view still following the latest row moves its own offset to the end until
+  /// the hold's first pass lets go of it, so nothing counts until then.
+  const releaseFoldHold = (node: HTMLElement): boolean => {
+    const left = holdTop.current;
+    if (
+      !foldAnchor.current ||
+      followingRef.current ||
+      bottomStackFold.current ||
+      left === undefined ||
+      Math.abs(node.scrollTop - left) <= FOLLOW_BOTTOM_DEADBAND_PX ||
+      atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)
+    )
+      return false;
+    foldAnchor.current = undefined;
+    holdTop.current = undefined;
+    if (followingRef.current) follow(false);
     return true;
   };
   const trimFoldRoom = useCallback((node: HTMLElement) => {
@@ -2575,6 +2659,8 @@ export function VirtualTranscript({
     const old = switched ? null : previousLayout.current;
     const oldRows = previousRows.current;
     const node = ref.current;
+    // Code that scrolled the view since the last pass wins over a held line (releaseFoldHold).
+    if (old && node) releaseFoldHold(node);
     // The view stopped following with its rows drawn up by the composer's growth (`lift`): that
     // growth is room now (`heldRoom`), and the offset moves by it in this same frame, so nothing the
     // reader sees moves.
@@ -2597,6 +2683,7 @@ export function VirtualTranscript({
     const heldFrom = node?.scrollTop ?? 0;
     const folding = Boolean(!bottomStacking && old && node && foldAnchor.current && keepFold(foldAnchor.current, node));
     if (!folding && !bottomStacking) foldAnchor.current = undefined;
+    if (folding && node) holdTop.current = node.scrollTop;
     if (folding && node && Math.abs(node.scrollTop - heldFrom) >= 0.5) {
       // The rows mounted for this frame read the held offset too, before its scroll event comes.
       const moved = node.scrollTop;
@@ -2633,8 +2720,12 @@ export function VirtualTranscript({
             holdUnderStack(host, stack, effect.getTiming(), stack.animation.currentTime);
           }
         } else {
-          stack.from = delta;
-          const frames = [{ translate: `0 ${delta}px` }, { translate: "0 0" }];
+          // Only what this pass added slides: what the fold's own frames already moved is drawn where
+          // it is. A call that joined the group after its fold ended slid the whole fold again
+          // from the row's first height, and the row jumped back and moved a second time
+          // (Leo, 2026-11-06: "things clash with other things with animations going haywire").
+          stack.from = delta - stack.delta;
+          const frames = [{ translate: `0 ${stack.from}px` }, { translate: "0 0" }];
           const duration = foldMs(host);
           if (duration > 0) {
             const timing = { duration, easing: foldMotion.easing(host) };
@@ -3406,7 +3497,7 @@ export function VirtualTranscript({
     }
     const programmatic = !userScrollIntent(node).isHeld();
     // Its event can come before the stack's next pass does.
-    if (programmatic) releaseBottomStackFold(node);
+    if (programmatic && !releaseBottomStackFold(node)) releaseFoldHold(node);
     // The right-hand card holds what it shows until the reader's scroll settles
     // (summary/heldWhileScrolling.ts): older history paged in under the scroll lands there once.
     if (!programmatic) noteReaderScroll();
@@ -3610,24 +3701,18 @@ export function VirtualTranscript({
       setFoldRoom(end);
     };
     // The control a click landed on, for the hold its row's collapsible asks for in the same click
-    // (holdAsked): a long prompt's Show more asks to hold its bubble, whose top is far up the view,
-    // and the share is still the Show more's, where the reader clicked.
+    // (holdAsked): a long prompt's Show more asks to hold its bubble, which has no open state of its
+    // own, so whether the click opens is the Show more's.
     let clicked: HTMLElement | undefined;
-    const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement, at: HTMLElement = toggle): boolean => {
-      // At the very bottom every disclosure pins the bottom, opening or closing (Leo, 2026-11-02:
-      // "YOU EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"; 2026-11-03:
-      // "it's weird to collapse and get all that empty space at the bottom"). What opens pushes the
-      // text above it up; what closes pulls it down. No blank room is left under the rows. A line
-      // that opens higher up than BOTTOM_PIN_SHARE of the visible view (the part above the composer
-      // and under the top inset), from its foot, opens downward instead, as anywhere else: the line
-      // and the rows over it held, the rows under it moving down (Leo, 2026-11-05: "when you get
-      // >like 50-70% up the screen from the bottom then it starts doing it normally expanding
-      // down"). A close at the bottom still pins it wherever its line is.
-      const visibleFoot = node.getBoundingClientRect().bottom - dockSpaceRef.current;
-      const visibleHeight = node.clientHeight - topInsetRef.current - dockSpaceRef.current;
+    const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
+      // At the very bottom a close pins the bottom and pulls the text above it down, so no blank room
+      // is left under the rows (Leo, 2026-11-03: "it's weird to collapse and get all that empty space
+      // at the bottom"). An open never pins it, as Codex opens a call at the end of a chat (Lucas,
+      // 2026-11-06: Codex parity): the line and the rows over it stay where the reader clicked, what
+      // opens grows down under the composer, and the view stops following, so Jump to latest shows.
       if (
-        !atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX) ||
-        (opensBody(toggle) && visibleFoot - at.getBoundingClientRect().top > visibleHeight * BOTTOM_PIN_SHARE)
+        opensBody(toggle) ||
+        !atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)
       ) {
         stopBottomStackFold();
         return false;
@@ -3676,6 +3761,7 @@ export function VirtualTranscript({
       const bottom = beginBottomStackFold(toggle, line);
       // A keyboard click (detail 0) had no press: an older, abandoned one is not its place.
       foldAnchor.current = clickFold(line, event.detail > 0 ? pressed : undefined);
+      holdTop.current = node?.scrollTop;
       pressed = undefined;
       if (!bottom) keepFoldRoom();
     };
@@ -3698,10 +3784,11 @@ export function VirtualTranscript({
         return;
       event.preventDefault();
       settleFold(header);
-      const at = clicked && clicked.closest(".acpmux-row") === header.closest(".acpmux-row") ? clicked : header;
-      const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(header, header, at);
+      const toggle = clicked && clicked.closest(".acpmux-row") === header.closest(".acpmux-row") ? clicked : header;
+      const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(toggle, header);
       // The click that asked for it already holds this line at the place it was pressed at: keep it.
       foldAnchor.current = clickFold(header, foldAnchor.current);
+      holdTop.current = node.scrollTop;
       if (!bottom) keepFoldRoom();
     };
     // The reader scrolling lets go of it.
@@ -3877,8 +3964,13 @@ export function VirtualTranscript({
   };
   // Jump to latest remains shown once the reader is far behind, avoiding flicker near the threshold.
   const below = layout.totalHeight - height - (renderScroll.top - origin);
+  // A fold the reader closed at the very bottom keeps the view at its end on each of its frames
+  // (`beginBottomStackFold`; an open there grows down and stops following): a render mid-fold that
+  // lays out ahead of that pin (a call that joins the group) is not the reader falling behind, and
+  // never brings the arrow up (Leo, 2026-11-06: "way too discontinuous", the arrow came up mid-fold
+  // under load).
   if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
-  else if (below > JUMP_LATEST_DISTANCE) jumpShown.current = true;
+  else if (below > JUMP_LATEST_DISTANCE && !bottomStackFold.current) jumpShown.current = true;
   const behind = jumpShown.current;
   // CHAT SWITCH PLAY: the last layout effect, so the new chat's rows are placed and scrolled to where
   // they will be drawn when the play picks the visible ones (CHAT SWITCH MOTION above).
@@ -3938,7 +4030,17 @@ export function VirtualTranscript({
           // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
           // scroll a row into view above it.
           data-docked={dockSpace > 0 || undefined}
-          style={dockSpace > 0 ? ({ "--acpmux-dock-space": `${dockSpace}px` } as React.CSSProperties) : undefined}
+          // A subagent's view keeps its "Subagent of" pill pinned over the top (pinnedPill below): rows
+          // pass out of sight under it.
+          data-pinned-top={pinnedPill ? "" : undefined}
+          style={
+            dockSpace > 0 || pinnedPill
+              ? ({
+                  ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
+                  ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
+                } as React.CSSProperties)
+              : undefined
+          }
         >
           {showMinimap && (
             <ThreadMinimap
@@ -4053,7 +4155,8 @@ export function VirtualTranscript({
                         githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
                         referenceScope={scopeAt(absoluteIndex)}
                       >
-                        <Component
+                        <RowContent
+                          Component={Component}
                           row={row}
                           replyActions={actions}
                           sessionId={sessionId}
@@ -4079,6 +4182,13 @@ export function VirtualTranscript({
             style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
           >
             {afterLatest}
+          </div>
+        )}
+        {pinnedPill && (
+          // Lucas, 2026-11-06: "the "subagent of ..." text on the subagent page is sticky and always at the
+          // top". Outside the scroller, so its soft edge never fades the pill; the row's own slot stays.
+          <div className="acpmux-pinned-top" style={{ top: pinAt.top + topInset }}>
+            <SubagentOfRow row={pinnedPill} />
           </div>
         )}
         {jumpButton && (

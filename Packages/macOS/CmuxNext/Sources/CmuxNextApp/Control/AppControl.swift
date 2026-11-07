@@ -8,6 +8,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
+import CmuxNextImportCards
 import CmuxNextMacScreen
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -127,11 +128,10 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
         ])
-        // Diagnostics for tagged DEV builds; a release build registers no debug.* method
-        // (ControlRouter drops them too: Configuration.allowsDebugMethods).
+        // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
-        // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
-        service.router.register([budget.method(registry: registry)])
+        // The newest action runs and the over-budget counters (zero-latency.md, the budget contract), and the import note's capture stand-in.
+        service.router.register([budget.method(registry: registry), .mainActor("debug.import_note") { call in .value(ImportSuggestionsCenter.shared.debugImportNote(call.params)) }])
         service.router.register(DebugHibernationControl.methods(services))
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         terminalDisplayProbe.terminals = { [weak services] in services?.cache.terminals.map { ($0.key, $0.value.session) } ?? [] }
@@ -391,9 +391,9 @@ final class AppControl {
             .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
                 let attachments = call.params["attachments"]?.boolValue ?? false
-                // `new`: one more fixture tab, also when the window lists one already.
+                // `new`: one more fixture tab, also when the window lists one already; `compose`: under the chat column's compose button.
                 let fresh = call.params["new"]?.boolValue ?? false
-                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, fresh: fresh))
+                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, compose: call.params["compose"]?.boolValue ?? false, fresh: fresh))
             },
             // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
             // files enter the shown Home composer through the same intake as
@@ -472,6 +472,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugPointerHover.run(call.params, services: services))
             },
+            .async("debug.pointer_sweep") { [weak services] call in
+                guard let services else { return .null }
+                return await DebugPointerHover.sweep(call.params, services: services)
+            }.withDeadline(.fixed(.seconds(60))),
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },

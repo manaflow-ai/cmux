@@ -139,16 +139,20 @@ import Testing
     @Test func theLineSaysLookingNobodyOneOrHowMany() throws {
         #expect(WhoElseCall(pending: true, answer: nil).line == "Looking for who else works on these files…")
         let full = try #require(WhoElseCall.findAnswer(Self.answer, depth: 0))
-        #expect(WhoElseCall(pending: false, answer: full).line == "2 other sessions work on these files")
+        // Two rows and two more acpmux left out.
+        #expect(WhoElseCall(pending: false, answer: full).line == "4 other sessions work on these files")
         var one = full
         one.sessions = [full.sessions[0]]
+        one.more = 0
         #expect(WhoElseCall(pending: false, answer: one).line == "1 other session works on these files")
         one.sessions = []
         #expect(WhoElseCall(pending: false, answer: one).line == "No other session works on these files")
         #expect(WhoElseCall(pending: false, answer: full).unreachedNote == "Not asked: studio-mac")
-        // Two shown, two more acpmux left out.
-        #expect(WhoElseCall(pending: false, answer: full).hiddenCount(shown: 2) == 2)
-        #expect(WhoElseCall(pending: false, answer: full).hiddenCount(shown: 1) == 3)
+        // "N more" opens only rows the answer holds; the two acpmux left out are a note.
+        #expect(WhoElseCall(pending: false, answer: full).hiddenCount(shown: 2) == 0)
+        #expect(WhoElseCall(pending: false, answer: full).hiddenCount(shown: 1) == 1)
+        #expect(WhoElseCall(pending: false, answer: full).omittedNote == "2 more not listed")
+        #expect(WhoElseCall(pending: false, answer: one).omittedNote == nil)
     }
 
     @Test func aRowSaysWhatItHasInCommonAndWhen() throws {
