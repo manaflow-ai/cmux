@@ -258,6 +258,12 @@
   outline: none;
   pointer-events: none;
 }
+/* Over the loading glass's own `background` shorthand (below), which would reset its size. */
+.acpmux-attachment.acpmux-attachment-pending[data-instant] {
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
 /* Positioned, and after the picture: it paints over it. */
 :is(.acpmux-attachment-spinner, .acpmux-md-inline-spinner) {
   position: relative;

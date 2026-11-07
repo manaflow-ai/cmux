@@ -1155,8 +1155,10 @@ function PendingChip({
       data-paste-look={look}
       aria-busy="true"
       aria-label={name}
+      // The image's own picture behind the spinner (a background, not an <img>: the strip's images
+      // are its ready chips).
+      {...(chip.preview && square ? { "data-instant": "", style: { backgroundImage: `url("${chip.preview}")` } } : {})}
     >
-      {chip.preview && <InstantPreview src={chip.preview} />}
       <PasteLoadingMark
         look={look}
         size={16}
