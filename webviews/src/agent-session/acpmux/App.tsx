@@ -1067,10 +1067,11 @@ function withdrawForTypedReply<T>(
 const hatActions = (focusComposer: () => void, reaches: (owner: string) => boolean): HatQuestionActions => ({
   answer: (question, answer) => {
     // A tagged ask's answer goes as its card's does (`restartReaches`): only to the chat it was read
-    // for, never the next during a switch's hold. A send refused rejects, so the band takes input again.
+    // for, never the next during a switch's hold, and as its card sends it (`answerThrough`): a send
+    // refused rejects, so the band takes input again; one acpmux already took counts as sent.
     if (question.source === "nextStep")
       return question.sessionId && reaches(question.sessionId)
-        ? callNative("chat.send", { text: answer.label })
+        ? answerThrough(callNative)(answer.label)
         : Promise.reject(new Error("unreachable"));
     const asked = question.question;
     const item = asked?.items[0];

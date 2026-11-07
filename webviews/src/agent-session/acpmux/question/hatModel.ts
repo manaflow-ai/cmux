@@ -107,8 +107,11 @@ function ownQuestion(permission: AcpmuxPermission | undefined, onCard = false): 
   };
 }
 
-/// The person's own prompt (sent, or on its way): it moves a tagged ask past its relevance.
-const personSaid = (row: AcpmuxRow) => row.kind === "user" && !row.incoming && !row.failed;
+/// The person's own prompt (sent, or on its way): it moves a tagged ask past its relevance. The same
+/// rule as the card's (turns.ts `personPrompt`): another agent's message, one received from elsewhere,
+/// a blank one or one that failed to send answers nothing, so the ask stays.
+const personSaid = (row: AcpmuxRow) =>
+  row.kind === "user" && !row.incoming && !row.received && !row.failed && Boolean(row.text);
 
 /// The tagged ask the chat's last turn ended on, while nothing the person said came after it. Read
 /// from the end of the shaped rows and stopped at the first prompt of the person's or the first
@@ -132,8 +135,9 @@ export function messagesNextStep(rows: readonly AcpmuxRow[]): AcpmuxRow | undefi
   let completed = false;
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at]!;
-    // Any prompt ends it: the person's answers it, another agent's leaves it in the prose.
-    if (row.kind === "user") return undefined;
+    // The person's prompt answers it; another one (an agent's message, a failed send) answers nothing.
+    if (personSaid(row)) return undefined;
+    if (row.kind === "user") continue;
     if (row.kind === "turnSummary") {
       if (completed || row.status !== "completed") return undefined;
       completed = true;

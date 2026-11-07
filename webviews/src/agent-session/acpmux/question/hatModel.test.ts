@@ -79,6 +79,11 @@ describe("the questions the composer hat holds", () => {
     const ask = tagged();
     expect(liveNextStep([said("go"), row("assistant"), ask])).toBe(ask);
     expect(liveNextStep([ask, said("I made the key but on the other account")])).toBeUndefined();
+    // What answers nothing leaves it: another agent's message, one received, a failed or blank send.
+    expect(liveNextStep([ask, row("user", { text: "from the chief", incoming: {} as never })])).toBe(ask);
+    expect(liveNextStep([ask, row("user", { text: "from the phone", received: {} as never })])).toBe(ask);
+    expect(liveNextStep([ask, row("user", { text: "Yes", failed: true })])).toBe(ask);
+    expect(liveNextStep([ask, row("user", { text: "" })])).toBe(ask);
     expect(liveNextStep([tagged({ answer: "Yes" })])).toBeUndefined();
     expect(liveNextStep([tagged({ superseded: true })])).toBeUndefined();
     const [shown] = hatQuestions({ sessionId: "chat", nextStepOwner: "chat", rows: [ask], sessions: [], asks: [] });
