@@ -33,16 +33,22 @@ const MAX_PLAN_BYTES: u64 = 256 * 1024;
 /// The most of a `.project_root` marker acpmux reads: one path.
 const MARKER_MAX_BYTES: u64 = 16 * 1024;
 
-/// `path`'s text when it is a regular file of at most `max` bytes; None otherwise. Stat'ed before
-/// it is opened (opening a FIFO would block), and the read is bounded too, so a file that grows
-/// after the stat is still never read past `max`.
+/// `path`'s text when it is a regular file of at most `max` bytes, opened without following a
+/// symlink in its last part; None otherwise. The read is bounded too, so a file that grows after
+/// the stat is still never read past `max`.
 fn read_capped(path: &Path, max: u64) -> Option<String> {
     use std::io::Read as _;
-    let before = std::fs::metadata(path).ok()?;
-    if !before.is_file() || before.len() > max {
-        return None;
+    let mut open = std::fs::OpenOptions::new();
+    open.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        // The path was judged already resolved: a symlink put there since is refused, not
+        // followed, and a FIFO opens without waiting for a writer (then fails the regular-file
+        // check below). Size and kind come from the open file itself, never the path again.
+        open.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    let file = std::fs::File::open(path).ok()?;
+    let file = open.open(path).ok()?;
     let meta = file.metadata().ok()?;
     if !meta.is_file() || meta.len() > max {
         return None;
@@ -136,8 +142,8 @@ pub(super) fn read_plan(path: &str, cwd: &Path, homes: &[PathBuf]) -> Option<Str
 }
 
 /// Puts `plan` on an `exit_plan_mode` tool call: a text block before whatever content Gemini
-/// sent (its end's "Plan approved: <path>" stays after it), `rawInput.plan` when it has no input,
-/// and `_meta.acpmux.plan`.
+/// sent (its end's "Plan approved: <path>" stays after it), `rawInput.plan` (beside any input
+/// Gemini sent, whose own fields stay), and `_meta.acpmux.plan`.
 fn attach(tool: &mut Value, path: &str, plan: &str) {
     let block = json!({"type": "content", "content": {"type": "text", "text": plan}});
     let mut content = vec![block];
@@ -147,6 +153,11 @@ fn attach(tool: &mut Value, path: &str, plan: &str) {
     tool.set("content", Value::Array(content));
     if tool.get("rawInput").is_none_or(Value::is_null) {
         tool.set("rawInput", json!({"plan": plan, "plan_path": path}));
+    } else if let Some(input) = tool["rawInput"].as_object_mut()
+        && !input.contains_key("plan")
+    {
+        input.insert("plan".into(), json!(plan));
+        input.entry("plan_path").or_insert_with(|| json!(path));
     }
     if !tool["_meta"].is_object() {
         tool.set("_meta", json!({}));
