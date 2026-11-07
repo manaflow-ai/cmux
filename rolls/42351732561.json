@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42351732561",
+  "recorded_at": "2026-11-07T07:41:48Z",
+  "reason": "cmux-tui 3ad6aa8d2ab4 changes the image's cmux-tui (pinned 9ffc9c19ed93)",
+  "dry_run": false,
+  "cmux_tui": "3ad6aa8d2ab48d21e64191a5da87b42730edf628",
+  "fixes": [
+    {
+      "sha": "598137098724e8a457932821ba35abce028894ee",
+      "mergedAt": "2026-11-07T07:18:57Z",
+      "subject": "acpmux: a full-access agent starts full-access chats on any placement without a new prompt (#37542)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T07:41:48Z",
+    "snapshot_id": "sh-2c6073055b024601abd29db4ac36b7f0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42351732561): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "eb7ab0d80586edc4b9db17b8088835a36cbf0265",
+    "image": "cloud-native-auto-3ad6aa8d-42351732561-1",
+    "revision": "ci-42351732561-1",
+    "at": "2026-11-07T07:41:48Z"
+  },
+  "rolled_back": false
+}
