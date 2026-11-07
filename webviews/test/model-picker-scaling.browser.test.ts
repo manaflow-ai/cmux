@@ -231,7 +231,10 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
         expect(layout.width).toBeLessThanOrEqual(360);
         expect(layout.contentWidth).toBeLessThanOrEqual(layout.bodyWidth + 1);
         expect(layout.names.length).toBeGreaterThan(4);
-        expect(layout.names.every((name) => name.width > 0 && name.ellipsis === "ellipsis")).toBe(true);
+        // Names wrap rather than truncate (the long-name contract above): each fits its column.
+        expect(
+          layout.names.every((name) => name.width > 0 && name.ellipsis === "clip" && name.content <= name.width + 1),
+        ).toBe(true);
       } finally {
         await page.close();
       }
