@@ -112,11 +112,21 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// Signs into the app's Cloud account for inline first-send recovery; nil when Cloud is unavailable.
     @ObservationIgnored public var onCloudSignIn: (@MainActor () async -> Bool)?
-    /// Bumped by `cloud.signInCancel`: a `cloud.signIn` that began under an older value sends nothing.
+    /// Whether the app's Cloud account is signed in now (in another pane, window or Settings, say):
+    /// a `cloud.signIn` then resumes without opening the browser. nil reads as not signed in.
+    @ObservationIgnored public var onCloudSignedIn: (@MainActor () -> Bool)?
+    /// Bumped by `cloud.signInCancel` (and a wait's expiry): a `cloud.signIn` that began under an older value sends nothing.
     @ObservationIgnored var cloudSignInGeneration = 0
     /// The `cloud.signIn` waiting on the browser (``AgentPaneModel/waitForCloudSignIn(_:)``), so
     /// `cloud.signInCancel` ends that wait, and the send's hold, at once.
-    @ObservationIgnored var cloudSignInWait: (generation: Int, done: CheckedContinuation<Bool?, Never>)?
+    @ObservationIgnored var cloudSignInWait: CloudSignInWait?
+    /// This pane's one browser sign-in, while it runs: a click after a cancel waits on it again
+    /// instead of opening a second one (``AgentPaneModel/waitForCloudSignIn(_:)``).
+    @ObservationIgnored var cloudSignInBrowser: Task<Bool, Never>?
+    /// How long a `cloud.signIn` waits on the browser before it ends as expired (the card's sign in
+    /// again): the auth runtime's deadline for an interactive sign-in, `AuthTimeouts.default.interactiveFlow`
+    /// (this target does not link CmuxAuthRuntime). Tests shorten it.
+    @ObservationIgnored var cloudSignInWaitLimit: Duration = .seconds(300)
     /// The click a `cloud.signIn` kept once it signed in, for the page's one send again of that start
     /// (``AgentPaneModel/takeCloudSignInGrant(_:)``); `cloud.signInCancel` drops it.
     @ObservationIgnored var cloudSignInGrant: (key: String, generation: Int, until: ContinuousClock.Instant)?
@@ -173,6 +183,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public let tabRow = AgentPaneTabRow()
     /// Page-owned Session Info content drawn by AppKit.
     @ObservationIgnored public let sessionInfo = AgentPaneSessionInfo()
+    /// The page's floating glass the App draws under the page.
+    @ObservationIgnored public let hostGlass = AgentPaneHostGlass()
     /// Declarative native controls published by the page for the shared tab row.
     public private(set) var tabRowTools: [PaneTabRowTool] = []
     @ObservationIgnored public var onTabRowToolInvoked: ((String, String?) -> Void)?
@@ -192,6 +204,8 @@ public final class AgentPaneModel {
     /// Opens a turn's local web page in a browser tab beside the agent;
     /// false when it could not.
     @ObservationIgnored public var onOpenPreview: (@MainActor (URL) -> Bool)?
+    /// Opens an authenticated Cloud preview for this chat's machine.
+    @ObservationIgnored public var onOpenCloudPreview: (@MainActor (Int) async throws -> Bool)?
     /// Claude's automatic sign-in page of a Cloud chat (``AgentPaneSignInPage/callbackPort(_:)``),
     /// in a Chromium tab whose localhost is the chat's machine: the open, or nil when no such tab
     /// can be made here (the card then opens the page that gives a code to paste). Asked before any
@@ -262,6 +276,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onChooseChatFolder: (@MainActor (_ chat: String) async -> AgentPaneChatFolderResult)?
     /// Share with Me: grants the signed-in person chats on this remote chat's Cloud machine.
     @ObservationIgnored public var onShareMachineWithMe: (@MainActor () async -> AgentPaneMachineShare)?
+    /// The Share dialog's ops on this pane's chat; the app answers for the tab it shows (``AgentPaneShareOp``).
+    @ObservationIgnored public var onShareOp: (@MainActor (AgentPaneShareOp, _ session: String?) async -> AgentPaneShareReply?)?
     /// A native notice's button (`pane.noticeAction`): the pane runs the action of the notice `id`;
     /// false when it shows no such notice with an enabled button.
     @ObservationIgnored var onPaneNoticeAction: (@MainActor (_ id: String) -> Bool)?
@@ -434,7 +450,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
+             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .hostGlass, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
@@ -525,6 +541,7 @@ public final class AgentPaneModel {
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()
         case .shareMachineWithMe: return await shareMachineWithMe(userGesture: userGesture)
+        case .shareOp(let op, let session): return await shareOp(op, session: session, userGesture: userGesture)
         // The panel picks this Mac's files: never for a chat on another machine (cx-k21v).
         case .chooseAttachments where remoteChat: return Self.unsupported("chat.attach.choose")
         case .chooseAttachments: return await chooseAttachments()
@@ -591,9 +608,7 @@ public final class AgentPaneModel {
         case .cloudSignIn(let start): return await AgentPaneHandOff(model: self).cloud(start, signingIn: true)
         // Starts nothing and needs no gesture: it only withdraws a pending sign-in's send.
         case .cloudSignInCancel:
-            cloudSignInGeneration += 1
-            cloudSignInGrant = nil
-            endCloudSignInWait(nil)
+            withdrawCloudSignIn(.withdrawn)
             return AgentPaneReply.success()
         case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
         // Only a chat on another machine, on the person's own pick (one gesture).
@@ -718,7 +733,7 @@ public final class AgentPaneModel {
             } catch {
                 return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
             }
-        case .paneAction, .moveToMachine, .diffTurn, .diffPatch, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .copyText, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .moveToMachine, .diffTurn, .diffPatch, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .hostGlass, .copyText, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -740,6 +755,17 @@ public final class AgentPaneModel {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
             }
             return AgentPaneReply.success()
+        case .openCloudPreview(let port):
+            guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            guard let onOpenCloudPreview else { return Self.unsupported("cloud.preview.open") }
+            do {
+                guard try await onOpenCloudPreview(port) else {
+                    return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
+                }
+                return AgentPaneReply.success()
+            } catch {
+                return AgentPaneReply.failure(code: "open_failed", message: error.localizedDescription)
+            }
         case .gitWrite(let write): return await AgentPaneGitWriteReply.reply(to: write, in: self)
         case .git, .invalidGit, .githubRepository, .gitStage, .gitPullRequest, .transportOpen, .transportSend, .transportGesture, .transportGestureRelease, .transportClose, .harnessUpdate, .harnessRestart:
             return await AgentPaneTransportReply.reply(to: request, in: self)

@@ -271,7 +271,7 @@ impl LinuxPlatform {
         let version =
             ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
         let mut spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
-        let carrier = carrier_args(&paths, &layout.bin);
+        let carrier = carrier_args(&paths, &host_entry(&self.cfg)?);
         spec.args.extend(carrier.iter().cloned());
         spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
@@ -341,10 +341,7 @@ impl LinuxPlatform {
     }
 
     fn rekey(&mut self, id: &str) -> io::Result<Option<Input>> {
-        let mut argv = self.cfg.self_argv.clone();
-        if argv.is_empty() {
-            argv.push(std::env::current_exe()?.display().to_string());
-        }
+        let mut argv = host_entry(&self.cfg)?;
         let program = argv.remove(0);
         argv.extend([
             "rekey".to_owned(),
@@ -683,10 +680,10 @@ impl Platform for LinuxPlatform {
     /// running host's verifier without a respawn, and a removed file
     /// respawns the host without the carrier flags.
     fn carrier_changed(&mut self) -> bool {
-        let Some(bin) = self.layout().ok().map(|layout| layout.bin.clone()) else {
+        let Ok(host) = host_entry(&self.cfg) else {
             return false;
         };
-        let want = carrier_args(&self.cfg.paths, &bin);
+        let want = carrier_args(&self.cfg.paths, &host);
         self.daemon.as_ref().is_some_and(|daemon| daemon.carrier != want)
     }
 
@@ -796,7 +793,20 @@ fn remote_entry(paths: &crate::config::Paths) -> crate::remote_entry::RemoteEntr
 /// with these flags finds it. Each carrier.json change writes it again, and
 /// the running host's verifier re-reads it at the first grant signed by a
 /// kid it does not hold (a rotated keyset, `cloud/carrier_keyset.rs`).
-fn carrier_args(paths: &crate::config::Paths, bin: &std::path::Path) -> Vec<String> {
+/// The command that runs this supervisor's verbs, the program first: the
+/// `cmux host` it was started as (`[<current>/bin/cmux, host]`), else this
+/// executable (the standalone `cmux-host`, whose verbs need no noun).
+fn host_entry(cfg: &Config) -> io::Result<Vec<String>> {
+    if cfg.self_argv.is_empty() {
+        Ok(vec![std::env::current_exe()?.display().to_string()])
+    } else {
+        Ok(cfg.self_argv.clone())
+    }
+}
+
+/// The session host's carrier flags; `host` is [`host_entry`], whose
+/// `cloud carrier-ticket` is the ticket command.
+fn carrier_args(paths: &crate::config::Paths, host: &[String]) -> Vec<String> {
     use crate::carrier_entry::GRANT_CONFIG_FILE;
     let Some(file) = carrier_file(paths) else { return Vec::new() };
     let grant_config = paths.at(GRANT_CONFIG_FILE);
@@ -805,7 +815,7 @@ fn carrier_args(paths: &crate::config::Paths, bin: &std::path::Path) -> Vec<Stri
         eprintln!("cmux-host: {}: {e}; carrier off", grant_config.display());
         return Vec::new();
     }
-    file.route.args(bin, &grant_config)
+    file.route.args(host, &grant_config)
 }
 
 fn carrier_file(paths: &crate::config::Paths) -> Option<crate::carrier_entry::CarrierFile> {
@@ -906,7 +916,7 @@ mod carrier_file_tests {
     fn the_carrier_flags_come_with_a_public_grant_config() {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::new(dir.path());
-        let bin = std::path::Path::new("/home/cmux/.cmux/bin/cmux-tui");
+        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
         assert!(carrier_args(&paths, bin).is_empty());
         assert!(!paths.at(GRANT_CONFIG_FILE).exists());
         let carrier = carrier("k1");
@@ -931,7 +941,7 @@ mod carrier_file_tests {
     fn a_rotated_keyset_rewrites_the_grant_config_with_the_same_flags() {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::new(dir.path());
-        let bin = std::path::Path::new("/home/cmux/.cmux/bin/cmux-tui");
+        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
         write_carrier(&paths, &carrier("k1"));
         let before = carrier_args(&paths, bin);
         let rotated = carrier("k2");
@@ -946,7 +956,7 @@ mod carrier_file_tests {
     fn a_removed_carrier_json_wakes_the_watch_and_drops_the_flags() {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::new(dir.path());
-        let bin = std::path::Path::new("/home/cmux/.cmux/bin/cmux-tui");
+        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
         write_carrier(&paths, &carrier("k1"));
         assert!(!carrier_args(&paths, bin).is_empty());
         let inotify = crate::linux::fds::Inotify::new().unwrap();
