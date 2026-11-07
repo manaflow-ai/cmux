@@ -9,6 +9,9 @@ use serde_json::json;
 
 use crate::ERR_INVALID;
 
+#[path = "window_rules_misc.rs"]
+mod misc;
+
 /// Whether `operation` is one of this module's.
 pub(crate) fn handles(operation: &[u8]) -> bool {
     operation.starts_with(b"window_")
@@ -42,6 +45,8 @@ struct Asked {
 
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     let answer = match operation {
+        // The smaller handlers' tables and refusals (notifications, history, remote, browser, files, appearance).
+        operation if misc::handles(operation) => return misc::respond_misc(operation, request),
         // Whether closing these tabs together earns the undo toast.
         b"window_close_toast" => {
             let request: Closing = read(request)?;
