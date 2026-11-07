@@ -91,3 +91,31 @@ extension SidebarDocWire {
         var after: String?
     }
 }
+
+extension SidebarDocWire.Projection {
+    /// Leaves out the items `draws` refuses, with a left-out group's members. The mirror's shown document holds every
+    /// pending add, but the sidebar draws only a workspace, the Chief and an item whose record the pending writes hold
+    /// (`SidebarDocStore.shownRecords`); another added item (Settings, a link) draws at its echo.
+    mutating func keep(_ draws: (String) -> Bool) {
+        let keeps = { (item: SidebarDocWire.Item) in item.body.tag == "workspace" || draws(item.id) }
+        for index in sections.indices { sections[index].items?.removeAll { !keeps($0.item) } }
+        machines = machines.mapValues { nodes in
+            nodes.compactMap { node -> SidebarDocWire.Node? in
+                switch node {
+                case .workspace: node
+                case let .group(group): draws(group.id) ? .group(group.keeping(keeps)) : nil
+                case let .link(item): keeps(item) ? node : nil
+                }
+            }
+        }
+        bandGroups = bandGroups.filter { draws($0.id) }.map { $0.keeping(keeps) }
+    }
+}
+
+extension SidebarDocWire.Group {
+    func keeping(_ keeps: (SidebarDocWire.Item) -> Bool) -> Self {
+        var group = self
+        group.listed.removeAll { !keeps($0.item) }
+        return group
+    }
+}

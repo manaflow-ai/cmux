@@ -219,8 +219,11 @@ extension SidebarDocStore {
     public func projection(live: [SidebarDocWorkspaceRef]) -> SidebarDocProjection? {
         guard isActive else { return nil }
         if let cached = projectionCache, cached.answers(version: version, live: live) { return cached.projection }
-        // The mirror's shown document holds the pending changes (a rename, a new group, a Chief dragged in before its echo).
-        guard let wire = projected(SidebarViewRequest(live: live)) else { return nil }
+        // The mirror's shown document holds the pending changes (a rename, a new group, a Chief dragged in before its echo);
+        // of its pending adds only a workspace, the Chief and a new group draw before their echo.
+        guard var wire = projected(SidebarViewRequest(live: live)) else { return nil }
+        let drawn = shownRecords
+        wire.keep { drawn.items[$0] != nil || $0 == SidebarLayoutDocument.chiefItemID.rawValue }
         let projection = SidebarDocProjection(wire: wire, revision: records.revision)
         projectionCache = SidebarDocProjectionCache(version: version, live: live, projection: projection)
         return projection
