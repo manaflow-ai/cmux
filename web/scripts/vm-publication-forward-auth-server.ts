@@ -21,6 +21,9 @@ declare const Bun: {
 };
 
 const port = Number(process.env.PORT ?? 3000);
+// The tunnel makes this page public, so the reflected query value must be inert.
+const escapeHtml = (value: string) =>
+  value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 const log = (line: string) => console.log(`[forward-auth] ${new Date().toISOString()} ${line}`);
 
 Bun.serve({
@@ -42,7 +45,7 @@ Bun.serve({
     if (url.pathname === "/cloud/access") {
       log(`access page transaction=${url.searchParams.get("transaction")?.slice(0, 8) ?? "-"}…`);
       return new Response(
-        `<!doctype html><title>cmux sign-in (stand-in)</title><body style="font-family:system-ui;padding:2rem"><h1>cmux sign-in would render here</h1><p>The Freestyle edge redirected this browser to the cmux access page with transaction <code>${url.searchParams.get("transaction") ?? ""}</code>. In the deployed app this page signs you in with Stack Auth and sends you back to the site.</p></body>`,
+        `<!doctype html><title>cmux sign-in (stand-in)</title><body style="font-family:system-ui;padding:2rem"><h1>cmux sign-in would render here</h1><p>The Freestyle edge redirected this browser to the cmux access page with transaction <code>${escapeHtml(url.searchParams.get("transaction") ?? "")}</code>. In the deployed app this page signs you in with Stack Auth and sends you back to the site.</p></body>`,
         { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
       );
     }
