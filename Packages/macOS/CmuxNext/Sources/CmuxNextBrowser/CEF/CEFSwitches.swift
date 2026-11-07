@@ -104,6 +104,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // into CEF's list.
         if keepsUnpackedEnabled { result.append("disable-features=ExtensionDisableUnsupportedDeveloper") }
         result.append(contentsOf: extraSwitches)
+        result.append("process-per-site") // measure branch only (renderer sharing variant)
         return result
     }
 
