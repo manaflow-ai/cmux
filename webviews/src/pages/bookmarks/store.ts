@@ -562,7 +562,7 @@ export class BookmarksStore {
   }
 
   /** One `cmux.bookmarks.apply`, then a re-list. Returns the refusal, or null. `answered` hears
-   * whether the reply was lost (the link closed or the call failed outside the page protocol):
+   * whether the reply was lost (the link closed, a retryable error, or a failure outside the page protocol):
    * then the ops may have run. */
   private async apply(
     ops: BookmarkOp[],
@@ -576,7 +576,9 @@ export class BookmarksStore {
       answered?.(false);
     } catch (error) {
       const refusal = noticeOf(error);
-      const lost = !isPageError(error) || error.code === LINK_CLOSED;
+      // Only the owner's final refusal says the ops did not run; anything else (a lost link, a
+      // timeout, a cancel, a retryable error) may have run them, so a retry keeps the key.
+      const lost = !isPageError(error) || error.code === LINK_CLOSED || error.retryable;
       answered?.(lost);
       if (isPageError(error) && error.code === LINK_CLOSED) this.set({ connection: "disconnected" });
       else if (report) this.set({ notice: refusal });
