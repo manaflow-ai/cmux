@@ -106,12 +106,20 @@ install_dirs() {
     ln -sfn ".gen-$stamp/$name" "$overlay/.$name.next"  # -n: a leftover link is replaced, not entered
     mv -fh "$overlay/.$name.next" "$overlay/$name" 2>/dev/null || mv -fT "$overlay/.$name.next" "$overlay/$name"
   done
-  python3 - "$overlay" "$stamp" "$source_commit" "${installed[@]}" <<'PY'
+  # The native interface the bundles need (their pages/web-abi.json): the app refuses an overlay
+  # whose abi is not its own (WebDevOverride.refusal), as it refuses such a web update.
+  python3 - "$overlay" "$stamp" "$source_commit" "$pages/web-abi.json" "${installed[@]}" <<'PY'
 import json, os, sys, tempfile
-overlay, stamp, commit, names = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+overlay, stamp, commit, abi_file, names = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
+manifest = {"stamp": stamp, "commit": commit, "surfaces": names}
+try:
+    with open(abi_file) as f:
+        manifest["abi"] = int(json.load(f)["abi"])
+except (OSError, ValueError, KeyError, TypeError):
+    pass  # bundles with no web-abi.json: the app checks nothing, as before
 fd, tmp = tempfile.mkstemp(dir=overlay, prefix=".manifest.")
 with os.fdopen(fd, "w") as f:
-    json.dump({"stamp": stamp, "commit": commit, "surfaces": names}, f)
+    json.dump(manifest, f)
     f.write("\n")
 os.replace(tmp, os.path.join(overlay, "manifest.json"))
 PY
@@ -459,6 +467,26 @@ PY
     cat "$web_dev" 2>/dev/null || echo "(none: the app serves its bundled pages)"
     echo "overlay: $overlay"
     cat "$overlay/manifest.json" 2>/dev/null || echo "(no overlay installed)"
+    # The app's bridge check (WebDevOverride.refusal): an overlay for another web ABI is not served.
+    # CMUX_WEB_OVERLAY_APP names the app; else the installed NEXT builds.
+    apps=("/Applications/cmux NIGHTLY.app" "/Applications/cmux NEXT.app")
+    [[ -z "${CMUX_WEB_OVERLAY_APP:-}" ]] || apps=("$CMUX_WEB_OVERLAY_APP")
+    for app in "${apps[@]}"; do
+      [[ -f "$overlay/manifest.json" && -d "$app" ]] || continue
+      python3 - "$overlay/manifest.json" "$app" <<'PY'
+import json, sys
+manifest, app = sys.argv[1], sys.argv[2]
+try:
+    want = json.load(open(manifest)).get("abi")
+    have = json.load(open(app + "/Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/web-abi.json"))["abi"]
+except (OSError, ValueError, KeyError):
+    sys.exit(0)
+if want is not None and want != have:
+    print(f"refused by {app}: the overlay needs web ABI {want}, the app has {have} (build it from a tree at the app's ABI)")
+elif want is not None:
+    print(f"served by {app}: web ABI {have}")
+PY
+    done
     # The app's switch for all of this: off means the file above is ignored.
     if command -v cmux >/dev/null 2>&1; then
       echo "Live Web Reload (updates.liveWebReload): $(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"

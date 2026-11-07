@@ -66,6 +66,16 @@ public enum ActionTargetTitles {
             ?? ActionTargetReasons.reason(for: id, invocation: invocation, in: registry) {
             if #available(macOS 14.4, *) { item.subtitle = reason }
             item.toolTip = reason
+            hideShortcut(of: item)
         }
+    }
+
+    /// Clears a row's drawn shortcut. AppKit lays a menu item's subtitle under the shortcut column, so a
+    /// row that says why it is disabled (or what its click does first) draws its reason through the
+    /// shortcut (⌥⌘T over "Pinned tabs stay open."). Such a row shows the reason and no shortcut; the
+    /// key still runs the action from the main menu, and the same row shows its shortcut when it has no reason.
+    static func hideShortcut(of item: NSMenuItem) {
+        item.keyEquivalent = ""
+        item.keyEquivalentModifierMask = []
     }
 }

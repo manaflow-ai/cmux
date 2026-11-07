@@ -132,6 +132,39 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
     report(&outcome, global.output)
 }
 
+/// `cmux chat send SESSION` for a chat on a Cloud VM (chat_send.rs): the prompt to the chat
+/// `session` already running on machine `machine_id`, and with `wait` its reply.
+pub(super) fn send_existing(
+    global: &GlobalArgs,
+    machine_id: &str,
+    session: &str,
+    prompt: String,
+    wait: bool,
+    timeout: Option<Duration>,
+) -> i32 {
+    let request = Request {
+        prompt,
+        agent: String::new(),
+        cwd: None,
+        machine: Machine::Target(machine_id.to_owned()),
+        wait,
+        timeout: timeout.unwrap_or(DEFAULT_TIMEOUT).min(MAX_TIMEOUT),
+    };
+    let mut runner = SelfRunner { globals: forwarded_globals(global) };
+    report(&send_to(&mut runner, &request, machine_id, session), global.output)
+}
+
+/// [`send_existing`]'s run: the prompt (step 4) and, with `--wait`, the turn (step 5).
+fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session: &str) -> Outcome {
+    let answer = json!({
+        "machine_id": machine_id,
+        "target": format!("machine:{machine_id}"),
+        "session_id": session,
+        "follow_up": follow_ups(machine_id, session),
+    });
+    send_prompt(runner, request, machine_id, session, answer)
+}
+
 /// Whether the app is signed in to cmux Cloud now, as its own machine list answers
 /// (`cloud list-machines`, the first step of every start). An unreadable answer is signed out.
 pub(super) fn app_signed_in(global: &GlobalArgs) -> bool {
@@ -152,6 +185,7 @@ pub(super) fn lift_output(rest: &[String], output: &mut OutputMode) -> Vec<Strin
 }
 
 /// [`lift_output`] for a command whose flags in `takes_value` take the next word as their value.
+/// Every word from `--` on is text (`cmux chat send S -- --json` sends "--json").
 pub(super) fn lift_output_of(
     rest: &[String],
     output: &mut OutputMode,
@@ -159,8 +193,9 @@ pub(super) fn lift_output_of(
 ) -> Vec<String> {
     let mut words = Vec::new();
     let mut value_next = false;
+    let mut text = false;
     for word in rest {
-        if value_next {
+        if text || value_next {
             value_next = false;
             words.push(word.clone());
             continue;
@@ -170,6 +205,7 @@ pub(super) fn lift_output_of(
             "--jsonl" => *output = OutputMode::JsonLines,
             "--quiet" => *output = OutputMode::Quiet,
             _ => {
+                text = word == "--";
                 value_next = takes_value.contains(&word.as_str());
                 words.push(word.clone());
             }
@@ -190,6 +226,8 @@ pub(super) fn parse(
     let mut target = None;
     let mut wait = false;
     let mut timeout = DEFAULT_TIMEOUT;
+    // The prompt came after `--`: text, so `-- -` is "-", not stdin.
+    let mut literal = false;
     let mut index = 0;
     while index < words.len() {
         let Some(word) = words.get(index).map(String::as_str) else { break };
@@ -224,12 +262,23 @@ pub(super) fn parse(
             }
             "--wait" => wait = true,
             "--no-wait" => wait = false,
+            // `-- TEXT`: the prompt, read as text even when it starts with `-`.
+            "--" if inline.is_none() => match words.get(index.saturating_add(1)..) {
+                Some([text]) if prompt.is_none() => {
+                    prompt = Some(text.clone());
+                    literal = true;
+                    break;
+                }
+                _ => return Err(UsageError::new("-- takes one prompt, in place of --prompt")),
+            },
             _ => return Err(UsageError::new(format!("unexpected argument {word:?}"))),
         }
         index += 1;
     }
     let prompt = match prompt.as_deref() {
-        Some("-") => stdin().map_err(|error| UsageError::new(format!("--prompt -: {error}")))?,
+        Some("-") if !literal => {
+            stdin().map_err(|error| UsageError::new(format!("--prompt -: {error}")))?
+        }
         Some(text) => text.to_owned(),
         None => return Err(UsageError::new("--prompt TEXT is required")),
     };
@@ -429,6 +478,7 @@ fn signed_out(error: &Value) -> bool {
         || code == "auth.required"
         || message.contains("sign in to use cloud")
         || message.contains("cmux cloud sign-in")
+        || message.contains("cmux login")
 }
 
 /// Where a start the app answered `pending` for is stuck, read from the app's own machine list
@@ -535,6 +585,13 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     {
         answer.set("new_machine", json!(true));
     }
+    // Where it ran, in `--on`'s words: `cmux chat --on cloud` lets cmux Cloud choose, and a script
+    // reads the choice here rather than assuming a kind of place (chat_start.rs).
+    if let Outcome::Done(answer) = &mut outcome
+        && let Some(id) = at(answer, "machine_id").as_str().map(str::to_owned)
+    {
+        answer.set("placement", json!(format!("vm:{id}")));
+    }
     // The stage trace (cmuxterm-hq#7415): each step's start and length, on a reply and on a failure alike.
     let stages = timed.stages();
     match &mut outcome {
@@ -625,8 +682,8 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
     if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
         return failed(
             "cloud.signed_out",
-            "cmux is signed out: run `cmux cloud sign-in`, then this command again",
-            json!({"sign_in": "cmux cloud sign-in"}),
+            "cmux is signed out: run `cmux login`, then this command again",
+            json!({"sign_in": "cmux login"}),
             1,
         );
     }
@@ -738,7 +795,7 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
     if fresh.is_some() && at(&started, "machine_name").as_str() == fresh.as_deref() {
         *made = Some(machine_id.to_owned());
     }
-    let mut answer = json!({
+    let answer = json!({
         "machine_id": machine_id,
         "machine_name": at(&started, "machine_name"),
         "target": format!("machine:{machine_id}"),
@@ -750,7 +807,18 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
         "follow_up": follow_ups(machine_id, session),
     });
 
-    // 4. The prompt: inside the command when it fits there, else from a file on the machine.
+    send_prompt(runner, request, machine_id, session, answer)
+}
+
+/// Step 4, the prompt to `session` on `machine_id`: inside the command when it fits there, else from
+/// a file on the machine; then, with `--wait`, its turn (step 5). `answer` is the answer so far.
+fn send_prompt(
+    runner: &mut dyn Runner,
+    request: &Request,
+    machine_id: &str,
+    session: &str,
+    mut answer: Value,
+) -> Outcome {
     let quoted = shell_quote(&request.prompt);
     // The uploaded prompt's file words, when the prompt went to a file.
     let mut uploaded = None;
@@ -767,7 +835,7 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
                 return failed(
                     "chat.send_failed",
                     format!(
-                        "the chat started, but the prompt did not reach its machine: {}",
+                        "the prompt did not reach the chat's machine: {}",
                         at(&error, "message").as_str().unwrap_or("cloud exec failed")
                     ),
                     json!({"answer": answer, "app": error}),
@@ -800,7 +868,7 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
         let output = reported.get("send").cloned().unwrap_or_default();
         return failed(
             "chat.send_failed",
-            format!("the chat started, but the prompt did not reach it: {}", output.trim()),
+            format!("the prompt did not reach the chat: {}", output.trim()),
             json!({"answer": answer}),
             1,
         );
@@ -974,9 +1042,7 @@ fn await_created(
         let new: Vec<String> = ids(&now).into_iter().filter(|id| !before.contains(id)).collect();
         match new.as_slice() {
             [id] => return Ok(id.clone()),
-            [] if creation.is_some() => {
-                return Err(pending("its create left the app's list with no new machine".into()));
-            }
+            // The create row can leave the list a moment before its machine is listed: read again.
             [] => {}
             _ => return Err(pending("several new machines appeared".into())),
         }
@@ -1218,7 +1284,7 @@ fn follow_ups(machine: &str, session: &str) -> Value {
         format!("cmux cloud exec --target machine:{machine} --command {}", shell_quote(&command))
     };
     json!({
-        "send": on(format!("{GUEST_CMUX} acp send --no-wait {session} 'PROMPT'")),
+        "send": format!("cmux chat send {session} 'PROMPT' --wait"),
         "wait": on(format!("{GUEST_CMUX} acp wait {session} --timeout {WAIT_SLICE_SECONDS}")),
         "last": on(format!("{GUEST_CMUX} acp last {session}")),
     })
@@ -1327,8 +1393,8 @@ fn app_failure(error: Value) -> Outcome {
     if signed_out(&error) {
         return failed(
             "cloud.signed_out",
-            format!("{message} (run `cmux cloud sign-in`, then this command again)"),
-            json!({"sign_in": "cmux cloud sign-in", "app": error}),
+            format!("{message} (run `cmux login`, then this command again)"),
+            json!({"sign_in": "cmux login", "app": error}),
             1,
         );
     }
@@ -1434,12 +1500,17 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
             match at(answer, "reply").as_str() {
                 // Text from the machine: no terminal controls reach this terminal.
                 Some(reply) => println!("{}", super::wire::sanitize_remote_text(reply)),
-                None => println!(
-                    "Sent to {} on {} (machine:{}).",
-                    at(answer, "session_id").as_str().unwrap_or_default(),
-                    at(answer, "machine_name").as_str().unwrap_or_default(),
-                    at(answer, "machine_id").as_str().unwrap_or_default()
-                ),
+                None => {
+                    let machine = at(answer, "machine_id").as_str().unwrap_or_default();
+                    let on = match at(answer, "machine_name").as_str() {
+                        Some(name) => format!("{name} (machine:{machine})"),
+                        None => format!("machine:{machine}"),
+                    };
+                    println!(
+                        "Sent to {} on {on}.",
+                        at(answer, "session_id").as_str().unwrap_or_default()
+                    );
+                }
             }
             eprintln!(
                 "machine_id {}  session_id {}  tab_id {}",
