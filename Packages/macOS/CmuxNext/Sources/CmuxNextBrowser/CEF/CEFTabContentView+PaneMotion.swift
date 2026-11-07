@@ -40,18 +40,16 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
         if startPageHold() { needsLayout = true } else { pageMotionHold = nil }
     }
 
+    /// The page window stays attached through the hold (RESIZE P0 5): only a divider drag detaches it (``paneMotion(active:)``).
     func holdPage(for hold: PaneMotionHold?) {
         guard let hold else {
             endPageSync(.keyResize)
             if pageMotionHold != nil {
                 dropHold()
-                // The landing's layout first, so the page window comes back once, at the final size.
                 layoutContent()
             }
-            paneMotion(active: false)
             return
         }
-        paneMotion(active: true)
         if pageMotionHold == nil {
             // S5: no hold. The page lays out at the page area in every frame (no main-thread wait for its frame).
             beginPageSync(.keyResize)
@@ -72,9 +70,11 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
 }
 
 extension CEFTabContentView {
-    /// A resize motion of this container's pane began (a divider drag's press, a key resize's first press) or landed:
-    /// the shown page's window detaches for it unless the page holds the keys (``CEFLayerHosting/resizeMotion(active:)``).
-    /// One share per container; a start while one is held and an end with none are ignored.
+    /// A divider drag of this container's pane began (its press) or landed: the shown page's window detaches for it unless
+    /// the page holds the keys (``CEFLayerHosting/resizeMotion(active:)``). A key resize keeps the page attached (RESIZE P0
+    /// 5, cmux21 120 Hz: detached, its spring's first tick paid the detach, 1-4 ms, and a page in a pane that grew upward
+    /// showed at its old place for about 25 frames; attached, it showed at its pane's size in every frame with the same
+    /// missed refreshes). One share per container; a start while one is held and an end with none are ignored.
     func paneMotion(active: Bool) {
         if active {
             guard motionHosting == nil, window != nil, let tab, tab.host.hostView.superview === self else { return }
