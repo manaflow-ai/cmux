@@ -267,6 +267,42 @@ class FindSocket(unittest.TestCase):
         self.stub(lambda argv: subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', ""), argv0="cmux-tui")
         self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
 
+    def test_the_apps_own_session_is_picked_over_its_chiefs(self):
+        # The fleet proof's copy, 2026-11-07, ran a cmux-chief-... daemon beside cmux-app--... from bin/.
+        prefix = str(self.app / self.hot.BIN)
+        procs = {"3001": "/v/T/cmux-tui-501/cmux-chief-e8875805.sock", "3002": "/v/T/cmux-tui-501/cmux-app--c117.sock"}
+
+        def run(argv, **kwargs):
+            if argv[0] == "ps":
+                return subprocess.CompletedProcess(argv, 0, "".join(f"{pid} {prefix}/cmux-tui --headless\n" for pid in procs), "")
+            if argv[0] == "lsof":
+                pid = argv[argv.index("-p") + 1]
+                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{procs[pid]}\n", "")
+            sock = argv[argv.index("--socket") + 1]
+            return subprocess.CompletedProcess(argv, 0, '{"pid": %s}' % next(p for p, n in procs.items() if n == sock), "")
+        self.hot.subprocess.run = run
+        self.assertEqual(self.hot.find_sockets(self.app, Path("cmux")), [procs["3002"], procs["3001"]])
+        self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), procs["3002"])
+
+    def test_a_daemon_started_through_a_linked_folder_is_found(self):
+        # The fleet proof, 2026-11-07: the copy was given as /private/tmp/..., and its daemon ran as
+        # /tmp/.../bin/cmux-tui (macOS links /tmp to /private/tmp), so neither path form matched.
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp, "private-tmp")
+            (real / "cmux NIGHTLY.app" / self.hot.BIN).mkdir(parents=True)
+            Path(tmp, "tmp").symlink_to(real)
+            self.app = real / "cmux NIGHTLY.app"
+            linked = Path(tmp, "tmp", "cmux NIGHTLY.app", self.hot.BIN, "cmux-tui")
+
+            def run(argv, **kwargs):
+                if argv[0] == "ps":
+                    return subprocess.CompletedProcess(argv, 0, f"4242 {linked} --headless --session s\n", "")
+                if argv[0] == "lsof":
+                    return subprocess.CompletedProcess(argv, 0, "p4242\nn/tmp/s.sock\n", "")
+                return subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', "")
+            self.hot.subprocess.run = run
+            self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
+
     @unittest.skipUnless(Path("/proc/self/exe").exists(), "Linux /proc")
     def test_a_linux_daemon_with_only_its_basename_in_ps_is_found_by_proc_exe(self):
         # A real process whose executable is in the app: a copy of sleep at APP/Contents/Resources/bin.

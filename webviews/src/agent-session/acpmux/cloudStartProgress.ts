@@ -38,6 +38,8 @@ export type CloudStartProgress = {
   network?: "full" | "limited";
   /// A failure's words, the host's own.
   message?: string;
+  /// A stable host refusal code, used to attach recovery to the matching failure.
+  code?: string;
   /// The agent the chat starts, by name ("Claude Code"), for the opening step.
   agent?: string;
   /// No project: nothing is copied, so the card shows no copy step.
@@ -403,6 +405,7 @@ export function cloudStartEnded(
   return {
     ...rest,
     state: "failed",
+    code: answer.code,
     ...(message ? { message } : {}),
     ...(refusedHere ? { refusedHere } : {}),
     ...(answer.retryable ? { retryable: true } : {}),
