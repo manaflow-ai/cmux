@@ -105,6 +105,32 @@ import Testing
         #expect(!scheduler.isRunning)
     }
 
+    /// A scheduler freed without ``FrameScheduler/invalidate()`` (its window freed without a close) invalidates its
+    /// kept link: the run loop retains a link until it is invalidated, and a paused link never ticks to find out.
+    @Test func aFreedSchedulerInvalidatesItsPausedLink() throws {
+        let links = Links()
+        let media = Media()
+        weak var freed: FrameScheduler?
+        do {
+            let scheduler = FrameScheduler.testing(mediaTime: media.read) { _ in links.make() }
+            freed = scheduler
+            let spring = FrameClient(owner: "spring", on: scheduler) { _ in true }
+            spring.activate()
+            Self.frames(2, on: scheduler, media: media)
+            spring.deactivate()
+        }
+        #expect(freed == nil, "the idle scheduler was kept alive")
+        // The next scheduler to go idle sweeps the links of freed ones.
+        let other = FrameScheduler.testing(mediaTime: media.read) { _ in links.make() }
+        let next = FrameClient(owner: "next", on: other) { _ in true }
+        next.activate()
+        Self.frames(1, on: other, media: media)
+        next.deactivate()
+        let link = try #require(links.made.first)
+        #expect(link.invalidated, "a freed scheduler left its paused display link in the run loop")
+        #expect(links.made.count == 2 && !links.made[1].invalidated, "the live scheduler's kept link was invalidated")
+    }
+
     /// The window closing still ends the link (a link retains its target until it is invalidated).
     @Test func closingTheWindowInvalidatesThePausedLink() throws {
         let links = Links()
