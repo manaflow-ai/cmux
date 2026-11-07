@@ -200,7 +200,11 @@ async function until(done: () => boolean, capMs = 2000) {
   }
 }
 
-test("the sidebar's surface drags only once the host says where the card rests, and the page's memory wins", async () => {
+// Review F1 of #37669: the page's copy decided the place, and a missing copy (the bottom is stored as
+// nothing) left the host's place as it was. The page's storage does not outlive the page (its views use
+// a non-persistent website data store), so its copy is never the place after a relaunch: the host's
+// copy (cmux.sidebar.updatedCard.anchor) is the one that lasts, and the page's mirrors it.
+test("the sidebar's surface drags only once the host says where the card rests, and the host's place wins", async () => {
   const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "https://cmux.test/#/surface/updated" });
   const scope = globalThis as Record<string, unknown>;
   const globals = {
@@ -250,12 +254,15 @@ test("the sidebar's surface drags only once the host says where the card rests, 
     await act(async () => place!({ anchor: "bottom", above: 400, below: 0 }));
     expect(card()?.dataset.drags).toBe("");
     expect(card()?.dataset.anchor).toBe("bottom");
-    // The host lost its copy: it follows the page's remembered place.
-    expect(drags).toEqual([{ x: 0, y: 0, anchor: "top" }]);
+    // A stale page copy moves nothing; it takes the host's place.
+    expect(drags).toEqual([]);
+    expect(dom.window.localStorage.getItem("cmux.sidebar.card.updated")).toBeNull();
+    // The host remembered the top (the page's store came up empty): the card stays there.
     await act(async () => place!({ anchor: "top", above: 0, below: 400 }));
     expect(card()?.dataset.anchor).toBe("top");
     expect(dom.window.document.documentElement.dataset.cardAnchor).toBe("top");
-    expect(drags).toHaveLength(1);
+    expect(dom.window.localStorage.getItem("cmux.sidebar.card.updated")).toBe("top");
+    expect(drags).toEqual([]);
   } finally {
     dom.window.close();
     for (const [key, had, value] of saved) {

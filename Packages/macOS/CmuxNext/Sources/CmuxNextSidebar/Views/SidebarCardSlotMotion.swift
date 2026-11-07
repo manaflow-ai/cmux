@@ -81,6 +81,13 @@ final class SidebarCardSlotMotion: MotionAnimating {
         view.needsLayout = true
     }
 
+    /// Proofs: the spring caught at `value` on its way to `target`, as a frame between two steps sees it.
+    func catchMidFlight(at value: CGFloat, toward target: CGFloat) {
+        var height = SpringValue(target)
+        height.value = value
+        self.height = height
+    }
+
     /// The window went out of sight: the slot takes its final height now.
     func motionSettle() {
         guard var height else { return }

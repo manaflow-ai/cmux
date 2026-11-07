@@ -116,6 +116,30 @@ struct UpdatedCardDragTests {
         host.configure(nil)
     }
 
+    /// Review F2 of #37669: a press while the dropped card is still springing to its place made the
+    /// page's offset (0 at the press) the whole displacement, so the card jumped to its rest under the
+    /// pointer. The drag carries on from where the card is shown.
+    @Test func aDragThatStartsMidSettleCarriesOnFromWhereTheCardIs() throws {
+        for key in Self.keys { UserDefaults.standard.removeObject(forKey: key) }
+        defer { for key in Self.keys { UserDefaults.standard.removeObject(forKey: key) } }
+        let (sidebar, island) = try Self.sidebar()
+        let host = sidebar.updatedCardView
+        let rest = host.frame
+        // Let go a moment ago: the card is still 80 points short of its place.
+        host.settleY.catchMidFlight(at: -80, toward: 0)
+        island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 0, y: -1)))
+        #expect(host.displaced(rest, in: sidebar).minY == rest.minY - 81, "the card jumped to its rest when the drag began")
+        #expect(host.displaced(rest, in: sidebar).minY == rest.minY - 81, "the held card drifts while the page holds it still")
+
+        // Let go back at the bottom: it settles there, and a drag from its rest starts at the rest.
+        island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 0, y: -1), drop: .bottom))
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(host.frame == rest)
+        island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 0, y: -5)))
+        #expect(host.displaced(rest, in: sidebar).minY == rest.minY - 5)
+        host.configure(nil)
+    }
+
     /// Through the App's real island and page provider: the page's drag reaches the host in points,
     /// and the host's place reaches the page.
     @Test func theAppsIslandCarriesTheDragAndThePlace() async throws {
