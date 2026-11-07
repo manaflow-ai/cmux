@@ -254,3 +254,153 @@ test("a current turn longer than one ask reads is read on by the next ask, from 
     client.close();
   }
 });
+
+test("a titleless completed tool update survives a page boundary until its opener arrives", async () => {
+  const id = chatId(3);
+  const huge = "result\n".repeat(80_000);
+  const history: Rec[] = [
+    ["mux", "user_message", { text: "Old", promptId: "p-old" }],
+    ["mux", "turn_started", {}],
+    [
+      "in",
+      "tool_call",
+      update(id, {
+        sessionUpdate: "tool_call",
+        toolCallId: "boundary-call",
+        title: "run old",
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: "old" },
+      }),
+    ],
+    [
+      "in",
+      "tool_call_update",
+      update(id, {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "boundary-call",
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: huge } }],
+      }),
+    ],
+    ["mux", "turn_result", { stopReason: "end_turn" }],
+    ["mux", "user_message", { text: "Current", promptId: "p-current" }],
+    ["mux", "turn_started", {}],
+  ].map(([dir, kind, msg], index) => ({
+    sessionId: id,
+    seq: index + 1,
+    at: START + index * 1000,
+    dir,
+    kind,
+    msg,
+  }));
+  const { client, state } = await open(history);
+  try {
+    await client.loadOlder();
+    await client.loadOlder();
+    const tool = state.snapshot?.rows
+      .flatMap((row) => row.items ?? [])
+      .find((item) => item.kind === "tool") as { tool?: { id?: string; status?: string; output?: string } } | undefined;
+    expect(tool?.tool?.id).toBe("boundary-call");
+    expect(tool?.tool?.status).toBe("completed");
+    expect(tool?.tool?.output).toContain("result");
+  } finally {
+    client.close();
+  }
+});
+
+test("reused tool ids in different turns remain separate while paging", async () => {
+  const id = chatId(4);
+  const step = (text: string, promptId: string, output: string): [string, string, Record<string, unknown>][] => [
+    ["mux", "user_message", { text, promptId }],
+    ["mux", "turn_started", {}],
+    [
+      "in",
+      "tool_call",
+      update(id, {
+        sessionUpdate: "tool_call",
+        toolCallId: "reused",
+        title: text,
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: text },
+      }),
+    ],
+    [
+      "in",
+      "tool_call_update",
+      update(id, {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "reused",
+        title: text,
+        kind: "execute",
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: output } }],
+      }),
+    ],
+    ["mux", "turn_result", { stopReason: "end_turn" }],
+  ];
+  const steps = [...step("Old", "p-old", "old output"), ...step("Current", "p-current", "current output\n".repeat(80_000))];
+  const history: Rec[] = steps.map(([dir, kind, msg], index) => ({
+    sessionId: id,
+    seq: index + 1,
+    at: START + index * 1000,
+    dir,
+    kind,
+    msg,
+  }));
+  const { client, state } = await open(history);
+  try {
+    for (let asks = 0; state.snapshot?.canLoadOlder && asks < 8; asks++) await client.loadOlder();
+    const tools = state.snapshot?.rows.flatMap((row) => row.items ?? []).filter((item) => item.kind === "tool") ?? [];
+    expect(tools).toHaveLength(2);
+    expect((tools[0] as any).tool?.output).toBe("old output");
+    expect((tools[1] as any).tool?.output).toContain("current output");
+  } finally {
+    client.close();
+  }
+});
+
+test("assistant fragments split by an older page rejoin at the message boundary", async () => {
+  const id = chatId(5);
+  const huge = "tail\n".repeat(80_000);
+  const steps: [string, string, Record<string, unknown>][] = [
+    ["mux", "user_message", { text: "Current", promptId: "p-current" }],
+    ["mux", "turn_started", {}],
+    [
+      "in",
+      "agent_message_chunk",
+      update(id, {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "message-boundary",
+        content: { type: "text", text: "**hello " },
+      }),
+    ],
+    [
+      "in",
+      "agent_message_chunk",
+      update(id, {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "message-boundary",
+        content: { type: "text", text: `world** ${huge}` },
+      }),
+    ],
+  ];
+  const history: Rec[] = steps.map(([dir, kind, msg], index) => ({
+    sessionId: id,
+    seq: index + 1,
+    at: START + index * 1000,
+    dir,
+    kind,
+    msg,
+  }));
+  const { client, state } = await open(history);
+  try {
+    await client.loadOlder();
+    const assistants = state.snapshot?.rows.filter((row) => row.kind === "assistant") ?? [];
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.text).toContain("**hello world**");
+  } finally {
+    client.close();
+  }
+});

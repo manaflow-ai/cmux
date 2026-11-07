@@ -2248,6 +2248,10 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// Tool ids are scoped to a prompt by ACP adapters. Keep the scope beside the row so paging
+  /// reconciliation never joins two different turns that reused one id.
+  private toolRowScopes = new Map<string, string>();
+  private currentToolScope?: string;
   /// The reaction on each call a background task's end went onto (`attachReaction`), and the call
   /// each background turn's went onto.
   private reactions = new Map<string, { reaction: AcpmuxBackgroundReaction; row?: string }>();
@@ -3058,6 +3062,8 @@ export class AcpmuxDirectClient {
     this.offerRows.clear();
     this.receivedOffers.clear();
     this.toolRows.clear();
+    this.toolRowScopes.clear();
+    this.currentToolScope = undefined;
     this.reactions.clear();
     this.reactionOrigins.clear();
     this.freshReactions.clear();
@@ -5448,6 +5454,8 @@ export class AcpmuxDirectClient {
     this.receivedOffers.clear();
     this.compactionHeardAt.clear();
     this.toolRows.clear();
+    this.toolRowScopes.clear();
+    this.currentToolScope = undefined;
     this.reactions.clear();
     this.reactionOrigins.clear();
     this.freshReactions.clear();
@@ -6443,6 +6451,7 @@ export class AcpmuxDirectClient {
         // splits a turn whose calls may still update.
         if (msg.steer !== true) {
           this.toolRows.clear();
+          this.toolRowScopes.clear();
           this.planCalls.clear();
         }
         this.streamingActivity = undefined;
@@ -6571,6 +6580,9 @@ export class AcpmuxDirectClient {
         this.stoppingOpens(event);
         // A prompt opens its turn; a steer goes into the turn already open.
         if (promptId && msg.steer !== true) this.turnPrompt = promptRoot(promptId);
+        if (msg.steer !== true)
+          this.currentToolScope =
+            typeof promptId === "string" && promptId ? `prompt:${promptRoot(promptId)}` : `event:${event.seq}`;
         this.turnOpen = true;
       } else if (event.kind === "stopping") {
         // acpmux took the person's Stop for the running turn (hub/cancel.rs `mark_stopping`).
@@ -6599,6 +6611,8 @@ export class AcpmuxDirectClient {
         }
         // A turn that does not name its prompt is no known one's: never the turn before's.
         this.turnPrompt = typeof msg.promptId === "string" && msg.promptId ? promptRoot(msg.promptId) : undefined;
+        if (startedTurnId) this.currentToolScope = `turn:${startedTurnId}`;
+        else if (agentStarted) this.currentToolScope = `event:${event.seq}`;
         // A turn the agent started on its own runs no earlier checklist: Progress shows it ended
         // until the agent sends a plan again.
         if (agentStarted && this.progressRow) this.progressSuperseded = true;
@@ -6806,7 +6820,12 @@ export class AcpmuxDirectClient {
       const known = this.toolRows.get(callId);
       const knownRow = known && this.rows.has(known) ? known : undefined;
       // The result of a call this page never saw, naming nothing (a hidden call's, hiddenTools.ts).
-      if (!knownRow && event.kind === "tool_call_update" && showsNothing(update)) return;
+      // A terminal result can arrive on its own page before the opener. Keep that result in a
+      // temporary row so the opener page can reconcile it; dropping it here leaves the call stuck
+      // in progress when the older page lands (review F1).
+      const terminal = ["completed", "failed", "stopped"].includes(String(update.status));
+      const carriesResult = update.content !== undefined || update.rawOutput !== undefined || terminal && update.error;
+      if (!knownRow && event.kind === "tool_call_update" && showsNothing(update) && !carriesResult) return;
       if (!knownRow) this.endAssistantSegment();
       const id = knownRow ?? this.streamingActivity ?? `activity-${event.seq}`;
       const existing = this.rows.get(id);
@@ -6834,6 +6853,8 @@ export class AcpmuxDirectClient {
       };
       this.rows.set(id, row, itemIndex < 0 || !row.streaming || summaryChanged);
       this.toolRows.set(callId, id);
+      if (!this.toolRowScopes.has(id))
+        this.toolRowScopes.set(id, this.currentToolScope ?? `event:${event.seq}`);
       if (!knownRow) this.streamingActivity = id;
     } else if (event.kind === "background_task_update") {
       const task = backgroundTask(update, event.at);
@@ -10438,6 +10459,8 @@ export class AcpmuxDirectClient {
       progressSuperseded: this.progressSuperseded,
       messageRows: this.messageRows,
       toolRows: this.toolRows,
+      toolRowScopes: this.toolRowScopes,
+      currentToolScope: this.currentToolScope,
       planCalls: this.planCalls,
       subagents: this.subagents,
       summary: this.summary,
@@ -10479,6 +10502,8 @@ export class AcpmuxDirectClient {
     this.progressSuperseded = false;
     this.messageRows = new Map();
     this.toolRows = new Map();
+    this.toolRowScopes = new Map();
+    this.currentToolScope = live.currentToolScope;
     this.planCalls = new Set();
     this.subagents = new SubagentFold(this.subagentStops);
     // An older page replays persisted records too: seed the native roots as the full replay does.
@@ -10507,7 +10532,18 @@ export class AcpmuxDirectClient {
     // A page can split a tool call: its completed update may have been held first, then the
     // older page brings the call opener. Keep the held row as the authoritative later state and
     // remove the page's duplicate item, while retaining page-only calls in the incremental fold.
-    const pageToolRows = this.toolRows;
+    // `toolRows` is keyed by call id and is intentionally reset at every prompt. Capture every
+    // page row before restoring the live map; adapters may reuse an id in several turns.
+    const pageToolRows: { callId: string; rowId: string; item: AcpmuxActivity; scope?: string }[] = [];
+    for (const [rowId, row] of this.rows) {
+      if (held.has(rowId) || row.kind !== "activity") continue;
+      for (const item of row.items ?? []) {
+        if (item.tool) pageToolRows.push({ callId: item.tool.id, rowId, item, scope: this.toolRowScopes.get(rowId) });
+      }
+    }
+    const pageMessageRows = new Map<string, string[]>();
+    for (const [messageId, rowIds] of this.messageRows)
+      pageMessageRows.set(messageId, rowIds.filter((rowId) => !held.has(rowId)));
     // The held events' compactions take up the ones the page left open, in order, as reading the
     // whole record does (`compaction` above). One whose first record is a running note continues a
     // compaction the page left running, or noted as failed while it may go on (a forced Stop, or an
@@ -10602,27 +10638,83 @@ export class AcpmuxDirectClient {
     const progressRow = live.progressRow !== undefined ? live.progressRow : this.progressRow;
     const progressSuperseded =
       live.progressRow !== undefined ? live.progressSuperseded : this.progressRow !== undefined;
-    Object.assign(this, live, { forkedAtSeq, messageRows, progressRow, progressSuperseded });
-    for (const [callId, pageRowId] of pageToolRows) {
+    Object.assign(this, live, {
+      forkedAtSeq,
+      messageRows,
+      progressRow,
+      progressSuperseded,
+      toolRowScopes: new Map(live.toolRowScopes),
+      currentToolScope: live.currentToolScope,
+    });
+    // A message id is stable across streamed chunks. Join only the boundary pair (the last older
+    // fragment to the first held fragment), preserving deliberate cuts within either side.
+    for (const [messageId, pageIds] of pageMessageRows) {
+      const liveIds = live.messageRows.get(messageId) ?? [];
+      const pageId = [...pageIds].reverse().find((rowId) => this.rows.get(rowId)?.kind === "assistant");
+      const liveId = liveIds.find((rowId) => this.rows.get(rowId)?.kind === "assistant");
+      if (!pageId || !liveId || pageId === liveId) continue;
+      const pageRow = this.rows.get(pageId);
+      const liveRow = this.rows.get(liveId);
+      if (!pageRow?.text || !liveRow?.text || pageRow.at > liveRow.at) continue;
+      this.rows.set(liveId, {
+        ...liveRow,
+        version: Math.max(pageRow.version, liveRow.version) + 1,
+        text: `${pageRow.text}${liveRow.text}`,
+      });
+      this.rows.delete(pageId);
+      this.messageRows.set(messageId, [
+        ...(this.messageRows.get(messageId) ?? []).filter((rowId) => rowId !== pageId),
+      ]);
+    }
+    for (const { callId, rowId, item, scope } of pageToolRows) {
       const liveRowId = live.toolRows.get(callId);
-      if (liveRowId === undefined) {
-        this.toolRows.set(callId, pageRowId);
+      const liveScope = liveRowId === undefined ? undefined : live.toolRowScopes.get(liveRowId);
+      // Call ids are prompt-scoped. Prefer a held row from the same scope, but when an opener is
+      // the first record of its page its scope is learned only now: match its title or command to
+      // the held terminal row. A different completed call that reused the id does not match.
+      const pageTool = item.tool;
+      const terminal = (tool: typeof pageTool | undefined) => tool?.status === "completed" || tool?.status === "failed";
+      const compatible = (left: typeof pageTool | undefined, right: typeof pageTool | undefined) =>
+        left?.title === right?.title ||
+        left?.title === callId ||
+        right?.title === callId ||
+        (left?.command !== undefined && left.command === right?.command);
+      const candidates = [
+        liveRowId,
+        ...[...held.keys()].filter((candidate) => candidate !== rowId && candidate !== liveRowId),
+      ].filter((candidate, index, all): candidate is string => candidate !== undefined && all.indexOf(candidate) === index);
+      const match = candidates
+        .map((candidate) => ({ rowId: candidate, row: this.rows.get(candidate) }))
+        .map(({ rowId: candidate, row }) => ({
+          rowId: candidate,
+          row,
+          tool: row?.items?.find((entry) => entry.tool?.id === callId)?.tool,
+        }))
+        .find(
+          ({ row: candidateRow, tool }) =>
+            candidateRow !== undefined &&
+            tool !== undefined &&
+            terminal(pageTool) !== terminal(tool) &&
+            (scope === liveScope || compatible(pageTool, tool)),
+        );
+      if (match) {
+        const pageRow = this.rows.get(rowId);
+        if (pageRow?.items) {
+          const remaining = pageRow.items.filter((entry) => entry !== item);
+          if (remaining.length === 0) this.rows.delete(rowId);
+          else
+            this.rows.set(rowId, {
+              ...pageRow,
+              version: pageRow.version + 1,
+              items: remaining,
+              toolCount: remaining.filter((entry) => entry.kind === "tool").length,
+            });
+        }
+        this.toolRows.set(callId, match.rowId);
         continue;
       }
-      if (liveRowId === pageRowId) continue;
-      const pageRow = this.rows.get(pageRowId);
-      const liveRow = this.rows.get(liveRowId);
-      if (!pageRow?.items || !liveRow?.items) continue;
-      const liveToolIds = new Set(liveRow.items.map((item) => item.tool?.id).filter(Boolean));
-      const remaining = pageRow.items.filter((item) => !item.tool?.id || !liveToolIds.has(item.tool.id));
-      if (remaining.length === 0) this.rows.delete(pageRowId);
-      else
-        this.rows.set(pageRowId, {
-          ...pageRow,
-          version: pageRow.version + 1,
-          items: remaining,
-          toolCount: remaining.filter((item) => item.kind === "tool").length,
-        });
+      if (!this.toolRows.has(callId)) this.toolRows.set(callId, rowId);
+      if (scope !== undefined) this.toolRowScopes.set(rowId, scope);
     }
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);
