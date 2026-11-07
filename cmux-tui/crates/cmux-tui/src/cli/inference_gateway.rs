@@ -528,7 +528,7 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
                     .and_then(|d| base64::engine::general_purpose::STANDARD.decode(d).ok());
                 match chunk {
                     Some(bytes) if call.body.len() + bytes.len() <= MAX_BODY_BYTES => {
-                        call.body.extend(bytes)
+                        call.body.extend(bytes);
                     }
                     _ => {
                         pending.remove(&id);
