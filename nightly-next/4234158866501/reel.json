@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "build": "4234158866501",
+  "notes": "notes/4234158866501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37409,
+      "title": "Cloud VM image roll: fix the 5 review follow-ups before going live",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37463,
+      "title": "Composer chip and Session Info's local actions name the chat's machine over a remote route",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37453,
+      "title": "test(webviews): an accent-glass stage that hangs is not scanned, not the part's time limit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36491,
+      "title": "cmux NEXT agent pane: delete the codexToolRuns, liveLineBelow and scrollerFade debug switches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37337,
+      "title": "cmux-daemon-launch-core: the app's daemon launch rules in Rust, linked in cmux-app-ffi (step A; no Swift change)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35129,
+      "title": "feat(webviews): route context menus through shared popup UI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37161,
+      "title": "Sidebar: a new workspace goes right below the selected one, never the sidebar's end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37343,
+      "title": "cmux-cloud-handlers: the Cloud action handlers' rules in Rust, over the app FFI (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37196,
+      "title": "Model menu: a started chat browses every harness's models and forks on send",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36958,
+      "title": "cmux NEXT menu bar: Computer Use, Unread and Running chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37436,
+      "title": "Agent chat: a closed fold's run line drops calls that never got their input",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37431,
+      "title": "cmux chat --on TARGET: start a chat here, on a device, a Cloud VM or in Cloud; cmux cloud is now cmux vm",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37451,
+      "title": "cmux NEXT: layout.panePadding 0 keeps the chrome style's line between split panes (#37425)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37459,
+      "title": "Session Info names the machine a chat's agent runs on, not this Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37381,
+      "title": "cmux-layout-reducer: the sidebar bridge's decision rules in Rust (sidebar_bridge) over the app FFI, step A",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37454,
+      "title": "acpmux: a remote context viewer sees a memory file's name, not its local path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37452,
+      "title": "auth: an auto-login says whether it started and how it failed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37446,
+      "title": "ci(cmux-tui-artifacts): adopting a publication reads each name once without a Bash 4 array",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37407,
+      "title": "Agent pane: the computer-use preview's person label is a small-radius rect, not a capsule",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37379,
+      "title": "fix(cmux-tui): a keyed create-terminal projects only its own workspace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37460,
+      "title": "cloud_model_preview_url: a call with no path opens the root, as Swift's browserURL(path: \"/\") does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37450,
+      "title": "hot-apply: find an app daemon started through a linked folder, and pick the app's own session",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36795,
+      "title": "cmux NEXT: delete five agent chat, tab bar and Debug page switches whose default stays",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37294,
+      "title": "cmux-cloud-machine: NEXT Cloud's machine record and its rules in Rust, over the app FFI (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37348,
+      "title": "cmux-cloud-config: Cloud sign-in, identity and configuration rules over the app FFI (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37419,
+      "title": "Chief: a permission mode for its own turns (bypass by default); acpmux allows naming the person's full-access start mode",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37444,
+      "title": "cmux-host: a bind or relay token the network change failed is retried at once, not after the 2 s backoff",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37401,
+      "title": "fix(tabs): close case A follow-ups: multi-tab close anchors, Motion.tabs gate, pinned divider slide, no echo work",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37408,
+      "title": "Keys: Ctrl-` in the first-run Agents window opens a terminal in the main window (P0 ctrlbt-real-palette)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
