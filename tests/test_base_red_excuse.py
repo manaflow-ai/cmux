@@ -1682,6 +1682,32 @@ class StatusOnlyChecks(unittest.TestCase):
             self.judge()
 
 
+def pr_graphql(case, calls, paths, *, number, changed=None, page=100):
+    """A fake GitHub.run for pr_paths' reads: the search for HEAD's PR into feat-cmux-next (beside a node that is no
+    PR and a PR with another head), then the PR's files PAGE at a time, the cursor being the next file's index.
+    CHANGED: the PR's changedFiles, when it is not how many files are listed. Each call's argv goes to CALLS."""
+    found = {"number": number, "baseRefName": "feat-cmux-next", "headRefOid": HEAD}
+
+    def run(args):
+        calls.append(args)
+        case.assertEqual(args[:2], ["api", "graphql"])
+        query = args[3].removeprefix("query=")
+        fields = dict(arg.split("=", 1) for arg in args[4:] if arg not in ("-f", "-F"))
+        if query == excuse.PR_SEARCH_QUERY:
+            case.assertEqual(fields["q"], f"repo:{REPO} is:pr is:open {HEAD}")
+            return json.dumps({"data": {"search": {"nodes": [{}, dict(found, headRefOid="0" * 40), found]}}})
+        case.assertEqual(query, excuse.PR_FILES_QUERY)
+        case.assertEqual(fields["number"], str(number))
+        start = 0 if fields["after"] == "null" else int(fields["after"])
+        more = start + page < len(paths)
+        pr = dict(found, changedFiles=len(paths) if changed is None else changed,
+                  files={"nodes": [{"path": path} for path in paths[start:start + page]],
+                         "pageInfo": {"hasNextPage": more, "endCursor": str(start + page) if more else None}})
+        return json.dumps({"data": {"repository": {"pullRequest": pr}}})
+
+    return run
+
+
 class JoblessStatusChecks(unittest.TestCase):
     """Vercel posts a commit status no Actions job gave (cmuxterm-hq#7039, 2026-11-04: "Deployment rate limited —
     retry in 24 hours." on the head and on main's tip alike). It is excused only when the newest base commit with
@@ -1762,18 +1788,9 @@ class JoblessStatusChecks(unittest.TestCase):
     IGNORED = "Canceled by Ignored Build Step"
 
     def pr_files(self, *paths, number=7192, changed=None):
-        """The one GraphQL read pr_paths makes: the PR into feat-cmux-next whose head is HEAD and its files."""
+        """The GraphQL reads pr_paths makes: a search for the PR into feat-cmux-next whose head is HEAD, its files."""
         self.graphql: list[list[str]] = []
-        pr = {"number": number, "baseRefName": "feat-cmux-next", "headRefOid": HEAD,
-              "changedFiles": len(paths) if changed is None else changed,
-              "files": {"nodes": [{"path": path} for path in paths], "pageInfo": {"hasNextPage": False}}}
-
-        def run(args):
-            self.graphql.append(args)
-            assert args[:2] == ["api", "graphql"] and f"oid={HEAD}" in args, args
-            return json.dumps({"data": {"repository": {"object": {"associatedPullRequests": {"nodes": [pr]}}}}})
-
-        self.gh.run = run
+        self.gh.run = pr_graphql(self, self.graphql, paths, number=number, changed=changed)
 
     def test_rate_limited_vercel_is_no_result_when_the_base_skipped_its_build_and_web_is_untouched(self):
         self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
@@ -1781,7 +1798,7 @@ class JoblessStatusChecks(unittest.TestCase):
         self.assertEqual(self.judge(), [
             f"excused 'Vercel': no result: \"{self.LIMITED}\" (Vercel built nothing), base status success "
             f"\"{self.IGNORED}\" (a skipped build), and #7192 changes no web/ files"])
-        self.assertEqual(len(self.graphql), 1)
+        self.assertEqual(len(self.graphql), 2)  # the search, then one page of files
         self.assertFalse(any("/compare/" in route for route in self.gh.routes))  # no REST diff read
 
     def test_rate_limited_vercel_on_a_pr_that_touches_web_is_refused(self):
@@ -3722,15 +3739,8 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.gh.logs = {1: self.pin_log(), 2: ""}
         self.graphql: list[list[str]] = []
 
-    def pr_files(self, *paths):
-        pr = {"number": 37292, "baseRefName": "feat-cmux-next", "headRefOid": HEAD, "changedFiles": len(paths),
-              "files": {"nodes": [{"path": path} for path in paths], "pageInfo": {"hasNextPage": False}}}
-
-        def run(args):
-            self.graphql.append(args)
-            return json.dumps({"data": {"repository": {"object": {"associatedPullRequests": {"nodes": [pr]}}}}})
-
-        self.gh.run = run
+    def pr_files(self, *paths, changed=None, page=100):
+        self.gh.run = pr_graphql(self, self.graphql, paths, number=37292, changed=changed, page=page)
 
     def judge(self):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
@@ -3744,7 +3754,44 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
             "source\"), and #37292 changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: a "
             "step-A Rust change, pinned by the release its merge publishes"])
-        self.assertEqual(len(self.graphql), 1)
+        self.assertEqual(len(self.graphql), 2)  # the search, then one page of files
+
+    def test_a_pr_of_more_than_one_page_of_files_is_read_to_its_last_file(self):
+        # cmux#37362 at 54470673 changes 108 files; GitHub lists at most 100 per page.
+        crates = tuple(f"cmux-tui/crates/cmux-actions/src/action_{i}.rs" for i in range(105))
+        self.pr_files(*crates, *self.RUST)
+        self.assertTrue(self.judge()[0].startswith(f"excused '{self.JOB}': only '{self.PIN}' is red"))
+        self.assertEqual(len(self.graphql), 3)  # the search, then two pages of files
+        self.assertEqual(self.graphql[2][-1], "after=100")
+
+    def test_a_swift_file_past_the_first_page_is_still_refused(self):
+        crates = tuple(f"cmux-tui/crates/cmux-actions/src/action_{i}.rs" for i in range(150))
+        self.pr_files(*crates, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Actions.swift", page=50)
+        with self.assertRaisesRegex(excuse.Refused, r"#37292 changes Swift \(Packages/.*Actions.swift\)"):
+            self.judge()
+        self.assertEqual(len(self.graphql), 5)
+
+    def test_a_file_list_shorter_than_changed_files_is_refused(self):
+        crates = tuple(f"cmux-tui/crates/cmux-actions/src/action_{i}.rs" for i in range(108))
+        self.pr_files(*crates, changed=109)
+        with self.assertRaisesRegex(excuse.Refused, "GitHub listed 108 of its 109 changed files"):
+            self.judge()
+
+    def test_a_pr_the_search_does_not_find_is_refused(self):
+        self.pr_files(*self.RUST)
+        self.gh.run = lambda args: json.dumps({"data": {"search": {"nodes": []}}})
+        with self.assertRaisesRegex(excuse.Refused, f"no PR into feat-cmux-next has head {HEAD}"):
+            self.judge()
+
+    def test_its_queries_are_ones_the_lane_broker_reads(self):
+        # The lane-gh broker refused Commit.associatedPullRequests under object(oid:), and any declared variable
+        # with no value; both reads name only fields under repository and search.
+        self.assertNotIn("associatedPullRequests", excuse.PR_SEARCH_QUERY + excuse.PR_FILES_QUERY)
+        self.pr_files(*self.RUST)
+        self.judge()
+        files_read = self.graphql[1]
+        self.assertIn("after=null", files_read)
+        self.assertEqual(files_read[files_read.index("after=null") - 1], "-F")
 
     def test_a_change_that_also_changes_swift_is_refused(self):
         self.pr_files(*self.RUST,
@@ -3777,7 +3824,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files(*self.RUST)
         with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
             self.judge()
-        self.assertEqual(len(self.graphql), 1)  # the path rule passed first
+        self.assertEqual(len(self.graphql), 2)  # the path rule passed first
 
     def test_a_swift_change_is_refused_even_when_another_red_is_shared_with_the_base(self):
         # Review of d5c11dd8: beside a failing test the base shares, the base comparison sets error lines aside, so
@@ -3796,7 +3843,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files(*self.RUST)
         with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
             self.judge()
-        self.assertEqual(len(self.graphql), 1)
+        self.assertEqual(len(self.graphql), 2)
 
     def test_a_rollup_that_never_named_the_pin_is_another_red(self):
         # Review of 0e1e7204: the rollup failed before its "red check:" line, so something else broke it.

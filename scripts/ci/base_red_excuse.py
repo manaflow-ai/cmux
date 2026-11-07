@@ -962,29 +962,62 @@ BASE_STATUS_COMMITS = 10
 VERCEL_RATE_LIMITED = re.compile(r"Deployment rate limited\b")
 VERCEL_NOT_BUILT = re.compile(r"(?i)\bIgnored Build Step\b|\bcancel(?:l?ed)?\b")
 VERCEL_TREE = "web/"
-PR_FILES_QUERY = ("query($owner: String!, $name: String!, $oid: GitObjectID!) { repository(owner: $owner, name: $name) "
-                  "{ object(oid: $oid) { ... on Commit { associatedPullRequests(first: 10) { nodes { number "
-                  "baseRefName headRefOid changedFiles files(first: 100) { nodes { path } pageInfo { hasNextPage } } "
-                  "} } } } } }")
+# The PR is found by a search for its head sha, then its files are read from repository.pullRequest(number:), one
+# page of PR_FILES_PAGE at a time (cmux#37362 at 54470673 changes 108 files). Neither read goes through
+# Commit.associatedPullRequests: on a lane VM the lane-gh broker (cmuxterm-hq tools/lane-gh-broker parts/
+# 44-calls-graphql.py GRAPHQL_SCOPED_FIELDS) refuses it under object(oid:) ("graphql: field associatedPullRequests is
+# read only under commit") and lets only a PR's number and merged be read under it, so merge_hold refused every land
+# the FFI pin rule should have let through.
+PR_SEARCH_QUERY = ("query($q: String!) { search(query: $q, type: ISSUE, first: 10) { nodes { ... on PullRequest { "
+                   "number baseRefName headRefOid } } } }")
+PR_FILES_PAGE = 100
+PR_FILES_QUERY = ("query($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, "
+                  "name: $name) { pullRequest(number: $number) { number baseRefName headRefOid changedFiles "
+                  f"files(first: {PR_FILES_PAGE}, after: $after) {{ nodes {{ path }} pageInfo {{ hasNextPage endCursor "
+                  "} } } } }")
+PR_FILES_PAGES = 30  # 3000 files, GitHub's own limit on a PR's file list
+
+
+def _graphql(github, query: str, **fields) -> dict:
+    """A GraphQL read's data. Every variable is sent, None as -F KEY=null: the broker refuses a declared variable
+    with no value ("graphql: $after has no value in variables")."""
+    argv = ["api", "graphql", "-f", f"query={query}"]
+    for key, value in fields.items():
+        if value is None or isinstance(value, int):
+            argv += ["-F", f"{key}={'null' if value is None else value}"]
+        else:
+            argv += ["-f", f"{key}={value}"]
+    found = json.loads(github.run(argv))
+    return (found.get("data") or {}) if isinstance(found, dict) else {}
 
 
 def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
-    """The open PR into BASE whose head is SHA, and every path it changes, in one GraphQL read (no REST). Refused when
-    there is no such PR or GitHub lists fewer files than the PR changes."""
+    """The open PR into BASE whose head is SHA, and every path it changes, over GraphQL (no REST): a search for SHA
+    names the PR, and its files are read page by page. Refused when there is no such PR, when its head or base moves
+    while it is read, or when GitHub lists fewer files than the PR changes."""
     owner, _, name = repo.partition("/")
-    found = json.loads(github.run(["api", "graphql", "-f", f"query={PR_FILES_QUERY}", "-f", f"owner={owner}",
-                                   "-f", f"name={name}", "-f", f"oid={sha}"]))
-    commit = (((found.get("data") or {}).get("repository") or {}).get("object") or {}) if isinstance(found, dict) else {}
-    for pr in (commit.get("associatedPullRequests") or {}).get("nodes") or []:
+    found = _graphql(github, PR_SEARCH_QUERY, q=f"repo:{repo} is:pr is:open {sha}")
+    numbers = [node.get("number") for node in (found.get("search") or {}).get("nodes") or []
+               if isinstance(node, dict) and node.get("headRefOid") == sha and node.get("baseRefName") == base
+               and isinstance(node.get("number"), int)]
+    if not numbers:
+        raise Refused(f"no PR into {base} has head {sha} to read its changed files from")
+    number, paths, after = numbers[0], [], None
+    for _page in range(PR_FILES_PAGES):
+        pr = (_graphql(github, PR_FILES_QUERY, owner=owner, name=name, number=number, after=after).get("repository")
+              or {}).get("pullRequest") or {}
         if pr.get("headRefOid") != sha or pr.get("baseRefName") != base:
-            continue
+            raise Refused(f"#{number}: its head or base is no longer {sha[:12]} into {base}; nothing to judge")
         files = pr.get("files") or {}
-        paths = [node.get("path") for node in files.get("nodes") or [] if isinstance(node.get("path"), str)]
-        if (files.get("pageInfo") or {}).get("hasNextPage") or len(paths) != pr.get("changedFiles"):
-            raise Refused(f"#{pr.get('number')}: GitHub listed {len(paths)} of its {pr.get('changedFiles')} changed "
-                          f"files, too few to judge what it changes")
-        return pr.get("number"), paths
-    raise Refused(f"no PR into {base} has head {sha} to read its changed files from")
+        paths += [node.get("path") for node in files.get("nodes") or [] if isinstance(node.get("path"), str)]
+        info = files.get("pageInfo") or {}
+        after = info.get("endCursor")
+        if not info.get("hasNextPage") or not after:
+            break
+    if info.get("hasNextPage") or len(paths) != pr.get("changedFiles"):
+        raise Refused(f"#{number}: GitHub listed {len(paths)} of its {pr.get('changedFiles')} changed files, too "
+                      f"few to judge what it changes")
+    return number, paths
 
 
 # A step-A Rust change (cmux#37292, 2026-11-06): the app links one pinned release of the app FFI, and
