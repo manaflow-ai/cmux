@@ -17,6 +17,8 @@
 //! (include/cmux_action_catalog.h), read once at launch.
 //! `daemon_conn` is the control connection's rules (cmux-daemon-conn-core,
 //! include/cmux_daemon_conn.h).
+//! `daemon_launch` is how the app starts and keeps its cmux-tui daemon
+//! (include/cmux_daemon_launch.h).
 
 pub mod hover;
 pub mod motion;
@@ -24,6 +26,7 @@ pub mod motion;
 pub use cmux_action_catalog::ffi as action_catalog;
 pub use cmux_agent_pane_policy::ffi as agent_pane_policy;
 pub use cmux_daemon_conn_core::ffi as daemon_conn;
+pub use cmux_daemon_launch_core::ffi as daemon_launch;
 pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_rd_ffi as rd;

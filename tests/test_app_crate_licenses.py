@@ -108,6 +108,9 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-cloud-tasks",
                     # The control connection rules (cmux-daemon-conn-core).
                     "cmux-daemon-conn-core",
+                    # The daemon launch rules and the install-key proof they use (cmux-daemon-launch-core).
+                    "cmux-daemon-launch-core",
+                    "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
                 ]

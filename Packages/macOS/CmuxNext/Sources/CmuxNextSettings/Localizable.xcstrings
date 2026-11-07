@@ -1,6 +1,666 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.chief.permissionMode": {
+      "comment": "Chief turn permission mode (cmux#37392).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Permission Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefの権限モード"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع أذونات Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechtigungsmodus des Chiefs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de permisos del Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode d’autorisations du Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 권한 모드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 权限模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 權限模式"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Način dozvola za Chief"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefs tilladelsestilstand"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modalità permessi del Chief"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបសិទ្ធិរបស់ Chief"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillatelsesmodus for Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryb uprawnień Chiefa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de permissões do Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим разрешений Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหมดสิทธิ์ของ Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief İzin Modu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим дозволів Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chế độ quyền của Chief"
+          }
+        }
+      }
+    },
+    "settings.chief.permissionMode.help": {
+      "comment": "Chief turn permission mode (cmux#37392).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How the Chief's own turns handle permissions. Bypass runs every command without asking. Auto lets a safety check decide each command. Manual refuses each change that would need approval. Applies from the next turn."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief自身のターンが権限をどう扱うか。バイパスはすべてのコマンドを確認なしで実行します。自動は安全チェックが各コマンドを判断します。手動は承認が必要な変更をすべて拒否します。次のターンから適用されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كيف تتعامل أدوار Chief نفسه مع الأذونات. التجاوز ينفّذ كل أمر دون سؤال. التلقائي يترك فحص أمان يقرر كل أمر. اليدوي يرفض كل تغيير يحتاج إلى موافقة. يُطبَّق من الدور التالي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie die eigenen Züge des Chiefs mit Berechtigungen umgehen. Umgehen führt jeden Befehl ohne Rückfrage aus. Automatisch lässt eine Sicherheitsprüfung jeden Befehl entscheiden. Manuell lehnt jede Änderung ab, die eine Freigabe bräuchte. Gilt ab dem nächsten Zug."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo gestionan los permisos los turnos propios del Chief. Omitir ejecuta cada comando sin preguntar. Automático deja que una comprobación de seguridad decida cada comando. Manual rechaza cada cambio que necesitaría aprobación. Se aplica desde el siguiente turno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment les tours du Chief gèrent les autorisations. Contourner exécute chaque commande sans demander. Automatique laisse une vérification de sécurité décider de chaque commande. Manuel refuse chaque modification qui demanderait une approbation. S’applique dès le tour suivant."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 자체 턴이 권한을 처리하는 방식입니다. 우회는 모든 명령을 묻지 않고 실행합니다. 자동은 안전 검사가 각 명령을 판단합니다. 수동은 승인이 필요한 모든 변경을 거부합니다. 다음 턴부터 적용됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 自己的回合如何处理权限。绕过会不经询问运行每条命令。自动由安全检查决定每条命令。手动会拒绝每个需要批准的更改。从下一回合起生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 自己的回合如何處理權限。略過會不經詢問執行每個指令。自動由安全檢查決定每個指令。手動會拒絕每個需要核准的變更。從下一回合起生效。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kako Chiefovi vlastiti potezi rukuju dozvolama. Zaobilaženje pokreće svaku komandu bez pitanja. Automatski pušta sigurnosnu provjeru da odluči o svakoj komandi. Ručno odbija svaku promjenu koja bi trebala odobrenje. Primjenjuje se od sljedećeg poteza."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan Chiefs egne ture håndterer tilladelser. Omgå kører hver kommando uden at spørge. Automatisk lader et sikkerhedstjek afgøre hver kommando. Manuel afviser hver ændring, der ville kræve godkendelse. Gælder fra næste tur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come i turni del Chief gestiscono i permessi. Ignora esegue ogni comando senza chiedere. Automatica lascia decidere ogni comando a un controllo di sicurezza. Manuale rifiuta ogni modifica che richiederebbe un'approvazione. Si applica dal turno successivo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបដែលវេនផ្ទាល់របស់ Chief គ្រប់គ្រងសិទ្ធិ។ រំលង ដំណើរការពាក្យបញ្ជានីមួយៗដោយមិនសួរ។ ស្វ័យប្រវត្តិ ឱ្យការត្រួតពិនិត្យសុវត្ថិភាពសម្រេចពាក្យបញ្ជានីមួយៗ។ ដោយដៃ បដិសេធការផ្លាស់ប្ដូរនីមួយៗដែលត្រូវការការអនុម័ត។ អនុវត្តចាប់ពីវេនបន្ទាប់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan Chiefs egne turer håndterer tillatelser. Omgå kjører hver kommando uten å spørre. Automatisk lar en sikkerhetssjekk avgjøre hver kommando. Manuell avviser hver endring som ville trengt godkjenning. Gjelder fra neste tur."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak własne tury Chiefa obsługują uprawnienia. Pomijanie uruchamia każde polecenie bez pytania. Automatyczny pozwala kontroli bezpieczeństwa decydować o każdym poleceniu. Ręczny odrzuca każdą zmianę, która wymagałaby zgody. Działa od następnej tury."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como os turnos do próprio Chief lidam com permissões. Ignorar executa cada comando sem perguntar. Automático deixa uma verificação de segurança decidir cada comando. Manual recusa cada alteração que precisaria de aprovação. Vale a partir do próximo turno."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как собственные ходы Chief обрабатывают разрешения. Обход выполняет каждую команду без вопросов. Авто позволяет проверке безопасности решать по каждой команде. Вручную отклоняет каждое изменение, которому нужно одобрение. Применяется со следующего хода."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีที่เทิร์นของ Chief เองจัดการสิทธิ์ ข้าม จะรันทุกคำสั่งโดยไม่ถาม อัตโนมัติ ให้การตรวจสอบความปลอดภัยตัดสินแต่ละคำสั่ง ด้วยตนเอง จะปฏิเสธการเปลี่ยนแปลงทุกครั้งที่ต้องได้รับอนุมัติ มีผลตั้งแต่เทิร์นถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief'in kendi turlarının izinleri nasıl ele aldığı. Atla, her komutu sormadan çalıştırır. Otomatik, her komuta bir güvenlik denetiminin karar vermesine izin verir. Elle, onay gerektirecek her değişikliği reddeder. Sonraki turdan itibaren geçerlidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як власні ходи Chief обробляють дозволи. Обхід виконує кожну команду без запитань. Авто дає перевірці безпеки вирішувати щодо кожної команди. Вручну відхиляє кожну зміну, якій потрібне схвалення. Застосовується з наступного ходу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cách các lượt của chính Chief xử lý quyền. Bỏ qua chạy mọi lệnh mà không hỏi. Tự động để một bước kiểm tra an toàn quyết định từng lệnh. Thủ công từ chối mọi thay đổi cần phê duyệt. Áp dụng từ lượt tiếp theo."
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPermissionMode.bypass": {
+      "comment": "Chief turn permission mode (cmux#37392).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bypass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイパス"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجاوز"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umgehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omitir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contourner"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "우회"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "绕过"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "略過"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaobilaženje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omgå"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignora"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រំលង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omgå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomijanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обход"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้าม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обхід"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bỏ qua"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPermissionMode.auto": {
+      "comment": "Chief turn permission mode (cmux#37392).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقائي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatica"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatyczny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPermissionMode.manual": {
+      "comment": "Chief turn permission mode (cmux#37392).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يدوي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuell"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo manual"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuel"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ručno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដោយដៃ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuell"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ręczny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo manual"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вручную"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ด้วยตนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вручну"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thủ công"
+          }
+        }
+      }
+    },
     "settings.placeholder.wordOrPhrase": {
       "comment": "Placeholder of a free-text list of words (Settings > Chief > Subagents show and hide words).",
       "extractionState": "manual",

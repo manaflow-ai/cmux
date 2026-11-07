@@ -58,6 +58,8 @@ FIRST_PARTY_GPL = {
     "cmux-cloud-config",
     "cmux-cloud-tasks",
     "cmux-daemon-conn-core",
+    "cmux-daemon-launch-core",
+    "cmux-local-auth",
     "cmux-palette-ranker",
     "cmux-remote-browser",
 }
