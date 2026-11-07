@@ -621,11 +621,11 @@ final class CloudService {
     @discardableResult
     private func addSession(_ machine: CloudMachine) -> CloudMachineSession? {
         guard !policyDisabled else { return nil }
-        // The carrier: one `cmux carrier serve` for the session; the record names the owner.
+        // The carrier: one `cmux carrier serve` for the session; the record's creator is a platform user id (`user_…`).
         let serve = CloudCarrierDial.Connector(machine: machine.id, service: .mux, cli: binary, auth: auth, platform: configuration.relayAPIBaseURL(),
                                                team: machine.team, stateDirectory: tuiState).map { CloudCarrierServe(connector: $0, paths: paths) }
         let resolver = CloudCarrierResolver(serve: serve) { @MainActor [weak self, id = machine.id] in
-            CloudCallerOwnership(creator: self?.machines.session(id)?.machine.createdBy, caller: self?.auth.user?.id)
+            CloudCallerOwnership(creator: self?.machines.session(id)?.machine.createdBy, caller: self?.auth.platformUserID)
         }
         let local = machines.local
         let session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),

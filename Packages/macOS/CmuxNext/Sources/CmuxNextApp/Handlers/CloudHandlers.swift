@@ -234,11 +234,11 @@ enum CloudHandlers {
     /// Open Desktop (`cloud open-desktop`): the machine's desktop in a new workspace on this Mac, in the
     /// remote view pane on its `cmux-rd` host over the carrier (`carrier dial --service desktop`), opened
     /// watching the agent with Take over in the pane's toolbar. A machine with no carrier desktop (a classic
-    /// one, a teammate's, or one that serves none) fails here with the Cloud error, never a blank tab.
+    /// one, or one that serves none) fails here with the Cloud error, never a blank tab; the carrier refuses a teammate.
     /// `viewer` is only ever `rd`.
     @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext, viewer: String? = nil) throws {
         let services = context.services, title = session.machine.title
-        guard viewer == nil || viewer == "rd", session.machine.opensCarrierDesktop(for: services.cloud.auth.user?.id),
+        guard viewer == nil || viewer == "rd", session.machine.opensCarrierDesktop,
               let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .view, cloudDesktop: true, cloudRd: true)
         else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
         openDesktopPane(record, name: CloudStrings.desktopWorkspaceName(title), services)

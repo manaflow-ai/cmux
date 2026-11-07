@@ -184,9 +184,102 @@ import Testing
         #expect(CloudCallerOwnership(creator: "u1", caller: nil) == .unknown)
     }
 
+    /// The record's `creator` is the platform's user id (`user_` + the first 20 hex digits of
+    /// sha256("stack:<project>:<stack user id>"), the API's `userIdFor`), never the Stack id.
+    @Test func theCreatorIsComparedAsAPlatformUserID() {
+        // sha256("stack:p:s") starts 02ef07e3bf70025ba891
+        let platform = CloudAccessToken.backendUserID(stackProjectID: "p", stackUserID: "s")
+        #expect(platform == "user_02ef07e3bf70025ba891")
+        #expect(CloudCallerOwnership(creator: platform, caller: platform) == .owner)
+        #expect(CloudCallerOwnership(creator: platform, caller: "s") == .team, "the Stack id is another namespace")
+    }
+
+    /// A connected line's `vmk` updates the live link's ownership, not only the next connect's.
+    @Test func aConnectedLinesVmkUpdatesTheLiveLink() async throws {
+        let cli = try Self.standIn("d=$(dirname \"$0\")\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nwhile [ ! -f \"$d/go\" ]; do sleep 0.05; done\nprintf '{\"ok\":true,\"route\":\"carrier\",\"vmk\":\"team\"}\\n' >&2\ncat >/dev/null\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { [:] }
+        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock") { _ in }
+        let link = CloudLinkSession(key: CloudLinkKey(machine: "vm_abc123"), resolver: CloudCarrierResolver(serve: serve) { .owner })
+        let ticket = try await link.connect(origin: .user)
+        _ = try await link.endpoint(ticket)
+        #expect(await link.ownerLink != nil)
+        try Data().write(to: folder.appendingPathComponent("go"))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await link.callerOwnership != .team, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(await link.callerOwnership == .team)
+        #expect(await link.ownerLink == nil)
+        #expect(await link.stateWord == "attached")
+        await link.close()
+    }
+
+    /// The daemon connection's retry within one connect (and its reconnect) gets the same serve socket
+    /// again; the link ends only once serve refused a dial or exited.
+    @Test func aRetryReusesTheSocketUntilServeIsGone() async throws {
+        let cli = try Self.standIn("d=$(dirname \"$0\")\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nwhile [ ! -f \"$d/go\" ]; do sleep 0.05; done\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let socket = "/tmp/cmux-link-0123456789ab.sock"
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { [:] }
+        let serve = CloudCarrierServe(connector: connector, socket: socket) { _ in }
+        let link = CloudLinkSession(key: CloudLinkKey(machine: "vm_abc123"), resolver: CloudCarrierResolver(serve: serve) { .owner })
+        let ticket = try await link.connect(origin: .user)
+        #expect(try await link.endpoint(ticket) == socket)
+        #expect(try await link.endpoint(ticket) == socket)
+        #expect(await link.stateWord == "attached")
+        try Data().write(to: folder.appendingPathComponent("go"))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await serve.refusal == nil, ContinuousClock.now < deadline { await Task.yield() }
+        await #expect(throws: CloudLinkError.helperNotRunning(reason: "cmux carrier serve exited")) { _ = try await link.endpoint(ticket) }
+        #expect(await link.isEnded)
+        await link.close()
+    }
+
+    /// While serve runs it gets a fresh token line before the last one expires; the loop ends with the child.
+    @Test func aRunningServeGetsFreshTokensUntilItExits() async throws {
+        let cli = try Self.standIn("d=$(dirname \"$0\")\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nwhile read -r l; do echo \"$l\" >> \"$d/stdin\"; done\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let tokens = Counter()
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
+            ["CMUX_CLOUD_ACCESS_TOKEN": "t-\(await tokens.next())"]
+        }
+        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock", refreshDelay: { _ in .milliseconds(20) }) { _ in }
+        _ = try await serve.socketPath()
+        let stdin = folder.appendingPathComponent("stdin")
+        var deadline = ContinuousClock.now + .seconds(5)
+        while (try? String(contentsOf: stdin, encoding: .utf8))?.contains(#"{"access_token":"t-2"}"#) != true, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(try String(contentsOf: stdin, encoding: .utf8).hasPrefix(#"{"access_token":"t-2"}"# + "\n"))
+        #expect(await serve.refreshing)
+        await serve.stop()
+        deadline = ContinuousClock.now + .seconds(5)
+        while await serve.refreshing, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(await serve.refreshing == false)
+        let asked = await tokens.current()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(await tokens.current() == asked, "the refresh loop outlived the child")
+    }
+
+    /// The refresh comes a minute before the token's `exp`, never sooner than 15 s; five minutes without one.
+    @Test func theRefreshComesBeforeTheTokenExpires() throws {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        func jwt(exp: Int) -> String {
+            let payload = Data(#"{"exp":\#(exp)}"#.utf8).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+            return "e30.\(payload).sig"
+        }
+        #expect(CloudCarrierServe.refreshDelay(jwt(exp: 1_000_600), now: now) == .seconds(540))
+        #expect(CloudCarrierServe.refreshDelay(jwt(exp: 1_000_030), now: now) == .seconds(15))
+        #expect(CloudCarrierServe.refreshDelay("opaque", now: now) == .seconds(300))
+    }
+
     private actor Counter {
         private var value = 0
         func next() -> Int { value += 1; return value }
+        func current() -> Int { value }
     }
 
     private static func standIn(_ body: String) throws -> URL {

@@ -90,6 +90,12 @@ public struct CloudAccessToken: Sendable, Equatable {
         return requested ?? activeStackTeam.map(backend)
     }
 
+    /// The backend's id for a Stack user (the API's `userIdFor`; CloudIdentity.workerUserID).
+    public static func backendUserID(stackProjectID: String, stackUserID: String) -> String {
+        let digest = SHA256.hash(data: Data("stack:\(stackProjectID):\(stackUserID)".utf8))
+        return "user_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
+    }
+
     /// The backend's id for a Stack team (the API's `stackTeamIdFor`; CloudIdentity.workerTeamID).
     public static func backendTeamID(stackProjectID: String, stackTeamID: String) -> String {
         let digest = SHA256.hash(data: Data("stack-team:\(stackProjectID):\(stackTeamID.lowercased())".utf8))

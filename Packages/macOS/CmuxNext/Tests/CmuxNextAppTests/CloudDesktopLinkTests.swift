@@ -3,7 +3,7 @@ import CmuxNextBrowser
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextDaemonService
+@testable import CmuxNextDaemonService
 @testable import CmuxNextRemoteView
 @testable import CmuxNextRemoteViewSessions
 import CmuxNextSettings
@@ -89,16 +89,32 @@ import Testing
         let desktop = CloudMachine(id: "vm-1", capabilities: CloudMachine.Capabilities(exec: true, desktop: true))
         let none = CloudMachine(id: "vm-2", capabilities: CloudMachine.Capabilities(exec: true))
         let undeclared = CloudMachine(id: "vm-3")
-        #expect(!desktop.opensCarrierDesktop(for: "u1"), "a classic machine has no carrier route")
-        #expect(!undeclared.opensCarrierDesktop(for: "u1"))
+        #expect(!desktop.opensCarrierDesktop, "a classic machine has no carrier route")
+        #expect(!undeclared.opensCarrierDesktop)
         var next = desktop
         next.provider = "cmux-next"
-        #expect(next.opensCarrierDesktop(for: "u1"))
+        #expect(next.opensCarrierDesktop)
+        next.createdBy = "user_00000000000000000002"
+        #expect(next.opensCarrierDesktop, "the carrier refuses a teammate (service_refused), not the app")
         #expect(desktop.allows(.desktop))
         #expect(!none.allows(.desktop), "Open Desktop is refused and hidden")
         #expect(undeclared.allows(.desktop))
         let platform = CloudMachine.Capabilities(names: ["exec", "desktop", "agent_session"])
         #expect(platform.desktop, "the app server's name list says desktop")
+    }
+
+    /// A Cloud session's daemon connection waits out the carrier's dial of a cold machine (180 s): the
+    /// handshake and the first-connect deadline get the carrier's deadline plus slack, not 30 s and 10 s.
+    @Test func aCarrierConnectionWaitsOutAColdDial() async {
+        #expect(CloudCarrierDial.handshakeDeadline == .seconds(182))
+        let daemon = DaemonService(machineID: "cloud:vm-cold")
+        daemon.start(remote: { throw CancellationError() }, handshake: CloudCarrierDial.handshakeDeadline)
+        #expect(daemon.startupDeadline == .seconds(182))
+        await daemon.shutdownConnectionAndWait()
+        let local = DaemonService(machineID: "cloud:vm-plain")
+        local.start(remote: { throw CancellationError() })
+        #expect(local.startupDeadline == DaemonStartup.shared.defaultDeadline)
+        await local.shutdownConnectionAndWait()
     }
 
     /// The page session opens a Cloud desktop watching; Take over makes the next session's

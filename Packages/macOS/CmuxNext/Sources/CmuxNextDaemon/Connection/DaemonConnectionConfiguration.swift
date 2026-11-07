@@ -29,6 +29,12 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// Deadline for every control-plane request (architecture.md 5a).
     /// A miss throws `DaemonError.timedOut`; nil disables it (tests only).
     public var requestTimeout: Duration?
+    /// Deadline for the handshake's requests, when it is longer than `requestTimeout`: a Cloud carrier
+    /// connection's first `identify` waits out the carrier's dial of a cold machine (180 s). Nil uses
+    /// `requestTimeout`.
+    public var handshakeTimeout: Duration?
+    /// The handshake's deadline: `handshakeTimeout`, else `requestTimeout`.
+    var handshakeDeadline: Duration? { handshakeTimeout ?? requestTimeout }
     /// Deadline for `list-workspaces` snapshots, which can be large.
     public var snapshotTimeout: Duration?
     /// Deadline for commands that launch a terminal host
