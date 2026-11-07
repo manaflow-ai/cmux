@@ -29,8 +29,8 @@ public final class AgentPageRetirer {
         // until the teardown below, long enough to send the discard.
         view.topBar.discardUnsentChat()
         measure("agentPane.detach") { view.removeFromSuperview() }
-        if let session {
-            // Kept or not, a closed chat stops what a closed tab must not keep doing.
+        // A page that is dictating is not kept: its microphone session belongs to the closed tab.
+        if let session, view.dictation.phase.isStartable {
             view.quietForKeep()
             if kept.keep(view, for: session) { return }
         }
@@ -50,11 +50,16 @@ public final class AgentPageRetirer {
 }
 
 extension AgentPaneView {
-    /// What ``close()`` ends that a kept closed page must not keep doing: its shell runs (commands
-    /// that change files), read aloud and dictation. The page stays loaded and drawn.
+    /// What a close ends that a kept closed page must not keep doing: its shell runs (commands that
+    /// change files) and read aloud. Prompts it holds for a folder trust answer go into their chats'
+    /// drafts now, as at a close, so a quit while it is kept loses none. The page stays loaded and drawn.
     func quietForKeep() {
         model.shell.terminateAll()
         model.readAloud?.stop(owner: model)
-        dictation.close()
+        // task-owner: one held-prompt release per kept page; ends when the page answered or the ask's limit passed
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await AgentPaneWakeState.releaseHeldPrompts(in: self)
+        }
     }
 }

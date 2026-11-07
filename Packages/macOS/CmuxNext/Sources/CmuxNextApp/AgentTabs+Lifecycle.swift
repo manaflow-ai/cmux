@@ -345,9 +345,7 @@ extension AgentTabStore {
             if newTabPages[key] != nil, recycle?(view) == true {
                 standaloneViews.add(view)
             } else {
-                let model = view.model
-                let keeps = newTabPages[key] == nil && !model.remoteChat && !model.neverPooled
-                retirer.retire(view, keeping: keeps ? model.sessionId : nil)
+                retirer.retire(view, keeping: newTabPages[key] == nil && !view.model.remoteChat && !view.model.neverPooled ? view.model.sessionId : nil)
             }
         }
         notices[key] = nil
