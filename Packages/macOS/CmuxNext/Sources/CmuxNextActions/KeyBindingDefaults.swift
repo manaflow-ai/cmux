@@ -219,7 +219,7 @@ public nonisolated struct KeyBindingDefaults {
     public static let yieldsToCodeEditor: Set<ActionID> = [
         "splitRight", "openBrowser", "focusUp", "focusDown",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
-        "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "focusLocation", "groupSelectedWorkspaces",
+        "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "home.openChiefDock", "focusLocation", "groupSelectedWorkspaces",
         // VS Code's Insert Line Below / Above (Cmd-Return, Shift-Cmd-Return; Lawrence 2026-10-19:
         // "all common vscode shortcuts").
         "toggleChecklistItemComplete", "toggleSplitZoom",

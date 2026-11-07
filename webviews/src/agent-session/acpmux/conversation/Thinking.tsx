@@ -7,7 +7,10 @@
 // status and no Cancel (Leo, 2026-11-01), so the line keeps one place and one look from send to
 // the first output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
 // ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
-// never "Thinking" while the agent is blocked on them.
+// never "Thinking" while the agent is blocked on them. It reads as Claude desktop's "Needs your input"
+// pill: the attention dot and the words on a tinted pill. Once answered, the dot shrinks into the
+// Thinking line that takes its place (Leo, 2026-11-05: "there's a little animation that plays. It,
+// like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute").
 import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
@@ -17,8 +20,8 @@ import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
-import { formatDuration } from "./turns";
-import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
+import { formatDuration, spanDuration } from "./turns";
+import { WAITING_LABEL, type WaitingOn, WaitingOnContext } from "./waitingOn";
 import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
 import { verbLeads } from "./ToolVerb";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
@@ -133,6 +136,28 @@ export function liveLead(label: string, leads: boolean, call: boolean): { lead: 
 /// wait never reads as that long a think or call. All shimmer. While text streams (`quietKey` moves) the
 /// line stays where it is and reads "Writing": it never leaves and comes back mid-turn (Leo,
 /// 2026-11-04: "it appears and disappears????").
+/// The longest the answered dot stays, should its shrink never end (motion off draws no animation).
+const SETTLE_MS = 400;
+
+/// True from the render the chat stops waiting on the person until the dot's shrink ends (`done`)
+/// or SETTLE_MS passes: the line draws the shrinking dot before its words for that long.
+function useAnswered(waiting: WaitingOn | undefined): [boolean, () => void] {
+  const [answered, setAnswered] = useState(false);
+  const was = useRef(waiting);
+  useLayoutEffect(() => {
+    const before = was.current;
+    was.current = waiting;
+    if (waiting || !before) {
+      setAnswered(false);
+      return;
+    }
+    setAnswered(true);
+    const timer = setTimeout(() => setAnswered(false), SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [waiting]);
+  return [answered, () => setAnswered(false)];
+}
+
 export function Thinking({
   starting = false,
   since,
@@ -201,6 +226,7 @@ export function Thinking({
   const t = useT();
   const language = usePaneLanguage();
   const waiting = useContext(WaitingOnContext);
+  const [answered, settled] = useAnswered(waiting);
   const startLook = starting && !waiting ? experimentArm(agentStartLook) : "thinking";
   // The turn's time, from the prompt, whatever the line names: it keeps counting across steps and
   // never starts again at a call (Leo, 2026-11-01: "it should just keep going").
@@ -263,7 +289,8 @@ export function Thinking({
   // What stands beside the label then, never a clock that starts again at a call (Leo, 2026-11-01:
   // "it should just keep going"): a finished step's own start to end, or the turn's summed thinking.
   const ownMs = doing === undefined ? (waitsOnAgents || writing ? undefined : thoughtMs) : done ? doneMs : undefined;
-  const own = total && ownMs !== undefined ? formatDuration(ownMs) : undefined;
+  // Under a second it says its milliseconds, as the step's own row does ("856ms"), never "0s".
+  const own = total && ownMs !== undefined ? spanDuration(t, ownMs) : undefined;
   const elapsed = own ?? turnTime;
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
@@ -327,10 +354,14 @@ export function Thinking({
     <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}`} data-find-skip>
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
-          {t(WAITING_LABEL[waiting])}
+          <span className="cv-needs-input-glyph" aria-hidden="true" />
+          <span className="cv-waiting__pill">{t(WAITING_LABEL[waiting])}</span>
         </output>
       ) : (
         <span className="cv-shimmer__row">
+          {answered && (
+            <span className="cv-needs-input-glyph is-answered" aria-hidden="true" onAnimationEnd={settled} />
+          )}
           {/* The words before, rolling out above: drawn from attributes, so no reader, Find or copy
               meets them twice (conversation.css `cv-roll-out`); keyed by the change, so each rolls. */}
           {roll.out && (

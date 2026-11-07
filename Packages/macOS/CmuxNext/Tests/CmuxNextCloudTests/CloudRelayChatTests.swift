@@ -29,6 +29,39 @@ import Testing
         #expect(answer.errorCode == nil)
     }
 
+    /// acpmux's type on the machine (cmux-host relay `final_event_of`) survives the stream: a closed daemon's
+    /// detail, cause and retry, an auth kind; an older machine's bare error has none of them.
+    @Test func eachStageKeepsItsFirstTimeAndThePlatformStages() {
+        var answer = CloudRelayChat.Answer()
+        answer.apply(line: #"{"kind":"queued","reason":"machine_offline"}"#, at: .seconds(1))
+        answer.apply(line: #"{"kind":"queued","reason":"machine_offline"}"#, at: .seconds(2))
+        answer.apply(line: #"{"kind":"sent","stages_ms":{"resume":800,"socket":1200}}"#, at: .seconds(3))
+        answer.apply(line: #"{"kind":"started","session":"s-1"}"#, at: .seconds(4))
+        answer.apply(line: #"{"kind":"done","stop_reason":"end_turn","stages_ms":{"socket":1300,"first_token":2900,"bad":"x"}}"#, at: .seconds(9))
+        #expect(answer.queuedAt == .seconds(1))
+        #expect(answer.sentAt == .seconds(3))
+        #expect(answer.startedAt == .seconds(4))
+        #expect(answer.platformStages == ["resume": 800, "socket": 1300, "first_token": 2900])
+        var old = CloudRelayChat.Answer()
+        old.apply(line: #"{"kind":"done","stop_reason":"end_turn"}"#, at: .seconds(1))
+        #expect(old.platformStages == nil)
+    }
+
+    @Test func anErrorKeepsItsTypeFromTheMachine() {
+        var answer = CloudRelayChat.Answer()
+        answer.apply(line: #"{"kind":"error","code":"chat.failed","message":"daemon connection closed","detail":"daemon_closed","acpmux_code":"runtime","retryable":true,"cause":"panicked","error_kind":"auth.signed_out","recovery":"Run acpmux again."}"#, at: .seconds(2))
+        #expect(answer.errorCode == "chat.failed")
+        #expect(answer.errorDetail == "daemon_closed")
+        #expect(answer.errorCause == "panicked")
+        #expect(answer.errorKind == "auth.signed_out")
+        #expect(answer.errorRetryable == true)
+        #expect(answer.errorRecovery == "Run acpmux again.")
+        #expect(answer.errorTexts["error_recovery"] == "Run acpmux again.")
+        var bare = CloudRelayChat.Answer()
+        bare.apply(line: #"{"kind":"error","code":"chat.failed","message":"x","detail":7,"retryable":"yes"}"#, at: .zero)
+        #expect(bare.errorDetail == nil && bare.errorCause == nil && bare.errorKind == nil && bare.errorRetryable == nil)
+    }
+
     @Test func anErrorEndsTheTurnAndJunkIsIgnored() {
         var answer = CloudRelayChat.Answer()
         answer.apply(line: "not json", at: .zero)

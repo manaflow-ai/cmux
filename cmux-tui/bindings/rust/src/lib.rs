@@ -42,6 +42,7 @@
 mod client;
 mod codec;
 mod convenience;
+pub mod conversation_rules;
 mod generated;
 #[cfg(any(windows, feature = "local-socket"))]
 pub mod local_socket;

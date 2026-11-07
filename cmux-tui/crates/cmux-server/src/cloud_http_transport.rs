@@ -3,16 +3,19 @@ use std::time::Duration;
 
 use serde_json::Value;
 use tokio::runtime::{Builder, Runtime};
+use tokio::sync::watch;
 
 use super::RequestDeadline;
 
 pub(super) struct Transport {
     client: reqwest::Client,
     runtime: Runtime,
+    /// The address-change count this pool was made at.
+    epoch: u64,
 }
 
 impl Transport {
-    pub(super) fn new(allow_http: bool) -> Result<Self, String> {
+    pub(super) fn new(allow_http: bool, epoch: u64) -> Result<Self, String> {
         let client = reqwest::Client::builder()
             .https_only(!allow_http)
             .redirect(reqwest::redirect::Policy::none())
@@ -25,7 +28,11 @@ impl Transport {
             .enable_all()
             .build()
             .map_err(|_| "Cloud transport unavailable")?;
-        Ok(Self { client, runtime })
+        Ok(Self { client, runtime, epoch })
+    }
+
+    pub(super) fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     pub(super) fn request(
@@ -35,6 +42,7 @@ impl Transport {
         body: Option<&Value>,
         bearer: Option<&str>,
         deadline: &RequestDeadline,
+        network: &mut watch::Receiver<u64>,
     ) -> Result<(u16, Vec<u8>), String> {
         let remaining = deadline.remaining().ok_or("Cloud request unavailable")?;
         let result = self.runtime.block_on(async {
@@ -43,6 +51,8 @@ impl Transport {
                 _ = crate::deadline::wait(deadline.active(), deadline.elapsed()) => {
                     Err("Cloud request unavailable".to_owned())
                 }
+                // The connection under this request may be dead: fail now rather than at the deadline.
+                Ok(()) = network.changed() => Err("Cloud request unavailable".to_owned()),
                 response = self.send(method, url, body, bearer, remaining) => response,
             }
         })?;
@@ -82,7 +92,7 @@ impl Transport {
     }
 
     pub(super) fn stop(self) {
-        let Self { client, runtime } = self;
+        let Self { client, runtime, .. } = self;
         drop(client);
         // Async drivers and their credential-bearing sockets are aborted.
         // A system DNS lookup may finish separately; it owns only the hostname.

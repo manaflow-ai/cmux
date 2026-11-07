@@ -70,6 +70,13 @@ public protocol PaneResizeGestureFollowing: NSView {
     /// `true` when the drag begins, `false` once the drag ended and the motion its release started landed:
     /// the pane's frame is final. Called once each, never per frame.
     func paneResizeGestureDidChange(active: Bool)
+    /// The pointer let go (or the drag was cancelled), in that event's turn, before the release's layout lands. Work
+    /// that waited for the pointer goes now (a terminal's last drag grid). None by default.
+    func paneResizeGestureReleased()
+}
+
+public extension PaneResizeGestureFollowing {
+    func paneResizeGestureReleased() {}
 }
 
 /// The vertical edge a pane's held content rides during a layout spring (``PaneMotionTargeting``).

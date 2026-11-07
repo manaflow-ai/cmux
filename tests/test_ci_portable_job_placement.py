@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Portable jobs: fleet Linux first, then a free mini with no nightly waiting, Blacksmith last.
 
-scripts/ci/portable_job_placement.py places the cmux-next checks, the CI guard group, the
+scripts/ci/portable_job_placement.py places the cmux-next checks, the
 release-notary guards, the tooling tests and the cmux-tui macOS targets (Leo, 2026-10-31: "i mean
 the linux things cant our minis just run them"). These cases pin its order and its refusals, and
 the workflows' wiring of its outputs.
@@ -663,7 +663,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(offered, 2)
 
     PLACED = {"cmux-next.yml": {"checks": "linux_16"},
-              "cmux-next-guards.yml": {"ci-guard-group": "linux_8", "tooling-tests": "linux_4"}}
+              "cmux-next-guards.yml": {"tooling-tests": "linux_4"}}
 
     def test_each_placed_job_reads_fleet_linux_then_its_mini_then_blacksmith(self):
         for workflow, expected_pools in self.PLACED.items():
