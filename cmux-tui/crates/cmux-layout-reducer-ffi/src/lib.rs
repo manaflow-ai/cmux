@@ -17,6 +17,8 @@
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer),
+//! `cmux-cloud-tasks`' follower of the app's cloud tasks (`cloud_task_*`: one
+//! step per event, the saved list, a hand-off's status and times),
 //! the machine bootstrap, machine config and create retry rules
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
 //! `cloud_create_*`, `cloud_power_retries`),
@@ -47,6 +49,7 @@ pub mod close_focus;
 pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
+mod cloud_task;
 pub mod drag_handle;
 pub mod focus;
 mod imessage;
@@ -389,6 +392,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
             }
+            operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
             operation if cloud_bootstrap::handles(operation) => {
                 cloud_bootstrap::respond(operation, request)?
             }
