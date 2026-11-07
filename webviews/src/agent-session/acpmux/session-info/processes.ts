@@ -30,6 +30,10 @@ export type SessionInfoProcess = {
   description?: string;
   /// The subagent whose call started it (acpmux's `subagentSessionId`), when a subagent's did.
   subagent?: string;
+  /// The workflow agent whose call started it, by Claude's agent id (acpmux's `workflowAgentId`),
+  /// when an agent of a workflow did: Session Info lists it under that agent
+  /// (summary/workflowView.ts `attributeCommands`).
+  workflowAgent?: string;
   /// Unix ms.
   startedAt: number;
   endedAt?: number;
@@ -49,6 +53,7 @@ function processOf(value: unknown, sessionId: string): SessionInfoProcess | unde
     command: raw.command,
     ...(typeof raw.description === "string" && raw.description.trim() ? { description: raw.description.trim() } : {}),
     ...(typeof raw.subagentSessionId === "string" && raw.subagentSessionId ? { subagent: raw.subagentSessionId } : {}),
+    ...(typeof raw.workflowAgentId === "string" && raw.workflowAgentId ? { workflowAgent: raw.workflowAgentId } : {}),
     startedAt: raw.startedAt,
     ...(typeof raw.endedAt === "number" ? { endedAt: raw.endedAt } : {}),
     state: raw.state,
@@ -172,6 +177,8 @@ export type BackgroundCommand = {
   description?: string;
   /// The subagent whose call started it, from the registry: the tray names it on the line.
   subagent?: string;
+  /// The workflow agent whose call started it, from the registry (Claude's agent id).
+  workflowAgent?: string;
   /// A registry process acpmux lost track of (its daemon restarted) is `lost`; the transcript
   /// never says so.
   state: SummaryBackgroundTask["state"] | "lost";
@@ -217,6 +224,7 @@ export function backgroundCommands(
         ? { description: process.description }
         : {}),
     ...(process.subagent ? { subagent: process.subagent } : {}),
+    ...(process.workflowAgent ? { workflowAgent: process.workflowAgent } : {}),
     state: PROCESS_STATE[process.state] ?? "stopped",
     processId: process.id,
     startedAt: process.startedAt,
