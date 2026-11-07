@@ -66,12 +66,15 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspectPullRequest(URL, cached: Bool = false)
     case previewPath(String)
     case copyComposer(text: String, items: [AgentPaneComposerCopyItem])
+    case stageComposer(AgentPaneUploadStageRequest)
+    case copyStagedComposer(text: String, items: [AgentPaneComposerCopyItem], order: String?)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
     public static let methods: Set<String> = [
         "link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "image.reveal",
         "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect",
         "video.info", "video.transcript", "video.frames", "video.quickLook", "link.preview", "composer.copy",
+        "composer.copy.begin", "composer.copy.chunk", "composer.copy.finish", "composer.copy.cancel", "composer.copy.staged",
     ]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list, and
@@ -97,6 +100,11 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "pr.inspect": ["url", "cached"],
         "link.preview": ["path"],
         "composer.copy": ["text", "items"],
+        "composer.copy.begin": ["name", "size", "batchToken", "batch"],
+        "composer.copy.chunk": ["token", "offset", "data"],
+        "composer.copy.finish": ["token"],
+        "composer.copy.cancel": ["token"],
+        "composer.copy.staged": ["text", "items", "order"],
     ]
 
     /// Most paths or URLs in one `link.inspect`. The page gathers its chips' links across every
@@ -130,7 +138,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         switch self {
         case .inspect, .listBrowsers, .loadImage, .loadMedia, .videoInfo, .videoTranscript, .videoFrames, .inspectPullRequest, .previewPath: true
         case .openPath, .openIn, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .quickLookVideo, .dragImage,
-             .dragFile, .copyComposer: false
+             .dragFile, .copyComposer, .stageComposer, .copyStagedComposer: false
         }
     }
 
@@ -225,8 +233,20 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         case "composer.copy":
             // The text may be empty (a selection of attachments only); both keys are required.
             guard let text = params["text"] as? String, text.utf8.count <= AgentPaneComposerCopyItem.maximumText,
-                  !text.utf8.contains(0), let items = AgentPaneComposerCopyItem.list(params["items"]) else { return nil }
+                  !text.utf8.contains(0), let items = AgentPaneComposerCopyItem.list(params["items"]),
+                  items.allSatisfy({ if case .reference = $0.payload { return false }; return true }) else { return nil }
             self = .copyComposer(text: text, items: items)
+        case "composer.copy.staged":
+            guard let text = params["text"] as? String, UUID(uuidString: text) != nil,
+                  let items = AgentPaneComposerCopyItem.list(params["items"]),
+                  items.allSatisfy({ if case .reference = $0.payload { return true }; if case .path = $0.payload { return true }; return false }) else { return nil }
+            let order = params["order"] as? String
+            if params["order"] != nil, order.flatMap(UUID.init(uuidString:)) == nil { return nil }
+            self = .copyStagedComposer(text: text, items: items, order: order)
+        case "composer.copy.begin", "composer.copy.chunk", "composer.copy.finish", "composer.copy.cancel":
+            let uploadMethod = method.replacingOccurrences(of: "composer.copy.", with: "chat.upload.")
+            guard case .uploadStage(let request) = AgentPaneRequest.uploadStage(uploadMethod, params) else { return nil }
+            self = .stageComposer(request)
         default:
             return nil
         }
