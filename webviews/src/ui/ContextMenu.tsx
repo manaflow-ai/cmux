@@ -337,6 +337,9 @@ export function ContextMenu({
                 ref={attach}
                 className={cx("ui-popup ui-glass ui-context-menu ui-scroll-edge-fade", popupClassName)}
                 role="menu"
+                // The App's menu glass under the page, as ui/Menu's popups (ui/glass/hostGlass.ts).
+                data-host-glass="menu"
+                data-host-glass-cover=""
                 data-focus-ring="rows"
                 tabIndex={-1}
                 style={{

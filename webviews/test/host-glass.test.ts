@@ -187,6 +187,10 @@ test("only a see-through Chromium page gets the App's glass", () => {
   const reduced = page();
   reduced.documentElement.setAttribute("data-reduce-transparency", "");
   expect(hostGlassApplies(reduced)).toBe(false);
+  // The live background's canvas covers what is under the page, as the lens's does.
+  const live = page();
+  live.documentElement.setAttribute("data-live-background", "");
+  expect(hostGlassApplies(live)).toBe(false);
 });
 
 test("an opaque page reports nothing and its surfaces keep the page's glass", async () => {
@@ -240,4 +244,33 @@ test("a drawn cover surface blurs the page under it in place, and stops when it 
   menu.remove();
   await frames();
   expect(transcript.hasAttribute("data-glass-under")).toBe(false);
+});
+
+test("a surface whose deadline passes as host glass stops applying goes to the App's glass when it applies again", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  // The App has not answered yet when Reduce Transparency turns on.
+  let answer = () => {};
+  stop = reportHostGlass(
+    doc,
+    (surfaces) => (reports.push(surfaces), new Promise<void>((resolve) => (answer = resolve))),
+  );
+  const element = surface(doc);
+  await frames();
+  // The deadline comes before the next frame measures the page's new look.
+  const window = dom!.window as unknown as Window;
+  const paint = window.requestAnimationFrame;
+  window.requestAnimationFrame = () => 0;
+  doc.documentElement.setAttribute("data-reduce-transparency", "");
+  await pastDeadline();
+  window.requestAnimationFrame = paint;
+  await frames();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+  // Reduce Transparency turns off with the surface still open: it is reported and drawn.
+  doc.documentElement.removeAttribute("data-reduce-transparency");
+  await frames();
+  answer();
+  await settled();
+  expect(reports.at(-1)).toHaveLength(1);
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
 });
