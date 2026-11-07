@@ -38,6 +38,8 @@ struct PageRegistryProbeTests {
         let (view, _) = try #require(pool.claim())
         defer { view.close() }
         #expect(view.refusesProbes)
+        // Review 28 of #37296: nor does a Web Inspector, which reads the DOM and calls the page's bridge.
+        #expect(!view.webView.isInspectable)
         #expect(PageRegistry.probeTarget(id: PageDescriptor.overlay.id, instance: PageRegistry.instance(of: view)) == nil)
         #expect(!PageRegistry.pages(id: PageDescriptor.overlay.id, probing: true).contains { $0 === view })
     }

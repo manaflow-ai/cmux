@@ -364,7 +364,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
         Self.clearBackground(of: webView)
-        // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
+        // Web Inspector in every build (Inspect Element, Cmd-Opt-I), but never on a page that refuses probes.
         webView.isInspectable = true
         webView.navigationDelegate = self
         fileChooser = Self.openPanel.map { PageOpenPanel(openPanel: $0) }
@@ -566,8 +566,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// `ProcessInfo.systemUptime` seconds; nil until it has.
     public internal(set) var paintedUptime: TimeInterval?
     /// It shows what must never leave the screen (a revealed password): page probes (`debug.page` query,
-    /// snapshot, call and list) never reach it, as screen capture never does.
-    public var refusesProbes = false
+    /// snapshot, call and list) never reach it, as screen capture never does, and no Web Inspector attaches
+    /// to it (one reads the DOM and calls the page's bridge).
+    public var refusesProbes = false {
+        didSet { webView.isInspectable = !refusesProbes }
+    }
     public var hasPainted: Bool { paintedUptime != nil }
     /// Callbacks for the current document's first frame (`whenPainted`).
     var paintWaiters: [() -> Void] = []
