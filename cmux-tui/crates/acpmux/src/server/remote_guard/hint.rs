@@ -164,6 +164,29 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
     RpcError::new(e.code, message).with_data(data)
 }
 
+/// `e`, a refusal of full access by `host` (`hub/full_access_children.rs` `refused_by`, which
+/// sets `data.fullAccessRefusedBy`), with `data.try` the same start there asking
+/// (`--policy ask`), as its message says; any other error unchanged.
+pub(in crate::server) fn try_asking(host: &str, params: &Value, mut e: RpcError) -> RpcError {
+    let Some(data) = e.data.as_mut().filter(|d| d.get("fullAccessRefusedBy").is_some()) else {
+        return e;
+    };
+    let mut p = params.clone();
+    crate::hub::merge_mux_meta(&mut p, json!({"policy": "ask"}));
+    if let Some(argv) = p.pointer_mut("/_meta/acpmux/argv").and_then(Value::as_array_mut) {
+        let mut words: Vec<String> =
+            argv.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+        if !change_option(&mut words, "--policy", Some("ask")) {
+            // After `new`, before any prompt words.
+            words.insert(1.min(words.len()), "--policy=ask".to_owned());
+        }
+        *argv = words.into_iter().map(Value::String).collect();
+    }
+    let start = Start { mode: None, ..Start::of(&p) };
+    data.set("try", json!(command(&p, &start, Some(host), false).render(None)));
+    e
+}
+
 /// A start with no folder that `peer_name` refused as outside its roots, from a peer of
 /// another build that serves this daemon as a peer (`served_peer`: its handshake, for a start
 /// this daemon did not forward for a Web client) but names no
