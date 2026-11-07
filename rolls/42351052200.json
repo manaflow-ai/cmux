@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42351052200",
+  "recorded_at": "2026-11-07T07:29:07Z",
+  "reason": "cmux-tui 6b64d24c1f25 changes the image's cmux-tui (pinned 285ab2fac5e2)",
+  "dry_run": false,
+  "cmux_tui": "6b64d24c1f25a4eee6141b79b26bb67d2638332f",
+  "fixes": [
+    {
+      "sha": "6b64d24c1f25a4eee6141b79b26bb67d2638332f",
+      "mergedAt": "2026-11-06T23:07:52-08:00",
+      "subject": "cmux device: pass --jsonl, --quiet and -q through like --json (#37518)"
+    },
+    {
+      "sha": "505056ea5bc52eb296cbf9f594ac6310a93e8607",
+      "mergedAt": "2026-11-06T23:01:32-08:00",
+      "subject": "cmux-window-rules: the rest of the window handlers' rules in Rust (step A) (#37427)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T07:29:07Z",
+    "snapshot_id": "sh-2af9e64c067142f0aa64e0a903b697c3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42351052200): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "19841cea830fe16a9b0373dcdb1c30ea11776603",
+    "image": "cloud-native-auto-6b64d24c-42351052200-1",
+    "revision": "ci-42351052200-1",
+    "at": "2026-11-07T07:29:07Z"
+  },
+  "rolled_back": false
+}
