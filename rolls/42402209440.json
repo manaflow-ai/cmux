@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42402209440",
+  "recorded_at": "2026-11-07T18:44:46Z",
+  "reason": "cmux-tui 39f871989244 changes the image's cmux-tui (pinned 1b4cdef44f24)",
+  "dry_run": false,
+  "cmux_tui": "39f8719892444d76f3cbe94c6df2459a19376c9d",
+  "fixes": [
+    {
+      "sha": "39f8719892444d76f3cbe94c6df2459a19376c9d",
+      "mergedAt": "2026-11-07T10:21:58-08:00",
+      "subject": "cmux-layout-reducer: the sidebar section layout's planners in Rust (sidebar_layout_plan) (#37303)"
+    },
+    {
+      "sha": "287e592bfcfa56dd1ad1b5e0559a58ea784f712c",
+      "mergedAt": "2026-11-07T09:32:32-08:00",
+      "subject": "Cloud start-chat: --login, --environment, and no --prompt (the start matrix axes) (#37159)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T18:44:46Z",
+    "snapshot_id": "sh-e4d758c00fc74e0b857f0c0f3e1fe6c6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42402209440): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "22039c4e4d0b0c7e2be57d77b35c2436a8127fb0",
+    "image": "cloud-native-auto-39f87198-42402209440-1",
+    "revision": "ci-42402209440-1",
+    "at": "2026-11-07T18:44:46Z"
+  },
+  "rolled_back": false
+}
