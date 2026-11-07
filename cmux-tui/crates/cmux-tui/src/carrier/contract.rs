@@ -85,11 +85,14 @@ pub(super) fn connected_line() -> String {
 
 /// The reply line of a failed dial.
 pub(super) fn failure_line(error_code: &str, detail: Option<&str>) -> String {
-    let mut value = json!({ "ok": false, "error_code": error_code, "route": "carrier" });
+    let mut value = serde_json::Map::new();
+    value.insert("ok".into(), json!(false));
+    value.insert("error_code".into(), json!(error_code));
     if let Some(detail) = detail.and_then(clip_detail) {
-        value["error_detail"] = json!(detail);
+        value.insert("error_detail".into(), json!(detail));
     }
-    cmux_link::dial::line(&value)
+    value.insert("route".into(), json!("carrier"));
+    cmux_link::dial::line(&serde_json::Value::Object(value))
 }
 
 /// One display line of at most [`MAX_DETAIL_BYTES`], control characters dropped.
