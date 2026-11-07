@@ -38,6 +38,7 @@ import type {
   HarnessesState,
   HostLists,
   IntegrationsState,
+  SharesState,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -57,6 +58,8 @@ export type SettingsPageVariant = VariantBase & {
   accounts?: AccountsState;
   /** Settings > Accounts > Cloud Environments fixture state. */
   environments?: CloudEnvironmentsState;
+  /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
+  sharedLinks?: SharesState;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
@@ -225,6 +228,9 @@ export type AgentPaneVariant = VariantBase & {
   /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
    *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
   documentAttributes?: Record<string, string>;
+  /** The pane's first chat has Session Info open, as a person who opened it there has it. Session
+   *  Info starts closed in every new pane (sessionInfoState.ts); a stage that draws it set this. */
+  sessionInfoOpen?: boolean;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
