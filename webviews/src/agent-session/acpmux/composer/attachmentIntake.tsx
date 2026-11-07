@@ -67,7 +67,7 @@ const ATTACHMENT_LABELS = {
   moved: "composer.attachmentMoved",
 } as const satisfies Record<string, StringKey>;
 
-export function attachmentErrorText(error: AttachmentError, t: Translate): string {
+function attachmentErrorText(error: AttachmentError, t: Translate): string {
   return t(ATTACHMENT_LABELS[error.reason], { name: error.name });
 }
 

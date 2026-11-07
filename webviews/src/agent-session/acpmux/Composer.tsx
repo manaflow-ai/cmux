@@ -15,9 +15,9 @@ import { ComposerListLayer, useComposerListBox } from "./backdropLayer";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   bindMarks,
+  MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
-  type AttachmentError,
   type ComposerAttachment,
   type DroppedKind,
   type LinkItem,
@@ -113,7 +113,6 @@ import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import {
   appendAttachments,
-  attachmentErrorText,
   useAttachmentIntake,
   useSendWhenAttached,
   useSendWhenOriginals,
@@ -387,9 +386,8 @@ type Props = {
   plusExtensions?: readonly ComposerPlusExtension[];
   onPlusCommand?(id: string): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
-  /// or a window, attached as an image; an error for one too large to attach (shown as the
-  /// composer's note); undefined when the person cancelled the pick.
-  capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
+  /// or a window, attached as an image at any size; undefined when the person cancelled the pick.
+  capture?(mode: "screen" | "window"): Promise<File | undefined>;
   /// Saves dropped, pasted or chosen files the composer can't attach where the agent reads them (a
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
@@ -2703,8 +2701,9 @@ function ComposerFrame({
                   else if (action === "composer.attachScreenshot" || action === "composer.attachWindow") {
                     void capture?.(action === "composer.attachWindow" ? "window" : "screen")
                       .then(async (shot) => {
-                        if (shot instanceof File) await attach([shot]);
-                        else if (shot) setAttachError(attachmentErrorText(shot, t));
+                        // One over the image cap goes as a pasted one does: a preview, and its
+                        // original saved to the chat for the agent to read. Never refused for size.
+                        if (shot) await attach([shot], shot.size > MAX_IMAGE_BYTES);
                       })
                       .finally(() => {
                         const focused = document.activeElement;
