@@ -156,6 +156,8 @@ public final class SidebarView: NSView {
         super.init(frame: .zero)
         buildHierarchy()
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
+        // The tab row's New Tab + (Leo 2026-11-07: one size class for both, in the middle of the two).
+        newButton.drawsAddGlyph = true
         newWorkspaceOptionsButton.setAccessibilityLabel(Strings.newWorkspaceOptions)
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)

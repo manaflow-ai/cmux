@@ -43,6 +43,9 @@ final class SidebarIconButton: ClickableButton {
     /// The label point size the icon sits beside, read at layout time so density changes apply live.
     private let pointSize: () -> CGFloat
     private var renderedSize: CGFloat = 0
+    /// Draws the add buttons' one + (`NSImage.addGlyph`, the tab row's New Tab size) instead of the
+    /// pack's `action.add`: the sidebar's New Workspace.
+    var drawsAddGlyph = false { didSet { if drawsAddGlyph != oldValue { renderedSize = 0; renderIcon() } } }
     /// An SF Symbol drawn through the pack (`NSImage.icon(symbol:)`) for a glyph
     /// the pack has no name for, such as the group editor's emoji button.
     private var symbol: String?
@@ -140,7 +143,8 @@ final class SidebarIconButton: ClickableButton {
         guard size != renderedSize else { return }
         renderedSize = size
         let side = CGFloat.iconRowSize(forLabelPointSize: size)
-        let image = symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(icon, size: side)
+        let image = drawsAddGlyph ? NSImage.addGlyph(side: side)
+            : symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(icon, size: side)
         image.accessibilityDescription = label
         self.image = image
     }
