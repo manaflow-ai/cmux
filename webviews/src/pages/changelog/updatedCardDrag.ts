@@ -1,0 +1,159 @@
+// The Updated card's drag (Leo 2026-11-07: "what if you could, like, drag around the updated to
+// nightly, and you can drag that up to the top if you wanted to?"). It uses the toasts' anchors and
+// drag (ui/anchors.ts): a press on the card that moves up or down past the slop follows the
+// pointer (across the line it still selects the words, u4466); let go, the card
+// settles at the nearer of its two places, the bottom card slot or the top of the sidebar's list,
+// and that place is remembered, so the card shows there next time. A flick, or a drop past the
+// sidebar's edge, closes the card the way its x does.
+//
+// The page runs the drag; its host moves the card. In the sidebar the card's page is only as big as
+// the card, so the native host moves its view by the offset the page reports and springs it to the
+// new place (SidebarUpdatedCardHost+Drag.swift); in the gallery a stage moves it. The pointer is read
+// in screen coordinates, so a view that moves under it never feeds back into the drag.
+import { anchorMemory, anchorRow, createDrag, nearestAnchor, type Box, type Point } from "../../ui/anchors";
+
+/** The card's two places in the sidebar: the bottom card slot (its first) or the top of the list. */
+export type CardRow = "top" | "bottom";
+
+/** How the held card feels (the toasts' three, ui/NoticeDeck.tsx): `spring` follows the pointer and
+ *  settles on the spring; `rubber` leans part of the way toward the place it would settle at;
+ *  `ghosts` is `spring` with both places outlined while it is held (where the host can draw them). */
+export type CardDragFeel = "spring" | "rubber" | "ghosts";
+/** The feel the sidebar ships (the gallery's pick). */
+export const SHIPPED_DRAG_FEEL: CardDragFeel = "spring";
+
+/** Where the card rests, as its host says: its place, and the room, CSS px, from its top edge up to
+ *  the highest place it may rest and from its bottom edge down to the lowest. */
+export interface CardPlace {
+  anchor: CardRow;
+  above: number;
+  below: number;
+}
+
+export interface CardDragHost {
+  /** Where the card rests now; undefined while the host cannot move it (the card does not drag). */
+  place(): CardPlace | undefined;
+  /** The card is held this far from where it rests. */
+  move(offset: Point): void;
+  /** Let go: the card settles at `row`, from `offset`. */
+  drop(row: CardRow, offset: Point): void;
+  /** Flicked or dropped past the edge: the card closes (the x's path). */
+  dismiss(): void;
+  /** While held: the place the card would settle at; undefined once it is let go. */
+  hold?(near: CardRow | undefined): void;
+}
+
+/** `rubber`: how much of the way toward its place a held card leans. */
+export const RUBBER_LEAN = 0.3;
+
+/** The card's place in the page's localStorage, as the toasts keep theirs (the bottom is stored as
+ *  nothing). The host keeps it too, so the first frame after a relaunch is at the place. */
+const memory = anchorMemory("cmux.sidebar.card.");
+const MEMORY_KEY = "updated";
+
+export function rememberedRow(store = memory): CardRow | undefined {
+  const anchor = store.get(MEMORY_KEY);
+  return anchor ? anchorRow(anchor) : undefined;
+}
+
+export function rememberRow(row: CardRow, store = memory): void {
+  store.set(MEMORY_KEY, row === "top" ? "top" : "bottom");
+}
+
+/** The box the card may rest in, in the card's own coordinates at its rest (its top left at 0, 0). */
+export function dragBox(place: CardPlace, width: number, height: number): Box {
+  return { left: 0, top: 0 - place.above, width, height: place.above + height + place.below };
+}
+
+/** The offset that puts the card at `row`, from where it rests. */
+export function rowOffset(row: CardRow, place: CardPlace): number {
+  if (row === place.anchor) return 0;
+  return row === "top" ? -place.above : place.below;
+}
+
+/** Where the held card is drawn for a pointer `offset`: there, or for `rubber`, leaned toward the
+ *  place it would settle at. */
+export function shownOffset(feel: CardDragFeel, offset: Point, row: CardRow, place: CardPlace): Point {
+  if (feel !== "rubber") return offset;
+  const target = { x: 0, y: rowOffset(row, place) };
+  return { x: offset.x + (target.x - offset.x) * RUBBER_LEAN, y: offset.y + (target.y - offset.y) * RUBBER_LEAN };
+}
+
+/** Presses that never start a drag: the card's controls keep their own clicks. */
+const CONTROLS = "button, a, input, [role='button']";
+
+/** Starts a drag of `card` (the card's body, its rest box) from `event`, a primary press on it. The
+ *  press becomes a drag once it has moved past the slop up or down; across, it is left to select the
+ *  card's words. `onStart` runs when it becomes a drag (the hover preview closes). */
+export function pressCard(
+  card: HTMLElement,
+  event: PointerEvent,
+  host: CardDragHost,
+  feel: CardDragFeel,
+  onStart: () => void,
+): void {
+  if (event.button !== 0 || (event.target as Element | null)?.closest?.(CONTROLS)) return;
+  const place = host.place();
+  if (!place) return;
+  const rect = card.getBoundingClientRect();
+  const start = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  const screen = { x: event.screenX, y: event.screenY };
+  const box = dragBox(place, rect.width, rect.height);
+  const drag = createDrag(start, event.timeStamp);
+  const at = (next: PointerEvent): Point => ({
+    x: start.x + next.screenX - screen.x,
+    y: start.y + next.screenY - screen.y,
+  });
+  const target = event.currentTarget instanceof HTMLElement ? event.currentTarget : card;
+  let near: CardRow | undefined;
+  let shown: Point = { x: 0, y: 0 };
+  const move = (next: PointerEvent) => {
+    const point = at(next);
+    const offset = drag.move(point, next.timeStamp);
+    if (!drag.dragging) return;
+    if (target.dataset.dragging === undefined) {
+      // Across the line selects the words, as it always has (u4466); up or down moves the card.
+      if (Math.abs(offset.x) > Math.abs(offset.y)) {
+        stop();
+        return;
+      }
+      // The few pixels before the slop may have started a selection in the words: a drag is not one.
+      target.dataset.dragging = "";
+      target.setPointerCapture?.(next.pointerId);
+      globalThis.getSelection?.()?.removeAllRanges();
+      onStart();
+    }
+    const row = anchorRow(nearestAnchor(point, box));
+    if (row !== near) {
+      near = row;
+      host.hold?.(row);
+    }
+    shown = shownOffset(feel, offset, row, place);
+    host.move(shown);
+  };
+  const stop = () => {
+    target.removeEventListener("pointermove", move);
+    target.removeEventListener("pointerup", up);
+    target.removeEventListener("pointercancel", cancel);
+  };
+  const end = (last: PointerEvent, cancelled: boolean) => {
+    stop();
+    if (target.hasPointerCapture?.(last.pointerId)) target.releasePointerCapture(last.pointerId);
+    if (target.dataset.dragging === undefined) return;
+    delete target.dataset.dragging;
+    host.hold?.(undefined);
+    const result = cancelled ? null : drag.release(at(last), last.timeStamp, box);
+    if (result?.kind === "dismiss") {
+      host.dismiss();
+      return;
+    }
+    const row = result?.kind === "snap" ? anchorRow(result.anchor) : place.anchor;
+    if (row !== place.anchor) rememberRow(row);
+    host.drop(row, shown);
+  };
+  const up = (last: PointerEvent) => end(last, false);
+  const cancel = (last: PointerEvent) => end(last, true);
+  target.addEventListener("pointermove", move);
+  target.addEventListener("pointerup", up);
+  target.addEventListener("pointercancel", cancel);
+}

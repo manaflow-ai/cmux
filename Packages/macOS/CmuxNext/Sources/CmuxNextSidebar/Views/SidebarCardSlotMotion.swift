@@ -63,6 +63,24 @@ final class SidebarCardSlotMotion: MotionAnimating {
         return height.value
     }
 
+    /// Starts the value at `value` and springs it to `target` (a dropped card: from where it was let
+    /// go to its anchor). Lands at once where the slot's own height would (no window, motion off).
+    func start(at value: CGFloat, toward target: CGFloat, in view: NSView) {
+        self.view = view
+        var height = SpringValue(target)
+        height.value = value
+        let animates = value != target && policy().animatesMovement && view.window != nil && !view.inLiveResize
+            && !view.isHiddenOrHasHiddenAncestor && Motion.canAnimate(in: view)
+        if !animates { height.snap() }
+        self.height = height
+        if animates {
+            MotionClock.forView(view).run(self, trace: "sidebar.cardSettle")
+        } else {
+            MotionClock.forView(view).stop(self)
+        }
+        view.needsLayout = true
+    }
+
     /// The window went out of sight: the slot takes its final height now.
     func motionSettle() {
         guard var height else { return }

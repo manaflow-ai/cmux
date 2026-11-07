@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: the Updated card drags between the bottom card slot and the top of the list. Leo, verbatim: "what if
+  you could, like, drag around the updated to nightly, and you can drag that up to the top if you wanted to?" The card's
+  page runs the drag with the toasts' anchors and drag (webviews `ui/anchors.ts`, `pages/changelog/updatedCardDrag.ts`):
+  up or down past the slop it follows the pointer (across, the words still select, u4466); let go, it settles at the
+  nearer place; a flick or a drop past the sidebar's edge sends the x's dismiss. `SidebarUpdatedCardHost+Drag` stands
+  the view where the page holds it and springs it to its place on drop, while `SidebarView.layout` moves the list's
+  room from the bottom slot to the top (`topCardMotion`) on the same spring; the place is kept in the page's
+  localStorage and in `cmux.sidebar.updatedCard.anchor` for the first frame. Gallery: `pages.changelog.updated-card-drag`
+  `drag-spring` (chosen), `drag-rubber`, `drag-ghosts`. Regression: `UpdatedCardDragTests`, webviews
+  `updated-card-drag.test.tsx`.
 - 2026-11-07: the Updated card is the agent composer's twin, and resting on it opens a scrollable What's New preview.
   Leo, verbatim: "the border styles, the glass intensity is different. For two, it's like the heights never match up
   with anything" and "where is the hover for the What's New area? ... you hover over it and you get to, like, scroll
