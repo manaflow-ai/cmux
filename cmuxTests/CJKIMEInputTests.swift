@@ -1316,7 +1316,8 @@ final class IMEModifiedKeyCommitRegressionTests: XCTestCase {
         characters: String,
         charactersIgnoringModifiers: String,
         keyCode: UInt16,
-        passesKeyToKeyBindings: Bool = false
+        passesKeyToKeyBindings: Bool = false,
+        remainingPreedit: String? = nil
     ) async -> (sent: [SentKey], hasMarkedText: Bool)? {
         var result: (sent: [SentKey], hasMarkedText: Bool)?
         await AppContextSerialGate.withExclusiveAppContext {
@@ -1375,6 +1376,13 @@ final class IMEModifiedKeyCommitRegressionTests: XCTestCase {
             cjkIMEInterpretKeyEventsHook = { candidateView, _ in
                 guard candidateView === view else { return false }
                 candidateView.insertText(committed, replacementRange: NSRange(location: NSNotFound, length: 0))
+                if let remainingPreedit {
+                    candidateView.setMarkedText(
+                        remainingPreedit,
+                        selectedRange: NSRange(location: (remainingPreedit as NSString).length, length: 0),
+                        replacementRange: NSRange(location: NSNotFound, length: 0)
+                    )
+                }
                 // An input method that does not consume the key lets AppKit
                 // run its key bindings, which reach doCommand(by:).
                 if passesKeyToKeyBindings {
@@ -1466,10 +1474,36 @@ final class IMEModifiedKeyCommitRegressionTests: XCTestCase {
         let presses = sent.filter { $0.action == GHOSTTY_ACTION_PRESS }
         XCTAssertEqual(presses.map(\.text), ["한", nil], "The syllable goes out first, then the arrow without text")
         XCTAssertEqual(presses.last?.keycode, 123)
+        XCTAssertEqual(
+            presses.last.map { $0.mods.rawValue & GHOSTTY_MODS_ALT.rawValue },
+            GHOSTTY_MODS_ALT.rawValue,
+            "The replayed arrow keeps Option"
+        )
         XCTAssertTrue(
             sent.contains { $0.action == GHOSTTY_ACTION_RELEASE && $0.keycode == 123 },
             "The replayed arrow keeps its release"
         )
+    }
+
+    /// An arrow that commits only part of the preedit and leaves the rest
+    /// marked moved inside the composition, so it must not move the
+    /// terminal's cursor under the remaining preedit.
+    func testModifiedArrowThatKeepsPreeditIsNotReplayed() async throws {
+        let outcome = await dispatchCommit(
+            preedit: "かんじへ",
+            committed: "漢字",
+            modifierFlags: [.option],
+            characters: "\u{F703}",
+            charactersIgnoringModifiers: "\u{F703}",
+            keyCode: 124,
+            remainingPreedit: "へ"
+        )
+        let (sent, hasMarkedText) = try XCTUnwrap(outcome)
+
+        XCTAssertTrue(hasMarkedText, "The rest of the preedit stays marked")
+        let presses = sent.filter { $0.action == GHOSTTY_ACTION_PRESS }
+        XCTAssertEqual(presses.map(\.text), ["漢字"], "Only the committed prefix may reach the terminal")
+        XCTAssertFalse(sent.contains { $0.keycode == 124 }, "The arrow belongs to the composition")
     }
 
     /// Ctrl-C while a Hangul syllable is composing: the input method commits
