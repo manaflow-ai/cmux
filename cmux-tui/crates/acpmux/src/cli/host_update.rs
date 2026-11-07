@@ -8,9 +8,9 @@
 use super::host_auto_update::take_auto_update_off;
 use super::host_hold::{Holds, holds_path, now_ms};
 use super::{
-    DAEMON_UNIT, IN_PLACE, LockLost, MIGRATING, OLD_SYSTEMD_UNITS, REFUSED, RESTORE_PREV, Remote,
-    RemoteOut, SYSTEMD_UNIT, SshRemote, connect_peer, launchd_reload, linux_restart, lock_updates,
-    migrate, migrate_back, old_unit_check, push_update, run, ssh_host,
+    IN_PLACE, LockLost, MIGRATING, OLD_SYSTEMD_UNITS, REFUSED, RESTORE_PREV, Remote, RemoteOut,
+    SYSTEMD_UNIT, SshRemote, connect_peer, daemon_unit, launchd_reload, linux_restart,
+    lock_updates, migrate, migrate_back, old_unit_check, push_update, run, ssh_host,
 };
 use crate::cli::output::print_json;
 use crate::client::Client;
@@ -130,7 +130,7 @@ pub(crate) fn is_own_unit(text: &[u8]) -> bool {
 /// that one. It is acpmux's when the unit holds acpmux's own text (a regular
 /// file, not a link) and the daemon that answers is that unit's main process.
 /// Anything else (no unit, a unit someone wrote or edited, a daemon outside
-/// the unit, no answer) stays cmux's. It sets `$p` and `$u` as [`DAEMON_UNIT`] does.
+/// the unit, no answer) stays cmux's. It sets `$p` and `$u` as [`daemon_unit`] does.
 pub(crate) fn cloud_vm_check() -> String {
     format!(
         r#"acpmux_cloud=
@@ -141,10 +141,11 @@ if [ -z "$acpmux_ours" ] && cmp -s - "$acpmux_f" <<'ACPMUX_UNIT'
 {SYSTEMD_UNIT}ACPMUX_UNIT
 then acpmux_ours=yes; fi
 if [ -n "$acpmux_ours" ]; then
-{DAEMON_UNIT}[ "$u" != acpmux.service ] || acpmux_cloud=
+{daemon}[ "$u" != acpmux.service ] || acpmux_cloud=
 fi; fi; fi
 "#,
         old = old_unit_check(),
+        daemon = daemon_unit(),
     )
 }
 
@@ -180,8 +181,9 @@ fn probe_script(if_idle: bool) -> String {
         ":"
     };
     format!(
-        "echo \"{UNAME}$(uname -sm)\"\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{DAEMON_UNIT}{}",
+        "echo \"{UNAME}$(uname -sm)\"\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{}{}",
         cloud_vm_check(),
+        daemon_unit(),
         migrate(true)
     )
 }

@@ -304,7 +304,9 @@ const turnChangedFiles = (rows: readonly AcpmuxRow[]) => {
 /// The rows to draw. `expanded` holds the ids of open disclosures; `working` says the last
 /// turn is still running (the snapshot's `isWorking`); `now` dates the turns (timestamps.ts);
 /// `clockOffset` (the snapshot's `clockOffsetMs`) moves the running turn's start onto this
-/// computer's clock, so its "Working for" counts from the prompt. `sessionStatus` (the Debug
+/// computer's clock, so its "Working for" counts from the prompt. `turnStartedAtMs` (the snapshot's)
+/// is the live turn's own start, which differs from the prompt when a resumed turn still opens with
+/// an older prompt. `sessionStatus` (the Debug
 /// toggle `agent.sessionStatus`) puts a running turn's todo list under its work, with the
 /// activity line under it.
 export function turnView(
@@ -314,6 +316,7 @@ export function turnView(
     now?: number;
     working?: boolean;
     clockOffset?: number;
+    turnStartedAtMs?: number;
     sessionStatus?: boolean;
     /** The session's harness family, which picks how a finished turn folds (turnFoldStyle.ts). */
     agentFamily?: string;
@@ -329,6 +332,7 @@ export type TurnView = {
   source: readonly AcpmuxRow[];
   expanded: Folds;
   clockOffset: number;
+  turnStartedAtMs?: number;
   agentFamily?: string;
   working: boolean;
   sessionStatus: boolean;
@@ -381,6 +385,7 @@ export function turnViewFrom(
     now = Date.now(),
     working = false,
     clockOffset = 0,
+    turnStartedAtMs,
     sessionStatus = false,
     agentFamily,
     waitingSteers,
@@ -390,6 +395,7 @@ export function turnViewFrom(
     now?: number;
     working?: boolean;
     clockOffset?: number;
+    turnStartedAtMs?: number;
     sessionStatus?: boolean;
     agentFamily?: string;
     /// The steers the agent has not read yet (snapshot `waitingSteers`), one array while they hold.
@@ -408,6 +414,7 @@ export function turnViewFrom(
     previous.source === rows &&
     previous.expanded === expanded &&
     previous.clockOffset === clockOffset &&
+    previous.turnStartedAtMs === turnStartedAtMs &&
     previous.agentFamily === agentFamily &&
     previous.messageBreaks === messageBreaks &&
     previous.working === working &&
@@ -524,6 +531,7 @@ export function turnViewFrom(
       now,
       working,
       clockOffset,
+      turnStartedAtMs,
       sessionStatus,
       agentFamily,
       waitingSteers,
@@ -551,6 +559,7 @@ export function turnViewFrom(
       foldedBackground,
       live ? trayAgents : 0,
       at === retryAt,
+      live ? turnStartedAtMs : undefined,
     );
     // Other sessions' messages the agent read stay each its own line where it read them
     // (IncomingMessageCard.tsx). One it has not read yet (a steer that waits for its step) leaves
@@ -588,6 +597,7 @@ export function turnViewFrom(
     source: rows,
     expanded,
     clockOffset,
+    turnStartedAtMs,
     agentFamily,
     working,
     sessionStatus,
@@ -817,6 +827,7 @@ function shapedTurn(
   foldedBackground: ReadonlySet<string> = new Set(),
   trayAgents = 0,
   retryTarget = false,
+  turnStartedAtMs?: number,
 ): AcpmuxRow[] {
   const user = rows[start]!;
   // A running turn changes with every event: it is neither read from nor kept in the cache, so its
@@ -917,6 +928,7 @@ function shapedTurn(
       agentFamily,
       trayAgents,
       endedBackgroundTurns(source),
+      turnStartedAtMs,
     );
     // Where its runs fold, a run of them that carries messages between agents folds under one line
     // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
@@ -1168,13 +1180,14 @@ function shapeTurn(
   agentFamily?: string,
   trayAgents = 0,
   endedBackground: ReadonlySet<string> = new Set(),
+  turnStartedAtMs?: number,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   // A turn still running shows its work as it happens, under its live status; one without a
   // summary that is no longer running draws as it came.
   if (end < 0)
     return live
-      ? liveTurn(user, turn, clockOffset, sessionStatus, trayAgents)
+      ? liveTurn(user, turn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs)
       : last
         ? planLast(turn.flatMap(withoutDrafts).map(endedPlan))
         : settledWithoutSummary(turn);
@@ -1436,7 +1449,9 @@ function shapeTurn(
   // too, not only work), so its end moves nothing (design/transcript-spacing.md "Reply footer").
   const answered = withTailAnswers(tail, endedBackground, summary.seq);
   if (live && (tail.some((row) => row.kind === "activity") || tail.slice(lastSummary + 1).some(isReply)))
-    shaped.push(...liveTurn({ ...summary, at: since }, answered, clockOffset, sessionStatus, trayAgents));
+    shaped.push(
+      ...liveTurn({ ...summary, at: since }, answered, clockOffset, sessionStatus, trayAgents, turnStartedAtMs),
+    );
   else shaped.push(...(live ? answered : answered.flatMap(withoutDrafts).map(endedPlan)));
   return shaped;
 }
@@ -1780,8 +1795,9 @@ function liveTurn(
   clockOffset: number,
   sessionStatus = false,
   trayAgents = 0,
+  turnStartedAtMs?: number,
 ): AcpmuxRow[] {
-  return withRetry(turn, shapeLiveTurn(user, turn, clockOffset, sessionStatus, trayAgents));
+  return withRetry(turn, shapeLiveTurn(user, turn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs));
 }
 
 /// The running turn's retries (the client's `TURN_RETRY` row, direct.ts) on its "Thinking" line:
@@ -1811,6 +1827,7 @@ function shapeLiveTurn(
   clockOffset: number,
   sessionStatus = false,
   trayAgents = 0,
+  turnStartedAtMs?: number,
 ): AcpmuxRow[] {
   const drawn = turn.filter((row) => row.kind !== "typing" && !isVisiblyEmptyMessage(row));
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
@@ -1823,9 +1840,11 @@ function shapeLiveTurn(
   const named = last ? lineCall(drawn, last) : undefined;
   // A reply before a steer never joins a run, as in the ended turn (steerDialogueIn).
   const rows = codexRuns(mergeShortNotes(drawn, steerDialogueIn(drawn)), named?.tool.id);
-  // The status ticks on this computer's clock, from the prompt moved onto it.
-  const at = user.at + clockOffset;
-  const shaped = codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus, trayAgents);
+  // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
+  // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
+  const start = turnStartedAtMs ?? user.at;
+  const at = start + clockOffset;
+  const shaped = codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus, trayAgents, start);
   // The line is the turn's last row, made fresh here.
   if (named?.earlier) shaped.at(-1)!.linedCall = named.tool.id;
   return shaped;
@@ -1848,6 +1867,7 @@ function codexLiveTurn(
   clockOffset: number,
   sessionStatus: boolean,
   trayAgents = 0,
+  start = user.at,
 ): AcpmuxRow[] {
   let rows = runs;
   // The one live block sits at the turn's bottom, as the ChatGPT and Codex apps draw it: no
@@ -1933,6 +1953,7 @@ function codexLiveTurn(
       plan,
       clockOffset,
       named?.tool,
+      start,
     ),
   ];
 }
@@ -2075,6 +2096,7 @@ function activityLine(
   plan: AcpmuxRow,
   clockOffset: number,
   named?: NonNullable<AcpmuxActivity["tool"]>,
+  start = user.at,
 ): AcpmuxRow {
   const running = named
     ? { kind: "tool", text: "", tool: named }
@@ -2093,7 +2115,7 @@ function activityLine(
   const line: AcpmuxRow = {
     id: `${ACTIVITY_LINE}-${user.id}`,
     version: version * 2 + (command ? 1 : 0),
-    at: user.at + clockOffset,
+    at: start + clockOffset,
     kind: ACTIVITY_LINE,
     text: label,
     // The line below a plan occupies the footer's slot. Keeping the marker on that row lets the
