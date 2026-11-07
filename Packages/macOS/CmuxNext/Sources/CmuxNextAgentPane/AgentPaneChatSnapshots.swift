@@ -50,11 +50,18 @@ public final class AgentPaneChatSnapshots {
 
     init() {}
 
-    /// Whether `snapshot` is a page copy this keeps: an object with its markup. Its size is the disk's bound.
+    /// Whether `snapshot` is a page copy this keeps: an object with its markup, or the page's reason it
+    /// wrote none (`miss`, served as why nothing drew). Its size is the disk's bound.
     nonisolated static func holds(_ snapshot: JSONValue) -> Bool {
-        guard case .object(let fields) = snapshot, case .string(let html)? = fields["html"], !html.isEmpty,
-              case .number? = fields["v"] else { return false }
+        guard case .object(let fields) = snapshot else { return false }
+        if case .string(let miss)? = fields["miss"], fields["html"] == nil { return !miss.isEmpty }
+        guard case .string(let html)? = fields["html"], !html.isEmpty, case .number? = fields["v"] else { return false }
         return true
+    }
+
+    /// Whether `kept` is a copy the page draws (not only the reason it wrote none).
+    nonisolated static func draws(_ kept: JSONValue) -> Bool {
+        if case .object(let fields) = kept, case .string? = fields["html"] { true } else { false }
     }
 
     /// Keeps `snapshot` for chat `sessionId`; nil, or one this does not hold, forgets the one kept.
@@ -91,15 +98,25 @@ public final class AgentPaneChatSnapshots {
     func reply(_ method: String, params: JSONValue, op: String, allowed: Bool, pageGeneration: UInt64) async throws -> JSONValue {
         guard case .object(var body) = params, case .string(let session)? = body["sessionId"], !session.isEmpty
         else { throw PageError.invalidParams(op) }
-        if method == "chat.snapshot.get" { return allowed ? await snapshot(for: session) ?? .null : .null }
+        if method == "chat.snapshot.get" {
+            guard allowed, let kept = await snapshot(for: session), Self.draws(kept) else { return .null }
+            return kept
+        }
         // A put answers `{kept}`: whether this keeps it (the page's own record of its writes).
         guard allowed, pageGeneration == AgentPaneTailCache.shared.generation, AgentPaneTailCache.shared.acceptsTails
         else { return ["kept": .bool(false)] }
         body["sessionId"] = nil
-        // Typed: an untyped `nil` could read as `JSONValue.null` (ExpressibleByNilLiteral).
-        let kept: JSONValue? = if case .string? = body["html"] { .object(body) } else { .none }
+        // Typed: an untyped `nil` could read as `JSONValue.null` (ExpressibleByNilLiteral). With no
+        // markup, the page's reason (`miss`) is kept in its place, for the next document's record.
+        let kept: JSONValue? = if case .string? = body["html"] {
+            .object(body)
+        } else if case .string(let miss)? = body["miss"], !miss.isEmpty {
+            .object(["miss": .string(String(miss.prefix(200)))])
+        } else {
+            .none
+        }
         remember(kept, for: session)
-        return ["kept": .bool(kept != nil && disk != nil)]
+        return ["kept": .bool(kept.map(Self.draws) == true && disk != nil)]
     }
 
     /// The script the document loads (async) beside its bundle: sets the page's global to chat
@@ -119,13 +136,14 @@ public final class AgentPaneChatSnapshots {
         if why == "kept", let sessionId {
             if let read { kept = await read.value } else { kept = await snapshot(for: sessionId) }
         }
-        if let kept {
+        if let kept, Self.draws(kept) {
             kept.appendCompactText(to: &text)
         } else {
-            if why == "kept" { why = disk == nil ? "no-store" : "none" }
+            if why == "kept" { why = disk == nil ? "no-store" : kept?["miss"]?.stringValue.map { "none: \($0)" } ?? "none" }
             text += "null"
         }
-        text += ";self.\(Self.global)Why=\"\(why)\""
+        text += ";self.\(Self.global)Why="
+        JSONValue.string(why).appendCompactText(to: &text)
         // The theme the page gets now: a copy drawn under another one is not drawn.
         text += ";self.\(Self.themeGlobal)="
         JSONValue.string(themeKey ?? "").appendCompactText(to: &text)

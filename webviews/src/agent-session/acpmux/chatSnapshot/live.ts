@@ -1,7 +1,7 @@
 // The live page's side of a chat's snapshot (shared.ts): it tells the host the chat is on screen as
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
-import { captureSnapshot } from "./capture";
+import { captureMiss, captureSnapshot } from "./capture";
 import {
   SNAPSHOT_GLOBAL,
   SNAPSHOT_HOST_TAG,
@@ -152,12 +152,13 @@ export function watchChatSnapshot(
     const snapshot = captureSnapshot(doc, chatTheme);
     wroteAt = performance.now();
     // Too large to keep (or no chat drawn): the host forgets the older one, which no longer shows
-    // what this chat is.
+    // what this chat is, and keeps why, which the next document's record reads.
     writes.count += 1;
-    void put(snapshot ? { sessionId, ...snapshot } : { sessionId }).then(
+    const miss = captureMiss();
+    void put(snapshot ? { sessionId, ...snapshot } : { sessionId, miss }).then(
       (reply) => {
         const kept = (reply as { kept?: unknown } | null)?.kept;
-        writes.last = !snapshot ? "forgot (too large or empty)" : kept === true ? "kept" : "refused";
+        writes.last = !snapshot ? `forgot: ${miss}` : kept === true ? "kept" : "refused";
       },
       (error) => {
         writes.last = `error: ${String(error)}`;

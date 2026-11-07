@@ -82,17 +82,26 @@ function pageStyles(doc: Document): string[] {
   return styles.filter((text) => text.length > 0);
 }
 
+/// Why the last ``captureSnapshot`` gave none (empty when it gave one), for the page's writes record
+/// and the host's (live.ts).
+let missed = "";
+export function captureMiss(): string {
+  return missed;
+}
+
 /// The snapshot of `doc` as it shows now, drawn in the theme `theme` keys, or undefined when it
 /// shows no chat or the visible window is larger than ``SNAPSHOT_MAX_CHARS``.
 export function captureSnapshot(doc: Document, theme: string): ChatSnapshot | undefined {
   const view = doc.defaultView;
   const live = doc.getElementById("root");
+  missed = "no chat drawn";
   if (!theme || !view || !live || !doc.body || live.childElementCount === 0) return undefined;
   const viewHeight = view.innerHeight;
   const liveElements = Array.from(live.querySelectorAll("*"));
   const plans = liveElements.map((element) => planFor(element, viewHeight));
   const copy = live.cloneNode(true) as HTMLElement;
   const copyElements = Array.from(copy.querySelectorAll("*"));
+  missed = "the copy's elements differ";
   if (copyElements.length !== liveElements.length) return undefined;
   const sheets = new Map<CSSStyleSheet, number>();
   copyElements.forEach((element, index) => {
@@ -128,7 +137,9 @@ export function captureSnapshot(doc: Document, theme: string): ChatSnapshot | un
   const sheetTexts = Array.from(sheets.keys(), sheetText);
   const styles = pageStyles(doc);
   const total = [html, ...sheetTexts, ...styles].reduce((sum, text) => sum + text.length, 0);
+  missed = `too large: markup ${html.length}, shadow sheets ${sheetTexts.length} of ${sheetTexts.reduce((sum, text) => sum + text.length, 0)}, page sheets ${styles.length} of ${styles.reduce((sum, text) => sum + text.length, 0)} chars`;
   if (total > SNAPSHOT_MAX_CHARS) return undefined;
+  missed = "";
   return {
     v: SNAPSHOT_VERSION,
     html,

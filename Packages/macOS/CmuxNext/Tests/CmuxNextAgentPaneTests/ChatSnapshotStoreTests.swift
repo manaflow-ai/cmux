@@ -109,6 +109,22 @@ struct ChatSnapshotStoreTests {
         }
     }
 
+    /// A page that could not keep its copy (too large, no chat drawn) says why: the next document's
+    /// record reads it, and nothing is drawn or returned.
+    @Test func aWriteWithoutACopyKeepsWhy() async throws {
+        try await Self.withDisk { disk in
+            try await Self.put("s-6", html: "<main>a</main>")
+            _ = try await AgentPaneTailCache.shared.snapshots.reply("chat.snapshot.put",
+                                                              params: .object(["sessionId": .string("s-6"), "miss": .string("too large")]),
+                                                              op: "cmux.agent.chat.snapshot.put", allowed: true,
+                                                              pageGeneration: AgentPaneTailCache.shared.generation)
+            await disk.settled()
+            #expect(try await Self.get("s-6") == .null)
+            let resources = AgentPageResources(session: { "s-6" }, allowed: { true })
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none: too large\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxChatSnapshotBoot?.();")
+        }
+    }
+
     /// Sign-out clears the copies with the tails, and a page from before it writes nothing after.
     @Test func signOutClearsThem() async throws {
         try await Self.withDisk { disk in
