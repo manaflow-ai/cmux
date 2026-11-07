@@ -8,7 +8,8 @@
 //!   (`acpmux new` in S's shell, `hub/person.rs` (a)) and is not the person, or S's
 //!   `start_session` tool (`subsessions.rs`). `session` is S, `workspace` S's workspace.
 //! - `person`: this host's app or a connection that proved it is the person (`person_asks`),
-//!   and a Web client (the person's phone or browser).
+//!   and a Web client (the person's phone or browser), told by its connection
+//!   (`remote_guard::proven_control`), never by a request marker such as `via`.
 //! - `script`: any other client: the CLI outside a chat, a script, a Cloud trigger
 //!   (`server/trigger_chat.rs`, from the trigger's workspace).
 //!
@@ -32,6 +33,7 @@ pub struct Creator<'a> {
     pub person: bool,
     /// The session the connection proved it runs in (`Conn::caller`).
     pub caller: Option<&'a str>,
+    /// The connection's own proof (`remote_guard::proven_control`), not a request's marker.
     pub control: Control,
     /// The request's `_meta.acpmux`, read for [`FIELD`] from a proven peer only.
     pub meta: Option<&'a Value>,
