@@ -25,9 +25,9 @@
  *   writes that for the work user when the file does not exist (the machine has no app to
  *   ask). The Claude Code permission prompts and acpmux permission policies are unchanged.
  * - Desktop (role desktop): the person's view of the agent display is `cmux.rd/1` over the owner's
- *   Native link, service `desktop`. The boundary is the link's admission: the machine's link
- *   receiver (the session daemon's `__receive-vm`, which runs as the work user) admits only the
- *   owner's one-time link token for `desktop`, then connects RD_SOCKET; systemd starts RD_UNIT,
+ *   carrier, service `desktop`. The boundary is the carrier's admission: the machine's carrier
+ *   server (`cmux carrier serve`, which runs as the work user) admits only the owner's grant
+ *   for `desktop`, then connects RD_SOCKET; systemd starts RD_UNIT,
  *   the `cmux-rd` host on the agent display as its own system user RD_USER (no shell, no home,
  *   not in the work user's group, no sudo), which takes connections from the work user's uid only.
  *   On the machine the socket is not a boundary against the agent: the agent already reaches

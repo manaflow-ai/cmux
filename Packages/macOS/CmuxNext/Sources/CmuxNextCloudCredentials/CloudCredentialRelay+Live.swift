@@ -19,7 +19,6 @@ public nonisolated extension CloudCredentialRelay {
                 let token = try? await identity.installToken()
                 return Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
             },
-            allowedOps: allowedOps,
-            installID: { await identity.installID() })
+            allowedOps: allowedOps)
     }
 }

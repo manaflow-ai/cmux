@@ -184,7 +184,6 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudFirewallGet": [p(.cloudMachine, .create, 14, folder: .tools)],
         "cloudFirewallCreate": [p(.cloudMachine, .create, 15, folder: .tools)],
         "cloudFirewallDelete": [p(.cloudMachine, .create, 16, folder: .tools)],
-        "cloudEnrollMachine": [p(.cloudMachine, .create, 17, folder: .tools)],
         "cloudApplyMachineConfig": [p(.cloudMachine, .create, 18, folder: .tools)],
         "cloudDeliverSecrets": [p(.cloudMachine, .create, 19, folder: .tools)],
         "cloudProvisionAPI": [p(.cloudMachine, .create, 20, folder: .tools)],

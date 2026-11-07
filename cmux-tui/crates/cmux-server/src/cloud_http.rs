@@ -47,11 +47,6 @@ pub fn network_changes() -> u64 {
     *NETWORK.borrow()
 }
 
-/// The count of [`network_changed`] calls, to wait on.
-pub fn network_watch() -> watch::Receiver<u64> {
-    NETWORK.subscribe()
-}
-
 #[cfg(test)]
 #[path = "cloud_http_tests.rs"]
 mod tests;

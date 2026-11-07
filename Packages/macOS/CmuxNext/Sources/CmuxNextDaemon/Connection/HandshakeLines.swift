@@ -25,9 +25,9 @@ enum HandshakeLines {
             PipelinedLine(SubscribeRequest(treeEvents: configuration.treeEvents)),
         ]
         guard let hello = configuration.clientHello else {
-            var lines = await transport.pipeline([PipelinedLine(IdentifyRequest())] + setup, timeout: configuration.requestTimeout)
+            var lines = await transport.pipeline([PipelinedLine(IdentifyRequest())] + setup, timeout: configuration.handshakeDeadline)
             if servesMachineMetadata(lines[0]) {
-                let metadata = await transport.pipeline([PipelinedLine(IdentifyRequest(machineMetadata: true))], timeout: configuration.requestTimeout)
+                let metadata = await transport.pipeline([PipelinedLine(IdentifyRequest(machineMetadata: true))], timeout: configuration.handshakeDeadline)
                 lines[0] = fencedMetadata(metadata[0], original: lines[0])
             }
             return Replies(lines: lines, userOriginAllowed: false)
@@ -35,12 +35,12 @@ enum HandshakeLines {
         let first = await transport.pipeline([
             PipelinedLine(IdentifyRequest()),
             PipelinedLine(ClientHelloRequest(role: .main, installID: hello.installKey?.installID)),
-        ], timeout: configuration.requestTimeout)
+        ], timeout: configuration.handshakeDeadline)
         let started = (try? first[1].get()).flatMap { try? WireCoding.decodeResponse(ClientHelloRequest.Response.self, from: $0.line) }
         let proof = helloProof(hello, start: first[1])
         let metadata = servesMachineMetadata(first[0]) ? [PipelinedLine(IdentifyRequest(machineMetadata: true))] : []
         let rest = await transport.pipeline((proof.map { [PipelinedLine($0)] } ?? []) + metadata + setup,
-                                            timeout: configuration.requestTimeout)
+                                            timeout: configuration.handshakeDeadline)
         var userOriginAllowed = started?.userOriginAllowed == true
         if proof != nil {
             let proved = (try? rest[0].get()).flatMap { try? WireCoding.decodeResponse(ClientHelloProofRequest.Response.self, from: $0.line) }

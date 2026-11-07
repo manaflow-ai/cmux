@@ -8,7 +8,7 @@ extension CloudAppLinks {
     /// ``CloudAppOpFailure``; origin `user` is sent only where the daemon
     /// allows it (the verified app connection), never upgraded here.
     static func ops(local: DaemonService) -> CloudAppOp {
-        let timeout = connectTimeout
+        let timeout: Duration = .seconds(120) // a start waits for a paused machine
         return { op, args, key, origin in
             guard let connection = await local.connection else {
                 throw CloudAppOpFailure(code: "cmux.cloud.relay_unavailable", message: DaemonError.notConnected.description)

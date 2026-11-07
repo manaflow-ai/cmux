@@ -553,12 +553,8 @@ fn acpmux(args: &[&str]) -> Option<(bool, String)> {
     Some((output.status.success(), String::from_utf8_lossy(&output.stdout).into_owned()))
 }
 
-/// What a restart would cut: the relay chats this cmux-host runs, then
-/// [`acpmux_busy_sessions`]. Empty only when both are idle.
+/// What a restart would cut: [`acpmux_busy_sessions`]. Empty only when it is idle.
 fn busy_sessions() -> Result<Vec<String>, String> {
-    if let Some(chats) = super::relay_chats_busy(crate::cloud::relay::running_chats()) {
-        return Ok(vec![chats]);
-    }
     acpmux_busy_sessions()
 }
 

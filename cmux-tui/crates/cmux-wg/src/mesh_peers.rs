@@ -38,7 +38,7 @@ pub(crate) struct Peer {
     pub(crate) index: u32,
     pub(crate) allowed_ips: Vec<IpNetwork>,
     /// Where datagrams to the peer go: configured, or the source of its
-    /// latest authenticated datagram (a UDP address or a gateway).
+    /// latest authenticated datagram.
     pub(crate) route: Option<PeerRoute>,
     pub(crate) schedule: TimerSchedule,
     /// When a packet was last queued for want of a session (a dial waiting
@@ -55,7 +55,7 @@ impl Peer {
     }
 
     /// The peer proved its key in a datagram from `source`: it is reachable
-    /// there now (first contact, or roaming, across UDP and gateways).
+    /// there now (first contact, or roaming).
     pub(crate) fn authenticated(&mut self, source: Option<PeerRoute>, now: Instant) {
         if let Some(source) = source {
             self.route = Some(source);

@@ -52,7 +52,7 @@ fn mesh(node: Node) -> MeshOverlay {
         }],
         mtu: super::state::LINK_MTU,
     };
-    MeshOverlay::new(WgMesh::start(config, node.socket).unwrap(), Zeroizing::new(node.private))
+    MeshOverlay::new(WgMesh::start(config, node.socket).unwrap())
 }
 
 async fn within<T>(future: impl Future<Output = T>) -> T {
@@ -415,7 +415,6 @@ async fn outgoing_revocation_and_endpoint_updates_work_across_two_real_meshes() 
         local,
         overlay_b.clone(),
         peers_b.clone(),
-        Arc::new(super::cloud::CloudResolver::new(super::cloud::RelaySource::unavailable())),
         Arc::from("{}"),
     ));
     let mut caller = tokio::net::UnixStream::connect(local_path).await.unwrap();

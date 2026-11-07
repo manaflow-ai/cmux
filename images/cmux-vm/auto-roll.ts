@@ -9,7 +9,7 @@
 //     dryRun, and the fix commits (sha, merged-at, subject) the roll carries. Reads git and files.cmux.com only.
 //     Fails closed (exits non-zero) on a shallow checkout or a pinned commit the checkout lacks: the guard that
 //     never rolls an older build needs the pin's history.
-//   bun images/cmux-vm/auto-roll.ts approve --candidate <native-image.json> --revision <ci-RUN-ATTEMPT>
+//   bun images/cmux-vm/auto-roll.ts approve --candidate <channel-dev.json> --revision <ci-RUN-ATTEMPT>
 //       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>]
 //     Puts the baked, gated image first in production's VM_BOOT_IMAGES and last in staging's, trims the
 //     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked.

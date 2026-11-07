@@ -1,4 +1,5 @@
 import CmuxInstallAuthCore
+import CryptoKit
 public import Foundation
 
 /// A short-lived cmux access token for one team, for a person or agent outside
@@ -87,6 +88,14 @@ public struct CloudAccessToken: Sendable, Equatable {
         guard let reply = CloudStartCore().call("cloud_identity_mint_team", request, as: Reply.self) else { throw Failure.badReply }
         if reply.refusal != nil { throw Failure.managed }
         return reply.team
+    }
+
+    /// The backend's id for a Stack user (the API's `userIdFor`, as CloudIdentity.workerUserID): the `creator` a
+    /// cmux-next machine record names. Rust has the same rule (cmux-tui-core `cloud_conversations`), but not yet over
+    /// the pinned app FFI.
+    public static func backendUserID(stackProjectID: String, stackUserID: String) -> String {
+        let digest = SHA256.hash(data: Data("stack:\(stackProjectID):\(stackUserID)".utf8))
+        return "user_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
     }
 
     /// The failure an install mint threw, as one of ours.
