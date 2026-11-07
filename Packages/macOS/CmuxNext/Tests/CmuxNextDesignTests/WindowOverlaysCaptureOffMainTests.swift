@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Darwin
 import os
 import Testing
@@ -9,7 +10,7 @@ import Testing
 /// mask) run off it. `debug.window_snapshot` takes one every second while a journey films a motion;
 /// on the main thread each one was a 15-38 ms missed refresh in every film (RESIZE P0, 2026-11-07).
 @MainActor
-@Suite struct WindowOverlaysCaptureOffMainTests {
+@Suite(.closesItsWindows) struct WindowOverlaysCaptureOffMainTests {
     @Test func theWindowServerCaptureRunsOffTheMainThread() async throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 80, height: 60), styleMask: [.borderless],
