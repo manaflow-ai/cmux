@@ -2187,3 +2187,87 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         );
     }
 }
+
+/// A create the app answered pending for and that then fails is answered as an immediate refusal is: a cap
+/// reason is the cap answer (the account's machines and the commands that free one), whether the failure is
+/// on the create's row or on a machine row the create became; a failed machine is never the chat's machine
+/// (the eighth review of #37159).
+#[test]
+fn a_pending_create_that_fails_later_is_answered_as_a_refusal_never_started_on() {
+    let held = "VM API: this team has its limit of 20 machines (paused ones count); delete one to make another";
+    let running = "this plan allows 5 active machines";
+    let web = json!({"machine_id": "vm-b", "title": "web", "status": "paused"});
+    let first = || ok(json!({"account": {"signed_in": true}, "machines": [web.clone()]}));
+    let row_failed = |reason: &str| {
+        ok(json!({"account": {"signed_in": true}, "machines": [web.clone()],
+                  "creating": [{"creation_id": "c-1", "name": "chat-fresh", "status": "failed",
+                                "reason": reason}]}))
+    };
+    let machine_failed = |message: &str| {
+        ok(json!({"account": {"signed_in": true}, "creating": [], "machines": [web.clone(),
+                  {"machine_id": "vm-1", "title": "chat-fresh", "status": "failed",
+                   "error": {"code": "cloud.provider.unavailable", "message": message}}]}))
+    };
+    let cases = [
+        ("the create's row, the team's cap", row_failed(held), Some("held")),
+        ("the create's row, the plan's cap", row_failed(running), Some("running")),
+        ("a failed machine, the team's cap", machine_failed(held), Some("held")),
+        ("a failed machine, no cap", machine_failed("the machine did not boot"), None),
+    ];
+    for (case, later, cap) in cases {
+        let mut fake = Fake::new(vec![first(), creating(), later]);
+        let Outcome::Failed { error, exit } =
+            run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+        else {
+            panic!("{case}: {:?}", fake.ran)
+        };
+        let steps: Vec<&str> = fake.ran.iter().map(|words| words[1].as_str()).collect();
+        assert_eq!(
+            steps,
+            ["list-machines", "new-machine", "list-machines"],
+            "{case}: nothing started"
+        );
+        match cap {
+            Some(cap) => {
+                assert_eq!(
+                    (error["code"].as_str(), exit),
+                    (Some("cloud.machine_cap"), 1),
+                    "{case}: {error}"
+                );
+                assert_eq!(error["details"]["cap"], cap, "{case}: {error}");
+                let message = error["message"].as_str().unwrap_or_default();
+                assert!(message.contains("vm-b"), "{case}: the account's machines: {message}");
+            }
+            None => {
+                assert_eq!(
+                    (error["code"].as_str(), exit),
+                    (Some("cloud.start_failed"), 1),
+                    "{case}: {error}"
+                );
+                assert!(
+                    error["message"].as_str().unwrap_or_default().contains("did not boot"),
+                    "{case}: {error}"
+                );
+            }
+        }
+    }
+}
+
+/// A create still on its way when `--timeout` runs out answers with the name the rerun uses (`machine_name`)
+/// beside its `creation_id`, as every other pending answer does (the eighth review of #37159).
+#[test]
+fn a_late_creation_timeout_names_the_machine_to_ask_again_by() {
+    let mut fake = Fake::new(vec![signed_in(), creating(), still_creating("creating")]);
+    let Outcome::Failed { error, exit } =
+        run(&mut fake, &request(&["--prompt", "x", "--wait", "--timeout", "14"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75), "{error}");
+    assert_eq!(error["details"]["creation_id"], "c-1", "{error}");
+    assert_eq!(error["details"]["machine_name"], "chat-fresh", "{error}");
+    assert!(
+        error["details"]["again"].as_str().unwrap_or_default().contains("--name chat-fresh"),
+        "{error}"
+    );
+}
