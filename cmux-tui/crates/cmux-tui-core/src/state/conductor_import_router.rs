@@ -282,6 +282,7 @@ impl Mux {
                     .collect())
             })
             .unwrap_or_default();
+        let refusals = super::projects_store::refusals();
         let projects = projects.as_array_mut().into_iter().flatten();
         for project in projects.filter_map(Value::as_object_mut) {
             if project.get("recipe").is_none_or(Value::is_null) {
@@ -291,7 +292,10 @@ impl Mux {
                 project.insert("recipe".into(), Value::Null);
                 continue;
             };
+            // As `project.add` stores it, so `project.update` finds it: resolved, then normalized
+            // (the data volume firmlink removed).
             let path = std::fs::canonicalize(&path).unwrap_or(path).to_string_lossy().into_owned();
+            let path = refusals.normalize(&path).unwrap_or(path);
             if saved.contains(&path) {
                 project.insert("recipe".into(), Value::Null);
                 project.insert("recipe_kept".into(), Value::Bool(true));
