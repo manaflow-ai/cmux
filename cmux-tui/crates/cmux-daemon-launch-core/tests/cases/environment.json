@@ -922,5 +922,30 @@
    "PATH": "/opt/homebrew/bin",
    "CMUX_NEXT_CLOUD_RUNTIME": "1"
   }
+ },
+ {
+  "name": "the app's Cloud selection in the overrides reaches the terminal, inherited knobs do not",
+  "op": "terminal_spawn_environment",
+  "request": {
+   "login": {
+    "PATH": "/l",
+    "CMUX_NEXT_TUI_BIN": "/x"
+   },
+   "base": {
+    "CMUX_NEXT_NO_ACTIVATE": "1"
+   },
+   "overrides": {
+    "CMUX_NEXT_CLOUD_RUNTIME": "1",
+    "CMUX_NEXT_CLOUD_ENV": "staging"
+   },
+   "home": "/home/u",
+   "fs": {}
+  },
+  "expect": {
+   "PATH": "/l",
+   "CMUX_NEXT_CLOUD_RUNTIME": "1",
+   "CMUX_NEXT_CLOUD_ENV": "staging",
+   "TERM": "xterm-256color"
+  }
  }
 ]

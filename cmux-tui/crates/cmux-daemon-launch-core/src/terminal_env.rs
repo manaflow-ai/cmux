@@ -191,6 +191,13 @@ pub fn ghostty(
 /// One new terminal's `env`: the login environment filtered ([`terminal`]),
 /// the app's `overrides`, `TERM`, then Ghostty's shell integration and the
 /// bundled `cmux` layer.
+///
+/// `overrides` is the terminal environment the app chose, applied as given
+/// (the Swift provider did the same). It carries the app's socket and
+/// identity keys and, after the Cloud bootstrap, `CMUX_NEXT_CLOUD_RUNTIME`
+/// and `CMUX_NEXT_CLOUD_ENV`: the `cmux` CLI in that terminal reads them to
+/// use the app's Cloud backend (`cmux-tui/src/cloud_environment.rs`). Only
+/// the inherited knobs (login shell, app process) are dropped, in [`terminal`].
 #[allow(clippy::too_many_arguments)] // the provider's inputs, one per source; a struct would only rename them
 pub fn spawn(
     login: Option<&Env>,
