@@ -45,14 +45,12 @@ always runs; a class that yielded to input in one frame does not yield in the ne
 cadence, not a throttle: work over budget runs on the next frame, never later.
 
 Background work is idle work (Chrome's idle tasks), so it has no first-task rule: it runs only in a frame with idle
-time: not the display link's first tick (it renders what started the link), one that came on time (at most one and
-a half refreshes after the tick before it), after a render pass under half a refresh. SWITCH STALL (2026-11-06, cmux22, macOS 27, 60 Hz): after a Cmd-N's first frame the next frames came
+time, one that came on time (at most one and a half refreshes after the tick before it) after a render pass under
+half a refresh. SWITCH STALL (2026-11-06, cmux22, macOS 27, 60 Hz): after a Cmd-N's first frame the next frames came
 55 and 28 ms apart, and the next Cmd-N's spare workspace view (`WorkspaceSpareSlot`, about 3 ms a step) and the New
 Tab palette actions were made in them as the first background task of each frame. After waiting 300 ms in a row
 (`Budgets.idleTimeout`, Chrome's idle task timeout) one background task runs anyway, so a spare still refills under
-constant load. `debug.main_budget` counts the waits (`waited_for_idle_frame`). SWITCH STALL 2: the link is stopped
-before a Cmd-N, and its first tick (21 to 46 ms after the key, the frame that shows the new workspace) still ran the
-New Tab palette list and the idle spare (4 to 5 ms), so that tick has no idle time either.
+constant load. `debug.main_budget` counts the waits (`waited_for_idle_frame`).
 
 ## Pieces
 

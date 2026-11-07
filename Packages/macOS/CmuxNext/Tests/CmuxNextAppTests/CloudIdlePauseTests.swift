@@ -74,6 +74,24 @@ struct CloudIdlePauseTests {
         #expect(policyMachine.idlePauseMinutes == 30)
     }
 
+    /// A failed create keeps its reason only on the record (`error`): machine-status prints it, so "state failed"
+    /// says why (Leo's six failed machines read only "state failed", 2026-11-06).
+    @Test func machineStatusPrintsWhyTheMachineFailed() throws {
+        let record = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm-failed","status":"failed","error":{"code":"cloud.provider.unavailable","message":"VM API: HTTP 503","at":1700000000000}}"#.utf8))
+        let machine = try #require(CloudMachine(next: record))
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-failed")
+        session.machine = machine
+        let stats = try JSONDecoder().decode(CloudMachineStats.self, from: Data(#"{"state":"failed"}"#.utf8))
+        let fields = CloudHandlers.statusFields(session, stats, now: Date(timeIntervalSince1970: 0))
+        #expect(fields["error"] == .object(["code": .string("cloud.provider.unavailable"), "message": .string("VM API: HTTP 503")]))
+        let text = CloudHandlers.describe(session, stats, now: Date(timeIntervalSince1970: 0))
+        #expect(text.contains("error: cloud.provider.unavailable: VM API: HTTP 503"))
+
+        let healthy = MachineIconTests.cloudMachine(services, id: "vm-ok")
+        #expect(CloudHandlers.statusFields(healthy, stats)["error"] == nil)
+    }
+
     @Test func anOlderServerOrAnUnknownReasonDecodesAsNone() throws {
         let old = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-old","status":"paused"}"#.utf8))
         #expect(old.pauseReason == nil)

@@ -1228,7 +1228,16 @@ async fn dispatch_request_with_identity(
         method::MUX_MAC_APPROVERS if conn.origin.web_class() => Err(RpcError::invalid_params(
             "the enrolled Macs are read only on this machine, over its unix socket or app",
         )),
-        method::MUX_MAC_APPROVERS => Ok(hub.person.macs.view(&params)),
+        method::MUX_MAC_APPROVERS => {
+            // With this Mac's paired phones' public keys, which `host approvals enroll` also
+            // enrolls on a peer, so a phone may allow once there too.
+            let mut view = hub.person.macs.view(&params);
+            if let Some(fields) = view.as_object_mut() {
+                fields.insert("thisMacPhones".into(), json!(hub.person.approvers.peer_entries()));
+                fields.insert("thisMacPhonePrefix".into(), json!(hub.person.approvers.peer_prefix()));
+            }
+            Ok(view)
+        }
         method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {
             hub.person.set_workspace_roots(&params)
         }
@@ -1635,6 +1644,11 @@ async fn dispatch_request_with_identity(
                 (provenance, _) => provenance,
             };
             let declared = crate::hub::declared_sender(&params)?;
+            // Keep a caller's `--from` label beside authenticated caller provenance. The label
+            // is display-only; `fromSessionId` is still stamped below from the caller token.
+            let provenance = provenance.map(|provenance| {
+                crate::prompt_provenance::stamp_declared(provenance, declared.as_deref())
+            });
             // What another agent's message asks of this chat (`prompt_class.rs`).
             let class = crate::prompt_class::declared(&params)?;
             // The inbox thread its sender named (`hub/inbox.rs`).
@@ -1777,6 +1791,15 @@ async fn dispatch_request_with_identity(
                 steer_now: steer && flag("steerNow") == Some(true),
                 interrupt_turn: None,
                 provenance,
+                human_authenticated: person_message
+                    && (conn.is_person()
+                        || (conn.origin == super::Origin::Peer
+                            && mux_meta(&params)
+                                .and_then(|meta| {
+                                    meta.get(crate::prompt_provenance::PERSON_VERIFIED)
+                                })
+                                .and_then(Value::as_bool)
+                                == Some(true))),
                 agent,
                 class,
                 after_turn: None,

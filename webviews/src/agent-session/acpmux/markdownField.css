@@ -459,13 +459,14 @@
   height: 20px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
   opacity: 0;
-  background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
-  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
-  color: var(--agent-text);
+  /* The strip's solid, inverted badge (composerAttachments.css .acpmux-attachment-remove). */
+  background: var(--agent-text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--acpmux-base, Canvas) 72%, transparent);
+  color: var(--acpmux-base, Canvas);
 }
 .acpmux-md-inline-chip:hover .acpmux-md-inline-remove,
 .acpmux-md-inline-chip:focus-within .acpmux-md-inline-remove,
@@ -473,11 +474,11 @@
   opacity: 1;
 }
 .acpmux-md-inline-remove:hover {
-  background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
+  background: color-mix(in srgb, var(--agent-text) 82%, var(--acpmux-base, Canvas));
 }
 .acpmux-md-inline-remove:focus-visible {
   outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
+  outline-offset: 1.5px;
 }
 /* The agent's suggested next prompt in italics (experiment `prompt-suggestion-look`, arm italic). */
 .acpmux-composer-prompt.is-suggestion-italic .acpmux-md-placeholder {

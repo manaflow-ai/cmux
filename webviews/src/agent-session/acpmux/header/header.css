@@ -169,6 +169,7 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
    more tabs keep the row as before. The window drags from the strip's empty space, which the App keeps above the page.
    test/chat-header-solo-tab.test.ts keeps it so. */
 .acpmux-shell[data-tab-row][data-solo-tab]{background:linear-gradient(var(--agent-page-bg),var(--agent-page-bg)),var(--cmux-surface-background,transparent)}
+/* glass-raw-blur-allow: the solo tab row's soft edge fade over the chat, not a glass surface */
 .acpmux-stage[data-solo-tab]{--acpmux-solo-blur:6px}
 /* A line under the header (header/underHeader.ts: a Create Checkpoint review, a live chat's choice, a peer copy, a watched
    chat, a handoff error) keeps the transcript below it; the App drops data-solo-tab from the stage then

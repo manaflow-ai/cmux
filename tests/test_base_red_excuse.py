@@ -18,6 +18,8 @@ spec.loader.exec_module(excuse)
 # Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
 # their fakes only; SourceReads runs the real git reader against a local repository.
 REAL_GIT_TEXT = getattr(excuse, "git_text", None)
+# HEAD below is a placeholder ("a" * 40) that the fakes answer for; the CLI refuses one unless told a fixture does.
+os.environ["BASE_RED_EXCUSE_FIXTURE_SHA"] = "1"
 
 
 def setUpModule():
@@ -310,6 +312,43 @@ class NoFailureExitsZero(unittest.TestCase):
             code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD])
         self.assertEqual(code, 0)
         self.assertIn("no failure to excuse", out.getvalue())
+
+    # 2026-11-05: a gh-merge-green test's classifier, --sha aaaa... against a fake gh whose list never ended, outlived
+    # its test and ran three days on gcp-agent-lane-2 at 27.6 GB.
+    def test_main_refuses_a_placeholder_sha_before_reading_anything(self):
+        def unread(*a, **k):
+            raise AssertionError("nothing is read for a placeholder sha")
+        for sha in ("a" * 40, "0" * 40, "F" * 40):
+            err = io.StringIO()
+            with unittest.mock.patch.dict(os.environ, {"BASE_RED_EXCUSE_FIXTURE_SHA": ""}), \
+                    unittest.mock.patch.object(excuse, "judge", unread), \
+                    unittest.mock.patch.object(excuse, "GitHub", unread), contextlib.redirect_stderr(err):
+                code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", sha, "--check", "x"])
+            with self.subTest(sha=sha):
+                self.assertEqual(code, 1)
+                self.assertIn("is a placeholder, not a commit", err.getvalue())
+
+    def test_main_stops_at_its_deadline_even_inside_a_loop_that_takes_every_refusal(self):
+        import time
+
+        def endless(*a, **k):  # as a window read that catches Refused and reads on, with a list that never ends
+            while True:
+                try:
+                    time.sleep(0.05)
+                except Exception:  # noqa: BLE001
+                    pass
+        err = io.StringIO()
+        started = time.monotonic()
+        with unittest.mock.patch.dict(os.environ, {"BASE_RED_EXCUSE_DEADLINE_SECONDS": "1"}), \
+                unittest.mock.patch.object(excuse, "judge", endless), \
+                unittest.mock.patch.object(excuse, "GitHub", FakeGitHub), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
+                contextlib.redirect_stderr(err):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", "1" * 39 + "2", "--check", "x"])
+        self.assertEqual(code, 1)
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertIn("ran past its 1 s deadline", err.getvalue())
+        self.assertEqual(excuse.signal.alarm(0), 0)  # no alarm left armed for the caller
 
     def test_a_named_run_with_no_failed_job_is_still_refused(self):
         github = FakeGitHub()
@@ -3648,6 +3687,135 @@ class SweepLimit(unittest.TestCase):
             third.judge(2)
             self.assertIn(f"repos/{REPO}/actions/runs/10035", third.targets)
             self.assertNotIn(f"repos/{REPO}/actions/runs/20035", third.targets)
+
+
+class StaleFfiPinOfAStepARustChange(unittest.TestCase):
+    """cmux#37292 (2026-11-06): a Rust-only change to the app FFI is red on "Check the app FFI pin" until its merge
+    publishes the release the re-pin names; the base is green on it, so only the rule for that error lets it land."""
+
+    JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+    PIN = "Check the app FFI pin"
+    ROLLUP = "Fail on any red check"
+    PINNED = "3c5c635f412c722d83d844a7f525b19caa3e87ed"
+
+    def pin_log(self, *extra):
+        # What scripts/cmux-next/check-app-ffi-pin.sh prints for a PR that changes the FFI sources, word for word,
+        # then the job's rollup step.
+        return "\n".join([
+            log(self.JOB, self.PIN, f"error: the app FFI sources changed since the pinned source {self.PINNED}:",
+                " cmux-tui/crates/cmux-layout-reducer/src/auto_archive.rs | 233 +++++",
+                " 1 file changed, 233 insertions(+)",
+                "Owning lane(s), which publish the release and update the pin:",
+                "  sidebar lane (cmux-layout-reducer, -ffi)",
+                "Commits since the pin:",
+                "  a9825b1005 Leo: cmux-layout-reducer: auto-archive planner in Rust",
+                "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run "
+                "says so), then pin the new URL and checksum in Package.swift in one commit, in the same push as the "
+                "source change when possible.", "##[error]Process completed with exit code 1."),
+            log(self.JOB, self.ROLLUP, f"##[error]red check: {self.PIN}", *extra,
+                "##[error]Process completed with exit code 1.")])
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=self.JOB, step=self.ROLLUP),
+                        2: dict(failed_job(2, 20, BASE_SHA, name=self.JOB, step=self.ROLLUP), conclusion="success")}
+        self.gh.logs = {1: self.pin_log(), 2: ""}
+        self.graphql: list[list[str]] = []
+
+    def pr_files(self, *paths):
+        pr = {"number": 37292, "baseRefName": "feat-cmux-next", "headRefOid": HEAD, "changedFiles": len(paths),
+              "files": {"nodes": [{"path": path} for path in paths], "pageInfo": {"hasNextPage": False}}}
+
+        def run(args):
+            self.graphql.append(args)
+            return json.dumps({"data": {"repository": {"object": {"associatedPullRequests": {"nodes": [pr]}}}}})
+
+        self.gh.run = run
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    RUST = ("cmux-tui/crates/cmux-layout-reducer/src/auto_archive.rs", "cmux-tui/crates/cmux-layout-reducer/src/lib.rs",
+            "cmux-tui/crates/cmux-layout-reducer-ffi/src/lib.rs")
+
+    def test_a_rust_only_ffi_change_is_excused_for_its_stale_pin(self):
+        self.pr_files(*self.RUST)
+        self.assertEqual(self.judge(), [
+            f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
+            "source\"), and #37292 changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: a "
+            "step-A Rust change, pinned by the release its merge publishes"])
+        self.assertEqual(len(self.graphql), 1)
+
+    def test_a_change_that_also_changes_swift_is_refused(self):
+        self.pr_files(*self.RUST,
+                      "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/AutoArchive/AutoArchivePlanner.swift")
+        with self.assertRaisesRegex(excuse.Refused, r"#37292 changes Swift \(Packages/.*AutoArchivePlanner.swift\)"):
+            self.judge()
+
+    def test_a_change_that_moves_the_pin_is_refused(self):
+        self.pr_files(*self.RUST, "Packages/macOS/CmuxNext/Package.swift")
+        with self.assertRaisesRegex(excuse.Refused, "changes Packages/macOS/CmuxNext/Package.swift"):
+            self.judge()
+
+    def test_a_change_with_no_ffi_input_is_refused(self):
+        self.pr_files("docs/ci/app-ffi-release.md")
+        with self.assertRaisesRegex(excuse.Refused, "changes no app FFI input"):
+            self.judge()
+
+    def test_a_crash_exit_beside_the_pin_red_is_never_excused(self):
+        # Review F1 (9cac2029): the rule asks only after test_reds.read found no crash or cut-short run.
+        self.gh.logs[1] = self.pin_log("##[error]Process completed with exit code 134.")
+        self.pr_files(*self.RUST)
+        with self.assertRaisesRegex(excuse.Refused, "never a base red"):
+            self.judge()
+        self.assertEqual(self.graphql, [])
+
+    def test_another_failed_step_with_no_error_line_is_not_hidden(self):
+        # Review F2 (9cac2029): a step that failed without printing a recognized error still leaves the rule out.
+        self.gh.jobs[1]["steps"].insert(1, {"name": "Localized strings are complete", "status": "completed",
+                                            "conclusion": "failure"})
+        self.pr_files(*self.RUST)
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+        self.assertEqual(len(self.graphql), 1)  # the path rule passed first
+
+    def test_a_swift_change_is_refused_even_when_another_red_is_shared_with_the_base(self):
+        # Review of d5c11dd8: beside a failing test the base shares, the base comparison sets error lines aside, so
+        # the pin's path rule is checked wherever the pin error shows.
+        name = "test_pin_paths (tests.test_x.T)"
+        shared = [f"FAIL: {name}", "Ran 1 test in 0.01s", "FAILED (failures=1)"]
+        self.gh.logs[1] = self.pin_log(*shared)
+        self.gh.jobs[2]["conclusion"] = "failure"
+        self.gh.logs[2] = log(self.JOB, self.ROLLUP, *shared)
+        self.pr_files(*self.RUST, "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
+        with self.assertRaisesRegex(excuse.Refused, "its app FFI pin is red, and #37292 changes Swift"):
+            self.judge()
+
+    def test_other_reds_after_the_path_rule_passes_are_judged_as_before(self):
+        self.gh.logs[1] = self.pin_log("##[error]red check: Localized strings are complete")
+        self.pr_files(*self.RUST)
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+        self.assertEqual(len(self.graphql), 1)
+
+    def test_a_rollup_that_never_named_the_pin_is_another_red(self):
+        # Review of 0e1e7204: the rollup failed before its "red check:" line, so something else broke it.
+        self.gh.logs[1] = self.pin_log().replace(f"##[error]red check: {self.PIN}", "Reading the step outcomes")
+        self.pr_files(*self.RUST)
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+
+    def test_the_pin_step_itself_may_report_its_failure(self):
+        self.gh.jobs[1]["steps"].insert(1, {"name": self.PIN, "status": "completed", "conclusion": "failure"})
+        self.pr_files(*self.RUST)
+        self.assertTrue(self.judge()[0].startswith(f"excused '{self.JOB}': only '{self.PIN}' is red"))
+
+    def test_the_pin_error_in_another_job_is_not_this_rule(self):
+        self.gh.jobs[1]["name"] = self.gh.jobs[2]["name"] = SWIFT
+        self.pr_files(*self.RUST)
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+        self.assertEqual(self.graphql, [])
 
 
 if __name__ == "__main__":

@@ -35,7 +35,7 @@ struct CmdNPrebuiltWorkspaceViewTests {
                 _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
             }
             let key = try #require(store.workspaces.first { !workspacesBefore.contains($0.id) }?.id, "Cmd-N showed no workspace in its turn")
-            // The window swaps its content on the observation turn after the key's.
+            // The window swaps its content in the key's turn (SWITCH STALL 4).
             try await PasswordManagerRouteTests.until({ services.windows.active?.workspaceContent?.workspace.id == key },
                                                       within: .seconds(2), report: { "the window does not show Cmd-N's workspace" })
             let shown = try #require(services.windows.active?.workspaceContent)

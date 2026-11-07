@@ -55,9 +55,15 @@ public protocol PaneMotionHoldFollowing: NSView {
     /// draws on another thread asks for that size now, after this refresh's commit, so its frame is ready when the refresh
     /// shows it. Called once per spring frame, only on followers of a hold.
     func drawAhead(nextHostSize: CGSize)
+    /// Draw ahead of the hold's first frame (T-KEYS 3): a key press's spring gives this follower `nextHostSize` at its
+    /// first refresh, the refresh whose layout hands it the hold. A producer that draws on another thread asks for that
+    /// size in the key's turn, render only, so the frame that shows the press is ready. Called once per press, in the
+    /// key's turn, on the followers the hold will hand.
+    func drawAheadOfFollow(nextHostSize: CGSize)
 }
 
 public extension PaneMotionHoldFollowing {
     var followsPaneMotion: Bool { true }
     func drawAhead(nextHostSize: CGSize) {}
+    func drawAheadOfFollow(nextHostSize: CGSize) {}
 }
