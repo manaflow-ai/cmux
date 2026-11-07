@@ -26,6 +26,9 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var reservationKey: String?
     /// Native Send authorization reserved before waiting for the speculative lease.
     var gestureTicket: String?
+    /// The page's send again after its `cloud.signIn` answered `cloud_signed_in`: authorized only by
+    /// the click that sign-in kept for this ``key`` (``AgentPaneModel/takeCloudSignInGrant(_:)``), never a gesture.
+    var signedIn = false
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
     /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
@@ -69,6 +72,9 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
         self.home = home as? Bool ?? false
         self.attachments = attachments
+        let signedIn = params?["signedIn"]
+        if let signedIn, !(signedIn is Bool) { return nil }
+        self.signedIn = signedIn as? Bool ?? false
     }
 
     // The send's machine, its create, tab and copy keys and its pin are cmux-tui's
@@ -254,7 +260,11 @@ struct AgentPaneHandOff {
             start.cwd = folder
             start.uploadRoot = root
         }
-        return await held("cloud.startChat", gestureTicket: start.gestureTicket, gestureParams: ["key": start.key]) { [start] replacements in
+        // The send again after a sign-in: the click that sign-in kept for this key authorizes it,
+        // taken in `held` right before `run`, so a `cloud.signInCancel` the page sent first always wins.
+        let grantKey = start.signedIn && !signingIn ? start.key : nil
+        return await held("cloud.startChat", gestureTicket: start.gestureTicket, gestureParams: ["key": start.key],
+                          signInGrant: grantKey) { [start] replacements in
             // Reserve the send's click before opening the browser. The callback may take longer
             // than a gesture lives; this hold authorizes only this already-validated request.
             if signingIn {
@@ -289,6 +299,12 @@ struct AgentPaneHandOff {
                     replacements.endSandbox()
                     return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
                 }
+                // Signed in, but nothing starts yet: the page may have left Cloud after this check and
+                // before its cancel arrives. The click is kept for this exact start, and the page sends
+                // it again (`signedIn`) only while it still waits for it; its cancel drops the click.
+                replacements.endSandbox()
+                model.keepCloudSignInGrant(start.key, generation: generation)
+                return AgentPaneReply.failure(code: "cloud_signed_in", message: "cloud_signed_in")
             }
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,
@@ -316,7 +332,9 @@ struct AgentPaneHandOff {
     }
 
     /// The shared guards, then `body` with the replacements held (it ends the hold).
-    private func held(_ method: String, gestureTicket: String? = nil, gestureParams: [String: Any]? = nil,
+    /// `signInGrant`: the start's key, authorized only by the click its sign-in kept (no gesture);
+    /// without that click (withdrawn, spent or stale) the send is `cloud_sign_in_cancelled`.
+    private func held(_ method: String, gestureTicket: String? = nil, gestureParams: [String: Any]? = nil, signInGrant: String? = nil,
                       _ body: @MainActor (AcpmuxPaneReplacements) async -> [String: Any]) async -> [String: Any] {
         guard model.sessionId == nil else { return AgentPaneModel.unsupported(method) }
         let notNow = AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
@@ -326,7 +344,14 @@ struct AgentPaneHandOff {
         let replacements = transport.replacements
         guard replacements.beginSandbox() else { return notNow }
         let authorized: Bool
-        if let gestureTicket, let connection = transport.connection, let gestureParams {
+        if let signInGrant {
+            // No await from here to `body`'s `run`: the check and the start are one turn.
+            guard model.takeCloudSignInGrant(signInGrant) else {
+                replacements.endSandbox()
+                return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
+            }
+            authorized = true
+        } else if let gestureTicket, let connection = transport.connection, let gestureParams {
             authorized = transport.gestures.redeem(gestureTicket, connection: connection, method: method, params: gestureParams)
         } else {
             authorized = transport.gestures.consume()
@@ -456,5 +481,22 @@ extension AgentPaneModel {
         guard let wait = cloudSignInWait else { return }
         cloudSignInWait = nil
         wait.done.resume(returning: answer)
+    }
+
+    /// How long a sign-in's kept click waits for the page's send again; the page sends it at once.
+    nonisolated static let cloudSignInGrantLifetime: Duration = .seconds(30)
+
+    /// Keeps the click of a `cloud.signIn` that signed in, for one send again of the start `key`
+    /// while ``cloudSignInGeneration`` is still `generation`.
+    func keepCloudSignInGrant(_ key: String, generation: Int) {
+        cloudSignInGrant = (key, generation, ContinuousClock.now.advanced(by: Self.cloudSignInGrantLifetime))
+    }
+
+    /// Takes the kept click for the start `key`: true once, only while no `cloud.signInCancel` came
+    /// since its sign-in and within its lifetime. Any try spends it.
+    func takeCloudSignInGrant(_ key: String) -> Bool {
+        guard let grant = cloudSignInGrant else { return false }
+        cloudSignInGrant = nil
+        return grant.key == key && grant.generation == cloudSignInGeneration && ContinuousClock.now < grant.until
     }
 }

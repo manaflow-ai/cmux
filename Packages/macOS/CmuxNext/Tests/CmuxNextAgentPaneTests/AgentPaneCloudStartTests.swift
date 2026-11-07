@@ -81,10 +81,69 @@ struct AgentPaneCloudStartTests {
         #expect(await model.respond(to: request)["ok"] as? Bool == false)
         #expect(signIns == 0)
         model.transport.gestures.record()
-        #expect(await model.respond(to: request)["ok"] as? Bool == true)
+        // Signed in, and nothing started yet: the page sends the start again while it still wants it.
+        #expect(Self.code(await model.respond(to: request)) == "cloud_signed_in")
+        #expect(starts.seen.isEmpty)
         #expect(await model.respond(to: request)["ok"] as? Bool == false)
         #expect(signIns == 1)
+        // The send again needs no gesture: the sign-in kept its click for this start, once.
+        let again = Self.signedIn(request)
+        #expect(await model.respond(to: again)["ok"] as? Bool == true)
         #expect(starts.seen.map(\.task) == ["preserved prompt"])
+        model.transport.replacements.endSandbox()
+        #expect(Self.code(await model.respond(to: again)) == "cloud_sign_in_cancelled")
+        #expect(starts.seen.count == 1)
+    }
+
+    /// The race the kept click closes: the browser returns, then the page leaves Cloud before it
+    /// sends again. Its cancel drops the click, so a send that still arrives starts nothing.
+    @Test func leavingCloudAfterAuthCompletesSendsNothing() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        model.onCloudSignIn = { true }
+        model.transport.gestures.record()
+        let request = AgentPaneRequest(body: ["method": "cloud.signIn", "params": [
+            "task": "preserved prompt", "key": UUID().uuidString, "home": true,
+        ]])
+        #expect(Self.code(await model.respond(to: request)) == "cloud_signed_in")
+        #expect(await model.respond(to: AgentPaneRequest(body: ["method": "cloud.signInCancel"]))["ok"] as? Bool == true)
+        // A fresh click does not stand in for the dropped one.
+        model.transport.gestures.record()
+        #expect(Self.code(await model.respond(to: Self.signedIn(request))) == "cloud_sign_in_cancelled")
+        #expect(starts.seen.isEmpty)
+        #expect(model.transport.replacements.beginSandbox())
+    }
+
+    /// The kept click authorizes only the start it was kept for: another key, or a send again
+    /// with no sign-in before it, starts nothing, and does not spend the person's click.
+    @Test func aSignedInSendStartsOnlyTheStartItsSignInKept() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        model.onCloudSignIn = { true }
+        let unsigned = AgentPaneRequest(body: ["method": "cloud.startChat", "params": [
+            "task": "other prompt", "key": UUID().uuidString, "home": true, "signedIn": true,
+        ]])
+        model.transport.gestures.record()
+        #expect(Self.code(await model.respond(to: unsigned)) == "cloud_sign_in_cancelled")
+        #expect(model.transport.gestures.isAvailable)
+        let request = AgentPaneRequest(body: ["method": "cloud.signIn", "params": [
+            "task": "preserved prompt", "key": UUID().uuidString, "home": true,
+        ]])
+        #expect(Self.code(await model.respond(to: request)) == "cloud_signed_in")
+        #expect(Self.code(await model.respond(to: unsigned)) == "cloud_sign_in_cancelled")
+        // That try spent the kept click: the right key comes too late.
+        #expect(Self.code(await model.respond(to: Self.signedIn(request))) == "cloud_sign_in_cancelled")
+        #expect(starts.seen.isEmpty)
+    }
+
+    private static func code(_ reply: [String: Any]) -> String? { (reply["error"] as? [String: Any])?["code"] as? String }
+
+    /// The page's send again of a `cloud.signIn` that answered `cloud_signed_in`.
+    private static func signedIn(_ request: AgentPaneRequest) -> AgentPaneRequest {
+        guard case .cloudSignIn(let start) = request else { return request }
+        var again = start
+        again.signedIn = true
+        return .cloudStartChat(again)
     }
 
     @Test func cancelledInlineSignInKeepsTheStartRetryable() async {

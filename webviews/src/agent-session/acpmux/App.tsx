@@ -441,6 +441,7 @@ import {
   cloudStartFolder,
   cloudStartToasted,
   makeCloudSignInRetry,
+  resumeSignedIn,
   grantedCloudStart,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
@@ -3975,9 +3976,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const { task: text, ...start } = request;
     // A retry of the same start reuses its first key, so the host reaches the machine it made (#33493).
     const key = cloudStartKeys.keyFor(request);
-    const started = startCloud(request, key, signingIn);
+    const sent = startCloud(request, key, signingIn);
     // Another Return while a start waits starts nothing, and the card keeps that start.
-    if (!started) return undefined;
+    if (!sent) return undefined;
+    // Signed in: the start goes again, on the click the host kept, only if this page still waits for it.
+    const again = () => startCloud({ ...request, signedIn: true }, key);
+    const started = signingIn
+      ? sent.then((answer) => resumeSignedIn(answer, () => cloudSignInPending.current, again))
+      : sent;
     // What the chat composer holds for this start: the page's draft once it is put back there.
     let expectedDraft = preservedDraft;
     cloudSignInSend.current = () => {

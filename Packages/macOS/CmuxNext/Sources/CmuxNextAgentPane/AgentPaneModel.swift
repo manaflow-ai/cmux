@@ -115,6 +115,9 @@ public final class AgentPaneModel {
     /// The `cloud.signIn` waiting on the browser (``AgentPaneModel/waitForCloudSignIn(_:)``), so
     /// `cloud.signInCancel` ends that wait, and the send's hold, at once.
     @ObservationIgnored var cloudSignInWait: (generation: Int, done: CheckedContinuation<Bool?, Never>)?
+    /// The click a `cloud.signIn` kept once it signed in, for the page's one send again of that start
+    /// (``AgentPaneModel/takeCloudSignInGrant(_:)``); `cloud.signInCancel` drops it.
+    @ObservationIgnored var cloudSignInGrant: (key: String, generation: Int, until: ContinuousClock.Instant)?
     /// Reads this Mac's local repository catalog through its cmux daemon frame connection.
     @ObservationIgnored public var onCloudRepositoryLocal: (@MainActor () async throws -> Data)?
     /// For a Cloud chat, forwards machine actions through its tab host even while the page's
@@ -587,6 +590,7 @@ public final class AgentPaneModel {
         // Starts nothing and needs no gesture: it only withdraws a pending sign-in's send.
         case .cloudSignInCancel:
             cloudSignInGeneration += 1
+            cloudSignInGrant = nil
             endCloudSignInWait(nil)
             return AgentPaneReply.success()
         case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
