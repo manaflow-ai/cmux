@@ -231,7 +231,7 @@ extension CloudHandlers {
             if invocation["machineConfig"] != nil, invocation["machineConfig"]?.stringValue?.isEmpty != false {
                 throw ActionFailure(message: CloudStrings.machineConfigUnreadable("--machine-config"))
             }
-            let path = invocation["machineConfig"]?.stringValue.map(expandingHome)
+            let path = invocation["machineConfig"]?.stringValue.map(CloudMachineRequest.expandingHome)
             let work = context.services.work, machineID = session.machineID
             result("apply machine config", context) {
                 var request = CloudMachineRequest()
