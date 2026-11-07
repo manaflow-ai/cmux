@@ -88,7 +88,7 @@ public final class SidebarDocSections {
     /// none), or last (`bottom`). A live workspace the document does not place yet lists at that slot, so its
     /// item's arrival moves nothing, and none made by the CLI or an agent shows at the sidebar's end first and
     /// then jumps (Leo 2026-11-06; plans/cmux-next/sidebar-ordering-DESIGN.md).
-    public enum NewRowsPlace: Equatable, Sendable {
+    public enum NewRowsPlace: Hashable, Sendable {
         case first, below(String), last
     }
 
@@ -221,42 +221,59 @@ public final class SidebarDocSections {
         // A new row stays where it first listed: the place it took then, not the current workspace now.
         let unplacedIDs = Set(unplaced.map(\.id))
         var firstPlaces = anchors[session, default: [:]].filter { id, _ in unplacedIDs.contains(id) }
-        // A new row made below a run of new rows still waiting for their items goes under the run's last row, so a
-        // chain of creates keeps its order as their items arrive one at a time.
-        var anchored: [(NewRowsPlace, String)] = []
-        func runEnd(_ place: NewRowsPlace) -> String? {
-            guard var id = anchored.last(where: { $0.0 == place })?.1 else { return nil }
-            while let next = anchored.last(where: { $0.0 == .below(id) })?.1 { id = next }
-            return id
-        }
-        for w in unplacedOrder(newestFirst ? Array(unplaced.reversed()) : unplaced) {
+        // As the daemon places them: the store lists a new workspace last, and its personal row comes with its item, so
+        // the unplaced ones have none to order them by yet.
+        let ordered = unplacedOrder(newestFirst ? Array(unplaced.reversed()) : unplaced)
+        // A new row made below a chain of new rows still waiting for their items goes under the chain's last row, so a
+        // chain of creates keeps its order as their items arrive one at a time. One pass: each chain's start and end.
+        var chainEnd: [NewRowsPlace: String] = [:]
+        var chainStart: [String: NewRowsPlace] = [:]
+        for w in ordered {
             if firstPlaces[w.id] == nil {
-                if case .below = place, !newestFirst, let end = runEnd(place) { firstPlaces[w.id] = .below(end) } else { firstPlaces[w.id] = place }
+                if case .below = place, !newestFirst, let end = chainEnd[place] { firstPlaces[w.id] = .below(end) } else { firstPlaces[w.id] = place }
             }
-            if let at = firstPlaces[w.id] { anchored.append((at, w.id)) }
+            guard let at = firstPlaces[w.id] else { continue }
+            var start = at
+            if case .below(let id) = at, let of = chainStart[id] { start = of }
+            chainStart[w.id] = start
+            chainEnd[start] = w.id
         }
         anchors[session] = firstPlaces
         let tail = unplaced.filter { firstPlaces[$0.id] == .last }
         if !tail.isEmpty { loose += unplacedOrder(tail) }
-        let rest = unplaced.filter { firstPlaces[$0.id] != .last }
+        let rest = ordered.filter { firstPlaces[$0.id] != .last }
         if !rest.isEmpty {
-            // As the daemon places them: the store lists a new workspace last, and its personal row comes with
-            // its item, so the unplaced ones have none to order them by yet.
-            let ordered = unplacedOrder(newestFirst ? Array(rest.reversed()) : rest)
+            // One run per place among listed rows; a row anchored under another new row joins that row's run right
+            // under it (a row listed later in `rest`, as newest first lists it, takes the ones waiting under it along).
+            let newIDs = Set(rest.map(\.id))
             var runs: [(NewRowsPlace, [WorkspaceModel])] = []
-            for w in ordered {
+            var runAt: [NewRowsPlace: Int] = [:]
+            var runOf: [String: Int] = [:]
+            var waitingUnder: [String: [WorkspaceModel]] = [:]
+            func add(_ w: WorkspaceModel) {
                 let at = firstPlaces[w.id] ?? place
-                if let i = runs.firstIndex(where: { $0.0 == at }) { runs[i].1.append(w) } else { runs.append((at, [w])) }
+                if case .below(let id) = at, newIDs.contains(id) {
+                    guard let i = runOf[id] else { waitingUnder[id, default: []].append(w); return }
+                    let after = runs[i].1.last?.id == id ? runs[i].1.count : (runs[i].1.firstIndex { $0.id == id } ?? runs[i].1.count - 1) + 1
+                    runs[i].1.insert(w, at: after)
+                    runOf[w.id] = i
+                } else if let i = runAt[at] {
+                    runs[i].1.append(w)
+                    runOf[w.id] = i
+                } else {
+                    runAt[at] = runs.count
+                    runOf[w.id] = runs.count
+                    runs.append((at, [w]))
+                }
+                for next in waitingUnder.removeValue(forKey: w.id) ?? [] { add(next) }
             }
-            // A run below another new row goes in after that row's run, whatever the order (newest first reverses it).
-            while !runs.isEmpty {
-                let next = runs.firstIndex { run in
-                    guard case .below(let id) = run.0 else { return true }
-                    return !runs.contains { $0.1.contains { $0.id == id } }
-                } ?? 0
-                let (at, rows) = runs.remove(at: next)
-                Self.insertNew(rows, at, into: &sections, machineSections: machineSections)
+            for w in rest { add(w) }
+            // Rows under a row that never listed (a cycle): at the new-row place.
+            for w in rest where runOf[w.id] == nil {
+                firstPlaces[w.id] = place
+                add(w)
             }
+            for (at, rows) in runs { Self.insertNew(rows, at, into: &sections, machineSections: machineSections) }
         }
         flush()
         noteSlots(sections, session: session, placed: listed, held: held)
