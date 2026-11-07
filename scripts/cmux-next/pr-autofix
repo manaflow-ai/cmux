@@ -68,9 +68,15 @@ fi
 git apply --check "$patch" 2>"$tmp/check" \
   || die "run $run's patch does not apply cleanly to ${head_sha:0:12}: $(head -3 "$tmp/check")"
 
-# Only what the pull request owns (#21946), from the files API as the push job reads it.
-"$GH" api --paginate "repos/$repo/pulls/$pr/files?per_page=100" \
-  --jq '.[] | .filename, (.previous_filename // empty)' > "$tmp/changed.txt"
+# Only what the pull request owns (#21946), from the files API as the push job reads it: one
+# call per page, since the agents' gh quota refuses --paginate (it cannot charge its calls).
+: > "$tmp/changed.txt"
+for (( page = 1; page <= 30; page++ )); do
+  "$GH" api "repos/$repo/pulls/$pr/files?per_page=100&page=$page" \
+    --jq '.[] | .filename, (.previous_filename // empty), "--file--"' > "$tmp/page"
+  grep -vx -- --file-- "$tmp/page" >> "$tmp/changed.txt" || true
+  (( $(grep -cx -- --file-- "$tmp/page" || true) == 100 )) || break
+done
 "$here/pr-autofix-apply.sh" "$patch" "$top" --changed "$tmp/changed.txt" | tee "$tmp/applied"
 mapfile -t applied < <(sed -n 's/^applied: //p' "$tmp/applied")
 if (( ${#applied[@]} == 0 )); then

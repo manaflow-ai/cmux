@@ -45,7 +45,9 @@ case "\$*" in
   *"/runs?head_sha="*) echo "\${FAKE_RUN-42}" ;;
   *"/runs/42/artifacts"*) echo "\${FAKE_ARTIFACT-7}" ;;
   *"/artifacts/7/zip"*) cat "$tmp/\${FAKE_ZIP:-fmt}.zip" ;;
-  *"/pulls/5/files"*) printf '%s\n' webviews/src/a.ts .github/workflows/x.yml ;;
+  *--paginate*) echo "fake gh: --paginate is refused by the gh quota" >&2; exit 3 ;;
+  *"/pulls/5/files?per_page=100&page=1"*) printf '%s\n' webviews/src/a.ts --file-- .github/workflows/x.yml --file-- ;;
+  *"/pulls/5/files?"*) ;;
   *) echo "fake gh: unexpected \$*" >&2; exit 9 ;;
 esac
 EOF
