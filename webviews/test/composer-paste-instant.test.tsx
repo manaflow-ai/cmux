@@ -452,3 +452,113 @@ test.each([
   expect(inStrip).toHaveLength(0);
 });
 type MarkdownFieldHandleLike = { writeText(value: string, start: number, end: number): void; selectAll(): void };
+
+// Where a plain caret can sit at a line's edge: the end of the text, an empty line after it
+// (Shift-Enter), and just after a line break inside a paragraph. The placeholder goes in there, in the
+// paste's frame, never in the strip above and never at the text's start.
+test.each([
+  ["at the end of the text", "hello world", Number.MAX_SAFE_INTEGER, false],
+  ["on an empty line after it", "hello world", Number.MAX_SAFE_INTEGER, true],
+  ["just after a line break", "hello\nworld", "hello".length + 1, false],
+] as const)("a screenshot pasted with the caret %s loads at the caret", async (where, draft, caret, newLine) => {
+  const rects = { getClientRects: () => [], getBoundingClientRect: () => new dom.window.DOMRect() };
+  Object.assign(dom.window.Range.prototype, rects);
+  Object.assign(dom.window.Element.prototype, { getClientRects: () => [] });
+  await openComposer([], `chat-${where.replaceAll(" ", "-")}`);
+  showAttachments("inline");
+  await until(
+    () => Boolean(host.querySelector<MarkdownFieldElement>(".acpmux-md-field")?.acpmuxMarkdownField),
+    "the field",
+  );
+  // Typed as plain lines: a line break inside one paragraph where the text has one.
+  await act(async () => {
+    markdownField().focus();
+    markdownField().insertText(draft);
+  });
+  await until(() => field().textContent?.includes("world") === true, "the prompt");
+  if (draft.includes("\n")) expect(field().querySelectorAll("p br:not(.ProseMirror-trailingBreak)").length).toBe(1);
+  await act(async () => {
+    markdownField().setCaret(caret);
+  });
+  if (newLine)
+    act(() => {
+      field().dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          key: "Enter",
+          code: "Enter",
+          keyCode: 13,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+  const inStrip: number[] = [];
+  const watch = new dom.window.MutationObserver(() => {
+    if (host.querySelector(".acpmux-attachments .acpmux-attachment")) inStrip.push(1);
+  });
+  watch.observe(host, { childList: true, subtree: true, attributes: true });
+  const shot = slowScreenshot();
+  try {
+    await paste([shot.file]);
+    expect(field().querySelector('[data-inline-attachment] .acpmux-md-inline-chip[aria-busy="true"]')).not.toBeNull();
+    shot.release();
+    await until(() => placeholders().length === 0 && chips().length === 1, "the ready chip");
+  } finally {
+    watch.disconnect();
+  }
+  expect(inStrip).toHaveLength(0);
+  const placed = markdownField().value();
+  // After "hello" and its break or line: never at the text's start.
+  expect(placed.indexOf("\uFFFC")).toBeGreaterThan(placed.indexOf("hello"));
+  if (caret === Number.MAX_SAFE_INTEGER) expect(placed.indexOf("\uFFFC")).toBeGreaterThan(placed.indexOf("world"));
+  else expect(placed.indexOf("\uFFFC")).toBeLessThan(placed.indexOf("world"));
+});
+
+// Review of #37674 (F1): only the paste's own gesture takes the selection's place. A screenshot pasted
+// with the caret in a code block cannot go there and waits in the strip; the person then selects the
+// whole prompt while it loads. Once read, it is placed on its own (useInlineAttachments `ready`), and
+// that never deletes what is typed: the selection stays text, the chip goes after it.
+test("an attachment placed once read never replaces the selection the person made meanwhile", async () => {
+  const rects = { getClientRects: () => [], getBoundingClientRect: () => new dom.window.DOMRect() };
+  Object.assign(dom.window.Range.prototype, rects);
+  Object.assign(dom.window.Element.prototype, { getClientRects: () => [] });
+  const composer = await openComposer([], "chat-code-block");
+  showAttachments("inline");
+  await act(async () => composer.current!.restore("```\nlet x = 1\n```\n\nhello world", []));
+  await until(() => field().textContent?.includes("hello world") === true, "the prompt");
+  // The caret in the code block (the document's first block).
+  await act(async () => {
+    markdownField().focus();
+    markdownField().setCaret(2);
+  });
+  const shot = slowScreenshot();
+  await paste([shot.file]);
+  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+  await act(async () => markdownField().selectAll());
+  shot.release();
+  await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the read chip");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  const value = markdownField().value();
+  expect(value).toContain("let x = 1");
+  expect(value).toContain("hello world");
+});
+
+// Review of #37674 (F2): a read under 400 ms shows no indicator at all, with or without animations
+// (the host's animations-off setting zeroes every CSS delay, so the wait is the tile's own timer).
+test("a loading tile's indicator waits 400 ms, by its own timer", async () => {
+  await openComposer([], "chat-late-indicator");
+  showAttachments("inline");
+  const shot = slowScreenshot();
+  await paste([shot.file]);
+  const late = () => field().querySelector<HTMLElement>('[aria-busy="true"] .acpmux-paste-late');
+  expect(late()).not.toBeNull();
+  expect(late()!.hasAttribute("data-late")).toBe(false);
+  expect(late()!.querySelector("svg")).toBeNull();
+  await until(() => late()?.hasAttribute("data-late") === true, "the late indicator");
+  expect(late()!.querySelector("svg")).not.toBeNull();
+  shot.release();
+  await until(() => placeholders().length === 0, "the ready chip");
+});
