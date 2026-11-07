@@ -279,15 +279,34 @@
       "wait": 0.5
     },
     {
-      "title": "Home in front for the closing light and dark stills: the chat's transcript stamps the mini's message \"via CLI on\" this host's name, which the privacy check refuses",
+      "title": "Focus the chat's pane (it opened beside Home)",
       "rpc": {
-        "method": "action.run",
+        "method": "debug.agent_pane",
         "params": {
-          "action": "home.show",
-          "focus": true
+          "action": "focus_composer"
         }
       },
-      "wait": 2
+      "wait": 0.5
+    },
+    {
+      "title": "Close the chat's pane before the closing light and dark stills: its transcript stamps the mini's message \"via CLI on\" this host's name, which the privacy check refuses (the session stays in acpmux and in the mini)",
+      "cmux": [
+        "action",
+        "run",
+        "closePane"
+      ],
+      "wait": 1.5
+    },
+    {
+      "title": "The mini's state after the chat's pane closed",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "state"
+        }
+      },
+      "record": "file",
+      "wait": 0.3
     }
   ]
 }
