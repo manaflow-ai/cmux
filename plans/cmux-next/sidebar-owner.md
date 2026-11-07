@@ -1,5 +1,38 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: the Updated card's hover preview, review follow-ups of #37615 (Leo: "a quick access scroll through of
+  what's new"). A card that a higher-priority card hides in the slot clears its hover and tells its page the pointer
+  left (`SidebarUpdatedCardHost.isHidden`), so the preview closes, hands its room back, and the card comes back
+  closed. With motion reduced or off the room goes back as the preview closes, with no 240 ms wait. The preview lists
+  every change (no 40-row cap), a build's commits only when it has no reviewed entries, and no generic "Fixes and
+  improvements" row in any language. Regression: `UpdatedCardHoverPreviewTests`, webviews
+  `updated-card-hover-preview.test.tsx`.
+- 2026-11-07: after the upgrade the Updated card's host holds no height the two-line card remembered (64 and 77 pt
+  under the old `cmux.sidebar.updatedCard.height[s]` keys): the composer-height card remembers its own under `.v2`
+  keys and the old ones go at the first write, so the host is the 48 pt card from its first frame (review F1 of
+  #37615, Leo: "the heights never match up with anything"). The doodle-decorated card paints the same composer
+  material, now that no native glass sits under the page.
+- 2026-11-07: the Updated card is the agent composer's twin, and resting on it opens a scrollable What's New preview.
+  Leo, verbatim: "the border styles, the glass intensity is different. For two, it's like the heights never match up
+  with anything" and "where is the hover for the What's New area? ... you hover over it and you get to, like, scroll
+  through the thing if you want" / "Right in that bottom left of the sidebar area." The card's page paints the
+  composer's material (webviews `ui/glass/composerMaterial.css`), at the composer's one-line height (48) and corner;
+  `SidebarUpdatedCardHost` lays no `CardSurfaceView` under it any more. "Updated to Nightly · What's New ↗" is one
+  line; the button row is gone. The host forwards its pointer to the page (`setPointerInside`), and while the
+  preview is open it grows upward over the list by the page's `overlayHeight`, never moving the list or the slot
+  (`SidebarBottomCardSlot.place`). Gallery: `pages.changelog.update-surfaces` `card` (chosen), `card-whats-new-top-right`,
+  `card-whats-new-button`, `card-beside-composer`, `card-hover-preview`. Regression: `UpdatedCardHoverPreviewTests`,
+  webviews `updated-card-hover-preview.test.tsx`, `updated-card-composer-material.test.ts`.
+- 2026-11-06: the workspace group editor bubble is a React page (webviews/src/pages/group-editor) in one warm native
+  glass panel (`GroupEditorService`, CmuxNextSidebar). Leo, verbatim (all-hands move of NEXT's Swift to React/Rust):
+  "ok we need to go all hands on deck here. don't just do baby steps. we can just... do it". The look is the native
+  bubble's (gallery V1, chosen; V2 and V3 are alternatives); the AppKit panel, swatches and rows are gone. The sidebar
+  keeps the editor's rules (`SidebarGroupEditor`: when it opens, the toggle click, following a re-identified group,
+  No color clears the color, where the card sits: `SidebarGroupEditor.cardFrame`); the page only draws and reports.
+  Instant open (#26400, #27056) holds: the panel stays ordered in with its card transparent and click-through, the page
+  paints the pushed group and answers ready with its height, and the card shows in that one step (no fade or grow in);
+  150 ms without an answer shows it as it is. Cost: one WebKit page process for the editor, kept warm from an idle
+  moment after launch. Regression: `GroupEditorServiceTests`, the page's own tests.
 - 2026-11-06: an incognito window's mark in the sidebar's titlebar row is an icon of the row when the chip does not
   fit. User report (https://github.com/manaflow-ai/cmux/issues/37351), verbatim: "looks not fully set up: glasses glyph
   in a grey pill, off-size and misaligned with other toolbar icons". A sidebar narrower than the "Incognito" chip
@@ -203,6 +236,10 @@
   smaller than its own rows; it now takes `titleFont`'s size, semibold. The veil, rim and radius are the role's, owned
   with the other glass roles (real-glass-material, #36240); only the color's share is sidebar's. Gallery: `AANoColorGroupGalleryTests`
   (today and the three glass looks over a busy wallpaper). Regression: `GroupHeaderGlassTests`.
+- 2026-11-07: the no-color block's rim lights its top and corners only and fades out over the first row, so no
+  hairline runs down a tall group's sides (`GlassRimView.fadeDepth`). Leo, with a screenshot of a hard line down the
+  right of a group's rows: "we want to make sure probably that we don't have this right edge going on ... for the
+  groupings". Regression: `NoColorGroupBlockTests.theRimDrawsNoEdgeDownTheGroupsSides`.
 - 2026-11-05: a group with no color reads as a group: one faint neutral block behind its header and members, no hue
   and no indent (`sidebar.noColorGroup`, default `glass`: the `group` role untinted, its veil and rim). Leo, verbatim: "if you're gonna allow the no color option,
   which is, like, I find kind of weird, you might as well have it be at least slightly distinguishing from, like,

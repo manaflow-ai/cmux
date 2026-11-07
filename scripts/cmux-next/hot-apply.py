@@ -19,7 +19,9 @@ with live_apply.py's rules:
   rust   SHA's cmux-tui tree key differs from the app's and no Rust the app links (its FFI
          crates, scripts/ci/cmux_next_route.py) changed: the cmux binary published for SHA's tree
          key (files.cmux.com/cmux-tui/tree/KEY, sha256 from its completion.json) replaces the
-         app's Contents/Resources/bin/cmux, and the app's daemon is handed to it the way the app
+         app's Contents/Resources/bin/cmux, with the companions bundled beside it (cmux-app-host,
+         cmux-cloud, cmux-browser-host, cmux-tui-host, cmux-holder, the screen detector) from the
+         same build, or removed where that build has none; then the app's daemon is handed to it the way the app
          hands off its own (rust-live.py's Swapper: same app pid, terminals kept). bin/cmux is
          also cmux-tui and acpmux (one multi-call binary), so `cmux link`, the CLI in the app's
          terminals and every acpmux daemon started after it run SHA's build. A running acpmux
@@ -30,6 +32,14 @@ with live_apply.py's rules:
 
 SHA must be at or after the app's commit on its history: the swapped parts carry every change
 between the two, not only SHA's own. A SHA the app already contains is a no-op.
+
+--branch takes a branch head instead (try-pr.sh passes a pull request's): one branched before the
+app's commit is sorted from the fork, and its Rust part applies only when the app's cmux-tui tree
+is the fork's, so the app has no Rust the branch lacks. Its web part is left to try-pr.sh, which
+serves the branch's web with web-overlay.sh follow (a branch has no published bundles).
+
+`plan` says whether CI published SHA's tree (`published`). `apply --binary PATH` swaps in PATH, a
+cmux built for SHA some other way, instead of the published one.
 
 `apply` applies the parts (`--parts` picks; default every part `plan` finds) and checks each:
 the app's bin/cmux hashes to the published sha256, a new daemon owner answers from it, and the
@@ -77,6 +87,14 @@ sys.path.insert(0, str(ROOT / "scripts/ci"))
 import live_apply  # noqa: E402
 
 TUI_BASE = os.environ.get("CMUX_HOT_APPLY_TUI_BASE") or "https://files.cmux.com/cmux-tui/tree"
+# The commit-addressed builds a tree's source.json names, which publish its companions.
+COMMIT_BASE = os.environ.get("CMUX_HOT_APPLY_COMMIT_BASE") or TUI_BASE.rsplit("/", 1)[0]
+# The executables the app bundles beside bin/cmux from the same build (bundle-cmux-tui.sh
+# place_companion): (the published artifact, the file in bin/). The daemon runs each sibling of
+# its own executable, so they go in with bin/cmux, or go away when the build has none, as there.
+COMPANIONS = (("app-host", "cmux-app-host"), ("cloud-server", "cmux-cloud"), ("browser-host", "cmux-browser-host"),
+              ("host", "cmux-tui-host"), ("holder", "cmux-holder"),
+              ("agent-screen-detection", "cmux-agent-screen-detection"))
 WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cmux-next-web"
 DEFAULT_APP = "/Applications/cmux NIGHTLY.app"
 BIN = "Contents/Resources/bin"
@@ -197,7 +215,7 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
 
 
-def plan(repo: Path, app: Path, sha: str) -> dict:
+def plan(repo: Path, app: Path, sha: str, branch: bool = False) -> dict:
     base = app_commit(app, repo)
     for commit in (base, sha):
         if not have_commit(repo, commit):
@@ -206,16 +224,30 @@ def plan(repo: Path, app: Path, sha: str) -> dict:
     if is_ancestor(repo, sha, base):
         out["notes"].append("the app already contains SHA")
         return out
+    since = base
     if not is_ancestor(repo, base, sha):
-        out["left"]["unrelated"] = [f"{sha} is not after the app's commit {base}"]
-        return out
-    result = live_apply.classify_range(str(repo), base, sha)
+        fork = git(repo, "merge-base", base, sha, check=False)
+        # --branch: SHA is a pull request's head, branched before the app's commit. Its daemon fits the
+        # app when the app has no Rust the branch lacks: the app's cmux-tui tree is the one at the fork.
+        # Only the Rust part is taken then; the app's newer Swift and web stay as they are.
+        if not branch or not SHA.fullmatch(fork):
+            out["left"]["unrelated"] = [f"{sha} is not after the app's commit {base}"]
+            return out
+        if tree_key(repo, fork) != tree_key(repo, base):
+            out["left"]["unrelated"] = [f"the app's commit {base} has Rust that {sha} (branched at {fork}) lacks"]
+            return out
+        since = fork
+        out["fork"] = fork
+    result = live_apply.classify_range(str(repo), since, sha)
     files = result["files"]
     for kind in ("swift-live", "rebuild"):
         if files.get(kind):
             out["left"][kind] = files[kind]
     web = files.get("web-live", [])
-    if web:
+    if web and branch:
+        # A branch's web is not published: try-pr.sh serves it from the branch (web-overlay.sh follow).
+        out["left"]["web (not published for a branch)"] = web
+    elif web:
         want = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
         have = app_abi(app)
         if have == want:
@@ -225,11 +257,12 @@ def plan(repo: Path, app: Path, sha: str) -> dict:
     rust = files.get("daemon", [])
     if rust:
         linked = linked_rust(repo, rust)
-        out["tree_key"], out["base_tree_key"] = tree_key(repo, sha), tree_key(repo, base)
+        out["tree_key"], out["base_tree_key"] = tree_key(repo, sha), tree_key(repo, since)
         if linked:
             out["left"]["Rust the app links (FFI)"] = linked
         elif out["tree_key"] != out["base_tree_key"]:
             out["parts"].append("rust")
+            out["published"] = published(out["tree_key"])
             helpers = helper_rust(repo, rust)
             if helpers:
                 # The daemon part still applies; the helpers built from these files keep the app's build.
@@ -243,6 +276,14 @@ def plan(repo: Path, app: Path, sha: str) -> dict:
 def triple() -> str:
     arch = "aarch64" if platform.machine() in ("arm64", "aarch64") else "x86_64"
     return f"{arch}-apple-darwin" if sys.platform == "darwin" else f"{arch}-unknown-linux-musl"
+
+
+def published(key: str) -> bool:
+    """CI published the cmux binaries of tree KEY (its completion.json is there)."""
+    try:
+        return json.loads(fetch(f"{TUI_BASE}/{key}/completion.json")).get("key") == key
+    except (OSError, ValueError):  # urllib's errors are OSErrors: a 404 is an unpublished tree
+        return False
 
 
 def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
@@ -266,6 +307,76 @@ def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
         os.chmod(part.name, 0o755)
         os.replace(part.name, copy)
     return copy, want
+
+
+def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None]:
+    """The companions of tree KEY's build for this host, each checked against the sha256 of the
+    commit-addressed manifest its source.json names; None for one that build published none of."""
+    owner = json.loads(fetch(f"{TUI_BASE}/{key}/source.json")).get("commit") or ""
+    if not SHA.fullmatch(owner):
+        raise RuntimeError(f"{TUI_BASE}/{key}/source.json names no commit, so its companions are unknown")
+    binaries = json.loads(fetch(f"{COMMIT_BASE}/{owner}/manifest.json")).get("binaries", {})
+    out: dict[str, tuple[Path, str] | None] = {}
+    for artifact, file in COMPANIONS:
+        asset = f"cmux-tui-{artifact}-{triple()}"
+        want = binaries.get(asset)
+        if not want:
+            out[file] = None
+            continue
+        copy = state / "builds" / want / file
+        if not copy.is_file() or sha256_file(copy) != want:
+            body = fetch(f"{COMMIT_BASE}/{owner}/{asset}")
+            if hashlib.sha256(body).hexdigest() != want:
+                raise RuntimeError(f"{COMMIT_BASE}/{owner}/{asset} does not hash to {want}")
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
+                part.write(body)
+            os.chmod(part.name, 0o755)
+            os.replace(part.name, copy)
+        out[file] = (copy, want)
+    return out
+
+
+def local_companions(binary: Path, state: Path) -> dict[str, tuple[Path, str] | None]:
+    """The companions beside a cmux built elsewhere (--binary: a dev build's bin/)."""
+    return {file: keep(state, binary.parent / file) if (binary.parent / file).is_file() else None
+            for _, file in COMPANIONS}
+
+
+def place_companions(app: Path, companions: dict[str, tuple[Path, str] | None], state: Path) -> dict:
+    """Puts each companion beside bin/cmux, or removes the app's when the build has none; returns
+    what was there before, by file (None: absent), for put_back."""
+    prior: dict = {}
+    for file, new in companions.items():
+        target = app / BIN / file
+        if target.is_symlink() or (not target.exists() and new is None):
+            continue  # a link (cmux-tui, acpmux) follows bin/cmux; nothing to remove
+        prior[file] = dict(zip(("copy", "sha256"), map(str, keep(state, target)))) if target.is_file() else None
+        if new is None:
+            target.unlink()
+            continue
+        # Renamed into place: a rewritten Mach-O keeps a stale code signature.
+        staged = target.with_name(f".{file}.hot-apply")
+        shutil.copy2(new[0], staged)
+        staged.chmod(0o755)
+        os.replace(staged, target)
+        if sha256_file(target) != new[1]:
+            raise RuntimeError(f"{target} does not hash to {new[1]}")
+    return prior
+
+
+def restore_companions(app: Path, prior: dict) -> None:
+    for file, was in prior.items():
+        target = app / BIN / file
+        if was is None:
+            target.unlink(missing_ok=True)
+            continue
+        staged = target.with_name(f".{file}.hot-apply")
+        shutil.copy2(was["copy"], staged)
+        staged.chmod(0o755)
+        os.replace(staged, target)
+        if sha256_file(target) != was["sha256"]:
+            raise RuntimeError(f"{target} does not hash to {was['sha256']}")
 
 
 def keep(state: Path, path: Path) -> tuple[Path, str]:
@@ -501,7 +612,7 @@ def record(state: Path, receipt: dict) -> None:
 
 
 def command_plan(args) -> int:
-    out = plan(Path(args.repo), Path(args.app), args.sha)
+    out = plan(Path(args.repo), Path(args.app), args.sha, args.branch)
     print(json.dumps(out, indent=2))
     return 0 if out["parts"] or not out["left"] else 3
 
@@ -509,7 +620,7 @@ def command_plan(args) -> int:
 def command_apply(args) -> int:
     repo, app, state = Path(args.repo), Path(args.app), state_dir()
     t0 = time.monotonic()
-    planned = plan(repo, app, args.sha)
+    planned = plan(repo, app, args.sha, args.branch)
     parts = [p for p in planned["parts"] if p in args.parts.split(",")]
     receipt = {"action": "apply", **planned, "applied": [], "rolled_back": False, "steps": {},
                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -522,9 +633,18 @@ def command_apply(args) -> int:
     undo: dict = {}
     try:
         if "rust" in parts:
-            new, want = fetch_cmux(planned["tree_key"], state)
+            # --binary: a cmux binary built for SHA elsewhere (try-pr.sh: the PR's fleet dev build).
+            if args.binary:
+                new, want = keep(state, Path(args.binary))
+                companions = local_companions(Path(args.binary), state)
+            else:
+                new, want = fetch_cmux(planned["tree_key"], state)
+                companions = fetch_companions(planned["tree_key"], state)
             prior, prior_sha = keep(state, target)
-            undo["rust"] = {"copy": str(prior), "sha256": prior_sha}
+            undo["rust"] = {"copy": str(prior), "sha256": prior_sha, "companions": {}}
+            # Before the handoff, so the new daemon starts the companions of its own build.
+            undo["rust"]["companions"] = place_companions(app, companions, state)
+            receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
             receipt["steps"]["rust"] = swap_cmux(app, new, want, args.socket, state)
             receipt["steps"]["rust"]["from"] = prior_sha
             receipt["applied"].append("rust")
@@ -562,6 +682,7 @@ def put_back(app: Path, undo: dict, socket: str | None, state: Path, live) -> di
     if "rust" in undo:
         target = (app / BIN / "cmux").resolve()
         try:
+            restore_companions(app, undo["rust"].get("companions") or {})
             if sha256_file(target) == undo["rust"]["sha256"]:
                 out["rust"] = {"ok": True, "running_sha256": undo["rust"]["sha256"], "daemon": "unchanged"}
             else:
@@ -613,8 +734,11 @@ def main(argv=None) -> int:
         p.add_argument("sha")
         p.add_argument("--app", default=DEFAULT_APP)
         p.add_argument("--repo", default=str(ROOT))
+        p.add_argument("--branch", action="store_true",
+                       help="SHA is a branch head (a pull request) that may predate the app's commit")
         if name == "apply":
             p.add_argument("--parts", default="web,rust")
+            p.add_argument("--binary", help="the cmux binary to swap in, instead of the one published for SHA")
             p.add_argument("--socket")
             p.add_argument("--acpmux-home", action="append", default=[])
     p = sub.add_parser("rollback")

@@ -120,6 +120,10 @@ declare namespace Cmux {
   type Cursor = { generation: string; revision: string }
   type DeviceId = string
   type DeviceStatus = { install: Cmux.InstallId; user: string; policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; reported_at: number }
+  type DiffComment = Record<string, Cmux.JsonValue>
+  type DiffCommentsDeleteResult = { deleted: number; ids: Array<string> }
+  type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment> }
+  type DiffCommentsSaveResult = { comment: Cmux.DiffComment }
   type EgressHost = string
   type EmailAddress = string
   type EmailDomain = string
@@ -304,6 +308,13 @@ declare namespace Cmux {
   type PairingPreview = { code: Cmux.PairingCode; info: Cmux.PairingInfo; public_jwk: Cmux.PublicJwk; thumbprint: string; country: string | null; expires_at: number }
   type PairingRequestSnapshot = { id: string /* pairing_request_… */; session_id: string /* session_… */; peer: string; code: string; expires_in_seconds: string; status: "pending" | "accepted" | "rejected"; extra?: Record<string, Cmux.JsonValue> }
   type PairingResolutionResult = { pairing_request: Cmux.PairingRequestSnapshot }
+  type PaletteRankEntry = { title: string; keywords?: Array<string> | null; subtitle?: string | null; accessory?: string | null; rankBias?: number | null; frecencyKey?: string | null; isEnabled?: boolean | null; isVisibleWhenQueryEmpty?: boolean | null; queryPrefix?: string | null; hidesWhenTyping?: boolean | null; sectionIndex?: number | null; entersScope?: boolean | null; typingSectionIndex?: number | null; suggestedRank?: number | null; suggestedSectionIndex?: number | null; actionID?: string | null; demoted?: boolean | null; hasShortcut?: boolean | null; keycaps?: Array<string> | null; handles?: Array<string> | null }
+  type PaletteRankFrecency = { entries?: Record<string, Cmux.PaletteRankUse> | null; halfLife?: number | null; picks?: Array<Cmux.PaletteRankPick> | null; pickHalfLife?: number | null; hidden?: Array<string> | null }
+  type PaletteRankPick = { prefix: string; key: string; score: number; lastUsed: number; last: boolean }
+  type PaletteRankResult = { sections: Array<Cmux.PaletteRankSection> }
+  type PaletteRankRow = { index: number; score: number; highlights: Array<number> }
+  type PaletteRankSection = { sectionIndex: number | null; rows: Array<Cmux.PaletteRankRow> }
+  type PaletteRankUse = { score: number; lastUsed: number }
   type PaletteUsageImportResult = { revision: string; imported: boolean }
   type PaletteUsagePick = { prefix: string; key: string; score: number; last_used_ms: string; last: boolean }
   type PaletteUsageRecordResult = { revision: string }
@@ -902,6 +913,16 @@ interface CmuxGlobal {
     thread: CmuxOp<{ conversation: Cmux.ConversationId; root: Cmux.MessageId; after_seq?: number; limit?: number }, { root: Cmux.HomeMessage; replies: Array<Cmux.HomeMessage>; has_more: boolean; thread: Cmux.HomeThreadSummary }>
     /** `conversation.typing` (mutation, scope `conversation:write`) */
     typing: CmuxOp<{ machine?: string; session?: string; conversation: string; on: boolean }, Cmux.MutationResult<Cmux.ConversationPublishResult>>
+  }
+  diff: {
+    comments: {
+      /** `diff.comments.delete` (mutation, scope `diff:write`) */
+      delete: CmuxOp<{ machine?: string; session?: string; root: string; ids: Array<string>; versions?: Record<string, string> }, Cmux.MutationResult<Cmux.DiffCommentsDeleteResult>>
+      /** `diff.comments.list` (read, scope `diff:read`) */
+      list: CmuxOp<{ machine?: string; session?: string; root: string }, Cmux.DiffCommentsListResult>
+      /** `diff.comments.save` (mutation, scope `diff:write`) */
+      save: CmuxOp<{ machine?: string; session?: string; root: string; comment: Cmux.DiffComment }, Cmux.MutationResult<Cmux.DiffCommentsSaveResult>>
+    }
   }
   diffs: {
     /** `diffs.cycle_variant` (mutation, scope `diffs:write`, owner `app:cmux/diffs`): Switch to the next Diffs design variant (DEV and NIGHTLY). */
