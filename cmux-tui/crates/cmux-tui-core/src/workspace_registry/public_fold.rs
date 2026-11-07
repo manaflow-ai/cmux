@@ -220,6 +220,19 @@ impl WorkspaceRegistry {
         }
     }
 
+    /// `deltas` without the projection upserts the journal already states,
+    /// or `None` while the fold is unseeded (nothing to prune against).
+    pub(crate) fn prune_stated_projection_deltas(
+        &mut self,
+        deltas: &Value,
+    ) -> anyhow::Result<Option<Value>> {
+        self.catch_up_public_fold();
+        if self.public_fold.is_none() {
+            return Ok(None);
+        }
+        self.prune_stated_topology_deltas(deltas).map(Some)
+    }
+
     /// [`Self::record_public_fold`] for a resource patch commit at
     /// `revision` whose `journaled` changes are a full topology projection's
     /// (`Mux::commit_resource_mutation_plan`, which does not prune against

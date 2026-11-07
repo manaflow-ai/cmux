@@ -423,11 +423,13 @@ impl Mux {
     }
 }
 
-/// The plan that commits `projection`; a full projection's restates every
-/// live resource, so its commit may seed the public fold.
+/// The plan that commits `projection`: its commit drops the upserts the
+/// journal already states (a scoped walk still restates every workspace's
+/// row), and a full projection's, unpruned, may seed the public fold.
 fn projection_plan(projection: ResourceEffectProjection) -> ResourceMutationPlan {
     let mut plan =
         ResourceMutationPlan::new(projection.patch, projection.result, projection.changes, |_| {});
     plan.restates_all = projection.restates_all;
+    plan.prunes_stated = true;
     plan
 }
