@@ -482,8 +482,14 @@ export function NewTabScreen(props: Props) {
   });
   // A paste on the field (an image, a copied file, a screenshot) and a file drop anywhere on the
   // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
+  // `kind`: what brought them (a paste, a drop, the chooser), which says whether they replace a
+  // selection (inlineAttachments.tsx `place`): only a paste does.
   const inlinePlace = useRef<
-    ((chips: readonly import("../composer/attachmentIntake").PendingAttachment[]) => void) | undefined
+    | ((
+        chips: readonly import("../composer/attachmentIntake").PendingAttachment[],
+        kind: DroppedKind | undefined,
+      ) => void)
+    | undefined
   >(undefined);
   const {
     attachments,
@@ -500,7 +506,7 @@ export function NewTabScreen(props: Props) {
     dropLanded,
     attach,
   } = useAttachmentIntake({
-    place: (chips) => inlinePlace.current?.(chips),
+    place: (chips, kind) => inlinePlace.current?.(chips, kind),
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     dropZone: () => fieldElement()?.closest(".acpmux-main") ?? null,
     locked: () => props.cloudStarting === true,
@@ -778,7 +784,7 @@ export function NewTabScreen(props: Props) {
     placing: () => attachmentView !== "strip" && !shell,
   });
   pastedChips.opens.current = inline.expand;
-  inlinePlace.current = (chips) => inline.place(chips, "paste");
+  inlinePlace.current = (chips, kind) => inline.place(chips, kind);
   const parentSignIn = useSignIn();
   const offMachine =
     (props.runMode?.mode === "cloud" && props.onCloud) || (props.runMode?.mode === "sandboxed" && props.onSandbox);

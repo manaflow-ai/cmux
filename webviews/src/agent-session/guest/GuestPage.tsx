@@ -147,7 +147,8 @@ export function JoinPage({
   return (
     <main className="guest-card">
       <h1 className="guest-card__title">{t("guest.join.title")}</h1>
-      <p className="guest-card__detail">{t("guest.join.detail")}</p>
+      {/* A guest who joins by the link alone watches only; sending takes an invited account. */}
+      <p className="guest-card__detail">{t("guest.live.viewOnly")}</p>
       <form className="guest-join" onSubmit={submit}>
         <input
           className="guest-join__name"
@@ -405,7 +406,11 @@ export function GuestPage({
     if (!secret) return "failed";
     const result = await redeem(shareId, { attempt_id: attempt(), secret, name });
     if (result.ok) {
-      onJoined?.(result.guestId, name, undefined, "link");
+      // A guest who joins by the link alone watches only: sending takes an invited, signed-in
+      // account (the daemon refuses a link guest's messages whatever the room says).
+      const joinedAs = "view";
+      onJoined?.(result.guestId, name, joinedAs, "link");
+      setRole(joinedAs);
       setName(name);
       setGuestId(result.guestId);
       return undefined;
