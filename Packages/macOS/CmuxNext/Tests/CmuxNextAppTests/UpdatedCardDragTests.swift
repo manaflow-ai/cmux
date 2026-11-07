@@ -140,6 +140,30 @@ struct UpdatedCardDragTests {
         host.configure(nil)
     }
 
+    /// Review F1 of #37790 at efe59289: the settle started from the frame of the last move the host
+    /// processed, not from where the page let the card go, so a release that came between moves (the
+    /// page ends a press on a move with no button held) jumped back to the last move before springing.
+    @Test func aDropSettlesFromWhereThePageLetTheCardGoNotFromTheLastMove() throws {
+        for key in Self.keys { UserDefaults.standard.removeObject(forKey: key) }
+        defer { for key in Self.keys { UserDefaults.standard.removeObject(forKey: key) } }
+        let (sidebar, island) = try Self.sidebar()
+        let host = sidebar.updatedCardView
+        let resting = host.frame
+        island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 0, y: -100)))
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(host.frame.minY == resting.minY - 100)
+        // Let go 40 points past the last move, back at the bottom; read where the settle starts before
+        // the layout that runs it.
+        let relayout = host.onHeightChange
+        host.onHeightChange = nil
+        island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 6, y: -140), drop: .bottom))
+        #expect(host.droppedAt == CGPoint(x: resting.minX + 6, y: resting.minY - 140))
+        host.onHeightChange = relayout
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(host.frame == resting)
+        host.configure(nil)
+    }
+
     /// Through the App's real island and page provider: the page's drag reaches the host in points,
     /// and the host's place reaches the page.
     @Test func theAppsIslandCarriesTheDragAndThePlace() async throws {
