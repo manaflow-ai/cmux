@@ -275,6 +275,44 @@ import Testing
         #expect(PageSpyShim.detachAsks.isEmpty, "the key page window was asked to leave the window: \(PageSpyShim.detachAsks)")
     }
 
+    /// A key press while a close's spring runs (RESIZE P0 5: a key resize keeps the page attached and tells no motion of its
+    /// own) takes the pane over: the spring's landing leaves the page to the key resize, and the key resize's landing ends
+    /// the motion the spring began. Before, nothing ended it: an unfocused page stayed out of the window with no clicks,
+    /// and every later motion of the pane found it already in one.
+    @Test func aKeyResizeThatCatchesASpringEndsItsMotionAtItsLanding() throws {
+        PageSpyShim.forkAPI = 30
+        PageSpyShim.hostingContext = 7
+        defer { (PageSpyShim.forkAPI, PageSpyShim.hostingContext) = (27, 0) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        first.container.frame = NSRect(x: 200, y: 0, width: 600, height: 500)
+        window.contentView?.addSubview(first.container)
+        first.container.layoutSubtreeIfNeeded()
+        CFRunLoopRunInMode(.defaultMode, 0, true)
+        let hosting = host.hostView.layerHosting
+        try #require(hosting.page != nil && !hosting.isDetached, "SETUP: the page is not hosted, or not in the window")
+
+        for focused in [false, true] {
+            if focused { first.keepFocusAsk() } else { first.dropFocusAsk() }
+            first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 200, height: 0))
+            try #require(hosting.inResizeMotion, "SETUP: the spring began no motion (focused \(focused))")
+            first.container.holdPage(for: PaneMotionHold(trailing: true, bottom: false))
+            first.container.frame = NSRect(x: 150, y: 0, width: 650, height: 500)
+            first.container.layoutSubtreeIfNeeded()
+            #expect(first.container.heldPageSize == nil, "the key resize kept the spring's held page (focused \(focused))")
+            first.container.notifyPaneMotionSettled()
+            first.container.holdPage(for: nil)
+            first.container.layoutSubtreeIfNeeded()
+            #expect(!hosting.inResizeMotion, "the key resize's landing left the spring's motion running (focused \(focused))")
+            #expect(!hosting.isDetached, "the page stayed out of the window after both motions landed (focused \(focused))")
+            #expect(host.hostView.frame == first.container.bounds)
+        }
+    }
+
     /// Every new page window is hosted in the window's layer tree (no switch): the page's pixels commit with its pane.
     @Test func aNewPageWindowIsHostedInTheWindowsLayers() throws {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
