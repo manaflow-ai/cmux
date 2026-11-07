@@ -63,6 +63,8 @@ export interface MessageComposerProps {
   drafts?: AttachmentDrafts;
   /** The field's placeholder (a thread's composer says Reply); default: the conversation's. */
   placeholder?: string;
+  /** The field checks spelling (Settings agentPane.spellChecking; off by default, as the setting). */
+  spellChecking?: boolean;
   ref?: Ref<MessageComposerHandle>;
 }
 
@@ -81,6 +83,7 @@ export function MessageComposer({
   onDraftChange,
   drafts: kept,
   placeholder,
+  spellChecking = false,
   ref,
 }: MessageComposerProps) {
   const { t } = strings;
@@ -255,7 +258,7 @@ export function MessageComposer({
             }}
             onSubmit={(markdown, { cmd }) => (cmd ? undefined : submit(markdown))}
             placeholder={prompt}
-            attributes={{ "aria-label": prompt }}
+            attributes={{ "aria-label": prompt, spellcheck: String(spellChecking) }}
             features={{ multiline: true }}
             className="mt-field-editor"
           />

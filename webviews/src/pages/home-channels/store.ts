@@ -724,6 +724,12 @@ export class HomeChannelsStore {
     void this.deliver(again);
   }
 
+  /** Sends another sender made for this page (the app's first send of New Message, which got no
+   * answer) show as this page's own: not sent, with Retry under their own keys (never twice). */
+  adoptPending(sends: readonly PendingSend[]): void {
+    this.carry.restore(sends);
+  }
+
   /** Drops a pending message. The rest of its send, if held behind it, goes on. */
   discard(key: string): void {
     const pending = this.snapshot.pending.find((entry) => entry.key === key);

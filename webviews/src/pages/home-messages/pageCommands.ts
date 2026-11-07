@@ -21,7 +21,7 @@ import { MOVE_CONVERSATION_OP } from "../home-channels/hostMove";
 import type { HomeChannelsStore } from "../home-channels/store";
 import type { PageClient } from "../shared/pageClient";
 import { conversationNumber, neighbor, type ListModel } from "./list/model";
-import type { MessagesNav, SheetKind } from "./nav";
+import { newMessageHasKeyboard, type MessagesNav, type SheetKind } from "./nav";
 
 export const MessagesPageOps = {
   currentSelection: CURRENT_SELECTION_OP,
@@ -84,11 +84,19 @@ export async function show(context: PageCommandContext, params: unknown): Promis
   return { shown };
 }
 
+/** New Message closes back to the conversation shown before it (`MessagesNav.endCompose`). */
+export function closeNewMessage({ nav, store }: Pick<PageCommandContext, "nav" | "store">): boolean {
+  return nav.endCompose(newMessageHasKeyboard(), (conversation) => {
+    const now = store.getSnapshot();
+    if (now.selected !== conversation && now.conversations.has(conversation)) void store.select(conversation);
+  });
+}
+
 export function present(context: PageCommandContext, params: unknown): { presented: boolean } {
   const raw = record(params);
   const { nav, store } = context;
   const sheet = raw.sheet;
-  if (sheet === "closeNewMessage") return { presented: nav.closeCompose() };
+  if (sheet === "closeNewMessage") return { presented: closeNewMessage(context) };
   if (sheet === "newMessage") {
     nav.dismiss();
     nav.openCompose();

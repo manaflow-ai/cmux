@@ -18,16 +18,17 @@ import { chiefIntroText, FIRST_RUN_OPS, starterPrompts } from "../cards/firstRun
 import { HEADER_PANELS, headerPanelItems } from "../cards/header/HeaderPanelBar";
 import { cardStrings } from "../cards/strings";
 import type { MessagesNav, NavState } from "../nav";
+import { closeNewMessage } from "../pageCommands";
 import { hostActions, type GroupInfoActions } from "../sheets/actions";
 import { GroupInfoSheet } from "../sheets/GroupInfoSheet";
 import { InviteSheet, TeamInviteSheet } from "../sheets/InviteSheets";
 import type { GroupInfo } from "../sheets/model";
 import { NewChiefSheet } from "../sheets/NewChiefSheet";
 import { NewMessage } from "../sheets/NewMessage";
-import { existingConversation, type HomeContact } from "../sheets/recipients";
+import { contactLook, existingConversation, type HomeContact } from "../sheets/recipients";
 import { RequestsSheet } from "../sheets/RequestsSheet";
 import sheetsTable from "../sheets/generated/strings.json";
-import { MessagesDataOps, parseContactsAnswer, parseGroupInfoAnswer, parseRequests } from "../sheets/wire";
+import { isGone, MessagesDataOps, parseContactsAnswer, parseGroupInfoAnswer, parseRequests } from "../sheets/wire";
 import { MessageComposer, type DictationCall, type MessageComposerHandle } from "../transcript/MessageComposer";
 import { MessagesTranscript, type MessagesTranscriptHandle } from "../transcript/MessagesTranscript";
 import { createTranscriptStrings } from "../transcript/strings";
@@ -110,6 +111,29 @@ export function MessagesDetail(props: MessagesDetailProps) {
   };
   const listed = snapshot.conversations.size;
   useEffect(() => readRequests.current(), [host, listed]);
+  // While the sheet shows it follows the requests (opening reads them again), as the native
+  // presentRequests' refresh and live list; a host without the stream reads them once.
+  const requestsShown = view.sheet?.kind === "requests";
+  useEffect(() => {
+    if (!host || !requestsShown) return;
+    let live = true;
+    let stop: (() => void) | undefined;
+    void host
+      .subscribe<unknown>(MessagesDataOps.requestsFollow, (event) => {
+        if (live) nav.setRequests(parseRequests(event));
+      })
+      .then(
+        (unsubscribe) => {
+          if (live) stop = unsubscribe;
+          else unsubscribe();
+        },
+        () => readRequests.current(),
+      );
+    return () => {
+      live = false;
+      stop?.();
+    };
+  }, [host, nav, requestsShown]);
 
   // The files the native composer staged go up into their trays once this store can upload
   // (attachmentDrafts.ts `uploadLegacy`; the first store's service, once for the page's life).
@@ -186,6 +210,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
     view,
     words,
     appearance: (shown: HomeConversation) => chatAppearance(appearance, shown),
+    spellChecking: appearance.spellChecking,
     panelItems: (shown: HomeConversation) => toolbar(shown, panels, words.cards),
     onPanel: (id: string) => void host?.call(DetailOps.headerPanelToggle, { id }).catch(() => undefined),
     dictation,
@@ -212,13 +237,15 @@ export function MessagesDetail(props: MessagesDetailProps) {
           {...(me ? { me: me.id } : {})}
           actions={actions.compose}
           inviteTeam={contacts.inviteTeam}
-          onSent={(id) => {
+          look={contactLook}
+          onSent={(id, pending) => {
             nav.closeCompose();
+            if (pending) store.adoptPending(pending);
             void openMade(id);
           }}
           onEscape={() => {
             // Escape ends only an empty New Message (HomeNewMessageView's isEmpty guard).
-            if (nav.composeIsEmpty()) nav.closeCompose();
+            if (nav.composeIsEmpty()) closeNewMessage({ nav, store });
           }}
           onFocusMessage={() => {
             if (!composeBox.current && !transcript.current?.focusComposer()) return;
@@ -241,6 +268,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
                 strings={words.transcript}
                 sendEnabled={snapshot.connection === "online"}
                 onSend={(text) => send(text)}
+                spellChecking={appearance.spellChecking}
                 initialText={nav.composeText}
                 onDraftChange={(text) => {
                   nav.composeText = text;
@@ -307,6 +335,7 @@ interface ConversationViewProps {
   view: NavState;
   words: Words;
   appearance(conversation: HomeConversation): ReturnType<typeof chatAppearance>;
+  spellChecking: boolean;
   panelItems(conversation: HomeConversation): HeaderPanelItem[];
   onPanel(id: string): void;
   dictation?: DictationCall;
@@ -385,6 +414,7 @@ function ConversationView(
         composerKey={String(nav.draftVersion(id))}
         attachmentDrafts={nav.attachments}
         {...(props.prepareFile ? { prepareFile: props.prepareFile } : {})}
+        spellChecking={props.spellChecking}
         onSend={async (text, files) => {
           const sent = await store.send(text, undefined, undefined, files);
           if (sent) props.afterSend?.();
@@ -488,6 +518,7 @@ function ThreadView(
       {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}
       {...(props.dictation ? { dictation: props.dictation } : {})}
       {...(props.prepareFile ? { prepareFile: props.prepareFile } : {})}
+      spellChecking={props.spellChecking}
       // One message box, as the native one: the conversation's draft and files go on into the thread.
       initialDraft={props.nav.draft(conversation.id)}
       onDraftChange={(text) => props.nav.keepDraft(conversation.id, text)}
@@ -651,7 +682,10 @@ function Sheet({
   }
 }
 
-/** Group Info: the host's read of the conversation, read again after each change it makes. */
+/** Group Info: the host's read of the conversation, followed while the sheet shows (members, name
+ * and mute as the owner says; TopHomePageView.presentGroupInfo's observation). It closes when the
+ * conversation is gone (left, deleted). A host without the stream: read once, then after each
+ * change the sheet makes. */
 function GroupInfo({
   conversation,
   adding,
@@ -671,9 +705,12 @@ function GroupInfo({
 }) {
   const [read, setRead] = useState<{ info: GroupInfo; addable: HomeContact[] } | undefined>();
   const live = useRef(true);
+  const following = useRef(false);
+  const close = useRef(onClose);
+  close.current = onClose;
   const load = useRef(() => {});
   load.current = () => {
-    if (!host) return;
+    if (!host || following.current) return;
     void host
       .call<unknown>(MessagesDataOps.groupInfo, { conversation })
       .then(parseGroupInfoAnswer, () => undefined)
@@ -683,11 +720,33 @@ function GroupInfo({
   };
   useEffect(() => {
     live.current = true;
-    load.current();
+    let stop: (() => void) | undefined;
+    if (host) {
+      void host
+        .subscribe<unknown>(
+          MessagesDataOps.groupFollow,
+          (event) => {
+            if (!live.current) return;
+            if (isGone(event)) return close.current();
+            const answer = parseGroupInfoAnswer(event);
+            if (answer) setRead(answer);
+          },
+          { conversation },
+        )
+        .then(
+          (unsubscribe) => {
+            if (!live.current) return unsubscribe();
+            following.current = true;
+            stop = unsubscribe;
+          },
+          () => load.current(),
+        );
+    }
     return () => {
       live.current = false;
+      stop?.();
     };
-  }, []);
+  }, [host, conversation]);
   // Without a host (or before its answer) the sheet shows what the list knows.
   const info: GroupInfo | undefined = read?.info ?? (fallback ? infoFromList(fallback) : undefined);
   if (!info) return null;

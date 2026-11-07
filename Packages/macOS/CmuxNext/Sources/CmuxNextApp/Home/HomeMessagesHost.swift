@@ -126,7 +126,7 @@ final class HomeMessagesHostProvider: PageProvider {
             return (await home.groupActions.setChiefReplies(policy, id)).pageOutcome
         case "contacts":
             let team = services.cloud.isSignedIn ? services.cloud.auth.activeTeam.team?.displayName : nil
-            return HomeContact.pageAnswer(home.contacts(), inviteTeam: team, rows: home.homeStore.rows)
+            return HomeContact.pageAnswer(home.contacts(), inviteTeam: team, rows: home.homeStore.rows, roster: home.chiefRoster, harnesses: home.directory.chiefHarnesses)
         case "chief.create":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             let name = (fields["name"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

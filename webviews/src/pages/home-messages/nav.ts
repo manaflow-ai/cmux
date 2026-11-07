@@ -65,6 +65,11 @@ export interface NavState {
   focusEpoch: number;
 }
 
+/** New Message holds the keyboard (its To: field or its message box has it). */
+export function newMessageHasKeyboard(doc: Document | undefined = globalThis.document): boolean {
+  return !!doc?.activeElement?.closest(".hm-new-message");
+}
+
 export class MessagesNav {
   private state: NavState = { requests: [], draftEpoch: 0, focusEpoch: 0 };
   private readonly listeners = new Set<() => void>();
@@ -162,6 +167,17 @@ export class MessagesNav {
     this.composeText = "";
     this.composeExisting = undefined;
     this.set({ compose: undefined });
+    return true;
+  }
+
+  /** `home.closeNewMessage`, the draft row's x and Escape (TopHomePageView.closeNewMessage): the
+   * draft and its page go, the conversation shown before it comes back (`back`), and its message
+   * box takes the keyboard only when New Message had it (`hadKeyboard`). True when there was one. */
+  endCompose(hadKeyboard: boolean, back: (conversation: string) => void): boolean {
+    const wasShowing = this.state.compose?.shown === true;
+    if (!this.closeCompose()) return false;
+    if (wasShowing && this.lastShown) back(this.lastShown);
+    if (wasShowing && hadKeyboard) this.requestFocus();
     return true;
   }
 

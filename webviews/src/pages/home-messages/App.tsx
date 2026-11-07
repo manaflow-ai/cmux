@@ -28,7 +28,7 @@ import { ConversationList, DRAFT_ROW } from "./list/ConversationList";
 import { clampWidth, COMPACT_BELOW, HEADER, WIDTH } from "./list/layout";
 import { holdsOneConversation, listModel, visibleConversations } from "./list/model";
 import { MessagesNav } from "./nav";
-import { followPageFocus, reportedConversation, usePageCommands } from "./pageCommands";
+import { closeNewMessage, followPageFocus, reportedConversation, usePageCommands } from "./pageCommands";
 import type { HiddenConversations, HostMenuItem, MessagesChrome, MessagesDetail, MessagesHost } from "./types";
 
 export interface MessagesAppProps {
@@ -276,7 +276,7 @@ export function MessagesApp({
                 nav.openCompose();
                 nav.requestFocus();
               }}
-              onCloseDraft={() => nav.closeCompose()}
+              onCloseDraft={() => closeNewMessage({ nav, store })}
               requests={view.requests.length}
               onOpenRequests={() => nav.present({ kind: "requests" })}
             />
@@ -303,20 +303,23 @@ export function MessagesApp({
             ...(openedAt !== undefined ? { openedAt } : {}),
             nav,
           })}
-          <ContextMenu items={composeMenu} className="hm-menu-host">
-            <button
-              type="button"
-              className="hm-compose"
-              style={{ transform: `translate(${composeX}px, ${composeY}px)` }}
-              aria-label={t("home.list.newMessage")}
-              title={t("home.list.newMessage")}
-              onPointerEnter={loadCompose}
-              onFocus={loadCompose}
-              onClick={compose}
-            >
-              <HomeIcon name="compose" size={16} />
-            </button>
-          </ContextMenu>
+          {/* New Message shows: no compose button over it (the native split's `composing`). */}
+          {!composing && (
+            <ContextMenu items={composeMenu} className="hm-menu-host">
+              <button
+                type="button"
+                className="hm-compose"
+                style={{ transform: `translate(${composeX}px, ${composeY}px)` }}
+                aria-label={t("home.list.newMessage")}
+                title={t("home.list.newMessage")}
+                onPointerEnter={loadCompose}
+                onFocus={loadCompose}
+                onClick={compose}
+              >
+                <HomeIcon name="compose" size={16} />
+              </button>
+            </ContextMenu>
+          )}
         </main>
       </div>
     </AvatarContext.Provider>

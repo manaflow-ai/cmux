@@ -52,6 +52,8 @@ export interface MessagesAppearance {
   chiefLook: BubbleLook;
   defaults: ChatColors;
   colors: ReadonlyMap<string, ChatColors>;
+  /** The message boxes check spelling (Settings agentPane.spellChecking, as the native composer). */
+  spellChecking: boolean;
 }
 
 export const DEFAULT_APPEARANCE: MessagesAppearance = {
@@ -59,6 +61,7 @@ export const DEFAULT_APPEARANCE: MessagesAppearance = {
   chiefLook: "imessage",
   defaults: {},
   colors: new Map(),
+  spellChecking: false,
 };
 
 const lookOf = (value: unknown): BubbleLook | undefined =>
@@ -82,7 +85,13 @@ export function parseAppearance(event: unknown): MessagesAppearance {
     const parsed = parseChatColors(value);
     if (Object.keys(parsed).length) colors.set(id, parsed);
   }
-  return { look, chiefLook: lookOf(raw?.chiefLook) ?? look, defaults: parseChatColors(raw?.defaults), colors };
+  return {
+    look,
+    chiefLook: lookOf(raw?.chiefLook) ?? look,
+    defaults: parseChatColors(raw?.defaults),
+    colors,
+    spellChecking: raw?.spellChecking === true,
+  };
 }
 
 /** One conversation's look and colours: its own over the defaults, field by field. */

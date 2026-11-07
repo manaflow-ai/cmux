@@ -88,6 +88,23 @@ struct HomeMessagesR6NewMessageTests {
         #expect(answer.value(at: ["contacts"])?.arrayValue?.count == 1)
     }
 
+    /// G6: a Chief in New Message's To: list carries the native look: where it runs as the list
+    /// tags it ("Main · Cloud"), with a non-default engine, and when it was last active; a person
+    /// carries none.
+    @Test func aChiefContactCarriesItsToListLook() {
+        let rows = [HomeChiefRosterTests.chief(HomeChiefRosterTests.hosted, "chief_hosted", "Chief", at: 5), HomeChiefRosterTests.dm(HomeChiefRosterTests.ada, at: 1)]
+        let roster = HomeChiefRoster(main: HomeChiefRosterTests.hosted, places: [HomeChiefRosterTests.hosted: .cloud])
+        let chief = HomeContact(id: ParticipantID("chief_hosted"), name: "Chief", source: .agent)
+        let answer = HomeContact.pageAnswer([chief, Self.ada], inviteTeam: nil, rows: rows, roster: roster,
+                                            harnesses: ["chief_hosted": "codex"], now: Date(timeIntervalSince1970: 10_000))
+        let entries = answer.value(at: ["contacts"])?.arrayValue ?? []
+        let tag = roster.tag(for: HomeChiefRosterTests.hosted, engine: ChiefBackend.badge(for: "codex"))
+        #expect(tag != nil)
+        #expect(entries.first?.value(at: ["look", "tag"]) == tag.map(JSONValue.string))
+        #expect(entries.first?.value(at: ["look", "activity"])?.stringValue?.isEmpty == false)
+        #expect(entries.last?.value(at: ["look"]) == nil, "a person has no look")
+    }
+
     /// G3: Group Info the page did not present (a conversation it does not list) is refused as an
     /// unknown conversation, as the native presentGroupInfo refused it; other answers say nothing.
     @Test func groupInfoOfAnUnknownConversationIsRefused() {

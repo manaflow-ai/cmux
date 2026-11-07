@@ -3,6 +3,7 @@ public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextHomeModel
 public import CmuxNextSettings
+public import Foundation
 
 // The Messages page's wire (`webviews/src/pages/home-messages`): the Home model values its host
 // (the App's `HomeMessagesHostProvider`) sends, in the shapes the page parses (sheets/wire.ts,
@@ -34,9 +35,40 @@ extension HomeContact {
     /// `contacts`' answer (sheets/wire.ts parseContactsAnswer): the people New Message offers, the
     /// team an invite row names, and the invites still pending (the Invite sheet's list, as the
     /// native HomeInviteSheet's `pending`: each address invited into a conversation not joined yet).
-    public static func pageAnswer(_ contacts: [HomeContact], inviteTeam: String?, rows: [InboxRow]) -> JSONValue {
-        .object(["contacts": .array(contacts.map(\.pageJSON)), "inviteTeam": inviteTeam.map(JSONValue.string) ?? .null,
-                 "pendingInvites": .array(rows.pendingInvites.map { .string($0.contact) })])
+    /// A Chief's entry carries its `look` (``HomeChiefRoster/pageLook(of:rows:harnesses:now:)``).
+    @MainActor public static func pageAnswer(_ contacts: [HomeContact], inviteTeam: String?, rows: [InboxRow],
+                                  roster: HomeChiefRoster = HomeChiefRoster(), harnesses: [String: String] = [:], now: Date = Date()) -> JSONValue {
+        let entries: [JSONValue] = contacts.map { contact in
+            guard case .object(var fields) = contact.pageJSON, let look = roster.pageLook(of: contact, rows: rows, harnesses: harnesses, now: now) else {
+                return contact.pageJSON
+            }
+            fields["look"] = look
+            return .object(fields)
+        }
+        return .object(["contacts": .array(entries), "inviteTeam": inviteTeam.map(JSONValue.string) ?? .null,
+                        "pendingInvites": .array(rows.pendingInvites.map { .string($0.contact) })])
+    }
+}
+
+extension HomeChiefRoster {
+    /// How New Message's To: list tells a Chief apart (the native HomeChiefRoster+NewMessage `look`):
+    /// `tag`, where it runs as the Home list tags it ("Main · Cloud", "This Mac", with a non-default
+    /// engine), and `activity`, "Active 2 hours ago" or "No messages yet" (shown only to tell alike
+    /// Chiefs apart). Nil for anyone else, or a Chief with no conversation listed.
+    @MainActor public func pageLook(of contact: HomeContact, rows: [InboxRow], harnesses: [String: String], now: Date) -> JSONValue? {
+        guard contact.source == .agent,
+              let row = rows.first(where: { $0.kind == .chief && $0.summary.participants.contains { $0.id == contact.id } }) else { return nil }
+        var fields: [String: JSONValue] = ["activity": .string(Self.activity(of: row, now: now))]
+        if let tag = tag(for: row.id, engine: ChiefBackend.badge(for: harnesses[contact.id.rawValue])) { fields["tag"] = .string(tag) }
+        return .object(fields)
+    }
+
+    /// "Active 2 hours ago" for a Chief's conversation, or "No messages yet" for an empty one.
+    static func activity(of row: InboxRow, now: Date) -> String {
+        guard row.summary.lastSeq > 0 else { return HomeConversationStrings.noMessagesYet }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return HomeConversationStrings.activeAgo(formatter.localizedString(for: min(row.timestamp, now), relativeTo: now))
     }
 }
 

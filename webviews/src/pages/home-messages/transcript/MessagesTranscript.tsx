@@ -91,6 +91,8 @@ export interface MessagesTranscriptProps extends TranscriptData {
   onReply?(message: HomeMessage): void;
   /** The composer's placeholder (a thread's says Reply). */
   composerPlaceholder?: string;
+  /** The message box checks spelling (Settings). */
+  spellChecking?: boolean;
   /** The clock for day labels (the gallery's); default: now. */
   now?: number;
   /** A message a link or the host opened at: it scrolls into view, marked. */
@@ -396,6 +398,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           onDraftChange={props.onDraftChange}
           {...(props.attachmentDrafts ? { drafts: props.attachmentDrafts } : {})}
           {...(props.composerPlaceholder ? { placeholder: props.composerPlaceholder } : {})}
+          spellChecking={props.spellChecking === true}
           key={`${conversation.id}:${props.composerKey ?? ""}`}
         />
       </section>
