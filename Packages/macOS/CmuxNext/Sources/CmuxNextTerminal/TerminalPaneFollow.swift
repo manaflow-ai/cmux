@@ -9,8 +9,8 @@ import Foundation
 public nonisolated struct TerminalPaneFollowSizes: Sendable, Equatable {
     /// The size the surface takes in its host now (``TerminalHostView/surfaceSize(forHostSize:)``): its pane's size.
     public var area: CGSize
-    /// The size the host asked of the surface: the frame it wants while its window's commit owns the frame
-    /// (`motion.frameOwner.terminals`), else the surface view's frame. Not `area` while the surface is held.
+    /// The size the host asked of the surface: the frame it wants (its window's commit owns every terminal frame, cmux-ad
+    /// m19), else the surface view's frame. Not `area` while the surface is held.
     public var asked: CGSize
     /// What shows: the surface layer's bounds.
     public var shown: CGSize
@@ -99,16 +99,17 @@ extension TerminalSession {
 
 /// The frame presenters' counts over a run of the pane check, summed over the followed windows
 /// (``TerminalFramePresenter/Stats``): presented requests, passes that kept an old frame (its new one was not drawn
-/// yet), passes that waited for another of a group, and requests that took their bounds without their frame.
+/// yet), passes that waited for another of a group, and passes that kept a late frame past
+/// ``TerminalFramePresenter/longKeepTicks`` refreshes (S4 never shows bounds without their frame; a late one keeps).
 public nonisolated struct TerminalPaneFollowPresenterCounts: Sendable, Equatable, Encodable {
     public var passes = 0
     public var presented = 0
     public var keeps = 0
     public var groupWaits = 0
-    public var fallbacks = 0
+    public var longKeeps = 0
 
     nonisolated enum CodingKeys: String, CodingKey {
-        case passes, presented, keeps, groupWaits = "group_waits", fallbacks
+        case passes, presented, keeps, groupWaits = "group_waits", longKeeps = "long_keeps"
     }
 
     mutating func add(from start: TerminalFramePresenter.Stats, to end: TerminalFramePresenter.Stats) {
@@ -116,7 +117,7 @@ public nonisolated struct TerminalPaneFollowPresenterCounts: Sendable, Equatable
         presented += end.presented - start.presented
         keeps += end.keeps - start.keeps
         groupWaits += end.groupWaits - start.groupWaits
-        fallbacks += end.fallbacks - start.fallbacks
+        longKeeps += end.longKeeps - start.longKeeps
     }
 }
 

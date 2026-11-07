@@ -180,6 +180,16 @@ struct CloudStartChatMachineTests {
         #expect(reserved["ensure_project"] as? Bool == false)
     }
 
+    /// Leo, 2026-11-06: the default flow, with no environment step, keeps a project's dependencies warm on
+    /// production too: a personal send there asks the platform it signed in to, never the CLI's development default.
+    @Test func aPersonalSendGetsTheSetUpProjectMachineOnProductionWhenItsPlatformIsKnown() {
+        let production = URL(string: "https://cmux-platform.debussy.workers.dev")
+        #expect(CloudStartCore().ensuresProject(account: [Self.me, nil], platform: production, production: true))
+        #expect(!CloudStartCore().ensuresProject(account: [Self.me, nil], platform: nil, production: true))
+        #expect(CloudStartCore().ensuresProject(account: [Self.me, nil], platform: nil, production: false))
+        #expect(!CloudStartCore().ensuresProject(account: [Self.me, "team-a"], platform: production, production: true))
+    }
+
     /// Router review at 6beb0f2: with no `cwd` the tab's own folder is copied, and its `.git` file
     /// can name a repository elsewhere (a linked worktree): that send is refused, like one with `cwd`.
     @Test func aTabsFolderWhoseGitFolderIsElsewhereIsNeverCopied() throws {

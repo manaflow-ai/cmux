@@ -169,6 +169,12 @@
   ) {
   margin-right: var(--cv-inset-end);
 }
+/* A new chat's hero question and the lists under it center on the composer's column, not the whole
+   pane, so they move left with it while the panel pushes. */
+.acpmux-shell[data-session-info-chat-placement="push"] > .acpmux-main :is(.acpmux-empty, .acpmux-home-area) {
+  padding-left: var(--cv-inset);
+  padding-right: var(--cv-inset-end);
+}
 .acpmux-shell .acpmux-header {
   width: calc(
     100% + var(--acpmux-summary-push, 0px) + var(--acpmux-session-info-push, 0px) +
@@ -186,17 +192,18 @@
   margin-right: var(--acpmux-session-info-inset);
 }
 /* The composer's glass (composerStates.css, cmux #24566; Leo, 2026-10-24: "the composer itself also
-   being a little bit glassy and stuff, as well as the session rail"): on an opaque window the composer
-   surface at 70% under a 24px blur, over art or a see-through window 50% under the shared blur. Lens and
+   being a little bit glassy and stuff, as well as the session rail"): the popover glass level, on an
+   opaque window the composer surface at 70% under a 24px blur, over art or a see-through window at the
+   level's art tint (50%) under the same blur. Lens and
    Spectrum keep the liquid glass's own tint and Reduce Transparency the solid surface (glass.css). It
    blurs its own box only, the same cost as the composer's card over the scrolling transcript. */
 :root:not([data-cmux-see-through]) .acpmux-session-info.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 70%, transparent);
-  --glass-backdrop: blur(24px) saturate(1.25);
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) var(--ds-glass-popover-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-session-info.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 50%, transparent);
-  --glass-backdrop: var(--surface-blur);
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) var(--ds-glass-popover-art-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 .acpmux-session-info.ui-glass {
   /* glass-opaque-allow: the Reduce Transparency fill only, the composer's (glass.css applies it under that setting) */
@@ -356,11 +363,12 @@
   border-radius: var(--acpmux-session-info-row-radius);
   background: none;
 }
-/* The six-dot handle that moves a section (SessionInfoGroup.tsx): in the panel's left gutter beside the
-   section's head, outside every row's pill (Lucas, 2026-11-05, Session Info lab: the grip inside the
-   pill "looks strange and poorly positioned"). The body keeps the gutter for it (`[data-layout]` below).
-   It shows only while its head (a bare section's first row) or the handle itself is hovered, on keyboard
-   focus, or while it drags, as the native panel's grip does (#32674): no glyph at rest, and not for a
+/* The six-dot handle that moves a section (SessionInfoGroup.tsx): a small, faint grip in the panel's
+   right gutter past the head's trailing count, on the head's middle line, outside every row's pill, as
+   the native panel's (#32674) and the reference panel's (Leo, 2026-11-06: "if you look at the spacing of
+   claude code, they have theirs at the right"). The body keeps the gutter for it (`[data-layout]` below),
+   so nothing in the head moves when it shows. It shows only while its head (a bare section's first row)
+   or the handle itself is hovered, on keyboard focus, or while it drags: no glyph at rest, and not for a
    pointer over the section's other rows. It takes no room in the section. */
 .acpmux-session-info-section {
   position: relative;
@@ -369,9 +377,9 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  /* From the body's padding edge, the inset and the gutter wide less a little air before the pill. */
-  left: calc(-1 * (var(--grid-sidebar-highlight-inset) + var(--acpmux-session-info-grip-gutter)));
-  width: calc(var(--grid-sidebar-highlight-inset) + var(--acpmux-session-info-grip-gutter) - var(--grid-base) / 2);
+  /* From the pill's end over the right gutter, less a little air before the panel's edge. */
+  right: calc(-1 * (var(--grid-sidebar-highlight-inset) + var(--acpmux-session-info-grip-trail, 0px) - var(--grid-base)));
+  width: calc(var(--grid-sidebar-highlight-inset) + var(--acpmux-session-info-grip-trail, 0px) - var(--grid-base));
   height: var(--grid-row);
   display: flex;
   align-items: center;
@@ -384,13 +392,14 @@
   color: var(--agent-muted);
   cursor: grab;
   opacity: 0;
+  /* Faint while shown, as the reference's; full on the grip itself (below). */
+  --acpmux-session-info-grip-shown: 0.7;
   touch-action: none;
   appearance: none;
 }
 .acpmux-session-info-section__handle > svg {
   flex: none;
   overflow: visible;
-  transform: var(--acpmux-session-info-grip-turn, none);
 }
 .acpmux-session-info-section:has(> .acpmux-session-info-section__disclosure > .ui-disclosure-trigger:hover)
   > .acpmux-session-info-section__handle,
@@ -400,7 +409,12 @@
 .acpmux-session-info-section__handle:hover,
 .acpmux-session-info-section__handle:focus-visible,
 .acpmux-session-info-section[data-dragging] > .acpmux-session-info-section__handle {
-  opacity: 1;
+  opacity: var(--acpmux-session-info-grip-shown);
+}
+.acpmux-session-info-section__handle:hover,
+.acpmux-session-info-section__handle:focus-visible,
+.acpmux-session-info-section[data-dragging] > .acpmux-session-info-section__handle {
+  --acpmux-session-info-grip-shown: 1;
 }
 .acpmux-session-info-section__handle:hover,
 .acpmux-session-info-section[data-dragging] > .acpmux-session-info-section__handle {
@@ -417,9 +431,10 @@
    (glance), a hairline between blocks and none around them; the top block's rows run together. The
    body's sides are the head's, so a row's text lines up under the panel's title. */
 .acpmux-session-info__body[data-layout] {
-  /* The grid's side inset each side; the left one also holds the sections' handles. */
+  /* The grid's side inset each side, and a little more: the right one also holds the sections' handles. */
   --acpmux-session-info-grip-gutter: 6px;
-  padding-right: var(--grid-sidebar-highlight-inset);
+  --acpmux-session-info-grip-trail: 10px;
+  padding-right: calc(var(--grid-sidebar-highlight-inset) + var(--acpmux-session-info-grip-trail));
   padding-left: calc(var(--grid-sidebar-highlight-inset) + var(--acpmux-session-info-grip-gutter));
 }
 .acpmux-session-info-group {
@@ -1278,6 +1293,11 @@ button.acpmux-session-info-port:focus-visible {
   position: relative;
   padding: 0;
 }
+/* A wakeup or cron job whose call the transcript holds is a button too (it shows the call): the
+   button carries the row's padding, so it lights edge to edge as a command's row does. */
+.acpmux-session-info-task--opens {
+  padding: 0;
+}
 .acpmux-session-info-task--command > .acpmux-session-info-stop {
   position: absolute;
   top: 50%;
@@ -1674,4 +1694,14 @@ button.acpmux-session-info-scope__parent:focus-visible {
       background-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
       border-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
   }
+}
+
+/* The room held for a long list's rows not drawn yet (WindowedRows.tsx): its height alone, set from
+   the drawn rows' pitch. */
+ul > li.acpmux-session-info-rows-rest {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  pointer-events: none;
 }

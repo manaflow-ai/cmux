@@ -704,14 +704,14 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-settled][data-card][data-surface="rim"] {
   --acpmux-tray-fill: color-mix(in srgb, var(--agent-text) 2%, transparent);
 }
-/* A card over the composer is the composer's own glass (composerStates.css: the composer surface at
-   70%, or 50% over a see-through window, frosted) with the tray's tint over it, so the transcript
+/* A card over the composer is the composer's own glass, the popover level (composerStates.css: the
+   composer surface at 70%, or 50% over a see-through window, under the level's blur) with the tray's tint over it, so the transcript
    never shows through its lines: the reply's footer icons read through a settled line that drew no
    surface (Leo, 2026-11-02: "this running thing now looks mildly awkward"). It stays glass, never
    opaque; Reduce Transparency gives it the composer's solid fill, as the card. */
 .acpmux-running-tray[data-card] {
-  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) 70%, transparent);
-  --acpmux-tray-frost: blur(24px) saturate(1.25);
+  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
+  --acpmux-tray-frost: var(--ds-glass-popover-blur);
   background:
     linear-gradient(var(--acpmux-tray-fill, color-mix(in srgb, var(--agent-text) 8%, transparent)), var(--acpmux-tray-fill, color-mix(in srgb, var(--agent-text) 8%, transparent))),
     var(--acpmux-tray-glass);
@@ -719,8 +719,8 @@ button.cv-subagent > :last-child {
   backdrop-filter: var(--acpmux-tray-frost);
 }
 :root[data-cmux-see-through] .acpmux-running-tray[data-card] {
-  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) 50%, transparent);
-  --acpmux-tray-frost: var(--surface-blur);
+  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-art-tint), transparent);
+  --acpmux-tray-frost: var(--ds-glass-popover-blur);
 }
 :root[data-reduce-transparency] .acpmux-running-tray[data-card] {
   /* glass-opaque-allow: the Reduce Transparency fill only, as the composer card's */
@@ -1705,10 +1705,10 @@ button.cv-subagent > :last-child {
    some sort of little thing ... a special kind of chevron". The hat's chevron sits on its top edge
    (left, middle or right, agentPane.display.trayHandle) and shows while the pointer is over the hat
    (or it has keyboard focus); tucked, the hat leaves only a faint up chevron at the same place on the
-   composer's top edge, in the accent while something runs, which brightens on hover. No bar and no
-   wide slab behind it (Leo, 2026-11-05: "the Tuck is a little bit ugly"): the buttons keep their wide
-   hit areas, and only a small wash the chevron's size shows on hover, as Codex, ChatGPT and VS Code
-   draw a divider's collapse control. */
+   composer's top edge, in the accent while something runs, which brightens on hover. The control has
+   no wide slab behind it (Leo, 2026-11-05: "the Tuck is a little bit ugly"): its compact glass
+   control and short bridge keep the buttons' wide hit areas while joining the composer hairline, as
+   Codex, ChatGPT and VS Code draw a divider's collapse control. */
 .acpmux-running-tray[data-tucks] {
   position: relative;
 }
@@ -1728,7 +1728,7 @@ button.cv-subagent > :last-child {
   transform: translateX(-50%);
 }
 .acpmux-running-tray__tuck > svg,
-.acpmux-tray-pull__tab > svg {
+.acpmux-tray-pull__hat > svg {
   position: relative;
   transition: color var(--cv-actions-in) var(--cv-actions-ease);
 }
@@ -1786,33 +1786,109 @@ button.cv-subagent > :last-child {
   width: 96px;
   height: 20px;
 }
-/* What the tab draws sits 4px above its strip's middle, just above the composer's edge, so the
-   hairline runs under the chevron unbroken; the strip (where it takes clicks) stays put. */
+/* The tab's compact control floats over the composer's hairline. The bridge remains visible on both
+   sides of the glass control, so the line meets the bar instead of stopping short; the hit strip
+   (where it takes clicks) stays put. */
 .acpmux-tray-pull__tab {
   --acpmux-tray-pull-lift: 4px;
+  --acpmux-tray-pull-control-width: var(--ds-space-40);
+  --acpmux-tray-pull-control-height: var(--ds-control-icon);
+  --acpmux-tray-pull-dot: 6px;
 }
-/* The wash behind the chevron on hover or keyboard focus: the chevron's size, not the hit area's,
-   a small-radius rect (POLISH.md: no capsule pills). */
-.acpmux-tray-pull__tab::before {
-  --acpmux-tray-pull-pill: 16px;
+/* The hat: the chevron and, while something runs, its count (or the needs-you dot) in one small
+   glass pill joined to the composer's hairline, centred on the tab. Idle it is just the chevron in
+   the middle of the pill; the pill's width is its padding, the chevron and the slot past it, so the
+   slot's width alone grows it about its centre and moves the chevron aside (Leo, 2026-11-07: "if
+   there's no running work, it should just be centered, right? But when there is a number, it can,
+   like, you know, grow into that."). */
+.acpmux-tray-pull__hat {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: var(--acpmux-tray-pull-control-height);
+  padding-inline: calc((var(--acpmux-tray-pull-control-width) - 12px) / 2);
+  border-radius: var(--ds-radius-control, 6px);
+  background: var(--glass-tint, color-mix(in srgb, var(--glass-surface, Canvas) 18%, transparent));
+  box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge));
+  transform: translateY(calc(-1 * var(--acpmux-tray-pull-lift)));
+  transition: background-color var(--cv-actions-in) var(--cv-actions-ease), box-shadow var(--cv-actions-in) var(--cv-actions-ease);
+}
+/* A quiet bridge ties the hat to the composer's hairline: one device pixel in the shared glass edge,
+   8px out from each side of the pill, so the resting hat is visible without becoming a second card.
+   It hangs off the pill, so it moves out with the pill's width on the same clock and never runs
+   through the pill behind the chevron or the count. */
+.acpmux-tray-pull__hat::before,
+.acpmux-tray-pull__hat::after {
   content: "";
   position: absolute;
-  top: calc(50% - var(--acpmux-tray-pull-lift));
-  left: 50%;
-  width: calc(var(--acpmux-tray-pull-pill) + 8px);
-  height: var(--acpmux-tray-pull-pill);
-  border-radius: var(--ds-radius-control, 6px);
-  background: transparent;
-  transform: translate(-50%, -50%);
-  transition: background-color var(--cv-actions-in) var(--cv-actions-ease);
+  top: 50%;
+  width: var(--ds-space-2);
+  height: var(--cmux-hairline);
+  background: var(--glass-edge, color-mix(in srgb, var(--agent-muted) 45%, transparent));
+  transform: translateY(-50%);
+  transition: background-color var(--cv-actions-in) var(--cv-actions-ease), opacity var(--cv-actions-in) var(--cv-actions-ease);
+  opacity: 0.85;
 }
-.acpmux-tray-pull__tab:hover::before,
-.acpmux-tray-pull__tab:has([data-popup-open])::before {
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+.acpmux-tray-pull__hat::before {
+  right: 100%;
 }
-.acpmux-tray-pull__tab:focus-visible::before {
+.acpmux-tray-pull__hat::after {
+  left: 100%;
+}
+.acpmux-tray-pull__tab:focus-visible > .acpmux-tray-pull__hat::before,
+.acpmux-tray-pull__tab:focus-visible > .acpmux-tray-pull__hat::after {
+  background: var(--agent-accent);
+  opacity: 1;
+}
+.acpmux-tray-pull__tab:hover > .acpmux-tray-pull__hat,
+.acpmux-tray-pull__tab:has([data-popup-open]) > .acpmux-tray-pull__hat {
+  background: color-mix(in srgb, var(--glass-surface, Canvas) 30%, transparent);
+  box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge)),
+    0 var(--ds-space-1) var(--ds-space-2) color-mix(in srgb, var(--glass-surface, CanvasText) 12%, transparent);
+}
+.acpmux-tray-pull__tab:focus-visible > .acpmux-tray-pull__hat {
   outline: 2px solid var(--agent-accent);
   outline-offset: -1px;
+}
+/* The slot past the chevron: no width and no room idle; with a mark, a 4px gap and the mark's own
+   width (TrayPullTab.tsx markWidth: one tabular digit per character, so a tick from 3 to 4 keeps it).
+   Its width and opacity share one clock (the structural step, design/motion.md); the mark sits at the
+   slot's end, so as the slot opens it slides out from under the chevron. Its `ch` is the count's. */
+.acpmux-tray-pull__slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 0;
+  height: 100%;
+  overflow: hidden;
+  opacity: 0;
+  color: var(--agent-text);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+  transition:
+    width var(--agent-motion-move) var(--agent-ease-out),
+    opacity var(--agent-motion-move) var(--agent-ease-out);
+}
+.acpmux-tray-pull__slot[data-shown] {
+  width: calc(var(--ds-space-1) + var(--acpmux-tray-pull-mark, 0px));
+  opacity: 1;
+}
+/* Reduce Motion keeps the fade and lands the width at once; motion off lands both in one frame (the
+   WebTheme bootstrap ends every transition; this says it for a page without it). */
+:root:is([data-cmux-motion="reduced"], [data-agent-motion="reduced"]) .acpmux-tray-pull__slot {
+  transition: opacity var(--agent-motion-move) var(--agent-ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-tray-pull__slot {
+    transition: opacity var(--agent-motion-move) var(--agent-ease-out);
+  }
+}
+:root:is([data-cmux-motion="off"], [data-agent-motion="off"]) :is(.acpmux-tray-pull__slot, .acpmux-tray-pull__hat) {
+  transition: none;
 }
 /* Left or right along the edge (agentPane.display.trayHandle; Leo, 2026-11-04: "maybe the left… or
    the right…"), 12px in from the card's corner, the hat's chevron with it. */
@@ -1829,40 +1905,36 @@ button.cv-subagent > :last-child {
 }
 
 /* Tucked, the tab still says what needs the person: a dot while something waits on them, else a
-   small count of what runs, past the chevron's pill, at rest and on hover. */
-.acpmux-tray-pull__dot,
-.acpmux-tray-pull__count {
-  position: absolute;
-  top: calc(50% - var(--acpmux-tray-pull-lift));
-  left: calc(50% + 16px);
-  transform: translateY(-50%);
-}
+   small count of what runs, in the slot past the chevron, at rest and on hover. */
 .acpmux-tray-pull__dot {
-  --acpmux-tray-pull-dot: 6px;
+  flex: none;
   width: var(--acpmux-tray-pull-dot);
   height: var(--acpmux-tray-pull-dot);
   border-radius: 999px;
   background: var(--acpmux-needs-you-mark);
 }
 .acpmux-tray-pull__count {
-  color: var(--agent-accent);
-  font-size: var(--text-detail);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
+  flex: none;
 }
 /* The up chevron, faint at rest and in the accent while something runs, full on hover or focus. */
-.acpmux-tray-pull__tab > svg {
+.acpmux-tray-pull__hat > svg {
+  flex: none;
   opacity: 0.45;
-  transform: translateY(calc(-1 * var(--acpmux-tray-pull-lift))) rotate(180deg);
+  transform: rotate(180deg);
 }
 .acpmux-tray-pull[data-running] .acpmux-tray-pull__tab {
+  color: var(--agent-muted);
+}
+.acpmux-tray-pull[data-running] .acpmux-tray-pull__hat > svg {
   color: var(--agent-accent);
+  opacity: 0.8;
 }
-.acpmux-tray-pull[data-running] .acpmux-tray-pull__tab > svg {
-  opacity: 0.7;
+.acpmux-tray-pull[data-running] .acpmux-tray-pull__hat::before,
+.acpmux-tray-pull[data-running] .acpmux-tray-pull__hat::after {
+  background: color-mix(in srgb, var(--agent-accent) calc(62% * var(--glass-rim, 1)), transparent);
 }
-.acpmux-tray-pull__tab:hover > svg,
-.acpmux-tray-pull__tab:has([data-popup-open]) > svg,
-.acpmux-tray-pull__tab:focus-visible > svg {
+.acpmux-tray-pull__tab:hover .acpmux-tray-pull__hat > svg,
+.acpmux-tray-pull__tab:has([data-popup-open]) .acpmux-tray-pull__hat > svg,
+.acpmux-tray-pull__tab:focus-visible .acpmux-tray-pull__hat > svg {
   opacity: 1;
 }

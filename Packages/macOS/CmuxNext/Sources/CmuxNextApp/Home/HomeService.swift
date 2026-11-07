@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -128,13 +129,11 @@ final class HomeService {
     @ObservationIgnored var feedRowsObservation: Task<Void, Never>?
     /// The latest brain start or death's tab check (HomeService+ChiefRoster); a newer one wins.
     @ObservationIgnored var chiefHostChange: Task<Void, Never>?
-    /// The shared Home core over the local owner (home-mac.md): the native
-    /// transcript of every conversation tab reads this one store.
     /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
     /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
     /// nil when the bundle lacks the script: fences stay text.
     @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
-    @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
+    @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), startedAgents: { AgentLaneStore.chief.chiefSubagentPeers })
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.
     @ObservationIgnored let cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
@@ -163,9 +162,10 @@ final class HomeService {
     /// The docked Home's shown view: the sidebar marks its Home or Channels entry by it (cx-frn2y).
     var dockMode: HomeDockMode = .messages
     var dockShowsChannels: Bool { dockMode == .channels }
-    /// Its durable copy is keyed by the Chief owner (one per Chief home), so
-    /// a relaunch or another build shows the same history before the owner
-    /// answers (home-state-ownership.md section 4).
+    /// The shared Home core over the local owner (home-mac.md): the native transcript of every conversation tab
+    /// reads this one store. Its durable copy is keyed by the Chief owner (one per Chief home), so a relaunch or
+    /// another build shows the same history before the owner answers (home-state-ownership.md section 4).
+    /// The local owner also tells it which of the Chief's agents started (``DaemonHomeSource/startedAgents``).
     @ObservationIgnored private(set) lazy var homeStore = HomeStore(
         source: homeRouter,
         blobCacheDirectory: homeCaches.appending(path: "cmux-home-blobs", directoryHint: .isDirectory),

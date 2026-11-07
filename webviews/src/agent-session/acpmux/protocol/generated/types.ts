@@ -10,6 +10,7 @@ export interface AcpmuxRequestMeta {
   author?: unknown;
   beforePromptId?: unknown;
   callerSession?: unknown;
+  cancelToken?: unknown;
   class?: unknown;
   cliHost?: unknown;
   compression?: unknown;
@@ -394,6 +395,11 @@ export interface ForkParams {
   _meta?: unknown;
   /** Recorded prompt identity, nonempty and at most 512 UTF-8 bytes. Claude/Codex only. */
   beforePromptId?: (string | null);
+  /**
+   * The caller's name for this fork while it is made, at most 128 bytes: `_acpmux/kill` with
+   * `cancelFork` and this token stops it, or takes it back once made (`hub/fork_cancel.rs`).
+   */
+  cancelToken?: (string | null);
   live?: (boolean | null);
   /** Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source. */
   requestId?: (string | null);
@@ -493,6 +499,8 @@ export type Isolation = "unverified";
 
 export interface KillParams {
   _meta?: RequestMeta;
+  cancelFork?: unknown;
+  cancelToken?: unknown;
   purge?: unknown;
   sessionId?: unknown;
 }
@@ -1112,10 +1120,11 @@ export interface RetryParams {
 
 /**
  * Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
- * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the
- * agent process died mid-turn.
+ * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the
+ * agent process died mid-turn, or the chat outgrew its model's context window (`context`: it
+ * is compacted, then continued at once).
  */
-export type RetryReason = "capacity" | "transport" | "agent_exited";
+export type RetryReason = "capacity" | "transport" | "agent_exited" | "context";
 
 /**
  * What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next

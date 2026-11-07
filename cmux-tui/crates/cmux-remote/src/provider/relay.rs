@@ -32,12 +32,16 @@ use url::Url;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
+
+#[path = "relay_liveness.rs"]
+mod liveness;
 use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
     SupportedClientAuthModes, TransportProvider, sanitized_route,
 };
+use liveness::{Backoff, CHECK_INTERVAL, Check, Liveness, random_unit};
 
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type RelayCircuitSink = SplitSink<RelaySocket, Message>;
@@ -337,6 +341,10 @@ impl fmt::Debug for RelayClientConfig {
 pub struct RelayProvider {
     config: RelayClientConfig,
     credentials: RelayCredentialSource,
+    /// When set, a lane's allocation waits until this instant instead of
+    /// `control_timeout`: a Connect the relay parks until the daemon
+    /// registers then follows its caller's one deadline.
+    allocation_deadline: Option<Instant>,
 }
 
 impl RelayProvider {
@@ -355,7 +363,18 @@ impl RelayProvider {
     ) -> Result<Self, ProviderError> {
         config.ticket.zeroize();
         config.validate_common()?;
-        Ok(Self { config, credentials })
+        Ok(Self { config, credentials, allocation_deadline: None })
+    }
+
+    /// Wait for each lane's allocation until `deadline` rather than for
+    /// `control_timeout`. A relay may park a Connect until the machine's
+    /// daemon registers (`RelayControl::Parked`); this lets that wait follow
+    /// the caller's remaining deadline. It applies to the first connect
+    /// (generation 0) only: a resume's allocation, and every other control
+    /// step, keeps `control_timeout`.
+    pub fn with_allocation_deadline(mut self, deadline: Instant) -> Self {
+        self.allocation_deadline = Some(deadline);
+        self
     }
 }
 
@@ -399,6 +418,7 @@ impl TransportProvider for RelayProvider {
             framing,
             config: self.config.clone(),
             credentials: self.credentials.clone(),
+            allocation_deadline: self.allocation_deadline,
             control: Mutex::new(Some(control)),
             closed: AtomicBool::new(false),
         }))
@@ -413,6 +433,7 @@ struct RelayLinkGroup {
     framing: RelayCircuitFraming,
     config: RelayClientConfig,
     credentials: RelayCredentialSource,
+    allocation_deadline: Option<Instant>,
     // An allocation temporarily takes ownership of the control socket. If the
     // allocation future is cancelled, the socket is dropped while this slot
     // remains empty, so a later attempt cannot consume a stale response.
@@ -882,6 +903,9 @@ impl LinkGroup for RelayLinkGroup {
             return Err(ProviderError::Transport("relay connection group is closed".into()));
         }
         let lane = LaneToken(random_capability()?);
+        // The allocation deadline is the first connect's; a resume (a later
+        // generation) waits `control_timeout` as any reconnect does.
+        let wait_until = self.allocation_deadline.filter(|_| request.generation == 0);
         let allocation = {
             let mut stored_control = self.control.lock().await;
             if self.closed.load(Ordering::Acquire) {
@@ -895,6 +919,7 @@ impl LinkGroup for RelayLinkGroup {
                 &mut control,
                 &self.config,
                 &self.credentials,
+                allocation_wait(wait_until, self.config.control_timeout),
                 &lane,
                 request.generation,
             )
@@ -926,6 +951,7 @@ impl LinkGroup for RelayLinkGroup {
                         &mut replacement,
                         &self.config,
                         &self.credentials,
+                        allocation_wait(wait_until, self.config.control_timeout),
                         &lane,
                         request.generation,
                     )
@@ -986,10 +1012,20 @@ impl AllocationError {
     }
 }
 
+/// How long one lane's allocation may wait: until the provider's
+/// allocation deadline when it has one, else `control_timeout`.
+fn allocation_wait(deadline: Option<Instant>, control_timeout: Duration) -> Duration {
+    match deadline {
+        Some(deadline) => deadline.saturating_duration_since(Instant::now()),
+        None => control_timeout,
+    }
+}
+
 async fn request_allocation(
     socket: &mut RelaySocket,
     config: &RelayClientConfig,
     credentials: &RelayCredentialSource,
+    wait: Duration,
     lane: &LaneToken,
     generation: u64,
 ) -> Result<(CircuitId, String), AllocationError> {
@@ -1002,15 +1038,15 @@ async fn request_allocation(
             ticket: credential.expose().to_owned(),
             lane: lane.clone(),
             generation,
+            // `read_until_allocation` reads past `Parked` to the answer.
+            accepts_parked: true,
         },
     )
     .await
     .map_err(AllocationError::Reconnect)?;
-    tokio::time::timeout(config.control_timeout, read_until_allocation(socket, lane, generation))
-        .await
-        .map_err(|_| {
-            AllocationError::Reconnect(relay_carrier_error("relay allocation timed out"))
-        })?
+    tokio::time::timeout(wait, read_until_allocation(socket, lane, generation)).await.map_err(
+        |_| AllocationError::Reconnect(relay_carrier_error("relay allocation timed out")),
+    )?
 }
 
 async fn read_until_allocation(
@@ -1041,6 +1077,9 @@ async fn read_until_allocation(
                     .await
                     .map_err(AllocationError::Reconnect)?;
             }
+            // The relay holds the request until its daemon registers; keep
+            // reading for `Allocated` inside this call's timeout.
+            RelayControl::Parked { .. } => {}
             _ => {}
         }
     }
@@ -1221,7 +1260,7 @@ async fn run_registration_loop(
     mut shutdown: watch::Receiver<bool>,
     mut first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
 ) {
-    let mut backoff = Duration::from_millis(100);
+    let mut backoff = Backoff::new();
     loop {
         if *shutdown.borrow() {
             return;
@@ -1229,6 +1268,7 @@ async fn run_registration_loop(
         if shutdown.has_changed().is_err() {
             return;
         }
+        let mut registered = false;
         let result = run_registration_once(
             daemon.clone(),
             &config,
@@ -1236,8 +1276,14 @@ async fn run_registration_loop(
             &credentials,
             &mut shutdown,
             &mut first_ready,
+            &mut registered,
         )
         .await;
+        // A registration that got ready and later died (a pause, a relay
+        // restart, an expired ticket) registers again from the first wait.
+        if registered {
+            backoff.reset();
+        }
         if let Err(error) = result
             && first_ready.is_some()
             && !error.is_retryable_carrier_failure()
@@ -1251,7 +1297,7 @@ async fn run_registration_loop(
             return;
         }
         tokio::select! {
-            _ = tokio::time::sleep(backoff) => {}
+            _ = tokio::time::sleep(backoff.next(random_unit())) => {}
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
                     return;
@@ -1259,7 +1305,6 @@ async fn run_registration_loop(
                 continue;
             },
         }
-        backoff = (backoff * 2).min(Duration::from_secs(5));
     }
 }
 
@@ -1270,6 +1315,7 @@ async fn run_registration_once(
     credentials: &RelayCredentialSource,
     shutdown: &mut watch::Receiver<bool>,
     first_ready: &mut Option<oneshot::Sender<Result<(), ProviderError>>>,
+    registered: &mut bool,
 ) -> Result<(), ProviderError> {
     let authentication = authenticate_daemon_control(config, credentials);
     tokio::pin!(authentication);
@@ -1283,10 +1329,15 @@ async fn run_registration_once(
         }
     };
     let heartbeat = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
+    *registered = true;
     if let Some(sender) = first_ready.take() {
         let _ = sender.send(Ok(()));
     }
-    let mut interval = tokio::time::interval(heartbeat);
+    // Checked every second (relay_liveness.rs): a ping unanswered for 3 s,
+    // or a resume's wall-clock jump, finds a dead registration in seconds.
+    let mut liveness = Liveness::new(heartbeat, Instant::now(), std::time::SystemTime::now());
+    let mut interval = tokio::time::interval(CHECK_INTERVAL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut nonce = 0_u64;
     let mut incoming_tasks = IncomingCircuitTasks::new(MAX_RELAY_INCOMING_TASKS);
     let result = loop {
@@ -1296,11 +1347,21 @@ async fn run_registration_once(
                 if changed.is_err() || *shutdown.borrow() { break Ok(()) }
             }
             _ = interval.tick() => {
-                nonce = nonce.wrapping_add(1);
-                if let Err(error) =
-                    send_control(&mut socket, &RelayControl::Ping { nonce }).await
-                {
-                    break Err(error);
+                match liveness.check(Instant::now(), std::time::SystemTime::now()) {
+                    Check::Idle => {}
+                    Check::Ping => {
+                        nonce = nonce.wrapping_add(1);
+                        if let Err(error) =
+                            send_control(&mut socket, &RelayControl::Ping { nonce }).await
+                        {
+                            break Err(error);
+                        }
+                    }
+                    Check::Dead => {
+                        break Err(ProviderError::Transport(
+                            "relay registration stopped answering".into(),
+                        ));
+                    }
                 }
             }
             message = read_control(&mut socket) => {
@@ -1308,6 +1369,7 @@ async fn run_registration_once(
                     Ok(message) => message,
                     Err(error) => break Err(error),
                 };
+                liveness.on_inbound();
                 match message {
                     RelayControl::Incoming { circuit, lane, generation, join_ticket } => {
                         let daemon = daemon.clone();
@@ -2167,6 +2229,78 @@ mod tests {
         server.await.unwrap();
     }
 
+    /// A relay that stops answering (a machine resumed after the relay retired
+    /// its control) is registered with again within seconds, with a fresh
+    /// ticket from the credential source.
+    #[tokio::test]
+    async fn daemon_registers_again_when_the_relay_stops_answering_pings() {
+        use crate::identity::AuthDatabase;
+        use crate::session::SessionLimits;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut silent, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer ticket-1");
+            assert!(matches!(
+                receive_test_control(&mut silent).await,
+                RelayControl::Register { .. }
+            ));
+            // A 3 s lease pings every second; this relay never answers.
+            send_test_control(&mut silent, &RelayControl::Registered { lease_seconds: 3 }).await;
+            let (stream, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
+                .await
+                .expect("the daemon did not register again after its pings went unanswered")
+                .unwrap();
+            let (mut second, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer ticket-2");
+            assert!(matches!(
+                receive_test_control(&mut second).await,
+                RelayControl::Register { .. }
+            ));
+            send_test_control(&mut second, &RelayControl::Registered { lease_seconds: 30 }).await;
+            drop(silent);
+            while second.next().await.is_some() {}
+        });
+        let calls = Arc::new(AtomicUsize::new(0));
+        let credentials = RelayCredentialSource::callback({
+            let calls = calls.clone();
+            move || {
+                let value = calls.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                async move { Ok::<_, ()>(format!("ticket-{value}")) }
+            }
+        });
+        let directory = tempfile::tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "relay-silent", true).unwrap();
+        let (daemon, _clients) = RemoteDaemon::new(auth, SessionLimits::default());
+        let registration = register_relay_daemon_with_credentials(
+            daemon,
+            RelayDaemonConfig {
+                endpoint: Url::parse(&format!("relay+ws://{address}")).unwrap(),
+                slot: "silent-relay-slot".into(),
+                ticket: String::new(),
+                maximum_frame_bytes: 65_535,
+                control_timeout: Duration::from_secs(2),
+            },
+            credentials,
+        )
+        .await
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while calls.load(AtomicOrdering::SeqCst) < 2 {
+                tokio::task::yield_now().await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("no second ticket was asked for");
+        tokio::time::timeout(Duration::from_secs(1), registration.shutdown())
+            .await
+            .expect("relay registration shutdown did not complete");
+        server.await.unwrap();
+    }
+
     #[tokio::test]
     async fn provider_description_redacts_relay_capabilities_and_slot() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2479,5 +2613,212 @@ mod tests {
         link.close().await.unwrap();
         group.close().await.unwrap();
         tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn parked_connect_is_answered_on_the_same_request() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut control, _) = accept_with_authorization(stream).await;
+            let RelayControl::Connect { lane, generation, accepts_parked, .. } =
+                receive_test_control(&mut control).await
+            else {
+                panic!("expected client connect");
+            };
+            assert!(accepts_parked, "the client must ask for Parked before a relay sends it");
+            send_test_control(
+                &mut control,
+                &RelayControl::Parked { lane: lane.clone(), generation },
+            )
+            .await;
+            let circuit = CircuitId("parked-circuit".into());
+            send_test_control(
+                &mut control,
+                &RelayControl::Allocated {
+                    circuit: circuit.clone(),
+                    lane: lane.clone(),
+                    generation,
+                    join_ticket: "parked-join-ticket".into(),
+                },
+            )
+            .await;
+
+            let (stream, _) = tokio::time::timeout(Duration::from_secs(10), listener.accept())
+                .await
+                .expect("the client opened no circuit after Parked")
+                .unwrap();
+            let (mut circuit_socket, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer parked-join-ticket");
+            assert!(matches!(
+                receive_test_control(&mut circuit_socket).await,
+                RelayControl::Join { .. }
+            ));
+            send_test_control(
+                &mut circuit_socket,
+                &RelayControl::Ready { circuit, lane, generation },
+            )
+            .await;
+            let message = circuit_socket.next().await.unwrap().unwrap();
+            let Message::Binary(payload) = message else {
+                panic!("expected circuit payload, got {message:?}");
+            };
+            circuit_socket.send(Message::Binary(payload)).await.unwrap();
+            let _ = circuit_socket.next().await;
+            let _ = control.next().await;
+        });
+
+        let provider = RelayProvider::new(RelayClientConfig {
+            slot: "test-slot".into(),
+            ticket: "client-ticket".into(),
+            maximum_frame_bytes: 64,
+            control_timeout: Duration::from_secs(5),
+        })
+        .unwrap();
+        let group = provider
+            .connect(ConnectRequest {
+                endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+                session: SessionId::ZERO,
+                lane_policy: LanePolicy::Isolated,
+                routing: BTreeMap::new(),
+            })
+            .await
+            .unwrap();
+        let link = tokio::time::timeout(
+            Duration::from_secs(10),
+            group.open(LinkRequest { lane: Lane::Interactive, generation: 3 }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        link.send(Bytes::from_static(b"after-park")).await.unwrap();
+        assert_eq!(link.receive().await.unwrap().unwrap(), &b"after-park"[..]);
+        link.close().await.unwrap();
+        group.close().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
+    }
+
+    /// A relay that answers one Connect after `delay`, then serves its circuit.
+    async fn answer_connect_after(
+        delay: Duration,
+    ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut control, _) = accept_with_authorization(stream).await;
+            let RelayControl::Connect { lane, generation, .. } =
+                receive_test_control(&mut control).await
+            else {
+                panic!("expected client connect");
+            };
+            tokio::time::sleep(delay).await;
+            let circuit = CircuitId("late-circuit".into());
+            send_test_control(
+                &mut control,
+                &RelayControl::Allocated {
+                    circuit: circuit.clone(),
+                    lane: lane.clone(),
+                    generation,
+                    join_ticket: "late-join-ticket".into(),
+                },
+            )
+            .await;
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut circuit_socket, _) = accept_with_authorization(stream).await;
+            assert!(matches!(
+                receive_test_control(&mut circuit_socket).await,
+                RelayControl::Join { .. }
+            ));
+            send_test_control(
+                &mut circuit_socket,
+                &RelayControl::Ready { circuit, lane, generation },
+            )
+            .await;
+            let _ = circuit_socket.next().await;
+            let _ = control.next().await;
+        });
+        (address, server)
+    }
+
+    /// A relay that holds the first Connect past `control_timeout` (as it
+    /// parks one until the daemon registers) still answers it inside the
+    /// provider's allocation deadline, and a hold that outlives the deadline
+    /// fails as an allocation timeout. A resume (a later generation) keeps
+    /// `control_timeout`, even once the first connect's deadline has passed.
+    #[tokio::test]
+    async fn a_parked_allocation_waits_until_the_allocation_deadline() {
+        let config = RelayClientConfig {
+            slot: "test-slot".into(),
+            ticket: "client-ticket".into(),
+            maximum_frame_bytes: 64,
+            control_timeout: Duration::from_millis(100),
+        };
+        let request = |address: std::net::SocketAddr| ConnectRequest {
+            endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+            session: SessionId::ZERO,
+            lane_policy: LanePolicy::Isolated,
+            routing: BTreeMap::new(),
+        };
+        // Past the 100 ms control timeout, inside the 5 s deadline.
+        let (address, server) = answer_connect_after(Duration::from_millis(400)).await;
+        let provider = RelayProvider::new(config.clone())
+            .unwrap()
+            .with_allocation_deadline(Instant::now() + Duration::from_secs(5));
+        let group = provider.connect(request(address)).await.unwrap();
+        let link = group
+            .open(LinkRequest { lane: Lane::Interactive, generation: 0 })
+            .await
+            .expect("a park inside the deadline is answered");
+        link.close().await.unwrap();
+        group.close().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
+
+        // A resume after the deadline passed waits control_timeout, not zero.
+        let (address, server) = answer_connect_after(Duration::from_millis(20)).await;
+        let provider =
+            RelayProvider::new(config.clone()).unwrap().with_allocation_deadline(Instant::now());
+        let group = provider.connect(request(address)).await.unwrap();
+        let link = group
+            .open(LinkRequest { lane: Lane::Interactive, generation: 1 })
+            .await
+            .expect("a resume keeps control_timeout after the dial's deadline");
+        link.close().await.unwrap();
+        group.close().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
+
+        // A park that never ends fails at the deadline, not at control_timeout.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            // The client's reconnect after the timeout is refused at once.
+            drop(listener);
+            let (mut control, _) = accept_with_authorization(stream).await;
+            let RelayControl::Connect { .. } = receive_test_control(&mut control).await else {
+                panic!("expected client connect");
+            };
+            while control.next().await.is_some() {}
+        });
+        let started = Instant::now();
+        let provider = RelayProvider::new(config)
+            .unwrap()
+            .with_allocation_deadline(started + Duration::from_millis(600));
+        let group = provider.connect(request(address)).await.unwrap();
+        let error = group
+            .open(LinkRequest { lane: Lane::Interactive, generation: 0 })
+            .await
+            .err()
+            .expect("a park past the deadline fails");
+        let waited = started.elapsed();
+        assert!(error.to_string().contains("allocation timed out"), "{error}");
+        assert!(
+            waited >= Duration::from_millis(500),
+            "gave up after {waited:?}, before the deadline"
+        );
+        assert!(waited < Duration::from_secs(5), "waited {waited:?}, past the deadline");
+        let _ = group.close().await;
+        server.abort();
     }
 }

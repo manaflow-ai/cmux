@@ -847,13 +847,13 @@ export default agentPaneEntry({
             "tucked-count",
             "middle",
             false,
-            "Tucked with three running: the chevron in the accent and a small 3 at its end.",
+            "Tucked with three running: the chevron and count share a compact glass control joined to the composer's hairline.",
           ],
           [
             "tucked-waiting",
             "middle",
             true,
-            "Tucked while a chat it started waits on you: a dot in the needs-you colour replaces the count.",
+            "Tucked while a chat it started waits on you: a needs-you dot takes the count slot in the compact glass control.",
           ],
           [
             "tucked-left",

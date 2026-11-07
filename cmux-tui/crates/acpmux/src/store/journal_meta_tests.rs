@@ -1,4 +1,4 @@
-//! Chat metadata through the event journal (`store.journal`, R-DURABILITY S3; DESIGN.md 3.3e): a
+//! Chat metadata through the event journal (always on, R-DURABILITY S3; DESIGN.md 3.3e): a
 //! metadata change is a journal record, `session.json` is what a checkpoint writes from it, and a
 //! crash at any point leaves the metadata and the log in step.
 //!
@@ -18,7 +18,7 @@ const CHAT: &str = "chat-a";
 const WAIT: Duration = Duration::from_secs(10);
 
 fn config() -> StoreConfig {
-    StoreConfig { journal: true, ..StoreConfig::default() }
+    StoreConfig::default()
 }
 
 fn journal_config() -> cmux_journal::Config {
@@ -425,13 +425,12 @@ fn an_open_after_a_kill_syncs_nothing_per_chat_and_the_checkpoint_makes_it_durab
 
 // ---------------------------------------------------------------- review of #35483 (F1 to F4)
 
-/// F1 (review of #35483): the metadata twin of S2's finding 1a (lines written with the switch off).
-/// A kill with the switch on; a run with it off whose catch-up did not replay this journal (an
-/// older build stops at kind 4, and the journal here is on `SimStorage`, so the switch-off start
-/// finds none); a rename then; the switch on again. The replay must not write the journal's older
-/// image over the change made with the switch off.
+/// F1 (review of #35483): the metadata twin of S2's finding 1a (lines an older build wrote). A
+/// kill; an older build (no event journal: a plain `LocalStore`, as a downgrade runs) starts on
+/// the home, does not replay this journal and renames the chat in `session.json`; this build
+/// starts again. The replay must not write the journal's older image over that change.
 #[test]
-fn metadata_written_with_the_switch_off_survives_turning_it_on_again() {
+fn metadata_an_older_build_wrote_after_a_kill_survives_the_replay() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(60);
     let store = open(home.path(), &journal);
@@ -442,24 +441,23 @@ fn metadata_written_with_the_switch_off_survives_turning_it_on_again() {
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let killed = journal.restart(Crash::Process);
     drop(store);
-    let off = super::open(&StoreConfig::default(), home.path())
-        .unwrap_or_else(|e| panic!("open the store with the switch off: {e:#}"));
-    off.save(&meta(CHAT, "three", 1)).unwrap_or_else(|e| panic!("{e:#}"));
-    drop(off);
+    let older = LocalStore::new(home.path().join("sessions"), config().segment_bytes)
+        .unwrap_or_else(|e| panic!("open the store as an older build: {e:#}"));
+    older.save(&meta(CHAT, "three", 1)).unwrap_or_else(|e| panic!("{e:#}"));
+    drop(older);
     let store = open(home.path(), &killed);
     let name = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
     assert_eq!(
         name.as_deref(),
         Some("three"),
-        "the replay wrote the journal's older image over a change made with the switch off"
+        "the replay wrote the journal's older image over a change an older build made"
     );
 }
 
-/// F1, a delete: a chat made after the checkpoint, a kill, a start with the switch off whose
-/// catch-up fails (here its checkpoint file does not read), and the chat deleted in that run. The
-/// next start with the switch on must not make the chat again from its journaled records.
+/// F1, a delete: a chat made after the checkpoint, a kill, an older build (no event journal)
+/// that deletes the chat. The next start must not make the chat again from its journaled records.
 #[test]
-fn a_chat_deleted_with_the_switch_off_after_a_failed_catch_up_is_not_made_again() {
+fn a_chat_an_older_build_deleted_after_a_kill_is_not_made_again() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(63);
     let store = open(home.path(), &journal);
@@ -471,26 +469,18 @@ fn a_chat_deleted_with_the_switch_off_after_a_failed_catch_up_is_not_made_again(
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let killed = journal.restart(Crash::Process);
     drop(store);
-    // The switch-off start finds a journal on disk and cannot catch up with it.
-    let checkpoint = home.path().join("journal-projected.json");
-    let saved = std::fs::read(&checkpoint).unwrap_or_else(|e| panic!("{e}"));
-    std::fs::write(&checkpoint, b"not a checkpoint").unwrap_or_else(|e| panic!("{e}"));
-    let on_disk = home.path().join("journal");
-    std::fs::create_dir(&on_disk).unwrap_or_else(|e| panic!("{e}"));
-    let off = super::open(&StoreConfig::default(), home.path())
-        .unwrap_or_else(|e| panic!("open the store with the switch off: {e:#}"));
-    off.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
-    drop(off);
-    std::fs::write(&checkpoint, saved).unwrap_or_else(|e| panic!("{e}"));
-    std::fs::remove_dir(&on_disk).unwrap_or_else(|e| panic!("{e}"));
+    let older = LocalStore::new(home.path().join("sessions"), config().segment_bytes)
+        .unwrap_or_else(|e| panic!("open the store as an older build: {e:#}"));
+    older.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+    drop(older);
     let store = open(home.path(), &killed);
     assert!(
         store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
-        "a chat deleted with the switch off came back"
+        "a chat an older build deleted came back"
     );
     assert!(
         !home.path().join("sessions").join(CHAT).exists(),
-        "the replay made the folder of a chat deleted with the switch off again"
+        "the replay made the folder of a chat an older build deleted again"
     );
 }
 
@@ -712,7 +702,7 @@ fn a_checkpoint_after_a_failed_repair_writes_only_durable_images() {
     );
 }
 
-/// A run with the switch on that a kill ended, with chat-b's repair failing at every later open.
+/// A run that a kill ended, with chat-b's repair failing at every later open.
 fn killed_run_with_a_broken_chat(home: &Path, save: &[SessionMeta]) {
     let store = super::open(&config(), home).unwrap_or_else(|e| panic!("{e:#}"));
     store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
@@ -724,18 +714,29 @@ fn killed_run_with_a_broken_chat(home: &Path, save: &[SessionMeta]) {
     link_first_segment(home, "chat-b");
 }
 
-fn open_switch_off(home: &Path) -> Box<dyn Store> {
+/// The store as the daemon opens it (`store::open`: its journal on the real file system).
+fn open_daemon_store(home: &Path) -> Box<dyn Store> {
     super::open(&StoreConfig::default(), home).unwrap_or_else(|e| panic!("{e:#}"))
 }
 
-/// F2 of the review of #35562 (its test): with the switch off, a start's catch-up never writes an
-/// older journaled image over a change made with the switch off, also after a failed repair
-/// (DESIGN.md 3.3c: "turning it on again replays nothing old").
+/// The store a build with the journal switch off opened on `home` (as `store::open` did then):
+/// the journal's catch-up first, whose failure it only logged, then the logs alone.
+fn open_switch_off_build(home: &Path) -> Box<dyn Store> {
+    let _ = super::catch_up_journal(&config(), home);
+    Box::new(
+        LocalStore::new(home.join("sessions"), config().segment_bytes)
+            .unwrap_or_else(|e| panic!("open the store as a switch-off build: {e:#}")),
+    )
+}
+
+/// F2 of the review of #35562 (its test): after a failed repair, a build with the switch off
+/// renames the chat without the journal; this build's replay must not write an older journaled
+/// image over that rename (DESIGN.md 3.3c: "turning it on again replays nothing old").
 #[test]
-fn a_start_with_the_switch_off_after_a_failed_repair_keeps_a_rename_made_with_it_off() {
+fn a_rename_a_switch_off_build_made_after_a_failed_repair_survives_the_replay() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     killed_run_with_a_broken_chat(home.path(), &[meta(CHAT, "on", 0)]);
-    let off = open_switch_off(home.path());
+    let off = open_switch_off_build(home.path());
     let mut renamed = off
         .load(CHAT)
         .unwrap_or_else(|e| panic!("{e:#}"))
@@ -743,33 +744,30 @@ fn a_start_with_the_switch_off_after_a_failed_repair_keeps_a_rename_made_with_it
     renamed.name = "off".into();
     off.save(&renamed).unwrap_or_else(|e| panic!("{e:#}"));
     drop(off);
-    let off = open_switch_off(home.path());
-    let name = off.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+    let store = open_daemon_store(home.path());
+    let name = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
     assert_eq!(
         name.as_deref(),
         Some("off"),
-        "the catch-up wrote an older journaled image over a rename made with the switch off"
+        "the replay wrote an older journaled image over a rename made without the journal"
     );
 }
 
-/// F2 of the review of #35562 (its test): with the switch off, a chat deleted with the switch off
-/// stays deleted at the next start, also after a failed repair.
+/// F2 of the review of #35562 (its test): after a failed repair, a build with the switch off
+/// deletes the chat; this build's replay must not make it again.
 #[test]
-fn a_start_with_the_switch_off_after_a_failed_repair_keeps_a_chat_deleted_with_it_off() {
+fn a_chat_a_switch_off_build_deleted_after_a_failed_repair_stays_deleted() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     killed_run_with_a_broken_chat(home.path(), &[meta(CHAT, "chat", 0)]);
-    let off = open_switch_off(home.path());
+    let off = open_switch_off_build(home.path());
     off.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
     drop(off);
-    let off = open_switch_off(home.path());
+    let store = open_daemon_store(home.path());
     assert!(
-        off.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
-        "a chat deleted with the switch off came back"
+        store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
+        "a chat deleted without the journal came back"
     );
-    assert!(
-        !home.path().join("sessions").join(CHAT).exists(),
-        "the catch-up made its folder again"
-    );
+    assert!(!home.path().join("sessions").join(CHAT).exists(), "the replay made its folder again");
 }
 
 // ---------------------------------------------------------------- review of #35483 at 8301994b135 (N1)

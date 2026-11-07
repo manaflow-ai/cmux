@@ -1785,6 +1785,11 @@ jobs:
             echo "checkout HEAD does not match the requested source commit" >&2
             exit 1
           }
+          # The download's `cmux-tui-*` also matches cmux-tui-dsyms-<target>, which a
+          # darwin target built on a Mac uploads (the build fallback; cmux#36966's run
+          # 42189372955). Its .dSYM folders are never published (sentry-dsyms reads its
+          # own copy), and `sha256sum cmux-tui-*` fails on a folder.
+          find assets/cmux-tui -maxdepth 1 -type d -name '*.dSYM' -prune -exec rm -rf {} +
           build_manifest() {
             local directory="$1"
             local binary_prefix="$2"
@@ -2258,11 +2263,12 @@ jobs:
             # The files are independent reads, each to its own name: 8 at once.
             # A name is read once: the legacy mux/ manifest also lists its
             # checksums file, and two reads of one name would race on the
-            # same file and its .partial.
-            local -A seen=()
+            # same file and its .partial. A string, not an associative array: macOS
+            # runners have Bash 3.2, which has no associative arrays.
+            local seen=" "
             for name in $checksums $names; do
-              [[ "$name" == manifest.json || -n "${seen[$name]:-}" ]] && continue
-              seen[$name]=1
+              [[ "$name" == manifest.json || "$seen" == *" $name "* ]] && continue
+              seen="$seen$name "
               pool_run fetch_published "$name"
             done
             pool_wait
@@ -3726,6 +3732,29 @@ jobs:
           curl -fsS --retry 3 --max-time 60 -o "$dir/check.json" "https://files.cmux.com/cmux-tui/channels/cloud-machine.json?check=$GITHUB_RUN_ID"
           python3 "$ptr" verify --pointer "$dir/check.json" --keys "$keys" --channel cloud-machine
           echo "Cloud machine channel -> ${GITHUB_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # The Cloud VM image roll (cloud-vm-image-roll.yml) for this build: the same published and read-back
+  # commit manifests point-machine-channel reads. The roll's plan decides whether the build changes what
+  # the image carries; its concurrency keeps one roll running and replaces a waiting one with this.
+  request-image-roll:
+    name: request the Cloud VM image roll
+    needs: [publish, verify-publish]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      # BASH_ENV (the API call log) lives in the checkout.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: Dispatch the image roll
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run cloud-vm-image-roll.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f commit="$GITHUB_SHA"
 
   # nightly-next is promoted only to a commit whose cmux-tui tree is published
   # and whose cmux-next Release compile passed, so the nightly builds its tip

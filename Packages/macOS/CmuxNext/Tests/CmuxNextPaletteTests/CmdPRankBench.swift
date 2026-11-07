@@ -6,7 +6,8 @@ import Testing
 /// What search memory costs Cmd-P: one query's rank over 1,000 workspaces, with no history and no
 /// sidebar places (the ranker's input before search memory) and with a full history (the 500 rows
 /// the daemon keeps, the learned picks of 600 runs) and every workspace's sidebar place. Also the
-/// cost of building the rows (`WorkspacePaletteProvider.makeItems`, which now sorts by sidebar place).
+/// cost of building the rows (`WorkspacePaletteProvider.makeItems`, which now sorts by sidebar place), and
+/// the full history both ways: sent with every query (before) and installed once per revision (after).
 ///
 /// A measurement, not a check: it runs only with `CMUX_CMDP_RANK_BENCH=1`, on an idle fleet host:
 ///
@@ -61,7 +62,7 @@ struct CmdPRankBench {
         return String(format: "p50 %.3f ms, p95 %.3f ms, max %.3f ms (n=%d)", at(0.5), at(0.95), sorted.last ?? 0, sorted.count)
     }
 
-    private static func measure(memory: Bool) -> (rows: String, rank: String) {
+    private static func measure(memory: Bool, sendsHistory: Bool = false) -> (rows: String, rank: String) {
         let now = Date()
         let provider = WorkspacePaletteProvider(source: Workspaces(workspaces(ranked: memory)), showsItemsForEmptyQuery: true)
         var items: [PaletteItem] = []
@@ -70,12 +71,14 @@ struct CmdPRankBench {
         let frecency = history(full: memory, now: now)
         let ranker = PaletteRanker()
         // Warm the prepared fields, as the open's first rank does.
-        _ = ranker.rank(index: &index, version: 1, query: "a", sectionOrders: [], frecency: frecency, now: now, showsRecent: true)
+        _ = ranker.rank(index: &index, version: 1, query: "a", sectionOrders: [], frecency: frecency, now: now, showsRecent: true,
+                        sendsHistory: sendsHistory)
         var samples: [Double] = []
         for _ in 0..<40 {
             for query in queries {
                 samples.append(cpuMilliseconds {
-                    _ = ranker.rank(index: &index, version: 1, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: true)
+                    _ = ranker.rank(index: &index, version: 1, query: query, sectionOrders: [], frecency: frecency, now: now,
+                                    showsRecent: true, sendsHistory: sendsHistory)
                 })
             }
         }
@@ -83,12 +86,16 @@ struct CmdPRankBench {
     }
 
     @Test func rankCostWithAndWithoutSearchMemory() {
-        let before = Self.measure(memory: false)
-        let after = Self.measure(memory: true)
+        let bare = Self.measure(memory: false)
+        let resent = Self.measure(memory: true, sendsHistory: true)
+        let installed = Self.measure(memory: true)
         let picks = Self.history(full: true, now: Date()).picks.count
         print("cmdp bench: \(Self.count) workspaces, one query's rank, thread CPU")
-        print("cmdp bench: no history, no sidebar places: rank \(before.rank); rows \(before.rows)")
-        print("cmdp bench: 500 rows + \(picks) learned picks, sidebar places: rank \(after.rank); rows \(after.rows)")
+        print("cmdp bench: no history, no sidebar places: rank \(bare.rank); rows \(bare.rows)")
+        print("cmdp bench: 500 rows + \(picks) learned picks, sidebar places, history sent with every query (before): "
+            + "rank \(resent.rank); rows \(resent.rows)")
+        print("cmdp bench: 500 rows + \(picks) learned picks, sidebar places, history installed once (after): "
+            + "rank \(installed.rank); rows \(installed.rows)")
         #expect(picks > 0)
     }
 }

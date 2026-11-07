@@ -59,6 +59,10 @@ public final class AgentPaneView: NSView {
     var crashReloadCount = 0
     /// The automatic retries after the page's web content ended.
     let crashRetry = AgentPageCrashRetry()
+    /// Where the window's toasts rest (window coordinates), nil when none shows (AgentPaneView+ToastRoom.swift).
+    var toastsRect: NSRect?
+    /// The toast band the page last got, in CSS pixels.
+    var sentToastRoom: Double = 0
     /// The page ends of the app's agent panes, grouped by the termination that ended them.
     let terminations: AgentPageTerminations
     /// The app's flicker ring file (``AgentPageFlickerLog``, made by the composition root); nil writes nothing (tests).
@@ -343,6 +347,7 @@ public final class AgentPaneView: NSView {
         observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         installSessionInfo()
+        installHostGlass()
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -434,6 +439,9 @@ public final class AgentPaneView: NSView {
         placeChromiumMove(at: frame)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
+        layoutHostGlass()
+        // A pane resized or moved under shown toasts: its band follows at once.
+        if toastsRect != nil || sentToastRoom != 0 { sendToastRoom(duration: 0) }
         redraw.laidOut(self)
     }
 
@@ -489,6 +497,8 @@ public final class AgentPaneView: NSView {
         reduceMotionOverrideObserver = nil
         dictation.close()
         model.readAloud?.stop(owner: model)
+        // A Cloud start's question in this pane can no longer be answered: its start goes on without one.
+        model.cloudAsks.endAll()
         model.shell.terminateAll()
         if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
         gestureMonitor = nil
@@ -554,6 +564,8 @@ public final class AgentPaneView: NSView {
         } else {
             // The composer's + > Attach files or images opens without making a panel (PageOpenPanel).
             openPanel?.warmWhenIdle()
+            // The toasts may have come or gone while the pane was out of the window.
+            if let window { CmuxToastAvoidance.reservingViewMoved(self, to: window) }
         }
         applyTheme()
     }
@@ -601,6 +613,7 @@ public final class AgentPaneView: NSView {
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
         themeSessionInfo(tokens)
+        themeHostGlass()
         themeLoadingState(tokens)
         page?.themeSurface = surface
         if let pageEvents {

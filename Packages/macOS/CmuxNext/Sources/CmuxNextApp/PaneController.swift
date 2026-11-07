@@ -39,6 +39,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var pendingDock = PendingDockChats() // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created or reopened here, selected once the daemon reports it (`selectWhenReported*`).
     var pendingSelect = PendingTabSelect()
+    var lastPlacement: ActionWork? // this pane's last new tab's move into its slot: the next reads its slot after it (NewTabSlot)
     private var observation: Task<Void, Never>?
     /// One observation per daemon tab's strip item and focus kind (`focusPane` reads it; I1, I2).
     private lazy var tabItems = ObservedItems<TabModel, (StripTabItem, FocusTopology.Kind)>(
@@ -223,7 +224,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             let page = services.cache.existingBrowser(tab.id)?.tab.state
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? page?.url?.host() ?? Strings.untitledBrowser
             var item = StripTabItem(id: StripTabID(tab.id), title: title, subtitle: page?.url?.absoluteString,
-                                    icon: .icon(.browser))
+                                    icon: .browser)
             item.isDormant = services.cache.dormantTabs.contains(tab.id)
             browserIcon(key: tab.id, recordFavicon: nil).apply(to: &item)
             local.append(item)
@@ -248,7 +249,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // 2026-10-23: "home chief should have no tabbar"); a tab dragged in brings it back while it
         // is there (plans/cmux-next/home-chief-pane.md H1).
         let homeChief = (dock.map { LayoutMapping.dock($0).hidesTabBar(shownTabs: tabs.count + local.count) } ?? false)
-            // A window dock in the same no-tab-bar mode (Show or Hide Dock Tab Bar, user 2026-11-05).
+            // A window dock in the same no-tab-bar mode (Show/Hide Dock Tab Bar, user 2026-11-05).
             || (LayoutTunables.dockedWorkspaces.value && ownWorkspace.map { state?.docks.hidesTabBar(of: $0.id, shownTabs: tabs.count + local.count) ?? false } ?? false)
         return Snapshot(tabs: tabs, items: local, groups: groups,
                          defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
@@ -292,7 +293,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if tab.kind == .remoteTerminal {
             // Its terminal runs on another machine: that machine's name.
             (item.machineBadge, item.machineName) = services.remoteTerminals.badge(for: tab)
-            item.icon = .icon(.terminal)
+            item.icon = .terminal
         } else if tab.kind != .browser {
             (item.machineBadge, item.machineName) = (machine, machine.flatMap { _ in services.machines.machineName(daemon.machineID) })
             item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
@@ -631,7 +632,7 @@ extension PaneController {
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? (tab.title.isEmpty ? nil : tab.title)
                 ?? page?.url?.host() ?? Strings.untitledBrowser
             var item = StripTabItem(id: StripTabID(id), title: title, subtitle: page?.url?.absoluteString ?? tab.url,
-                                    icon: .icon(.browser))
+                                    icon: .browser)
             item.isDormant = services.cache.dormantTabs.contains(id)
             let image = services.browserFavicon(key: id, recordFavicon: tab.faviconURL)
             let url = page?.url ?? tab.url.flatMap(URL.init(string:))

@@ -304,6 +304,13 @@ declare namespace Cmux {
   type PairingPreview = { code: Cmux.PairingCode; info: Cmux.PairingInfo; public_jwk: Cmux.PublicJwk; thumbprint: string; country: string | null; expires_at: number }
   type PairingRequestSnapshot = { id: string /* pairing_request_… */; session_id: string /* session_… */; peer: string; code: string; expires_in_seconds: string; status: "pending" | "accepted" | "rejected"; extra?: Record<string, Cmux.JsonValue> }
   type PairingResolutionResult = { pairing_request: Cmux.PairingRequestSnapshot }
+  type PaletteRankEntry = { title: string; keywords?: Array<string> | null; subtitle?: string | null; accessory?: string | null; rankBias?: number | null; frecencyKey?: string | null; isEnabled?: boolean | null; isVisibleWhenQueryEmpty?: boolean | null; queryPrefix?: string | null; hidesWhenTyping?: boolean | null; sectionIndex?: number | null; entersScope?: boolean | null; typingSectionIndex?: number | null; suggestedRank?: number | null; suggestedSectionIndex?: number | null; actionID?: string | null; demoted?: boolean | null; hasShortcut?: boolean | null; keycaps?: Array<string> | null; handles?: Array<string> | null }
+  type PaletteRankFrecency = { entries?: Record<string, Cmux.PaletteRankUse> | null; halfLife?: number | null; picks?: Array<Cmux.PaletteRankPick> | null; pickHalfLife?: number | null; hidden?: Array<string> | null }
+  type PaletteRankPick = { prefix: string; key: string; score: number; lastUsed: number; last: boolean }
+  type PaletteRankResult = { sections: Array<Cmux.PaletteRankSection> }
+  type PaletteRankRow = { index: number; score: number; highlights: Array<number> }
+  type PaletteRankSection = { sectionIndex: number | null; rows: Array<Cmux.PaletteRankRow> }
+  type PaletteRankUse = { score: number; lastUsed: number }
   type PaletteUsageImportResult = { revision: string; imported: boolean }
   type PaletteUsagePick = { prefix: string; key: string; score: number; last_used_ms: string; last: boolean }
   type PaletteUsageRecordResult = { revision: string }
@@ -763,7 +770,7 @@ interface CmuxGlobal {
     }
     machine: {
       /** `cloud.machine.connect` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Open the one private link (carrier) to a machine and return it. A second call while the link is up returns the same carrier and starts no new link. A paused machine is started first. Not a focus change. When the link goes down nothing reconnects by itself and nothing queues: call connect again, also with the same key: connect is never replayed from the ledger. */
-      connect: CmuxOp<{ machine: string }, { machine: string; carrier: string; generation: number; state: "up"; socket: string; vm_kind: "owner" | "team" }>
+      connect: CmuxOp<{ machine: string }, { machine: string; carrier: string; generation: number; state: "up"; socket: string; vm_kind: "owner" | "team" | "unknown" }>
       /** `cloud.machine.connect_info` (read, scope `cloud:read`): How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner for its creator on any team, never an agent token; every other member is team). */
       connect_info: CmuxOp<{ machine?: Cmux.MachineId; host?: Cmux.HostId }, Cmux.CloudConnectInfo>
       /** `cloud.machine.disconnect` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): End the link to a machine and forget it, also after a revocation. Every terminal of that machine on this Mac shows the disconnected state. The machine keeps running. */

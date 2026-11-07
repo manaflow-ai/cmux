@@ -2201,6 +2201,10 @@ mod list_fit_tests;
 mod list_pending_tests;
 
 #[cfg(test)]
+#[path = "list_web_page_tests.rs"]
+mod list_web_page_tests;
+
+#[cfg(test)]
 #[path = "session_list_pages_tests.rs"]
 mod session_list_pages_tests;
 

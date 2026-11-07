@@ -43,7 +43,7 @@ struct HomeAgentChatContent: Equatable, Sendable {
     var peer: String
     /// The task's title.
     var title: String
-    /// Working, Reported or Stopped without a report.
+    /// Queued, Working, Reported or Stopped without a report.
     var status: String
     /// The Chief's task (empty: no "Sent via Chief" bubble).
     var task: String
@@ -76,9 +76,7 @@ extension HomeAgentChatContent {
         }
         self.init(
             peer: thread.peer, title: thread.title, status: Self.status(thread.state), task: thread.task ?? "",
-            workedFor: thread.state == .told
-                ? String(format: String(localized: "home.agentPane.workingFor", defaultValue: "Working for %@", bundle: .module), duration)
-                : String(format: String(localized: "home.agentPane.workedFor", defaultValue: "Worked for %@", bundle: .module), duration),
+            workedFor: Self.timeLine(thread.state, duration: duration),
             details: details,
             messages: thread.entries.map { Message(sender: Sender($0.sender), text: $0.text) },
             workspaceLink: thread.workspaceLink)
@@ -90,9 +88,21 @@ extension HomeAgentChatContent {
         }
     }
 
+    /// The line over the steps: "Queued for 6m 50s" while it waits for a slot, "Working for …" while it works,
+    /// else "Worked for …".
+    static func timeLine(_ state: HomeAgentMessageRow.PeerState, duration: String) -> String {
+        switch state {
+        case .queued: String(format: String(localized: "home.agentPane.queuedFor", defaultValue: "Queued for %@", bundle: .module), duration)
+        case .told: String(format: String(localized: "home.agentPane.workingFor", defaultValue: "Working for %@", bundle: .module), duration)
+        case .reported, .stopped:
+            String(format: String(localized: "home.agentPane.workedFor", defaultValue: "Worked for %@", bundle: .module), duration)
+        }
+    }
+
     /// The status words for `state`.
     static func status(_ state: HomeAgentMessageRow.PeerState) -> String {
         switch state {
+        case .queued: String(localized: "home.agentPane.status.queued", defaultValue: "Queued", bundle: .module)
         case .told: String(localized: "home.agentPane.status.working", defaultValue: "Working", bundle: .module)
         case .reported: String(localized: "home.agentPane.status.reported", defaultValue: "Reported", bundle: .module)
         case .stopped: String(localized: "home.agentPane.status.stopped", defaultValue: "Stopped without a report", bundle: .module)

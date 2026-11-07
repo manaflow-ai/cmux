@@ -10028,6 +10028,66 @@
     }
    },
    "additional_properties": false
+  },
+  "TerminalLastCommand": {
+   "kind": "object",
+   "fields": {
+    "command": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "exit_code": {
+     "type": {
+      "kind": "scalar",
+      "name": "int32"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "started_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "ended_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalLastCommandResult": {
+   "kind": "object",
+   "fields": {
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "last_command": {
+     "type": {
+      "kind": "ref",
+      "name": "TerminalLastCommand"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -11895,6 +11955,53 @@
    "constraints": [
     "The keep flag is stored durably with the terminal and survives owner restarts.",
     "A terminal that is not kept is ended, as close-terminal does, once it has had no tab placement for the owner's reap grace period (default 30 seconds); a placement restored within the period cancels it."
+   ]
+  },
+  "terminal-last-command": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-last-command-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       {
+        "pattern": "^(term_)?[0-9a-f]{32}$",
+        "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id"
+       }
+      ]
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Exactly one of surface or terminal_id is present."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalLastCommandResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Kept in memory only while terminal command history or workspace freeing is on; never for an incognito terminal.",
+    "Null for a terminal without a live runtime and before its shell finished a command."
    ]
   },
   "terminal-resume-command": {

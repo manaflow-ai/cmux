@@ -179,11 +179,28 @@ pub(super) fn mark_forwarded(
     params: &Value,
     forwarded: &mut Value,
 ) {
+    mark_forwarded_with_person(origin, auth, params, forwarded, false);
+}
+
+pub(super) fn mark_forwarded_with_person(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+    forwarded: &mut Value,
+    person_verified: bool,
+) {
     // A peer takes a prompt's provenance from its own unix socket only (prompt_provenance.rs):
     // the prompt goes there without it. Its `author` goes on as it came (`author.rs`): the peer
     // takes it from this link and stamps the provenance itself.
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
+        mux.remove(crate::prompt_provenance::PERSON_VERIFIED);
+    }
+    if person_verified {
+        crate::hub::merge_mux_meta(
+            forwarded,
+            serde_json::json!({crate::prompt_provenance::PERSON_VERIFIED: true}),
+        );
     }
     let control = control_of(origin, auth, params);
     if control == crate::hub::Control::Web {

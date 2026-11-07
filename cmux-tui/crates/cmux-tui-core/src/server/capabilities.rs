@@ -152,6 +152,8 @@ fn always_identified() -> Vec<&'static str> {
     capabilities.push(crate::apps::AGENT_INVENTORY_INVALIDATION_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(client_registry::machine_catalog::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(cloud_api::CAPABILITY);
     capabilities
 }
 
@@ -286,6 +288,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         RESUME_COMMAND_CAPABILITY,
+        TERMINAL_LAST_COMMAND_CAPABILITY,
         END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         CLOSE_WORKSPACE_IF_EMPTY_CAPABILITY,
@@ -391,6 +394,7 @@ pub(super) fn advertised_capabilities(
         crate::state::stash_store::CAPABILITY,
         crate::state::stash_store::WORKSPACES_CAPABILITY,
         crate::state::conductor_import_router::CAPABILITY,
+        crate::resource_router::palette_rank::CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,

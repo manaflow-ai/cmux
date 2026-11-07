@@ -197,7 +197,11 @@ pub(super) fn remove_transcript_in(homes: &crate::adopt::HarnessHomes, family: &
     }
 }
 
-fn remove_transcript(family: &str, env: &std::collections::BTreeMap<String, String>, id: &str) {
+pub(super) fn remove_transcript(
+    family: &str,
+    env: &std::collections::BTreeMap<String, String>,
+    id: &str,
+) {
     remove_transcript_in(&crate::adopt::HarnessHomes::from_env().with_env(&[env]), family, id);
 }
 
@@ -596,7 +600,7 @@ impl Hub {
     /// env and its route): the store its transcript is really in. When the
     /// profile no longer resolves, the parent chat's unexpanded env is all
     /// that is left.
-    async fn btw_store_env(
+    pub(super) async fn btw_store_env(
         &self,
         meta: &SessionMeta,
         fallback: &std::collections::BTreeMap<String, String>,

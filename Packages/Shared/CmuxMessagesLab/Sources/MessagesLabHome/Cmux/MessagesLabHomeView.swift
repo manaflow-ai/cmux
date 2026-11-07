@@ -347,6 +347,19 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// cmux: room kept clear under the newest message, in this view's points (Home's toasts over the
+    /// chat, CmuxToastReserving): pinned to its newest message, the transcript rests its last row above
+    /// it; scrolled up, the rows stay where they are and only the scroll range grows. 0: none.
+    public var rowsBottomClearance: CGFloat { controller.host.extraRowsBottom }
+
+    /// Sets ``rowsBottomClearance``; the rows slide there over `duration` seconds (the toasts' own
+    /// move), or move at once when it is 0 (Reduce Motion, animations off).
+    public func setRowsBottomClearance(_ value: CGFloat, duration: TimeInterval) {
+        let next = value.isFinite ? max(0, value) : 0
+        guard next != controller.host.extraRowsBottom else { return }
+        controller.host.setExtraRowsBottom(next, duration: duration.isFinite ? max(0, duration) : 0)
+    }
+
     /// cmux: controls at the header's top right (Home's panel toggles), on the avatar's line.
     /// They get their own clicks; the header's empty space still drags the window. Sized by its
     /// `intrinsicContentSize`; hidden in a pane too narrow to keep it clear of the avatar. Nil: none.
@@ -892,6 +905,11 @@ public final class MessagesLabHomeView: NSView {
     /// The top of the area under the header (the first-run panel's top); with no header
     /// (``setBareTop()``), the rows' top. In this view's frame (zoomed) points.
     public var headerHeight: CGFloat { (controller.host.bareTop ? controller.host.bareRowsTop : Fixture.headerHeight) * zoom }
+    /// cmux: where the newest row ends with no ``rowsBottomClearance``, in this view's frame (zoomed) points: the
+    /// rows' anchor, which can sit under the field's top (a receipt row's lines run past it).
+    public var restingRowsBottom: CGFloat {
+        controller.demo.map { ($0.anchorY + $0.rowsBottomInset) * zoom } ?? frame.height
+    }
     /// The field's top in this view's frame (zoomed) points (the first-run panel's bottom).
     public var fieldTop: CGFloat { controller.demo.map { $0.fieldTop * zoom } ?? frame.height }
 

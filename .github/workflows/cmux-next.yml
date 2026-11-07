@@ -4710,11 +4710,19 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
 
-      # Building the package's reducer FFI can recreate the isolated crate's
-      # workspace lockfile. Remove generated state immediately before
-      # pin-cmux-tui validates the checkout.
+      # Building the package's reducer FFI can rewrite the isolated crate's
+      # workspace lockfile. Put the checkout back immediately before
+      # pin-cmux-tui validates it: the committed lockfile (#37324 tracks it)
+      # is restored, and an untracked one is removed. Deleting a tracked
+      # lockfile leaves the tree dirty, and pin-cmux-tui refuses that.
       - name: Clean generated layout-reducer FFI lockfile
-        run: rm -f cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+        run: |
+          lock=cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+          if git ls-files --error-unmatch "$lock" >/dev/null 2>&1; then
+            git checkout -- "$lock"
+          else
+            rm -f "$lock"
+          fi
 
       - name: Fetch the same-tree cmux-tui
         timeout-minutes: 50
@@ -6092,7 +6100,7 @@ jobs:
             CMUX_NEXT_CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements
             CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
             CMUX_NEXT_TUI_MODE=tree
-            CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
+            CMUX_NEXT_BROWSER_DATA_IMPORT=full
             CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
         run: |
           set -euo pipefail
@@ -6340,12 +6348,12 @@ jobs:
           CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
           CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
           CMUX_NEXT_TUI_MODE: tree
-          # Apple notarizes cmux-next only with the browser-data import compiled
-          # out (cx-f58x; nightly.yml NIGHTLY_NEXT_BROWSER_DATA_IMPORT), and the
-          # DEV app is the tip app (Leo, 2026-10-24). This step only compiles it
-          # out: the tip job in cmux-next-dev-daily.yml proves it before it
-          # notarizes, so a proof failure never holds the DEV zip (#25050).
-          CMUX_NEXT_BROWSER_DATA_IMPORT: compiled-out
+          # The DEV app is the tip app (Leo, 2026-10-24), so it builds the
+          # browser-data import as published nightly-next builds do (nightly.yml
+          # NIGHTLY_NEXT_BROWSER_DATA_IMPORT; Apple accepted it in run 42176643049,
+          # cx-f58x). `compiled-out` builds it out again; this step runs no proof
+          # that could hold the DEV zip (#25050).
+          CMUX_NEXT_BROWSER_DATA_IMPORT: full
           # The DEV app's warm state is the host's own content-addressed Xcode
           # compilation cache (no kept build products, no remote store:
           # scripts/cmux-next/lib/compilation-cache.sh), built per file with -O
@@ -6554,7 +6562,7 @@ jobs:
             CMUX_NEXT_CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements
             CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
             CMUX_NEXT_TUI_MODE=tree
-            CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
+            CMUX_NEXT_BROWSER_DATA_IMPORT=full
             CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
           BUILD_ROOT: ${{ steps.compile-cmux-next-dev-release.outputs.build_root }}
@@ -6862,7 +6870,7 @@ jobs:
           CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
           CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
           CMUX_NEXT_TUI_MODE: tree
-          CMUX_NEXT_BROWSER_DATA_IMPORT: compiled-out
+          CMUX_NEXT_BROWSER_DATA_IMPORT: full
           CMUX_NEXT_COMPILATION_CACHE: ${{ vars.CMUX_NEXT_DEV_COMPILATION_CACHE || '1' }}
           CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
           CMUX_NEXT_DEV_COMPILE_REPORT: ${{ runner.temp }}/cmux-next-dev-landing/report.txt

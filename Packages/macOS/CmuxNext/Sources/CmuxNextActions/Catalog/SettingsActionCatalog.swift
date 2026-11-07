@@ -145,6 +145,20 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["live web reload", "hot reload", "dev server", "built-in", "bundled", "web ui"],
                 category: .settings, symbol: "bolt.horizontal.circle.fill", surfaces: [.palette]
             ),
+            // Swift live mode (docs/cmux-next/live-code.md): a tagged build restarts into the live code
+            // build of its commit and back, sessions kept. The CLI is `cmux live start|stop --swift`.
+            ActionDescriptor(
+                id: "liveSwift.start",
+                title: String(localized: "action.liveSwift.start", defaultValue: "Start Swift Live Mode", bundle: .module),
+                keywords: ["live code", "hot reload", "hot swap", "swift", "patch", "interposable", "labs", "restart"],
+                category: .settings, symbol: "swift", surfaces: [.palette]
+            ),
+            ActionDescriptor(
+                id: "liveSwift.stop",
+                title: String(localized: "action.liveSwift.stop", defaultValue: "Stop Swift Live Mode", bundle: .module),
+                keywords: ["live code", "hot reload", "swift", "normal build", "optimized", "labs", "restart"],
+                category: .settings, symbol: "swift", surfaces: [.palette]
+            ),
             ActionDescriptor(
                 id: "updates.whatsNew",
                 title: String(localized: "action.updates.whatsNew", defaultValue: "What's New in cmux", bundle: .module),

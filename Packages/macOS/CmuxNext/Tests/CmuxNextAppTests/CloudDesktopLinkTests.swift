@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextBrowser
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -100,7 +101,7 @@ import Testing
         await #expect(throws: DaemonError.self) { _ = try await dial.open(cli: cli) }
     }
 
-    @Test func openDesktopDefaultsAndGateFollowTheDesktopCapability() {
+    @Test func openDesktopDefaultsAndGateFollowTheDesktopCapability() throws {
         let desktop = CloudMachine(id: "vm-1", capabilities: CloudMachine.Capabilities(exec: true, desktop: true))
         let none = CloudMachine(id: "vm-2", capabilities: CloudMachine.Capabilities(exec: true))
         let undeclared = CloudMachine(id: "vm-3")
@@ -110,8 +111,8 @@ import Testing
         #expect(desktop.allows(.desktop))
         #expect(!none.allows(.desktop), "Open Desktop is refused and hidden")
         #expect(undeclared.allows(.desktop), "an older record keeps its noVNC desktop")
-        let platform = CloudMachine.Capabilities(names: ["exec", "desktop", "agent_session"])
-        #expect(platform.desktop, "the app server's name list says desktop")
+        let platform = try #require(CloudMachine(next: .object(["id": .string("vm-4"), "provider_operations": .array([.string("exec"), .string("desktop"), .string("agent_session")])])))
+        #expect(platform.capabilities.desktop, "the app server's name list says desktop")
     }
 
     /// The page session opens a Cloud desktop watching; Take over makes the next session's
@@ -211,5 +212,58 @@ import Testing
         #expect(control.objectValue?["error"]?.stringValue?.contains("person") == true)
         let view = await RemoteViewTabsControl.answer(["action": "mode", "tab": "t", "mode": "view"], cloudOnly: true)
         #expect(view.objectValue?["error"]?.stringValue == "no live session on that tab")
+    }
+
+    /// A Cloud desktop tab in the release state read (`cmux app remote-views`): `id`, its record's
+    /// viewer before the person presses Connect, and a live rd session's viewer, connection and
+    /// who has control (the agent while watching, the person after Take over). No screen content.
+    @Test func theReleaseStateNamesViewerConnectionAndControl() async throws {
+        let record = try #require(RemoteViewTabRecord(host: "vm-1", target: .virtual, mode: .view, cloudDesktop: true, cloudRd: true))
+        func tab(_ id: String, _ decision: RemoteViewTabDecision) -> RemoteViewPageTab {
+            RemoteViewPageTab(id: BrowserTabID(rawValue: id), engine: .webkit, profile: BrowserProfileID(rawValue: UUID()),
+                              url: record.url, decision: decision, closeTab: {}, connect: { _ in },
+                              cloudRd: { _ in
+                                  { control in
+                                      RemoteRdStreamTransport(carrier: RecordingCarrier(), hello: RemoteRdHello.cloudDesktop(install: "test"),
+                                                              startKey: "k", control: control)
+                                  }
+                              }, loginKeychain: LoginKeychain())
+        }
+        func row(_ id: String) async throws -> [String: CmuxNextSettings.JSONValue] {
+            let answer = await RemoteViewTabsControl.answer(["action": "state", "tab": .string(id)], cloudOnly: true)
+            let rows = try #require(answer.objectValue?["tabs"]?.arrayValue)
+            #expect(rows.count == 1)
+            return try #require(rows.first?.objectValue)
+        }
+        let asking = tab("tab_state_confirm", .confirm(record))
+        let first = try await row("tab_state_confirm")
+        #expect(first["confirm"]?.boolValue == true)
+        #expect(first["viewer"]?.stringValue == "rd")
+        #expect(first["connected"]?.boolValue == false)
+        #expect(first["control"]?.stringValue == "agent")
+        #expect(first["session"] == CmuxNextSettings.JSONValue.null)
+
+        let watching = tab("tab_state_live", .connect(record))
+        let session = try #require(watching.debugSession)
+        session.resume()
+        let live = try await row("tab_state_live")
+        #expect(live["viewer"]?.stringValue == "rd")
+        #expect(live["connected"]?.boolValue == false, "no frame path yet: connecting")
+        #expect(live["control"]?.stringValue == "agent")
+        #expect(session.selectMode(.control))
+        #expect(try await row("tab_state_live")["control"]?.stringValue == "person")
+        session.end()
+        withExtendedLifetime(asking) {}
+    }
+
+    /// The method `cmux app remote-views` sends is one the app registers in every build.
+    @Test func theCLIReadsAReleaseMethod() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        let source = try String(contentsOf: root.appendingPathComponent("cmux-tui/crates/cmux-tui/src/cli/app.rs"), encoding: .utf8)
+        let line = try #require(source.split(separator: "\n").first { $0.contains("const REMOTE_VIEWS_METHOD: &str = ") })
+        let method = try #require(line.split(separator: "\"").dropFirst().first.map(String.init))
+        #expect(method == RemoteViewTabsControl.releaseMethods.first)
+        #expect(RemoteViewTabsControl.releaseMethods.contains(method))
     }
 }

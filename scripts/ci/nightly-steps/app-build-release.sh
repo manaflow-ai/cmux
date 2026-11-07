@@ -3,7 +3,7 @@
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
 set -euo pipefail
 # cx-f58x: compile out browser-import code as `decide` chose (the
-# notary tests, and every nightly-next build while
+# notary tests, and every nightly-next build when nightly.yml sets
 # NIGHTLY_NEXT_BROWSER_DATA_IMPORT=compiled-out).
 echo "browser import variant: $IMPORT_VARIANT (flags: ${SWIFT_IMPORT_FLAGS:-none}, empty browser-sources.json: $EMPTY_BROWSER_SOURCES)"
 notary_test_flags=(build)

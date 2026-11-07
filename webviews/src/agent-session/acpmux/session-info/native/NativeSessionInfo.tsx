@@ -52,7 +52,7 @@ import { sourcesSection } from "./sources";
 import { subagentsSection } from "./subagents";
 import { tasksSection, useNativeWorkflowPhases } from "./tasks";
 import { CloudRepositoryPicker } from "../CloudRepositoryPicker";
-import { machineOf } from "../EnvironmentSection";
+import { chatMachine, type ChatPlace } from "../../chatMachine";
 import { useCloudRepositories } from "./useCloudRepositories";
 import { cloudEnvironmentRequest, openCloudEnvironment, subscribeCloudEnvironment } from "../../cloudEnvironment";
 import { copyText } from "../../conversation/clipboard";
@@ -82,6 +82,8 @@ export type NativeSessionInfoProps = {
   cloudRepositoryAvailable?: boolean;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
+  /// Context's View Prompt (ContextSection.tsx).
+  onViewPrompt?: () => void;
   allSessions?: readonly AcpmuxSessionEntry[];
   onOpenChat?: (id: string) => void;
   onShowUsage?: () => void;
@@ -92,6 +94,8 @@ export type NativeSessionInfoProps = {
   usage?: { used: number; size: number };
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
+  /// The page's route to the chat (chatMachine.ts `chatPlace`).
+  place?: ChatPlace;
   repository?: string;
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links: readonly OutputLink[];
@@ -211,7 +215,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const environmentEditor = useSyncExternalStore(subscribeCloudEnvironment, cloudEnvironmentRequest);
   const cloudSession =
-    props.cloudRepositoryAvailable && machineOf(summary, props.machineName, props.peerKinds).kind === "cloud"
+    props.cloudRepositoryAvailable &&
+    chatMachine(summary, props.machineName, props.peerKinds, props.place).kind === "cloud"
       ? summary?.sessionId
       : undefined;
   const cloud = useCloudRepositories(cloudSession, shown);
@@ -276,11 +281,14 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     onSet: setRunningLimit,
   });
   const local = opensProcessTerminal(summary);
+  // A command's row shows its call where its terminal cannot open; a wakeup or cron job's row shows
+  // the call that made it on any chat (tasks.ts `scheduledRow`).
   const showsCalls =
     shown &&
-    !local &&
     !!props.onShowCall &&
-    sessionInfoLists(props.processes, props.transcriptTasks, props.listed).tasks.some((task) => task.toolCallId);
+    ((!local &&
+      sessionInfoLists(props.processes, props.transcriptTasks, props.listed).tasks.some((task) => task.toolCallId)) ||
+      (props.made?.scheduled?.length ?? 0) > 0);
   const calls = useMemo(
     () =>
       showsCalls
@@ -346,6 +354,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           summary,
           machineName: props.machineName,
           peerKinds: props.peerKinds,
+          place: props.place,
           repository: props.repository,
           grants: props.grants,
           remoteControl: props.remoteControl,
@@ -368,6 +377,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           language,
           open: state.sections.context,
           onCompact: props.onCompact,
+          onViewPrompt: props.onViewPrompt,
           openLists,
           onToggleList: (id) =>
             setOpenLists((was) => {

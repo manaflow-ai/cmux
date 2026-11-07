@@ -145,8 +145,8 @@ final class AgentTabStore {
     /// Takes back a closed, untouched new tab page as the pool's spare
     /// (NewTabSparePool.recycle); false when the pool already has one.
     var recycle: ((AgentPaneView) -> Bool)?
-    /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
-    var takeSpare: (() -> AgentPaneView?)?
+    /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool); the next one follows as `refill` says.
+    var takeSpare: ((AgentPaneSpareRefill) -> AgentPaneView?)?
     /// The prewarmed page once it is connected and drawn, for a tab opening an existing chat of
     /// this Mac (``AgentPaneSpareAdoption``); nil leaves the spare in the pool.
     var takeConnectedSpare: (() -> AgentPaneView?)?
@@ -160,7 +160,7 @@ final class AgentTabStore {
     /// Every page is asked what it holds now (true), or that ended (false) (`AgentPageHibernation.holdAwake`).
     var onCollectingPages: ((Bool) -> Void)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
-    let retirer = AgentPageRetirer()
+    let retirer = AgentPageRetirer { BenchSpans.measure($0, $1) }
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
@@ -266,7 +266,7 @@ final class AgentTabStore {
     func relaunchWakeStates() async -> [String: AgentPaneWakeState] {
         onCollectingPages?(true)
         defer { onCollectingPages?(false) }
-        return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab)
+        return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) } + retirer.keptPages, live: isAgentTab)
     }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
@@ -402,10 +402,10 @@ final class AgentTabStore {
     /// The tab's pane view, made on first show. A tab whose session runs on another machine is
     /// carried by that tab's own session daemon (``remoteHost``); nil when it cannot be (the
     /// pane then shows the "runs on" notice).
-    func view(for key: String) -> AgentPaneView? {
+    func view(for key: String, known: (record: AgentSessionRef, store: DaemonStore)? = nil) -> AgentPaneView? { // known: a tab no store lists (a reserved Cmd-N page)
         let key = resolve(key)
         if let view = views[key] { return view }
-        guard let (record, store) = lookup(key) else { return nil }
+        guard let (record, store) = known ?? lookup(key) else { return nil }
         let kind = hostKind(record, listedHere: daemonForTab(key)?.isLocal != false)
         // A Chief subagent runs on this Mac too, in the Chief home's acpmux.
         let local = kind != .remote
@@ -439,16 +439,28 @@ final class AgentTabStore {
            !linkedSessions.contains(key) {
             newTabPages[key] = firstPage(cwd: nil, token: firstPageToken(of: key, in: store))
         }
-        // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare
-        // when there is one: no cold load and React mount on the open path (cx-ec99).
-        // (Its folder rides on the page context, `newTab.cwd`; a first page's seed holds only that.)
-        // A page with a kept composer (``wakeStates``) gets its own page: the spare's handshake is past.
-        if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
-           seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?() {
+        // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare when there is one: no cold
+        // load and React mount on the open path (cx-ec99); its folder rides on the page context (`newTab.cwd`). A page with a kept
+        // composer (``wakeStates``) gets its own page: the spare's handshake is past. A reserved Cmd-N page (`known`) asked the pool
+        // already as idle work (``reserveWorkspace(on:cwd:)``): a take here was a cold open on an empty pool, marking a launch's pool used.
+        if known == nil, local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
+           seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?(.now) {
             adoptSpare(spare, key: key, page: newTab.page)
             track(key, in: store)
             onPageBuilt?(key)
             return spare
+        }
+        // Reopen Closed of a chat of this Mac closed a moment ago: its kept page (``AgentPageRetirer``), drawn, with today's settings.
+        if kind == .local, seed == nil, newTabPages[key] == nil, wakeStates[key] == nil, !relaunchWake.mayHold(key),
+           let session = sessions[key] ?? record.session, let kept = retirer.takeKept(session) {
+            (views[key], kept.customization, kept.shortcuts) = (kept, customization.current, shortcuts)
+            pageSettings.apply(to: kept)
+            customization.start()
+            if let turn = pendingTurns.removeValue(forKey: key) { kept.revealTurn(turn) }
+            wire(kept.model, key: key)
+            track(key, in: store)
+            onPageBuilt?(key)
+            return kept
         }
         // An existing chat of this Mac (a sidebar click, Open in Tab, a subagent's pane) adopts the
         // spare too: it is loaded and connected, and switches to the chat in place.

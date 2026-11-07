@@ -214,11 +214,11 @@ function groupNode(
 }
 
 /// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). The
-/// Codex-style runs (Debug toggle `agentPane.debug.codexToolRuns`, on by default) fold a finished
-/// run (`foldRun`) of two or more entries under one summary line (toolRunSummary.ts: "Read 6 files,
-/// ran 4 commands"), and a run that is one group under that group's closed line ("Ran 3 commands"),
-/// so finished work is one click away between the paragraphs; coordination cards stay in sight
-/// between such lines (`runStretches`). Off, each group and call keeps its own line.
+/// Codex-style runs fold a finished run (`foldRun`) of two or more entries under one summary line
+/// (toolRunSummary.ts: "Read 6 files, ran 4 commands"), and a run that is one group under that
+/// group's closed line ("Ran 3 commands"), so finished work is one click away between the
+/// paragraphs; coordination cards stay in sight between such lines (`runStretches`). A run not
+/// folded (`foldRun` unset) keeps each group and call on its own line.
 /// Whether the whole run folds under one summary line.
 export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[]): boolean {
   const stretches = runStretches(row, groups);
@@ -500,18 +500,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
             )}
             {tryAnotherApproach && seq !== undefined && seq === forkSeq && (
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
-                aria-label={t("turn.tryAnotherApproach")}
-                title={t("turn.tryAnotherApproach")}
-                onClick={() =>
-                  // A refused click or a Cloud error must not become an unhandled rejection.
-                  void tryAnotherApproach(seq).catch(() => undefined)
-                }
-              >
-                {t("turn.tryAnotherApproach")}
-              </button>
+              <TryAnotherApproachButton onTry={() => tryAnotherApproach(seq)} />
             )}
             {!messages && <PinButton rowId={row.id} />}
             {!messages && timeline.toggle}
@@ -537,7 +526,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             <button
               type="button"
               className="cv-iconbtn cv-turn-continue"
-              title={t("turn.continueHelp")}
               disabled={resuming}
               onClick={() => {
                 setResuming(true);
@@ -801,5 +789,40 @@ function TurnFailure({
         )}
       </span>
     </div>
+  );
+}
+
+/// Cloud's Try another approach, labelled. A machine snapshot takes a while, so the button says it
+/// is working; a refused click or a Cloud error says the fork failed (the Fork button's copy) and a
+/// second click tries again.
+function TryAnotherApproachButton({ onTry }: { onTry(): Promise<unknown> }) {
+  const t = useT();
+  const [state, setState] = useState<"idle" | "pending" | "failed">("idle");
+  const label =
+    state === "pending"
+      ? `${t("turn.tryAnotherApproach")}…`
+      : state === "failed"
+        ? t("notice.forkFailed")
+        : t("turn.tryAnotherApproach");
+  return (
+    <button
+      type="button"
+      className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
+      aria-label={label}
+      title={label}
+      aria-busy={state === "pending"}
+      data-try-state={state}
+      disabled={state === "pending"}
+      onClick={() => {
+        setState("pending");
+        onTry().then(
+          () => setState("idle"),
+          () => setState("failed"),
+        );
+      }}
+    >
+      {state === "failed" && <AlertCircle size={ROW_ICON} />}
+      {label}
+    </button>
   );
 }

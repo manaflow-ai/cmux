@@ -43,6 +43,7 @@ extension WorkspaceRowView {
         let list = superview as? SidebarListView
         let suppressEffects = list?.hoverFollowsScroll == true || list?.suppressHoverEffects == true
         guard isHovered, !renaming, !isPlaceholderRow, !suppressEffects else {
+            marqueeOnLayout = false
             title.stopMarquee()
             return
         }
@@ -50,9 +51,18 @@ extension WorkspaceRowView {
         // so the title keeps its width; a clipped title scrolls. Under Reduce
         // Motion no marquee runs: the workspace hover card shows the whole
         // name (wrapped), so no second popover (a tooltip) shows with it.
-        layoutSubtreeIfNeeded()
+        // The marquee reads the laid-out title, so it starts in the row's next layout: the frame's own pass,
+        // before the commit that shows the hover. The hover turn itself lays nothing out (contract item 3 of
+        // hover-preload-DESIGN.md; a sweep across rows paid one synchronous layout per row it crossed).
+        marqueeOnLayout = true
+    }
+
+    /// The end of `layout()`: the marquee a hover asked for starts on the title just laid out.
+    private func startMarqueeAfterLayout() {
+        guard marqueeOnLayout else { return }
+        marqueeOnLayout = false
+        guard isHovered, !renaming else { return }
         title.startMarquee()
-        updateCalmTitleTip()
     }
 
     /// Calm mode (`ui.calm`) runs no marquee and opens no hover card, so a clipped name shows as
@@ -191,9 +201,9 @@ extension WorkspaceRowView {
         // "hover on pinned tab should not have close button, should only be able to close in right click"). Its ⋮
         // takes the x's place, as on a row that cannot close. The pin is read only while the controls show.
         setHoverShown(closeSlot, showClose, fades: controlFades)
-        setHoverShown(badge, !(showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
+        setHoverPainted(badge, !(showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
         // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
-        setHoverShown(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !hoverCloses)), fades: fades)
+        setHoverPainted(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !hoverCloses)), fades: fades)
         var badgeEdge: CGFloat?
         if !badge.state.isUnread, keycap.number != nil {
             _ = layoutKeycap(trailing: trailing, cy: cy, control: control)
@@ -283,6 +293,7 @@ extension WorkspaceRowView {
         let coverStart = overlayStart.map { min($0, warningStart ?? $0) }
         title.setTrailingOcclusion(coverStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
         updateCalmTitleTip()
+        startMarqueeAfterLayout()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
         for mark in ([activity, rowBadge, agentMark, mutedMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {

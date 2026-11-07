@@ -10,7 +10,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
-import { cssTimeMs, FOLD_DURATION_VAR, foldMotion } from "../src/agent-session/acpmux/conversation/fold";
+import { cssTimeMs, FOLD_DROP_MS, FOLD_DURATION_VAR, foldMotion } from "../src/agent-session/acpmux/conversation/fold";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
 import { McpCallRows } from "../src/agent-session/acpmux/conversation/McpCallRows";
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
@@ -247,6 +247,35 @@ test("a close holds its box shut until React removes the body, so it never flash
     expect(box.style.overflow).toBe("hidden");
   });
   expect(container.querySelector(".cv-fold")).toBeNull();
+});
+
+/// Leo, 2026-11-06, on a recording under heavy load: "way too discontinuous". A fold whose frames
+/// come steadily plays; the first frame that comes FOLD_DROP_MS after the one before it lands the
+/// fold at its end, and its frame loop stops there.
+test("under load a fold lands at its end on the first dropped frame instead of jumping in steps", () => {
+  const frames: FrameRequestCallback[] = [];
+  (dom!.window as unknown as { requestAnimationFrame: unknown }).requestAnimationFrame = (
+    callback: FrameRequestCallback,
+  ) => frames.push(callback);
+  const frame = (at: number) => act(() => frames.splice(0).forEach((callback) => callback(at)));
+  render(<ToolRow item={tool("load")} />);
+  click();
+  animations[0]!.finish();
+  // The open ended on its own: its loop stopped with it.
+  frame(0);
+  expect(frames).toEqual([]);
+  click();
+  expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
+  // Steady frames: the close plays on.
+  frame(1000);
+  frame(1000 + 16.7);
+  frame(1000 + 33.4);
+  expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
+  expect(frames.length).toBe(1);
+  // A frame FOLD_DROP_MS late: the body is shut and gone at once, and nothing asks for another frame.
+  frame(1000 + 33.4 + FOLD_DROP_MS);
+  expect(container.querySelector(".cv-tool-output-card")).toBeNull();
+  expect(frames).toEqual([]);
 });
 
 test("a motion policy cancellation finishes a closing tool call instead of leaving its body mounted", () => {

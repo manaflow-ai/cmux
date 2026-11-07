@@ -17,17 +17,36 @@ struct TerminalGridReportCoalescerTests {
         var times: [Duration] = []
     }
 
+    /// A window's display refreshes, stepped by hand (the window presenter's frame ticks in the app).
+    @MainActor final class Ticks: TerminalGridReportTicks {
+        private(set) var ticked: [TerminalGridReportCoalescer] = []
+        private(set) var registrations = 0
+
+        func tickGridReports(_ coalescer: TerminalGridReportCoalescer) {
+            registrations += 1
+            if !ticked.contains(where: { $0 === coalescer }) { ticked.append(coalescer) }
+        }
+
+        /// One refresh: each open window is ticked; a closed one is not ticked again.
+        func refresh() {
+            ticked.removeAll { !$0.frameTicked() }
+        }
+    }
+
     struct Rig {
         let clock: ManualClock
         let sent: Sent
         let coalescer: TerminalGridReportCoalescer
+        let ticks: Ticks?
 
-        @MainActor init() {
+        @MainActor init(ticking: Bool = false) {
             let clock = ManualClock()
             let sent = Sent()
+            let ticks = ticking ? Ticks() : nil
             self.clock = clock
             self.sent = sent
-            coalescer = TerminalGridReportCoalescer(clock: clock) { grid in
+            self.ticks = ticks
+            coalescer = TerminalGridReportCoalescer(clock: clock, ticks: { ticks }) { grid in
                 sent.grids.append(grid)
                 sent.times.append(clock.now.offset)
             }
@@ -234,5 +253,83 @@ struct TerminalGridReportCoalescerTests {
         rig.clock.advance(by: .milliseconds(50))
         await rig.drain()
         #expect(rig.sent.grids == [a, a, c], "the dropped window sent its older grid")
+    }
+
+    // MARK: Frame ticks (B3, diag bf2b674a: a 25 ms window's timer fired 124 ms late on a loaded runner)
+
+    /// (7) While frames run, a window ends at the first refresh at or after 25 ms, though its timer has not fired (late):
+    /// one send, at that refresh, and the late timer sends nothing more.
+    @Test func whileFramesRunAWindowEndsAtTheFirstRefreshAtOrAfter25msEvenWhenItsTimerIsLate() async throws {
+        let rig = Rig(ticking: true)
+        let ticks = try #require(rig.ticks)
+        let a = Self.grid(100)
+        let b = Self.grid(104)
+        rig.coalescer.viewSized(a)
+        #expect(ticks.registrations == 1, "the open window was not handed to its window's refreshes")
+        // Refreshes at 8.3, 16.7 and 25.0 - 1 ns ms: still inside the window. No await between them: the timer's task gets
+        // no turn, as on a main thread too busy for it.
+        for refresh in 1...3 {
+            rig.clock.advance(by: Self.frame)
+            if refresh == 2 { rig.coalescer.viewSized(b) }
+            ticks.refresh()
+            #expect(rig.sent.grids.isEmpty, "the window ended at refresh \(refresh), before 25 ms")
+        }
+        // The next refresh, at 33.3 ms, is the first at or after 25 ms: the newest grid goes in it.
+        rig.clock.advance(by: Self.frame)
+        ticks.refresh()
+        #expect(rig.sent.grids == [b], "the first refresh at or after 25 ms did not end the window")
+        #expect(rig.sent.times == [Self.frame * 4])
+        #expect(!rig.coalescer.isWaiting)
+        #expect(ticks.ticked.isEmpty, "a closed window is still ticked")
+
+        // The late timer comes now: the window is closed, nothing more goes.
+        rig.clock.advance(by: .milliseconds(100))
+        await rig.drain()
+        ticks.refresh()
+        #expect(rig.sent.grids == [b], "the late timer or a later refresh sent the window's grid again")
+    }
+
+    /// (8) No refresh comes (no frames run, or a test steps frames by hand): the timer ends the window, and the grid goes
+    /// once. A refresh that comes after the timer sends nothing more.
+    @Test func withNoRefreshTheTimerEndsTheWindowAndTheGridGoesOnce() async throws {
+        let rig = Rig(ticking: true)
+        let ticks = try #require(rig.ticks)
+        let a = Self.grid(100)
+        rig.coalescer.viewSized(a)
+        try await rig.clock.waitForSleeper()
+        rig.clock.advance(by: .milliseconds(25))
+        await rig.settle()
+        #expect(rig.sent.grids == [a], "the timer did not end a window no refresh reached")
+        #expect(rig.sent.times == [.milliseconds(25)])
+        ticks.refresh()
+        await rig.drain()
+        #expect(rig.sent.grids == [a], "a refresh after the timer sent the grid twice")
+        #expect(ticks.ticked.isEmpty)
+    }
+
+    /// (9) The refresh and the timer both come for one window (the timer's fire is on its way when the refresh ends the
+    /// window): the grid goes once, at the one that comes first.
+    @Test func aRefreshAndTheTimerForOneWindowSendItsGridOnce() async throws {
+        let rig = Rig(ticking: true)
+        let ticks = try #require(rig.ticks)
+        let a = Self.grid(100)
+        rig.coalescer.viewSized(a)
+        try await rig.clock.waitForSleeper()
+        // The clock passes the deadline: the timer's task is released but has not run yet; the refresh comes first.
+        rig.clock.advance(by: .milliseconds(25))
+        ticks.refresh()
+        #expect(rig.sent.grids == [a])
+        await rig.drain()
+        #expect(rig.sent.grids == [a], "the timer sent the grid the refresh already sent")
+
+        // The next window: the timer first, then the refresh.
+        let b = Self.grid(110)
+        rig.coalescer.viewSized(b)
+        try await rig.clock.waitForSleeper()
+        rig.clock.advance(by: .milliseconds(25))
+        await rig.settle()
+        ticks.refresh()
+        await rig.drain()
+        #expect(rig.sent.grids == [a, b], "a window sent its grid twice or not at all: \(rig.sent.grids)")
     }
 }

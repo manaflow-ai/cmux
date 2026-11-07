@@ -30,6 +30,7 @@
             "key" : "settings.group.tabs",
             "rows" : [
               "tabs.newTabPosition",
+              "tabs.newTabButtonPosition",
               "tabs.plusButton",
               "tabs.barPosition",
               "browser.toolbarPosition",
@@ -168,7 +169,11 @@
             "rows" : [
               "workspaces.hibernation.enabled",
               "workspaces.hibernation.idleMinutes",
-              "workspaces.hibernation.hiddenSpaceMinutes"
+              "workspaces.hibernation.hiddenSpaceMinutes",
+              "workspaces.freeing.enabled",
+              "workspaces.freeing.idleMinutes",
+              "workspaces.freeing.agents",
+              "workspaces.freeing.runningCommands"
             ],
             "title" : {
               "key" : "settings.group.workspaceHibernation",
@@ -296,7 +301,8 @@
               "agents.chats.enabled",
               "agents.chats.discovery",
               "agents.chats.roots",
-              "agents.chats.sessionRecap"
+              "agents.chats.sessionRecap",
+              "chat.on"
             ],
             "title" : {
               "key" : "settings.group.chats",
@@ -600,6 +606,7 @@
               "sidebar.showLocalMachine",
               "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount",
+              "sidebar.groupHeader.background",
               "sidebar.priorityView.enabled",
               "sidebar.priorityView.shown"
             ],
@@ -805,6 +812,16 @@
             "title" : {
               "key" : "settings.pageGroup.terminalBehavior",
               "text" : "Behavior"
+            }
+          },
+          {
+            "key" : "settings.group.terminalCompatibility",
+            "rows" : [
+              "terminal.term"
+            ],
+            "title" : {
+              "key" : "settings.group.terminalCompatibility",
+              "text" : "Compatibility"
             }
           }
         ],
@@ -1108,7 +1125,8 @@
               "browser.hibernationExclusions",
               "browser.hibernatePinnedTabs",
               "browser.freezeHiddenTabs",
-              "browser.keepNeighborTabsAwake"
+              "browser.keepNeighborTabsAwake",
+              "browser.wakeTabsOnHover"
             ],
             "title" : {
               "key" : "settings.group.memory",
@@ -1393,7 +1411,8 @@
           {
             "key" : "settings.group.chiefEngine",
             "rows" : [
-              "home.chiefEngine"
+              "home.chiefEngine",
+              "chief.permissionMode"
             ],
             "title" : {
               "key" : "settings.group.chiefEngine",
@@ -1416,7 +1435,11 @@
           {
             "key" : "settings.group.chiefSubagents",
             "rows" : [
-              "chief.autoRouteSubagents"
+              "chief.autoRouteSubagents",
+              "chief.subagentSidebar",
+              "chief.subagentSidebarShowWords",
+              "chief.subagentSidebarHideWords",
+              "chief.subagentSidebarMinWords"
             ],
             "title" : {
               "key" : "settings.group.chiefSubagents",
@@ -1881,7 +1904,7 @@
         ],
         "id" : "privacy",
         "lead" : [
-
+          "sharedLinks"
         ],
         "symbol" : "hand.raised",
         "title" : {
@@ -2128,6 +2151,7 @@
         "history",
         "terminalCommands"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -2287,6 +2311,7 @@
         "navigation",
         "historyScope"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -2439,6 +2464,7 @@
         "history",
         "scope"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -2577,6 +2603,7 @@
         "history",
         "commandRetentionDays"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 3650,
         "min" : 1,
@@ -2718,6 +2745,7 @@
         "closed",
         "maxGroups"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 10000,
         "min" : 0,
@@ -2860,6 +2888,7 @@
         "closed",
         "maxAgeDays"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 3650,
         "min" : 0,
@@ -3011,6 +3040,7 @@
         "window",
         "titlebar"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -3163,6 +3193,7 @@
         "window",
         "titlebarButtons"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -3299,6 +3330,7 @@
         "app",
         "globalHotKey"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -3438,6 +3470,7 @@
         "app",
         "startAgentGlobalHotKey"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -3572,6 +3605,7 @@
         "app",
         "hideDockIconWithoutWindows"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -3709,6 +3743,7 @@
         "app",
         "showMenuBarIcon"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -3906,6 +3941,7 @@
         "tabs",
         "newTabTemplate"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -4044,6 +4080,7 @@
         "tabs",
         "nativeNewTabPage"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -4184,7 +4221,7 @@
       },
       "help" : {
         "key" : "settings.tabs.newTabPosition.help",
-        "text" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
+        "text" : "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabPosition",
@@ -4207,6 +4244,7 @@
         "tabs",
         "newTabPosition"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -4301,7 +4339,173 @@
       },
       "title" : {
         "key" : "settings.tabs.newTabPosition",
-        "text" : "New Tab Position"
+        "text" : "New Tab Position (Cmd-T)"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "afterCurrent",
+        "end",
+        "start"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionAfterCurrent",
+            "text" : "After the Current Tab"
+          },
+          "value" : "afterCurrent"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionEnd",
+            "text" : "At the End"
+          },
+          "value" : "end"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionStart",
+            "text" : "At the Start"
+          },
+          "value" : "start"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "end",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabButtonPosition.help",
+        "text" : "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T)."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabButtonPosition",
+      "keywords" : [
+        "new tab",
+        "plus",
+        "+",
+        "button",
+        "position",
+        "order",
+        "right",
+        "end",
+        "after",
+        "start",
+        "first",
+        "last",
+        "insert"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabButtonPosition"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:tabs.newTabButtonPosition"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.tabs.newTabButtonPosition",
+        "text" : "New Tab Position (+ Button)"
       },
       "validation" : "portable"
     },
@@ -4357,6 +4561,7 @@
         "tabs",
         "plusButton"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -4451,7 +4656,7 @@
       },
       "title" : {
         "key" : "settings.tabs.plusButton",
-        "text" : "New Tab Button"
+        "text" : "+ Button Visibility"
       },
       "validation" : "portable"
     },
@@ -4509,6 +4714,7 @@
         "tabs",
         "barPosition"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -4663,6 +4869,7 @@
         "browser",
         "toolbarPosition"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -4815,6 +5022,7 @@
         "tabs",
         "barOrder"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -5007,6 +5215,7 @@
         "tabs",
         "toolbarButtons"
       ],
+      "placeholder" : null,
       "refuses" : [
         "splitRight",
         [
@@ -5154,6 +5363,7 @@
         "metrics",
         "tabFontSize"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 18,
         "min" : 10,
@@ -5302,6 +5512,7 @@
         "metrics",
         "tabStripHeight"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 44,
         "min" : 22,
@@ -5462,6 +5673,7 @@
         "tabs",
         "overflow"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -5601,6 +5813,7 @@
         "metrics",
         "tabMaxWidth"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 320,
         "min" : 120,
@@ -5750,6 +5963,7 @@
         "metrics",
         "tabMinActiveWidth"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 320,
         "min" : 32,
@@ -5899,6 +6113,7 @@
         "metrics",
         "tabMinInactiveWidth"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 320,
         "min" : 16,
@@ -6044,6 +6259,7 @@
         "metrics",
         "tabPinnedWidth"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 120,
         "min" : 24,
@@ -6184,6 +6400,7 @@
         "newTerminal",
         "opensWorkspace"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -6318,6 +6535,7 @@
         "tabs",
         "cmdWClosesPinnedTabs"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -6456,6 +6674,7 @@
         "tabs",
         "verticalTabs"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -6592,6 +6811,7 @@
         "tabs",
         "verticalTabsExpandOnHover"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -6732,6 +6952,7 @@
         "tabs",
         "hideLoneChatTab"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -6867,6 +7088,7 @@
         "tabs",
         "swapCmdTAndCmdN"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -7000,6 +7222,7 @@
         "app",
         "warnBeforeClosingTab"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -7132,6 +7355,7 @@
         "app",
         "warnBeforeClosingAgentSession"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -7298,6 +7522,7 @@
         "app",
         "quitBehavior"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -7427,6 +7652,7 @@
         "layout",
         "defaultColumnWidth"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0.1,
@@ -7587,6 +7813,7 @@
         "layout",
         "centerFocusedColumn"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -7752,6 +7979,7 @@
         "layout",
         "stripScrollbar"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -7900,6 +8128,7 @@
         "layout",
         "closeFocus"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -8033,6 +8262,7 @@
         "shortcuts",
         "showModifierHoldHints"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -8202,6 +8432,7 @@
         "updates",
         "channel"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -8329,6 +8560,7 @@
         "updates",
         "checkAutomatically"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -8458,6 +8690,7 @@
         "updates",
         "checkIntervalSeconds"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 604800,
         "min" : 900,
@@ -8595,6 +8828,7 @@
         "updates",
         "downloadAutomatically"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -8726,6 +8960,7 @@
         "updates",
         "oneClickInstall"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -8859,6 +9094,7 @@
         "updates",
         "whatsNewInstall"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -9014,6 +9250,7 @@
         "updates",
         "meteredNetwork"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -9171,6 +9408,7 @@
         "updates",
         "web"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -9305,6 +9543,7 @@
         "updates",
         "liveWebReload"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -9434,6 +9673,7 @@
         "updates",
         "installOnQuit"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -9577,6 +9817,7 @@
         "updates",
         "notify"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -9710,6 +9951,7 @@
         "updates",
         "keepPreviousVersions"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 5,
         "min" : 0,
@@ -9848,6 +10090,7 @@
         "updates",
         "showWhatsNew"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -9981,6 +10224,7 @@
         "updates",
         "showFeatureTips"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -10116,6 +10360,7 @@
         "updates",
         "idleInstallMaxWaitSeconds"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 7200,
         "min" : 60,
@@ -10256,6 +10501,7 @@
         "updates",
         "idleInstallQuietSeconds"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 600,
         "min" : 5,
@@ -10393,6 +10639,7 @@
         "announcements",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -10525,6 +10772,7 @@
         "announcements",
         "fetch"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -10657,6 +10905,7 @@
         "computerUse",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -10808,6 +11057,7 @@
         "computerUse",
         "driver"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -10943,6 +11193,7 @@
         "computerUse",
         "livePreview"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -11080,6 +11331,7 @@
         "freeModel",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -11239,6 +11491,7 @@
         "sessions",
         "keepAwake"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -11373,6 +11626,7 @@
         "sessions",
         "resumeAgents"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -11506,6 +11760,7 @@
         "sessions",
         "allowFullAccess"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -11638,6 +11893,7 @@
         "sessions",
         "promptSuggestions"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -11771,6 +12027,7 @@
         "phone",
         "allowConnections"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -11903,6 +12160,7 @@
         "phone",
         "startSessions"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -12059,6 +12317,7 @@
         "phone",
         "keepAwake"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -12193,6 +12452,7 @@
         "phone",
         "cloudReplica"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -12327,6 +12587,7 @@
         "phone",
         "cloudDesktop"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -12468,6 +12729,7 @@
         "appearance",
         "machineColors"
       ],
+      "placeholder" : null,
       "refuses" : [
         "★",
         [
@@ -12616,6 +12878,10 @@
         "ssh",
         "linkAllowedHosts"
       ],
+      "placeholder" : {
+        "key" : null,
+        "text" : "devbox.local"
+      },
       "refuses" : [
         "ws-1",
         [
@@ -12758,6 +13024,7 @@
         "cloud",
         "newWorkspacesInCloud"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -12909,6 +13176,7 @@
         "cloud",
         "newWorkspaceFolder"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -13044,6 +13312,7 @@
         "cloud",
         "useMyClaudeLoginOnMyCloudMachines"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -13179,6 +13448,7 @@
         "cloud",
         "useMyCodexLoginOnMyCloudMachines"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -13320,6 +13590,7 @@
         "cloud",
         "agentsStartWithoutAsking"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -13453,6 +13724,7 @@
         "subsessions",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -13586,6 +13858,7 @@
         "subsessions",
         "answerQuestions"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -13720,6 +13993,7 @@
         "subsessions",
         "maxChildren"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1000,
         "min" : 1,
@@ -13862,6 +14136,7 @@
         "subsessions",
         "maxRunning"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1000,
         "min" : 1,
@@ -14003,6 +14278,7 @@
         "subsessions",
         "maxDepth"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 100,
         "min" : 1,
@@ -14143,6 +14419,7 @@
         "guidance",
         "claude"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -14276,6 +14553,7 @@
         "guidance",
         "codex"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -14408,6 +14686,7 @@
         "guidance",
         "otherAgents"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -14542,6 +14821,7 @@
         "guidance",
         "userSkills"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -14675,6 +14955,7 @@
         "autoRetry",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -14809,6 +15090,7 @@
         "autoRetry",
         "intervalSeconds"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 3600,
         "min" : 0,
@@ -14948,6 +15230,7 @@
         "autoRetry",
         "attempts"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 12,
         "min" : 1,
@@ -15087,6 +15370,7 @@
         "trust",
         "autoTrust"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -15226,6 +15510,7 @@
         "trust",
         "projectRoots"
       ],
+      "placeholder" : null,
       "refuses" : [
         "/Users/ada/src",
         [
@@ -15370,6 +15655,10 @@
         "trust",
         "ownOrgs"
       ],
+      "placeholder" : {
+        "key" : "settings.placeholder.githubOwner",
+        "text" : "Add a user or organization"
+      },
       "refuses" : [
         "ws-1",
         [
@@ -15508,6 +15797,7 @@
         "mobile",
         "allowIPhoneConnections"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -15678,6 +15968,7 @@
         "mobile",
         "terminalSizing"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -15817,6 +16108,7 @@
         "mobile",
         "terminalSizingOrder"
       ],
+      "placeholder" : null,
       "refuses" : [
         "ws-1",
         [
@@ -15972,6 +16264,7 @@
         "layout",
         "splitSizing"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -16123,6 +16416,7 @@
         "layout",
         "newColumnWidth"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -16291,6 +16585,7 @@
         "layout",
         "dockColumnEdge"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -16435,6 +16730,7 @@
         "layout",
         "dockColumnMode"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -16580,6 +16876,7 @@
         "layout",
         "frameOrientation"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -16712,6 +17009,7 @@
         "layout",
         "rows"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -16851,6 +17149,7 @@
         "layout",
         "focusFollowsMouse"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -16989,6 +17288,7 @@
         "layout",
         "scrollAreas"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -17146,6 +17446,7 @@
         "layout",
         "scrollModifier"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -17287,6 +17588,7 @@
         "layout",
         "pagesHandleCommandScroll"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -17420,6 +17722,7 @@
         "layout",
         "minimumPaneWidth"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 800,
         "min" : 80,
@@ -17556,6 +17859,7 @@
         "layout",
         "minimumPaneHeight"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 600,
         "min" : 32,
@@ -17714,6 +18018,7 @@
         "layout",
         "newPanePlacement"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -17847,6 +18152,7 @@
         "layout",
         "tileBrowsers"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -18009,6 +18315,7 @@
         "layout",
         "linkPlacement"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -18163,6 +18470,7 @@
         "layout",
         "mainPane"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -18295,7 +18603,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "top",
+      "default" : "afterCurrent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -18325,6 +18633,7 @@
         "workspaces",
         "newPlacement"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -18463,6 +18772,7 @@
         "sidebar",
         "groupByComputer"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -18601,6 +18911,7 @@
         "workspaces",
         "autoName"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -18887,6 +19198,7 @@
         "tabs",
         "prefix"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -19173,6 +19485,7 @@
         "workspaces",
         "prefix"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -19459,6 +19772,7 @@
         "commands",
         "prefix"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -19745,6 +20059,7 @@
         "settings",
         "prefix"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -20031,6 +20346,7 @@
         "scopes",
         "prefix"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -20170,6 +20486,7 @@
         "palette",
         "aliases"
       ],
+      "placeholder" : null,
       "refuses" : [
         "★",
         [
@@ -20311,6 +20628,7 @@
         "palette",
         "pins"
       ],
+      "placeholder" : null,
       "refuses" : [
         "ws-1",
         [
@@ -20451,6 +20769,7 @@
         "palette",
         "searchHistory"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -20581,6 +20900,7 @@
         "chats",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -20712,6 +21032,7 @@
         "chats",
         "discovery"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -20850,6 +21171,7 @@
         "chats",
         "roots"
       ],
+      "placeholder" : null,
       "refuses" : [
         "/opt/cmux-chat-data",
         [
@@ -20996,6 +21318,7 @@
         "chats",
         "sessionRecap"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -21094,6 +21417,142 @@
     },
     {
       "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.on.help",
+        "text" : "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chat.on",
+      "keywords" : [
+        "chat",
+        "cli",
+        "target",
+        "on",
+        "device",
+        "vm",
+        "cloud",
+        "default"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "chat",
+        "on"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:chat.on"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chats.on",
+        "text" : "Default Chat Target"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -21135,6 +21594,7 @@
         "picker",
         "pinned"
       ],
+      "placeholder" : null,
       "refuses" : [
         "/Users/ada/src",
         [
@@ -21271,6 +21731,7 @@
         "screenshots",
         "findTools"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -21409,6 +21870,7 @@
         "screenshots",
         "folders"
       ],
+      "placeholder" : null,
       "refuses" : [
         "/Users/ada/src",
         [
@@ -21590,6 +22052,7 @@
         "autoArchive",
         "style"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -21723,6 +22186,7 @@
         "autoArchive",
         "idleDays"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 365,
         "min" : 1,
@@ -21867,6 +22331,7 @@
         "hibernation",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -22000,6 +22465,7 @@
         "hibernation",
         "idleMinutes"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 10080,
         "min" : 5,
@@ -22143,6 +22609,7 @@
         "hibernation",
         "hiddenSpaceMinutes"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1440,
         "min" : 5,
@@ -22248,6 +22715,570 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.freeingEnabled.help",
+        "text" : "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.freeing.enabled",
+      "keywords" : [
+        "free",
+        "freeing",
+        "park",
+        "shell",
+        "terminal",
+        "processes",
+        "idle",
+        "resources",
+        "restore",
+        "scrollback"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "freeing",
+        "enabled"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:workspaces.freeing.enabled"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceHibernation.freeingEnabled",
+        "text" : "Free Idle Terminals"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        60,
+        43200,
+        21630
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1440,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.freeingIdleMinutes.help",
+        "text" : "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day)."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.freeing.idleMinutes",
+      "keywords" : [
+        "free",
+        "idle",
+        "hours",
+        "timeout",
+        "shell",
+        "terminal"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "freeing",
+        "idleMinutes"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 43200,
+        "min" : 60,
+        "placeholder" : 60,
+        "step" : 60,
+        "unit" : "minutes"
+      },
+      "refuses" : [
+        -43080,
+        86340,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:workspaces.freeing.idleMinutes"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceHibernation.freeingIdleMinutes",
+        "text" : "Free Terminals After"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.freeingAgents.help",
+        "text" : "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.freeing.agents",
+      "keywords" : [
+        "free",
+        "agent",
+        "claude",
+        "codex",
+        "resume",
+        "idle"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "freeing",
+        "agents"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:workspaces.freeing.agents"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceHibernation.freeingAgents",
+        "text" : "Free Idle Agents"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "never",
+        "relaunch"
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.freeingRunningNever",
+            "text" : "Keep Running"
+          },
+          "value" : "never"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.freeingRunningRelaunch",
+            "text" : "End and Offer Again"
+          },
+          "value" : "relaunch"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "never",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.freeingRunningCommands.help",
+        "text" : "What happens to a command that still runs in a workspace that frees its terminals."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.freeing.runningCommands",
+      "keywords" : [
+        "free",
+        "running",
+        "command",
+        "dev server",
+        "relaunch",
+        "idle"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "freeing",
+        "runningCommands"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:workspaces.freeing.runningCommands"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceHibernation.freeingRunningCommands",
+        "text" : "Running Commands"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "list",
         "board",
         "inbox"
@@ -22307,6 +23338,7 @@
         "tasks",
         "layout"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -22595,6 +23627,7 @@
         "appearance",
         "theme"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -22735,6 +23768,7 @@
         "appearance",
         "appTheme"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -22883,6 +23917,7 @@
         "appearance",
         "themeEdits"
       ],
+      "placeholder" : null,
       "refuses" : [
         "★",
         [
@@ -23028,6 +24063,7 @@
         "appearance",
         "favoriteThemes"
       ],
+      "placeholder" : null,
       "refuses" : [
         "ws-1",
         [
@@ -23195,6 +24231,7 @@
         "appearance",
         "rotateFavoriteThemes"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -23406,6 +24443,7 @@
         "appearance",
         "accent"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -23548,6 +24586,7 @@
         "appearance",
         "themeFile"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -23690,6 +24729,7 @@
         "appearance",
         "highlightColor"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -25005,6 +26045,7 @@
         "appearance",
         "backdropArt"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -26342,6 +27383,7 @@
         "appearance",
         "background"
       ],
+      "placeholder" : null,
       "refuses" : [
         "system:relative/path.heic",
         "system:",
@@ -26510,6 +27552,7 @@
         "appearance",
         "backgroundRotation"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -26652,6 +27695,7 @@
         "appearance",
         "displayBackgrounds"
       ],
+      "placeholder" : null,
       "refuses" : [
         "★",
         [
@@ -26795,6 +27839,7 @@
         "appearance",
         "displayBackgroundRotations"
       ],
+      "placeholder" : null,
       "refuses" : [
         "★",
         [
@@ -26951,6 +27996,7 @@
         "appearance",
         "paneBackgrounds"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -27094,6 +28140,7 @@
         "ui",
         "reducedBackgrounds"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -27229,6 +28276,7 @@
         "appearance",
         "experimentalControls"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -27366,6 +28414,7 @@
         "appearance",
         "backgroundOpacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -27545,6 +28594,7 @@
         "appearance",
         "backgroundBlur"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -27684,6 +28734,7 @@
         "appearance",
         "inactiveWindowDim"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -27828,6 +28879,7 @@
         "appearance",
         "wallpaperTint"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -27961,6 +29013,7 @@
         "appearance",
         "glassTransparency"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -28100,6 +29153,7 @@
         "appearance",
         "hue"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -28240,6 +29294,7 @@
         "appearance",
         "saturation"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 2,
         "min" : 0,
@@ -28423,6 +29478,7 @@
         "appearance",
         "density"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -28549,6 +29605,7 @@
         "appearance",
         "customDensity"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -28690,6 +29747,7 @@
         "appearance",
         "customDensities"
       ],
+      "placeholder" : null,
       "refuses" : [
         "my-tight",
         [
@@ -28839,6 +29897,7 @@
         "app",
         "uiScale"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1.5,
         "min" : 0.85,
@@ -28983,6 +30042,7 @@
         "metrics",
         "chromeFontSize"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 16,
         "min" : 10,
@@ -29130,6 +30190,7 @@
         "appearance",
         "interfaceScale"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1.25,
         "min" : 0.9,
@@ -29275,6 +30336,7 @@
         "metrics",
         "sidebarWidth"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 420,
         "min" : 160,
@@ -29417,6 +30479,7 @@
         "metrics",
         "columnGap"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 24,
         "min" : 0,
@@ -29560,6 +30623,7 @@
         "metrics",
         "dividerThickness"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 6,
         "min" : 0,
@@ -29704,6 +30768,7 @@
         "metrics",
         "dividerHitWidth"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 24,
         "min" : 1,
@@ -29847,6 +30912,7 @@
         "metrics",
         "titlebarHeight"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 56,
         "min" : 24,
@@ -30003,6 +31069,7 @@
         "appearance",
         "borders"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -30168,6 +31235,7 @@
         "appearance",
         "focusIndicator"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -30330,6 +31398,7 @@
         "focus",
         "inactiveTabStyle"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -30485,6 +31554,7 @@
         "ui",
         "animationSpeed"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -30665,7 +31735,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "flat-sidebar-line",
+      "default" : "flat",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.panes",
@@ -30702,6 +31772,7 @@
         "appearance",
         "chromeStyle"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -30840,6 +31911,7 @@
         "ui",
         "paneAnimations"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -30972,6 +32044,7 @@
         "animations",
         "newTab"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -31105,6 +32178,7 @@
         "animations",
         "newWorkspace"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -31253,6 +32327,7 @@
         "animations",
         "bounce"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -31424,6 +32499,7 @@
         "layout",
         "paneSeparation"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -31557,6 +32633,7 @@
         "layout",
         "panePadding"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 16,
         "min" : 0,
@@ -31701,6 +32778,7 @@
         "layout",
         "paneCornerRadius"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 20,
         "min" : 0,
@@ -31846,6 +32924,7 @@
         "layout",
         "cornerPadding"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 12,
         "min" : 0,
@@ -31995,6 +33074,7 @@
         "layout",
         "paneBorder"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -32125,6 +33205,7 @@
         "layout",
         "paneBorderColor"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -32257,6 +33338,7 @@
         "layout",
         "paneBorderWidth"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 4,
         "min" : 0.5,
@@ -32391,6 +33473,7 @@
         "focusRing",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -32541,6 +33624,7 @@
         "focusRing",
         "style"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -32691,6 +33775,7 @@
         "focusRing",
         "contrast"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -32822,6 +33907,7 @@
         "focusRing",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -32952,6 +34038,7 @@
         "focusRing",
         "width"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 8,
         "min" : 0.5,
@@ -33085,6 +34172,7 @@
         "focusRing",
         "showWhenSinglePane"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -33251,6 +34339,7 @@
         "ui",
         "calm"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -33387,6 +34476,7 @@
         "animations",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -33524,6 +34614,7 @@
         "animations",
         "sidebar"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -33659,6 +34750,7 @@
         "animations",
         "tabs"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -33796,6 +34888,7 @@
         "animations",
         "panes"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -33934,6 +35027,7 @@
         "animations",
         "overlays"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -34068,6 +35162,7 @@
         "animations",
         "hoverCards"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -34204,6 +35299,7 @@
         "animations",
         "home"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -34339,6 +35435,7 @@
         "animations",
         "cursor"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -34476,6 +35573,7 @@
         "animations",
         "indicators"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -34613,6 +35711,7 @@
         "animations",
         "feedback"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -34751,6 +35850,7 @@
         "animations",
         "web"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -34889,6 +35989,7 @@
         "sidebar",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -35028,6 +36129,7 @@
         "sidebar",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -35173,6 +36275,7 @@
         "tabBar",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -35312,6 +36415,7 @@
         "tabBar",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -35456,6 +36560,7 @@
         "terminal",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -35595,6 +36700,7 @@
         "terminal",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -35739,6 +36845,7 @@
         "agentPane",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -35878,6 +36985,7 @@
         "agentPane",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -36022,6 +37130,7 @@
         "settings",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -36161,6 +37270,7 @@
         "settings",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -36305,6 +37415,7 @@
         "newTabPage",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -36444,6 +37555,7 @@
         "newTabPage",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -36588,6 +37700,7 @@
         "home",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -36727,6 +37840,7 @@
         "home",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -36872,6 +37986,7 @@
         "browserChrome",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -37011,6 +38126,7 @@
         "browserChrome",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -37155,6 +38271,7 @@
         "internalPage",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -37294,6 +38411,7 @@
         "internalPage",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -37438,6 +38556,7 @@
         "splitDivider",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -37577,6 +38696,7 @@
         "splitDivider",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -37721,6 +38841,7 @@
         "docks",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -37860,6 +38981,7 @@
         "docks",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -38004,6 +39126,7 @@
         "diff",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -38143,6 +39266,7 @@
         "diff",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -38287,6 +39411,7 @@
         "markdown",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -38426,6 +39551,7 @@
         "markdown",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -38570,6 +39696,7 @@
         "editor",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -38709,6 +39836,7 @@
         "editor",
         "opacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -38889,6 +40017,7 @@
         "statusIndicator",
         "style"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -39046,6 +40175,7 @@
         "statusIndicator",
         "animation"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -39174,6 +40304,7 @@
         "statusIndicator",
         "size"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1.5,
         "min" : 0.5,
@@ -39309,6 +40440,7 @@
         "statusIndicator",
         "thickness"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 4,
         "min" : 0.5,
@@ -39447,6 +40579,7 @@
         "statusIndicator",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -39582,6 +40715,7 @@
         "statusIndicator",
         "showAgentWorkingOnTabs"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -39715,6 +40849,7 @@
         "statusIndicator",
         "showPageLoading"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -39845,6 +40980,7 @@
         "statusIndicator",
         "honorStatusStyle"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -39974,6 +41110,7 @@
         "status",
         "inferCommandBusy"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -40104,6 +41241,7 @@
         "status",
         "inferCommandBusyAfter"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 600,
         "min" : 0,
@@ -40266,6 +41404,7 @@
         "diff",
         "layout"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -40419,6 +41558,7 @@
         "diff",
         "diffIndicators"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -40574,6 +41714,7 @@
         "diff",
         "colors"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -40702,6 +41843,7 @@
         "diff",
         "wordWrap"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -40830,6 +41972,7 @@
         "diff",
         "wordDiffs"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -40958,6 +42101,7 @@
         "diff",
         "lineNumbers"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -41086,6 +42230,7 @@
         "diff",
         "showBackgrounds"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -41215,6 +42360,7 @@
         "diff",
         "expandUnchanged"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -41347,6 +42493,7 @@
         "diff",
         "groupByKind"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -41478,6 +42625,7 @@
         "diff",
         "hideWhitespace"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -41611,6 +42759,7 @@
         "diff",
         "showBulkActions"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -41748,6 +42897,7 @@
         "markdown",
         "remoteImages"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -41887,6 +43037,7 @@
         "layout",
         "width"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1000,
         "min" : 30,
@@ -42029,6 +43180,7 @@
         "layout",
         "fullWidth"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -42166,6 +43318,7 @@
         "font",
         "size"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 40,
         "min" : 8,
@@ -42331,6 +43484,7 @@
         "font",
         "preset"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -42464,6 +43618,7 @@
         "font",
         "lineHeight"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 2.4,
         "min" : 1,
@@ -42608,6 +43763,7 @@
         "spacing",
         "paragraph"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 3,
         "min" : 0,
@@ -42753,6 +43909,7 @@
         "code",
         "scale"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1.25,
         "min" : 0.6,
@@ -42895,6 +44052,7 @@
         "code",
         "family"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -43029,6 +44187,7 @@
         "code",
         "blockSize"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 32,
         "min" : 8,
@@ -43184,6 +44343,7 @@
         "markdown",
         "tables"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -43341,6 +44501,7 @@
         "markdown",
         "theme"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -43481,6 +44642,7 @@
         "display",
         "width"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 4000,
         "min" : 480,
@@ -43625,6 +44787,7 @@
         "display",
         "fullWidth"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -43769,6 +44932,7 @@
         "display",
         "vscodeMinimap"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -43912,6 +45076,7 @@
         "display",
         "pinnedPlan"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -44058,6 +45223,7 @@
         "display",
         "trayTucked"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -44229,6 +45395,7 @@
         "display",
         "trayHandle"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -44398,6 +45565,7 @@
         "font",
         "preset"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -44642,6 +45810,7 @@
         "font",
         "ui"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -44778,6 +45947,7 @@
         "font",
         "size"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 28,
         "min" : 10,
@@ -44921,6 +46091,7 @@
         "font",
         "lineHeight"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 2.4,
         "min" : 1.2,
@@ -45066,6 +46237,7 @@
         "code",
         "family"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -45207,6 +46379,7 @@
         "code",
         "scale"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1.25,
         "min" : 0.6,
@@ -45374,6 +46547,7 @@
         "sessionInfo",
         "placement"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -45543,6 +46717,7 @@
         "environment",
         "placement"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -45714,6 +46889,7 @@
         "display",
         "minimap"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -45883,6 +47059,7 @@
         "display",
         "transcriptView"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -46035,6 +47212,7 @@
         "display",
         "presentation"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -46201,6 +47379,7 @@
         "statusVerbs",
         "mode"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -46341,6 +47520,7 @@
         "statusVerbs",
         "custom"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -46511,6 +47691,7 @@
         "display",
         "harnessPlacement"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -46670,6 +47851,7 @@
         "rail",
         "side"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -46836,6 +48018,7 @@
         "display",
         "commandLabels"
       ],
+      "placeholder" : null,
       "refuses" : [
         "cmux-fleet",
         [
@@ -47001,6 +48184,7 @@
         "terminal",
         "fontFamily"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -47136,6 +48320,7 @@
         "terminal",
         "fontSize"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 96,
         "min" : 4,
@@ -47283,6 +48468,7 @@
         "linkOpener",
         "default"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -47425,6 +48611,10 @@
         "linkOpener",
         "rules"
       ],
+      "placeholder" : {
+        "key" : null,
+        "text" : "caller:gh github.com -> safari"
+      },
       "refuses" : [
         "ws-1",
         [
@@ -47587,6 +48777,7 @@
         "terminal",
         "term"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -47724,6 +48915,7 @@
         "editor",
         "fontFamily"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -47863,6 +49055,7 @@
         "editor",
         "fontSize"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 72,
         "min" : 6,
@@ -48042,6 +49235,7 @@
         "editor",
         "fontWeight"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -48174,6 +49368,7 @@
         "editor",
         "fontLigatures"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -48310,6 +49505,7 @@
         "editor",
         "lineHeight"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 150,
         "min" : 0,
@@ -48450,6 +49646,7 @@
         "editor",
         "letterSpacing"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 20,
         "min" : -5,
@@ -48590,6 +49787,7 @@
         "editor",
         "tabSize"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 16,
         "min" : 1,
@@ -48732,6 +49930,7 @@
         "editor",
         "insertSpaces"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -48866,6 +50065,7 @@
         "editor",
         "detectIndentation"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -49033,6 +50233,7 @@
         "editor",
         "wordWrap"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -49166,6 +50367,7 @@
         "editor",
         "wordWrapColumn"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1000,
         "min" : 10,
@@ -49337,6 +50539,7 @@
         "editor",
         "lineNumbers"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -49479,6 +50682,7 @@
         "editor",
         "rulers"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1000,
         "min" : 1,
@@ -49624,6 +50828,7 @@
         "minimap",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -49797,6 +51002,7 @@
         "editor",
         "renderWhitespace"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -49929,6 +51135,7 @@
         "editor",
         "renderControlCharacters"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -50092,6 +51299,7 @@
         "editor",
         "renderLineHighlight"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -50226,6 +51434,7 @@
         "bracketPairColorization",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -50358,6 +51567,7 @@
         "guides",
         "bracketPairs"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -50490,6 +51700,7 @@
         "guides",
         "indentation"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -50645,6 +51856,7 @@
         "editor",
         "matchBrackets"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -50781,6 +51993,7 @@
         "stickyScroll",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -50912,6 +52125,7 @@
         "editor",
         "folding"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -51043,6 +52257,7 @@
         "editor",
         "scrollBeyondLastLine"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -51174,6 +52389,7 @@
         "editor",
         "smoothScrolling"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -51306,6 +52522,7 @@
         "editor",
         "mouseWheelZoom"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -51486,6 +52703,7 @@
         "editor",
         "cursorStyle"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -51658,6 +52876,7 @@
         "editor",
         "cursorBlinking"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -51815,6 +53034,7 @@
         "editor",
         "cursorSmoothCaretAnimation"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -51948,6 +53168,7 @@
         "editor",
         "cursorSurroundingLines"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 50,
         "min" : 0,
@@ -52106,6 +53327,7 @@
         "editor",
         "multiCursorModifier"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -52238,6 +53460,7 @@
         "editor",
         "autoClosingBrackets"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -52369,6 +53592,7 @@
         "editor",
         "autoClosingQuotes"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -52502,6 +53726,7 @@
         "editor",
         "linkedEditing"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -52635,6 +53860,7 @@
         "editor",
         "quickSuggestions"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -52767,6 +53993,7 @@
         "editor",
         "wordBasedSuggestions"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -52923,6 +54150,7 @@
         "editor",
         "acceptSuggestionOnEnter"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -53056,6 +54284,7 @@
         "editor",
         "emptySelectionClipboard"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -53213,6 +54442,7 @@
         "find",
         "seedSearchStringFromSelection"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -53360,6 +54590,7 @@
         "editor",
         "autoSave"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -53492,6 +54723,7 @@
         "editor",
         "autoSaveDelay"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 60000,
         "min" : 100,
@@ -53632,6 +54864,7 @@
         "editor",
         "trimTrailingWhitespace"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -53764,6 +54997,7 @@
         "editor",
         "insertFinalNewline"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -53899,6 +55133,7 @@
         "editor",
         "formatOnSave"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -54094,6 +55329,7 @@
         "editor",
         "importFrom"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -54245,6 +55481,7 @@
         "appearance",
         "sidebarSurface"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -54379,6 +55616,7 @@
         "sidebar",
         "border"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -54514,6 +55752,7 @@
         "sidebar",
         "borderWidth"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 4,
         "min" : 0.5,
@@ -54694,6 +55933,7 @@
         "sidebar",
         "sectionLook"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -54828,6 +56068,7 @@
         "sidebar",
         "topBandMaxShare"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 0.9,
         "min" : 0.1,
@@ -54969,6 +56210,7 @@
         "sidebar",
         "bottomBandMaxShare"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 0.9,
         "min" : 0.1,
@@ -55108,6 +56350,7 @@
         "sidebar",
         "pinnedBandsScroll"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -55244,6 +56487,7 @@
         "sidebar",
         "showChats"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -55380,6 +56624,7 @@
         "sidebar",
         "sessionTree"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -55511,6 +56756,7 @@
         "sidebar",
         "showProjects"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -55612,7 +56858,8 @@
     {
       "accepts" : [
         "none",
-        "folder"
+        "folder",
+        "recents"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -55630,6 +56877,13 @@
             "text" : "Folder"
           },
           "value" : "folder"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupByRecents",
+            "text" : "Projects and Recents"
+          },
+          "value" : "recents"
         }
       ],
       "consumers" : [
@@ -55650,7 +56904,11 @@
         "group",
         "folder",
         "directory",
-        "cwd"
+        "cwd",
+        "recents",
+        "recent",
+        "chatgpt",
+        "history"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -55658,6 +56916,7 @@
         "sidebar",
         "groupBy"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -55790,6 +57049,7 @@
         "sidebar",
         "showSpaces"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -55922,6 +57182,7 @@
         "sidebar",
         "showProfileControl"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -56058,6 +57319,7 @@
         "sidebar",
         "showSearchButton"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -56194,6 +57456,7 @@
         "sidebar",
         "showNewWorkspaceChooser"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -56329,6 +57592,7 @@
         "sidebar",
         "workspacesAsTabs"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -56464,6 +57728,7 @@
         "sidebar",
         "chromeGroups"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -56599,6 +57864,7 @@
         "sidebar",
         "sideBySide"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -56738,6 +58004,7 @@
         "sidebar",
         "noFade"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -56878,6 +58145,7 @@
         "sidebar",
         "controlsOnHover"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -57013,6 +58281,7 @@
         "sidebar",
         "minimal"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -57171,6 +58440,7 @@
         "sidebar",
         "style"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -57334,6 +58604,7 @@
         "sidebar",
         "density"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -57498,6 +58769,7 @@
         "sidebar",
         "textSize"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -57637,6 +58909,7 @@
         "sidebar",
         "detailedStatusIcons"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -57776,6 +59049,7 @@
         "sidebar",
         "showTimestamps"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -57914,6 +59188,7 @@
         "sidebar",
         "showColors"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -58081,6 +59356,7 @@
         "workspaceColors",
         "indicatorStyle"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -58218,6 +59494,7 @@
         "sidebar",
         "showLocalMachine"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -58355,6 +59632,7 @@
         "groupHeader",
         "memberCount"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -58492,6 +59770,7 @@
         "groupHeader",
         "unreadCount"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -58592,6 +59871,171 @@
     },
     {
       "accepts" : [
+        "auto",
+        "glass",
+        "solid"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundAuto",
+            "text" : "Automatic"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundGlass",
+            "text" : "Glass"
+          },
+          "value" : "glass"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundSolid",
+            "text" : "Solid"
+          },
+          "value" : "solid"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupHeader.background.help",
+        "text" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupHeader.background",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "background",
+        "glass",
+        "glassy",
+        "solid",
+        "opaque",
+        "translucent",
+        "fill",
+        "header"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupHeader",
+        "background"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.groupHeader.background"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.groupHeader.background",
+        "text" : "Group Background"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -58658,6 +60102,7 @@
         "sidebar",
         "minimalMode"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -58793,6 +60238,7 @@
         "cards",
         "tips"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -58934,6 +60380,7 @@
         "priorityView",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -59072,6 +60519,7 @@
         "priorityView",
         "shown"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -59223,6 +60671,7 @@
         "sidebar",
         "side"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -59376,6 +60825,7 @@
         "sidebar",
         "spacesPosition"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -59530,6 +60980,7 @@
         "sidebar",
         "spacesVisibility"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -59682,6 +61133,7 @@
         "tabs",
         "commandDigits"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -59835,6 +61287,7 @@
         "sidebar",
         "numbering"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -59986,6 +61439,7 @@
         "sidebar",
         "cmd9"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -60135,6 +61589,7 @@
         "sidebar",
         "stepping"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -60270,6 +61725,7 @@
         "sidebar",
         "steppingWraps"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -60405,6 +61861,7 @@
         "hoverCards",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -60540,6 +61997,7 @@
         "hoverCards",
         "delay"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 5000,
         "min" : 0,
@@ -60723,6 +62181,7 @@
         "hoverCards",
         "layout"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -60859,6 +62318,7 @@
         "sections",
         "timings"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -60994,6 +62454,7 @@
         "sections",
         "prompts"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -61131,6 +62592,7 @@
         "sections",
         "waiting"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -61267,6 +62729,7 @@
         "sections",
         "git"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -61403,6 +62866,7 @@
         "sections",
         "ports"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -61539,6 +63003,7 @@
         "hoverCards",
         "maxRows"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 100,
         "min" : 1,
@@ -61681,6 +63146,7 @@
         "groups",
         "workspaceGroups"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -61816,6 +63282,7 @@
         "groups",
         "tabGroups"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -61952,6 +63419,7 @@
         "groups",
         "delay"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 5000,
         "min" : 0,
@@ -62118,6 +63586,7 @@
         "groups",
         "order"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -62254,6 +63723,7 @@
         "groups",
         "maxMembers"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 50,
         "min" : 1,
@@ -62399,6 +63869,7 @@
         "sections",
         "status"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -62537,6 +64008,7 @@
         "sections",
         "members"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -62674,6 +64146,7 @@
         "sections",
         "activity"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -62810,6 +64283,7 @@
         "sections",
         "git"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -62946,6 +64420,7 @@
         "sections",
         "ports"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -63082,6 +64557,7 @@
         "nowPlaying",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -63220,6 +64696,7 @@
         "nowPlaying",
         "otherApps"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -63354,6 +64831,7 @@
         "tabs",
         "newTabNowPlaying"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -63491,6 +64969,7 @@
         "pictureInPicture",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -63626,6 +65105,7 @@
         "newTabWidgets",
         "greeting"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -63761,6 +65241,7 @@
         "newTabWidgets",
         "projects"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -63896,6 +65377,7 @@
         "newTabWidgets",
         "actions"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -64031,6 +65513,7 @@
         "newTabWidgets",
         "chats"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -64165,6 +65648,7 @@
         "newTabWidgets",
         "styleDots"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -64300,6 +65784,7 @@
         "newTabWidgets",
         "weather"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -64431,6 +65916,7 @@
         "newTabWidgets",
         "weatherCity"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -64565,6 +66051,7 @@
         "newTabWidgets",
         "machines"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -64698,6 +66185,7 @@
         "newTabWidgets",
         "clock"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -64831,6 +66319,7 @@
         "newTabWidgets",
         "timer"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -64964,6 +66453,7 @@
         "newTabWidgets",
         "warmGreeting"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -65097,6 +66587,7 @@
         "newTabWidgets",
         "quote"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -65265,6 +66756,7 @@
         "newTabWidgets",
         "order"
       ],
+      "placeholder" : null,
       "refuses" : [
         "projects",
         [
@@ -65406,6 +66898,7 @@
         "colorTransition",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -65542,6 +67035,7 @@
         "colorTransition",
         "duration"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 2000,
         "min" : 0,
@@ -65725,6 +67219,7 @@
         "colorTransition",
         "curve"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -65858,6 +67353,7 @@
         "colorTransition",
         "springResponse"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 2,
         "min" : 0.05,
@@ -65999,6 +67495,7 @@
         "colorTransition",
         "springDamping"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 2,
         "min" : 0.1,
@@ -66140,6 +67637,7 @@
         "colorTransition",
         "bezierX1"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -66281,6 +67779,7 @@
         "colorTransition",
         "bezierY1"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 2,
         "min" : -1,
@@ -66422,6 +67921,7 @@
         "colorTransition",
         "bezierX2"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -66563,6 +68063,7 @@
         "colorTransition",
         "bezierY2"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 2,
         "min" : -1,
@@ -66720,6 +68221,7 @@
         "colorTransition",
         "colorSpace"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -66878,6 +68380,7 @@
         "colorTransition",
         "reduceMotion"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -67011,6 +68514,7 @@
         "workspaceRow",
         "icon"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -67141,6 +68645,7 @@
         "workspaceRow",
         "directory"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -67271,6 +68776,7 @@
         "workspaceRow",
         "branch"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -67404,6 +68910,7 @@
         "workspaceRow",
         "process"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -67537,6 +69044,7 @@
         "workspaceRow",
         "agentStatus"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -67667,6 +69175,7 @@
         "workspaceRow",
         "tabCount"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -67800,6 +69309,7 @@
         "workspaceRow",
         "ports"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -67930,6 +69440,7 @@
         "workspaceRow",
         "lastActivity"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -68063,6 +69574,7 @@
         "workspaceRow",
         "pullRequest"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -68196,6 +69708,7 @@
         "workspaceRow",
         "progress"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -68329,6 +69842,7 @@
         "workspaceRow",
         "working"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -68462,6 +69976,7 @@
         "workspaceRow",
         "log"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -68598,6 +70113,7 @@
         "workspaceRow",
         "notification"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -68802,6 +70318,7 @@
         "workspaceRow",
         "secondLineOrder"
       ],
+      "placeholder" : null,
       "refuses" : [
         "notification",
         [
@@ -68941,6 +70458,7 @@
         "terminal",
         "icon"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -69076,6 +70594,7 @@
         "terminal",
         "directory"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -69211,6 +70730,7 @@
         "terminal",
         "branch"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -69346,6 +70866,7 @@
         "terminal",
         "process"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -69481,6 +71002,7 @@
         "terminal",
         "agentStatus"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -69616,6 +71138,7 @@
         "terminal",
         "tabCount"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -69751,6 +71274,7 @@
         "terminal",
         "ports"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -69886,6 +71410,7 @@
         "terminal",
         "lastActivity"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -70021,6 +71546,7 @@
         "terminal",
         "pullRequest"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -70156,6 +71682,7 @@
         "terminal",
         "progress"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -70291,6 +71818,7 @@
         "terminal",
         "working"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -70426,6 +71954,7 @@
         "terminal",
         "log"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -70561,6 +72090,7 @@
         "terminal",
         "notification"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -70758,6 +72288,7 @@
         "terminal",
         "secondLineOrder"
       ],
+      "placeholder" : null,
       "refuses" : [
         "notification",
         [
@@ -70897,6 +72428,7 @@
         "agent",
         "icon"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -71032,6 +72564,7 @@
         "agent",
         "directory"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -71167,6 +72700,7 @@
         "agent",
         "branch"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -71302,6 +72836,7 @@
         "agent",
         "process"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -71437,6 +72972,7 @@
         "agent",
         "agentStatus"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -71572,6 +73108,7 @@
         "agent",
         "tabCount"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -71707,6 +73244,7 @@
         "agent",
         "ports"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -71842,6 +73380,7 @@
         "agent",
         "lastActivity"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -71977,6 +73516,7 @@
         "agent",
         "pullRequest"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -72112,6 +73652,7 @@
         "agent",
         "progress"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -72247,6 +73788,7 @@
         "agent",
         "working"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -72382,6 +73924,7 @@
         "agent",
         "log"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -72517,6 +74060,7 @@
         "agent",
         "notification"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -72714,6 +74258,7 @@
         "agent",
         "secondLineOrder"
       ],
+      "placeholder" : null,
       "refuses" : [
         "notification",
         [
@@ -72853,6 +74398,7 @@
         "browser",
         "icon"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -72988,6 +74534,7 @@
         "browser",
         "directory"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -73123,6 +74670,7 @@
         "browser",
         "branch"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -73258,6 +74806,7 @@
         "browser",
         "process"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -73393,6 +74942,7 @@
         "browser",
         "agentStatus"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -73528,6 +75078,7 @@
         "browser",
         "tabCount"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -73663,6 +75214,7 @@
         "browser",
         "ports"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -73798,6 +75350,7 @@
         "browser",
         "lastActivity"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -73933,6 +75486,7 @@
         "browser",
         "pullRequest"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -74068,6 +75622,7 @@
         "browser",
         "progress"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -74203,6 +75758,7 @@
         "browser",
         "working"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -74338,6 +75894,7 @@
         "browser",
         "log"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -74473,6 +76030,7 @@
         "browser",
         "notification"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -74670,6 +76228,7 @@
         "browser",
         "secondLineOrder"
       ],
+      "placeholder" : null,
       "refuses" : [
         "notification",
         [
@@ -74809,6 +76368,7 @@
         "mixed",
         "icon"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -74944,6 +76504,7 @@
         "mixed",
         "directory"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -75079,6 +76640,7 @@
         "mixed",
         "branch"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -75214,6 +76776,7 @@
         "mixed",
         "process"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -75349,6 +76912,7 @@
         "mixed",
         "agentStatus"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -75484,6 +77048,7 @@
         "mixed",
         "tabCount"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -75619,6 +77184,7 @@
         "mixed",
         "ports"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -75754,6 +77320,7 @@
         "mixed",
         "lastActivity"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -75889,6 +77456,7 @@
         "mixed",
         "pullRequest"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -76024,6 +77592,7 @@
         "mixed",
         "progress"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -76159,6 +77728,7 @@
         "mixed",
         "working"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -76294,6 +77864,7 @@
         "mixed",
         "log"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -76429,6 +78000,7 @@
         "mixed",
         "notification"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -76626,6 +78198,7 @@
         "mixed",
         "secondLineOrder"
       ],
+      "placeholder" : null,
       "refuses" : [
         "notification",
         [
@@ -76839,6 +78412,7 @@
         "browser",
         "toolbarButtons"
       ],
+      "placeholder" : null,
       "refuses" : [
         "media",
         [
@@ -76990,6 +78564,7 @@
         "browser",
         "defaultEngine"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -77140,6 +78715,7 @@
         "browser",
         "siteEngines"
       ],
+      "placeholder" : null,
       "refuses" : [
         "★",
         [
@@ -77278,6 +78854,7 @@
         "browser",
         "newTabPage"
       ],
+      "placeholder" : null,
       "refuses" : [
         "not a url",
         "ftp://example.com",
@@ -77410,6 +78987,7 @@
         "browser",
         "showBookmarksBar"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -77550,6 +79128,7 @@
         "import",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -77688,6 +79267,7 @@
         "import",
         "cookieBanner"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -77822,6 +79402,7 @@
         "browser",
         "showAgentCursor"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -77972,6 +79553,7 @@
         "agentMouse",
         "motion"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -78105,6 +79687,7 @@
         "agentMouse",
         "maxMoveMs"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1000,
         "min" : 60,
@@ -78243,6 +79826,7 @@
         "browser",
         "builtInAdBlocker"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -78404,6 +79988,7 @@
         "browser",
         "hibernation"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1440,
         "min" : 1,
@@ -78552,6 +80137,7 @@
         "browser",
         "hibernationExclusions"
       ],
+      "placeholder" : null,
       "refuses" : [
         "localhost",
         [
@@ -78679,6 +80265,7 @@
         "browser",
         "hibernatePinnedTabs"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -78823,6 +80410,7 @@
         "browser",
         "freezeHiddenTabs"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 3600,
         "min" : 5,
@@ -78969,6 +80557,7 @@
         "browser",
         "keepNeighborTabsAwake"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 3,
         "min" : 0,
@@ -79079,6 +80668,142 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.memory",
+        "text" : "Memory"
+      },
+      "help" : {
+        "key" : "settings.browser.wakeTabsOnHover.help",
+        "text" : "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.wakeTabsOnHover",
+      "keywords" : [
+        "hover",
+        "preload",
+        "prerender",
+        "warm",
+        "instant",
+        "hibernation",
+        "sleep"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "wakeTabsOnHover"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:browser.wakeTabsOnHover"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.wakeTabsOnHover",
+        "text" : "Wake Tabs on Hover"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -79104,6 +80829,7 @@
         "browser",
         "remoteLocalhost"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -79282,6 +81008,7 @@
         "browser",
         "searchEngine"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -79414,6 +81141,7 @@
         "customSearchEngine",
         "search"
       ],
+      "placeholder" : null,
       "refuses" : [
         "https://search.example/",
         "search.example",
@@ -79547,6 +81275,7 @@
         "customSearchEngine",
         "suggest"
       ],
+      "placeholder" : null,
       "refuses" : [
         "https://search.example/",
         "search.example",
@@ -79679,6 +81408,7 @@
         "omnibar",
         "remoteSuggestions"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -79812,6 +81542,7 @@
         "omnibar",
         "inlineAutocomplete"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -79942,6 +81673,7 @@
         "omnibar",
         "maxRows"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 15,
         "min" : 3,
@@ -80082,6 +81814,7 @@
         "omnibar",
         "calculator"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -80217,6 +81950,7 @@
         "omnibar",
         "showFullURLs"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -80384,6 +82118,7 @@
         "omnibar",
         "glass"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -80542,6 +82277,7 @@
         "omnibar",
         "glassTint"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -80673,6 +82409,7 @@
         "omnibar",
         "glassTintStrength"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -80834,6 +82571,7 @@
         "omnibar",
         "cornerRadius"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 16,
         "min" : 0,
@@ -80975,6 +82713,7 @@
         "omnibar",
         "shadow"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -81111,6 +82850,7 @@
         "omnibar",
         "backgroundOpacity"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -81265,6 +83005,7 @@
         "omnibar",
         "height"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 56,
         "min" : 20,
@@ -81421,6 +83162,7 @@
         "omnibar",
         "fontSize"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 24,
         "min" : 10,
@@ -81610,6 +83352,7 @@
         "links",
         "cmdClick"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -81790,6 +83533,7 @@
         "links",
         "cmdShiftClick"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -81969,6 +83713,7 @@
         "links",
         "shiftClick"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -82149,6 +83894,7 @@
         "links",
         "optionClick"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -82329,6 +84075,7 @@
         "links",
         "middleClick"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -82462,6 +84209,7 @@
         "browser",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -82594,6 +84342,7 @@
         "browser",
         "openLinksInCmuxBrowser"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -82728,6 +84477,7 @@
         "browser",
         "openSignInPagesInCmux"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -82858,6 +84608,7 @@
         "browser",
         "openTerminalLinksInCmuxBrowser"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -82995,6 +84746,7 @@
         "browser",
         "hostsToOpenInEmbeddedBrowser"
       ],
+      "placeholder" : null,
       "refuses" : [
         "localhost",
         [
@@ -83134,6 +84886,10 @@
         "browser",
         "urlsToAlwaysOpenExternally"
       ],
+      "placeholder" : {
+        "key" : null,
+        "text" : "*.example.com/*"
+      },
       "refuses" : [
         "ws-1",
         [
@@ -83275,6 +85031,7 @@
         "files",
         "textEditor"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -83407,6 +85164,7 @@
         "passwords",
         "offerToSave"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -83538,6 +85296,7 @@
         "passwords",
         "generate"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -83669,6 +85428,7 @@
         "passwords",
         "allowExport"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -83804,6 +85564,7 @@
         "verificationAutofill",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -83951,6 +85712,7 @@
         "home",
         "server"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         "selfHosted",
@@ -84125,6 +85887,7 @@
         "home",
         "chiefBubbleStyle"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -84260,6 +86023,7 @@
         "home",
         "feedInChief"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -84401,6 +86165,7 @@
         "bubbleColors",
         "sent"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -84544,6 +86309,7 @@
         "bubbleColors",
         "sentText"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -84687,6 +86453,7 @@
         "bubbleColors",
         "received"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -84830,6 +86597,7 @@
         "bubbleColors",
         "receivedText"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -84968,6 +86736,7 @@
         "attachments",
         "keepLocation"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -85100,6 +86869,7 @@
         "home",
         "channelsEnabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -85235,6 +87005,7 @@
         "home",
         "chiefPetEnabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -85502,6 +87273,7 @@
         "home",
         "chiefPetMascot"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -85608,7 +87380,7 @@
         "bottom"
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -85650,7 +87422,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefDockEdge.help",
-        "text" : "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick."
+        "text" : "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefDock.edge",
@@ -85673,6 +87445,7 @@
         "chiefDock",
         "edge"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -85704,7 +87477,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -85716,9 +87489,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -85775,7 +87550,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -85787,7 +87562,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefDockOpenBeside.help",
-        "text" : "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position."
+        "text" : "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefDock.openBeside",
@@ -85807,6 +87582,7 @@
         "chiefDock",
         "openBeside"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -85838,7 +87614,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -85850,9 +87626,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -85899,7 +87677,7 @@
       },
       "title" : {
         "key" : "settings.home.chiefDockOpenBeside",
-        "text" : "Keep Chief Docked When Opening Workspaces"
+        "text" : "Show Chief When Opening Workspaces"
       },
       "validation" : "portable"
     },
@@ -85964,6 +87742,7 @@
         "home",
         "chiefEngine"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -86097,6 +87876,7 @@
         "chief",
         "reactionsCanWake"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -86233,6 +88013,7 @@
         "reactionClassifier",
         "harness"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -86370,6 +88151,7 @@
         "reactionClassifier",
         "model"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -86507,6 +88289,7 @@
         "reactionClassifier",
         "prompt"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -86607,6 +88390,168 @@
     },
     {
       "accepts" : [
+        "bypassPermissions",
+        "auto",
+        "default"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPermissionMode.bypass",
+            "text" : "Bypass"
+          },
+          "value" : "bypassPermissions"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPermissionMode.auto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPermissionMode.manual",
+            "text" : "Manual"
+          },
+          "value" : "default"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "bypassPermissions",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefEngine",
+        "text" : "Engine"
+      },
+      "help" : {
+        "key" : "settings.chief.permissionMode.help",
+        "text" : "How the Chief's own turns handle permissions. Bypass runs every command without asking. Auto lets a safety check decide each command. Manual refuses each change that would need approval. Applies from the next turn."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.permissionMode",
+      "keywords" : [
+        "chief",
+        "permission",
+        "mode",
+        "bypass",
+        "dangerously",
+        "skip",
+        "yolo",
+        "auto",
+        "manual",
+        "ask",
+        "approval"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "permissionMode"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:chief.permissionMode"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chief.permissionMode",
+        "text" : "Chief Permission Mode"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -86644,6 +88589,7 @@
         "chief",
         "autoRouteSubagents"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -86742,6 +88688,618 @@
     },
     {
       "accepts" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.subagentSidebarAuto",
+            "text" : "Chief Decides"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.subagentSidebarAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.subagentSidebarNever",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefSubagents",
+        "text" : "Subagents"
+      },
+      "help" : {
+        "key" : "settings.chief.subagentSidebar.help",
+        "text" : "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.subagentSidebar",
+      "keywords" : [
+        "chief",
+        "subagent",
+        "sidebar",
+        "workspace",
+        "show",
+        "hide",
+        "hidden",
+        "visible"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "subagentSidebar"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:chief.subagentSidebar"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chief.subagentSidebar",
+        "text" : "Subagents in the Sidebar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefSubagents",
+        "text" : "Subagents"
+      },
+      "help" : {
+        "key" : "settings.chief.subagentSidebarShowWords.help",
+        "text" : "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.subagentSidebarShowWords",
+      "keywords" : [
+        "chief",
+        "subagent",
+        "sidebar",
+        "workspace",
+        "show",
+        "hide",
+        "hidden",
+        "visible",
+        "words",
+        "rules"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "subagentSidebarShowWords"
+      ],
+      "placeholder" : {
+        "key" : "settings.placeholder.wordOrPhrase",
+        "text" : "Add a word or phrase"
+      },
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:chief.subagentSidebarShowWords"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chief.subagentSidebarShowWords",
+        "text" : "Show Tasks That Mention"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefSubagents",
+        "text" : "Subagents"
+      },
+      "help" : {
+        "key" : "settings.chief.subagentSidebarHideWords.help",
+        "text" : "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.subagentSidebarHideWords",
+      "keywords" : [
+        "chief",
+        "subagent",
+        "sidebar",
+        "workspace",
+        "show",
+        "hide",
+        "hidden",
+        "visible",
+        "words",
+        "rules"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "subagentSidebarHideWords"
+      ],
+      "placeholder" : {
+        "key" : "settings.placeholder.wordOrPhrase",
+        "text" : "Add a word or phrase"
+      },
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:chief.subagentSidebarHideWords"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chief.subagentSidebarHideWords",
+        "text" : "Hide Tasks That Mention"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1000,
+        500
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 50,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefSubagents",
+        "text" : "Subagents"
+      },
+      "help" : {
+        "key" : "settings.chief.subagentSidebarMinWords.help",
+        "text" : "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.subagentSidebarMinWords",
+      "keywords" : [
+        "chief",
+        "subagent",
+        "sidebar",
+        "workspace",
+        "show",
+        "hide",
+        "hidden",
+        "visible",
+        "length",
+        "words"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "subagentSidebarMinWords"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 1000,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 10,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -1000,
+        2000,
+        "1"
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:chief.subagentSidebarMinWords"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chief.subagentSidebarMinWords",
+        "text" : "Show Tasks Longer Than"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -86817,6 +89375,7 @@
         "notifications",
         "dismissal"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -86947,6 +89506,7 @@
         "notifications",
         "timeoutSeconds"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 86400,
         "min" : 1,
@@ -87133,6 +89693,7 @@
         "agent",
         "dismissal"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -87312,6 +89873,7 @@
         "terminal",
         "dismissal"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -87491,6 +90053,7 @@
         "cli",
         "dismissal"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -87649,6 +90212,7 @@
         "notifications",
         "desktop"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -87774,6 +90338,7 @@
         "notifications",
         "sound"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -87908,6 +90473,7 @@
         "notifications",
         "quietHours"
       ],
+      "placeholder" : null,
       "refuses" : [
         {
           "end" : "07:00",
@@ -88043,6 +90609,7 @@
         "notifications",
         "suppressWhileTypingSeconds"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 60,
         "min" : 0,
@@ -88183,6 +90750,7 @@
         "status",
         "runNotifyMinimumSeconds"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 3600,
         "min" : 0,
@@ -88319,6 +90887,7 @@
         "status",
         "runNotifyWhenVisible"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -88445,6 +91014,7 @@
         "notifications",
         "dockBadge"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -88601,6 +91171,7 @@
         "notifications",
         "dockBounce"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -88756,6 +91327,7 @@
         "notifications",
         "showPreviews"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -88886,6 +91458,7 @@
         "mirrorNotifications",
         "agents"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -89041,6 +91614,7 @@
         "mirrorNotifications",
         "terminal"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -89175,6 +91749,7 @@
         "feed",
         "agentPermissionPrompts"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -89308,6 +91883,7 @@
         "feed",
         "needsYouInChief"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -89466,6 +92042,7 @@
         "attention",
         "style"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -89597,6 +92174,7 @@
         "attention",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -89754,6 +92332,7 @@
         "attention",
         "terminals"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -89914,6 +92493,7 @@
         "attention",
         "agentChats"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -90042,6 +92622,7 @@
         "attention",
         "agentChatBlinkCount"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 10,
         "min" : 1,
@@ -90177,6 +92758,7 @@
         "attention",
         "width"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 8,
         "min" : 0.5,
@@ -90312,6 +92894,7 @@
         "attention",
         "blinkCount"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 10,
         "min" : 1,
@@ -90447,6 +93030,7 @@
         "attention",
         "duration"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 30,
         "min" : 0.3,
@@ -90581,6 +93165,7 @@
         "attention",
         "persist"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -90714,6 +93299,7 @@
         "attention",
         "flash"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -90844,6 +93430,7 @@
         "attention",
         "flashOnTyping"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -90971,6 +93558,7 @@
         "attention",
         "showOnTab"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -91098,6 +93686,7 @@
         "attention",
         "showOnSidebar"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -91230,6 +93819,7 @@
         "attention",
         "moveToTop"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -91365,6 +93955,7 @@
         "attention",
         "moveToTopOnAgentFinish"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -91503,6 +94094,7 @@
         "notifications",
         "mutedWorkspaces"
       ],
+      "placeholder" : null,
       "refuses" : [
         "ws-1",
         [
@@ -91642,6 +94234,7 @@
         "events",
         "finished"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -91774,6 +94367,7 @@
         "events",
         "needsInput"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -91906,6 +94500,7 @@
         "events",
         "error"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -92038,6 +94633,7 @@
         "events",
         "bell"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -92170,6 +94766,7 @@
         "events",
         "message"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -92303,6 +94900,7 @@
         "sounds",
         "volume"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 1,
         "min" : 0,
@@ -92463,6 +95061,7 @@
         "sounds",
         "when"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -92597,6 +95196,7 @@
         "sounds",
         "cooldownSeconds"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 60,
         "min" : 0,
@@ -92748,6 +95348,7 @@
         "sounds",
         "workspaces"
       ],
+      "placeholder" : null,
       "refuses" : [
         "Glass",
         [
@@ -92908,6 +95509,7 @@
         "sounds",
         "groups"
       ],
+      "placeholder" : null,
       "refuses" : [
         "Glass",
         [
@@ -93068,6 +95670,7 @@
         "sounds",
         "agents"
       ],
+      "placeholder" : null,
       "refuses" : [
         "Glass",
         [
@@ -93217,6 +95820,7 @@
         "labs",
         "previewFeatures"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -93354,6 +95958,7 @@
         "labs",
         "voiceRoom"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -93486,6 +96091,7 @@
         "labs",
         "voiceRoomURL"
       ],
+      "placeholder" : null,
       "refuses" : [
         1,
         true,
@@ -93621,6 +96227,7 @@
         "labs",
         "machineJoin"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -93756,6 +96363,7 @@
         "labs",
         "liveCode"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -93889,6 +96497,7 @@
         "github",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -94025,6 +96634,7 @@
         "github",
         "pollIntervalSeconds"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 900,
         "min" : 60,
@@ -94190,6 +96800,7 @@
         "links",
         "outsideRoots"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -94351,6 +96962,7 @@
         "images",
         "remote"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -94488,6 +97100,7 @@
         "needsYou",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -94646,6 +97259,7 @@
         "editedFiles",
         "show"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -94777,6 +97391,7 @@
         "editedFiles",
         "maxRows"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 50,
         "min" : 1,
@@ -94931,6 +97546,7 @@
         "editedFiles",
         "scope"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -95066,6 +97682,7 @@
         "agentPane",
         "showContextUsage"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -95222,6 +97839,7 @@
         "agentPane",
         "composerRing"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -95358,6 +97976,7 @@
         "agentPane",
         "showDictation"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -95493,6 +98112,7 @@
         "agentPane",
         "spellChecking"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -95655,6 +98275,7 @@
         "agentPane",
         "attachmentView"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -95790,6 +98411,7 @@
         "agentPane",
         "scrollToBottomOnSend"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -95924,6 +98546,7 @@
         "agentPane",
         "showMachineLoadWarnings"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -96077,6 +98700,7 @@
         "agentPane",
         "newChatsIn"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -96211,6 +98835,7 @@
         "agentPane",
         "zoom"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 2,
         "min" : 0.5,
@@ -96379,6 +99004,7 @@
         "agents",
         "defaultPermissionMode"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -96529,6 +99155,7 @@
         "agents",
         "promptCache"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -96697,6 +99324,7 @@
         "modelRouter",
         "model"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
@@ -96834,6 +99462,7 @@
         "diagnostics",
         "hangReports"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -96971,6 +99600,7 @@
         "macScreen",
         "systemShortcuts"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -97108,6 +99738,7 @@
         "debug",
         "relayOnly"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -97243,6 +99874,7 @@
         "remote",
         "endSharingOnQuit"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -97381,6 +100013,7 @@
         "deviceHub",
         "url"
       ],
+      "placeholder" : null,
       "refuses" : [
         "not a url",
         "ftp://example.com",
@@ -97515,6 +100148,7 @@
         "contextMenus",
         "showCustomizeItem"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -97647,6 +100281,7 @@
         "imessage",
         "enabled"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -97777,6 +100412,7 @@
         "imessage",
         "automationSkipped"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -97904,6 +100540,7 @@
         "toolbar",
         "back"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -98033,6 +100670,7 @@
         "toolbar",
         "forward"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -98162,6 +100800,7 @@
         "toolbar",
         "reload"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -98291,6 +100930,7 @@
         "toolbar",
         "home"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -98420,6 +101060,7 @@
         "toolbar",
         "extensions"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -98549,6 +101190,7 @@
         "toolbar",
         "downloads"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -98678,6 +101320,7 @@
         "toolbar",
         "media"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -98807,6 +101450,7 @@
         "toolbar",
         "profile"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -98936,6 +101580,7 @@
         "toolbar",
         "menu"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -99070,6 +101715,7 @@
         "omnibox",
         "color"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -99206,6 +101852,7 @@
         "omnibox",
         "popupColor"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -99343,6 +101990,7 @@
         "omnibox",
         "popupHoverColor"
       ],
+      "placeholder" : null,
       "refuses" : [
         "red",
         "#12345",
@@ -99478,6 +102126,7 @@
         "layout",
         "stripMargin"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 40,
         "min" : 0,
@@ -99628,6 +102277,7 @@
         "layout",
         "columnWidthPresets"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 2,
         "min" : 0.1,
@@ -99775,6 +102425,7 @@
         "window",
         "trafficLightClearance"
       ],
+      "placeholder" : null,
       "range" : {
         "max" : 160,
         "min" : 0,
@@ -99922,6 +102573,7 @@
         "sidebar",
         "workspaceIcons"
       ],
+      "placeholder" : null,
       "refuses" : [
         "★",
         [
