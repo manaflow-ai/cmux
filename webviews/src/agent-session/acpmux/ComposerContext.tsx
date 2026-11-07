@@ -86,7 +86,7 @@ export const CONTEXT_LABELS = {
 
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
-/// - `where-machine` (Codex desktop): Project | Where (This Mac, Cloud, Another machine) | Machine,
+/// - `where-machine` (Codex desktop): Project | Where (This Mac, Cloud, Remote) | Machine,
 ///   the machine control only while the pick is another machine. Cloud has none: it gives the
 ///   workspace its own new machine (design/composer.md rule 18).
 /// - `where-machine-always`: the same, the machine control also shown on This Mac (its own name
@@ -406,7 +406,7 @@ export function ComposerContext({
   // good, so a chat that comes back to the same key (an empty New Tab id) never inherits it; a
   // machine the account stops listing ends it for good too (it does not come back with the
   // machine), and one that failed to start stops it moving.
-  // Another machine was picked in the Where menu: the machine control shows and opens (each pick
+  // Remote was picked in the Where menu: the machine control shows and opens (each pick
   // a new request), until the chat or its machine changes.
   const [machineAsk, setMachineAsk] = useState<{ key: string; request: number } | undefined>(undefined);
   // Keyed by the chat, not the pick: New Tab echoes the picked machine back into summary, which
@@ -703,12 +703,12 @@ export function ComposerContext({
   const pickedOff = selectedComputer !== "local" && !savedPick;
   const cloudSide =
     cloudPicked || (!sandboxPicked && (waiting !== undefined || (pickedOff && currentComputer?.kind === "cloud")));
-  // Leaving Another machine for Cloud, Sandboxed or a saved folder ends its open request, so a later This Mac pick
+  // Leaving Remote for Cloud, Sandboxed or a saved folder ends its open request, so a later This Mac pick
   // (which may skip the Where onPick when Cloud already cleared the machine) shows no machine chip.
   // A folder-only saved environment picked starts on this Mac: no machine chip either.
   if (machineAsk !== undefined && (cloudSide || sandboxPicked || savedFolderPick !== undefined))
     setMachineAsk(undefined);
-  // A saved environment on this Mac is This Mac's; one on an SSH machine is Another machine's.
+  // A saved environment on this Mac is This Mac's; one on an SSH machine is Remote's.
   const offMac = !cloudSide && !sandboxPicked && (pickedOff || (savedPick !== undefined && savedPick.kind !== "local"));
   const whereName = sandboxPicked
     ? t("composer.sandboxed")
@@ -731,7 +731,7 @@ export function ComposerContext({
     ) : (
       <EnvironmentIcon kind="local" />
     );
-  // The third chip: which machine while another machine is the pick (or Another machine was just
+  // The third chip: which machine while another machine is the pick (or Remote was just
   // picked); in `where-machine-always` the machine chip on this Mac too. Cloud has no third chip:
   // Cloud is one pick, and Send reuses the person's machine or makes one (cmux-tui cloud.startChat),
   // with its progress in the chat (CloudStartView). Leo, 2026-11-04: "after you pick Cloud, like,
@@ -748,7 +748,7 @@ export function ComposerContext({
   // The machine and Cloud chips' face: a server, the machine's name and its live dot (Codex desktop's
   // machine chip). This Mac, where the machine chip shows it, is this Mac's own name; Cloud with no
   // machine picked says Cloud (Send reuses the person's machine or makes one, so no New machine shows;
-  // Leo, 2026-11-04); Another machine with none picked asks for one.
+  // Leo, 2026-11-04); Remote with none picked asks for one.
   const localMachine = currentComputer?.kind === "local" && !savedPick && !waiting;
   const machineValue =
     cloudPicked && cloudWorksOn
@@ -810,7 +810,7 @@ export function ComposerContext({
         chevron
       />
     );
-  // Another machine: the first of the person's own machines a chat can start on is the pick (so the
+  // Remote: the first of the person's own machines a chat can start on is the pick (so the
   // strip always says where the chat starts), and the machine chip opens to change it; with none of
   // them listed, Add Machine….
   const anotherMachine = () => {

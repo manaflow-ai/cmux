@@ -254582,133 +254582,133 @@
       }
     },
     "composer.anotherMachine": {
-      "comment": "Agent pane: the where-it-runs menu's third row; its pick shows the machine chip, which lists the person's other machines (SSH and Cloud peers)",
+      "comment": "Agent pane: the where-it-runs menu's third row, Remote (one of the person's own machines, reached over SSH); its pick shows the machine chip, which lists those machines",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "جهاز آخر"
+            "value": "عن بُعد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drugi računar"
+            "value": "Udaljeno"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En anden maskine"
+            "value": "Fjern"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Anderer Rechner"
+            "value": "Entfernt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Another machine"
+            "value": "Remote"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otro equipo"
+            "value": "Remoto"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Une autre machine"
+            "value": "Distant"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un'altra macchina"
+            "value": "Remoto"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "別のマシン"
+            "value": "リモート"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ម៉ាស៊ីនផ្សេងទៀត"
+            "value": "ពីចម្ងាយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 머신"
+            "value": "원격"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En annen maskin"
+            "value": "Ekstern"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inna maszyna"
+            "value": "Zdalnie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Outra máquina"
+            "value": "Remoto"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Другой компьютер"
+            "value": "Удалённо"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครื่องอื่น"
+            "value": "ระยะไกล"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Başka bir makine"
+            "value": "Uzak"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Інший комп’ютер"
+            "value": "Віддалено"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Máy khác"
+            "value": "Từ xa"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "其他机器"
+            "value": "远程"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "其他機器"
+            "value": "遠端"
           }
         }
       }
