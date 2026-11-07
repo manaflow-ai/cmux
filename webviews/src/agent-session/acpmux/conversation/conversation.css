@@ -2970,6 +2970,11 @@ button.cv-tool:not(.cv-sent, .cv-agent-activity__control):is(:hover, :focus-visi
     transition: transform var(--cv-fold-duration) var(--cv-fold-ease, var(--agent-ease-out, ease-out));
   }
 }
+/* The host's Reduce Motion or animation off (a move duration of 0, theme.ts) snaps it too, as the
+   fold's body does (fold.ts foldMotion.duration). */
+:root:is([data-agent-move="instant"], [data-agent-motion="off"]) .cv-rotor {
+  transition: none;
+}
 /* A collapsible's body (fold.ts sizes it while it opens or closes): its own block, so the body's
    margins stay inside the height the fold animates instead of popping in at its ends. */
 .cv-fold {
