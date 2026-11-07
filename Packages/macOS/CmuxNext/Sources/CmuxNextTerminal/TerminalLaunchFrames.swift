@@ -503,22 +503,30 @@ public final class TerminalLaunchFrames {
 
     /// Writes `frames` (by `<key>@<scale>x`, the name without its extension) as the saved set.
     private nonisolated static func write(_ frames: [String: CGImage], keeping: Set<String>, to directory: URL) {
-        let files = Dictionary(uniqueKeysWithValues: frames.map { stem, frame in
-            let png = frame.showsClearPixels
-            return ("\(stem).\(png ? "png" : "jpg")", (frame, png))
-        })
+        var files: [String: Data] = [:], unsaved: Set<String> = []
+        for (stem, frame) in frames {
+            if let file = encoded(frame) { files["\(stem).\(file.ext)"] = file.data } else { unsaved.insert(stem) }
+        }
         let manager = FileManager.default
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where files[old] == nil {
-            guard !keeping.contains(owner(of: old) ?? old) else { continue }
+            // A frame that could not be saved keeps the one its key had.
+            guard !keeping.contains(owner(of: old) ?? old), !unsaved.contains(String(old.dropLast(".png".count))) else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
-        for (name, (frame, png)) in files {
+        for (name, data) in files {
             let url = directory.appending(path: name)
-            guard let data = frame.pageImageData(png: png, jpegQuality: jpegQuality),
-                  (try? data.write(to: url, options: [.atomic])) != nil else { continue }
+            guard (try? data.write(to: url, options: [.atomic])) != nil else { continue }
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
+    }
+
+    /// The frame's file data and extension: a PNG with clear pixels, else a JPEG; nil when it does not encode or is larger
+    /// than the read takes (`maximumBytes`), so a frame is never saved as a file the next launch refuses.
+    nonisolated static func encoded(_ frame: CGImage, maximumBytes: Int = maximumBytes) -> (data: Data, ext: String)? {
+        let png = frame.showsClearPixels
+        guard let data = frame.pageImageData(png: png, jpegQuality: jpegQuality), data.count <= maximumBytes else { return nil }
+        return (data, png ? "png" : "jpg")
     }
 
     /// Writes one terminal's frame (the keeper), replacing the key's file at any scale; with `keeping`, also removes the
@@ -529,18 +537,19 @@ public final class TerminalLaunchFrames {
                                      maximumBytes: Int = maximumBytes, stillWanted: () -> Bool = { true }) {
         let manager = FileManager.checked
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let png = frame.showsClearPixels
-        let name = "\(key)@\(scale)x.\(png ? "png" : "jpg")"
+        let file = encoded(frame, maximumBytes: maximumBytes)
+        let name = "\(key)@\(scale)x.\(file?.ext ?? "")"
         let url = directory.appending(path: name)
-        if let data = frame.pageImageData(png: png, jpegQuality: jpegQuality),
+        if let data = file?.data,
            stillWanted(),
            (try? data.blockingWrite(to: url, options: [.atomic])) != nil {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
         guard stillWanted() else { return }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old != name {
-            // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone.
-            guard let tab = owner(of: old), tab == key || keeping.map({ !$0.contains(tab) }) == true else { continue }
+            // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone. A
+            // frame that could not be saved keeps the one its key had.
+            guard let tab = owner(of: old), tab == key ? file != nil : keeping.map({ !$0.contains(tab) }) == true else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
     }
