@@ -133,6 +133,7 @@ final class AppControl {
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract), and the import note's capture stand-in.
         service.router.register([budget.method(registry: registry), .mainActor("debug.import_note") { call in .value(ImportSuggestionsCenter.shared.debugImportNote(call.params)) }])
         service.router.register(DebugHibernationControl.methods(services))
+        service.router.register([services.chiefPetMini.debugMethod()])  // debug.chief_pet: the pet and its reply box for captures
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         terminalDisplayProbe.terminals = { [weak services] in services?.cache.terminals.map { ($0.key, $0.value.session) } ?? [] }
         service.router.register([

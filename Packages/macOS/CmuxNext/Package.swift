@@ -391,8 +391,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // chat it stands for (Show in Mini, ChiefPetMini) and the sidebar Chief item's picture.
         .target(
             name: "CmuxNextChiefPetWiring",
-            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign",
-                           "CmuxNextDesignTokens", "CmuxNextFloating", "CmuxNextSettings", "CmuxNextSidebar"],
+            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextControl", "CmuxNextDaemon",
+                           "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextFloating", "CmuxNextSettings", "CmuxNextSidebar"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
