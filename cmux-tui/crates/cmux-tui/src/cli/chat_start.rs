@@ -38,6 +38,18 @@ use super::{GlobalArgs, OutputMode, UsageError};
 const TAKES_VALUE: &[&str] =
     &["--on", "--prompt", "-p", "--agent", "--harness", "--model", "--cwd", "--name", "--timeout"];
 
+/// `--wait` and `--no-wait` take no value in `cmux chat …` and `cloud|vm start-chat` (unlike
+/// `terminal send --wait none`), so the global scan reads the word after them as its own:
+/// `cmux chat send S --wait -- --json` keeps `--` and sends "--json".
+pub(super) fn own_switch(command: &[String], flag: &str) -> bool {
+    let ours = match command {
+        [scope, ..] if scope == "chat" => true,
+        [scope, verb, ..] => matches!(scope.as_str(), "cloud" | "vm") && verb == "start-chat",
+        _ => false,
+    };
+    ours && matches!(flag, "--wait" | "--no-wait")
+}
+
 /// The `chat` verbs other modules own (chief/chat_scope.rs and the app's `chat …` actions).
 const OTHER_VERBS: &[&str] = &["send", "read", "wait", "list", "create", "replies", "colors"];
 

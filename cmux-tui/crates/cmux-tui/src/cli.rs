@@ -1130,12 +1130,12 @@ fn scan_globals(
     Ok((global, command))
 }
 
-/// `machine add|vault`'s value-less switches (`machine_join::own_switch`); none on Windows,
-/// where those verbs do not exist.
+/// `machine add|vault`'s value-less switches (`machine_join::own_switch`) and the chat
+/// commands' (`chat_start::own_switch`); none on Windows, where those verbs do not exist.
 fn own_switch(command: &[String], flag: &str) -> bool {
     #[cfg(unix)]
     {
-        machine_join::own_switch(command, flag)
+        machine_join::own_switch(command, flag) || chat_start::own_switch(command, flag)
     }
     #[cfg(not(unix))]
     {
