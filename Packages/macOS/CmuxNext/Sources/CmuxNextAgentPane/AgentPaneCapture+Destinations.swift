@@ -7,11 +7,15 @@ import UniformTypeIdentifiers
 /// The capture bar's calls (``AgentPaneCaptureCall``): its screenshots and recording, and Copy and
 /// Save of what they made. A screenshot and a recording's start spend the person's own click or
 /// key in the pane (`gestures.consume()`), so a page or an agent can never take one by itself;
-/// Copy and Save take only an image's bytes or a file this bridge wrote (``AgentPaneRecorder/owned(_:)``).
+/// Copy and Save take only the screenshot this bridge just handed the pane, or a file it wrote
+/// (``AgentPaneRecorder/owned(_:)``).
 extension AgentPaneCapture {
     @MainActor static func respond(to call: AgentPaneCaptureCall, in model: AgentPaneModel) async -> [String: Any] {
         switch call {
-        case .shot(let mode): return await reply(to: mode, in: model)
+        case .shot(let mode):
+            let reply = await reply(to: mode, in: model)
+            if let text = (reply["value"] as? [String: Any])?["data"] as? String { await AgentPaneRecorder.shared.handed(text, to: model) }
+            return reply
         case .recordStart(let cursor, let clicks):
             guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
             guard let window = hostWindow(for: model) else {
@@ -23,9 +27,20 @@ extension AgentPaneCapture {
             // The page attaches the movie as a local file link: this chat's video tile and open may read it.
             if let path = (reply["value"] as? [String: Any])?["path"] as? String { model.droppedPaths.retain([path]) }
             return reply
-        case .copy(let payload): return await copy(payload)
-        case .save(let payload, let name): return await save(payload, name: name, in: hostWindow(for: model))
+        case .copy(let payload):
+            guard await shotIsHanded(payload, to: model) else { return AgentPaneModel.transportFailure(.pathInvalid) }
+            return await copy(payload)
+        case .save(let payload, let name):
+            guard await shotIsHanded(payload, to: model) else { return AgentPaneModel.transportFailure(.pathInvalid) }
+            return await save(payload, name: name, in: hostWindow(for: model))
         }
+    }
+
+    /// Image bytes are only the screenshot this bridge just handed `model`'s page (spent here);
+    /// a file is decided by ``AgentPaneRecorder/owned(_:)``.
+    @MainActor static func shotIsHanded(_ payload: AgentPaneCapturePayload?, to model: AgentPaneModel) async -> Bool {
+        guard case .bytes(let data, _) = payload else { return true }
+        return await AgentPaneRecorder.shared.takeShot(data, for: model)
     }
 
     /// `capture.copy`: the image's bytes (under its type and as TIFF), or a recording's file URL,

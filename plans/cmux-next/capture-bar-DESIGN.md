@@ -47,7 +47,11 @@ Page to native (`callNative`):
 | `capture.save` | `{data, mimeType, name}` or `{path, name}` | `{saved: path}` or `{cancelled}` |
 
 `composer.capture` and `capture.record.start` keep the existing rule: the page asks only after the
-person's own click or key in the pane (`gestures.consume()`).
+person's own click or key in the pane (`gestures.consume()`). `capture.copy` and `capture.save`
+take image bytes only when they are the screenshot `composer.capture` just gave that pane (once),
+and a file only when it is a movie this bridge wrote, so a page never puts bytes of its own on the
+clipboard. A recording that ended by itself and is not collected before another starts waits for
+its own pane's `capture.record.stop`; it is discarded only when that pane is gone.
 
 Only the pane whose page started a recording may stop it and take its movie; another pane's
 `capture.record.stop` answers `{cancelled}`. A collected movie of a chat on this Mac moves into

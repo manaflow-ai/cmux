@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextWakeups
 import CoreMedia
+import CryptoKit
 import os
 import ScreenCaptureKit
 
@@ -53,6 +54,24 @@ final class AgentPaneRecorder {
     /// chat then, whose Chat Uploads folder keeps the movie.
     private weak var recordingModel: AgentPaneModel?
     private var recordingSession: String?
+    /// Recordings that ended by themselves and were not collected yet when another started: each
+    /// waits for its own pane's `capture.record.stop`, and goes when that pane does.
+    private struct Leftover {
+        weak var model: AgentPaneModel?
+        let session: String?
+        let recording: AgentPaneRecording
+    }
+
+    private var leftovers: [Leftover] = []
+    /// Each pane's last screenshot from ``AgentPaneCapture/reply(to:in:)``, as its SHA-256 (not
+    /// its bytes, so a pane holds 32 bytes): the only bytes that pane's Copy and Save take, once,
+    /// so a page never writes bytes of its own to the clipboard or a file.
+    private struct Shot {
+        weak var model: AgentPaneModel?
+        let digest: Data
+    }
+
+    private var shots: [Shot] = []
 
     func pressed(_ view: AgentPaneView, paneImage: (@MainActor () async -> CGImage?)?) {
         press = Press(view: view, paneImage: paneImage)
@@ -76,18 +95,24 @@ final class AgentPaneRecorder {
         guard !starting, current?.isEnding != false else {
             return AgentPaneReply.failure(code: "capture.busy", message: AgentPaneModel.captureFailedMessage)
         }
-        // One that ended by itself (its window closed, the limit) and was never stopped: its movie
-        // was never handed out, so it goes.
+        // One that ended by itself (its window closed, the limit) and was not collected yet: its
+        // pane may still collect it; with its pane gone, nobody can, so it goes.
         if let stale = current {
             current = nil
-            Task.detached(priority: .utility) { await stale.discard() }
+            if let owner = recordingModel {
+                leftovers.append(Leftover(model: owner, session: recordingSession, recording: stale))
+            } else {
+                Task.detached(priority: .utility) { await stale.discard() }
+            }
         }
+        dropOrphans()
         removeObservers()
         guard window.windowNumber > 0, window.isVisible, !window.isMiniaturized else {
             return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage)
         }
         let id = UUID().uuidString
-        let kept = Set(written.map { URL(fileURLWithPath: $0).deletingLastPathComponent().lastPathComponent }).union([id])
+        let kept = Set(written.map { URL(fileURLWithPath: $0).deletingLastPathComponent().lastPathComponent })
+            .union(leftovers.map(\.recording.folderName)).union([id])
         Task.detached(priority: .utility) { Self.sweep(Self.folder, keeping: kept, now: Date()) }
         let folder = Self.folder.appendingPathComponent(id, isDirectory: true)
         let recording = AgentPaneRecording(AgentPaneRecording.Options(
@@ -120,18 +145,27 @@ final class AgentPaneRecorder {
         return AgentPaneReply.success(["started": true])
     }
 
-    /// Ends the recording `model`'s page started and answers `{path, name, seconds}`, or
-    /// `{cancelled: true}` when none runs, another pane started it (chat B's page never stops chat
-    /// A's recording or learns its file), or it has no frame (its folder is removed then). The movie
-    /// moves into its chat's Chat Uploads folder (``ChatUploadFolders``), which lives as long as the
-    /// chat's other uploads, so a draft or a sent message keeps its video past a relaunch.
+    /// Ends the recording `model`'s page started (or collects one of its that ended by itself) and
+    /// answers `{path, name, seconds}`, or `{cancelled: true}` when it has none (chat B's page never
+    /// stops chat A's recording or learns its file) or it has no frame (its folder is removed
+    /// then). The movie moves into its chat's Chat Uploads folder (``ChatUploadFolders``), which
+    /// lives as long as the chat's other uploads, so a draft or a sent message keeps its video past
+    /// a relaunch.
     func stop(for model: AgentPaneModel) async -> [String: Any] {
-        guard let recording = current, recordingModel === model else { return AgentPaneReply.success(["cancelled": true]) }
-        current = nil
-        removeObservers()
+        let recording: AgentPaneRecording, session: String?
+        if let running = current, recordingModel === model {
+            current = nil
+            removeObservers()
+            (recording, session) = (running, recordingSession)
+        } else if let index = leftovers.firstIndex(where: { $0.model === model }) {
+            let leftover = leftovers.remove(at: index)
+            (recording, session) = (leftover.recording, leftover.session)
+        } else {
+            return AgentPaneReply.success(["cancelled": true])
+        }
         guard let made = await recording.finish() else { return AgentPaneReply.success(["cancelled": true]) }
         var path = made.path
-        if let upload = model.chatUploadFolders?.freshUpload(session: recordingSession) {
+        if let upload = model.chatUploadFolders?.freshUpload(session: session) {
             let movie = URL(fileURLWithPath: made.path)
             let kept = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { Self.keep(movie, in: upload) }.value
             if let kept { path = kept.path }
@@ -139,6 +173,34 @@ final class AgentPaneRecorder {
         written.insert(path)
         return AgentPaneReply.success(["path": path, "name": made.name, "seconds": made.seconds])
     }
+
+    /// Discards the leftovers whose pane is gone: nobody can collect them any more.
+    private func dropOrphans() {
+        let orphans = leftovers.filter { $0.model == nil }.map(\.recording)
+        leftovers.removeAll { $0.model == nil }
+        for orphan in orphans { Task.detached(priority: .utility) { await orphan.discard() } }
+    }
+
+    /// The screenshot just handed `model`'s page (its base64, as the page got it): its Copy or
+    /// Save may take these bytes once. The decode and the hash run off the main actor.
+    func handed(_ base64: String, to model: AgentPaneModel) async {
+        let digest = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) {
+            Data(base64Encoded: base64).map(Self.digest)
+        }.value
+        guard let digest else { return }
+        shots.removeAll { $0.model == nil || $0.model === model }
+        shots.append(Shot(model: model, digest: digest))
+    }
+
+    /// Whether `data` is `model`'s last screenshot; it is spent then.
+    func takeShot(_ data: Data, for model: AgentPaneModel) async -> Bool {
+        let digest = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { Self.digest(data) }.value
+        guard let index = shots.firstIndex(where: { $0.model === model && $0.digest == digest }) else { return false }
+        shots.remove(at: index)
+        return true
+    }
+
+    nonisolated static func digest(_ data: Data) -> Data { Data(SHA256.hash(data: data)) }
 
     /// A recording ended (any path, on the main actor after it): its observers go. One that ended by
     /// itself (the limit, its window's close, a stream failure) is still `current`, so the page's
@@ -288,6 +350,9 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
         if #available(macOS 15.0, *) { configuration.showMouseClicks = options.clicks }
         return configuration
     }
+
+    /// The name of the recording's own folder in ``AgentPaneRecorder/folder``.
+    var folderName: String { options.url.deletingLastPathComponent().lastPathComponent }
 
     /// Ends the recording once (any thread, at once); ``finish()`` waits for the movie.
     func end() { _ = ending() }
