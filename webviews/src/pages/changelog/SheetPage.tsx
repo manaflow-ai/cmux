@@ -15,6 +15,12 @@
 // New, a check for Fixed, a shield for Security, nothing for Improved, so a day is not one run of
 // the same mark (Leo 2026-11-02). Model.ts readableItem joins a line that is the rest of its title
 // back into the title, and a line that repeats it becomes the title.
+// A row from a public manaflow-ai/cmux pull request opens it (Leo 2026-11-07: "this could maybe
+// still be better with linking to prs... or not necessarily actually since we have some in
+// private? hm."): its title is the link, and its `#N` shows quietly at the row's end (`links`, the
+// route's `prs=`). A change from a private repository has no link, name or number
+// (ChangePullRequest publicPullNumber). Rows wrap to show their whole line, never cut with "…"
+// (Leo 2026-11-07: "i just still think it might be a bit too narrow in the full screen").
 // Each day's header has "Versions" (Leo 2026-11-05: "Like literally with a click to a past nightly
 // ... through the What's New page, you can just get back to a prior version if you wanted to"): its
 // builds, each with its commit, its changes since the build before, and Install, which asks once,
@@ -28,22 +34,25 @@ import { dayLabel, groupByDay, isFiller, mergedView, rowKind, type ReleaseView }
 import { withoutWorkCodes } from "./readableChange";
 import { journalKeys, loadNear } from "./JournalPage";
 import { Maintenance } from "./ReleaseParts";
+import { publicPullNumber, pullURL } from "./ChangePullRequest";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
-import type { IndexEntry, ReleaseNotes, SheetLayout, WhatsNewCategory } from "./types";
+import type { IndexEntry, ReleaseNotes, SheetLayout, SheetLinks, WhatsNewCategory } from "./types";
 
 export function SheetPage({
   store,
   strings,
   s,
   layout = "inline",
+  links = "hover",
 }: {
   store: ChangelogStore;
   strings: Strings;
   s: ChangelogSnapshot;
   layout?: SheetLayout;
+  links?: SheetLinks;
 }) {
   return (
-    <KeyboardScope className={`cls cls-${layout}`} handleKeyDown={journalKeys}>
+    <KeyboardScope className={`cls cls-${layout} cls-prs-${links}`} handleKeyDown={journalKeys}>
       <main aria-labelledby="cls-title">
         <h1 className="cls-title" id="cls-title">
           {strings.t("changelog.page.title")}
@@ -215,8 +224,19 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
                 </svg>
               </span>
             )}
-            <span className="cls-row-title">{row.title}</span>
+            {row.pr === undefined ? (
+              <span className="cls-row-title">{row.title}</span>
+            ) : (
+              <a className="cls-row-title cls-row-link" href={pullURL(row.pr)} rel="noreferrer">
+                {row.title}
+              </a>
+            )}
             {row.line && <span className="cls-row-line">{row.line}</span>}
+            {row.pr !== undefined && (
+              <span className="cls-row-pr" aria-hidden="true">
+                #{row.pr}
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -260,30 +280,41 @@ export interface SheetRow {
   line?: string;
   /** The app area the change is in (areas.ts), none for Other. */
   area?: AreaKey;
+  /** Its public manaflow-ai/cmux pull request; none for a change from a private repository. */
+  pr?: number;
 }
 
 /** A day's rows: its curated changes (hero first, then New, Improved, Fixed, Security), each with
-    what its summary's first sentence adds to the title; with none curated, its readable changes,
-    each with its description. Each knows its app area. */
+    what its summary's first paragraph adds to the title; with none curated, its readable changes,
+    each with its description. Each knows its app area and, when it has a public one, its pull
+    request: a curated change's own, else the day's change with the same title. */
 export function sheetRows(view: ReleaseView, _strings?: Strings): SheetRow[] {
   const curated = [...(view.hero ? [view.hero] : []), ...view.groups.flatMap((g) => g.items)];
-  if (curated.length > 0)
+  if (curated.length > 0) {
+    const pulls = new Map<string, number>();
+    for (const change of view.changes) {
+      const pr = publicPullNumber(change.pr);
+      if (pr !== undefined && !pulls.has(words(change.title))) pulls.set(words(change.title), pr);
+    }
     return curated.map((item) => {
-      const line = addedLine(item.title, firstSentence(item.summary));
+      const line = addedLine(item.title, firstParagraph(item.summary));
       return {
         key: item.id,
         category: item.category,
         title: item.title,
         line,
         area: areaOf(item.title) ?? (line ? areaOf(line) : undefined),
+        pr: publicPullNumber(item.pr) ?? pulls.get(words(item.title)),
       };
     });
+  }
   return view.changes.map((change, index) => ({
     key: `${change.pr ?? ""}:${index}`,
     category: rowKind(change.title),
     title: change.title,
     line: addedLine(change.title, fallbackLine(change.description)),
     area: change.area,
+    pr: publicPullNumber(change.pr),
   }));
 }
 
@@ -318,19 +349,22 @@ export function addedLine(title: string, line: string | undefined): string | und
 }
 
 /** A raw change's description as its row's line: no work-stream codes, no filler ("This build brings
-    fixes and improvements."), its first sentence. */
+    fixes and improvements."), its first paragraph. */
 function fallbackLine(description: string | undefined): string | undefined {
   const plain = description ? withoutWorkCodes(description) : "";
-  return plain && !isFiller(plain) ? firstSentence(plain) : undefined;
+  return plain && !isFiller(plain) ? firstParagraph(plain) : undefined;
 }
 
-/** "A link opens in the pane. Unread dots wait." reads "A link opens in the pane."; the whole text
-    when it has one sentence; undefined when empty. */
-function firstSentence(text: string): string | undefined {
-  const trimmed = text.trim();
-  if (!trimmed) return undefined;
-  const end = /[.!?。！？](?=\s|$)/.exec(trimmed);
-  return end ? trimmed.slice(0, end.index + 1) : trimmed;
+/** A description in full as one line: its first paragraph, its line breaks as spaces ("A link
+    opens in the pane. Unread dots wait." stays whole; a list under it is left out); undefined when
+    empty. The row wraps it rather than cutting it (styles.css .cls-row). */
+function firstParagraph(text: string): string | undefined {
+  const paragraph = text
+    .trim()
+    .split(/\n\s*\n|\n\s*[-*•]\s/u)[0]!
+    .replace(/\s+/g, " ")
+    .trim();
+  return paragraph || undefined;
 }
 
 /** A 16 pt stroke glyph per app area, in the theme's accent (styles.css .cls-icon): the sidebar's

@@ -7,7 +7,6 @@
 /// from the next turn. A Chief's own `chief engine set --mode` picks within it: never wider than this setting.
 nonisolated enum ChiefPermissionSettingsSchema {
     static let modePath = ["chief", "permissionMode"]
-    static let keys: Set<String> = [modePath.joined(separator: ".")]
 
     static var descriptors: [SettingDescriptor] {
         [

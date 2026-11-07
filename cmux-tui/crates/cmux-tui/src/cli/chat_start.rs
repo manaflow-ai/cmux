@@ -315,7 +315,11 @@ where
 
 /// The app's existing Cloud VM with machine id `id`, else the one VM titled `name`, from its
 /// `cloud list-machines` answer. Err: the ids that matched (none, or several).
-fn existing_vm(id: &str, name: Option<&str>, listed: &Value) -> Result<Machine, Vec<String>> {
+pub(super) fn existing_vm(
+    id: &str,
+    name: Option<&str>,
+    listed: &Value,
+) -> Result<Machine, Vec<String>> {
     let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     if rows.iter().any(|row| text(row, "machine_id") == Some(id)) {
         return Ok(Machine::Target(id.to_owned()));
@@ -357,7 +361,7 @@ fn device_id(selector: &str, catalog: &Value) -> Result<String, Value> {
 /// The SDK's refusal, with what to run next.
 fn refused(refusal: &ChatTargetRefusal) -> Value {
     let next = match refusal {
-        ChatTargetRefusal::SignedOut => "run `cmux vm sign-in`, then this command again",
+        ChatTargetRefusal::SignedOut => "run `cmux login`, then this command again",
         _ => LIST_DEVICES,
     };
     self::refusal(refusal.code(), refusal.to_string(), next, json!({}))
@@ -519,7 +523,7 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     Ok(words)
 }
 
-fn read_stdin() -> Result<String, String> {
+pub(super) fn read_stdin() -> Result<String, String> {
     use std::io::Read as _;
     let mut text = String::new();
     std::io::stdin().read_to_string(&mut text).map(|_| text).map_err(|error| error.to_string())
