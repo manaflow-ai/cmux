@@ -14,7 +14,7 @@ public final class ChiefPromptWindow {
     public private(set) var id: String?
     /// A Chief conversation's newest message as the store shows it: its id, and whether this
     /// app's person wrote it (the Chief's replies and a teammate's messages are not theirs).
-    public struct Last: Equatable, Sendable {
+    public nonisolated struct Last: Equatable, Sendable {
         public var message: String
         public var byPerson: Bool
 

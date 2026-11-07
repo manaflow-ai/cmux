@@ -477,7 +477,7 @@ extension HomeService {
         // task-owner: lives as long as the service; event-driven (Observation)
         promptWatch = Task { [weak self] in
             for await lasts in ObservationStream({ [weak self] in
-                self.map { Self.chiefLastMessages(in: $0.conversations, me: $0.homeSource.me.id) } ?? [:]
+                self.map { Self.chiefLastMessages(in: $0.conversations, me: $0.homeSource.me.id.rawValue) } ?? [:]
             }) {
                 guard let self else { return }
                 services.windows.chiefPrompt.observe(lasts)
