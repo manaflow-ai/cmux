@@ -170,7 +170,7 @@ def main():
     with open(os.path.join(ROOT, CSS_FILE)) as handle:
         current_css = handle.read()
     wanted = {CSS_FILE: css(current_css, data), TS_FILE: ts(data), SWIFT_FILE: swift(data)}
-    for path, pattern, value in ((RUST_TOKENS_FILE, RUST_SPINNER, "%.1f" % (data["spinner"]["ms"] / 1000)),
+    for path, pattern, value in ((RUST_TOKENS_FILE, RUST_SPINNER, repr(data["spinner"]["ms"] / 1000)),
                                  (AGENT_CHAT_CSS_FILE, AGENT_CHAT_SPINNER, str(data["spinner"]["ms"]))):
         with open(os.path.join(ROOT, path)) as handle:
             wanted[path] = rewrite(handle.read(), pattern, value, path)

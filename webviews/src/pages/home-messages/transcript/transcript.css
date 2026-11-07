@@ -21,7 +21,7 @@
   --mt-tapback-lift: -22px;
   --mt-hairline-gap: 2px;
   --mt-on-danger: #ffffff;
-  /* A loop, not a transition: the typing dots' cycle (the older-page spinner turns on --cmux-spinner-period). */
+  /* A loop, not a transition: the typing dots' cycle. */
   --mt-typing-period: 1200ms;
   --mt-side: 20px;
   --mt-avatar-col: 36px;
@@ -242,16 +242,6 @@
   height: 28px;
   align-items: center;
   justify-content: center;
-}
-
-.mt-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid color-mix(in srgb, var(--page-text) 18%, transparent);
-  border-top-color: var(--mt-caption);
-  border-radius: 999px;
-  /* SYNCED-SPINNERS: the shared turn and period (pages/shared/desktop.css). */
-  animation: cmux-spin var(--cmux-spinner-period) linear infinite;
 }
 
 .mt-separator {
@@ -475,7 +465,7 @@
   }
 }
 
-:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is(.mt-typing i, .mt-spinner) {
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .mt-typing i {
   animation: none;
 }
 
