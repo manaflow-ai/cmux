@@ -112,7 +112,10 @@ export function pressCard(
   const events: EventTarget = target.ownerDocument?.defaultView ?? target;
   let near: CardRow | undefined;
   let shown: Point = { x: 0, y: 0 };
+  // Only the pointer that pressed moves or ends the press: a second touch or pen is not this drag.
+  const own = (next: PointerEvent) => next.pointerId === event.pointerId;
   const move = (next: PointerEvent) => {
+    if (!own(next)) return;
     const point = at(next);
     const offset = drag.move(point, next.timeStamp);
     if (!drag.dragging) return;
@@ -156,8 +159,12 @@ export function pressCard(
     if (row !== place.anchor) rememberRow(row);
     host.drop(row, shown);
   };
-  const up = (last: PointerEvent) => end(last, false);
-  const cancel = (last: PointerEvent) => end(last, true);
+  const up = (last: PointerEvent) => {
+    if (own(last)) end(last, false);
+  };
+  const cancel = (last: PointerEvent) => {
+    if (own(last)) end(last, true);
+  };
   events.addEventListener("pointermove", move as EventListener);
   events.addEventListener("pointerup", up as EventListener);
   events.addEventListener("pointercancel", cancel as EventListener);
