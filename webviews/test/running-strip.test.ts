@@ -221,7 +221,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
   });
 
   test("an open command's time, state and Open in terminal share one line on the command's left edge", async () => {
-    // Leo, 2026-11-07, on the open command's last line ("33s", "Running", "Open in terminal" each at
+    // Leo, 2026-11-07, on the open command's last line ("33s", "No output yet", "Open in terminal" each at
     // their own height): "also for the hat wow this is wildly misaligned at the bottom".
     const page = await browser!.newPage({ viewport: { width: 760, height: 400 } });
     try {
@@ -248,9 +248,9 @@ await requireBrowserLane("running-strip.test.ts", async () => {
           [...tail.querySelectorAll<HTMLElement>("*")].find(
             (element) => element.childElementCount === 0 && element.textContent?.trim() === text,
           ) ?? [...tail.querySelectorAll<HTMLElement>("*")].find((element) => element.textContent?.trim() === text)!;
-        const command = tail.querySelector(".acpmux-running-tray__command")!;
+        const command = tail.querySelector(".acpmux-bg-card__command")!;
         const time = tail.querySelector(".acpmux-running-tray__meta")!;
-        const state = leaf("Running");
+        const state = leaf("No output yet");
         const button = tail.querySelector("button")!;
         const label = [...button.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)!;
         const labelRange = document.createRange();

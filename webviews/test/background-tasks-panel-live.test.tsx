@@ -133,6 +133,9 @@ test("a finished command with no known end shows no time that keeps counting", a
       />,
     ),
   );
+  // Finished starts folded, as Claude Desktop's panel opens (Leo, 2026-11-07): open it first.
+  const finished = container.querySelector<HTMLElement>('[data-section="finished"] .acpmux-bg__section-head')!;
+  await act(async () => finished.click());
   const times = [...container.querySelectorAll(".acpmux-bg__time")].map((node) => node.textContent ?? "");
   expect(times.length).toBeGreaterThan(0);
   expect(times.every((text) => text === "")).toBe(true);
