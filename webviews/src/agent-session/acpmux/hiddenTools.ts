@@ -15,13 +15,16 @@ export function isPlumbingCall(update: any): boolean {
 }
 
 /// A completed plumbing call stays in the source row for Find/copy/export, but does not count as
-/// work in the turn summary. Presentation filters the same call from the visible step list.
+/// work in the turn summary. The one predicate for both: presentation filters the same call from
+/// the visible step list (mcpPresentation.ts `visibleToolItems`), so a call is never hidden from
+/// one and counted or drawn by the other. A call that ran a command, changed a file, showed an
+/// image, went to the background or was approved did more than load schemas, and stays.
 export function isCompletedPlumbingTool(tool: any): boolean {
   const name = tool?.provenance?.claudeTool ?? tool?.provenance?.claudeCodeToolName;
   if (tool?.status !== "completed" || typeof name !== "string" || !PLUMBING_TOOLS.has(name) || tool.title !== name)
     return false;
-  // A discovery call that reports an error remains visible and counts as work. Keep this
-  // predicate aligned with the presentation projection in mcpPresentation.ts.
+  if (tool.command || tool.diffs?.length || tool.images?.length || tool.background || tool.approved) return false;
+  // A discovery call that reports an error remains visible and counts as work.
   if (
     (tool.exitCode ?? 0) !== 0 ||
     /(?:"(?:isError|error)"\s*:\s*(?!(?:false|null|0)\s*[,}])\S|"(?:success|ok)"\s*:\s*(?:false|0)\b|"(?:status|state)"\s*:\s*"(?:error|failed|cancelled|canceled)"|^\s*(?:error|failed|unable|unavailable|cancelled|canceled)(?:\s+by\s+user)?\b)/im.test(

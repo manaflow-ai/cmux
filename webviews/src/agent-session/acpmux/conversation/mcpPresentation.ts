@@ -1,37 +1,14 @@
 // Presentation-only reductions. Original calls remain available to Find, copy and export.
-import type { AcpmuxActivity } from "../model";
-import { mcpCall } from "./mcpCalls";
+import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { isCompletedPlumbingTool } from "../hiddenTools";
 import { losesNumbers, parseJSONValue } from "./toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
-const DISCOVERY_NAMES = /^(?:ToolSearch|tool_search|load_tools)$/;
-
 // Only the harness's successful discovery operation is noise; never hide a server's similarly
 // named user operation, a pending permission, a failed discovery, or an error returned as success.
-export function isToolDiscoveryNoise(tool: Tool | undefined): boolean {
-  if (
-    !tool ||
-    tool.status !== "completed" ||
-    tool.command ||
-    tool.diffs?.length ||
-    tool.images?.length ||
-    tool.background ||
-    tool.approved
-  )
-    return false;
-  const provenanceName = tool.provenance?.claudeTool ?? tool.provenance?.claudeCodeToolName;
-  if (!provenanceName || tool.title !== provenanceName || !DISCOVERY_NAMES.test(provenanceName) || mcpCall(tool))
-    return false;
-  if (
-    (tool.exitCode ?? 0) !== 0 ||
-    /(?:"(?:isError|error)"\s*:\s*(?!(?:false|null|0)\s*[,}])\S|"(?:success|ok)"\s*:\s*(?:false|0)\b|"(?:status|state)"\s*:\s*"(?:error|failed|cancelled|canceled)"|^\s*(?:error|failed|unable|unavailable|cancelled|canceled)(?:\s+by\s+user)?\b)/im.test(
-      tool.output ?? "",
-    )
-  )
-    return false;
-  return true;
-}
+// The turn summary's count uses the same predicate (hiddenTools.ts), so the two never disagree.
+export const isToolDiscoveryNoise = (tool: Tool | undefined): boolean => isCompletedPlumbingTool(tool);
 
 // Rendering and first-layout accounting share this projection. Transcript snapshots remain
 // intact for Find/copy/export; Find may explicitly reveal the original calls. Cache by the
@@ -45,6 +22,12 @@ export function visibleToolItems(items: AcpmuxActivity[] | undefined, revealing 
   const result = projected.length === items.length ? items : projected;
   visibleItems.set(items, result);
   return result;
+}
+
+/// Whether an activity row has calls and every one is hidden discovery: it draws no step, so a
+/// turn's shaping treats it as no work (no "Worked for" fold of nothing), as `visibleToolItems` does.
+export function hidesEveryCall(row: AcpmuxRow): boolean {
+  return row.kind === "activity" && Boolean(row.items?.length) && !visibleToolItems(row.items)?.length;
 }
 
 // A bare lifecycle placeholder isn't output. Restrict this to an exact whole response, so logs

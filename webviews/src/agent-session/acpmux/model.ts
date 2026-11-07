@@ -68,7 +68,7 @@ import {
   promptParts,
 } from "./conversation/promptCollapse";
 import { mcpCall } from "./conversation/mcpCalls";
-import { visibleToolItems } from "./conversation/mcpPresentation";
+import { hidesEveryCall, visibleToolItems } from "./conversation/mcpPresentation";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import { agentMessage } from "./conversation/agentMessages";
 import type { ChatTool } from "./summary/chatTools";
@@ -1870,7 +1870,7 @@ const isIncomingRunLine = (kind: string | undefined) => isIncomingLine(kind) || 
 const drawsNothing = (row: AcpmuxRow) =>
   row.incoming?.kind === "hidden" ||
   row.kind === "sessionStart" ||
-  (row.kind === "activity" && Boolean(row.items?.length) && !visibleToolItems(row.items)?.length);
+  hidesEveryCall(row);
 /// The row after `index` that draws something.
 export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
   for (let next = index + 1; next < rows.length; next += 1) if (!drawsNothing(rows[next]!)) return rows[next];
