@@ -7,6 +7,8 @@ import CmuxNextDesign
 /// the rows; this owns only the panel and the window's return.
 @MainActor
 final class ComputerUseHelperPanels {
+    /// Runs after the window comes back in front (the controller focuses its page).
+    var onForward: (() -> Void)?
     private let model: ComputerUseStepModel
     private weak var window: NSWindow?
     private var panel: HelperDragPanel?
@@ -48,6 +50,8 @@ final class ComputerUseHelperPanels {
         guard !WindowPlacement.noActivate else { return }
         NSApp.activate()
         window.makeKey()
+        // The page takes the keys again (a Chromium page's own child window, not the host window).
+        onForward?()
     }
 
     func hidePanel() {

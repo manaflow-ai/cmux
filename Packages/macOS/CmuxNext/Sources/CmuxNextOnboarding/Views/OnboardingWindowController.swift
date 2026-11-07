@@ -63,7 +63,10 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
             content.addSubview(page)
         }
         window.install(kind: .onboarding, content: content, scope: .app, activeLook: activeLook)
-        if model.step == .computerUse { helperPanels = ComputerUseHelperPanels(model: model.computerUse, window: window) }
+        if model.step == .computerUse {
+            helperPanels = ComputerUseHelperPanels(model: model.computerUse, window: window)
+            helperPanels?.onForward = { [weak self] in self?.page?.focusPage() }
+        }
         window.onKey = { [weak model] key in
             switch key {
             case .next: model?.next()
