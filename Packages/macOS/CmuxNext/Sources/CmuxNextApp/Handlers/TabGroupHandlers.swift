@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextTabs
+import CmuxNextWindowRules
 
 /// Tab group actions (architecture.md section 7): create,
 /// membership, rename, nine colors, collapse, ungroup, close, reorder, move
@@ -157,8 +158,8 @@ enum TabGroupHandlers {
     private static func setCollapsed(_ value: Bool?, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let (group, pane) = group(invocation, ctx) else { return }
         let current = pane.tabGroups.first { $0.id == group }?.collapsed ?? false
-        let collapsed = value ?? !current
-        guard collapsed != current else { return }
+        // Nil: no change (Rust's `tabs::group_collapse`).
+        guard let collapsed = WindowRules().groupCollapse(value, current: current) else { return }
         if collapsed, let controller = ctx.services.paneController(for: pane) {
             // The collapse rule (`TabGroupOrdering`), shared with screen groups.
             let strip = controller.stripModel

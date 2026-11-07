@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
+import CmuxNextWindowRules
 
 /// Zellij-style new panes (`PanePlacement`): New Pane (Auto Layout)
 /// (Ctrl-Cmd-N) splits the largest scrolling pane on screen along its
@@ -37,12 +38,13 @@ enum PanePlacementRouting {
     /// neither has room.
     static func autoLayoutDirection(_ ctx: AppActionContext, _ pane: PaneController) -> (preferred: PaneDirection, fitting: PaneDirection?) {
         let frame = pane.workspace?.layoutView.frame(of: pane.layoutPaneID) ?? .zero
-        let preferred: PaneDirection = frame.width >= frame.height ? .right : .down
-        let other: PaneDirection = preferred == .right ? .down : .right
-        let fitting = [preferred, other].first { direction in
+        let room = { (direction: PaneDirection) in
             if case .split = ctx.services.splitRoom(for: pane.pane, edge: PaneHandlers.edge(direction)) { true } else { false }
         }
-        return (preferred, fitting)
+        // Rust's `tabs::panes::auto_direction`.
+        guard let answer = WindowRules().autoDirection(width: Double(frame.width), height: Double(frame.height),
+                                                       roomRight: room(.right), roomDown: room(.down)) else { return (.right, nil) }
+        return (PaneDirection(rawValue: answer.preferred) ?? .right, answer.fitting.flatMap(PaneDirection.init(rawValue:)))
     }
 
     /// The route for a new tab of a kind that tiles (`tiles`: a terminal,
