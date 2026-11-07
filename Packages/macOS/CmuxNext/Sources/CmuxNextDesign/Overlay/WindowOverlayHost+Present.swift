@@ -164,7 +164,10 @@ public extension WindowOverlayHost {
             if options.dimsContent || (options.isModal && options.modalRegion == nil) { return [bounds] }
             var rects: [NSRect] = []
             if let region = options.modalRegion { rects.append(region) }
-            if !options.passesThroughClicks { rects += visibleRegion(of: handle) }
+            if !options.passesThroughClicks {
+                let visible = visibleRegion(of: handle)
+                rects += options.mouseRect.map { mouse in visible.map { $0.intersection(mouse) }.filter { !$0.isEmpty } } ?? visible
+            }
             return rects
         }
     }

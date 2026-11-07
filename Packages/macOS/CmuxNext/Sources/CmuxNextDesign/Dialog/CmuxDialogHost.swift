@@ -81,11 +81,22 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         return region
     }
 
-    private static func tabPlacement(_ entry: Shown) -> (region: NSRect, tab: NSRect)? {
+    /// A tab dialog's region, its tab (the blocked region) and its card (window coordinates; empty before
+    /// the page laid it out): the region takes clicks only on the card, so a neighboring pane the region
+    /// grew over keeps its clicks outside the card.
+    private static func tabPlacement(_ entry: Shown) -> (region: NSRect, tab: NSRect, card: NSRect)? {
         guard case .tab(let view)? = entry.scope.live, let window = view.window else { return nil }
         let tab = view.convert(view.bounds, to: nil)
         let content = window.contentView.map { $0.convert($0.bounds, to: nil) }
-        return (tabRegion(tab, holding: entry.dialog.cardRect, in: content), tab)
+        let region = tabRegion(tab, holding: entry.dialog.cardRect, in: content)
+        return (region, tab, cardInWindow(entry.dialog.cardRect, region: region, flipped: entry.dialog.view?.isFlipped ?? false))
+    }
+
+    /// `card` (the dialog view's coordinates, the view filling `region`) in window coordinates.
+    static func cardInWindow(_ card: CGRect?, region: NSRect, flipped: Bool) -> NSRect {
+        guard let card else { return .zero }
+        let y = flipped ? region.maxY - card.maxY : region.minY + card.minY
+        return NSRect(x: region.minX + card.minX, y: y, width: card.width, height: card.height)
     }
 
     /// The app-scope region for a card of `card` points: never smaller than ``appRegion``, so a card the
@@ -143,7 +154,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
             watcher.onResize = { [weak entry] in
                 guard let entry, let place = Self.tabPlacement(entry) else { return }
                 entry.dialog.view?.setFrameSize(place.region.size)
-                entry.handle?.update(anchor: place.region, modalRegion: place.tab)
+                entry.handle?.update(anchor: place.region, modalRegion: place.tab, mouseRect: place.card)
             }
             entry.watcher = watcher
         }
@@ -177,6 +188,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         if let place = Self.tabPlacement(entry) {
             options.anchor = place.region
             options.modalRegion = place.tab
+            options.mouseRect = place.card
         }
         view.frame = NSRect(origin: .zero, size: options.anchor?.size ?? Self.appRegion(holding: entry.dialog.cardRect))
         entry.dialog.view = view
@@ -207,12 +219,11 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         }
         if case .tab = scope {
             // A card wider or taller than its tab (a narrow split) keeps its whole card: the region grows
-            // around the tab, inside the window, while only the tab is blocked.
+            // around the tab, inside the window, while only the tab and the card take clicks.
             entry.dialog.onCardRect = { [weak handle, weak view, weak entry] in
-                guard let handle, let view, let entry, let place = Self.tabPlacement(entry),
-                      view.frame.size != place.region.size else { return }
-                view.setFrameSize(place.region.size)
-                handle.update(anchor: place.region, modalRegion: place.tab)
+                guard let handle, let view, let entry, let place = Self.tabPlacement(entry) else { return }
+                if view.frame.size != place.region.size { view.setFrameSize(place.region.size) }
+                handle.update(anchor: place.region, modalRegion: place.tab, mouseRect: place.card)
             }
             entry.dialog.onCardRect?()
         }

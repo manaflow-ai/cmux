@@ -134,6 +134,35 @@ import Testing
         #expect(center.dialog(id)?.view?.window != nil)
     }
 
+    /// Review 23 of #37296 (F1): a narrow tab's dialog region grew past the tab and took clicks across its
+    /// whole frame, so a click in the neighboring pane beside the card went into the transparent page. The
+    /// region takes clicks only on its tab and its card.
+    @Test func aGrownTabRegionTakesClicksOnlyOnItsTabAndCard() {
+        let center = CmuxDialogCenter(host: CmuxDialogOverlayHost(drawing: LateDrawing(), activate: {}, isAppActive: { true }))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let tab = NSView(frame: NSRect(x: 440, y: 0, width: 200, height: 480))
+        window.contentView?.addSubview(tab)
+        let id = center.present(CmuxDialogSpec(title: "Close?", buttons: [.cancel(), .ok()]), in: .tab(tab)) { _ in }
+        defer { center.dismiss(id) }
+        // The page lays out a 380 pt card: the region grows left over the neighboring pane (x 228...640).
+        center.dialog(id)?.cardRect = CGRect(x: 16, y: 150, width: 380, height: 180)
+        let overlay = WindowOverlayHost.host(for: window)
+        #expect(!overlay.acceptsMouse(at: NSPoint(x: 300, y: 50)))
+        #expect(overlay.acceptsMouse(at: NSPoint(x: 300, y: 240)))
+        #expect(overlay.acceptsMouse(at: NSPoint(x: 500, y: 50)))
+    }
+
+    @Test func aCardIsPlacedInTheWindowFromItsRegion() {
+        let region = NSRect(x: 228, y: 0, width: 412, height: 480)
+        let card = CGRect(x: 16, y: 100, width: 380, height: 180)
+        #expect(CmuxDialogOverlayHost.cardInWindow(card, region: region, flipped: false) == NSRect(x: 244, y: 100, width: 380, height: 180))
+        #expect(CmuxDialogOverlayHost.cardInWindow(card, region: region, flipped: true) == NSRect(x: 244, y: 200, width: 380, height: 180))
+        #expect(CmuxDialogOverlayHost.cardInWindow(nil, region: region, flipped: false).isEmpty)
+    }
+
     /// Review 15 of #37296 (F2): a tab dialog's view was its tab's size, so in a narrow split the card was
     /// clipped. The region grows about the tab to hold the card, inside the window; a card that fits keeps
     /// the tab.

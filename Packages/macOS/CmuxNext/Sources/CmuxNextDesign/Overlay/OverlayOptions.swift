@@ -50,6 +50,10 @@ public struct OverlayOptions: Equatable, Sendable {
     /// Window coordinates: mouse input inside this rect is blocked (a
     /// tab-region modal), the rest of the window stays usable.
     public var modalRegion: NSRect?
+    /// Window coordinates: an overlay that takes clicks takes them only here, not across its whole frame
+    /// (a tab dialog's card, in a region grown past a narrow tab); empty takes none. ``modalRegion``
+    /// still blocks.
+    public var mouseRect: NSRect?
     /// Nil: `.modal` for dialogs, `.window` otherwise (`effectiveLayer`).
     public var layer: OverlayLayer?
     /// A dialog that stays at its transparent first frame until ``OverlayHandle/beginEntrance()``: its
@@ -123,10 +127,11 @@ public final class OverlayHandle {
         host?.layout(self)
     }
 
-    /// Moves the overlay and its blocked region (a tab dialog after a tab resize).
-    public func update(anchor: NSRect, modalRegion: NSRect?) {
+    /// Moves the overlay and its blocked region (a tab dialog after a tab resize), and where it takes clicks.
+    public func update(anchor: NSRect, modalRegion: NSRect?, mouseRect: NSRect?) {
         options.anchor = anchor
         options.modalRegion = modalRegion
+        options.mouseRect = mouseRect
         host?.layout(self)
         host?.onBlockingChange?()
     }
