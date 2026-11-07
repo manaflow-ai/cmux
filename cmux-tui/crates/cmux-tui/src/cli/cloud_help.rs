@@ -438,7 +438,7 @@ QUICK START
 
   Machines:
   cmux cloud ls --json
-  cmux cloud new --size small --json
+  cmux machine new --size small --json
   cmux cloud exec --target machine:MACHINE_ID --command 'uname -a' --json
   cmux cloud status dev
   cmux cloud pause dev
@@ -472,7 +472,7 @@ const INTRO_JA: &str = "\
 
   マシン:
   cmux cloud ls --json
-  cmux cloud new --size small --json
+  cmux machine new --size small --json
   cmux cloud exec --target machine:MACHINE_ID --command 'uname -a' --json
   cmux cloud status dev
   cmux cloud pause dev

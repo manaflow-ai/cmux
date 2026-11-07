@@ -184,9 +184,9 @@ fn quick_start_commands_parse() {
             .filter(|line| !line.contains("secret") && !line.contains("client-session"))
             .filter(|line| !line.starts_with("cmux vm env "))
             .collect::<Vec<_>>();
-        // Two `cmux chat --on vm:` lines, three follow-ups and seven machine lines, most of them
-        // short verbs. No line is a `vm start-chat` or `vm chat`.
-        assert_eq!(commands.len(), 12, "{commands:?}");
+        // Two `cmux chat --on vm:` lines, three follow-ups and six machine lines, most of them
+        // short verbs; the create is `cmux machine new`. No line is a `vm start-chat` or `vm chat`.
+        assert_eq!(commands.len(), 11, "{commands:?}");
         assert!(commands[0].starts_with("cmux chat --on vm:"), "the chat leads: {commands:?}");
         assert!(!text.contains("vm start-chat") && !text.contains("vm chat"), "{text}");
         for command in commands {
@@ -204,14 +204,10 @@ fn quick_start_commands_parse() {
                 );
                 continue;
             }
-            // A short verb (`vm pause dev`) runs the app's Cloud verb (vm_short.rs); `vm new` is
-            // vm.rs's create.
+            // A short verb (`vm pause dev`) runs the app's Cloud verb (vm_short.rs).
             let words = shell_words(command);
             if let Some(short) = crate::cli::vm_short::parse(&words[1..]) {
                 assert!(find(short.cloud_verb).is_some(), "{command}");
-                continue;
-            }
-            if words.get(2).map(String::as_str) == Some("new") {
                 continue;
             }
             // `vm VERB` runs as `cloud VERB` (vm.rs `cloud_alias`).
@@ -241,15 +237,16 @@ fn quick_start_commands_parse() {
 }
 
 /// `cloud new-machine` is `cmux machine new`'s old name: the overview shows
-/// only `vm new`, and the old verb's own help names `machine new`.
+/// only `machine new`, and the old verb's own help names it.
 #[test]
 fn renamed_verbs_are_hidden_and_point_at_their_new_name() {
     for japanese in [false, true] {
         let text = overview(japanese);
         assert!(!text.lines().any(|line| line.starts_with("  new-machine ")), "{text}");
         assert!(!text.contains("cmux vm new-machine"), "{text}");
-        // The quick start makes a VM with the short verb (`vm new` is `machine new`).
-        assert!(text.contains("cmux vm new --size"), "{text}");
+        // The quick start makes a Cloud VM with `machine new` (`vm new` is the VM API's create).
+        assert!(text.contains("cmux machine new --size"), "{text}");
+        assert!(!text.contains("cmux vm new"), "{text}");
         let help = verb_help("new-machine", japanese).unwrap();
         assert!(help.contains("cmux machine new"), "{help}");
         assert!(help.contains("cmux vm new-machine [--size"), "{help}");
