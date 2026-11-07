@@ -51,7 +51,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
             paneMotion(active: false)
             return
         }
-        paneMotion(active: true)
+        // RESIZE P0 5 A/B arm B (no-merge): a key resize keeps the page window attached.
         if pageMotionHold == nil {
             // S5: no hold. The page lays out at the page area in every frame (no main-thread wait for its frame).
             beginPageSync(.keyResize)
