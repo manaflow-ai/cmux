@@ -123,7 +123,7 @@ pub(super) fn invite_chat(
     let ids = NewIds::draw()?;
     // Asked before the lock: the room a new share would open in, or why none may be made.
     let new_room = room_for_new(shares, p.owner_token);
-    let connected = || shares.connected();
+    let connected = || shares.present();
     let (mut answer, made) = shares.with(directory, |all, now| {
         let existing = all
             .iter()

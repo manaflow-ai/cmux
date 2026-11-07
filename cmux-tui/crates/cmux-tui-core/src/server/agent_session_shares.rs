@@ -149,9 +149,8 @@ fn fits(shares: &[LinkShare]) -> bool {
 }
 
 /// Whether `shares` [`fits`], once the ended shares that may go are gone if it did not, and then
-/// the link guests that left ([`forget_gone`]). `connected` answers the guests bound to a
-/// connection now ([`LinkShares::connected`]); it is asked only when guests may go, under the
-/// shares lock.
+/// the link guests that left ([`forget_gone`]). `connected` answers the guests still around
+/// ([`LinkShares::present`]); it is asked only when guests may go, under the shares lock.
 fn fits_or_prune(shares: &mut Vec<LinkShare>, now: u64, connected: Connected<'_>) -> bool {
     if fits(shares) {
         return true;
@@ -164,28 +163,39 @@ fn fits_or_prune(shares: &mut Vec<LinkShare>, now: u64, connected: Connected<'_>
     fits(shares)
 }
 
-/// Answers the link guests bound to a connection now ([`LinkShares::connected`]).
-type Connected<'a> = &'a dyn Fn() -> HashSet<String>;
+/// Answers which link guests are still around ([`LinkShares::present`]).
+type Connected<'a> = &'a dyn Fn() -> Present;
 
-/// A link guest is kept at least this long after it joined, connected or not: a retry of its
-/// redeem gets it again, and its first bind (the room's relay may wait to start) finds it.
-const KEEP_JOINED_MS: u64 = 10 * 60 * 1000;
+/// The link guests still around, as `<share_id>.<guest_id>`: bound to a connection now, or
+/// within [`KEEP_MS`] (`LinkShares::seen`); and when the registry was read, since a guest from
+/// before had no connection to this daemon until then.
+#[derive(Debug, Default)]
+pub(super) struct Present {
+    pub(super) guests: HashSet<String>,
+    pub(super) loaded_at: u64,
+}
 
-/// Drops the link guests (no account) that left: not kicked, bound to no connection now, and
-/// joined [`KEEP_JOINED_MS`] ago or more. A view link may admit 1000 guests, far more than the
-/// file holds, so the ones gone make room for the next (cmux#37803, F4). Such a guest only
-/// watched; to watch again it opens the link anew, a use like any join. The share's `uses_left`
-/// is its own count, so uses stay exact. A kicked guest stays, so its attempt and its guest id
-/// keep answering `share.kicked`; an invitee's guests have their own bound
-/// (`MAX_GUESTS_PER_ACCOUNT`, its ended ones dropped at its next join).
-fn forget_gone(shares: &mut [LinkShare], now: u64, connected: &HashSet<String>) {
+/// A link guest is kept at least this long after it joined, after its last connection to this
+/// daemon ended, and after the registry was read: a retry of its redeem gets it again, its first
+/// bind finds it (the room's relay may wait to start), and so does its relay after the room's
+/// host socket or the daemon restarts while its browser stays in the room.
+const KEEP_MS: u64 = 10 * 60 * 1000;
+
+/// Drops the link guests (no account) that left: not kicked, not [`Present`], and joined
+/// [`KEEP_MS`] ago or more. A view link may admit 1000 guests, far more than the file holds, so
+/// the ones gone make room for the next (cmux#37803, F4). Such a guest only watched; to watch
+/// again it opens the link anew, a use like any join. The share's `uses_left` is its own count,
+/// so uses stay exact. A kicked guest stays, so its attempt and its guest id keep answering
+/// `share.kicked`; an invitee's guests have their own bound (`MAX_GUESTS_PER_ACCOUNT`, its ended
+/// ones dropped at its next join).
+fn forget_gone(shares: &mut [LinkShare], now: u64, present: &Present) {
     for share in shares {
         let share_id = &share.share_id;
         share.guests.retain(|g| {
             g.account.is_some()
                 || g.state == GuestState::Kicked
-                || now.saturating_sub(g.joined_at) < KEEP_JOINED_MS
-                || connected.contains(&format!("{share_id}.{}", g.guest_id))
+                || now.saturating_sub(g.joined_at.max(present.loaded_at)) < KEEP_MS
+                || present.guests.contains(&format!("{share_id}.{}", g.guest_id))
         });
     }
 }
@@ -358,6 +368,11 @@ pub(in crate::server) struct LinkShares {
     /// The one timer armed, and the expiry it ends. Changed only under the shares lock (taken
     /// first), so the timer always matches the shares it was computed from.
     armed: Mutex<Option<(TimerId, u64)>>,
+    /// Link guests whose last connection ended, and when (`<share_id>.<guest_id>`; only those
+    /// within [`KEEP_MS`] are kept): they are still around ([`Self::present`]).
+    seen: Mutex<std::collections::HashMap<String, u64>>,
+    /// When the shares were read from the file (this daemon's start, for its guests).
+    loaded_at: AtomicU64,
     /// Shares (`None`) and guests that ended since the last `settle`, whose connections close.
     ended: Mutex<Vec<(String, Option<String>)>>,
     /// Room DELETE workers currently dispatched, one per share. Expiry can race a worker that is
@@ -633,6 +648,7 @@ impl LinkShares {
     /// destroy it; until it is
     /// moved, every write is refused ([`Self::save`]).
     fn load(&self, directory: Option<&Path>) -> Vec<LinkShare> {
+        self.loaded_at.store(self.now(), Ordering::Relaxed);
         let Some(directory) = directory else { return Vec::new() };
         let path = directory.join(FILE);
         if std::fs::symlink_metadata(&path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
@@ -689,25 +705,46 @@ impl LinkShares {
         self.room_deletes.lock().unwrap_or_else(|e| e.into_inner()).remove(share_id);
     }
 
-    /// The link guests bound to a connection now, as `<share_id>.<guest_id>`. Read under the
-    /// shares lock (then the mux slot, then the proxy authors; nothing takes them the other way
-    /// round): a bind registers its author before its last check (`guest_live`), which waits for
-    /// the shares lock, so a guest is either read here as bound or refused by that check once it
-    /// is forgotten, never forgotten while it stays bound.
-    fn connected(&self) -> HashSet<String> {
-        let Some(mux) = self.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade() else {
-            return HashSet::new();
+    /// The link guests still around ([`Present`]). Read under the shares lock (then the mux
+    /// slot, the proxy authors, then `seen`; nothing takes them the other way round): a bind
+    /// registers its author before its last check (`guest_live`), which waits for the shares
+    /// lock, and a connection's end is noted in `seen` before its author goes ([`Self::left`]),
+    /// so a guest is never forgotten while it stays bound or within [`KEEP_MS`] of its last
+    /// connection; a bind of a guest forgotten meanwhile is refused by that check.
+    pub(super) fn present(&self) -> Present {
+        let now = self.now();
+        let mut guests = HashSet::new();
+        let mux = self.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade();
+        if let Some(mux) = mux {
+            let authors = mux
+                .control_clients
+                .agent_sessions
+                .proxy_authors
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            guests.extend(
+                authors.values().filter_map(|a| {
+                    a["id"].as_str()?.strip_prefix(GUEST_PREFIX).map(str::to_owned)
+                }),
+            );
+        }
+        let mut seen = self.seen.lock().unwrap_or_else(|e| e.into_inner());
+        seen.retain(|_, at| now.saturating_sub(*at) < KEEP_MS);
+        guests.extend(seen.keys().cloned());
+        Present { guests, loaded_at: self.loaded_at.load(Ordering::Relaxed) }
+    }
+
+    /// A guest connection of `author` ends: the guest counts as around for [`KEEP_MS`] more
+    /// (its relay comes back after a room or daemon reconnect). Called before its author is
+    /// removed from the proxy authors.
+    pub(in crate::server) fn left(&self, author: &Value) {
+        let Some(key) = author["id"].as_str().and_then(|id| id.strip_prefix(GUEST_PREFIX)) else {
+            return;
         };
-        let authors = mux
-            .control_clients
-            .agent_sessions
-            .proxy_authors
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        authors
-            .values()
-            .filter_map(|a| a["id"].as_str()?.strip_prefix(GUEST_PREFIX).map(str::to_owned))
-            .collect()
+        let now = self.now();
+        let mut seen = self.seen.lock().unwrap_or_else(|e| e.into_inner());
+        seen.retain(|_, at| now.saturating_sub(*at) < KEEP_MS);
+        seen.insert(key.to_owned(), now);
     }
 
     /// Queues what was live in `start` and is not in `now`.
@@ -777,7 +814,7 @@ impl LinkShares {
         provisioning: bool,
     ) -> Result<Value, &'static str> {
         let ids = open::NewIds::draw()?;
-        let connected = || self.connected();
+        let connected = || self.present();
         self.with(directory, |shares, now| {
             open::push(shares, now, &connected, ids, session, surface, terms, provisioning)
                 .map(|v| (v, true))
@@ -800,7 +837,7 @@ impl LinkShares {
         let account = p.account.as_deref().map(normal_account).transpose()?;
         let guest_id = token::<8>()?;
         let attempt = hex(&digest(&[&p.attempt_id]));
-        let connected = || self.connected();
+        let connected = || self.present();
         self.with(directory, |shares, now| {
             let share = find(shares, &p.share_id)?;
             let secret_matches =
@@ -909,7 +946,7 @@ impl LinkShares {
     ) -> Result<Value, &'static str> {
         let account = normal_account(&p.account)?;
         let role = p.role.unwrap_or(Role::Talk);
-        let connected = || self.connected();
+        let connected = || self.present();
         self.with(directory, |shares, now| {
             open::invite_in(shares, &p.share_id, account, role, now, &connected)
         })
