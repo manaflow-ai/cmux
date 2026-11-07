@@ -20,7 +20,7 @@ with the current tip. A guard says which inputs it reads, so routing by paths ca
 ran on the change), [#32348](https://github.com/manaflow-ai/cmux/pull/32348) (#32244 moved a type that #32271 and
 #32300 still imported from the old module).
 
-**Cost:** 568 of 669 base reds (85%). The median is 1.7 to 4.4 hours from culprit to fix, depending on the kind of check,
+**Cost:** 571 of 669 base reds (85%). The median is 1.5 to 7.4 hours from culprit to fix, depending on the kind of check,
 and every PR touching the area stays red in the meantime. Pull requests broke the base about as often per landing as
 direct pushes did.
 
@@ -35,7 +35,7 @@ When the design changes, the spec and its test change in the same PR.
 asserted one), [#33614](https://github.com/manaflow-ai/cmux/pull/33614) (four transcript tests followed four changes
 to one line), [#32828](https://github.com/manaflow-ai/cmux/pull/32828) (a markup scan read a code comment as markup).
 
-**Cost:** 235 base reds, 111 of them in `webviews`. Median 4.4 hours to fix.
+**Cost:** 51 base reds, 35 of them in `webviews`. Median 7.4 hours to fix, the slowest kind.
 
 ## 3. A test takes a clock
 
@@ -62,7 +62,7 @@ one), [#10518](https://github.com/manaflow-ai/cmux/pull/10518) (keyboard pinning
 The right shape: [#36957](https://github.com/manaflow-ai/cmux/pull/36957), where the autofix now syncs the bundled
 copies itself.
 
-**Cost:** 78 generated-file fixes and 160 fixes where two copies drifted.
+**Cost:** 72 generated-file fixes and 160 fixes where two copies drifted.
 
 ## 5. Cost stays constant as things grow
 
@@ -77,6 +77,9 @@ answer).
 
 **Cost:** 503 fixes.
 
+**Guards:** in webviews, the dev-server `dom-breadth`, `live-intervals` and `long-frame` budgets (pages the dev server serves; built bundles
+carry none) and the `layout-thrash-in-loop` lint ([modding-kit.md](modding-kit.md)); in cmux-tui, clippy's `await_holding_lock`.
+
 ## 6. A visible change is one state transition
 
 **Class:** flicker, a jump, pop-in, a blink, or a layout that moved after the animation finished.
@@ -89,6 +92,9 @@ live resize), [#24902](https://github.com/manaflow-ai/cmux/pull/24902) (reply fa
 [#10518](https://github.com/manaflow-ai/cmux/pull/10518).
 
 **Cost:** 597 fixes, the largest product class. The sidebar and the browser have the most.
+
+**Guards:** in webviews, the dev-server `layout-shift` and `react-commit` budgets ([modding-kit.md](modding-kit.md));
+the no-flicker browser tests. Native UI has none yet beyond tests.
 
 ## 7. Lifecycle edges are the normal case
 
@@ -106,6 +112,6 @@ Reopen steps), `f9c0d5145216` (removing someone from a team left their route tok
 
 - Name the culprit in the title, `base red: ... (from #N)`. That's how repeat areas show up.
 - Say why in a revert, and what would show it's safe to bring back
-  ([#25826](https://github.com/manaflow-ai/cmux/pull/25826) does this). 59% of reverts say only "This reverts commit X".
+  ([#25826](https://github.com/manaflow-ai/cmux/pull/25826) does this). 60% of reverts say only "This reverts commit X".
 - A failing test written first proves something only if it fails for the right reason. Read the failure before you
   write the fix ([#32065](https://github.com/manaflow-ai/cmux/pull/32065) fixed a test that never passed).

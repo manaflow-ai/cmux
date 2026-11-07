@@ -60,7 +60,8 @@ name, a syntax example). A row:
   swift_enum     choice kinds: {name, generated (default true)}. Generated: this script writes the
                  enum (cases from the values in camel case, or each choice's swift_case; doc from
                  note) into <file>Choices*.generated.swift, at most 3 per file. generated false: a
-                 hand-written enum (it has logic, more cases, or lives in another module); the
+                 hand-written enum (it has logic, more cases, or lives in another module; it may be
+                 nested, `Outer.Inner`); the
                  descriptor names its cases (`Enum.case.rawValue`) and the default is typed by it;
                  module names the module that declares it when that is not CmuxNextSettings (the
                  generated files `public import` it).
@@ -267,10 +268,29 @@ SECTIONS = [
         "lists": {"tabs": ("descriptors", "CmuxConfigSnapshot")},
     },
     {
+        "source": "schemas/settings/source/sidebar.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Sidebar.generated.swift",
+        "type": "SidebarSettingsSchema",
+        "lists": {"sidebar": ("sidebar", None), "sidebar2": ("sidebar2", None), "sidebar3": ("sidebar3", None),
+                  "workspaceRows": ("workspaceRows", None), "terminalWorkspaceRows": ("terminalWorkspaceRows", None),
+                  "agentWorkspaceRows": ("agentWorkspaceRows", None), "browserWorkspaceRows": ("browserWorkspaceRows", None),
+                  "mixedWorkspaceRows": ("mixedWorkspaceRows", None)},
+    },
+    {
         "source": "schemas/settings/source/feed.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
         "type": "FeedSettingsSchema",
         "lists": {"feed": ("descriptors", "FeedGitHubSettings")},
+    },
+    {
+        "source": "schemas/settings/source/machines.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Machines.generated.swift",
+        "type": "MachineSettingsSchema",
+        "lists": {"computerUse": ("computerUse", "ComputerUseSettings"), "freeModel": ("freeModel", "FreeModelSettings"),
+                  "sshLinks": ("sshLinks", "SSHLinkHostsSetting"), "cloud": ("cloud", "CloudNewWorkspaceSetting"),
+                  "mobile": ("mobile", "MobileSettings"), "macScreen": ("macScreen", "MacScreenSettings"),
+                  "macScreenDebug": ("macScreenDebug", "MacScreenDebugSettings"), "remote": ("remote", "RemoteSettings"),
+                  "deviceHub": ("deviceHub", "DeviceHubSettings"), "imessage": ("imessage", "CmuxConfigSnapshot")},
     },
 ]
 SYMBOL = __import__("re").compile(r"^[a-z0-9]+(\.[a-z0-9]+)*$")
@@ -280,6 +300,8 @@ ROW_FIELDS = {"key", "name", "note", "title", "help", "summary", "kind", "choice
               "palette_shown", "swift_enum", "swift_owner"}
 IDENT = __import__("re").compile(r"^[a-z][A-Za-z0-9]*$")
 TYPE = __import__("re").compile(r"^[A-Z][A-Za-z0-9]*$")
+# A hand-written enum may be nested in another type (`SidebarNavigationSettings.Scope`).
+NESTED_TYPE = __import__("re").compile(r"^[A-Z][A-Za-z0-9]*(\.[A-Z][A-Za-z0-9]*)*$")
 # Each source kind and its SettingKind case (None: the case takes arguments, built in kind_swift).
 KINDS = {"toggle": ".toggle", "number": None, "choice": None, "choice_or_number": None, "choice_or_url": None,
          "color": ".color", "sound": ".sound", "url": ".url", "host_list": ".hostList", "folder_list": ".folderList",
@@ -512,7 +534,8 @@ def check_row(src, row, seen_keys, idents):
     enum = row.get("swift_enum")
     if enum is not None:
         if kind not in CHOICE_KINDS or not isinstance(enum, dict) or set(enum) - {"name", "generated", "module"} \
-                or not TYPE.match(enum.get("name", "")) or not isinstance(enum.get("generated", True), bool) \
+                or not (TYPE if enum.get("generated", True) else NESTED_TYPE).match(enum.get("name", "")) \
+                or not isinstance(enum.get("generated", True), bool) \
                 or ("module" in enum and (enum.get("generated", True) or not TYPE.match(enum["module"]))):
             fail(src, "%s: swift_enum is {name, generated (default true), module (a hand-written enum's module)} on a choice row" % key)
         for choice in row["choices"]:
