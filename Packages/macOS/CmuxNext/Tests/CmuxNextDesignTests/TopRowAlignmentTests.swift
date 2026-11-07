@@ -8,7 +8,7 @@ import Testing
 /// pixel grid's rounding), and otherwise comes as near as the strip and the window's top edge allow.
 /// The numbers are the live `debug.top_alignment` values of the `top-alignment` tour on a 1x display.
 @Suite struct TopRowAlignmentTests {
-    struct Mode: CustomTestStringConvertible, Sendable {
+    nonisolated struct Mode: CustomTestStringConvertible, Sendable {
         var name: String, strip: CGFloat, tab: CGFloat
         /// The pill center the live capture measured after the change, at 1x.
         var measured: CGFloat
@@ -16,7 +16,7 @@ import Testing
     }
 
     /// The strip and pill heights each density gave in the capture (Ultra-compact to Spacious).
-    static let modes: [Mode] = [
+    nonisolated static let modes: [Mode] = [
         Mode(name: "ultraCompact", strip: 23, tab: 21, measured: 12.5),
         Mode(name: "compact", strip: 28, tab: 24, measured: 16),
         Mode(name: "cozy", strip: 31, tab: 27, measured: 16.5),
@@ -25,7 +25,7 @@ import Testing
     ]
 
     /// The lights' center below the window's top edge, as the capture measured it.
-    static let lights: CGFloat = 16
+    nonisolated static let lights: CGFloat = 16
 
     static func center(_ mode: Mode, scale: CGFloat) -> CGFloat {
         TopRowLine(centerY: lights).pillTop(stripTop: 0, stripHeight: mode.strip, tabHeight: mode.tab, scale: scale) + mode.tab / 2
