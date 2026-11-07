@@ -63,10 +63,11 @@ fn owner(
                 .unwrap_or_default();
             let request =
                 Seen { line, bearer, body: serde_json::from_slice(&body).unwrap_or(Value::Null) };
-            let (status, reply) = handler(&request);
+            // Logged before the answer, so a slow answer shows as already asked.
             if !request.line.contains("/v1/wire/user") {
-                log.lock().unwrap().push(request);
+                log.lock().unwrap().push(request.clone());
             }
+            let (status, reply) = handler(&request);
             let _ = stream.write_all(
                 format!("HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len())
                     .as_bytes(),
