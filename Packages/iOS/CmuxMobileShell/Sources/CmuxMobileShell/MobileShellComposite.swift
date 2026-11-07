@@ -15459,7 +15459,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         reason: String,
         restartEventStream: Bool,
         surfaceIDs requestedSurfaceIDs: [String]? = nil,
-        recoversConnectionOnSubscriptionFailure: Bool = true
+        recoversConnectionOnSubscriptionFailure: Bool = true,
+        preservingLocalHistory: Bool = false
     ) {
         guard remoteClient != nil, connectionState == .connected else { return }
         refreshTerminalOutputSubscription(
@@ -15477,7 +15478,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             requestAuthoritativeTerminalResync(
                 surfaceID: surfaceID,
                 trigger: .resubscribe,
-                reason: reason
+                reason: reason,
+                preservingLocalHistory: preservingLocalHistory
             )
         }
     }
