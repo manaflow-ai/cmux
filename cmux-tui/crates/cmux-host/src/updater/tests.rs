@@ -321,3 +321,55 @@ fn a_file_hash_covers_every_byte_past_one_read_buffer() {
     fs::write(&path, &bytes).unwrap();
     assert_eq!(store::sha256_file(&path).unwrap(), sha(&bytes));
 }
+
+/// A claimed spare resumed at 21:28:35 and its updater restarted the services
+/// at 21:28:41, killing the Mac's first dial (nightly 8d8fc7a, 2026-11-06): no
+/// flip within the connect hold of a start, a bind or a resume.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_resume_holds_the_restart_while_the_first_link_comes_up() {
+    use std::time::{Duration, Instant};
+
+    let t0 = Instant::now();
+    let held = role::extended_hold(None, t0);
+    assert_eq!(role::hold_left(Some(held), t0), Some(role::CONNECT_HOLD));
+    assert_eq!(
+        role::hold_left(Some(held), t0 + Duration::from_secs(60)),
+        Some(role::CONNECT_HOLD - Duration::from_secs(60))
+    );
+    assert_eq!(role::hold_left(Some(held), t0 + role::CONNECT_HOLD), None);
+    assert_eq!(role::hold_left(None, t0), None);
+    // A later resume extends the hold; an earlier one never shortens it.
+    let later = role::extended_hold(Some(held), t0 + Duration::from_secs(120));
+    assert_eq!(later, t0 + Duration::from_secs(120) + role::CONNECT_HOLD);
+    assert_eq!(role::extended_hold(Some(later), t0), later);
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut updater = role::UpdaterRole::new(image(dir.path()));
+    let before = Instant::now();
+    cmux_server_core::role::Role::on_event(
+        &mut updater,
+        &cmux_server_core::role::HostEvent::Resumed,
+    )
+    .unwrap();
+    let left = role::held_for(before).expect("a resume holds the next flip");
+    assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
+}
+
+/// Review F1 of #37256: a resume while an update downloads or stages still
+/// holds that update's flip, which looks at the hold right before it.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_hold_that_starts_during_staging_holds_the_flip() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut updater = role::UpdaterRole::new(image(dir.path()));
+    cmux_server_core::role::Role::on_event(
+        &mut updater,
+        &cmux_server_core::role::HostEvent::Resumed,
+    )
+    .unwrap();
+    match role::held_outcome(std::time::Instant::now()) {
+        Some(role::Outcome::Busy(why)) => assert!(why[0].contains("connect hold"), "{why:?}"),
+        other => panic!("the flip is not held: {other:?}"),
+    }
+}

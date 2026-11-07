@@ -18,6 +18,10 @@
 //! - [`registration`]: `link.json` in the daemon state dir, which names
 //!   the running link's socket.
 //! - [`token`]: the host side's link token check (deny by default).
+//! - [`carrier_grant`]: the session daemon's check of a carrier grant, the
+//!   signed admission a Mac presents over the relay carrier.
+//! - [`keyset`]: the Cloud keyset that signs carrier grants: the reader of a
+//!   keyset answer and its refresh schedule.
 //! - [`caller`]: who may connect to the link's socket and to the daemon's
 //!   remote entry (same user, and on macOS the cmux code signature).
 //! - [`app_caller`]: whether a local peer, named by its audit token, is the
@@ -25,9 +29,12 @@
 
 pub mod app_caller;
 pub mod caller;
+pub mod carrier_grant;
 pub mod dial;
 pub mod elapsed;
 pub mod entry_path;
+mod jws;
+pub mod keyset;
 pub mod overlay_addr;
 pub mod owner_session;
 pub mod pairing;

@@ -486,8 +486,91 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
     }
 }
 
-/// Runs the steps (module docs) and answers the outcome.
+/// Runs the steps (module docs) and answers the outcome. An answer on a machine this run made itself says
+/// `new_machine: true`: its own `cloud new-machine`, or a `start-session --name` of the fresh name no machine had. A
+/// caller (the start matrix) may delete that machine as its own; no other answer is proof of that.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
+    let mut made = None;
+    let mut timed = Timed::new(runner);
+    let mut outcome = steps(&mut timed, request, &mut made);
+    if let (Some(id), Outcome::Done(answer)) = (made.as_deref(), &mut outcome)
+        && at(answer, "machine_id").as_str() == Some(id)
+    {
+        answer.set("new_machine", json!(true));
+    }
+    // The stage trace (cmuxterm-hq#7415): each step's start and length, on a reply and on a failure alike.
+    let stages = timed.stages();
+    match &mut outcome {
+        Outcome::Done(answer) => {
+            answer.set("stages_ms", stages);
+        }
+        Outcome::Failed { error, .. } => {
+            if let Some(details) = error.get_mut("details").and_then(Value::as_object_mut) {
+                details.insert("stages_ms".to_owned(), stages);
+            }
+        }
+    }
+    outcome
+}
+
+/// At most this many steps in `stages_ms`; a long wait's polls past it are counted, not listed.
+const STAGES_KEPT: usize = 48;
+
+/// A [`Runner`] that times each step it runs: its words (`cloud start-session`), when it began and how long it took,
+/// in milliseconds since the run began.
+struct Timed<'a> {
+    inner: &'a mut dyn Runner,
+    began: Instant,
+    stages: Vec<Value>,
+    more: usize,
+}
+
+impl<'a> Timed<'a> {
+    fn new(inner: &'a mut dyn Runner) -> Self {
+        let began = inner.now();
+        Self { inner, began, stages: Vec::new(), more: 0 }
+    }
+
+    fn stages(&mut self) -> Value {
+        let total = self.inner.now().saturating_duration_since(self.began).as_millis();
+        json!({"steps": self.stages, "more_steps": self.more, "total": total})
+    }
+}
+
+impl Runner for Timed<'_> {
+    fn cmux(&mut self, args: &[String]) -> Ran {
+        let from = self.inner.now();
+        let ran = self.inner.cmux(args);
+        let to = self.inner.now();
+        if self.stages.len() < STAGES_KEPT {
+            let step = args.iter().take(2).map(String::as_str).collect::<Vec<_>>().join(" ");
+            self.stages.push(json!({
+                "step": step,
+                "at": from.saturating_duration_since(self.began).as_millis(),
+                "ms": to.saturating_duration_since(from).as_millis(),
+                "code": ran.code,
+            }));
+        } else {
+            self.more += 1;
+        }
+        ran
+    }
+
+    fn pause(&mut self, duration: Duration) {
+        self.inner.pause(duration);
+    }
+
+    fn now(&mut self) -> Instant {
+        self.inner.now()
+    }
+
+    fn fresh_name(&mut self) -> String {
+        self.inner.fresh_name()
+    }
+}
+
+/// [`run`]'s steps; `made` is the machine id this run made, once it has one.
+fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) -> Outcome {
     // 1. Signed in, and the machine names in use.
     let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
         Ok(listed) => listed,
@@ -501,6 +584,8 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
             1,
         );
     }
+    // The fresh name a new machine gets, when no listed machine has it: a start-session machine of that name is this run's.
+    let mut fresh = None;
     let machine = match &request.machine {
         Machine::New => {
             let taken = |name: &str| {
@@ -517,6 +602,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
                 }
                 name = runner.fresh_name();
             }
+            fresh = (!taken(&name)).then(|| name.clone());
             Machine::Named(name)
         }
         other => other.clone(),
@@ -592,6 +678,9 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
             1,
         );
     };
+    if fresh.is_some() && at(&started, "machine_name").as_str() == fresh.as_deref() {
+        *made = Some(machine_id.to_owned());
+    }
     let mut answer = json!({
         "machine_id": machine_id,
         "machine_name": at(&started, "machine_name"),

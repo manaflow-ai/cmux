@@ -95,7 +95,7 @@ final class CloudMachineSession {
         sizePick = machine.sizePick
         self.appLink = appLink
         self.localIdentity = localIdentity
-        daemon = DaemonService(machineID: machine.id, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        daemon = DaemonService(machineID: machine.id, echoesPlacementShift: true, mainWork: mainWork)
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
     }
 

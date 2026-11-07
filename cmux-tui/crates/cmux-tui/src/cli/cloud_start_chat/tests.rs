@@ -200,6 +200,7 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
         assert_eq!(answer[key], value, "{key}");
     }
     assert_eq!(answer["sent"], true);
+    assert_eq!(answer["new_machine"], true, "its own new-machine made vm-1");
     assert!(answer["follow_up"]["send"].as_str().unwrap().contains("acp send --no-wait sess-1"));
     // A new machine with a fresh name: `start-session --name` makes it.
     assert_eq!(
@@ -211,6 +212,48 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
     assert!(send[5].contains("printf '%s' 'What is 2+2?' | \"$c\" acp send --no-wait sess-1 -"));
     assert!(send[5].starts_with(GUEST_PRELUDE));
     assert_eq!(fake.paused, Duration::from_secs(2));
+}
+
+#[test]
+fn the_answer_times_each_step_it_ran() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    // Each fake step takes 5 s.
+    let stages = &answer["stages_ms"];
+    assert_eq!(stages["total"], 15_000);
+    assert_eq!(stages["more_steps"], 0);
+    let steps: Vec<(&str, u64, u64)> = stages["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            (s["step"].as_str().unwrap(), s["at"].as_u64().unwrap(), s["ms"].as_u64().unwrap())
+        })
+        .collect();
+    assert_eq!(
+        steps,
+        [
+            ("cloud list-machines", 0, 5_000),
+            ("cloud start-session", 5_000, 5_000),
+            ("cloud exec", 10_000, 5_000)
+        ]
+    );
+}
+
+#[test]
+fn a_failure_carries_the_steps_it_ran() {
+    let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": false}, "machines": []}))]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x"])) else {
+        panic!()
+    };
+    assert_eq!(error["details"]["stages_ms"]["steps"][0]["step"], "cloud list-machines");
 }
 
 #[test]
@@ -226,6 +269,7 @@ fn without_wait_it_answers_once_the_prompt_is_sent() {
     };
     assert_eq!(answer["delivery"], "delivery-1");
     assert!(answer.get("reply").is_none());
+    assert!(answer.get("new_machine").is_none(), "a named machine may be one that was there");
     assert_eq!(fake.ran[1][3], "dev");
     assert_eq!(fake.ran.len(), 3);
 }
@@ -772,4 +816,25 @@ fn only_a_cap_refusal_reads_as_a_cap() {
     );
     assert_eq!(cap_of("cloud.provider.unavailable", "VM API: HTTP 429"), None);
     assert_eq!(cap_of("app.unreachable", "no app"), None);
+}
+
+#[test]
+fn a_start_with_no_machine_named_says_the_machine_is_new_only_when_it_has_the_fresh_name() {
+    let sent = || exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
+    let mut fake = Fake::new(vec![signed_in(), started(), sent()]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x"])) else { panic!() };
+    assert_eq!(&fake.ran[1][..4], &strings(&["cloud", "start-session", "--name", "chat-fresh"]));
+    assert_eq!(answer["new_machine"], true);
+
+    // start-session answered another machine than the fresh name's: nothing says this run made it.
+    let other = ok(json!({"machine_id": "vm-2", "machine_name": "dev", "session_id": "sess-1"}));
+    let mut fake = Fake::new(vec![signed_in(), other, sent()]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x"])) else { panic!() };
+    assert!(answer.get("new_machine").is_none());
+
+    // Every fresh name was taken already: the machine of that name may be someone's.
+    let taken = ok(json!({"account": {"signed_in": true}, "machines": [{"title": "chat-fresh"}]}));
+    let mut fake = Fake::new(vec![taken, started(), sent()]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x"])) else { panic!() };
+    assert!(answer.get("new_machine").is_none());
 }

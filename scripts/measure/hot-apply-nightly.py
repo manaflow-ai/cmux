@@ -82,7 +82,16 @@ def main() -> int:
     cli = (app / hot.BIN / "cmux").resolve()
     receipt: dict = {"app_commit": hot.app_commit(app), "sha": args.sha, "checks": {}}
     t0 = time.monotonic()
-    sock = wait_until("the copy's daemon", time.monotonic() + 180, lambda: hot.find_socket(app, cli))
+    try:
+        sock = wait_until("the copy's daemon", time.monotonic() + 180, lambda: hot.find_socket(app, cli))
+    except TimeoutError:
+        # What ran from the copy and which sockets it held, so a miss can be read from the log.
+        listing = subprocess.run(["ps", "-axww", "-o", "pid=,comm=,command="], capture_output=True, text=True).stdout
+        print("HAN copy processes:\n" + "\n".join(l for l in listing.splitlines() if str(app) in l), file=sys.stderr)
+        for pid in hot.app_pids(app):
+            held = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
+            print(f"HAN pid {pid} unix sockets: {held.split()}", file=sys.stderr)
+        raise
     receipt["daemon_ready_secs"] = round(time.monotonic() - t0, 1)
     app_pid = int(Path(args.pid_file).read_text().strip())
     receipt["nightly_sha256"] = before = sha256(cli)
