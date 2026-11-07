@@ -255,13 +255,13 @@ public final class RegistryPaletteProvider: PaletteProvider {
         }
     }
 
-    /// Whether `descriptor`'s on/off row is a setting's, which Return or a click flips without
-    /// closing the palette (Leo 2026-11-07: "just unify"), as a Settings row does: a Settings
-    /// category action (Focus Ring, Pane Borders, the animation switches) or one that says it writes
-    /// a setting (`ActionTargetTitles.setPaletteSettingState`). An on/off command that works on what is
-    /// in front (Left Sidebar, Copy Mode, Dictation) still runs and closes.
+    /// Whether `descriptor`'s row flips an on/off setting, which Return or a click flips without closing
+    /// the palette (Leo 2026-11-07: "just unify"), as a Settings row does: only an action that says so
+    /// (`ActionTargetTitles.setPaletteSettingState`: Focus Ring, Pane Borders, the animation switches).
+    /// A preset with a state (Density: Compact) picks a value and closes, and so does an on/off command
+    /// on what is in front (Left Sidebar, Copy Mode, Dictation).
     static func flipsInPlace(_ descriptor: ActionDescriptor, action: Action?) -> Bool {
-        !descriptor.arguments.contains(where: \.isRequired) && (descriptor.category == .settings || action?.paletteStateIsSetting == true)
+        !descriptor.arguments.contains(where: \.isRequired) && action?.paletteStateIsSetting == true
     }
 
     static func primaryTitle(for descriptor: ActionDescriptor) -> String {

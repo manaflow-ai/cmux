@@ -51,7 +51,7 @@ public final class AgentChatRailActions {
         toggle(Self.railOnRight, Self.railSidePath, in: registry, isOn: { Self.isRailOnRight(Self.display($0)) }) { on in
             on ? .string("right") : nil
         }
-        toggle(Self.matchTerminalBackground, SidebarSurfaceSetting.configPath, in: registry, isSetting: true,
+        toggle(Self.matchTerminalBackground, SidebarSurfaceSetting.configPath, in: registry,
                isOn: { $0.map { SidebarSurfaceSetting.effective(in: $0.snapshot) == .same } ?? false }) { on in
             .string((on ? SidebarSurface.same : .separate).rawValue)
         }
@@ -77,7 +77,7 @@ public final class AgentChatRailActions {
     /// (`ActionRegistry.paletteStateDidChange`), as a Settings row does (`SettingsPaletteSource`). A run
     /// before an earlier write landed flips from the state that write asked for, and the writes land in
     /// order, so two quick runs end where they started.
-    private func toggle(_ id: ActionID, _ path: [String], in registry: ActionRegistry, isSetting: Bool = false,
+    private func toggle(_ id: ActionID, _ path: [String], in registry: ActionRegistry,
                         isOn: @escaping @MainActor (SettingsController?) -> Bool,
                         value: @escaping @MainActor (Bool) -> JSONValue?) {
         let (settings, managed, notLoaded, logger) = (settings, managed, notLoaded, Self.logger)
@@ -106,11 +106,7 @@ public final class AgentChatRailActions {
             return .done
         }
         let state: @MainActor () -> Bool = { [settings] in self.pending[id]?.isOn ?? isOn(settings()) }
-        if isSetting {
-            ActionTargetTitles.setPaletteSettingState(id, in: registry, state)
-        } else {
-            ActionTargetTitles.setPaletteState(id, in: registry, state)
-        }
+        ActionTargetTitles.setPaletteSettingState(id, in: registry, state)
     }
 
     /// The state each row's write asked for while it has not landed, with that write's token.

@@ -48,7 +48,7 @@ public final class VerticalTabsActions {
             return .done
         }
         ActionTargetTitles.setState(allWorkspaces, in: registry) { _ in host.design.verticalTabs }
-        ActionTargetTitles.setPaletteState(allWorkspaces, in: registry) { host.design.verticalTabs }
+        ActionTargetTitles.setPaletteSettingState(allWorkspaces, in: registry) { host.design.verticalTabs }
 
         registry.bind(collapse, invoke: { _ in store.setCollapsed(!store.isCollapsed) })
         ActionTargetTitles.set(collapse, in: registry) { _ in store.isCollapsed ? VerticalTabsStrings.expand : nil }
@@ -63,7 +63,7 @@ public final class VerticalTabsActions {
             return .done
         }
         ActionTargetTitles.setState(expandOnHover, in: registry) { _ in host.design.verticalTabsExpandOnHover }
-        ActionTargetTitles.setPaletteState(expandOnHover, in: registry) { host.design.verticalTabsExpandOnHover }
+        ActionTargetTitles.setPaletteSettingState(expandOnHover, in: registry) { host.design.verticalTabsExpandOnHover }
 
         // After the binds: `bind` registers a fresh action and drops an earlier hide rule.
         // An app pane and the Home Chief pane show no tab bar of either kind (PaneTabBarHandlers).

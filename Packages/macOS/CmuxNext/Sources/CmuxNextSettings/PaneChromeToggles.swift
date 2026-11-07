@@ -70,7 +70,7 @@ import CoreGraphics
             design.setPaneChrome(chrome)
             return .done
         }
-        ActionTargetTitles.setPaletteState(id, in: registry, isOn)
+        ActionTargetTitles.setPaletteSettingState(id, in: registry, isOn)
     }
 
     /// Nil (the default) when the default shows `metric` above 0, else `explicit`. The probe applies

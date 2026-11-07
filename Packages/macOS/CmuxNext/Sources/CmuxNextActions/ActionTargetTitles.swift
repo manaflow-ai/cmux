@@ -32,8 +32,9 @@ public enum ActionTargetTitles {
         registry.register(action)
     }
 
-    /// Sets whether a bound toggle that writes a setting outside the Settings category is on (Match
-    /// Terminal Background, Notification Banners): its palette row flips in place, as a Settings row does.
+    /// Sets whether a bound on/off setting is on (Focus Ring, Pane Borders, Match Terminal Background):
+    /// a run flips it between its two values, so its palette row flips in place, as a Settings row does.
+    /// A preset or choice (Density: Compact) uses ``setPaletteState(_:in:_:)`` and closes the palette.
     public static func setPaletteSettingState(_ id: ActionID, in registry: ActionRegistry, _ state: @escaping @MainActor () -> Bool) {
         guard var action = registry.action(for: id) else { return }
         action.paletteState = state
