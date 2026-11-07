@@ -285,9 +285,11 @@ import Testing
         weak var host: WebCardPanel?
         var opens = 0
         var closes = 0
+        var presses = 0
         init(_ card: String) { self.card = card }
         func opened(again: Bool) { if !again { opens += 1 } }
         func closed() { closes += 1 }
+        func personPressed() { presses += 1 }
         func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue { .null }
         func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                        onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription { PageSubscription {} }
@@ -318,52 +320,97 @@ import Testing
         #expect(made == 2, "a later opening makes a new card panel")
     }
 
-    /// A panel showing `card` with an enabled native control over a slot.
-    private static func panelWithControl(_ card: CountingCard) throws -> WebCardPanel {
-        let panel = try #require(WebCardPanel(descriptor: .serverCards, cards: [card]))
-        panel.present(card: card.card, over: nil, takeKeys: false)
-        panel.setPersonControl(PersonControl(title: "Confirm", isEnabled: true), card: card.card)
-        panel.pageResized(card: card.card, width: 460, height: 200, control: CGRect(x: 360, y: 160, width: 88, height: 28))
-        panel.rearm(at: 0)
-        return panel
+    /// A panel showing `card` with an enabled native control over a slot, and a stand-in for the
+    /// person's mouse (its events are the person's unless `person` is false).
+    @MainActor final class Mouse {
+        let panel: WebCardPanel
+        private var number = 0
+        private var genuine: Set<Int> = []
+        private var current: NSEvent?
+
+        init(_ card: CountingCard) throws {
+            _ = NSApplication.shared
+            panel = try #require(WebCardPanel(descriptor: .serverCards, cards: [card]))
+            panel.present(card: card.card, over: nil, takeKeys: false)
+            panel.setPersonControl(PersonControl(title: "Confirm", isEnabled: true), card: card.card)
+            panel.pageResized(card: card.card, width: 460, height: 200, control: CGRect(x: 360, y: 160, width: 88, height: 28))
+            panel.contentView?.layoutSubtreeIfNeeded()
+            panel.isPersonEvent = { [unowned self] in genuine.contains($0.eventNumber) }
+            panel.personClick.eventInHand = { [unowned self] in current }
+            panel.isKeyForPerson = { _ in true }
+        }
+
+        /// The center of the native control, in the panel's window coordinates.
+        var onControl: NSPoint {
+            panel.personButton.convert(NSPoint(x: panel.personButton.bounds.midX, y: panel.personButton.bounds.midY), to: nil)
+        }
+
+        /// A click at `point` `after` seconds from now; the mouse-up comes inside the mouse-down's
+        /// dispatch (a button's tracking loop) when `nested`, else as its own dispatch.
+        func click(at point: NSPoint, after: TimeInterval, nested: Bool, person: Bool = true) throws {
+            let time = ProcessInfo.processInfo.systemUptime + after
+            let down = try event(.leftMouseDown, point, time), up = try event(.leftMouseUp, point, time + 0.05)
+            genuine.insert(down.eventNumber)
+            if person { genuine.insert(up.eventNumber) }
+            current = down
+            panel.dispatch(down) { if nested { current = up } }
+            if !nested {
+                current = up
+                panel.dispatch(up) {}
+            }
+        }
+
+        private func event(_ type: NSEvent.EventType, _ point: NSPoint, _ time: TimeInterval) throws -> NSEvent {
+            number += 1
+            return try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: time,
+                                                   windowNumber: panel.windowNumber, context: nil, eventNumber: number,
+                                                   clickCount: 1, pressure: 1))
+        }
     }
 
-    @Test func theNativeControlTakesOnlyThePersonsClickOnIt() throws {
+    @Test(arguments: [false, true]) func theNativeControlTakesOnlyThePersonsClickOnIt(nested: Bool) throws {
         let card = CountingCard(PairInviteCardProvider.route)
-        let panel = try Self.panelWithControl(card)
+        let mouse = try Mouse(card)
+        let panel = mouse.panel
         #expect(!panel.personButton.isHidden, "the native Confirm draws over the page's slot")
         #expect(panel.personButton.title == "Confirm")
-        let down = panel.controlPlacedAt + 1
-        #expect(panel.countsPersonPress(down: down, onControl: true, upIsPerson: true, isKey: true))
-        #expect(!panel.countsPersonPress(down: down, onControl: false, upIsPerson: true, isKey: true), "a click elsewhere on the card")
-        #expect(!panel.countsPersonPress(down: down, onControl: true, upIsPerson: false, isKey: true), "a posted or scripted up")
-        #expect(!panel.countsPersonPress(down: down, onControl: true, upIsPerson: true, isKey: false), "a panel that is not key")
+        try mouse.click(at: mouse.onControl, after: 1, nested: nested)
+        #expect(card.presses == 1, "the person's click on Confirm, its mouse-up nested or on its own")
+        try mouse.click(at: NSPoint(x: 10, y: 10), after: 2, nested: nested)
+        #expect(card.presses == 1, "a click elsewhere on the card")
+        try mouse.click(at: mouse.onControl, after: 3, nested: nested, person: false)
+        #expect(card.presses == 1, "a posted or scripted mouse-up")
+        panel.isKeyForPerson = { _ in false }
+        try mouse.click(at: mouse.onControl, after: 4, nested: nested)
+        #expect(card.presses == 1, "a panel that is not key")
+        panel.isKeyForPerson = { _ in true }
         panel.setPersonControl(PersonControl(title: "Confirm", isEnabled: false), card: card.card)
-        #expect(!panel.countsPersonPress(down: down, onControl: true, upIsPerson: true, isKey: true), "a disabled Confirm")
+        try mouse.click(at: mouse.onControl, after: 5, nested: nested)
+        #expect(card.presses == 1, "a disabled Confirm")
         panel.setPersonControl(nil, card: card.card)
         #expect(panel.personButton.isHidden)
     }
 
     @Test func aControlTheSlotJustMovedRefusesAClickAtOnce() throws {
         let card = CountingCard(PairInviteCardProvider.route)
-        let panel = try Self.panelWithControl(card)
+        let mouse = try Mouse(card)
         // A script moves the slot under the pointer just before the person's click.
-        panel.pageResized(card: card.card, width: 460, height: 200, control: CGRect(x: 20, y: 60, width: 88, height: 28))
-        let moved = panel.controlPlacedAt
-        #expect(!panel.countsPersonPress(down: moved + 0.05, onControl: true, upIsPerson: true, isKey: true),
-                "a click right after the control moved is not aimed at it")
-        #expect(panel.countsPersonPress(down: moved + WebCardPanel.steadyControl + 0.05, onControl: true, upIsPerson: true, isKey: true),
-                "once it has stayed put, the person's click counts")
+        mouse.panel.pageResized(card: card.card, width: 460, height: 200, control: CGRect(x: 20, y: 60, width: 88, height: 28))
+        mouse.panel.contentView?.layoutSubtreeIfNeeded()
+        try mouse.click(at: mouse.onControl, after: 0.05, nested: false)
+        #expect(card.presses == 0, "a click right after the control moved is not aimed at it")
+        try mouse.click(at: mouse.onControl, after: WebCardPanel.steadyControl + 0.6, nested: false)
+        #expect(card.presses == 1, "once it has stayed put, the person's click counts")
     }
 
     @Test func theSlotIsClampedToTheCardAtAMinimumSize() throws {
         let card = CountingCard(PairInviteCardProvider.route)
-        let panel = try Self.panelWithControl(card)
-        panel.pageResized(card: card.card, width: 460, height: 200, control: CGRect(x: 5_000, y: -5_000, width: 1, height: 1))
-        let bounds = try #require(panel.personButton.superview?.bounds)
-        #expect(bounds.contains(panel.personButton.frame), "kept inside the card")
-        #expect(panel.personButton.frame.width >= WebCardPanel.minimumControl.width)
-        #expect(panel.personButton.frame.height >= WebCardPanel.minimumControl.height)
+        let mouse = try Mouse(card)
+        mouse.panel.pageResized(card: card.card, width: 460, height: 200, control: CGRect(x: 5_000, y: -5_000, width: 1, height: 1))
+        let bounds = try #require(mouse.panel.contentView?.bounds)
+        #expect(bounds.contains(mouse.panel.personButton.frame), "kept inside the card")
+        #expect(mouse.panel.personButton.frame.width >= WebCardPanel.minimumControl.width)
+        #expect(mouse.panel.personButton.frame.height >= WebCardPanel.minimumControl.height)
     }
 
     @Test func aLostSocketSaysSoAndNeverReconnectsOnItsOwn() async {

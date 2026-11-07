@@ -43,25 +43,28 @@ public final class WebCardPanel: NSPanel {
     private let surface = NSView()
     /// The card the panel shows (its route without `#/`), nil before the first opening.
     public private(set) var card: String?
+    /// SECURITY: reads the person's own click on the native control from the panel's dispatch
+    /// (``CmuxDialogPersonClick``): a click begun within ``steadyControl`` of the control showing,
+    /// moving or the card drawing anew is not taken.
+    let personClick = CmuxDialogPersonClick(activationDelay: WebCardPanel.steadyControl)
     /// Whether an event is the person's own input (the app's strict source check); with none set, none is.
-    public var isPersonEvent: @MainActor (NSEvent) -> Bool = { _ in false }
+    public var isPersonEvent: @MainActor (NSEvent) -> Bool {
+        get { personClick.isPersonEvent }
+        set { personClick.isPersonEvent = newValue }
+    }
+    /// Whether the panel is key for the person's click (tests stand in for a key panel).
+    var isKeyForPerson: @MainActor (WebCardPanel) -> Bool = { $0.isKeyWindow }
     /// The last size each card's page reported, in points.
     private var sizes: [String: NSSize] = [:]
     /// An opening waiting for its card's first size: where and how it shows.
     private var pending: (card: String, parent: NSRect?, visible: NSRect, intent: WindowActivation.Intent)?
     private let pendingTimeout = DemandTimer(owner: "web-card-first-size")
-    /// The person's left mouse-down being dispatched now: when, and whether on the native control.
-    private var personDown: (time: TimeInterval, onControl: Bool)?
     /// Each card's slot for its click-only control, in CSS px from the card's top left, as the page last laid it out.
     private var slots: [String: CGRect] = [:]
     /// Each card's click-only control, as the card last named it.
     private var controls: [String: PersonControl] = [:]
     /// The native click-only control, drawn over the shown card's slot.
     let personButton = ThemedBezelButton(frame: .zero)
-    /// When the card last drew anew (a click begun sooner is not aimed at what shows now).
-    private var armedAt: TimeInterval = 0
-    /// When the native control last moved, changed or appeared.
-    private(set) var controlPlacedAt: TimeInterval = 0
 
     /// - Parameters:
     ///   - descriptor: The card page's descriptor; its namespaces must include `cmux.card.` and each card's prefix.
@@ -99,9 +102,8 @@ public final class WebCardPanel: NSPanel {
         glass.autoresizingMask = [.width, .height]
         contentView = glass
         personButton.isHidden = true
+        // No action: the grant comes from the panel's dispatch of the person's click, never the button's.
         personButton.refusesFirstResponder = true
-        personButton.target = self
-        personButton.action = #selector(pressPerson(_:))
         personButton.setAccessibilityIdentifier("cmux.webCard.personControl")
         host.panel = self
         for card in cards { card.host = self }
@@ -162,7 +164,7 @@ public final class WebCardPanel: NSPanel {
     /// interval from now is not taken as aimed at it (a machine arrived and Confirm appeared under
     /// a pointer aimed at what was there before).
     public func rearm(at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        armedAt = uptime
+        personClick.shown(at: uptime)
     }
 
     /// Names the card's click-only control (nil: none shows). The button draws over the slot the
@@ -174,33 +176,23 @@ public final class WebCardPanel: NSPanel {
     }
 
     override public func sendEvent(_ event: NSEvent) {
-        guard event.type == .leftMouseDown else { return super.sendEvent(event) }
-        let point = surface.convert(event.locationInWindow, from: nil)
-        personDown = isPersonEvent(event) ? (event.timestamp, !personButton.isHidden && personButton.frame.contains(point)) : nil
-        // The native control tracks its click inside this dispatch; a press after it is not this click.
-        super.sendEvent(event)
-        personDown = nil
+        dispatch(event) { super.sendEvent(event) }
     }
 
-    /// SECURITY: the native control's click reaches the card only as the person's own left click on
-    /// it (``countsPersonPress(down:onControl:upIsPerson:isKey:)``); a key, an Accessibility press, a
-    /// posted event or a script never does.
-    @objc private func pressPerson(_ sender: Any?) {
-        guard let card, let down = personDown, let up = NSApp.currentEvent, up.type == .leftMouseUp,
-              countsPersonPress(down: down.time, onControl: down.onControl, upIsPerson: isPersonEvent(up), isKey: isKeyWindow) else { return }
-        personDown = nil
+    /// SECURITY: runs `body` (the panel's own dispatch of `event`); when `event` ended the person's
+    /// own left click on the enabled native control (``CmuxDialogPersonClick``: from the HID system,
+    /// down and up on the button, not a key, an Accessibility press, a posted event or a script; held
+    /// through a mouse-up AppKit dispatches on its own), on the key panel, the card hears it once.
+    func dispatch(_ event: NSEvent, _ body: () -> Void) {
+        guard personClick.dispatch(event, allow: { [weak self] in self?.enabledControl }, in: windowNumber, body),
+              isKeyForPerson(self), let card else { return }
         cards[card]?.personPressed()
     }
 
-    /// SECURITY: whether a press of the native control counts as the person's: a left click from the
-    /// HID system that went down on the control, on the key panel, begun at least a double-click
-    /// interval after the card last drew (a machine arrived and Confirm appeared under a pointer aimed
-    /// at what was there before) and ``steadyControl`` after the control last moved, with the control enabled.
-    func countsPersonPress(down: TimeInterval, onControl: Bool, upIsPerson: Bool, isKey: Bool) -> Bool {
-        guard let card, controls[card]?.isEnabled == true, !personButton.isHidden else { return false }
-        // The page moves the slot: a click right after the control moved is not aimed at it.
-        return onControl && upIsPerson && isKey && down - armedAt >= NSEvent.doubleClickInterval
-            && down - controlPlacedAt >= Self.steadyControl
+    /// The native control while it shows enabled for the shown card.
+    private var enabledControl: NSControl? {
+        guard let card, controls[card]?.isEnabled == true, !personButton.isHidden else { return nil }
+        return personButton
     }
 
     /// Draws the shown card's control over its slot, at its own size (at least ``minimumControl``),
@@ -211,7 +203,8 @@ public final class WebCardPanel: NSPanel {
             return
         }
         let zoom = max(page.webKitView.pageZoom * page.webKitView.magnification, 0.01)
-        let bounds = surface.bounds
+        // The glass resizes with the panel at once (the surface fills it, by constraints, a pass later).
+        let bounds = glass.bounds
         if personButton.title != control.title { personButton.title = control.title }
         personButton.isEnabled = control.isEnabled
         let fitting = personButton.fittingSize
@@ -224,12 +217,13 @@ public final class WebCardPanel: NSPanel {
         guard personButton.isHidden || personButton.frame != frame else { return }
         personButton.frame = frame
         personButton.isHidden = false
-        controlPlacedAt = ProcessInfo.processInfo.systemUptime
+        // The page moved it: a click begun before it has stayed put ``steadyControl`` is not taken.
+        rearm()
     }
 
     /// The smallest the native control draws, whatever slot the page reports.
     static let minimumControl = NSSize(width: 72, height: 24)
-    /// How long the native control stays put before a click on it counts (the page places it).
+    /// How long the native control stays put (and the card unchanged) before a click on it counts.
     static let steadyControl: TimeInterval = 0.5
 
     // MARK: - The page's requests
