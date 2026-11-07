@@ -39,6 +39,8 @@ mod billing;
 mod caller_browser;
 mod capability_cache;
 #[cfg(unix)]
+mod chat_send;
+#[cfg(unix)]
 mod chat_start;
 #[cfg(unix)]
 mod chief;
@@ -568,6 +570,12 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `chat send SESSION` and `chat --resume SESSION`: the next prompt to a running agent chat,
+    // wherever it runs (chat_send.rs); `chat send --to` stays the message below.
+    #[cfg(unix)]
+    if let Some(code) = chat_send::run_if_requested(args) {
+        return code;
+    }
     // `chat send` from a coding agent is the agent's message, not the owner's
     // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
     // the app action with its text labelled.
