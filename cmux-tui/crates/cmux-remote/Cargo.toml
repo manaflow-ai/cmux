@@ -35,11 +35,14 @@ futures-util.workspace = true
 getrandom.workspace = true
 ghostty-vt.workspace = true
 hmac.workspace = true
+# secrets-v1: RFC 9180 HPKE, DHKEM(X25519, HKDF-SHA256) / HKDF-SHA256 / ChaCha20Poly1305.
+hpke = { version = "0.13", default-features = false, features = ["alloc", "x25519"] }
 http.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 iroh = { workspace = true, optional = true }
 libc.workspace = true
+rand_core = { version = "0.9", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
