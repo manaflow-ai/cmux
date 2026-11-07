@@ -129,6 +129,10 @@ run = true
 root = "cmux-tui/crates/cmux-rd-ffi"
 run = true
 
+[[workspace]]
+root = "cmux-tui/crates/cmux-sdk-ffi"
+run = true
+
 # The bench feature set is the one that builds without x264 (OpenH264 from source),
 # as in scripts/ci/cmux-tui-rust-check.sh rd-host.
 [[workspace]]

@@ -8,7 +8,7 @@ import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
 import { HEADER_ACTIONS } from "./headerActions";
-import { menuKeycap } from "./ChatHeaderTools";
+import { menuKeycap } from "./chatHeaderToolsModel";
 import { readLastKind, repeatKind, writeLastKind, type NewKind } from "./headerTrio";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
