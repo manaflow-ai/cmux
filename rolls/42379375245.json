@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42379375245",
+  "recorded_at": "2026-11-07T14:10:46Z",
+  "reason": "cmux-tui 7e2cd1d84d77 changes the image's cmux-tui (pinned 15347b3843a3)",
+  "dry_run": false,
+  "cmux_tui": "7e2cd1d84d77766eaa9ee0e862c9fca5942dc543",
+  "fixes": [
+    {
+      "sha": "f19e4e2c18cab1d6298ecc7b657ebdec9e76a815",
+      "mergedAt": "2026-11-07T13:43:15Z",
+      "subject": "Machines: Remove a hub-joined machine (record kept in cmux-tui) (#37517)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T14:10:46Z",
+    "snapshot_id": "sh-fe555b7f831a4d7890519bbd7f3dda3f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42379375245): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "13cb6ff149b1e0b73eb42e9460ee8162b50ffe8b",
+    "image": "cloud-native-auto-7e2cd1d8-42379375245-1",
+    "revision": "ci-42379375245-1",
+    "at": "2026-11-07T14:10:46Z"
+  },
+  "rolled_back": false
+}
