@@ -354,8 +354,9 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
         }
         let (generation, internal, began) = (self.generation, self.internal.clone(), self.now());
         self.read = Some(tokio::spawn(async move {
-            let credential = token(&internal).await;
+            // A fresh token for each route call: one that rotates or expires mid-read never fails the rest.
             let listed = async {
+                let credential = token(&internal).await;
                 let value =
                     http::call(&api, credential.as_deref(), Method::GET, "/v1/hands", None).await?;
                 let hands = HandSummary::list(&value)
@@ -367,6 +368,7 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                     if !hands::is_hand_id(&hand) {
                         return Err(Failure::new("invalid", "not a hand id"));
                     }
+                    let credential = token(&internal).await;
                     let rows =
                         http::call(&api, credential.as_deref(), Method::GET, &path, None).await?;
                     waiting.extend(HandApproval::list(&rows, &hand, wall_ms()));

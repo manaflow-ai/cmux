@@ -16,6 +16,8 @@ const NONCE: &str = "00112233445566778899aabbccddeeff";
 #[derive(Debug, Clone)]
 struct Seen {
     line: String,
+    /// The bearer the request carried.
+    bearer: String,
     body: Value,
 }
 
@@ -53,7 +55,14 @@ fn owner(
                 }
             };
             let line = head.lines().next().unwrap_or_default().to_owned();
-            let request = Seen { line, body: serde_json::from_slice(&body).unwrap_or(Value::Null) };
+            let bearer = head
+                .lines()
+                .find_map(|l| {
+                    l.to_ascii_lowercase().strip_prefix("authorization: bearer ").map(str::to_owned)
+                })
+                .unwrap_or_default();
+            let request =
+                Seen { line, bearer, body: serde_json::from_slice(&body).unwrap_or(Value::Null) };
             let (status, reply) = handler(&request);
             if !request.line.contains("/v1/wire/user") {
                 log.lock().unwrap().push(request);
@@ -101,6 +110,9 @@ struct App {
     input: mpsc::UnboundedSender<String>,
     events: mpsc::UnboundedReceiver<Value>,
     credential: Option<&'static str>,
+    /// Each token answer adds its count (`tok-1`, `tok-2`, ...), as a session that rotates.
+    rotating: bool,
+    answered: u64,
     next: u64,
     /// Events read while waiting for another one, in order.
     backlog: Vec<Value>,
@@ -113,7 +125,21 @@ impl App {
         tokio::spawn(serve(lines, move |event: Value| {
             let _ = sender.send(event);
         }));
-        Self { input, events, credential, next: 0, backlog: Vec::new() }
+        Self {
+            input,
+            events,
+            credential,
+            rotating: false,
+            answered: 0,
+            next: 0,
+            backlog: Vec::new(),
+        }
+    }
+
+    fn token(&mut self) -> Option<String> {
+        self.answered += 1;
+        let base = self.credential?;
+        Some(if self.rotating { format!("{base}-{}", self.answered) } else { base.to_owned() })
     }
 
     fn send(&self, command: Value) {
@@ -133,9 +159,8 @@ impl App {
             loop {
                 let event = self.events.recv().await.expect("engine ended");
                 if event["event"] == "token" {
-                    self.send(
-                        json!({"t": "token", "id": event["id"], "credential": self.credential}),
-                    );
+                    let credential = self.token();
+                    self.send(json!({"t": "token", "id": event["id"], "credential": credential}));
                     continue;
                 }
                 if event["event"] == kind {
@@ -388,4 +413,18 @@ async fn stopping_settles_every_request_and_the_report_shows_the_state() {
     app.send(json!({"t": "stop"}));
     assert_eq!(app.next("settled").await["outcome"], Value::Null);
     assert_eq!(app.next("hands").await["hands"], json!([]));
+}
+
+#[tokio::test]
+async fn each_route_call_of_a_read_takes_a_fresh_token() {
+    let (api, seen) = owner(hands_owner);
+    let mut app = App::new(Some("tok"));
+    app.rotating = true;
+    app.start(&api);
+    assert_eq!(app.call("refresh", json!({})).await["ok"], true);
+    let seen = seen.lock().unwrap();
+    let list = seen.iter().find(|s| s.line.starts_with("GET /v1/hands ")).unwrap();
+    let waiting = seen.iter().find(|s| s.line.contains("/approvals ")).unwrap();
+    assert!(list.bearer.starts_with("tok-") && waiting.bearer.starts_with("tok-"));
+    assert_ne!(list.bearer, waiting.bearer, "the approvals read asked for its own token");
 }
