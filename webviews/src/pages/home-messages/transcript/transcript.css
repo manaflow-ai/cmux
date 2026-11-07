@@ -688,3 +688,23 @@
   display: grid;
   place-items: center;
 }
+
+/* A Chief's Stop and Continue take the emoji button's place (ChatController+Stop.swift). */
+.mt-field-button.mt-chief-stop,
+.mt-field-button.mt-chief-continue {
+  color: var(--page-text);
+}
+
+/* A toast rests over the message box, never over the newest message: the transcript ends with a
+   row of its height while it shows (+ToastRoom.swift). */
+.mt-toast-room {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  width: min(calc(100% - var(--ds-space-6)), 420px);
+  transform: translateX(-50%);
+}
+
+.mt-toast-line {
+  display: block;
+}

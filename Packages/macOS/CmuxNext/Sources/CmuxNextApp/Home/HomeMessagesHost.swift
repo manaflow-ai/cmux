@@ -64,6 +64,13 @@ final class HomeMessagesHostProvider: PageProvider {
     private var previewProvider: HomeLinkPreviewProvider?
     private var keeping: HomeMessagesKept?
     private var bubbleOps: HomeMessagesBubbleOps?
+    /// Stop, Stop all agents, Continue and Restart on the conversation's own Chief (``HomeMessagesChiefTurn``).
+    private lazy var chiefTurn = HomeMessagesChiefTurn { [weak services] id in
+        guard let services else { return nil }
+        let row = services.home.homeStore.rows.first(where: { row in row.id == id })
+        return HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag),
+                                chief: row.flatMap { ChiefHome.namedChief(in: $0.summary.participants) }).turnControl
+    }
     /// The first run of an empty Chief chat (``HomeMessagesFirstRunProvider``): it follows ``shown``.
     var firstRun: HomeMessagesFirstRunProvider?
     private var appearanceListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
@@ -93,6 +100,7 @@ final class HomeMessagesHostProvider: PageProvider {
         let userOnly = context.userGesture ? nil : PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
         if let answer = try await bubbles(services).call(name, fields, refusal: userOnly) { return answer }
         if let userOnly, Self.personOnly.contains(name) { throw userOnly }
+        if let answer = try await chiefTurn.call(name, fields, userGesture: context.userGesture) { return answer }
         switch name {
         case "selected":
             let id = fields["conversation"]?.stringValue.flatMap { Self.isID($0) ? ConversationID($0) : nil }

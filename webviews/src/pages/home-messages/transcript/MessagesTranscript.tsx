@@ -35,7 +35,14 @@ import type { FileDropTarget } from "../nav";
 import type { AttachmentDrafts } from "./attachmentDrafts";
 import { bubbleStyle, type BubbleLook, type ChatColors } from "./colors";
 import { historyEntries } from "./history";
-import { MessageComposer, dragOffersFiles, type DictationCall, type MessageComposerHandle } from "./MessageComposer";
+import { withExtras, type ShownRow, type TranscriptExtras } from "./extras";
+import {
+  MessageComposer,
+  dragOffersFiles,
+  type ComposerChief,
+  type DictationCall,
+  type MessageComposerHandle,
+} from "./MessageComposer";
 import { estimateRow, RowCache, transcriptRows, type TranscriptData, type TranscriptRow } from "./rows";
 import { TranscriptHeader, alsoHereNames, type HeaderPanelItem } from "./TranscriptHeader";
 import type { ReplyQuote } from "./replyQuote";
@@ -126,6 +133,12 @@ export interface MessagesTranscriptProps extends TranscriptData {
   links?: RowLinks;
   /** A Chief's permission cards: their state and the app's decision. Absent: cards without buttons. */
   approvals?: RowActions["approvals"];
+  /** Rows the page adds (an agents row under its message, the Chief's status line at the end). */
+  extras?: TranscriptExtras;
+  /** A Chief's Stop, Escape and Continue in the message box (chiefTurn.ts). */
+  chief?: ComposerChief;
+  /** A toast over the message box; the newest message keeps clear of it (the toast room). */
+  toast?: ReactNode;
   ref?: Ref<MessagesTranscriptHandle>;
 }
 
@@ -192,9 +205,34 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
     ],
   );
   const [pinnedHeight, setPinnedHeight] = useState(0);
+  // A toast over the message box takes room under the newest message (+ToastRoom.swift): a row of
+  // its height ends the transcript while it shows, so the rows move up with it and back down after.
+  const [toastHeight, setToastHeight] = useState(0);
+  const toastBox = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const element = toastBox.current;
+    if (!element) return setToastHeight(0);
+    const observer = new ResizeObserver(() => setToastHeight(element.offsetHeight ? element.offsetHeight + 8 : 0));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [props.toast]);
+  const extras = useMemo<TranscriptExtras | undefined>(() => {
+    if (!toastHeight) return props.extras;
+    const room = {
+      key: "toast-room",
+      estimate: toastHeight,
+      node: <div style={{ height: toastHeight }} aria-hidden />,
+    };
+    return { ...props.extras, tail: [...(props.extras?.tail ?? []), room] };
+  }, [props.extras, toastHeight]);
+  const shown = useMemo(() => withExtras(rows, extras), [rows, extras]);
   const sized = useMemo(() => {
     const out = [{ key: TOP_KEY, estimate: HEADER_ROOM + pinnedHeight }];
-    for (const row of rows) {
+    for (const row of shown) {
+      if (row.kind === "extra") {
+        out.push({ key: row.key, estimate: row.estimate });
+        continue;
+      }
       let entry = estimates.get(row);
       if (!entry) {
         entry = { key: row.key, estimate: estimateRow(row) };
@@ -203,7 +241,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       out.push(entry);
     }
     return out;
-  }, [rows, pinnedHeight, estimates]);
+  }, [shown, pinnedHeight, estimates]);
   // The highlighted message's first row: the window scrolls it to the middle once.
   const focusKey = useMemo(
     () => (highlight ? rows.find((row) => row.kind === "bubble" && row.message.id === highlight)?.key : undefined),
@@ -293,7 +331,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
   useLayoutEffect(() => {
     const state = motion.current;
     const element = scroller.current;
-    const lastKey = rows.at(-1)?.key ?? "";
+    const lastKey = shown.at(-1)?.key ?? "";
     const delta = total - state.total;
     const sameConversation = state.conversation === conversation.id;
     if (sameConversation && state.atBottom && lastKey !== state.lastKey && delta > 0 && delta < 600 && !reducedMotion())
@@ -393,7 +431,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           >
             <div ref={stack} className="mt-stack" style={{ height: total }}>
               {items.map((item) => {
-                const row = item.index > 0 ? rows[item.index - 1]! : undefined;
+                const row: ShownRow | undefined = item.index > 0 ? shown[item.index - 1]! : undefined;
                 return (
                   <div
                     key={item.key}
@@ -402,7 +440,9 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
                     className="mt-slot"
                     style={{ transform: `translateY(${item.start}px)` }}
                   >
-                    {row ? (
+                    {row?.kind === "extra" ? (
+                      row.node
+                    ) : row ? (
                       <TranscriptRowView
                         row={row}
                         me={me}
@@ -460,6 +500,14 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           spellChecking={props.spellChecking === true}
           {...(props.quote ? { quote: props.quote } : {})}
           {...(props.onRemoveQuote ? { onRemoveQuote: props.onRemoveQuote } : {})}
+          {...(props.chief ? { chief: props.chief } : {})}
+          toast={
+            props.toast ? (
+              <div ref={toastBox} className="mt-toast-room">
+                {props.toast}
+              </div>
+            ) : undefined
+          }
           key={`${conversation.id}:${props.composerKey ?? ""}`}
         />
       </section>

@@ -15,11 +15,20 @@
 // - The files are the conversation's (attachmentDrafts.ts, kept by the page): another conversation
 //   showing leaves them, uploads and all, and coming back finds them in the tray.
 import type { PrepareFile } from "./prepareAttachment";
-import { useEffect, useImperativeHandle, useRef, useState, useSyncExternalStore, type Ref } from "react";
+import {
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { PromptEditor, type PromptEditorHandle } from "../../../agent-session/acpmux/composer/PromptEditor";
 import { DictationButton } from "../../../agent-session/acpmux/DictationButton";
 import { DictationNotice } from "../../../agent-session/acpmux/DictationNotice";
-import { useDictation } from "../../../agent-session/acpmux/dictation";
+import { isActive, useDictation } from "../../../agent-session/acpmux/dictation";
+import { Icon } from "../../../agent-session/acpmux/icons/Icon";
 import type { EmojiTable } from "../../../icon-picker/emojiData";
 import { AttachmentTray } from "../../home-channels/AttachmentViews";
 import { attachmentClass, attachmentType, type AttachmentService } from "../../home-channels/attachmentService";
@@ -70,7 +79,21 @@ export interface MessageComposerProps {
    * "Replying to Selection"); the send carries it (the caller's `onSend`). */
   quote?: { text: string; name?: string };
   onRemoveQuote?(): void;
+  /** A Chief's turn controls (chiefTurn.ts): while it works the emoji button is Stop, and Escape
+   * and Cmd-. in the field stop it; after a stop, Continue. Absent: the emoji button only. */
+  chief?: ComposerChief;
+  /** Over the field: the page's toast (Stop all agents' answer). */
+  toast?: ReactNode;
   ref?: Ref<MessageComposerHandle>;
+}
+
+/** What the composer's round button and keys do for a Chief (ChatController+Stop.swift). */
+export interface ComposerChief {
+  working: boolean;
+  continueAvailable: boolean;
+  /** Stop the Chief's turn; `all`: Stop all agents (Option-click). */
+  onStop(all: boolean): void;
+  onContinue(): void;
 }
 
 type Notice = { text: string; alert: boolean };
@@ -91,6 +114,8 @@ export function MessageComposer({
   spellChecking = false,
   quote,
   onRemoveQuote,
+  chief,
+  toast,
   ref,
 }: MessageComposerProps) {
   const { t } = strings;
@@ -210,6 +235,7 @@ export function MessageComposer({
 
   return (
     <div className="mt-compose" data-offline={sendEnabled ? undefined : "true"}>
+      {toast}
       {notice && (
         <div className={`mt-notice${notice.alert ? " alert" : ""}`} role={notice.alert ? "alert" : "status"}>
           {notice.text}
@@ -269,6 +295,16 @@ export function MessageComposer({
               if (notice && !notice.alert) setNotice(undefined);
             }}
             onKeyDown={(event) => {
+              // Escape and Cmd-. stop a working Chief (AppKit's cancelOperation), after the emoji
+              // picker and dictation, which Escape ends first.
+              const cancel =
+                (event.key === "Escape" && !event.metaKey && !event.ctrlKey && !event.altKey) ||
+                (event.key === "." && event.metaKey && !event.ctrlKey && !event.altKey);
+              if (cancel && chief?.working && !emoji && !isActive(voice.state)) {
+                event.preventDefault();
+                chief.onStop(false);
+                return;
+              }
               if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
               if (event.key === "ArrowUp" && recall("older")) event.preventDefault();
               else if (event.key === "ArrowDown" && recall("newer")) event.preventDefault();
@@ -279,23 +315,47 @@ export function MessageComposer({
             features={{ multiline: true }}
             className="mt-field-editor"
           />
-          <button
-            type="button"
-            className="mt-field-button"
-            aria-label={t("compose.emoji")}
-            title={t("compose.emoji")}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={(event) => {
-              const anchor = event.currentTarget;
-              setEmoji({ anchor });
-              loadEmoji().then(
-                (table) => setEmoji((open) => (open ? { ...open, table } : open)),
-                () => setEmoji(undefined),
-              );
-            }}
-          >
-            <HomeIcon name="emoji" />
-          </button>
+          {chief?.working ? (
+            <button
+              type="button"
+              className="mt-field-button mt-chief-stop"
+              aria-label={t("compose.stop")}
+              title={t("home.stop.toolTip")}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => chief.onStop(event.altKey)}
+            >
+              <Icon name="action.stop" selected size={14} />
+            </button>
+          ) : chief?.continueAvailable ? (
+            <button
+              type="button"
+              className="mt-field-button mt-chief-continue"
+              aria-label={t("home.compose.continue")}
+              title={t("home.compose.continue")}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => chief.onContinue()}
+            >
+              <Icon name="media.play" selected size={14} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="mt-field-button"
+              aria-label={t("compose.emoji")}
+              title={t("compose.emoji")}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                const anchor = event.currentTarget;
+                setEmoji({ anchor });
+                loadEmoji().then(
+                  (table) => setEmoji((open) => (open ? { ...open, table } : open)),
+                  () => setEmoji(undefined),
+                );
+              }}
+            >
+              <HomeIcon name="emoji" />
+            </button>
+          )}
           {dictation && <DictationButton dictation={voice} />}
         </div>
         {!empty && (

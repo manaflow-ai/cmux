@@ -44,6 +44,7 @@ import { quotedReply, selectionQuote, type ReplyQuote } from "../transcript/repl
 import { timelineReplyCounts } from "../transcript/rows";
 import { threadBranch, threadPath } from "../transcript/threadBranch";
 import type { MessagesDetailProps } from "../types";
+import { useChiefTurn } from "../transcript/useChiefTurn";
 import {
   bubbleHostActions,
   chatAppearance,
@@ -429,6 +430,17 @@ function ConversationView(
     return true;
   };
   useEffect(() => nav.setReplier(() => replier.current()), [nav]);
+  // The Chief's Stop, Escape, Cmd-., Option-click Stop all agents and Continue (the native compose
+  // button, HomeChiefTurnActions): it works while it types or writes its reply here.
+  const chiefId = conversation.participants.find((person) => person.id !== me?.id && person.chief)?.id;
+  const turn = useChiefTurn(
+    host,
+    conversation.id,
+    conversation.kind === "chief" && !!chiefId,
+    !!chiefId && (snapshot.activity.get(conversation.id)?.has(chiefId) ?? false),
+    conversation.lastSeq,
+    words.transcript,
+  );
   if (!me) return null;
   const { look, colors } = props.appearance(conversation);
   const id = conversation.id;
@@ -516,6 +528,7 @@ function ConversationView(
         links={props.links}
         {...(props.approvals ? { approvals: props.approvals } : {})}
         {...(props.approvals ? { approvals: props.approvals } : {})}
+        {...turn}
         {...(firstRunShown
           ? {
               empty: (
