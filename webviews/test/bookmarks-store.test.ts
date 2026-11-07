@@ -198,6 +198,37 @@ test("Set and Remove Folder Icon name the page's profile, not the focused tab's"
   ]);
 });
 
+test("a profile change drops the old profile's search results until the new profile's search answers", async () => {
+  let profile = "default";
+  let release: () => void = () => {};
+  let hold = false;
+  class Switching extends MockBookmarksProvider {
+    override async call<R>(op: string, params: unknown): Promise<R> {
+      if (op === HostOps.state) {
+        const state = await super.call<Record<string, unknown>>(op, params);
+        return { ...state, browser_profile_id: profile } as R;
+      }
+      if (op === BookmarkOps.search && hold) await new Promise<void>((done) => (release = done));
+      return super.call<R>(op, params);
+    }
+  }
+  const { store, provider } = await started(new Switching());
+  store.setText("git");
+  await tick();
+  expect(store.getSnapshot().results?.length).toBeGreaterThan(0);
+  hold = true;
+  profile = "work";
+  provider.emitHostChanged("state");
+  for (let i = 0; i < 5; i++) await tick();
+  // The new profile's search is in flight: the old profile's rows are not shown under it.
+  expect(store.getSnapshot().profile).toBe("work");
+  expect(store.getSnapshot().results).toBeNull();
+  release();
+  await tick();
+  const searches = provider.calls.filter((call) => call.op === BookmarkOps.search);
+  expect(searches.at(-1)?.params).toEqual({ browser_profile_id: "work", text: "git" });
+});
+
 test("deleting a folder with its child selected is one apply that deletes the folder once", async () => {
   const { store, provider } = await started();
   const work = byTitle(store, "Work");
