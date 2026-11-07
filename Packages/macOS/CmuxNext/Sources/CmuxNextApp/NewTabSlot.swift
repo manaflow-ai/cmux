@@ -40,20 +40,13 @@ enum NewTabSlot {
     }
 
     /// `then` for a new tab's surface that first moves the tab right after `anchor`.
-    static func placing(after anchor: TabModel?, services: AppServices,
-                        then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
-        placing(anchor.map(Target.after), services: services, then: then)
-    }
+    static func placing(after anchor: TabModel?, services: AppServices, then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? { placing(anchor.map(Target.after), services: services, then: then) }
 
     /// Same for a tab named by its id (agent tabs and the New Tab page).
-    static func placing(after anchor: TabModel?, services: AppServices,
-                        then: (@MainActor (String) -> Void)?) -> (@MainActor (String) -> Void)? {
-        placing(anchor.map(Target.after), services: services, then: then)
-    }
+    static func placing(after anchor: TabModel?, services: AppServices, then: (@MainActor (String) -> Void)?) -> (@MainActor (String) -> Void)? { placing(anchor.map(Target.after), services: services, then: then) }
 
     /// `then` for a new tab's surface that first moves the tab into `target`'s slot.
-    static func placing(_ target: Target?, services: AppServices,
-                        then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
+    static func placing(_ target: Target?, services: AppServices, then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
         guard let target else { return then }
         let pane = home(of: target.anchor, services)
         let open = pane.flatMap { begin(target, in: $0, services: services) } // shown in its slot at once
@@ -65,8 +58,7 @@ enum NewTabSlot {
     }
 
     /// Same for a tab named by its id (agent tabs and the New Tab page).
-    static func placing(_ target: Target?, services: AppServices,
-                        then: (@MainActor (String) -> Void)?) -> (@MainActor (String) -> Void)? {
+    static func placing(_ target: Target?, services: AppServices, then: (@MainActor (String) -> Void)?) -> (@MainActor (String) -> Void)? {
         guard let target else { return then }
         let pane = home(of: target.anchor, services)
         let open = pane.flatMap { begin(target, in: $0, services: services) } // shown in its slot at once
@@ -84,15 +76,11 @@ enum NewTabSlot {
 
     /// `then` for the terminal or browser a New Tab page turns into: it takes the page's slot, so a page opened after the
     /// current tab stays there. The page's left neighbour is read now, as the page closes meanwhile.
-    static func placing(replacing page: String, onMachine machineID: String, services: AppServices,
-                        then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
+    static func placing(replacing page: String, onMachine machineID: String, services: AppServices, then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
         guard let located = services.locateTab(page, onMachine: machineID), case let (tab, pane) = located, let index = pane.tabs.firstIndex(where: { $0 === tab }) else { return then }
         // Shown in the page's slot from its first frame, whatever the daemon reports meanwhile.
         let open = NewTabSuccession.begin(replacing: page, in: pane, services: services)
-        let then: @MainActor (SurfaceID) -> Void = { surface in
-            NewTabSuccession.made(surface, in: pane, by: open)
-            then?(surface)
-        }
+        let then: @MainActor (SurfaceID) -> Void = { surface in NewTabSuccession.made(surface, in: pane, by: open); then?(surface) }
         guard index + 1 < pane.tabs.count else { return then } // the last tab: the new one appends beside it
         let before = index > 0 ? pane.tabs[index - 1] : nil
         let placed = place(in: { [weak pane] in pane }, services: services, find: { pane, surface in pane.tabs.first { $0.surface == surface } }) { [weak pane] others in

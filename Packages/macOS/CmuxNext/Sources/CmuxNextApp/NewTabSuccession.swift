@@ -81,11 +81,20 @@ struct NewTabSuccession {
     private func resolved(_ id: StripTabID, in pane: PaneModel) -> StripTabID { services?.daemon(for: pane).store.creations.replacement(ofStandIn: id.rawValue, in: pane).map { StripTabID($0.id) } ?? id }
     private func resolving(_ pane: PaneModel) -> Self { var open = self; (open.claimed, open.before) = (claimed.map { resolved($0, in: pane) }, before.map { resolved($0, in: pane) }); return open }
 
+    /// Whether the open's tab is a stand-in the daemon has not answered yet, still in `pane` (or, `replaced`, the daemon's tab
+    /// that just took its place there): its deadline waits for the create's answer or refusal. A slow answer let an earlier open
+    /// of a burst end first, and its tab then showed out of place (NewTabPlacementPathsTests' Ctrl-` then Cmd-T: `a b 2 c`).
+    private func waitsOnDaemon(in pane: PaneModel, replaced: Bool = true) -> Bool {
+        guard let claimed, ProvisionalTab.isProvisional(claimed.rawValue) else { return false }
+        let tab = replaced ? resolved(claimed, in: pane).rawValue : claimed.rawValue; return pane.tabs.contains { $0.id == tab }
+    }
+
     private func expire(after limit: Duration) {
         guard let pane else { return }
         let timer = expiry, key = ObjectIdentifier(pane)
         timer.schedule(after: limit) { @MainActor [weak services, weak pane] in
-            guard let opens = Self.active[key], opens.contains(where: { $0.expiry === timer }) else { return }
+            guard let opens = Self.active[key], let open = opens.first(where: { $0.expiry === timer }) else { return }
+            if let pane, open.waitsOnDaemon(in: pane, replaced: false) { return open.expire(after: Self.orderLimit) } // until its stand-in leaves
             Self.active[key] = opens.count == 1 ? nil : opens.filter { $0.expiry !== timer }
             if let pane { services?.paneController(for: pane)?.syncStripFromStore() }
         }
@@ -108,7 +117,7 @@ struct NewTabSuccession {
         }
         let key = ObjectIdentifier(pane.pane), now = ContinuousClock.now
         // A stand-in the store replaced: the open that showed it, and one going after it, now name the daemon's tab.
-        let opens = (active[key] ?? []).filter { now < $0.deadline }.map { $0.resolving(pane.pane) }
+        let opens = (active[key] ?? []).filter { now < $0.deadline || $0.waitsOnDaemon(in: pane.pane) }.map { $0.resolving(pane.pane) }
         var snapshot = snapshot, items = snapshot.items, kept: [NewTabSuccession] = [], claimed = Set(opens.compactMap(\.claimed))
         for (index, var open) in opens.enumerated() {
             // Its own tab, else its surface; the newest also by the store's tab after a provisional one or the tab being selected.
