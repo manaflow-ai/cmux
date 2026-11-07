@@ -1,0 +1,227 @@
+{
+  "version": 1,
+  "build": "4234850556501",
+  "notes": "notes/4234850556501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 34553,
+      "title": "acpmux: Gemini and Muse sign in, keep their logins and report usage like Claude and Codex",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37505,
+      "title": "cmux-cloud-api: refusals, GitHub App status and harness login copy use cmux-cloud-machine's rules",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37456,
+      "title": "test(next): pin the Reduce Motion zoom's one frame: its own turn shows nothing, the first tick shows all, no second frame (follow-up to #37464)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37526,
+      "title": "Cloud: cmux-cloud-api review follow-ups (bounded answers, preview deadlines, run start validation)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37522,
+      "title": "Sidebar: the Updated card keeps its page through a web update (no blink at every merge)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37506,
+      "title": "Agent chat: Jump to latest stands on the composer's center line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37484,
+      "title": "cmux-cloud-handlers: match the Swift rules (port refusals name the machine, one repo parser, resize, share-link URL check)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37474,
+      "title": "cloud start-session: the terminal anchor survives a machine daemon restart under its wait",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37203,
+      "title": "Agent chat: × takes back any waiting message; images handed over with attach",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37490,
+      "title": "New Tab: the folder icon, + and the permission shield on one center line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37498,
+      "title": "acpmux: every prompt path reads a restarting daemon's answer as a daemon going away",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37487,
+      "title": "cmux NEXT: a purged peer row leaves the store; a push while paging keeps only its own row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37491,
+      "title": "acpmux machine: Claude signed in by its auth status JSON; --create stops at any existing private key",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37509,
+      "title": "cmux-vm: approve cloud-native-bd31f93-rd022 (cmux-tui bd31f93e, the updater's connect hold) for development, staging and production",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37471,
+      "title": "verify-cmux-tui-hosted: one glaeda-gh wait, no run-list or watch loop (port of #26417)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37477,
+      "title": "cmux chat send SESSION: the next prompt to a chat wherever it runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37258,
+      "title": "cmux-window-rules: the window handlers' close rules in Rust, over the app FFI (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37488,
+      "title": "cmux vm makes VMs; cmux device takes the device verbs, machine is its old name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37496,
+      "title": "acpmux: a wedged agent host no longer holds every new session forever",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37455,
+      "title": "What's New: a wide column that grows with the window, whole descriptions, public PR links",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37350,
+      "title": "Cloud: the Cloud API calls are cloud.* daemon ops (cmux-cloud-api), and cmux cloud api sends them to the daemon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37481,
+      "title": "Cloud VM image: snapshot-ready refuses a symlinked identity tree (find does not follow it)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37475,
+      "title": "acpmux: a daemon restart during a prompt's agent start is a retryable restart, not \"no agent session\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37483,
+      "title": "Cloud VM image lock: pin cmux-tui bd31f93e, with the updater's connect hold",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37480,
+      "title": "fix(cmux link): a Cloud dial asks again for a link token the broker could not mint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37250,
+      "title": "Home: a visible New Cloud Machine entry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37279,
+      "title": "cmux NEXT: right sidebar Machines section on React, Swift view deleted",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37269,
+      "title": "settings: agent policy, row facts and conformance samples as data",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37462,
+      "title": "cmux login, logout and whoami at the top level",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37311,
+      "title": "acpmux: add a machine without a terminal: ssh key line, agent install and sign-in offers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37461,
+      "title": "fix(terminal): a resize's prompt clear waits for the shell (close-then-type empty fresh screen)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37442,
+      "title": "cmux chief runs: page run summaries and read a run's steps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37434,
+      "title": "cmux inference gateway: Cloud machines' model calls go to a gateway that alone holds the login",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37464,
+      "title": "test(next): a Reduce Motion zoom shows at the next frame tick (fixes base red after #37330)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37467,
+      "title": "hot-apply: fetch published builds with a named user agent; keep a hung app session from being passed over",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37440,
+      "title": "Cloud VM image: the snapshot has cmux-host and acpmux running and no per-machine identity",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
