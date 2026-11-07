@@ -285,6 +285,15 @@ impl Hub {
                 self.take_back_recovery(session, from)?;
                 at = from;
             }
+            tracing::info!(
+                session = %session.id,
+                at,
+                after,
+                records = records.len(),
+                first = records.first().map(|r| r.seq),
+                through = records.last().map(|r| r.seq),
+                "journal restore: where this journal ends, and what the owner's copy brings"
+            );
             if at < after {
                 return Err(refused("diverged", "this journal ends before afterSeq", session));
             }
