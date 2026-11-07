@@ -86,6 +86,34 @@ struct UpdatedCardHoverPreviewTests {
         host.configure(nil)
     }
 
+    /// Review F1 of #37615: builds before the composer-height card remembered its taller two-line
+    /// heights (64 and 77 pt) under the old keys. After the upgrade those heights are no guess for the
+    /// 48 pt card: its first frame does not hold them, and the page's 48 is the card's height.
+    @Test func heightsRememberedByTheTallerCardAreNotHeldAfterTheUpgrade() throws {
+        let legacy = ["cmux.sidebar.updatedCard.height", "cmux.sidebar.updatedCard.heights"]
+        let keys = legacy + [SidebarUpdatedCardHost.rememberedHeightKey, SidebarUpdatedCardHost.rememberedHeightsKey]
+        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        defer { keys.forEach { UserDefaults.standard.removeObject(forKey: $0) } }
+        UserDefaults.standard.set(77.0, forKey: legacy[0])
+        UserDefaults.standard.set((150...300).map { [Double($0), 77.0] }, forKey: legacy[1])
+        let surfaces = FakeSurfaces()
+        let model = SidebarModel(sections: [])
+        model.updatedCard = Self.card
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.updateSurfaces = surfaces
+        let host = sidebar.updatedCardView
+        host.configure(Self.card)
+        let island = try #require(surfaces.islands.first)
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(host.heldHeight == 0, "the first frame holds no height the old card remembered")
+        island.report(height: 48, overlay: 0)
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(host.height == 48)
+        #expect(host.frame.height >= 48 && host.frame.height <= 49)
+        host.configure(nil)
+    }
+
     /// Through the App's real island and page provider: the page hears the pointer (now, then each
     /// change) and the room its preview asks for reaches the host.
     @Test func theAppsIslandStreamsThePointerAndTakesThePreviewsRoom() async throws {

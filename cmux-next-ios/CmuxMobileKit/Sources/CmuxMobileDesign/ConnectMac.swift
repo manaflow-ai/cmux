@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -92,7 +93,7 @@ public struct ConnectMacSteps: View {
                     Text("\(onlineMac) is online")
                 }
             } else {
-                ProgressView().controlSize(.small)
+                CmuxSpinner().controlSize(.small)
                 Text("Waiting for your Mac…")
             }
         }

@@ -263,7 +263,13 @@ export function UpdatedCard({
   if (doodle) {
     return (
       <Doodle animate={animate}>
-        <section className={glass ? "ui-glass wn-card" : "wn-card"} aria-labelledby={titleId} data-decoration="doodle">
+        <section
+          className="wn-card"
+          aria-labelledby={titleId}
+          data-decoration="doodle"
+          data-glass={glass ? "" : undefined}
+          data-composer-material=""
+        >
           <DoodleHeadline version={cardVersion(data.version)} strings={strings} />
           {title}
           {close}
@@ -450,19 +456,22 @@ function useHoverPreview({
       intent.current?.page(true);
     };
     const leave = () => intent.current?.page(false);
-    // Escape closes an open preview first; the card's own Escape (surface.tsx) closes the card.
+    // Escape closes an open preview first; the card's own Escape (surface.tsx) closes the card. Heard
+    // on the document before its bubbling listeners: a preview the hover opened has no focus inside the
+    // card, so the key never passes through it (review F2 of #37615).
+    const doc = element.ownerDocument;
     const key = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || !isOpen.current) return;
+      if (event.key !== "Escape" || event.isComposing || !isOpen.current) return;
       event.preventDefault();
       intent.current?.close();
     };
     element.addEventListener("pointerenter", enter);
     element.addEventListener("pointerleave", leave);
-    element.addEventListener("keydown", key);
+    doc.addEventListener("keydown", key, true);
     return () => {
       element.removeEventListener("pointerenter", enter);
       element.removeEventListener("pointerleave", leave);
-      element.removeEventListener("keydown", key);
+      doc.removeEventListener("keydown", key, true);
     };
   }, [enabled]);
   return {
