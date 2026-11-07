@@ -22,6 +22,7 @@ mod local_server;
 mod machine_agent;
 mod menu;
 mod pairing;
+mod perf;
 mod remote;
 mod remote_client;
 mod runtime;
@@ -57,6 +58,7 @@ pub(crate) use local_server::LocalServerMessages;
 pub(crate) use machine_agent::MachineAgentMessages;
 pub(crate) use menu::MenuMessages;
 pub(crate) use pairing::PairingMessages;
+pub(crate) use perf::PerfMessages;
 pub(crate) use remote::RemoteMessages;
 pub(crate) use remote_client::RemoteClientMessages;
 pub(crate) use runtime::RuntimeMessages;
@@ -165,6 +167,7 @@ pub(crate) struct Catalog {
     pub billing: BillingMessages,
     pub auth_token: AuthTokenMessages,
     pub live_code: LiveCodeMessages,
+    pub perf: PerfMessages,
     pub sandbox_run: SandboxRunMessages,
     pub update_notice: UpdateNoticeMessages,
 }
@@ -188,6 +191,7 @@ static ENGLISH: Catalog = Catalog {
     billing: billing::ENGLISH,
     auth_token: auth_token::ENGLISH,
     live_code: live_code::ENGLISH,
+    perf: perf::ENGLISH,
     sandbox_run: sandbox_run::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
@@ -225,6 +229,7 @@ static JAPANESE: Catalog = Catalog {
     billing: billing::JAPANESE,
     auth_token: auth_token::JAPANESE,
     live_code: live_code::JAPANESE,
+    perf: perf::JAPANESE,
     sandbox_run: sandbox_run::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,

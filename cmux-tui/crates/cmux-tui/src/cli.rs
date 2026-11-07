@@ -92,6 +92,8 @@ mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
 mod live_code;
+#[cfg(unix)]
+mod perf;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
@@ -102,10 +104,7 @@ mod vm_short;
 #[cfg(unix)]
 mod vnc;
 #[cfg(unix)]
-pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
-#[cfg(unix)]
-#[cfg(unix)]
-pub(crate) use host_mount::early_unix_scope;
+pub(crate) use {chief::home_for_adopt as chief_home_for_adopt, host_mount::early_unix_scope};
 
 /// `cmux host enable|disable|status|serve|allow|deny|list|dial` (remote
 /// hosting, every platform), on the `cmux` surface only, like the other
@@ -616,6 +615,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| auth_token::run_if_requested(args))
         .or_else(|| auth_token::whoami_if_requested(args))
         .or_else(|| live_code::run_if_requested(args))
+        .or_else(|| perf::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))

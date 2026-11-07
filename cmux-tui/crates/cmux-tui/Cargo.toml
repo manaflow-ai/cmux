@@ -143,6 +143,8 @@ cmux-cloud-api.workspace = true
 # unix files and processes, so the crate does not build for Windows.
 cmux-automations.workspace = true
 cmux-holder.workspace = true
+# `cmux perf record` (cli/perf.rs): CPU, wakeups, memory, signposts and page frames of the running app.
+cmux-perf.workspace = true
 # `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
 cmux-vnc.workspace = true
 flate2.workspace = true

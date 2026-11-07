@@ -1,0 +1,16 @@
+[package]
+name = "cmux-perf"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "`cmux perf record`: CPU, wakeups and memory of every cmux process, signposts and agent page frames as one Perfetto trace"
+
+[lints]
+workspace = true
+
+[dependencies]
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true

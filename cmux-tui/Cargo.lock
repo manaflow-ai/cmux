@@ -1604,6 +1604,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-perf"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-process"
 version = "0.1.0"
 dependencies = [
@@ -1940,6 +1949,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-panic-log",
+ "cmux-perf",
  "cmux-process",
  "cmux-pty",
  "cmux-rd-host",

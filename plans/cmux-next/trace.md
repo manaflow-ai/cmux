@@ -2,6 +2,31 @@
 
 Status: tool landed (cmux-4f PL-trace, 2026-10-23). Not a CI gate. Owner of the script: the Performance Lead.
 
+## Quick capture on any build: `cmux perf record`
+
+`cmux perf record` profiles the cmux app that already runs, on any build (dev, nightly or release). It
+launches nothing, needs no Debug-only socket method and no xctrace, and anyone can run it:
+
+```bash
+cmux perf record --seconds 20
+```
+
+It writes `cmux-perf-<UTC time>/trace.json`, which ui.perfetto.dev opens, and `summary.json`, and prints
+the summary. Everything is on one clock, wall-clock microseconds since the Unix epoch. It records:
+
+- Every process of the app, each `--interval-ms` (default 250): CPU (% of one core), wakeups a second and
+  phys_footprint, as counter tracks per process. The processes are the bundle's executables and the
+  WebKit processes the app is responsible for, classified as in `bench_memory.py`. On a Linux cmux-tui
+  host it uses `/proc` and records context switches and resident memory instead.
+- cmux's signposts, from `log stream --signpost` as in the table below: slices on the thread that
+  emitted them, and the 10 longest in the summary.
+- The agent page ring (`agent-page-flicker.ndjson`): frame windows, long frames, loads and visibility.
+  The summary shows the share of missed 120 Hz and 60 Hz frames, the median p50 and the worst p95.
+
+It records no stack samples, no Chromium trace and no daemon spans. For those, use `trace.py` below or
+Instruments. The summary says for each source whether it recorded, and if not, why. Ctrl-C ends the
+recording early, and it still writes both files. `cmux perf record --help` lists the options.
+
 The goal is a trace like Chrome's Perfetto traces. One command records a scenario, and one file shows
 every cmux process on one time axis. With that file, "why did this lag" takes minutes to answer.
 
