@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeRender
 import CmuxNextDesign
+import CmuxNextHomeModel
 
 /// Chat Colors…: one chat's bubble and text colours, with a live preview. Each change is stored
 /// at once (the open chat redraws as you pick); Automatic text is picked to read on the bubble.

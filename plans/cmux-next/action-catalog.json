@@ -56756,7 +56756,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Match Terminal Background",
+      "title" : "Match Terminal Background",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -58065,7 +58065,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Notification Banners",
+      "title" : "Notification Banners",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -61671,6 +61671,74 @@
         "pane"
       ],
       "title" : "Copy Last Code Block",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "agents",
+      "cliName" : "action agent-pane-show-in-mini",
+      "computed" : {
+        "canonical_action_id" : "agentPane.showInMini",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "id" : "agentPane.showInMini",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "agent",
+        "chat",
+        "mini",
+        "pet",
+        "chief",
+        "floating",
+        "avatar",
+        "coordinator"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "agentPaneFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "pip",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Show in Mini",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -68589,6 +68657,16 @@
           "name" : "repo",
           "suggestions" : null,
           "title" : "Repository"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "environment",
+          "suggestions" : null,
+          "title" : "Cloud Environment"
         }
       ],
       "category" : "cloud",
@@ -68606,7 +68684,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Creates a Cloud machine; returns machine_id, title, status and target once the server has it. After 30 s it answers pending: true and the create goes on: check `cmux cloud list-machines` before another. Options: --size small|medium|large|xlarge, --name, --persistent (no idle pause), --bootstrap-script FILE (--bootstrap lane for a lane host), --machine-config FILE (a .cmux/machine.toml), answering bootstrap, machine_config and enrollment. An agent's create may ask the person first.",
+      "description" : "Creates a Cloud machine; returns machine_id, title, status and target once the server has it. After 30 s it answers pending: true and the create goes on: check `cmux cloud list-machines` before another. Options: --size small|medium|large|xlarge, --name, --persistent (no idle pause), --bootstrap-script FILE (--bootstrap lane for a lane host), --machine-config FILE (a .cmux/machine.toml), --environment ID|NAME (boot in that Cloud environment), answering bootstrap, machine_config and enrollment. An agent's create may ask the person first.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "id" : "newCloudMachine",
@@ -75905,6 +75983,16 @@
           "name" : "promptId",
           "suggestions" : null,
           "title" : "Prompt ID"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "login",
+          "suggestions" : null,
+          "title" : "Harness Login"
         }
       ],
       "category" : "cloud",
@@ -75922,7 +76010,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Sends --prompt to --agent (claude, codex, ...) on a Cloud machine (--target machine:<id>) over the machine's relay and answers when the turn ends. A machine with no link yet gets this Mac's link and its owner check first, then the person's harness login, then the send. The answer carries session_id (the machine's acpmux session), reply, stop_reason, first_text_ms and total_ms. A turn still running after 35 s answers what came so far with ended: false and goes on in that session while the app runs. delivered: false means the prompt never reached the machine (no machine took it, or the relay refused it). --cwd is the folder there; --prompt-id makes a resend run once.",
+      "description" : "Sends --prompt to --agent (claude, codex, ...) on a Cloud machine (--target machine:<id>) over the machine's relay and answers when the turn ends. A machine with no link yet gets this Mac's link and its owner check first, then the person's harness login, then the send. The answer carries session_id (the machine's acpmux session), reply, stop_reason, first_text_ms and total_ms. A turn still running after 35 s answers what came so far with ended: false and goes on in that session while the app runs. delivered: false means the prompt never reached the machine (no machine took it, or the relay refused it). --cwd is the folder there; --prompt-id makes a resend run once; --login pass|machine|none is the harness login the machine gets first, as cloud start-session takes it.",
       "focuses" : false,
       "group" : "CloudSessionActionCatalog",
       "id" : "cloudRelayChat",
@@ -78689,7 +78777,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle New Tab Animations",
+      "title" : "New Tab Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78752,7 +78840,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle New Workspace Animations",
+      "title" : "New Workspace Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78817,7 +78905,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle All Animations",
+      "title" : "All Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78882,7 +78970,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Sidebar Animations",
+      "title" : "Sidebar Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78945,7 +79033,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Tab Animations",
+      "title" : "Tab Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79010,7 +79098,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Pane and Window Animations",
+      "title" : "Pane and Window Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79076,7 +79164,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Menu and Card Animations",
+      "title" : "Menu and Card Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79139,7 +79227,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Hover Card Animations",
+      "title" : "Hover Card Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79204,7 +79292,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Home and Chat Animations",
+      "title" : "Home and Chat Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79268,7 +79356,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Agent Cursor Animations",
+      "title" : "Agent Cursor Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79333,7 +79421,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Spinner and Progress Animations",
+      "title" : "Spinner and Progress Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79398,7 +79486,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Highlight and Color Animations",
+      "title" : "Highlight and Color Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79462,7 +79550,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Web Page Animations",
+      "title" : "Web Page Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79781,7 +79869,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Pane Borders",
+      "title" : "Pane Borders",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79846,7 +79934,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Pane Padding",
+      "title" : "Pane Padding",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79911,7 +79999,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Rounded Pane Corners",
+      "title" : "Rounded Pane Corners",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -80568,7 +80656,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Focus Ring",
+      "title" : "Focus Ring",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -80760,7 +80848,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Focus Ring for a Single Pane",
+      "title" : "Focus Ring for a Single Pane",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -80826,7 +80914,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Thick Pane Borders",
+      "title" : "Thick Pane Borders",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -88843,7 +88931,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Column Scroll Bar",
+      "title" : "Column Scroll Bar",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -89597,8 +89685,11 @@
         "window",
         "home",
         "chat",
-        "side",
-        "left",
+        "float",
+        "panel",
+        "show",
+        "hide",
+        "toggle",
         "focus",
         "open"
       ],
@@ -89627,7 +89718,7 @@
       "targets" : [
         "window"
       ],
-      "title" : "Open Chief Dock",
+      "title" : "Show/Hide Chief",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
