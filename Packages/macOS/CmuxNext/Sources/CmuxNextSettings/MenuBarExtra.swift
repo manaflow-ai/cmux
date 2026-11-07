@@ -94,7 +94,12 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
 
     public func menuWillOpen(_ menu: NSMenu) { isOpen = true }
 
-    public func menuDidClose(_ menu: NSMenu) { isOpen = false }
+    /// A closed menu drops its Computer Use question: its answer would update the next opening.
+    public func menuDidClose(_ menu: NSMenu) {
+        isOpen = false
+        computerUseAsked?.cancel()
+        computerUseAsked = nil
+    }
 
     /// A chat row opens its chat in front; Take Over and Hand Back ask the CUA host, and a refusal
     /// says why as the registry's other refusals do.
@@ -117,15 +122,15 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
         }
     }
 
-    /// Asks the CUA host for its newest session (one socket request per opening, none while
-    /// closed) and, when it differs from the one shown, rewrites the Computer Use row in place:
+    /// Asks the CUA host for its newest session (one socket request per opening, dropped when
+    /// it closes) and, when it differs from the one shown, rewrites the Computer Use row in place:
     /// the row is there either way, so no row moves.
     private func askComputerUse(_ menu: NSMenu) {
         guard computerUseAsked == nil, let host else { return }
         // task-owner: one per menu opening; ends with the host's answer (CuaSocketClient's 5 s deadline).
         computerUseAsked = Task { [weak self, weak menu] in
             let session = await host.menuBarComputerUseSession()
-            guard let self else { return }
+            guard let self, !Task.isCancelled else { return }
             self.computerUseAsked = nil
             guard session != self.computerUseSession else { return }
             self.computerUseSession = session
