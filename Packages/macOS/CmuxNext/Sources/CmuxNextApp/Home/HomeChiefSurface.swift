@@ -286,6 +286,7 @@ final class HomeChiefSurface {
         let control = control
         guard showsChiefOnScreen, !control.isHosted, let window = owner?.window else { return NSSound.beep() }
         // task-owner: one chief.stop {all}, then the toast; ends with the answer
+        // main-hop-allow: already on main (a click); the task only awaits one daemon answer, then shows one toast
         Task { @MainActor [weak window, turnActions] in
             switch await turnActions.stopAll() {
             case .failure:
@@ -319,4 +320,20 @@ final class HomeChiefSurface {
 final class HomeChiefSettingsAnchor: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func isAccessibilityElement() -> Bool { false }
+}
+
+extension CmuxToast {
+    /// The Stop all agents toast for the daemon's answer: what stopped, how many could not be
+    /// stopped (which and why in its tooltip), the note about any still starting, and Restart
+    /// when subagents stopped (never for one that could not be stopped).
+    static func stopAll(_ answer: ChiefStopAll, duration: Duration = .seconds(6)) -> CmuxToast {
+        let action = answer.subagents.isEmpty ? nil : CmuxToast.Action(title: HomeStopAllStrings.restart)
+        return CmuxToast(id: "home.stopAllAgents", message: HomeStopAllStrings.message(for: answer),
+                         detail: HomeStopAllStrings.detail(for: answer), action: action, duration: duration)
+    }
+
+    /// The toast for an answer's JSON, decoded as the daemon's answer is (`debug.toast {stop_all}`).
+    static func stopAll(decoding answer: Data, duration: Duration = .seconds(6)) throws -> CmuxToast {
+        stopAll(try JSONDecoder().decode(ChiefStopAll.self, from: answer), duration: duration)
+    }
 }

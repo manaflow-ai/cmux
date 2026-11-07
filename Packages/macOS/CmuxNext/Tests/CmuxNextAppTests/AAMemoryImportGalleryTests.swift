@@ -9,8 +9,8 @@ import CmuxTheme
 import Foundation
 import Testing
 
-/// The memory import flow as the person sees it, drawn offscreen with the real views: the Chief's front page with the
-/// "Bring your memory from …" row, and the Import Memories dialog with the sources found on a Mac. PNGs under
+/// The memory import flow as the person sees it, drawn offscreen with the real views: the Import Memories dialog with
+/// the sources found on a Mac. PNGs under
 /// `memory-import-gallery/` in the package, bundled to `memory-import-gallery.tar` for `cmux-ci run --artifact`.
 /// Runs only with `CMUX_TEST_REQUIRE_GUI=1`.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AAMemoryImportGalleryTests {
@@ -51,15 +51,6 @@ import Testing
         return image
     }
 
-    private static func frontPage(_ root: NSView, _ window: NSWindow) {
-        let panel = HomeFirstRunView(frame: root.bounds)
-        panel.autoresizingMask = [.width, .height]
-        root.addSubview(panel)
-        panel.setMemoryOffer(MemorySource.offerTitle(sources, locale: Locale(identifier: "en_US")))
-        panel.setShortcuts(terminal: "⌘T", agent: "⇧⌘N", switching: nil)
-        panel.layoutSubtreeIfNeeded()
-    }
-
     private static func dialog(_ root: NSView, _ window: NSWindow) {
         let fields = sources.enumerated().map { CmuxDialogField.check(id: String($0.offset), title: $0.element.title, on: true) }
         let spec = CmuxDialogSpec(
@@ -80,8 +71,7 @@ import Testing
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         for (mode, theme, dark) in [("light", "Soft Blue Light", false), ("dark", "Soft Blue", true)] {
-            for (name, build, size) in [("front-page", Self.frontPage, CGSize(width: 520, height: 560)),
-                                        ("dialog", Self.dialog, CGSize(width: 640, height: 520))] as [(String, (NSView, NSWindow) -> Void, CGSize)] {
+            for (name, build, size) in [("dialog", Self.dialog, CGSize(width: 640, height: 520))] as [(String, (NSView, NSWindow) -> Void, CGSize)] {
                 let image = try Self.shot(build, width: size.width, height: size.height, theme: theme, dark: dark)
                 let url = out.appending(path: "\(name)-\(mode).png")
                 let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))

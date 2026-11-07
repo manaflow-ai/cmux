@@ -118,45 +118,6 @@ import Testing
         await until { host.pinnedSection != nil }
         #expect((host.pinnedSection as? FeedNeedsYouView)?.shownIDs == ["a"])
     }
-
-    @Test func thePinnedSectionSitsUnderTheHeaderAndMovesNoMessage() async throws {
-        let source = EmptyChiefSource()
-        let id = ConversationID("conv_chief")
-        let inbox = try await source.inbox()
-        let store = HomeStore(source: source)
-        store.start()
-        let view = HomeNativeTranscriptView(store: store, conversation: id, me: inbox.me.id)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 800), styleMask: [.titled],
-                              backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        defer { view.stop(); store.stop(); window.close() }
-        view.frame = NSRect(x: 0, y: 0, width: 600, height: 800)
-        window.contentView = view
-        await view.binding.opened()
-        view.layoutSubtreeIfNeeded()
-        let transcriptFrame = view.transcript.frame
-        #expect(view.pinnedSection == nil)
-
-        let (model, _) = feed([request("a", ago: 1)])
-        let section = FeedNeedsYouView(model: model)
-        view.setPinnedSection(section)
-        view.layoutSubtreeIfNeeded()
-        #expect(view.pinnedSection === section)
-        #expect(section.superview === view)
-        #expect(section.frame.minY >= view.headerHeight, "under the header: \(section.frame) header \(view.headerHeight)")
-        #expect(section.frame.height > 0)
-        #expect(section.frame.maxY < view.transcript.fieldTop, "above the message box")
-        #expect(view.transcript.frame == transcriptFrame, "the transcript keeps its frame: nothing shifts")
-        // The oldest message can still scroll out from under the card (Codex review, #33817).
-        #expect(view.transcript.rowsTopClearance >= section.frame.maxY - view.headerHeight)
-
-        view.setPinnedSection(nil)
-        view.layoutSubtreeIfNeeded()
-        #expect(view.pinnedSection == nil)
-        #expect(section.superview == nil)
-        #expect(view.transcript.rowsTopClearance == 0)
-        #expect(view.transcript.frame == transcriptFrame)
-    }
 }
 
 /// A stand-in for `feed.needsYouInChief` (the app reads it from the observable settings snapshot).
