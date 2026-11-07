@@ -6,6 +6,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
+import { selectionReplyWrap } from "./selectionReplyWrap.experiment";
 
 const PHRASE = "retry only on 429 and 503";
 const rows = [
@@ -67,8 +68,7 @@ const sentRows = [
 // word, one over three lines, and one that ends inside inline code (his second screenshot).
 const LONG =
   "The fetch helper retries a request only when the server answers 429 or 503, and it waits a little longer before each new attempt so a busy server gets room to recover. Every other status fails at once, so a bad token or a missing route shows up in the first call instead of after a minute of retries. The backoff starts at 250 ms, doubles on each attempt, adds up to a quarter of jitter and stops growing at 4 s, which keeps a stuck call from holding the queue for long.";
-const CODE =
-  "Then run `cmux chat --on cloud` once the lane has its machine, and check the first reply it sends back.";
+const CODE = "Then run `cmux chat --on cloud` once the lane has its machine, and check the first reply it sends back.";
 const longRows = [
   user("How should the fetch helper handle a failed request?", 6, {
     id: "gallery-reply-prompt",
@@ -115,7 +115,7 @@ async function selectIn(
   pick: (node: Text, ends: number[]) => { from: [Text, number]; to: [Text, number] },
 ) {
   const doc = ctx.document;
-  await ctx.waitFor(() => textNode(doc, start));
+  await ctx.waitFor(() => !!textNode(doc, start));
   await doc.fonts?.ready;
   const node = textNode(doc, start)!;
   const { from, to } = pick(node, lineEnds(doc, node));
@@ -151,12 +151,7 @@ const inlineCode = (ctx: PlayContext) =>
     return { from: [node, 0], to: [code, code.data.length] };
   });
 
-const variant = (
-  look: string,
-  note: string,
-  play: (ctx: PlayContext) => Promise<void>,
-  snapshot = chat(rows),
-) => ({
+const variant = (look: string, note: string, play: (ctx: PlayContext) => Promise<void>, snapshot = chat(rows)) => ({
   note,
   theme: { selectionReply: look },
   snapshot,
@@ -173,10 +168,8 @@ export default agentPaneEntry({
   widths: { narrow: 400, normal: 760, wide: 1040 },
   covers: ["agent-session/acpmux/conversation/SelectionReply.tsx"],
   variants: {
-    none: variant(
-      "none",
-      "Before: selected text gets Quote in Reply only from the right-click menu.",
-      (ctx) => selectPhrase(ctx, false),
+    none: variant("none", "Before: selected text gets Quote in Reply only from the right-click menu.", (ctx) =>
+      selectPhrase(ctx, false),
     ),
     "chip-above": variant(
       "chip",
@@ -216,9 +209,7 @@ export default agentPaneEntry({
       ),
       height: 640,
     },
-    "chip-icon-only": variant("icon", "The same chip as a quote glyph alone.", (ctx) =>
-      selectPhrase(ctx, true),
-    ),
+    "chip-icon-only": variant("icon", "The same chip as a quote glyph alone.", (ctx) => selectPhrase(ctx, true)),
     "row-reply-button": variant(
       "row",
       "Rejected: a Reply button on every message's row. You nearly always reply to the latest message, so it repeats on every row for little use.",
@@ -226,5 +217,16 @@ export default agentPaneEntry({
         await ctx.hover({ selector: '[data-row-id="gallery-reply-answer"]' });
       },
     ),
+  },
+  // Where the chip wraps when the selection's last line has no room for it (selectionReplyWrap):
+  // compare the arms on chip-right-edge, at the narrow width too.
+  experiment: {
+    definition: selectionReplyWrap,
+    script: [
+      {
+        name: "Select to the line's right edge",
+        run: rightEdge,
+      },
+    ],
   },
 });

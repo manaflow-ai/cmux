@@ -5,7 +5,13 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { configureSelectionReply, quoteMarkdown, SelectionReplyChip, setQuoteReplySink } from "./SelectionReply";
+import {
+  configureSelectionReply,
+  quoteMarkdown,
+  SelectionReplyChip,
+  selectionReplyPlace,
+  setQuoteReplySink,
+} from "./SelectionReply";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -178,7 +184,7 @@ function layOut(doc: Document): () => void {
   };
 }
 
-test("the chip never covers the Sent to line over the selected reply", () => {
+test("the chip never covers the Sent to line over the selected reply: it sits on the selection's line", () => {
   const doc = mount(SENT_OVER_REPLY);
   const restore = layOut(doc);
   try {
@@ -190,12 +196,49 @@ test("the chip never covers the Sent to line over the selected reply", () => {
     const top = parseFloat(button.style.top);
     const pill = { left, top, right: left + 72, bottom: top + 28 };
     const label = { left: 24, right: 24 + 32 * 8, ...LINES.sent };
-    const prose = { left: 24, right: 24 + 26 * 8, ...LINES.prose };
     const hits = (a: typeof pill, b: typeof pill) =>
       a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
     expect(hits(pill, label)).toBe(false);
-    expect(hits(pill, prose)).toBe(false);
+    // Just after "429" (x 160) and centred on its line (Leo, 2026-11-07: "just make it in line").
+    expect(left).toBe(160 + 6);
+    expect(top + 14).toBe((LINES.prose.top + LINES.prose.bottom) / 2);
   } finally {
     restore();
   }
+});
+
+// The placement alone (selectionReplyPlace): a 72 x 28 chip, a 22 px line from y 200 whose text
+// runs in a column from x 100 to x 820 of a 1040 px pane, the line over it full of text.
+const SIZE = { width: 72, height: 28 };
+const PANE = { width: 1040, height: 700 };
+const COLUMN = { left: 100, right: 820 };
+const ABOVE = [{ left: 100, right: 820, top: 178, bottom: 196 }];
+const at = (right: number) => ({
+  text: "x",
+  left: right,
+  top: 200,
+  bottom: 222,
+  end: { right, top: 200, bottom: 222 },
+  column: COLUMN,
+});
+
+test("a clear spot over the selection's end keeps the chip there, centred on the end", () => {
+  expect(selectionReplyPlace(at(400), SIZE, PANE, [])).toEqual({ left: 364, top: 166 });
+});
+
+test("with text over the end, the chip sits just after the end, centred on its line", () => {
+  expect(selectionReplyPlace(at(400), SIZE, PANE, ABOVE)).toEqual({ left: 406, top: 197 });
+});
+
+test("a selection ending at the column's right edge wraps the chip, never into the margin", () => {
+  // "after" would be x 816 to 888, past the column's 820.
+  expect(selectionReplyPlace(at(810), SIZE, PANE, ABOVE)).toEqual({ left: 100, top: 226 });
+  expect(selectionReplyPlace(at(810), SIZE, PANE, ABOVE, "under-end")).toEqual({ left: 738, top: 226 });
+  expect(selectionReplyPlace(at(810), SIZE, PANE, ABOVE, "edge")).toEqual({ left: 748, top: 197 });
+  // Even with a clear spot over it: centred there, it would run past the column.
+  expect(selectionReplyPlace(at(810), SIZE, PANE, [])).toEqual({ left: 100, top: 226 });
+});
+
+test("a selection on the pane's last line wraps the chip over that line instead", () => {
+  expect(selectionReplyPlace(at(810), SIZE, { width: 1040, height: 240 }, ABOVE)).toEqual({ left: 100, top: 168 });
 });

@@ -1,6 +1,7 @@
 // Reply to a part of a message: selecting transcript text shows a small Reply chip above the
-// selection's end, as Claude and ChatGPT do, moved aside wherever that spot holds text (a "Sent to"
-// line over the reply); clicking it quotes the selection into the composer,
+// selection's end; where that spot holds text (the line before, a "Sent to" line over the reply) it
+// sits on the selection's last line just after its last character, or wraps under it, and never
+// floats in the margin past the column; clicking it quotes the selection into the composer,
 // the same Quote in Reply the selection's right-click menu runs (AgentPaneContextMenu.swift
 // `quote`, App.tsx `chat.quoteReply`). Leo, 2026-11-03: "would it make sense to have a direct
 // reply button? or would you mostly just re-read your own thing anyways? what makes sense here?"
@@ -17,7 +18,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n";
+import { experimentArm } from "../../../experiments/experiment";
 import { Quote } from "./icons";
+import { selectionReplyWrap } from "./selectionReplyWrap.experiment";
 
 export type SelectionReplyLook = "chip" | "icon" | "none" | "row";
 const LOOKS: readonly SelectionReplyLook[] = ["chip", "icon", "none", "row"];
@@ -70,7 +73,30 @@ const EXCLUDED = `${EDITABLE}, .cv-codeblock, pre, [data-read-only-transcript], 
 const elementOf = (node: Node | null): Element | null =>
   node ? (node.nodeType === 1 ? (node as Element) : node.parentElement) : null;
 
-export type SelectionReplyTarget = { text: string; left: number; top: number; bottom: number };
+export type SelectionReplyTarget = {
+  text: string;
+  /** Where the pointer let go (the end, or the start of a backward drag): the chip centres over it. */
+  left: number;
+  top: number;
+  bottom: number;
+  /** The selection's last line: the right of its last character and that line's box. */
+  end?: { right: number; top: number; bottom: number };
+  /** The text column the end sits in: where its lines start (the end's block) and its right edge. */
+  column?: { left: number; right: number };
+};
+
+/// The blocks a transcript line wraps in: where the line under the selection's end starts.
+const BLOCK = "p, li, h1, h2, h3, h4, h5, h6, td, th, dd, dt, figcaption, blockquote, .cv-md, [data-row-id]";
+
+/// The box of the column `node` sits in: its block's left (where its lines start) and the
+/// message body's right edge. Undefined where there is no layout (a box of no width).
+function columnOf(node: Node | null): SelectionReplyTarget["column"] {
+  const element = elementOf(node);
+  const block = element?.closest(BLOCK)?.getBoundingClientRect?.();
+  const body = element?.closest(".cv-md, [data-row-id]")?.getBoundingClientRect?.();
+  if (!block?.width || !body?.width) return undefined;
+  return { left: block.left, right: body.right };
+}
 
 /// The selected transcript text and where its end is (viewport px), or undefined when the
 /// selection is collapsed, blank, or not wholly in transcript messages.
@@ -85,6 +111,10 @@ export function selectionReplyTarget(doc: Document): SelectionReplyTarget | unde
   if (!text) return undefined;
   const range = selection.getRangeAt(0);
   const rects = Array.from(range.getClientRects?.() ?? []).filter((rect) => rect.width || rect.height);
+  // A selection that runs to the start of the next block ends in a caret-thin box there: its last
+  // character is the last box with a width.
+  const wide = rects.filter((rect) => rect.width > 0);
+  const last = (wide.length ? wide : rects)[(wide.length ? wide : rects).length - 1];
   // A backward drag ends at the range's start: the chip goes where the pointer let go.
   const backward =
     selection.anchorNode !== null &&
@@ -94,11 +124,22 @@ export function selectionReplyTarget(doc: Document): SelectionReplyTarget | unde
       : Boolean(selection.anchorNode.compareDocumentPosition(selection.focusNode) & 2));
   const rect = (backward ? rects[0] : rects[rects.length - 1]) ?? range.getBoundingClientRect?.();
   if (!rect) return { text, left: 0, top: 0, bottom: 0 };
-  return { text, left: backward ? rect.left : rect.right, top: rect.top, bottom: rect.bottom };
+  const end = last ? { right: last.right, top: last.top, bottom: last.bottom } : undefined;
+  return {
+    text,
+    left: backward ? rect.left : rect.right,
+    top: rect.top,
+    bottom: rect.bottom,
+    end,
+    column: columnOf(range.endContainer),
+  };
 }
 
 export type PlaceRect = { left: number; top: number; right: number; bottom: number };
 const PLACE_GAP = 6;
+/// Between the selection's last line and a chip wrapped under it.
+const WRAP_GAP = 4;
+export type SelectionReplyWrap = "line-start" | "under-end" | "edge";
 
 /// The boxes of the transcript's text in rows that cross `band` (viewport px, top to bottom): what
 /// the chip must not cover. Read only when a chip is placed, and only for the rows near it.
@@ -125,47 +166,44 @@ const overlap = (a: PlaceRect, b: PlaceRect) =>
   Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
   Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
 
-/// Where the chip goes: the first of these that covers no text, else the one covering least.
-/// Above the selection's end and centred on it (as Claude and ChatGPT), then above but past the
-/// text on that line, then on the end's own line past its text, then the same two below. The
-/// chip never sits on a label or a line it does not belong to (Leo, 2026-11-05, on the chip drawn
-/// over a "Sent to" line: "this is a bad reply").
+/// Where the chip goes. Over the selection's end and centred on it (as Claude and ChatGPT) when
+/// that spot covers no text and stays in the column: the chip never sits on a label or a line it
+/// does not belong to (Leo, 2026-11-05, on the chip drawn over a "Sent to" line: "this is a bad
+/// reply"). Else on the selection's last line, just after its last character and centred on that
+/// line; and where that line has no room before the column's right edge, wrapped as `wrap` says.
+/// Never past the column into the margin (Leo, 2026-11-07: "if it's ever on the right edge, just
+/// make it in line ... Sometimes it gets a bit strange, I guess. Like at the sides, because it's not
+/// aligned").
 export function selectionReplyPlace(
   target: SelectionReplyTarget,
   size: { width: number; height: number },
   pane: { width: number; height: number },
   text: readonly PlaceRect[],
+  wrap: SelectionReplyWrap = "line-start",
 ): { left: number; top: number } {
   const { width, height } = size;
   const gap = PLACE_GAP;
+  const right = Math.min(target.column?.right ?? Infinity, pane.width - gap);
+  const start = Math.max(target.column?.left ?? gap, gap);
+  const fits = (top: number) => top >= gap && (pane.height <= 0 || top + height <= pane.height - gap);
+
   const centred = Math.max(gap, Math.min(target.left - width / 2, pane.width - width - gap));
-  // Past every piece of text the chip's row would cross, or nowhere when that runs out of the pane.
-  const after = (top: number, from: number) => {
-    const right = text
-      .filter((rect) => rect.bottom > top && rect.top < top + height)
-      .reduce((most, rect) => Math.max(most, rect.right), from);
-    const left = right + gap;
-    return left + width + gap <= pane.width ? left : undefined;
-  };
   const above = target.top - height - gap;
-  const line = (target.top + target.bottom - height) / 2;
-  const below = target.bottom + gap;
-  const candidates: { left: number | undefined; top: number }[] = [
-    { left: centred, top: above },
-    { left: after(above, -Infinity), top: above },
-    { left: after(line, target.left), top: line },
-    { left: centred, top: below },
-    { left: after(below, -Infinity), top: below },
-  ];
-  let best: { left: number; top: number; covered: number } | undefined;
-  for (const { left, top } of candidates) {
-    if (left === undefined || top < gap || (pane.height > 0 && top + height > pane.height - gap)) continue;
-    const box = { left, top, right: left + width, bottom: top + height };
-    const covered = text.reduce((sum, rect) => sum + overlap(box, rect), 0);
-    if (covered === 0) return { left, top };
-    if (!best || covered < best.covered) best = { left, top, covered };
-  }
-  return best ?? { left: centred, top: above >= gap ? above : below };
+  const box = { left: centred, top: above, right: centred + width, bottom: above + height };
+  if (fits(above) && box.right <= right && !text.some((rect) => overlap(box, rect) > 0))
+    return { left: centred, top: above };
+
+  const end = target.end ?? { right: target.left, top: target.top, bottom: target.bottom };
+  const line = (end.top + end.bottom - height) / 2;
+  const after = end.right + gap;
+  if (after + width <= right) return { left: after, top: line };
+  const under = end.bottom + WRAP_GAP;
+  // Under the line, or over it when the line is the pane's last.
+  const next = fits(under) ? under : end.top - height - WRAP_GAP;
+  const pinned = Math.max(start, right - width);
+  if (wrap === "edge") return { left: pinned, top: line };
+  if (wrap === "under-end") return { left: Math.max(start, Math.min(end.right - width, pinned)), top: next };
+  return { left: Math.min(start, pinned), top: next };
 }
 
 /// A Reply button for a message's action row (`row` look only), its glyph the row's 16 px
@@ -241,7 +279,9 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
       height: doc.documentElement.clientHeight || doc.defaultView?.innerHeight || 0,
     };
     const band = { top: target.top - 2 * size.height - PLACE_GAP, bottom: target.bottom + 2 * size.height + PLACE_GAP };
-    setPlaced(selectionReplyPlace(target, size, pane, transcriptTextRects(doc, band)));
+    setPlaced(
+      selectionReplyPlace(target, size, pane, transcriptTextRects(doc, band), experimentArm(selectionReplyWrap)),
+    );
   }, [doc, target]);
 
   const quote = useCallback(() => {

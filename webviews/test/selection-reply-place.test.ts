@@ -17,10 +17,9 @@ import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-const ENTRY = "agent-pane.selection-reply";
-
 await requireBrowserLane("selection-reply-place.test.ts", async () => {
   setDefaultTimeout(240_000);
+  const ENTRY = "agent-pane.selection-reply";
   try {
     await (await chromium.launch({ headless: true })).close();
   } catch {
