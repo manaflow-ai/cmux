@@ -148,6 +148,7 @@ extension ChiefPetController {
         if let glass {
             window.effectiveAppearance.performAsCurrentDrawingAppearance {
                 context.addPath(CGPath(roundedRect: glass, cornerWidth: glass.height / 2, cornerHeight: glass.height / 2, transform: nil))
+                // glass-opaque-allow: a DEBUG-only snapshot fills the backing the window server draws as glass, so the still stays readable; it never runs in a release build.
                 context.setFillColor(NSColor.windowBackgroundColor.cgColor)
                 context.fillPath()
             }
