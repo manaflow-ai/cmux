@@ -48,7 +48,7 @@ extension SidebarBridge {
         if let builtIn = ref.builtIn, let action = Self.builtInActions[builtIn] {
             var invocation = ActionInvocation(origin: .user)
             if opensWorkspace, builtIn == .newTerminal { invocation.arguments["toggleWorkspace"] = .bool(true) }
-            _ = services.registry.perform(action, invocation: invocation)
+            inThisWindow { _ = services.registry.perform(action, invocation: invocation) }
             return
         }
         switch ref.kind {
@@ -59,9 +59,16 @@ extension SidebarBridge {
         case LayoutItemRef.roomKind: switchToPinnedSpace(ref.value)
         case LayoutItemRef.appKind:
             let (action, arguments) = Self.appActivation(ref.value, registered: { services.registry.action(for: $0) != nil })
-            _ = services.registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
+            inThisWindow { _ = services.registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user)) }
         default: break
         }
+    }
+
+    /// Runs `body` with this bridge's window as the active one (`WindowManager.dispatching(eventFrom:_:)`): an item
+    /// clicked here acts here even when it runs outside its click's dispatch, or while the key window record names
+    /// another window. Home in another window would come forward and could switch the macOS Space (cmux#37371).
+    private func inThisWindow(_ body: () -> Void) {
+        services.windows.dispatching(eventFrom: state.flatMap { services.windows.controller(for: $0.id)?.window }, body)
     }
 
     /// What an app item's click runs (R63/R64): `cmux.apps.open {app}` (it

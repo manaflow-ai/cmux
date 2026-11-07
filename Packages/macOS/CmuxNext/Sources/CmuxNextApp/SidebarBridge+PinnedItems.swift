@@ -17,6 +17,15 @@ extension SidebarBridge {
         reveal(tab, in: pane, workspace: workspace, state: state)
     }
 
+    /// Selects tab `tab` of `workspace`, a row listed under that workspace in this window's sidebar or its hover
+    /// card, in this window, as a pinned tab's click does: never in another window that lists the workspace, which
+    /// would come forward and could switch the macOS Space (cmux#37371). The tab is found on the workspace's machine.
+    func revealListedTab(_ tab: String, of workspace: String) {
+        guard let state, let (_, daemon) = services.machines.workspace(id: workspace),
+              let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model) else { return }
+        reveal(model, in: pane, workspace: workspace, state: state)
+    }
+
     /// Focuses a tab of this window's current space showing `text` (an
     /// http or https page; anything else does nothing), else
     /// opens it in a new browser tab of the focused pane, on the profile
