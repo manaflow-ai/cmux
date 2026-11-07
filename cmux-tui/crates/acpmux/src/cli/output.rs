@@ -1516,4 +1516,8 @@ fn a_restarting_daemons_answer_is_a_restart_not_an_agent_error() {
         crate::client::DaemonError(crate::rpc::RpcError::internal("no agent session")).into();
     assert!(!daemon_restarting_error(&agent));
     assert!(!daemon_restarting_error(&anyhow!(crate::hub::SHUTTING_DOWN)));
+    // Every prompt path (queue, stream, wait, send) and every reconnect asks
+    // `daemon_closed_error`: the shutdown's answer is a daemon going away there too.
+    assert!(daemon_closed_error(&restarting));
+    assert!(!daemon_closed_error(&agent));
 }
