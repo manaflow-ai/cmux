@@ -25,7 +25,7 @@ const $$ = (selector: string) => [...fold.container.querySelectorAll<HTMLElement
 const sessions: UsageEntry[] = Array.from({ length: USAGE_SHOWN + 3 }, (_, index) => ({
   sessionId: `s${index}`,
   title: `chat ${index}`,
-  usageStats: { autocompact: "capped", contextTokens: 1000 * (index + 1), costUsd24h: index + 1 },
+  usageStats: { autocompact: "capped", contextTokens: 1000 * (index + 1), costUsd24h: index + 1, updatedAt: NOW },
 }));
 
 const breakdown: Breakdown = {

@@ -30,11 +30,12 @@ const sessions: UsageEntry[] = Array.from({ length: USAGE_SHOWN + 4 }, (_, index
     "Probe",
     "Spike",
   ][index],
-  host: index % 3 === 0 ? "big-red" : undefined,
+  ...(index % 3 === 0 ? { host: "big-red" } : {}),
   usageStats: {
     autocompact: "capped",
     contextTokens: 12_000 * (USAGE_SHOWN + 4 - index),
     costUsd24h: 0.4 * (USAGE_SHOWN + 4 - index),
+    updatedAt: NOW,
   },
 }));
 
