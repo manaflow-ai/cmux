@@ -201,11 +201,10 @@ def main(argv: list[str]) -> int:
     if os.path.getsize(base) == 0:
         # Both branches created the file: two versions of it are not two insertions.
         result, status = plain_merge(ours, base, theirs, size)
-        remaining, settled = (1 if status else 0), False
+        remaining = 1 if status else 0
     else:
         marker = parse_marker_size(base, ours, theirs)
         merged, status = merge_file(ours, base, theirs, path, marker)
-        settled = status != 0
         if status == 0:
             result, remaining = merged, 0
         else:
@@ -214,11 +213,11 @@ def main(argv: list[str]) -> int:
             # of hunks keeps git's own conflict instead.
             if hunks != status:
                 result, remaining = plain_merge(ours, base, theirs, size)[0], 1
-    # A .json or .toml this driver settled must parse with no key twice; one git merged
-    # clean (both sides adding one key in different places) must too, when both sides
-    # did. Otherwise it is git's plain merge, marked conflicted for the author.
-    if remaining == 0 and not parses(path, result) and (
-            settled or all(parses(path, open(side, "rb").read()) for side in (ours, theirs))):
+    # A .json or .toml result, settled or merged clean (both sides adding one key in
+    # different places), must parse with no key twice, and a python3 with no tomllib
+    # cannot say it does. Otherwise it is git's plain merge, marked conflicted for the
+    # author, even when a side was already malformed.
+    if remaining == 0 and not parses(path, result):
         result, remaining = plain_merge(ours, base, theirs, size)[0], 1
     with open(ours, "wb") as handle:
         handle.write(result)

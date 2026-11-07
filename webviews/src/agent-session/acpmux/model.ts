@@ -685,6 +685,10 @@ export type AcpmuxRow = {
   /// The rows a run absorbed (conversation/turns.ts `mergeShortNotes`): its own, the short note and
   /// the run after it, so Find and a shell's count reach each (chatFind.ts).
   joined?: string[];
+  /// A closed fold's line that draws only a step's calls, not its edits (conversation/turns.ts
+  /// `lineWork`): it is not that step's open-fold copy, so a Find match in the step opens the fold
+  /// (chatFind.ts isFindRow).
+  partial?: boolean;
   /// The messages other sessions sent that the agent has not read yet, drawn as one group
   /// (conversation/pendingMessages.ts, PendingMessagesCard.tsx), each once, oldest first.
   pendingMessages?: { rows: readonly AcpmuxRow[]; displayRows?: readonly AcpmuxRow[]; flat?: boolean };
