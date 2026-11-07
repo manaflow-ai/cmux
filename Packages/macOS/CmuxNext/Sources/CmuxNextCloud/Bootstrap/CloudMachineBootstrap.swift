@@ -70,21 +70,11 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
         static let unanswered = Outcome(status: "failed", reason: "the app's bootstrap rules did not answer")
     }
 
-    /// What Rust needs of the repo: its name for a person, its folder, `repo.json` and the step.
-    struct RepoFacts: Encodable, Sendable {
-        var display: String, directory: String, record: String, step: String
-    }
-
-    var repoFacts: RepoFacts? {
-        repo.map { RepoFacts(display: "\($0.owner)/\($0.name)", directory: $0.directory,
-                             record: String(decoding: $0.record, as: UTF8.self), step: $0.step) }
-    }
-
     /// Uploads the script with its environment, the runner and the repo step into a folder of this
     /// start's own, then starts: no upload ever changes the files a running runner runs.
     public func start(name: String?, on machine: Machine, startID: String = UUID().uuidString.lowercased()) async -> Outcome {
-        struct Request: Encodable { var kind: Kind, name: String?, repo: RepoFacts?, startId: String }
-        guard let plan = CloudStartCore().call("cloud_bootstrap_start_plan", Request(kind: kind, name: name, repo: repoFacts, startId: startID),
+        struct Request: Encodable { var kind: Kind, name: String?, repo: CloudMachineRepo?, startId: String }
+        guard let plan = CloudStartCore().call("cloud_bootstrap_start_plan", Request(kind: kind, name: name, repo: repo, startId: startID),
                                                as: Plan.self) else { return .unanswered }
         return await plan.run(on: machine, script: contents, config: nil)
     }
@@ -197,9 +187,9 @@ extension CloudMachineBootstrap {
     /// ``Run/stillRunning``. Every read that says read again takes at least a second, so one read a
     /// second of `bound` is enough reads.
     public func waitForRun(on machine: Machine, bound: Duration = .seconds(3 * 3600)) async -> Run {
-        struct Read: Encodable { var answer: ExecAnswer?, error: String?, failures: Int, repo: RepoFacts? }
+        struct Read: Encodable { var answer: ExecAnswer?, error: String?, failures: Int, repo: CloudMachineRepo? }
         struct Next: Decodable { var ended: Run?, failures: Int, unreachable: Run? }
-        let clock = ContinuousClock(), deadline = clock.now.advanced(by: bound), repo = repoFacts
+        let clock = ContinuousClock(), deadline = clock.now.advanced(by: bound)
         var failures = 0
         for _ in 0...max(0, bound.components.seconds) {
             guard !Task.isCancelled else { break }
