@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
 import Foundation
@@ -8,12 +9,13 @@ import Testing
 /// with the drag base check (`dragBase`) timed on its own. `SidebarDragMoveCostTests` times the resolve's parts; this
 /// one also counts the options the base check builds and the look a new target draws (`showDragLayout`).
 /// Leo 2026-11-04: "It should just never, ever ... be acceptable for there to be some sort of linear time growth
-/// degradation". The harness lists `count` workspaces in groups of 10, lifts the first one and moves it down 3 points
+/// degradation". The harness lists `count` workspaces in groups of 10 in the app's sidebar, lifts the first one and moves it down 3 points
 /// per move for 200 moves, a hand's pace; it prints `DRAG-FULL-MOVE` lines per size.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarDragFullMoveCostTests {
     static let sizes = [50, 200, 1000, 5000]
     static let moves = 200
 
+    /// The app's sidebar (its scroll view realizes the visible rows only) over `count` workspaces.
     static func list(_ count: Int) -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
@@ -24,17 +26,15 @@ import Testing
                                            }))
         }
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: groups)], activeWorkspaceID: nil)
-        let list = SidebarListView(model: model)
-        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 800), styleMask: [.borderless],
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 800)
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 800), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 800))
-        window.contentView = root
-        list.frame = root.bounds
-        root.addSubview(list)
-        window.orderFrontRegardless()
-        list.reload(animated: false)
-        return (list, window)
+        window.contentView?.addSubview(sidebar)
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.list.reload(animated: false)
+        return (sidebar.list, window)
     }
 
     static func stat(_ values: [Double], _ q: Double) -> Double {
@@ -50,7 +50,7 @@ import Testing
 
     /// One drag of the first workspace over `count` rows: each move's cost, split by whether it drew a new target,
     /// and the base check's cost alone.
-    static func sweep(_ count: Int) throws -> (held: [Double], retarget: [Double], base: [Double]) {
+    static func sweep(_ count: Int) throws -> (held: [Double], retarget: [Double], base: [Double], seen: String) {
         let (list, window) = list(count)
         defer { window.close() }
         let row = try #require(list.displayed.row(for: .workspace(WorkspaceID("fm-0"))))
@@ -58,16 +58,19 @@ import Testing
         list.press = SidebarPress(key: row.key, point: start)
         list.beginDrag(try #require(list.press))
         let drag = try #require(list.drag)
-        var held: [Double] = [], retarget: [Double] = [], base: [Double] = []
+        var held: [Double] = [], retarget: [Double] = [], base: [Double] = [], targets: [String] = []
         for step in 1...moves {
             let before = drag.target
             let point = list.convert(NSPoint(x: start.x, y: start.y + 3 * CGFloat(step)), to: nil)
             let cost = microseconds { list.updateDrag(windowPoint: point) }
             if drag.target == before { held.append(cost) } else { retarget.append(cost) }
             base.append(microseconds { _ = list.dragBase(drag) })
+            if drag.target != before { targets.append(drag.target.map { String(describing: $0) } ?? "nil") }
         }
+        // What the sweep resolved: its first targets and the last move's probe, so a sweep that never retargets says why.
+        let seen = "targets=\(targets.prefix(3)) probe=\(drag.probe.map { String(describing: $0) } ?? "nil")"
         list.cancelDrag()
-        return (held, retarget, base)
+        return (held, retarget, base, seen)
     }
 
     /// The base is made once per drag and again only after a reload (any change of the options the list draws runs
@@ -99,10 +102,10 @@ import Testing
     @Test func dragFullMoveCostPerSize() throws {
         _ = try Self.sweep(50) // warm the reducer, the layout and the allocator
         for count in Self.sizes {
-            let (held, retarget, base) = try Self.sweep(count)
+            let (held, retarget, base, seen) = try Self.sweep(count)
             print(String(format: "DRAG-FULL-MOVE rows=%d held n=%d p50=%.1fus p95=%.1fus | retarget n=%d p50=%.1fus p95=%.1fus | base check p50=%.1fus p95=%.1fus",
                          count, held.count, Self.stat(held, 0.5), Self.stat(held, 0.95), retarget.count,
-                         Self.stat(retarget, 0.5), Self.stat(retarget, 0.95), Self.stat(base, 0.5), Self.stat(base, 0.95)))
+                         Self.stat(retarget, 0.5), Self.stat(retarget, 0.95), Self.stat(base, 0.5), Self.stat(base, 0.95)) + " | \(seen)")
         }
     }
 }
