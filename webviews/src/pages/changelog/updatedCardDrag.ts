@@ -83,6 +83,9 @@ export function shownOffset(feel: CardDragFeel, offset: Point, row: CardRow, pla
 /** Presses that never start a drag: the card's controls keep their own clicks. */
 const CONTROLS = "button, a, input, [role='button']";
 
+/** The cards with a press under way (`pressCard`). */
+const pressed = new WeakSet<HTMLElement>();
+
 /** Starts a drag of `card` (the card's body, its rest box) from `event`, a primary press on it. The
  *  press becomes a drag once it has moved past the slop up or down; across, it is left to select the
  *  card's words. `onStart` runs when it becomes a drag (the hover preview closes). */
@@ -94,6 +97,9 @@ export function pressCard(
   onStart: () => void,
 ): void {
   if (event.button !== 0 || (event.target as Element | null)?.closest?.(CONTROLS)) return;
+  const target = event.currentTarget instanceof HTMLElement ? event.currentTarget : card;
+  // One press per card: a second pointer pressed while one is active is not a drag of its own.
+  if (pressed.has(target)) return;
   const place = host.place();
   if (!place) return;
   const rect = card.getBoundingClientRect();
@@ -105,7 +111,6 @@ export function pressCard(
     x: start.x + next.screenX - screen.x,
     y: start.y + next.screenY - screen.y,
   });
-  const target = event.currentTarget instanceof HTMLElement ? event.currentTarget : card;
   // The press listens on the page's window until it ends, so a release off the card before the slop
   // still ends it (review of #37669); the pointer is captured only once the press is a drag, so a
   // plain click and a selection across the words stay the page's own.
@@ -146,6 +151,7 @@ export function pressCard(
     host.move(shown);
   };
   const stop = () => {
+    pressed.delete(target);
     events.removeEventListener("pointermove", move as EventListener);
     events.removeEventListener("pointerup", up as EventListener);
     events.removeEventListener("pointercancel", cancel as EventListener);
@@ -173,6 +179,7 @@ export function pressCard(
   const cancel = (last: PointerEvent) => {
     if (own(last)) end(last, true);
   };
+  pressed.add(target);
   events.addEventListener("pointermove", move as EventListener);
   events.addEventListener("pointerup", up as EventListener);
   events.addEventListener("pointercancel", cancel as EventListener);
