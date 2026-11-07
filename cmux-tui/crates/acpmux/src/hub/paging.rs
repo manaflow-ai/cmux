@@ -30,6 +30,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "prompt_retracted",
     // A steer taken back before the agent read it (`queue_edit.rs` `withdraw`).
     "steer_withdrawn",
+    // A steer the agent read (`steer_end.rs`): its row offers no take-back from then on.
+    "steer_read",
     // Another agent's steer a Stop ended the turn of before its agent read it: it starts the
     // next turn (`steer_end.rs`).
     "steer_returned",

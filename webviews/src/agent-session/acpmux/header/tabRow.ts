@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore, type CSSProperties } from "react";
 import { setPopupInsetTop } from "../../../ui/popupInset";
 
-/// The pane's tab row the chat header's tools may sit in (CmuxNextAgentPane AgentPaneTabRow, the
-/// `chrome.tabs.rowTools` Debug setting; Leo 2026-10-14, "why is there even a top bar"). The App
-/// offers it with the `tabRow` event only while that setting is on and the chat's pane shows its
-/// tabs on top: `height` is the row's, `trailingInset` the width the pane's own "…" keeps at its
+/// The pane's tab row the chat header's tools may sit in (CmuxNextAgentPane AgentPaneTabRow; Leo
+/// 2026-10-14, "why is there even a top bar"). The App offers it with the `tabRow` event only while
+/// the chat's pane shows its tabs on top: `height` is the row's, `trailingInset` the width the pane's own "…" keeps at its
 /// right end, both in CSS pixels. Height 0 (the default) is the header's own row, as before.
 export interface TabRow {
   readonly height: number;
