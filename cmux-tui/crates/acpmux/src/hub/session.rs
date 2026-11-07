@@ -140,6 +140,10 @@ pub struct Session {
     /// Records appended while a journal restore owns this chat, kept until it ends
     /// (`restore_writer.rs`); Some from its admission. Taken under `append_lock`.
     pub(super) parked: StdMutex<Option<Vec<super::restore_writer::Parked>>>,
+    /// Records kept while a restore owned this chat that the store refused when it ended: they
+    /// go in first, in order, at the next append (`restore_writer.rs`). Taken under
+    /// `append_lock`.
+    pub(super) unparked: StdMutex<Vec<super::restore_writer::Parked>>,
     /// The restore try whose thread writes this chat meanwhile (0: none).
     pub(super) restore_token: AtomicU64,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop

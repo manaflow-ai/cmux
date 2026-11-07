@@ -17,7 +17,13 @@
 //! write (`queue.rs`), so what parks is what comes on its own: an agent's update between turns, a
 //! client's edit of the queue, a status.
 //!
-//! A parked record's caller gets it back with seq 0: the seq is its own only once it is in.
+//! A parked record's caller gets it back with seq 0, and not stored: the seq is its own, and it
+//! is durable, only once it is in (review of #37284 at c4a6f4e7, F1: c4a6f4e7 said stored, then
+//! dropped a record the store refused when the restore ended). One whose source sends it again
+//! until it is stored (`stored_only`, an agent host's entry) is not kept: it comes again. Every
+//! other one
+//! is kept; when the store refuses it at the restore's end, it and every later record of the
+//! chat wait, in order, and go in first at the next append ([`Hub::behind_unparked`]).
 
 use super::*;
 use std::cell::Cell;
@@ -99,6 +105,13 @@ impl Drop for RestoreWriter {
     }
 }
 
+/// Whether a record not stored comes again from its source: its caller appends it again
+/// (`stored_only`), or it logs an agent host's entry (`host_seq`), which the host keeps and sends
+/// again until it hears it stored. Kept here too, it would go in twice.
+fn again_unstored(stored_only: bool, host_seq: Option<u64>) -> bool {
+    stored_only || host_seq.is_some()
+}
+
 fn holds_token(session: &Session) -> bool {
     let n = session.restore_token.load(Ordering::SeqCst);
     n != 0 && WRITER.with(Cell::get) == (std::ptr::from_ref(session) as usize, n)
@@ -116,33 +129,123 @@ impl Hub {
     }
 
     /// The restore ended: what parked meanwhile goes in, in order, and the chat writes as before.
+    /// What the store refuses waits for the next append ([`Self::behind_unparked`]).
     pub(super) fn unpark_writes(&self, session: &Session) {
         let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         session.restore_token.store(0, Ordering::SeqCst);
         let parked = session.parked.lock().unwrap_or_else(|e| e.into_inner()).take();
         let parked = parked.unwrap_or_default();
-        if !parked.is_empty() {
-            tracing::info!(session = %session.id, records = parked.len(), "records kept while a restore owned this chat go in");
-            self.catch_up_locked(session);
+        if parked.is_empty() {
+            return;
         }
-        for p in parked {
-            // Its deferral counted it stored when it parked (`log_deferral.rs`).
-            let _ = self.append_record_locked(
+        tracing::info!(session = %session.id, records = parked.len(), "records kept while a restore owned this chat go in");
+        self.catch_up_locked(session);
+        if self.at_c4a6() {
+            // c4a6f4e7: each appended, its answer not read.
+            for p in parked {
+                let _ = self.write_record_locked(
+                    session,
+                    &p.dir,
+                    &p.kind,
+                    p.msg,
+                    p.host_seq,
+                    Some(p.at),
+                    p.stored_only,
+                    p.kept,
+                    p.notify,
+                );
+            }
+            return;
+        }
+        session.unparked.lock().unwrap_or_else(|e| e.into_inner()).extend(parked);
+        self.store_unparked(session);
+    }
+
+    /// Stores the records kept for `session` ([`Session::unparked`]), in order, each counted
+    /// and published once it is in; the first the store refuses stops it, kept with those
+    /// after it. Answers whether none is left. The caller holds `append_lock`.
+    fn store_unparked(&self, session: &Session) -> bool {
+        loop {
+            let next = {
+                let mut kept = session.unparked.lock().unwrap_or_else(|e| e.into_inner());
+                if kept.is_empty() {
+                    return true;
+                }
+                kept.remove(0)
+            };
+            let kept = match &next.kept {
+                log_deferral::Kept::Sent => log_deferral::Kept::Sent,
+                log_deferral::Kept::Stub(stub) => log_deferral::Kept::Stub(stub.clone()),
+            };
+            let (record, stored) = self.write_record_locked(
                 session,
-                &p.dir,
-                &p.kind,
-                p.msg,
-                p.host_seq,
-                Some(p.at),
-                p.stored_only,
-                p.kept,
-                p.notify,
+                &next.dir,
+                &next.kind,
+                next.msg.clone(),
+                next.host_seq,
+                Some(next.at),
+                true,
+                kept,
+                next.notify,
             );
+            if !stored {
+                tracing::warn!(session = %session.id, kind = %next.kind, "a record kept while a restore owned this chat was not stored; it goes in at the next append");
+                session.unparked.lock().unwrap_or_else(|e| e.into_inner()).insert(0, next);
+                return false;
+            }
+            let mut deferral = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner());
+            deferral.stored(&record.dir, &record.kind, &record.msg);
         }
     }
 
+    /// Holds back a record `append_record_locked` was given while records a restore's end could
+    /// not store wait ([`Session::unparked`]): they go first; when one still does not, this one
+    /// waits behind them (or, `stored_only`, goes back to its caller), not stored. None when
+    /// nothing waits: it is written now. The caller holds `append_lock`.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn behind_unparked(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+        stored_only: bool,
+        kept: log_deferral::Kept,
+        notify: bool,
+    ) -> Result<(EventRecord, bool), (Value, log_deferral::Kept)> {
+        let waits = !session.unparked.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
+        if !waits || self.store_unparked(session) {
+            return Err((msg, kept));
+        }
+        let at = at.unwrap_or_else(now_ms);
+        let record = EventRecord {
+            seq: 0,
+            at,
+            dir: dir.into(),
+            kind: kind.into(),
+            msg: msg.clone(),
+            host_seq,
+        };
+        if !again_unstored(stored_only, host_seq) {
+            session.unparked.lock().unwrap_or_else(|e| e.into_inner()).push(Parked {
+                dir: dir.into(),
+                kind: kind.into(),
+                msg,
+                host_seq,
+                at,
+                stored_only,
+                kept,
+                notify,
+            });
+        }
+        Ok((record, false))
+    }
+
     /// Parks a record `append_record_locked` was given while a restore owns `session` and this
-    /// thread holds no token of it; None when it writes now. The caller holds `append_lock`.
+    /// thread holds no token of it; None when it writes now. Not stored yet: its caller hears so
+    /// (c4a6f4e7 said stored). The caller holds `append_lock`.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn parked_write(
         &self,
@@ -169,6 +272,11 @@ impl Hub {
             msg: msg.clone(),
             host_seq,
         };
+        let old = self.at_c4a6();
+        // One its source sends again until it is stored goes back to it.
+        if again_unstored(stored_only, host_seq) && !old {
+            return Ok((record, false));
+        }
         parked.push(Parked {
             dir: dir.into(),
             kind: kind.into(),
@@ -179,7 +287,7 @@ impl Hub {
             kept,
             notify,
         });
-        Ok((record, true))
+        Ok((record, old))
     }
 }
 

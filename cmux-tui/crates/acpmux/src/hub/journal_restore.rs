@@ -58,14 +58,16 @@ pub const MAX_RECORDS: usize = 4096;
 
 /// Tests only: the rules of an earlier head, which a review of #37284 found losing prompts or
 /// history, for the tests and the move simulation to replay (0: the rules of now). Each later
-/// head's fixes are missing from an earlier one too.
-pub(crate) const AT_4DCB: u8 = 1;
+/// head's fixes are missing from an earlier one too. c4a6f4e7's: the eleventh review's F1 to F3.
+pub(crate) const AT_C4A6: u8 = 1;
+/// 4dcbe192's (the tenth review's F1 to F6 are missing too).
+pub(crate) const AT_4DCB: u8 = 2;
 /// 91b1343d's (the ninth review's F1 to F5 are missing too).
-pub(crate) const AT_91B: u8 = 2;
+pub(crate) const AT_91B: u8 = 3;
 
 #[cfg(test)]
 thread_local! {
-    /// Tests only: the rules this thread replays ([`AT_4DCB`], [`AT_91B`]; 0: now).
+    /// Tests only: the rules this thread replays ([`AT_C4A6`], [`AT_4DCB`], [`AT_91B`]; 0: now).
     pub(crate) static OLD_RULES: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
 }
 
@@ -90,6 +92,17 @@ impl Hub {
     /// Whether this hub replays the rules of 4dcbe192 (tests only; never in a build).
     pub(super) fn at_4dcb(&self) -> bool {
         self.old_rules() >= AT_4DCB
+    }
+
+    /// Tests only: this hub replays the rules `rules` of an earlier head (0: now).
+    #[cfg(test)]
+    pub(crate) fn replay_rules(&self, rules: u8) {
+        self.old_rules.store(rules, Ordering::SeqCst);
+    }
+
+    /// Whether this hub replays the rules of c4a6f4e7 (tests only; never in a build).
+    pub(crate) fn at_c4a6(&self) -> bool {
+        self.old_rules() >= AT_C4A6
     }
 
     /// Whether a journal restore holds `session` (its try, or the hold between tries): no turn
@@ -393,19 +406,30 @@ impl Hub {
 
 impl Hub {
     /// Where the recovery records at the end of `session`'s journal (through `at`) begin: the
-    /// seq before the first of them; None when its last record is not one.
+    /// seq before the first of them; None when its last record is not one. The whole run is read,
+    /// back from `at` a page at a time, however long it is (review of #37284 at c4a6f4e7, F2: a
+    /// recovery writes a record per open subagent, so no fixed window holds it); c4a6f4e7 read
+    /// only the last 256 records.
     fn recovery_tail(&self, session: &Session, at: u64) -> Result<Option<u64>, RpcError> {
-        const LOOK: u64 = 256;
-        let tail = self
-            .store
-            .events(&session.id, at.saturating_sub(LOOK), LOOK as usize)
-            .map_err(|e| RpcError::internal(e.to_string()))?;
+        const PAGE: u64 = 256;
         let mut from = None;
-        for record in tail.iter().rev() {
-            if !super::restore_writer::is_recovery(record) {
+        let mut end = at;
+        while end > 0 {
+            let start = end.saturating_sub(PAGE);
+            let page = self
+                .store
+                .events(&session.id, start, usize::try_from(end - start).unwrap_or(usize::MAX))
+                .map_err(|e| RpcError::internal(e.to_string()))?;
+            for record in page.iter().rev().filter(|r| r.seq <= end) {
+                if !super::restore_writer::is_recovery(record) {
+                    return Ok(from);
+                }
+                from = Some(record.seq.saturating_sub(1));
+            }
+            if self.at_c4a6() {
                 break;
             }
-            from = Some(record.seq.saturating_sub(1));
+            end = start;
         }
         Ok(from)
     }

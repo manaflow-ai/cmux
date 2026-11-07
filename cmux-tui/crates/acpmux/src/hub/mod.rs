@@ -1406,6 +1406,7 @@ impl Hub {
             restore_done: tokio::sync::Notify::new(),
             recovery_pending: AtomicBool::new(false),
             parked: StdMutex::new(None),
+            unparked: StdMutex::new(Vec::new()),
             restore_token: AtomicU64::new(0),
             restore_lease: StdMutex::new(None),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
@@ -2055,6 +2056,38 @@ impl Hub {
             Ok(parked) => return parked,
             Err(back) => back,
         };
+        // What a restore's end could not store yet goes in first, and this one after it.
+        let (msg, kept) = match self.behind_unparked(
+            session,
+            dir,
+            kind,
+            msg,
+            host_seq,
+            at,
+            stored_only,
+            kept,
+            notify,
+        ) {
+            Ok(behind) => return behind,
+            Err(back) => back,
+        };
+        self.write_record_locked(session, dir, kind, msg, host_seq, at, stored_only, kept, notify)
+    }
+
+    /// [`Hub::append_record_locked`]'s write, once nothing holds the record back.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn write_record_locked(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+        stored_only: bool,
+        kept: log_deferral::Kept,
+        notify: bool,
+    ) -> (EventRecord, bool) {
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         // Record a harmless mux receipt instead of ambiguous completion metadata.

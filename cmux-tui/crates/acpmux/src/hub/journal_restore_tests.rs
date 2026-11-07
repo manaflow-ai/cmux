@@ -372,3 +372,121 @@ async fn a_restore_writes_its_prompts_files_back() {
     assert!(hub.journal_restore(&outside).await.is_err());
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// A memory store whose append refuses the records naming `detail` "kept" while `fail` is set.
+struct RefusingStore {
+    inner: Box<dyn crate::store::Store>,
+    fail: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl crate::store::Store for RefusingStore {
+    fn list(&self) -> anyhow::Result<Vec<crate::store::SessionMeta>> {
+        self.inner.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<crate::store::SessionMeta>> {
+        self.inner.load(id)
+    }
+    fn save(&self, meta: &crate::store::SessionMeta) -> anyhow::Result<()> {
+        self.inner.save(meta)
+    }
+    fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+        let kept = record.msg.get("detail") == Some(&json!("kept"));
+        anyhow::ensure!(!(kept && self.fail.load(Ordering::SeqCst)), "test: the disk refuses it");
+        self.inner.append(id, record)
+    }
+    fn flush_session(&self, id: &str) -> anyhow::Result<()> {
+        self.inner.flush_session(id)
+    }
+    fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+        self.inner.events(id, after, limit)
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.inner.delete(id)
+    }
+}
+
+/// A record kept while a restore owns the chat, refused by the disk when the restore ends, then
+/// the chat's next record: whether its caller heard the kept one stored, and the `detail` of
+/// each `status` past where it began, in order.
+async fn a_kept_record_the_disk_refuses(rules: u8) -> (bool, Vec<String>) {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let inner = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hub = Hub::new(cfg, Box::new(RefusingStore { inner, fail: fail.clone() }));
+    hub.replay_rules(rules);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let session = hub.new_session(req).await.unwrap();
+    let last = session.seq.load(Ordering::SeqCst);
+    hub.park_writes(&session, 7);
+    let kept = json!({"status": "idle", "detail": "kept"});
+    let (_, stored) = hub.append_logged(&session, "mux", "status", kept, None);
+    fail.store(true, Ordering::SeqCst);
+    hub.unpark_writes(&session);
+    fail.store(false, Ordering::SeqCst);
+    hub.append(&session, "mux", "status", json!({"status": "idle", "detail": "after"}));
+    let details = hub
+        .events(&session.id, last, 100)
+        .unwrap()
+        .iter()
+        .filter_map(|e| e.msg.get("detail").and_then(Value::as_str).map(str::to_owned))
+        .filter(|d| d == "kept" || d == "after")
+        .collect();
+    (stored, details)
+}
+
+/// Review of #37284 at c4a6f4e7, F1: a record kept while a restore owns the chat is not stored
+/// until it is in, and its caller hears so; the disk refusing it when the restore ends keeps it,
+/// and it goes in first at the chat's next append. Under c4a6f4e7's rules its caller heard it
+/// stored, and it was lost.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_record_kept_during_a_restore_is_stored_before_it_is_told_stored() {
+    let (stored, details) = a_kept_record_the_disk_refuses(super::journal_restore::AT_C4A6).await;
+    assert!(stored, "c4a6f4e7 told it stored");
+    assert_eq!(details, vec!["after"], "c4a6f4e7 lost it");
+    let (stored, details) = a_kept_record_the_disk_refuses(0).await;
+    assert!(!stored, "told stored before it was in");
+    assert_eq!(details, vec!["kept", "after"]);
+}
+
+/// A chat whose journal ends with 300 records of its own recovery (one per open subagent, say),
+/// past `last`, then the owner's restore of two records after `last`: its answer, and the kinds
+/// of the journal's first two records past `last`.
+async fn a_restore_past_a_long_recovery(rules: u8) -> (Result<Value, RpcError>, Vec<String>) {
+    let (hub, session) = hub_at(rules).await;
+    let last = session.seq.load(Ordering::SeqCst);
+    {
+        let _recovering = super::restore_writer::Recovering::start();
+        for n in 0..300 {
+            hub.append(&session, "mux", "status", json!({"status": "idle", "recovered": n}));
+        }
+    }
+    let params = json!({
+        "sessionId": session.id,
+        "createdAt": session.meta().created_at,
+        "afterSeq": last,
+        "records": [chunk(last + 1, 1), chunk(last + 2, 2)],
+    });
+    let answer = hub.journal_restore(&params).await;
+    let kinds = hub.events(&session.id, last, 2).unwrap().iter().map(|e| e.kind.clone()).collect();
+    (answer, kinds)
+}
+
+/// Review of #37284 at c4a6f4e7, F2: the machine's own recovery at its journal's end is read
+/// whole, however long: a restore takes all of it back and its records go in at their seqs.
+/// Under c4a6f4e7's rules only the last 256 records were read: the restore found the recovery
+/// beginning past the copy's records and diverged on the rest of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restore_takes_back_a_recovery_longer_than_a_page() {
+    let (answer, _) = a_restore_past_a_long_recovery(super::journal_restore::AT_C4A6).await;
+    let reason = answer.unwrap_err().data.and_then(|d| d.get("reason").cloned());
+    assert_eq!(reason, Some(json!("diverged")), "c4a6f4e7 read 256 records of it");
+    let (answer, kinds) = a_restore_past_a_long_recovery(0).await;
+    assert!(answer.is_ok(), "{answer:?}");
+    assert_eq!(kinds, vec!["agent_message_chunk", "agent_message_chunk"]);
+}

@@ -593,9 +593,10 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         // Whether the peer's link, if this attempt used it, took nothing (`Delivery::never_sent`).
         let mut link_unsent = true;
         // The peer's session the delivery goes to: read before its first attempt, kept on the
-        // delivery before the attempt goes, and the same for every later one, so nothing read
-        // after an attempt (a link replaced, the session purged and made again) changes where it
-        // goes or what is recorded (`open_delivery.rs`).
+        // delivery before the attempt goes (a crash mid-attempt keeps it), and the same for every
+        // later one once an attempt may have reached the peer, so nothing read after that (a link
+        // replaced, the session purged and made again) changes where it goes or what is recorded
+        // (`open_delivery.rs`). An attempt that reached nothing lets it go (below).
         let projection = request.pointer("/_meta/acpmux/forwardProjection").is_some();
         let fresh_pin = delivery.pin.is_none();
         let pin = if projection {
@@ -685,11 +686,20 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 let delay = matches!(next, Next::Retry | Next::Unsent)
                     .then(|| retry_delay(&mut delays, &delivery, crate::store::now_ms()))
                     .flatten();
+                // A pin is the generation an attempt may have reached. While none reached the
+                // peer (nothing went on its link, no relay holds it), none is kept: the next
+                // attempt reads the session as the peer lists it then, so a session the peer made
+                // again meanwhile is not failed as stale for an attempt it never saw (review of
+                // #37284 at c4a6f4e7, F3).
+                let drop_pin = !hub.at_c4a6();
                 hub.outbox.update(id, |d| {
                     if d.settled() {
                         return;
                     }
                     d.never_sent = delivery.never_sent && link_unsent;
+                    if drop_pin && d.never_sent && d.relay_post.is_none() {
+                        d.pin = None;
+                    }
                     d.state = match (next, delay) {
                         (Next::Held, _) => State::Held,
                         (_, Some(_)) if d.projection_only() => State::Held,
