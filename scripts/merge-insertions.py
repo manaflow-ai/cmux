@@ -21,17 +21,19 @@ exits 1 when a conflict remains.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
 
 
-def plain_merge(ours: str, base: str, theirs: str, size: int) -> bytes:
-    return subprocess.run(
+def plain_merge(ours: str, base: str, theirs: str, size: int) -> tuple[bytes, int]:
+    result = subprocess.run(
         ["git", "merge-file", "-p", f"--marker-size={size}",
          "-L", "ours", "-L", "base", "-L", "theirs", ours, base, theirs],
         capture_output=True,
-    ).stdout
+    )
+    return result.stdout, result.returncode
 
 
 def merge_file(ours: str, base: str, theirs: str, path: str, size: int) -> tuple[bytes, int]:
@@ -86,6 +88,19 @@ def toml_union(ours: list[bytes], theirs: list[bytes]) -> list[bytes] | None:
     return our_lead + their_lead + our_tables + their_tables
 
 
+# Two insertions that share this much of their substantive lines are one change made twice
+# (a file or function both branches got from one commit, then edited): kept both, the file
+# would hold it twice, so that stays a conflict.
+SAME_CHANGE_SHARE = 0.3
+
+
+def same_change(ours: list[bytes], theirs: list[bytes]) -> bool:
+    def substantive(block):
+        return {line.strip() for line in block if len(line.strip()) > 3}
+    a, b = substantive(ours), substantive(theirs)
+    return bool(a and b) and len(a & b) >= SAME_CHANGE_SHARE * min(len(a), len(b))
+
+
 def settle(text: bytes, size: int, marker: int, toml: bool = False) -> tuple[bytes, int, int]:
     """Resolve both-sides-inserted hunks in merge-file output written with `marker`-long
     markers; return the text (remaining conflicts rewritten with `size` markers), how many
@@ -137,8 +152,11 @@ def settle(text: bytes, size: int, marker: int, toml: bool = False) -> tuple[byt
             for block in (sections["ours"], sections["theirs"]):
                 if block and not block[-1].endswith(b"\n"):
                     block[-1] += b"\n"
-            joined = (toml_union(sections["ours"], sections["theirs"]) if toml
-                      else sections["ours"] + sections["theirs"])
+            if same_change(sections["ours"], sections["theirs"]):
+                joined = None
+            else:
+                joined = (toml_union(sections["ours"], sections["theirs"]) if toml
+                          else sections["ours"] + sections["theirs"])
             if joined is None:
                 out.append(out_start + b" ours\n")
                 out.extend(sections["ours"])
@@ -179,6 +197,12 @@ def main(argv: list[str]) -> int:
         return 2
     base, ours, theirs, path = argv[1:5]
     size = int(argv[5]) if len(argv) == 6 else 7
+    if os.path.getsize(base) == 0:
+        # Both branches created the file: two versions of it are not two insertions.
+        result, status = plain_merge(ours, base, theirs, size)
+        with open(ours, "wb") as handle:
+            handle.write(result)
+        return 1 if status else 0
     marker = parse_marker_size(base, ours, theirs)
     merged, status = merge_file(ours, base, theirs, path, marker)
     if status == 0:
@@ -188,7 +212,7 @@ def main(argv: list[str]) -> int:
         # git's exit status is its conflict count: a parse that read a different number
         # of hunks, or a result that does not parse, keeps git's own conflict instead.
         if hunks != status or (remaining == 0 and not parses(path, result)):
-            result, remaining = plain_merge(ours, base, theirs, size), 1
+            result, remaining = plain_merge(ours, base, theirs, size)[0], 1
     with open(ours, "wb") as handle:
         handle.write(result)
     return 1 if remaining else 0

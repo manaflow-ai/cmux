@@ -853,6 +853,32 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
         self.assertEqual(log.read_text(), "# Log\n\n- first\n- y\n" + long_line)
 
+        # One function both sides added with different bodies is one change made twice: kept
+        # both, the file would define it twice, so it stays a conflict.
+        self.git("checkout", "--quiet", "-b", "twice-a", base)
+        lib.write_text("pub mod a;\n\nfn shared() {}\nfn helper(value: u32) -> u32 {\n    let doubled = value * 2;\n    doubled + 1\n}\n")
+        self.commit_all("twice a")
+        self.git("checkout", "--quiet", "-b", "twice-b", base)
+        lib.write_text("pub mod a;\n\nfn shared() {}\nfn helper(value: u32) -> u32 {\n    let doubled = value * 2;\n    doubled + 2\n}\n")
+        self.commit_all("twice b")
+        clash = self.git("merge", "--no-edit", "twice-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertEqual(lib.read_text().count("let doubled"), 2, lib.read_text())
+        self.assertIn("<<<<<<<", lib.read_text())
+        self.git("merge", "--abort")
+
+        # A file both branches created is two versions of one file, never two insertions.
+        self.git("checkout", "--quiet", "-b", "new-a", base)
+        (lib.parent / "fresh.rs").write_text("fn fresh() {\n    one();\n}\n")
+        self.commit_all("new a")
+        self.git("checkout", "--quiet", "-b", "new-b", base)
+        (lib.parent / "fresh.rs").write_text("fn fresh() {\n    two();\n}\n")
+        self.commit_all("new b")
+        clash = self.git("merge", "--no-edit", "new-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertIn("<<<<<<<", (lib.parent / "fresh.rs").read_text())
+        self.git("merge", "--abort")
+
         # TOML: a key one side appends to the last table stays in that table when the other
         # side appends a new table; keys and tables on both sides stay a conflict.
         toml = self.repo / "tests/test-execution.d/demo.toml"
