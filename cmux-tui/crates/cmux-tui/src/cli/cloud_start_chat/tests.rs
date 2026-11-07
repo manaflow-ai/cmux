@@ -61,16 +61,23 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
 /// lift leave `-- --json` to the parser, whose prompt it is.
 #[test]
 fn an_output_flag_after_the_separator_is_the_prompt() {
-    let (mut global, command) =
-        super::super::parse_globals(&strings(&["cloud", "start-chat", "--", "--json"]))
-            .ok()
-            .unwrap();
-    let words = lift_output(&command[2..], &mut global.output);
-    assert_eq!(global.output, OutputMode::Human);
-    assert!(matches!(
-        parse(&words, || Ok(String::new())),
-        Ok(Parsed::Run(run)) if run.prompt == "--json"
-    ));
+    for scope in ["cloud", "vm"] {
+        for typed in [&["--"][..], &["--wait", "--"], &["--no-wait", "--"]] {
+            let mut args = vec![scope, "start-chat"];
+            args.extend_from_slice(typed);
+            args.push("--json");
+            let (mut global, command) = super::super::parse_globals(&strings(&args)).ok().unwrap();
+            let words = lift_output(&command[2..], &mut global.output);
+            assert_eq!(global.output, OutputMode::Human, "{args:?}");
+            assert!(
+                matches!(
+                    parse(&words, || Ok(String::new())),
+                    Ok(Parsed::Run(run)) if run.prompt == "--json"
+                ),
+                "{args:?}: {words:?}"
+            );
+        }
+    }
 }
 
 #[test]
