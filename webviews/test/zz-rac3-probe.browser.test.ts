@@ -35,55 +35,78 @@ await requireBrowserLane("zz-rac3-probe.browser.test.ts", async () => {
   });
   const port = () => (vite.httpServer!.address() as { port: number }).port;
 
+  const VARIANTS: Record<string, string> = {
+    base: "",
+    padScroller: ".acpmux-cols-list[data-cmux-card-scroll] { padding-inline-end: var(--cmux-card-scroller) !important; }",
+    pad1: ".acpmux-cols-list[data-cmux-card-scroll] { padding-inline-end: 1px !important; }",
+    noBorder: ".acpmux-cols-list { border-inline-end: 0 !important; }",
+  };
   for (const engine of ["chromium", "webkit"])
-    test(`PROBE ${engine} picker edges`, async () => {
-      const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
-      await page.goto(
-        `http://127.0.0.1:${port()}${galleryFrame("agent-pane.composer", { variant: "picker-toggle", frame: "component", width: 760, theme: "Catppuccin Mocha" })}`,
-      );
-      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
-        timeout: 120_000,
+    for (const [variant, css] of Object.entries(VARIANTS))
+      test(`PROBE ${engine} picker edges ${variant}`, async () => {
+        const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
+        await page.goto(
+          `http://127.0.0.1:${port()}${galleryFrame("agent-pane.composer", { variant: "picker-toggle", frame: "component", width: 760, theme: "Catppuccin Mocha" })}`,
+        );
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+          timeout: 120_000,
+        });
+        if (css) await page.addStyleTag({ content: css });
+        const chip = page.locator('button[aria-haspopup][aria-label="Model"]').first();
+        const box = (await chip.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.up();
+        await page.locator(".acpmux-cols-list").first().waitFor();
+        await page.waitForTimeout(500);
+        await page.evaluate(() => document.addEventListener("click", (event) => event.stopImmediatePropagation(), true));
+        const info = await page.evaluate(() =>
+          [...document.querySelectorAll<HTMLElement>(".acpmux-cols-list")].map((list) => {
+            const style = getComputedStyle(list);
+            const r = list.getBoundingClientRect();
+            const row = list.querySelector<HTMLElement>('[role="option"], [role="radio"], [role="switch"]');
+            const b = row?.getBoundingClientRect();
+            const at = (x: number) => {
+              const hit = b ? document.elementFromPoint(x, b.y + b.height / 2) : null;
+              return hit ? `${hit.tagName}.${String(hit.className).slice(0, 24)}` : null;
+            };
+            return {
+              cls: list.className.slice(0, 30),
+              left: r.left,
+              right: r.right,
+              offsetWidth: list.offsetWidth,
+              clientWidth: list.clientWidth,
+              overflow: list.scrollHeight > list.clientHeight,
+              padR: style.paddingRight,
+              borderR: style.borderRightWidth,
+              sbPseudo: getComputedStyle(list, "::-webkit-scrollbar").width,
+              cardVar: style.getPropertyValue("--cmux-card-scroller"),
+              row: b ? { x: b.x, right: b.right } : null,
+              efp: b ? [-3, -2, -1, -0.5].map((d) => `${d}:${at(b.right + d)}`) : null,
+            };
+          }),
+        );
+        const model = page.locator(".acpmux-cols-body > [role=listbox] [role=option]").first();
+        const mb = (await model.boundingBox())!;
+        const presses: string[] = [];
+        for (const d of [-1, -2, -3]) {
+          await page.evaluate(() => {
+            (window as unknown as { __hit?: string }).__hit = "none";
+            document.addEventListener(
+              "pointerdown",
+              (e) => {
+                (window as unknown as { __hit?: string }).__hit =
+                  `${(e.target as Element).className.toString().slice(0, 24)}@${e.clientX}`;
+              },
+              { capture: true, once: true },
+            );
+          });
+          await page.mouse.click(mb.x + mb.width + d, mb.y + mb.height / 2);
+          presses.push(`${d}:${await page.evaluate(() => (window as unknown as { __hit?: string }).__hit)}`);
+        }
+        console.log(`PROBE3 ${engine} ${variant} ${JSON.stringify(info)} presses=${JSON.stringify(presses)}`);
+        await page.close();
       });
-      const chip = page.locator('button[aria-haspopup][aria-label="Model"]').first();
-      const box = (await chip.boundingBox())!;
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.up();
-      await page.locator(".acpmux-cols-list").first().waitFor();
-      await page.waitForTimeout(500);
-      const info = await page.evaluate(() =>
-        [...document.querySelectorAll<HTMLElement>(".acpmux-cols-list")].map((list) => {
-          const style = getComputedStyle(list);
-          const r = list.getBoundingClientRect();
-          const rows = [...list.querySelectorAll<HTMLElement>('[role="option"], [role="radio"], [role="switch"]')]
-            .slice(0, 2)
-            .map((row) => {
-              const b = row.getBoundingClientRect();
-              const at = (x: number) => {
-                const hit = document.elementFromPoint(x, b.y + b.height / 2);
-                return hit ? `${hit.tagName}.${String(hit.className).slice(0, 30)}` : null;
-              };
-              return { x: b.x, w: b.width, right: b.right, probe: at(b.right - 1), probeInt: at(Math.round(b.right - 1)) };
-            });
-          return {
-            cls: list.className,
-            left: r.left,
-            right: r.right,
-            offsetWidth: list.offsetWidth,
-            clientWidth: list.clientWidth,
-            scrollH: list.scrollHeight,
-            clientH: list.clientHeight,
-            padR: style.paddingRight,
-            borderR: style.borderRightWidth,
-            sbw: style.scrollbarWidth,
-            sbPseudo: getComputedStyle(list, "::-webkit-scrollbar").width,
-            rows,
-          };
-        }),
-      );
-      console.log(`PROBE3 ${engine} dpr=${await page.evaluate(() => devicePixelRatio)} ${JSON.stringify(info)}`);
-      await page.close();
-    });
 
   test("PROBE webkit rail hint", async () => {
     const page = await browsers.get("webkit")!.newPage({ viewport: { width: 1200, height: 1000 } });
