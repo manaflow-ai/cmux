@@ -97,7 +97,9 @@ Narrowing it to -34018 is a Swift change for its own PR.
   when the helper does. The lock is read again where a call runs, after every wait: the v2 bridge
   reads it after the helper connection and the consent answer, just before it sends the call, and
   the helper reads it in its consent gate (`ConsentGate.admit`), after the target check, the
-  takeover wait and the consent answer, with no await before the driver runs. A call that passed
+  takeover wait and the consent answer, with no await before the driver runs. The legacy
+  `cmux-cua` reads it in its tool registry after its last consent check, right before dispatch
+  (`scripts/cmux-cua-lock-at-execution.patch`). A call that passed
   while unlocked and waited while the Mac locked gets the same `mac_locked` result. This applies
   **whether or not the toggle is on**: it is the safe answer on any locked Mac. `tools/list` still
   answers, so the agent knows the tools exist and can retry after the unlock.

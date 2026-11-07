@@ -1,5 +1,5 @@
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
-index 379762eb..2920fcd6 100644
+index 379762eb..8d79867a 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
 @@ -459,6 +459,9 @@ fn dispatch_validation_error(tool_name: &str, detail: &str) -> ToolResult {
@@ -52,7 +52,19 @@ index 379762eb..2920fcd6 100644
      pub async fn invoke(&self, name: &str, mut args: Value) -> ToolResult {
          // The trusted allow list never reaches a tool; trusted entry points
          // put it here with `target_policy::scope_target_args`.
-@@ -961,6 +976,24 @@ impl ToolRegistry {
+@@ -788,7 +803,10 @@ impl ToolRegistry {
+                 self.target_front_hook,
+             )
+         });
+-        if let Err(error) = fronted.and_then(|()| self.require(resolved_name, false)) {
++        if let Err(error) = fronted
++            .and_then(|()| self.require(resolved_name, false))
++            .and_then(|()| self.require_unlocked(resolved_name))
++        {
+             if let Some(pending_turn) = pending_turn {
+                 let result_text = error.content.iter().find_map(|content| match content {
+                     Content::Text { text, .. } => Some(text.as_str()),
+@@ -961,6 +979,23 @@ impl ToolRegistry {
          Err(refuse(self.consent.as_ref(), &status, tool, surface))
      }
  
@@ -60,7 +72,6 @@ index 379762eb..2920fcd6 100644
 +    /// locked (or its lock state is unknown): a screenshot would see only the
 +    /// lock screen, and a click or keystroke would land in its password field.
 +    /// No await follows this read before dispatch.
-+    #[allow(dead_code)]
 +    fn require_unlocked(&self, tool: &str) -> Result<(), ToolResult> {
 +        use crate::machine_consent::{requirement_for, Requirement};
 +        let Some(locked) = self.screen_lock_hook else { return Ok(()) };
@@ -77,7 +88,7 @@ index 379762eb..2920fcd6 100644
      fn watchable_front(&self) -> bool {
          #[cfg(test)]
          if self.force_watchable_front {
-@@ -2229,6 +2262,48 @@ mod machine_consent_registry_tests {
+@@ -2229,6 +2264,48 @@ mod machine_consent_registry_tests {
          assert_eq!((result.is_error, fronts, ran), (None, 1, 1));
      }
  
