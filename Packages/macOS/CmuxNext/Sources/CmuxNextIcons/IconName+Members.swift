@@ -272,6 +272,7 @@ extension IconName {
     nonisolated public static let statePinned = IconName("state.pinned")
     nonisolated public static let stateSelected = IconName("state.selected")
     nonisolated public static let statusAttention = IconName("status.attention")
+    nonisolated public static let statusCheck = IconName("status.check")
     nonisolated public static let statusComplete = IconName("status.complete")
     nonisolated public static let statusCritical = IconName("status.critical")
     nonisolated public static let statusDisconnected = IconName("status.disconnected")

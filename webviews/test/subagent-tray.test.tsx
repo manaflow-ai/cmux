@@ -694,7 +694,7 @@ describe("the tray", () => {
       expect(finished.hasAttribute("data-timed")).toBe(false);
       const mark = finished.querySelector<HTMLElement>(".acpmux-done-mark[data-hat-done]")!;
       expect(mark.dataset.look).toBe("check");
-      expect(mark.querySelector('svg[data-icon="status.complete"]')).not.toBeNull();
+      expect(mark.querySelector('svg[data-icon="status.check"]')).not.toBeNull();
       expect(mark.querySelector(".acpmux-agent-line__sr")?.textContent).toBe("Done");
       expect(mark.querySelector(".acpmux-done-mark__time")?.textContent).toBe("36s");
       expect(finished.querySelector(".acpmux-summary-agent__state")).toBeNull();

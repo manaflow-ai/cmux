@@ -133,4 +133,32 @@ describe("one item heads the hat", () => {
       await view.done();
     }
   });
+
+  test("a second item joining a folded hat changes only its words: same header, still folded, no list", async () => {
+    // Leo, 2026-11-07, on the hat when a new command comes in: "we don't want it to, like, jitter. We
+    // don't want it to be indecisive." A lone line used to turn into a header and a folding list.
+    resetTrayOpenMemory();
+    const host = dom.window.document.getElementById("root")!;
+    const root = createRoot(host);
+    const first = agentItem({ id: "a1", task: "Diagnose nightly lag", action: "Bash" });
+    const draw = (items: TrayItem[]) =>
+      act(async () =>
+        root.render(
+          createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+        ),
+      );
+    try {
+      await draw([first]);
+      const head = host.querySelector(".acpmux-running-tray__head");
+      expect(head).not.toBeNull();
+      expect(host.querySelector(".acpmux-running-tray__fold")).toBeNull();
+      await draw([first, agentItem({ id: "a2", task: "Watch the build", startedAt: now - 1_000 })]);
+      expect(host.querySelector(".acpmux-running-tray__head")).toBe(head);
+      expect(head!.getAttribute("aria-expanded")).toBe("false");
+      expect(host.querySelector(".acpmux-running-tray__fold")).toBeNull();
+      expect(host.querySelectorAll(".acpmux-running-tray__head").length).toBe(1);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
 });

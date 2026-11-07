@@ -2013,7 +2013,7 @@ button.cv-subagent > :last-child {
 .acpmux-done-mark__check {
   flex: none;
   display: inline-flex;
-  color: color-mix(in srgb, var(--agent-status-success) 80%, var(--agent-muted));
+  color: color-mix(in srgb, var(--agent-status-success) 70%, var(--agent-muted));
 }
 .acpmux-done-mark__time {
   flex: none;
@@ -2054,4 +2054,14 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__chevron-bottom:hover {
   color: var(--agent-text);
+}
+/* The hat header's chevron (row end): up while folded, turning down as the hat opens, on the move
+   token; the motion gate's 0 ms token turns it at once. */
+.acpmux-running-tray__chevron {
+  display: inline-flex;
+  rotate: 180deg;
+  transition: rotate var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
+}
+.acpmux-running-tray__chevron[data-open] {
+  rotate: 0deg;
 }

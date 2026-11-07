@@ -1,7 +1,7 @@
 // How a finished line ends: in the running tray's lines (AgentLine.tsx) and in the composer hat's header
 // when it holds one finished item (SubagentTray.tsx). Leo, 2026-11-07, on "Done · 8m 12s": "I just feel
 // like there's something off about this ... I know that the thing is aligned, but it just doesn't look
-// that... Great." The default is a small check in the success colour and the total in tabular figures;
+// that... Great." The default is a bare check stroke in a muted success colour and the total in tabular figures;
 // the word stays for screen readers. hatParts.experiment.ts holds the arms.
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -30,7 +30,7 @@ export function DoneMark({ state, time, look }: { state: string; time?: string; 
     <span className="acpmux-done-mark" data-hat-done data-look={look}>
       {look === "check" && (
         <span className="acpmux-done-mark__check" aria-hidden="true">
-          <Icon name="status.complete" size={CHECK} row />
+          <Icon name="status.check" size={CHECK} row />
         </span>
       )}
       {look === "accent" ? (

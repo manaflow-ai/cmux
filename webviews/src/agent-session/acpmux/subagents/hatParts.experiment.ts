@@ -13,7 +13,8 @@ export const hatChevronLook = defineExperiment({
   arms: {
     trailing: {
       label: "Row end",
-      description: "At the header's end, in the lines' chevron column; it turns from up (folded) to down (open).",
+      description:
+        "At the header's end, in the lines' chevron column; it turns from up (folded) to down (open). Picked: the bottom centre floated mid-row over the header in the gallery.",
     },
     bottom: {
       label: "Bottom centre",

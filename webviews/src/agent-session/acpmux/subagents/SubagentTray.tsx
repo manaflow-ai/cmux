@@ -622,8 +622,13 @@ export const SubagentTray = memo(function SubagentTray({
           {opensPanel === "button" && <span className="acpmux-running-tray__open-slot" aria-hidden="true" />}
           {/* The one trailing column every line's chevron ends in. */}
           <span className="acpmux-running-tray__status">
+            {/* It points the way the hat goes, up while folded (the hat opens upward from the composer),
+                down while open, never a sideways arrow that reads as going somewhere (Leo, 2026-11-07,
+                on a lone line that navigated on its first click). */}
             {chevronAt === "trailing" && (
-              <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+              <span className="acpmux-running-tray__chevron" data-open={open || undefined}>
+                <Icon name="disclosure.expanded" size={ROW_ICON} row />
+              </span>
             )}
           </span>
         </button>
