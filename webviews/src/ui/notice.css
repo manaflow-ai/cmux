@@ -269,16 +269,18 @@
 }
 .ui-notice-deck-cards {
   position: absolute;
-  /* Open far beyond the deck's inner edge: a gathering deck's cards come back from where they were
-     spread. The clip, when on, is the deck's own edge. */
-  inset: -100vh calc(-1 * var(--ui-notice-deck-shadow-room, 24px)) 0;
+  /* The deck's box with room for the cards' shadows. Never larger: a box past the deck's own
+     reach would be scrollable overflow of whatever pane holds it (a top deck under a pane's header
+     scrolled the pane by its offset; test/agent-pane-short-pane-composer.test.ts). The deck is as
+     tall as what it shows, so a card is inside it except while it comes, goes or is held. */
+  inset: calc(-1 * var(--ui-notice-deck-shadow-room, 24px)) calc(-1 * var(--ui-notice-deck-shadow-room, 24px)) 0;
   margin: 0;
   padding: 0;
   list-style: none;
   pointer-events: none;
 }
 .ui-notice-deck[data-edge="top"] > .ui-notice-deck-cards {
-  inset: 0 calc(-1 * var(--ui-notice-deck-shadow-room, 24px)) -100vh;
+  inset: 0 calc(-1 * var(--ui-notice-deck-shadow-room, 24px)) calc(-1 * var(--ui-notice-deck-shadow-room, 24px));
 }
 .ui-notice-deck[data-clip] > .ui-notice-deck-cards {
   overflow: hidden;
