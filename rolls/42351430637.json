@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42351430637",
+  "recorded_at": "2026-11-07T07:35:45Z",
+  "reason": "cmux-tui 9ffc9c19ed93 changes the image's cmux-tui (pinned 6b64d24c1f25)",
+  "dry_run": false,
+  "cmux_tui": "9ffc9c19ed932a435c64316647753a3f478dd833",
+  "fixes": [
+    {
+      "sha": "9ffc9c19ed932a435c64316647753a3f478dd833",
+      "mergedAt": "2026-11-06T23:15:26-08:00",
+      "subject": "cmux chat and start-chat: --wait and --no-wait take no value in the global scan (#37556)"
+    },
+    {
+      "sha": "44e5c571ba18c00db45a729df92d8ffb8640368d",
+      "mergedAt": "2026-11-06T23:10:31-08:00",
+      "subject": "acpmux: a turn's agent_error keeps the daemon's typed kind and recovery (#37541)"
+    },
+    {
+      "sha": "161e8d466a89609209a3b1c28943eddcd52713c3",
+      "mergedAt": "2026-11-07T07:08:05Z",
+      "subject": "Offer one-time recovery for macOS-blocked ACP reads (#34495)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T07:35:45Z",
+    "snapshot_id": "sh-98e53401dd244afbb6e811248c0ccf75",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42351430637): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d71e4936d202286c2dffe2f30980a07cd51445df",
+    "image": "cloud-native-auto-9ffc9c19-42351430637-1",
+    "revision": "ci-42351430637-1",
+    "at": "2026-11-07T07:35:45Z"
+  },
+  "rolled_back": false
+}
