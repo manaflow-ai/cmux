@@ -118,6 +118,18 @@ impl Clock {
     }
 }
 
+/// The tick after `next` that is not already past: a stalled sender skips
+/// the frames it missed, as an encoder does, instead of sending a burst.
+fn next_tick(next: Instant, interval: Duration) -> Instant {
+    let mut next = next + interval;
+    let now = Instant::now();
+    if next < now {
+        let missed = (now - next).as_nanos() / interval.as_nanos().max(1);
+        next += interval * u32::try_from(missed + 1).unwrap_or(u32::MAX);
+    }
+    next
+}
+
 fn header(kind: u8, seq: u32, sent_us: u64, echo_us: u64) -> [u8; HEADER] {
     let mut out = [0u8; HEADER];
     out[0] = kind;
@@ -127,7 +139,9 @@ fn header(kind: u8, seq: u32, sent_us: u64, echo_us: u64) -> [u8; HEADER] {
     out
 }
 
+/// A message shorter than a header reads as kind 0 with zeros.
 fn parse_header(bytes: &[u8]) -> (u8, u32, u64, u64) {
+    let Some(bytes) = bytes.get(..HEADER) else { return (0, 0, 0, 0) };
     let word = |range: std::ops::Range<usize>| {
         let mut buf = [0u8; 8];
         buf.copy_from_slice(&bytes[range]);
@@ -185,7 +199,7 @@ where
                 }
                 lock(&record).frames_sent += 1;
                 seq += 1;
-                next += interval;
+                next = next_tick(next, interval);
                 sleep_until(next).await;
             }
             let _ = host_tx.shutdown().await;
@@ -206,18 +220,23 @@ where
                 }
                 lock(&record).inputs_sent += 1;
                 seq += 1;
-                next += INPUT_INTERVAL;
+                next = next_tick(next, INPUT_INTERVAL);
             }
             viewer_tx
         })
     };
+    let max_message = HEADER + args.keyframe_bytes.max(args.frame_bytes);
     let viewer_reader = {
         let (clock, record) = (clock.clone(), record.clone());
         tokio::spawn(async move {
             let mut len = [0u8; 4];
             let mut body = Vec::new();
             while viewer_rx.read_exact(&mut len).await.is_ok() {
-                body.resize(u32::from_be_bytes(len) as usize, 0);
+                let len = u32::from_be_bytes(len) as usize;
+                if !(HEADER..=max_message).contains(&len) {
+                    break;
+                }
+                body.resize(len, 0);
                 if viewer_rx.read_exact(&mut body).await.is_err() {
                     break;
                 }
@@ -238,15 +257,22 @@ where
             }
         })
     };
+    let (host_writer_abort, viewer_reader_abort) =
+        (host_writer.abort_handle(), viewer_reader.abort_handle());
     let drain = Duration::from_secs(args.seconds + 30);
     let _ = timeout(drain, async {
         let _ = host_writer.await;
         let _ = viewer_reader.await;
     })
     .await;
+    // A run that did not drain in time leaves nothing behind for the bulk run.
+    host_writer_abort.abort();
+    viewer_reader_abort.abort();
+    let viewer_writer_abort = viewer_writer.abort_handle();
     if let Ok(Ok(mut tx)) = timeout(Duration::from_secs(5), viewer_writer).await {
         let _ = tx.shutdown().await;
     }
+    viewer_writer_abort.abort();
     host_reader.abort();
 }
 
@@ -414,7 +440,7 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
     let host_addr = SocketAddr::new(host_stream.ip(), MEDIA_PORT);
     let mut viewer = viewer_net.bind_datagram(MEDIA_PORT).await.map_err(err)?;
     let mut host = host_net.bind_datagram(MEDIA_PORT).await.map_err(err)?;
-    let chunk = viewer_net.max_datagram().saturating_sub(HEADER + 4).max(64);
+    let chunk = viewer_net.max_datagram().saturating_sub(HEADER + 8).max(64);
     let end = Instant::now() + Duration::from_secs(args.seconds);
     let pending_echo = Arc::new(Mutex::new(0u64));
 
@@ -438,15 +464,15 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
                 let sent = clock.us();
                 for index in 0..pieces {
                     let mut datagram = header(KIND_FRAME, seq, sent, echo).to_vec();
-                    datagram.extend_from_slice(&u16::try_from(index).unwrap_or(0).to_be_bytes());
-                    datagram.extend_from_slice(&u16::try_from(pieces).unwrap_or(0).to_be_bytes());
+                    datagram.extend_from_slice(&u32::try_from(index).unwrap_or(0).to_be_bytes());
+                    datagram.extend_from_slice(&u32::try_from(pieces).unwrap_or(0).to_be_bytes());
                     let piece = chunk.min(size.saturating_sub(index * chunk));
-                    datagram.resize(HEADER + 4 + piece, 0x5a);
+                    datagram.resize(HEADER + 8 + piece, 0x5a);
                     let _ = host.send_to(&datagram, viewer_addr, Priority::Media).await;
                 }
                 lock(&record).frames_sent += 1;
                 seq += 1;
-                next += interval;
+                next = next_tick(next, interval);
                 tokio::select! {
                     () = sleep_until(next) => {}
                     Some((input, _)) = host.recv_from() => {
@@ -467,7 +493,7 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
     let viewer_task = {
         let (clock, record) = (clock.clone(), record.clone());
         tokio::spawn(async move {
-            let mut partial: HashMap<u32, u16> = HashMap::new();
+            let mut partial: HashMap<u32, u32> = HashMap::new();
             let mut next_input = Instant::now() + INPUT_INTERVAL;
             let mut input_seq = 0u32;
             let stop = end + Duration::from_secs(1);
@@ -478,14 +504,15 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
                         let _ = viewer.send_to(&event, host_addr, Priority::Interactive).await;
                         lock(&record).inputs_sent += 1;
                         input_seq += 1;
-                        next_input += INPUT_INTERVAL;
+                        next_input = next_tick(next_input, INPUT_INTERVAL);
                     }
                     () = sleep_until(stop) => break,
                     got = viewer.recv_from() => {
                         let Some((datagram, _)) = got else { break };
                         let now = clock.us();
+                        let Some(count) = datagram.get(HEADER + 4..HEADER + 8) else { continue };
+                        let pieces = u32::from_be_bytes([count[0], count[1], count[2], count[3]]);
                         let (_, seq, sent, echo) = parse_header(&datagram);
-                        let pieces = u16::from_be_bytes([datagram[HEADER + 2], datagram[HEADER + 3]]);
                         let have = partial.entry(seq).or_insert(0);
                         *have += 1;
                         if *have == pieces {
