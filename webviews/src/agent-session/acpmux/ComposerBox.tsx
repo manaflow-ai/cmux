@@ -28,6 +28,8 @@ export type ComposerBoxHandle = {
   /// Paste as Plain Text is starting (the prompt's menu): its paste goes in as text, never a chip.
   plainPaste(): void;
   place(chips: readonly PendingAttachment[]): void;
+  /// Removes an intake placeholder whose payload was already attached (content dedupe).
+  remove(id: string): void;
   /// Attachments `ids` went with a prompt: gone from the text for good (composer/inlineAttachments.tsx).
   /// The draft's remembered pastes went with it too.
   sent(ids: Iterable<string>): void;
@@ -200,6 +202,7 @@ export function ComposerBox({
         prompt.current?.plainPaste();
       },
       place: (chips) => inline.place(chips, "paste"),
+      remove: (id) => prompt.current?.removeInline(id),
       sent: (ids) => {
         inline.sent(ids);
         pastedChips.pastes.current = [];
@@ -327,6 +330,7 @@ export function ComposerBox({
               const plan = pastePlan(event.clipboardData, inline.known);
               if (!plan || (!onPasteFiles && plan.some((part) => "file" in part))) return false;
               pastesPlaced.add(event);
+              const files: File[] = [];
               for (const part of plan) {
                 if ("text" in part) prompt.current?.insertText(part.text);
                 // An attachment the prompt still has comes back as a copy of it; one cut from it, as itself.
@@ -334,8 +338,9 @@ export function ComposerBox({
                   prompt.current?.insertInline([
                     staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id,
                   ]);
-                else onPasteFiles?.([part.file]);
+                else files.push(part.file);
               }
+              if (files.length) onPasteFiles?.(files);
               return true;
             }}
             onChange={(markdown, caret) => {

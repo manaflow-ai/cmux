@@ -312,6 +312,16 @@ public final class AgentPaneModel {
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
+    /// A failed staged begin may be retried by the same upload without another person gesture.
+    /// This credit is deliberately held by this pane and keyed to the file's begin request, so it
+    /// cannot authorize an unrelated command or a different attachment.
+    @ObservationIgnored private var uploadRetryCredits: [String: (expires: TimeInterval, uses: Int)] = [:]
+    @ObservationIgnored private var stagedUploadKeys: [String: String] = [:]
+    private static let uploadRetryLifetime: TimeInterval = 30
+    /// One gesture-funded begin plus at most two automatic retries. The attempt count stays with
+    /// the attachment after its short-lived credit expires, so a late or stale failure cannot mint
+    /// another retry budget for free.
+    private static let uploadRetryAttemptLimit = 3
     /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
     @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
     /// Runs the Cloud machine + latest transcript fork and opens its sibling without selecting this chat.
@@ -754,10 +764,64 @@ public final class AgentPaneModel {
             // whether it can take one. Refusing it as unsupported told the page this host is too old
             // to stream, so a recording over the one-frame size failed with Retry (#28647).
             guard let stager = onUploadStage?() else { return Self.unsupported("chat.upload.stage") }
-            if case .begin(_, _, let batchToken, _) = stage, batchToken == nil, !transport.gestures.consumeUpload() { return Self.transportFailure(.gestureRequired) }
-            return await stager(stage, sessionId)
+            guard case .begin(let name, let size, nil, _) = stage else {
+                let reply = await stager(stage, sessionId)
+                let token: String? = switch stage {
+                case .chunk(let token, _, _), .finish(let token), .cancel(let token): token
+                case .begin: nil
+                }
+                if let token, let key = stagedUploadKeys[token] {
+                    let endsStage: Bool = switch stage {
+                    case .finish, .cancel: true
+                    default: false
+                    }
+                    if reply["ok"] as? Bool == true, endsStage {
+                        stagedUploadKeys.removeValue(forKey: token)
+                        if case .finish = stage { uploadRetryCredits.removeValue(forKey: key) }
+                    } else if (reply["error"] as? [String: Any])?["code"] as? String == "upload_failed" {
+                        armUploadRetry(key)
+                    }
+                } else if case .begin(let name, let size, _, _) = stage,
+                          let token = (reply["value"] as? [String: Any])?["token"] as? String {
+                    let key = uploadRetryKey(name: name, size: size)
+                    stagedUploadKeys[token] = key
+                    if reply["ok"] as? Bool != true,
+                       (reply["error"] as? [String: Any])?["code"] as? String == "upload_failed" { armUploadRetry(key) }
+                }
+                return reply
+            }
+            let key = uploadRetryKey(name: name, size: size)
+            let now = transport.gestures.uptime
+            let retry = uploadRetryCredits[key].map {
+                now <= $0.expires && $0.uses < Self.uploadRetryAttemptLimit
+            } == true
+            if retry {
+                if let credit = uploadRetryCredits[key] {
+                    uploadRetryCredits[key] = (credit.expires, credit.uses + 1)
+                }
+            } else {
+                guard transport.gestures.consumeUpload() else { return Self.transportFailure(.gestureRequired) }
+            }
+            let reply = await stager(stage, sessionId)
+            if let token = (reply["value"] as? [String: Any])?["token"] as? String { stagedUploadKeys[token] = key }
+            if reply["ok"] as? Bool != true,
+               (reply["error"] as? [String: Any])?["code"] as? String == "upload_failed" { armUploadRetry(key) }
+            return reply
         case .unsupported(let method): return Self.unsupported(method)
         }
+    }
+
+    private func uploadRetryKey(name: String, size: Int) -> String {
+        "\(sessionId ?? "")\u{0}\(name)\u{0}\(size)"
+    }
+
+    private func armUploadRetry(_ key: String) {
+        let now = transport.gestures.uptime
+        // A failed begin or stage already owns this key's attempt count. Only the first failure
+        // creates the short-lived retry credit; subsequent failures must not extend or recreate it.
+        // In particular, a stale chunk cannot reset an exhausted/expired attachment to attempt 1.
+        guard uploadRetryCredits[key] == nil else { return }
+        uploadRetryCredits[key] = (now + Self.uploadRetryLifetime, 1)
     }
 
     /// The page's chat became session `id` (it started, or the quick panel moved it); no longer a new tab page.
@@ -765,6 +829,8 @@ public final class AgentPaneModel {
         guard id != sessionId else { return }
         if sessionId != nil { droppedPaths.clearForSessionChange() }
         sessionId = id
+        uploadRetryCredits.removeAll()
+        stagedUploadKeys.removeAll()
         cloudReservationComposeKey = nil
         newTab = nil
         onQuestionKeySessionChange?()

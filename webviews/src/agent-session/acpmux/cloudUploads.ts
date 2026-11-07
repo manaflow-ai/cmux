@@ -13,8 +13,8 @@ export type UploadCancelled = ((index: number) => boolean) & {
 /// fail the same way; any other error (a link down, a timeout) may pass on the next try.
 export type UploadResult =
   | { paths: string[] }
-  | { paths: string[]; error: string; final?: boolean }
-  | { error: string; final?: boolean }
+  | { paths: string[]; error: string; final?: boolean; code?: string }
+  | { error: string; final?: boolean; code?: string }
   | undefined;
 /// How much of file `index` of an upload reached the host, 0 to 1 (its tile's progress ring).
 export type UploadProgressReport = (index: number, done: number) => void;
@@ -99,9 +99,10 @@ function notTaken(error: unknown): boolean {
 /// The answer for a failed upload: its words, and whether the host refused it outright.
 function uploadError(error: unknown, paths?: string[]): UploadResult {
   const text = error instanceof Error ? error.message : String(error);
-  const failure = REFUSED.has((error as { code?: string } | null)?.code ?? "")
-    ? { error: text, final: true }
-    : { error: text };
+  const code = (error as { code?: string } | null)?.code;
+  const failure = REFUSED.has(code ?? "")
+    ? { error: text, final: true, ...(code ? { code } : {}) }
+    : { error: text, ...(code ? { code } : {}) };
   return paths?.some(Boolean)
     ? { paths: Array.from({ length: paths.length + 1 }, (_, index) => paths[index] ?? ""), ...failure }
     : failure;

@@ -73,6 +73,7 @@ function intakeErrorText(error: IntakeError, t: Translate): string {
 
 export type AttachmentIntakeOptions = {
   place?(chips: readonly PendingAttachment[]): void;
+  remove?(id: string): void;
   /// The agent takes images (`promptCapabilities.image`); false refuses an image with a note.
   allowImages: boolean;
   /// Whether a paste on `target` is this composer's: undefined is not; `uploads` false keeps its
@@ -110,29 +111,63 @@ export type AttachmentIntakeOptions = {
 export function appendAttachments(
   current: readonly ComposerAttachment[],
   added: readonly ComposerAttachment[],
+  options: { dedupeContent?: boolean } = {},
 ): ComposerAttachment[] {
+  const dedupeContent = options.dedupeContent ?? true;
   const result = [...current];
   const ids = new Map<string, number>();
   const links = new Map<string, number>();
+  const content = new Map<string, number[]>();
+  const contentKey = (attachment: ComposerAttachment): string | undefined =>
+    attachment.kind === "image" && (attachment.data !== undefined || attachment.text !== undefined)
+      ? `${attachment.mimeType}:${attachment.size}`
+      : attachment.kind === "link" && attachment.path
+        ? `link:${attachment.path}`
+        : undefined;
+  const sameContent = (a: ComposerAttachment, b: ComposerAttachment) =>
+    a.kind === "link" && b.kind === "link" ? a.path === b.path : sameImageContent(a, b);
+  const remember = (key: string | undefined, index: number) => {
+    if (key) content.set(key, [...(content.get(key) ?? []), index]);
+  };
   result.forEach((attachment, index) => {
     ids.set(attachment.id, index);
     if (attachment.kind === "link" && attachment.path) links.set(attachment.path, index);
+    const key = dedupeContent ? contentKey(attachment) : undefined;
+    remember(key, index);
   });
   for (const attachment of added) {
+    const key = dedupeContent ? contentKey(attachment) : undefined;
     const previous =
       ids.get(attachment.id) ??
-      (attachment.kind === "link" && attachment.path ? links.get(attachment.path) : undefined);
+      (attachment.kind === "link" && attachment.path ? links.get(attachment.path) : undefined) ??
+      (key ? content.get(key)?.find((index) => sameContent(result[index]!, attachment)) : undefined);
     if (previous !== undefined) {
+      const old = result[previous];
+      const oldKey = dedupeContent ? contentKey(old) : undefined;
+      if (oldKey)
+        content.set(
+          oldKey,
+          (content.get(oldKey) ?? []).filter((index) => index !== previous),
+        );
       result[previous] = attachment;
       ids.set(attachment.id, previous);
       if (attachment.kind === "link" && attachment.path) links.set(attachment.path, previous);
+      remember(key, previous);
       continue;
     }
     ids.set(attachment.id, result.length);
     if (attachment.kind === "link" && attachment.path) links.set(attachment.path, result.length);
+    remember(key, result.length);
     result.push(attachment);
   }
   return result;
+}
+
+function sameImageContent(a: ComposerAttachment, b: ComposerAttachment): boolean {
+  if (a.kind !== "image" || b.kind !== "image") return false;
+  if (a.mimeType !== b.mimeType || a.size !== b.size) return false;
+  if (a.data !== undefined || b.data !== undefined) return a.data !== undefined && a.data === b.data;
+  return a.text !== undefined && a.text === b.text;
 }
 
 /// A chip shown the moment a file is pasted, dropped or chosen, while the composer reads, scales or
@@ -165,6 +200,8 @@ export type PendingAttachment = {
   /// Its upload failed (the host's words, after its own tries again): a send waits for its Retry
   /// or x. A file the composer refused (`failed` alone, which Retry cannot change) holds none.
   uploadFailed?: boolean;
+  /// Its upload is waiting for the next automatic retry; the tooltip stays plain and says so.
+  retrying?: boolean;
 };
 
 /// What Retry needs of a pending chip: its file and how it came in.
@@ -185,7 +222,13 @@ export function chipRemoved(state: {
 }
 
 /// Reads `given` into chips (useAttachmentIntake's `attach`); `again`, a failed chip's Retry.
-type Intake = (given: (File | MadeFile)[], uploads?: boolean, kind?: SourceKind, again?: string) => Promise<void>;
+type Intake = (
+  given: (File | MadeFile)[],
+  uploads?: boolean,
+  kind?: SourceKind,
+  again?: string,
+  dedupeContent?: boolean,
+) => Promise<void>;
 
 /// How many cancelled loading chips keep their file for an undo (`revive`).
 const PARKED_MAX = 16;
@@ -198,7 +241,13 @@ type PendingSource =
 
 /// A file chip's source. `name` and `type` too, for a file whose bytes are still being made (a
 /// promise): an undo can read it again as the MadeFile it came as (`revive`).
-type FileSource = { file: File | Promise<File>; uploads: boolean; name: string; type: string };
+type FileSource = {
+  file: File | Promise<File>;
+  uploads: boolean;
+  name: string;
+  type: string;
+  dedupeContent?: boolean;
+};
 
 /// A file whose bytes are still being made (pastedText.ts pastedTextFile): its tile shows at once,
 /// by its name and type, and it is read once `file` settles.
@@ -306,7 +355,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// the file input (`choose`), which the host asks only where its files came from. `again`: the
   /// failed chip whose file `given` is, read again under its id (Retry): it keeps its place in the
   /// strip and in the text, and its node there draws what the read makes.
-  const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again) => {
+  const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again, dedupeContent = true) => {
     if (given.length === 0) return;
     // When the page took the gesture: the host answers its source only from a record made before
     // it (composer/attachmentSources.ts).
@@ -330,7 +379,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // source now settles it, so an older read still running never takes or drops the newer one's.
     const owned = shown.map((chip, index): FileSource => {
       const file = files[index]!;
-      const source = { file: isMadeFile(file) ? file.file : file, uploads, name: file.name, type: file.type };
+      const source = {
+        file: isMadeFile(file) ? file.file : file,
+        uploads,
+        name: file.name,
+        type: file.type,
+        dedupeContent,
+      };
       sources.current.set(chip.id, source);
       return source;
     });
@@ -423,12 +478,26 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         if (batch.scope !== undefined) now.elsewhere?.(batch.scope, [attachment]);
         return;
       }
+      // Keep distinct images from one paste batch even when their normalized bytes match. A
+      // later paste is a new batch and can reuse the already staged image instead.
+      if (
+        dedupeContent &&
+        given.length === 1 &&
+        staged.size === 0 &&
+        stagedNow.current.some((existing) => sameImageContent(existing, attachment))
+      ) {
+        // The editor already placed this intake chip. Remove only the duplicate atom so the
+        // existing chip and its token remain the canonical attachment.
+        live.current.options.remove?.(attachment.id);
+        return;
+      }
       // In paste order, whichever file was ready first: before the first staged chip pasted after it.
       const place = places.current.get(attachment.id)!;
       staged.add(attachment.id);
       setAttachments((staged) => {
         const at = staged.findIndex((chip) => (places.current.get(chip.id) ?? -1) > place);
-        if (at < 0 || staged.some((chip) => chip.id === attachment.id)) return appendAttachments(staged, [attachment]);
+        if (at < 0 || staged.some((chip) => chip.id === attachment.id))
+          return appendAttachments(staged, [attachment], { dedupeContent });
         return [...staged.slice(0, at), attachment, ...staged.slice(at)];
       });
     };
@@ -437,20 +506,34 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (!owns(index)) return;
       marked.add(index);
       const failed = intakeErrorText(error, live.current.t);
-      // An upload that failed (its host's words, never a file the composer refused) is tried again
-      // on its own first; its chip keeps loading meanwhile, and shows Retry only once that fails.
-      // One the host refused outright (the app could not save it) shows Retry at once.
+      const gestureRefusal = "text" in error && error.code === "transport.gesture_required";
+      // An upload that failed is tried again on its own first; its chip keeps loading meanwhile and
+      // says plainly that it is retrying. It shows Retry only once the bounded attempts are spent.
       if (uploads && "text" in error) {
         const kept = autoRetries.current.get(id);
         kept?.stop();
         const tries = error.final ? UPLOAD_AUTO_RETRIES : (kept?.tries ?? 0);
         const source = owned[index];
         const still = () => sources.current.get(id) === source;
+        const retrying = () =>
+          `${live.current.t("upload.notStarted")} ${live.current.t("retry.waiting", {
+            attempt: Math.min(tries + 1, UPLOAD_AUTO_RETRIES),
+            of: UPLOAD_AUTO_RETRIES,
+          })}`;
         const giveUp = () => {
           if (!still()) return;
           setPending((chips) =>
             chips.map((chip) =>
-              chip.id === id ? { ...chip, failed, uploadFailed: true, uploading: false, progress: undefined } : chip,
+              chip.id === id
+                ? {
+                    ...chip,
+                    failed: gestureRefusal ? live.current.t("upload.notStarted") : failed,
+                    uploadFailed: true,
+                    retrying: false,
+                    uploading: false,
+                    progress: undefined,
+                  }
+                : chip,
             ),
           );
         };
@@ -476,7 +559,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         );
         autoRetries.current.set(id, { tries: tries + 1, stop });
         if (tries < UPLOAD_AUTO_RETRIES)
-          setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, progress: undefined } : chip)));
+          setPending((chips) =>
+            chips.map((chip) =>
+              chip.id === id
+                ? { ...chip, failed: retrying(), retrying: true, progress: undefined, uploading: true }
+                : chip,
+            ),
+          );
         return;
       }
       setPending((chips) =>
@@ -574,8 +663,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   const [attach] = useState(
     () =>
-      (given: (File | MadeFile)[], uploads = false, kind?: SourceKind) =>
-        intake(given, uploads, kind),
+      (given: (File | MadeFile)[], uploads = false, kind?: SourceKind, dedupeContent = true) =>
+        intake(given, uploads, kind, undefined, dedupeContent),
   );
   /// A chip the host makes from something of its own (a long dictation recording it sends to the
   /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
@@ -656,7 +745,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (!source || "make" in source) return false;
     parked.current.delete(id);
     const { file, name, type } = source;
-    void intake(["then" in file ? { name, type, file } : file], source.uploads, undefined, id);
+    void intake(["then" in file ? { name, type, file } : file], source.uploads, undefined, id, source.dedupeContent);
     return true;
   });
   /// A staged image's Retry for its original: the original uploads again, its preview staying staged.
@@ -714,7 +803,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // A file whose bytes were never made (making them failed) has nothing to retry.
     if (!source || !file || "then" in file) return;
     // Without the paste's kind: the host's record of where its files are was for that gesture only.
-    void intake([file], source.uploads, undefined, id);
+    void intake([file], source.uploads, undefined, id, source.dedupeContent);
   });
   retryRef.current = retry;
   // A try again still waiting (its timer, its key and click listeners) goes with the composer.
@@ -737,7 +826,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       const other = pasted.length ? undefined : pastedImageFiles(event.clipboardData);
       const files = other ? other.files : pasted;
       if (!other) event.preventDefault();
-      if (files.length) void attach(files, owned.uploads, "paste");
+      // Keep separate file-only pastes distinct. Clipboard HTML represents the same copied
+      // screenshot twice (file and image markup), so those representations are content-deduped.
+      const dedupePaste =
+        files.length === 1 || other !== undefined || event.clipboardData?.types.includes("text/html") === true;
+      if (files.length) void attach(files, owned.uploads, "paste", dedupePaste);
       if (other?.text !== undefined) pasteTextInto(event, other.text);
     };
     const removeFileDropLifecycle = installFileDropLifecycle(
@@ -767,7 +860,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// video uploaded went at once without it (Leo, 2026-11-01: "oh i guess mp4 couldnt get sent").
   /// A file the composer refused (no images here, one that would not decode) holds none: its
   /// Retry could never make it. A chip the host makes (`bound`) holds it even once failed.
-  const loading = shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed).length;
+  const loading = shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed || chip.retrying).length;
   /// The same chips (useSendWhenAttached's `unsettled`).
   const unsettled = loading;
   /// The video chips whose poster and frames the host still reads, for a chat on this Mac: a send
@@ -1058,9 +1151,23 @@ function PendingChip({
   // video. ... Just do the square.").
   const square = chip.image || chip.video;
   const kind = square ? "acpmux-attachment-image" : "acpmux-attachment-file";
+  // One whose upload is waiting for an automatic retry keeps its shape and spinner. Its tooltip is
+  // plain and says both what happened and that another attempt is in progress.
+  if (chip.retrying)
+    return (
+      <div
+        className={`acpmux-attachment ${kind} acpmux-attachment-pending`}
+        aria-busy="true"
+        aria-label={`${name}: ${chip.failed ?? t("upload.notStarted")}`}
+        title={chip.failed}
+      >
+        <Spinner loading size={16} className="acpmux-attachment-spinner" />
+        {!square && <span>{chip.name}</span>}
+        {remove}
+      </div>
+    );
   // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name),
-  // one small retry button, and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
-  // (big attachments?) still sucks", over a strip of empty tiles with only an underlined Retry).
+  // one small retry button, and its ×; why is in its tooltip.
   if (chip.failed)
     return (
       <div

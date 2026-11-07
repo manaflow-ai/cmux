@@ -21,7 +21,7 @@ test("lists loading, uploading, failed and staged tiles in the strip and in the 
     <span class="acpmux-md-inline-chip" data-state="ready" data-chip="strip">
       <div class="acpmux-attachment acpmux-attachment-file" title="g.zip"></div>
     </span>
-    <span class="acpmux-md-inline-chip" data-state="failed" aria-label="f.mov" title="The app refused the agent connection."></span>
+    <span class="acpmux-md-inline-chip" data-state="failed" aria-label="f.mov" title="The upload could not be started."></span>
   `);
   expect(composerAttachmentsState(doc)).toEqual([
     { name: "a.mov", state: "loading" },
@@ -30,7 +30,7 @@ test("lists loading, uploading, failed and staged tiles in the strip and in the 
     { name: "d.mov", state: "staged" },
     { name: "e.mov", state: "loading" },
     { name: "g.zip", state: "staged" },
-    { name: "f.mov", state: "failed", reason: "The app refused the agent connection.", retry: false },
+    { name: "f.mov", state: "failed", reason: "The upload could not be started.", retry: false },
   ]);
 });
 

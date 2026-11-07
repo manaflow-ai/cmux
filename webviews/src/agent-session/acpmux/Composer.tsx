@@ -732,6 +732,7 @@ export function Composer({
     place: (chips) => {
       if (!shell) box.current?.place(chips);
     },
+    remove: (id) => box.current?.remove(id),
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
     locked: () => locked,
@@ -889,7 +890,11 @@ export function Composer({
         restoredText = restored.text;
         restoredAttachments = restored.attachments;
         // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
-        attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
+        // Restoring a saved prompt must preserve distinct attachments even when their bytes match;
+        // content dedupe belongs to the external paste/drop intake path.
+        attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments, {
+          dedupeContent: false,
+        });
         // Put back, not typed: the Enter that sent it says nothing about this change.
         notTyped();
         // What comes back goes first; what was typed or attached since stays after it. `behind`: it
@@ -912,7 +917,9 @@ export function Composer({
             const others = current.filter(
               (attachment) => !restoredAttachments.some((back) => back.id === attachment.id),
             );
-            return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
+            return behind
+              ? appendAttachments(others, restoredAttachments, { dedupeContent: false })
+              : appendAttachments(restoredAttachments, others, { dedupeContent: false });
           });
       },
       attach(attachment) {
@@ -2551,7 +2558,7 @@ export function Composer({
         onReviveAttachment={revive}
         originalFailures={originalFailures}
         onPasteFile={(file) => void attach([file], true, "paste")}
-        onPasteFiles={(files) => void attach(files, true, "paste")}
+        onPasteFiles={(files) => void attach(files, true, "paste", false)}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={
