@@ -8,8 +8,10 @@
 //! The verbs are the owner's own: a same-user unix connection that is neither bound (a teammate's
 //! proxy or a guest) nor a remote relay. Only the secret's SHA-256 is kept; create answers the
 //! secret once. A redeemed guest binds a connection with `agent-session-proxy-bind {link_guest}`
-//! and reaches the shared chat as `{id: "guest:<share_id>.<guest_id>", name, approval: "owner"}`,
-//! so acpmux holds each of its prompts for the owner. Every guest frame re-checks the share (its
+//! and reaches the shared chat as `{id: "guest:<share_id>.<guest_id>", name, approval: "owner",
+//! role}`. Only a signed-in account invited with `talk` may send (each prompt held for the
+//! owner): a guest who joined by the link alone, with no account, is always `view`, whatever
+//! its share says. Every guest frame re-checks the share (its
 //! state and expiry) and the guest (kicked), and a guest's live stream checks them on every
 //! record. Whatever path ends a share or a guest (a revoke, a kick, the expiry timer, or any verb
 //! that notices the expiry first) closes its bound connections in the same step (`settle`);
@@ -37,6 +39,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
+use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -58,6 +61,10 @@ const DEFAULT_TTL_SECS: u64 = 24 * 60 * 60;
 const MAX_TTL_SECS: u64 = 7 * DEFAULT_TTL_SECS;
 const MIN_TTL_SECS: u64 = 60;
 const MAX_USES: u32 = 8;
+/// A view-only link's uses (the Share dialog's "Anyone with the link"): its guests only watch,
+/// so it may admit many; the room bounds the guests connected at once, and the registry's size
+/// (`fits`) the guests recorded.
+const MAX_VIEW_USES: u32 = 1000;
 /// Records kept at once (an ended one goes when room is needed), so the file stays far below
 /// `state_file`'s 64 KiB read bound.
 const MAX_SHARES: usize = 16;
@@ -104,6 +111,9 @@ pub(super) struct ShareTerms {
     pub(super) ttl_secs: u64,
     pub(super) uses: u32,
     pub(super) create_id: Option<String>,
+    /// The role the link is made for (`view` lifts its uses cap); a guest who joins by the link
+    /// watches only whatever it says.
+    pub(super) role: Option<Role>,
 }
 
 /// The encoded registry at its largest: `state_file`'s 64 KiB read bound, less a margin.
@@ -238,6 +248,11 @@ struct LinkShare {
     guests: Vec<Guest>,
     #[serde(default)]
     invitees: Vec<Invitee>,
+    /// The role the link was made for (`view`: the Share dialog's "Anyone with the link"), which
+    /// lifts its uses cap. A guest who joins by the link watches only whatever this says: sending
+    /// takes a signed-in account invited with `talk`. An invitee keeps its own role.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    role: Option<Role>,
 }
 
 impl LinkShare {
@@ -297,7 +312,8 @@ impl LinkShare {
             "uses_left": self.uses_left, "state": self.state, "url": null,
             "create_id": self.create_id,
             "room": self.room.as_ref().map(|room| room.get("url").cloned().unwrap_or(Value::Null)),
-            "invite_url": self.invite_url(), "guests": guests, "invitees": invitees})
+            "invite_url": self.invite_url(), "role": self.role, "guests": guests,
+            "invitees": invitees})
     }
 }
 
@@ -434,21 +450,28 @@ fn find<'a>(
     shares.iter_mut().find(|s| s.share_id == share_id).ok_or("share.unknown")
 }
 
-/// The author a guest binds as; an invitee's also names its role. The author is stamped on what
-/// the guest sends (`_meta.acpmux.author`), which every participant of the chat sees, so it never
+/// What `guest` may do: an invitee its invite's role, a guest who joined by the link alone
+/// (no account, so nobody signed in) `view`, always.
+fn role_of(guest: &Guest) -> Role {
+    match guest.account {
+        Some(_) => guest.role.unwrap_or(Role::View),
+        None => Role::View,
+    }
+}
+
+/// The author a guest binds as, with its role ([`role_of`]). The author is stamped on what the
+/// guest sends (`_meta.acpmux.author`), which every participant of the chat sees, so it never
 /// names the invitee's account (often an email): that stays in the owner's own `-list`.
 fn author_of(share: &LinkShare, guest: &Guest) -> Value {
     let mut author = json!({"id": format!("{GUEST_PREFIX}{}.{}", share.share_id, guest.guest_id),
         "name": guest.name, "approval": "owner"});
-    if guest.account.is_some() {
-        author["role"] = json!(guest.role.unwrap_or(Role::View));
-    }
+    author.set("role", json!(role_of(guest)));
     author
 }
 
-/// Whether a bound guest's author may only watch (an invitee with the `view` role).
+/// Whether a bound guest's author may only watch: any role but `talk` (none included).
 pub(super) fn view_only(author: &Value) -> bool {
-    author["role"].is_string() && author["role"] != json!(Role::Talk)
+    author.get("role") != Some(&json!(Role::Talk))
 }
 
 #[derive(Deserialize)]
@@ -466,6 +489,10 @@ struct Create {
     ttl_secs: Option<u64>,
     #[serde(default)]
     uses: Option<u32>,
+    /// The role the link is made for: `view` allows up to 1000 uses. A guest who joins by the
+    /// link watches only either way (sending takes an invited account).
+    #[serde(default)]
+    role: Option<Role>,
     /// The owner's cmux cloud access token, for the room's `PUT` only (never stored).
     #[serde(default)]
     owner_token: Option<String>,
@@ -721,9 +748,11 @@ impl LinkShares {
             let share = find(shares, &p.share_id)?;
             let secret_matches =
                 || !p.secret.is_empty() && same(&hex(&digest(&[&p.secret])), &share.secret_sha256);
+            // A guest who joins by the link watches only: nobody signed in.
+            let link_role = Some(Role::View);
             let (account, role) = match account {
                 None if !secret_matches() => return Err("share.secret"),
-                None => (None, None),
+                None => (None, link_role),
                 Some(account) => {
                     // An ended share says how it ended, to any account.
                     share.live()?;
@@ -743,7 +772,7 @@ impl LinkShares {
                         (None, true) => return Err("share.kicked"),
                         // An account that is not invited but holds the link's secret joins by
                         // the link, as a link guest (a use spent, no account kept).
-                        (None, false) if secret_matches() => (None, None),
+                        (None, false) if secret_matches() => (None, link_role),
                         (None, false) => return Err("share.not_invited"),
                     }
                 }
@@ -752,10 +781,9 @@ impl LinkShares {
             let reply = |g: &Guest| {
                 let mut answer =
                     json!({"share_id": p.share_id, "guest_id": g.guest_id, "name": g.name});
-                // An invitee's role (a link guest has none): the room hands it to the page.
-                if let Some(role) = g.role {
-                    answer["role"] = json!(role);
-                }
+                // The guest's role (a link guest's is `view`): the room hands it to the page,
+                // which draws a view guest with no composer, and drops a view guest's prompts.
+                answer.set("role", json!(role_of(g)));
                 answer
             };
             if let Some(guest) = share.guests.iter().find(|g| same(&g.attempt_id_sha256, &attempt))

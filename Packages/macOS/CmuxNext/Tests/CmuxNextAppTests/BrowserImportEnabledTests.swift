@@ -210,7 +210,7 @@ struct BrowserImportOffScanTests {
         let held = HeldScan()
         center.scanThisMac = { _ in await held.run() }
         center.host = ImportCardsHost(runImport: { _, _, _ in throw CancellationError() }, importedProfiles: { [] },
-                                      openSettings: { _ in }, importClassic: { _ in nil })
+                                      openSettings: { _ in }, importClassic: { _ in nil }, importConductor: { _ in nil })
         var landed = false
         center.scan { landed = true }
         while held.started == 0 { await Task.yield() }

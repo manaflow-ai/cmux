@@ -29,6 +29,14 @@ nonisolated enum LinkRoutingSchema {
                 kind: .toggle, default: .bool(fallback.signInPagesInCmux),
                 keywords: ["sign in", "login", "device code", "oauth", "auth", "passkey", "default browser", "gh auth login"]
             ),
+            SettingDescriptor(
+                LinkRouting.pullRequestsInGitHubPagePath, section: .browser, group: group,
+                title: SettingsText.keyed("settings.browser.openPullRequestsInGitHubPage", "Open Pull Requests in cmux GitHub Page"),
+                help: SettingsText.keyed("settings.browser.openPullRequestsInGitHubPage.help",
+                                         "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way."),
+                kind: .toggle, default: .bool(fallback.pullRequestsInGitHubPage),
+                keywords: ["github", "github.com", "pull request", "pr", "link", "native page"]
+            ),
             // Classic's key: read when the new one is absent, never written by Settings. Listed so
             // MDM profiles and team policies written for it still apply.
             SettingDescriptor(
@@ -51,7 +59,8 @@ nonisolated enum LinkRoutingSchema {
                 help: SettingsText.keyed("settings.browser.externalLinkPatterns.help",
                                          "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."),
                 summary: SettingsText.keyed("settings.browser.externalLinkPatterns.summary", "Links that open in your default browser"),
-                kind: .stringList, default: .array([]), keywords: ["denylist", "blocklist", "regex", "external", "default browser"]
+                kind: .stringList, default: .array([]), keywords: ["denylist", "blocklist", "regex", "external", "default browser"],
+                placeholder: SettingText(key: nil, text: "*.example.com/*")
             ),
             SettingDescriptor(
                 TextEditorSetting.configPath, section: .general, group: SettingsText.keyed("settings.group.files", "Files"),

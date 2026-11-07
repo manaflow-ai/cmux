@@ -15,11 +15,6 @@ export const revealFrames = {
   cancel: (handle: number): void => cancelAnimationFrame(handle),
 };
 
-/// The Debug toggle `agentPane.debug.streamWords` (on by default): a reply grows a whole word at a
-/// time. Off, the app sets `data-stream-words="off"` on <html> and it grows a character at a time.
-export const streamWords = () =>
-  typeof document === "undefined" || document.documentElement.dataset.streamWords !== "off";
-
 const reducedMotion = () =>
   typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
@@ -127,7 +122,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
       // stops arriving: before a tool call it has no space after it, and the agent may work on the
       // call for seconds.
       const paused = now - state.grewAt! >= StreamReveal.stallMs;
-      let length = reduce.current || !streamWords() ? raw : wordEdge(target, raw, !live || paused, before.length);
+      let length = reduce.current ? raw : wordEdge(target, raw, !live || paused, before.length);
       // After `advance`, which takes in the text received meanwhile: all of it shows.
       if (away) {
         current.flush();

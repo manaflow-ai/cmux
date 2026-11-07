@@ -5,7 +5,8 @@ extension MainFrameBudget {
     /// The `debug.main_budget` report: frames seen, injected input waiting, and per budgeted class
     /// its budget, tasks run, input yields, over-budget deferrals, tasks run on idle frame time past
     /// its share, over-budget tasks, longest task and the most it spent in one frame; the input checks
-    /// and the render passes (before-waiting phase) with their longest times.
+    /// and the render passes (before-waiting phase) with their longest times; background tasks held for a frame
+    /// with idle time.
     public var report: JSONValue {
         let stats = stats
         var classes: [String: JSONValue] = [:]
@@ -23,6 +24,7 @@ extension MainFrameBudget {
         }
         return ["frames": JSONValue(stats.frames), "classes": .object(classes), "pending_input": JSONValue(board.pendingInputCount),
                 "input_checks": JSONValue(stats.inputChecks), "max_input_check_ms": .number(Double(stats.maxInputCheckNanos) / 1_000_000),
-                "render_passes": JSONValue(stats.renderPasses), "max_render_pass_ms": .number(Double(stats.maxRenderPassNanos) / 1_000_000)]
+                "render_passes": JSONValue(stats.renderPasses), "waited_for_idle_frame": JSONValue(stats.waitedForIdleFrame),
+                "max_render_pass_ms": .number(Double(stats.maxRenderPassNanos) / 1_000_000)]
     }
 }

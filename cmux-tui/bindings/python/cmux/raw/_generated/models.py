@@ -1302,6 +1302,14 @@ class ReattachViewResult:
 
 
 @dataclass(frozen=True)
+class RemoteHostAppResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/RemoteHostAppResult'
+    host_pid: int
+    secret: str
+    socket: str
+
+
+@dataclass(frozen=True)
 class RenderCursor:
     __cmux_schema_path__: ClassVar[str] = 'types/RenderCursor'
     blink: bool
@@ -2076,6 +2084,22 @@ class TerminalKeyInput:
 
 
 @dataclass(frozen=True)
+class TerminalLastCommand:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalLastCommand'
+    command: str
+    ended_at_ms: str
+    exit_code: Union[int, None]
+    started_at_ms: str
+
+
+@dataclass(frozen=True)
+class TerminalLastCommandResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalLastCommandResult'
+    terminal_id: str
+    last_command: Union[TerminalLastCommand, None]
+
+
+@dataclass(frozen=True)
 class TerminalModifiers:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalModifiers'
     alt: bool
@@ -2308,6 +2332,7 @@ class AttachSurfaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     expected_terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
+    replay_history_rows: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     snapshot: Union[str, None, MissingType] = field(default=MISSING)
     snapshot_images: Union[bool, MissingType] = field(default=MISSING)
@@ -4334,6 +4359,33 @@ class ReloadConfigResult:
 
 
 @dataclass(frozen=True)
+class RemoteHostAppRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-app/request'
+    pass
+
+
+@dataclass(frozen=True)
+class RemoteHostCallRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-call/request'
+    method: str
+    params: Union[JsonValue, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class RemoteHostConfigRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-config/request'
+    computer_use: Union[bool, None, MissingType] = field(default=MISSING)
+    headless: Union[bool, None, MissingType] = field(default=MISSING)
+    screen_sharing: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class RemoteHostStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-status/request'
+    pass
+
+
+@dataclass(frozen=True)
 class RemoteTerminalSnapshotRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/remote-terminal-snapshot/request'
     surface: Id
@@ -4903,6 +4955,13 @@ class TerminalHistoryRequest:
     marker_epoch: int
     before: Union[int, None, MissingType] = field(default=MISSING)
     max_bytes: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalLastCommandRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-last-command/request'
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -6033,6 +6092,7 @@ class VtStateEvent(EventBase):
     event: Literal['vt-state']
     rows: int
     colors: Union[TerminalColors, MissingType] = field(default=MISSING)
+    history_rows_omitted: Union[int, MissingType] = field(default=MISSING)
     kitty_graphics_state: Union[KittyGraphicsState, MissingType] = field(default=MISSING)
     kitty_image_aliases: Union[List[KittyImageAlias], MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
@@ -6291,6 +6351,7 @@ __all__ = [
     'ReadScreenResult',
     'ReadScrollbackResult',
     'ReattachViewResult',
+    'RemoteHostAppResult',
     'RenderCursor',
     'RenderGraphicImage',
     'RenderGraphicPlacement',
@@ -6366,6 +6427,8 @@ __all__ = [
     'TerminalHistoryPage',
     'TerminalHistoryPagesResult',
     'TerminalKeyInput',
+    'TerminalLastCommand',
+    'TerminalLastCommandResult',
     'TerminalModifiers',
     'TerminalPlacement',
     'TerminalPortsListener',
@@ -6629,6 +6692,10 @@ __all__ = [
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
     'ReloadConfigResult',
+    'RemoteHostAppRequest',
+    'RemoteHostCallRequest',
+    'RemoteHostConfigRequest',
+    'RemoteHostStatusRequest',
     'RemoteTerminalSnapshotRequest',
     'RemoveScreensFromScreenGroupRequest',
     'RemoveTabsFromTabGroupRequest',
@@ -6697,6 +6764,7 @@ __all__ = [
     'TerminalClipboardSubscribeRequest',
     'TerminalEventsRequest',
     'TerminalHistoryRequest',
+    'TerminalLastCommandRequest',
     'TerminalPortsRequest',
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',

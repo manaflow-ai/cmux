@@ -209,15 +209,15 @@ try:
 
     # The support query: read the reply from a raw tty.
     cli("terminal", term, "write", "--text",
-        "stty raw -echo; printf '\\033]7501;?\\033\\\\'; r=$(dd bs=1 count=10 2>/dev/null | od -An -c | tr -d ' \\n'); "
+        "stty raw -echo; printf '\\033]7501;?\\033\\\\'; r=$(dd bs=1 count=80 2>/dev/null | od -An -c | tr -d ' \\n'); "
         "stty sane; echo \"Q7501=$r\"\n")
     screen = wait(lambda: (lambda s: s if "Q7501=" in s else None)(cli("terminal", term, "screen", "read").stdout), 15)
     line = next((l for l in (screen or "").splitlines() if "Q7501=" in l and "$r" not in l), "")
     evidence["query"] = line.strip()
-    if "033]7501;?033\\" in line:
+    if "033]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth033\\" in line:
         print(f"ok   query: {line.strip()}", flush=True)
     else:
-        failures.append(f"query: no ESC ] 7501 ; ? ST reply ({line.strip()!r})")
+        failures.append(f"query: no ESC ] 7501 ; ?:states=...:kinds=... ST reply ({line.strip()!r})")
         print(f"FAIL query: {line.strip()!r}", flush=True)
 
     report(term, "state=clear")

@@ -76,7 +76,7 @@ jobs:
             if [ "$base_tree" = "$head_tree" ]; then
               echo "migrations=false" >> "$GITHUB_OUTPUT"; echo "no migration changes (backend/db/migrations matches the base)"; exit 0
             fi
-            gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | "\(.status)\t\(.filename)\t\(.previous_filename // "")"' > changes.tsv
+            gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[] | "\(.status)\t\(.filename)\t\(.previous_filename // "")"' > changes.tsv
           else
             gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq '.files[] | "\(.status)\t\(.filename)\t\(.previous_filename // "")"' > changes.tsv
           fi

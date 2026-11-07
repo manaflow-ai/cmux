@@ -1,18 +1,27 @@
+import Darwin
 package import Foundation
 import CmuxNextCompat
 
 /// A cmux-tui helper process (`wg hub`, `remote connect`) whose stdout is a
 /// stream of JSON lines. Reading happens on Foundation's pipe threads, never
 /// the main actor. Stdout lines are bounded (drop-oldest past 256 pending);
-/// stderr keeps a 4 KB tail for error messages. The child runs with
-/// `--exit-with-parent`, so a crash of this app ends it too.
+/// stderr keeps a 4 KB tail for error messages and, with `stderrLog`, goes
+/// to that file too (owner only, emptied at each launch, at most
+/// ``stderrLogLimit`` bytes), the way `cmux link ensure` keeps its link's
+/// output in `link.log`. The child runs with `--exit-with-parent`, so a
+/// crash of this app ends it too.
 package final class ChildProcess: Sendable {
     private struct State {
         var process: Process?
         var stderrTail = Data()
+        var stderrLog: FileHandle?
+        var stderrLogged = 0
         var exitStatus: Int32?
         var exitWaiters: [CheckedContinuation<Int32, Never>] = []
     }
+
+    /// The most stderr one launch writes to `stderrLog`.
+    package static let stderrLogLimit = 4 * 1024 * 1024
 
     package let lines: AsyncStream<String>
     private let continuation: AsyncStream<String>.Continuation
@@ -21,14 +30,17 @@ package final class ChildProcess: Sendable {
     private let arguments: [String]
     private let environment: [String: String]
     private let input: Data?
+    private let stderrLog: URL?
 
     /// A bounded secret is written before launch; inherited Native sockets use start(inheritedInput:).
+    /// `stderrLog` also keeps the child's stderr in that file (never its stdin or stdout).
     package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment,
-                 input: Data? = nil) {
+                 input: Data? = nil, stderrLog: URL? = nil) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
         self.input = input
+        self.stderrLog = stderrLog
         (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
     }
 
@@ -75,11 +87,19 @@ package final class ChildProcess: Sendable {
             case .bytes(let data): self?.state.withLock { state in
                 state.stderrTail.append(data)
                 if state.stderrTail.count > 4096 { state.stderrTail.removeFirst(state.stderrTail.count - 4096) }
+                if let log = state.stderrLog, state.stderrLogged < Self.stderrLogLimit {
+                    let chunk = data.prefix(Self.stderrLogLimit - state.stderrLogged)
+                    do { try log.write(contentsOf: chunk); state.stderrLogged += chunk.count }
+                    catch { try? log.close(); state.stderrLog = nil }
+                }
             }
             case .retry: return
-            case .end: handle.readabilityHandler = nil
+            case .end:
+                handle.readabilityHandler = nil
+                self?.state.withLock { state in try? state.stderrLog?.close(); state.stderrLog = nil }
             }
         }
+        let log = stderrLog.flatMap(Self.openLog)
         process.terminationHandler = { [weak self] finished in
             let status = finished.terminationStatus
             let waiters = self?.state.withLock { state -> [CheckedContinuation<Int32, Never>] in
@@ -89,13 +109,41 @@ package final class ChildProcess: Sendable {
             } ?? []
             for waiter in waiters { waiter.resume(returning: status) }
         }
-        state.withLock { $0.process = process }
+        state.withLock { state in
+            try? state.stderrLog?.close()
+            state.process = process; state.stderrLog = log; state.stderrLogged = 0
+        }
         do {
             try process.run()
         } catch {
             if process.isRunning { process.terminate() }
             throw error
         }
+    }
+
+    /// `url` opened to append, owner only, never through a symlink (its folder made owner only when missing);
+    /// nil when it cannot be. It starts empty unless a running link holds the folder's `link.lock`: a classic
+    /// `cmux link serve` that is still running (it outlives the app) keeps writing this same `link.log`, and its
+    /// lines are the ones that say why the Native child then could not start.
+    private static func openLog(_ url: URL) -> FileHandle? {
+        let folder = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
+                                                 attributes: [.posixPermissions: 0o700])
+        let empty = !linkLockHeld(folder.appendingPathComponent("link.lock", isDirectory: false))
+        let flags = O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_CLOEXEC | (empty ? O_TRUNC : 0)
+        let fd = Darwin.open(url.path, flags, 0o600)
+        guard fd >= 0 else { return nil }
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+    }
+
+    /// True while another process holds `lock` (the link's single-instance flock).
+    private static func linkLockHeld(_ lock: URL) -> Bool {
+        let fd = Darwin.open(lock.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { return errno == EWOULDBLOCK }
+        flock(fd, LOCK_UN)
+        return false
     }
 
     package var pid: Int32? { state.withLock { $0.process?.processIdentifier } }

@@ -110,7 +110,7 @@ struct CloudDiffPlacementTests {
         // A late success after failure cannot select or move a tab.
         opening?.created(1)
         for task in work { #expect(await task.value?.message == "expected creation failure") }
-        #expect(pane.pendingSelectSurface == nil)
+        #expect(pane.pendingSelect.surface == nil)
     }
 
     @Test func unsupportedBesideDiffRefusesWithoutAnAppOnlyFallback() async throws {

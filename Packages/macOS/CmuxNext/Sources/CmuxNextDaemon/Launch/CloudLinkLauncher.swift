@@ -239,7 +239,7 @@ private final class CloudLinkCredentialServer: Sendable {
             guard request.services == nil else { return .object(["ok": .bool(false), "error": .object(["code": .string("validation.invalid"), "message": .string("connect_info does not take services")])]) }
             answer = await relay.linkConnectInfo(host: request.host, expectedInstall: expectedInstall)
         case "link_token":
-            guard let services = request.services, !services.isEmpty, Set(services).isSubset(of: ["daemon", "ssh"]), Set(services).count == services.count else { return .object(["ok": .bool(false), "error": .object(["code": .string("validation.invalid"), "message": .string("invalid services")])]) }
+            guard let services = request.services, !services.isEmpty, Set(services).isSubset(of: ["daemon", "ssh", "desktop"]), Set(services).count == services.count else { return .object(["ok": .bool(false), "error": .object(["code": .string("validation.invalid"), "message": .string("invalid services")])]) }
             answer = await relay.linkToken(host: request.host, services: services, expectedInstall: expectedInstall)
         default:
             return .object(["ok": .bool(false), "error": .object(["code": .string("operation.unsupported"), "message": .string("unsupported link operation")])])

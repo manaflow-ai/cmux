@@ -1,6 +1,5 @@
 public import AppKit
 public import Foundation
-import SwiftUI
 
 /// The All Themes playground's window (`debug.allThemesPlayground`, Debug menu > All Themes
 /// Playground, DEV and NIGHTLY): ``show()`` opens ``AllThemesPlaygroundView`` in its own window,
@@ -28,7 +27,8 @@ import SwiftUI
         window.title = AllThemesPlaygroundStrings.windowTitle
         window.isReleasedWhenClosed = false
         let model = AllThemesPlaygroundModel()
-        window.contentView = NSHostingView(rootView: AllThemesPlaygroundView(model: model))
+        window.contentView = AllThemesPlaygroundView(model: model)
+        window.contentMinSize = NSSize(width: 900, height: 600)
         let folders = folders
         Task { await model.load(folders: folders) }
         window.center()

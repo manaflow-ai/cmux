@@ -89,8 +89,8 @@ await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
 
   test("opening a line grows its panel under it; the line does not move", async () => {
     const page = await open();
-    // Off the very bottom: there, opening a line pushes the text above it up instead (Leo,
-    // 2026-11-02, transcript-expand-at-bottom.test.ts).
+    // Off the very bottom. At the very bottom an open grows down too (Codex parity,
+    // transcript-expand-at-bottom.test.ts); this checks the plain case.
     const fromEnd = await page.locator(".acpmux-scroll").evaluate(async (node) => {
       node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight - 48);
       node.dispatchEvent(new Event("scroll"));

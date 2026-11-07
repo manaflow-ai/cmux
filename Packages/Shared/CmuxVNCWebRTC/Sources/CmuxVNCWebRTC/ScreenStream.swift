@@ -100,8 +100,34 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
     static let baselineFrameRate = 60
     /// The most a stream asks for (ProMotion).
     static let maximumFrameRate = 120
-    /// Auto and Smooth Motion's bitrate ceiling at 60 fps: 200 kbit a frame.
+    /// Auto and Smooth Motion's bitrate ceiling at 60 fps for a picture of
+    /// unknown size: 200 kbit a frame.
     static let adaptiveBitrateAtBaseline = 12_000_000
+    /// Auto and Smooth Motion's bitrate ceiling for a known picture: 0.18
+    /// bits per encoded pixel per frame, from Petal
+    /// (https://github.com/kiruna-labs/petal, Apache-2.0,
+    /// `apps/desktop/src-tauri/src/transport/publisher.rs`), which raised it
+    /// from 0.13 after small text read "readable, not crisp" at QP 26: the
+    /// ceiling is the lever on QP. Clamped to
+    /// ``adaptiveBitrateFloor``...``adaptiveBitrateCeiling(frameRate:)``.
+    static let adaptiveBitsPerPixelFrame = 0.18
+    /// The least ceiling a known picture gets (Petal's 4 Mbps).
+    static let adaptiveBitrateFloor = 4_000_000
+    /// The most a known picture asks for: Petal's 16 Mbps, and never less
+    /// than 200 kbit a frame (24 Mbps at 120 fps, as before), so a
+    /// high-rate stream keeps its per-frame budget.
+    static func adaptiveBitrateCeiling(frameRate: Int) -> Int {
+        max(16_000_000, adaptiveBitrateAtBaseline / baselineFrameRate * frameRate)
+    }
+
+    /// Auto and Smooth Motion's bitrate ceiling for a `width`×`height`
+    /// picture as encoded (after ``Settings/scaleDown``) at `frameRate`.
+    /// A picture of unknown size keeps 200 kbit a frame.
+    static func adaptiveBitrate(width: Double, height: Double, frameRate: Int) -> Int {
+        guard width > 0, height > 0 else { return adaptiveBitrateAtBaseline / baselineFrameRate * frameRate }
+        let wanted = Int((adaptiveBitsPerPixelFrame * width * height * Double(frameRate)).rounded())
+        return min(max(wanted, adaptiveBitrateFloor), adaptiveBitrateCeiling(frameRate: frameRate))
+    }
     /// The most pixels a second Auto and Smooth Motion ask the hardware
     /// H.264 encoder for above 60 fps (2160×1396 at 120). VideoToolbox's
     /// H.264 encoder is bound by pixels a second, not by its level or
@@ -129,9 +155,11 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
     /// The sender's encoding for a display `sourceWidth`×`sourceHeight`
     /// pixels (0: unknown) at `frameRate` (from
     /// ``frameRate(hostMaximum:viewerMaximum:)``).
-    /// Auto and Smooth Motion's bitrate ceiling grows with the frame rate so
-    /// each frame keeps its 200 kbit (24 Mbps at 120): at a fixed ceiling
-    /// every frame would get half the bits and text would blur in motion.
+    /// Auto and Smooth Motion's bitrate ceiling follows the encoded pixels
+    /// and the frame rate (``adaptiveBitrate(width:height:frameRate:)``): a
+    /// full Retina display gets 16 Mbps at 60 fps and 24 at 120, a small
+    /// picture less (1280×800 at 60: about 11 Mbps). At a fixed ceiling a
+    /// faster stream would give every frame fewer bits and text would blur in motion.
     /// It is a ceiling, not a target: WebRTC's congestion control still sets
     /// the rate from the network, and a still screen sends next to nothing.
     /// Above 60 fps they also scale the picture down just enough to stay
@@ -140,10 +168,11 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
     func settings(sourceWidth: Int = 0, sourceHeight: Int, frameRate: Int = ScreenQuality.baselineFrameRate) -> Settings {
         func scale(to height: Int) -> Double { sourceHeight > height ? Double(sourceHeight) / Double(height) : 1 }
         let fps = min(max(frameRate, Self.baselineFrameRate), Self.maximumFrameRate)
-        let adaptiveBitrate = Self.adaptiveBitrateAtBaseline / Self.baselineFrameRate * fps
         let pixelRate = Double(sourceWidth) * Double(sourceHeight) * Double(fps)
         let fitEncoder = fps > Self.baselineFrameRate && pixelRate > Double(Self.maximumEncodedPixelRate)
             ? (pixelRate / Double(Self.maximumEncodedPixelRate)).squareRoot() : 1
+        let adaptiveBitrate = Self.adaptiveBitrate(width: Double(sourceWidth) / fitEncoder,
+                                                   height: Double(sourceHeight) / fitEncoder, frameRate: fps)
         switch self {
         case .auto: return Settings(degradation: .maintainResolution, maxBitrate: adaptiveBitrate, maxFramerate: fps, scaleDown: fitEncoder)
         case .smooth: return Settings(degradation: .maintainFramerate, maxBitrate: adaptiveBitrate, maxFramerate: fps, scaleDown: fitEncoder)

@@ -19,7 +19,11 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         )
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.title = model.step == .importData ? OnboardingStrings.importTitle : OnboardingStrings.computerUseTitle
+        window.title = switch model.step {
+        case .agents: OnboardingStrings.agentsTitle
+        case .importData: OnboardingStrings.importTitle
+        case .computerUse: OnboardingStrings.computerUseTitle
+        }
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.animationBehavior = Motion.panes.animatesMovement ? .alertPanel : .none
@@ -59,6 +63,10 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     public func closeWithCloseButton() {
         guard let window else { return }
         if let button = window.standardWindowButton(.closeButton) { button.performClick(nil) } else { window.performClose(nil) }
+    }
+
+    public func windowDidBecomeKey(_ notification: Notification) {
+        model.windowBecameKey()
     }
 
     public func windowWillClose(_ notification: Notification) {

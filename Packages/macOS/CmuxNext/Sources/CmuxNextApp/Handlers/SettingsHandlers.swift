@@ -52,6 +52,7 @@ enum SettingsHandlers {
         // The changelog page's provider exists from launch, so a What's New tab that the session
         // restores (or Reopen Closed brings back) shows its title and page (cx-warpr).
         ChangelogPageTab.register(context.services)
+        WebPageTab.registerGitHub(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
                             stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
@@ -80,6 +81,7 @@ enum SettingsHandlers {
         }
         SessionMoveFromBuild.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
+        LiveWebHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
 
         registry.bind("palette.restartSocketListener", run: { [weak services = context.services] _ in

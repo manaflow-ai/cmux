@@ -106,8 +106,11 @@ impl Mux {
     }
 
     /// Post what a program in `surface`'s terminal asked for with OSC 9,
-    /// OSC 777 or OSC 99, or an OSC 7501 record's alert. Called by the terminal's output reader after it
-    /// released the terminal lock; the reader already applied the rate limit.
+    /// OSC 777 or OSC 99, or an OSC 7501 record's alert. The terminal
+    /// publisher calls this for what an output reader queued
+    /// (`mux/terminal_publisher.rs`); the reader already applied the rate
+    /// limit. Adoption and a terminal's first view post a record's alerts
+    /// directly (`Surface::publish_pending_progress`).
     pub(crate) fn post_terminal_notifications(
         &self,
         surface: SurfaceId,

@@ -129,7 +129,16 @@ fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
         meta.remove("messageSender");
     }
     if conn.origin != Origin::Peer {
+        // A relay on this machine's unix socket (no proven session) keeps its relay record, read
+        // again so only well-formed relay fields go on as this daemon's word
+        // (`prompt_provenance::FROM_RELAY`); anything else a client wrote is dropped.
+        let relay = (conn.origin == Origin::Local && conn.caller().is_none())
+            .then(|| crate::prompt_provenance::relay_sender(p))
+            .flatten();
         crate::prompt_provenance::drop_sender_fields(p);
+        if let Some(relay) = relay {
+            crate::hub::merge_mux_meta(p, relay.mux_fields());
+        }
     }
     if conn.is_person() {
         return;
@@ -260,6 +269,18 @@ pub(super) async fn forward(
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
     let reply = forward_inner(hub, conn, m, params).await.transpose();
+    // A message this daemon handed to a peer's session is a cross-host send (`xhost_audit.rs`).
+    if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) && matches!(reply, Some(Ok(_)))
+    {
+        let mut fields = crate::xhost_audit::prompt_fields(params);
+        let peer = session_key(params)
+            .ok()
+            .and_then(|key| hub.resolve_remote(key))
+            .map(|r| r.0.name.clone());
+        fields.set("via", json!("peer"));
+        fields.set("toHost", json!(peer));
+        crate::xhost_audit::record("sent", fields);
+    }
     // A client waits on a peer that is down (a chat it opens): the peer reconnects within
     // seconds (`peer_wanted.rs`). A peer daemon's connection is no client waiting here. A
     // message for a session there, from any connection (a peer daemon's forward and this
@@ -547,7 +568,13 @@ async fn forward_inner(
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
-        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        super::remote_guard::mark_forwarded_with_person(
+            conn.origin,
+            conn.auth,
+            params,
+            &mut p,
+            conn.is_person(),
+        );
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
         if held

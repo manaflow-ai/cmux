@@ -28,8 +28,9 @@ import os
 /// - Geometry follows the latest active client (`TerminalAttachMachine`):
 ///   a visible view claims on each settled resize and, after another client
 ///   sized the terminal, on its next key press or focus.
-/// - Grid reports go through `ResizeCoordinator` and reach the daemon the
-///   next frame, one grid in flight per terminal (a drag reflows live).
+/// - Grid reports go through `ResizeCoordinator`: one the view reports on the
+///   main actor reaches the daemon in the report's turn (its view already
+///   coalesced it, T-KEYS 4), one grid in flight per terminal (a drag reflows live).
 /// - A dropped stream or failed attach leaves the view disconnected (last
 ///   screen and a status label). A visible view re-attaches by itself after
 ///   a capped backoff (500 ms doubling to 30 s, cx-wwtam) until an attach works, offering Retry
@@ -53,7 +54,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     private let probeSurface: UInt64
     /// The burst bench's grid echo and first-output marks (nil: none; a Release build compiles them out).
     private let burstTrace: BurstTrace?
-    /// The app's grid sender (`AppServices.resizes`): next frame, one in flight, a final grid now.
+    /// The app's grid sender (`AppServices.resizes`): a view's grid now, one in flight.
     private let resizes: ResizeCoordinator
     /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
     var creatingTerminalID: String? { creatingInput?.terminalID }
@@ -190,16 +191,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     // MARK: App control
 
-    /// Takes the view's grid in the caller's turn (`TerminalIO.resizeOnMain`): a final grid goes now
-    /// (`ResizeCoordinator.submitFinal`), any other the next frame.
-    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool {
+    /// Takes the view's grid in the caller's turn (`TerminalIO.resizeOnMain`) and sends it now
+    /// (`ResizeCoordinator.submitNow`): the view's `TerminalGridReporter` already let at most one grid
+    /// per display refresh go, and a second wait for the coordinator's next frame added one refresh to every
+    /// grid of a key resize (T-KEYS 4). The echo rule and a full screen transition's hold still apply.
+    @MainActor func resizeOnMain(cols: Int, rows: Int, window: NSWindow?) -> Bool {
         guard cols > 0, rows > 0 else { return true }
-        let size = CellSize(cols: cols, rows: rows)
-        if final {
-            resizes.submitFinal(self, size: size, window: window)
-        } else {
-            resizes.submit(self, size: size, window: window)
-        }
+        resizes.submitNow(self, size: CellSize(cols: cols, rows: rows), window: window)
         return true
     }
 

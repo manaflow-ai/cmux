@@ -283,6 +283,10 @@ impl Hub {
             // A lane's report to a parent whose close has begun: refused, never reopening it
             // (`lane_reports.rs`). Nothing is awaited from this check to the commit below.
             None if refuses_closing(&p) && closing(session) => return Err(Err(closing_error())),
+            // Nor once a shutdown began: no agent may start from then on (`shutdown.rs`).
+            None if refuses_closing(&p) && self.shutting_down() => {
+                return Err(Err(super::shutdown::shutting_down_error()));
+            }
             None => {
                 // A Cloud turn is prepared and captured before the prompt arrives. Reuse its
                 // immutable id so the platform fence covers exactly the turn that runs.
@@ -722,7 +726,7 @@ impl Hub {
                 prompt_id: p.prompt_id.to_owned(),
                 turn_id: turn_id.to_owned(),
                 client: p.client.to_owned(),
-                preview: short_text(p.text, 200),
+                preview: short_text(super::inbox::relay_body(p.text), 200),
                 queued_at: now_ms(),
                 withdraw: withdraw.clone(),
                 run: Arc::new(PromptRun {
@@ -1188,8 +1192,11 @@ impl Hub {
                 "promptId": prompt_id,
                 "turnId": turn_id,
                 "prompt": blocks,
-                // Checked again: the folder's trust may have changed across the restart.
-                "trustGate": true,
+                // Gated as it came: a prompt from the CLI's unix socket never was, so a restart
+                // does not hold it on a trust question nobody asked (cmux#37231). The gated ones
+                // are checked again, since the folder's trust may have changed across the
+                // restart, as is one from a log from before `user_message` recorded its gate.
+                "trustGate": e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true),
                 "restored": "unstarted",
             });
             for k in ["control", "cloudMobile", "images", "inlineParts", "pasted", "_meta"] {
@@ -1496,7 +1503,7 @@ impl Hub {
                 prompt_id: prompt_id.clone(),
                 turn_id,
                 client: field("client"),
-                preview: short_text(&text, 200),
+                preview: short_text(super::inbox::relay_body(&text), 200),
                 queued_at: e.at,
                 withdraw: Arc::new(Notify::new()),
                 run: Arc::new(approved_rules(
@@ -1663,7 +1670,7 @@ fn refuses_closing(p: &Slot<'_>) -> bool {
     is_lane_report(p.provenance)
 }
 
-fn is_lane_report(provenance: Option<&Value>) -> bool {
+pub(super) fn is_lane_report(provenance: Option<&Value>) -> bool {
     provenance.and_then(|v| v.get("kind")).and_then(Value::as_str)
         == Some(super::lane_reports::KIND)
 }

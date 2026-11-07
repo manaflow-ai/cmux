@@ -47,7 +47,7 @@ struct SpareNewTabChatOpensTabsTests {
         tabs.firstPageNewTab = { _, _ in (AgentPaneNewTab(kind: .agent), Self.handler { opened.append($0) }) }
         tabs.blankChatHandler = { _ in Self.handler { opened.append($0) } }
         let spare = try #require(tabs.makeSpare(AgentPaneNewTab(kind: .agent)))
-        tabs.takeSpare = { spare }
+        tabs.takeSpare = { _ in spare }
         let key = try #require(store.tab(surface: 1)?.id)
 
         // The New Tab page made for the tab adopts the prewarmed spare (cx-ec99).

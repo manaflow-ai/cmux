@@ -8,22 +8,13 @@ import os
 /// row (CustomRows.swift, `.fullWidth`) like the Mermaid bubbles (``HomeDiagramRowProvider``).
 /// `HomeMapping.parts` cuts an agent's text at its tables (``HomeTableSplitter``): an assignment
 /// table becomes a plan card (``HomePlanRowProvider``), any other a table card with real column
-/// widths. Copy and VoiceOver read the table's Markdown as written. Debug Settings > Home > Rich
-/// tables off (``isOn``) maps tables as text again, in the bubble.
+/// widths. Copy and VoiceOver read the table's Markdown as written.
 final class HomeTableRowProvider: TranscriptCustomRowProvider {
     static let kind = "cmux.table"
 
     struct Payload: Codable, Hashable {
         var raw: String
         var table: HomeTable
-    }
-
-    // Lock carve-out: the mapping reads it on the loader queue and the main thread; a Bool.
-    private static let enabled = OSAllocatedUnfairLock(initialState: true)
-    /// Tables draw as cards (the host's Debug Settings value; default on).
-    static var isOn: Bool {
-        get { enabled.withLock { $0 } }
-        set { enabled.withLock { $0 = newValue } }
     }
 
     /// The registered provider (nil: tables stay text).
@@ -44,6 +35,7 @@ final class HomeTableRowProvider: TranscriptCustomRowProvider {
         }
         // A picture's file arriving later is a new version of the card (it draws the thumbnail then).
         let pictures = (table.pictures ?? [:]).sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\u{1}")
+            + (table.loading ?? [:]).keys.sorted().map { "\u{2}" + $0 }.joined()
         guard let custom = try? CustomPart(kind: kind, version: HomeDiagramRowProvider.version(raw + "\u{0}" + pictures),
                                            value: Payload(raw: raw, table: table))
         else { return nil }
@@ -51,6 +43,14 @@ final class HomeTableRowProvider: TranscriptCustomRowProvider {
     }
 
     static func payload(_ part: CustomPart) -> Payload? { part.decode(Payload.self) }
+
+    /// The source of the loaded picture at `point` (in the card's body, top-left origin) of a card `width`
+    /// wide; nil off a picture or on one still loading.
+    static func picture(_ part: CustomPart, at point: CGPoint, width: CGFloat) -> String? {
+        guard let payload = payload(part) else { return nil }
+        return HomeTableGrid(payload.table, available: width).pictureRects(at: .zero)
+            .first { !$0.loading && $0.rect.insetBy(dx: -2, dy: -2).contains(point) }?.source
+    }
 
     // MARK: TranscriptCustomRowProvider
 
@@ -78,8 +78,11 @@ final class HomeTableRowProvider: TranscriptCustomRowProvider {
         let cells = payload.table.rows.flatMap { $0 }.map { HomeTableCell(markdown: $0) }
         let links = cells.flatMap(\.links)
         // A picture opens full size (its file, in the app's viewer).
-        let pictures = cells.flatMap(\.images).compactMap { image in
-            payload.table.pictures?[image.source].map { (CmuxStrings.tableOpenPicture(image.alt), URL(fileURLWithPath: $0)) }
+        let pictures = cells.flatMap(\.images).compactMap { image -> (String, URL)? in
+            guard let thumbnail = payload.table.pictures?[image.source] else { return nil }
+            // A path or web picture opens its original; an attachment its picture file.
+            let original = HomeTablePictures.original(image.source) ?? URL(fileURLWithPath: thumbnail)
+            return (CmuxStrings.tableOpenPicture(image.alt), original)
         }
         let items = pictures + links.map { (HomeCardLinks.title($0), $0) }
         guard !items.isEmpty else { return false }
@@ -105,20 +108,54 @@ struct HomeTableGrid {
     let widths: [CGFloat]
     let heights: [CGFloat]
     let cells: [[NSAttributedString]]
+    /// A picture in a cell: its thumbnail, or a skeleton of its size while it loads.
+    struct Slot {
+        var source: String
+        /// The thumbnail; nil while it loads (a skeleton draws).
+        var image: CGImage?
+        /// The picture's pixel size (the thumbnail's, or the loading original's; ``skeletonPixels`` when unknown).
+        var pixels: CGSize
+        var loading: Bool { image == nil }
+    }
+
+    /// Where a cell's picture draws in the card, for clicks and the shimmer.
+    struct PictureRect: Equatable {
+        var source: String
+        var rect: CGRect
+        var loading: Bool
+    }
+
+    /// A loading picture of unknown size (a web picture) holds a 16:10 skeleton.
+    static let skeletonPixels = CGSize(width: 1280, height: 800)
+
     /// Each cell's pictures (rows as `cells`), drawn over its text.
-    let pictures: [[[CGImage]]]
+    let slots: [[[Slot]]]
+    /// Each cell's thumbnails (rows as `cells`).
+    var pictures: [[[CGImage]]] { slots.map { $0.map { $0.compactMap(\.image) } } }
     let alignments: [HomeTable.Alignment]
     let cardWidth: CGFloat
-    var height: CGFloat { heights.reduce(0, +) + 2 * Self.pad }
+    /// The table's first header cell is empty (a matrix: row labels down the first column, names across the top).
+    let hasEmptyCorner: Bool
+    /// The large-pairs layout of a Before|After table (``HomeCompareLayout``); nil for a grid.
+    let compare: HomeCompareLayout?
+    var height: CGFloat { compare?.height ?? heights.reduce(0, +) + 2 * Self.pad }
 
-    init(_ table: HomeTable, available: CGFloat) {
+    /// How a table card lays out a comparison table (``HomeCompareLayout/matches(_:)``).
+    enum Style: Sendable {
+        /// Large pairs, the default.
+        case pairs
+        /// The plain grid, one thumbnail per cell.
+        case grid
+    }
+
+    init(_ table: HomeTable, available: CGFloat, style: Style = .pairs) {
         let parsed = ([table.header] + table.rows).map { $0.map { HomeTableCell(markdown: $0) } }
         // A picture with a file draws as a thumbnail; one without (not loaded yet, or not allowed) shows its alt text.
-        let pictures = parsed.map { $0.map { cell in cell.images.compactMap { Self.picture($0, in: table) } } }
+        let pictures = parsed.map { $0.map { cell in cell.images.compactMap { Self.slot($0, in: table) } } }
         let all = parsed.enumerated().map { r, row in
             row.map { cell in
                 var cell = cell
-                let missing = cell.images.filter { Self.picture($0, in: table) == nil }.map { "[\($0.alt.isEmpty ? "image" : $0.alt)]" }
+                let missing = cell.images.filter { Self.slot($0, in: table) == nil }.map { "[\($0.alt.isEmpty ? "image" : $0.alt)]" }
                 if !missing.isEmpty { cell.text = ([cell.text] + missing).filter { !$0.isEmpty }.joined(separator: " ") }
                 return Self.attributed(cell, header: r == 0)
             }
@@ -131,23 +168,35 @@ struct HomeTableGrid {
         let room = max(1, available - 2 * Self.pad)
         let widths = HomeTableColumns.widths(natural: natural.map { $0.rounded(.up) }, available: room)
         self.widths = widths
-        heights = zip(all, pictures).map { (row: [NSAttributedString], images: [[CGImage]]) -> CGFloat in
+        heights = zip(all, pictures).map { (row: [NSAttributedString], images: [[Slot]]) -> CGFloat in
             var tallest: CGFloat = 0
             for (c, (text, width)) in zip(row, widths).enumerated() {
                 let inner = width - 2 * Self.cellPadX
-                let shots = (images[checked: c] ?? []).reduce(CGFloat(0)) { $0 + Self.pictureSize($1, width: inner).height + Self.cellPadY }
+                let shots = (images[checked: c] ?? []).reduce(CGFloat(0)) { $0 + Self.pictureSize(pixels: $1.pixels, width: inner).height + Self.cellPadY }
                 let words = text.length > 0 ? Self.textHeight(text, width: inner) : 0
                 tallest = max(tallest, shots + words, Self.textHeight(text, width: inner))
             }
             return tallest + 2 * Self.cellPadY
         }
         cells = all
-        self.pictures = pictures
+        slots = pictures
         alignments = table.alignments
-        cardWidth = min(available, widths.reduce(0, +) + 2 * Self.pad)
+        hasEmptyCorner = table.columns > 1 && table.header[0].trimmingCharacters(in: .whitespaces).isEmpty
+        compare = style == .pairs ? HomeCompareLayout(table, slots: pictures, available: available) : nil
+        cardWidth = compare?.width ?? min(available, widths.reduce(0, +) + 2 * Self.pad)
+    }
+
+    /// Where the rule under row `r` starts and ends (x) in a card drawn at `origin`. The header's rule leaves an
+    /// empty corner cell blank, so it does not cross the row labels' column (the user, 2026-11-05: "top left has
+    /// itnersect").
+    func ruleSpan(below r: Int, at origin: CGPoint) -> ClosedRange<CGFloat> {
+        let start = origin.x + Self.pad + (r == 0 && hasEmptyCorner ? (widths.first ?? 0) : 0)
+        let end = origin.x + cardWidth - Self.pad
+        return min(start, end)...end
     }
 
     func draw(_ ctx: CGContext, at origin: CGPoint) {
+        if let compare { compare.draw(ctx, at: origin); return }
         let card = CGRect(x: origin.x, y: origin.y, width: cardWidth, height: height)
         HomeCardDraw.background(ctx, card)
         // Columns at their 56 pt floor can be wider than a very narrow chat: they stop at the card.
@@ -159,9 +208,10 @@ struct HomeTableGrid {
             var x = card.minX + Self.pad
             for (c, (text, width)) in zip(row, widths).enumerated() {
                 var frame = CGRect(x: x + Self.cellPadX, y: y + Self.cellPadY, width: width - 2 * Self.cellPadX, height: rowHeight - 2 * Self.cellPadY)
-                for image in pictures[checked: r]?[checked: c] ?? [] {
-                    let size = Self.pictureSize(image, width: frame.width)
-                    HomeCardDraw.picture(ctx, image, in: CGRect(x: frame.minX, y: frame.minY, width: size.width, height: size.height))
+                for slot in slots[checked: r]?[checked: c] ?? [] {
+                    let size = Self.pictureSize(pixels: slot.pixels, width: frame.width)
+                    let rect = CGRect(x: frame.minX, y: frame.minY, width: size.width, height: size.height)
+                    if let image = slot.image { HomeCardDraw.picture(ctx, image, in: rect) } else { HomeCardDraw.skeleton(ctx, rect) }
                     frame.origin.y += size.height + Self.cellPadY
                     frame.size.height -= size.height + Self.cellPadY
                 }
@@ -170,24 +220,68 @@ struct HomeTableGrid {
             }
             y += rowHeight
             if r < cells.count - 1 {
-                HomeCardDraw.hairline(ctx, from: CGPoint(x: card.minX + Self.pad, y: y), to: CGPoint(x: card.maxX - Self.pad, y: y), strong: r == 0)
+                let span = ruleSpan(below: r, at: origin)
+                HomeCardDraw.hairline(ctx, from: CGPoint(x: span.lowerBound, y: y), to: CGPoint(x: span.upperBound, y: y), strong: r == 0)
             }
         }
     }
 
-    /// The picture `image` names, from the table's resolved files; nil when it has none.
-    static func picture(_ image: HomeTableCell.Image, in table: HomeTable) -> CGImage? {
-        guard let path = table.pictures?[image.source] else { return nil }
-        return HomeMarkdownPolicy.images.markdownImage(source: URL(fileURLWithPath: path).absoluteString, alt: image.alt)
+    /// Each picture's frame in a card drawn at `origin` (as ``draw(_:at:)`` places it), with its source and
+    /// whether it is still loading: the click finds its picture, the skeleton's shimmer its place.
+    func pictureRects(at origin: CGPoint) -> [PictureRect] {
+        if let compare { return compare.pictureRects(at: origin) }
+        var out: [PictureRect] = []
+        var y = origin.y + Self.pad
+        for (r, rowHeight) in heights.enumerated() {
+            var x = origin.x + Self.pad
+            for (c, width) in widths.enumerated() {
+                var top = y + Self.cellPadY
+                for slot in slots[checked: r]?[checked: c] ?? [] {
+                    let size = Self.pictureSize(pixels: slot.pixels, width: width - 2 * Self.cellPadX)
+                    out.append(PictureRect(source: slot.source, rect: CGRect(x: x + Self.cellPadX, y: top, width: size.width, height: size.height),
+                                      loading: slot.loading))
+                    top += size.height + Self.cellPadY
+                }
+                x += width
+            }
+            y += rowHeight
+        }
+        return out
+    }
+
+    /// The picture `image` names: its thumbnail from the table's resolved files, or a skeleton while it loads;
+    /// nil when it has neither (its alt text shows).
+    static func slot(_ image: HomeTableCell.Image, in table: HomeTable) -> Slot? {
+        if let path = table.pictures?[image.source],
+           let picture = HomeMarkdownPolicy.images.markdownImage(source: URL(fileURLWithPath: path).absoluteString, alt: image.alt) {
+            return Slot(source: image.source, image: picture, pixels: CGSize(width: picture.width, height: picture.height))
+        }
+        guard let size = table.loading?[image.source] else { return nil }
+        let pixels = size.count == 2 && size[0] > 0 && size[1] > 0 ? CGSize(width: size[0], height: size[1]) : skeletonPixels
+        return Slot(source: image.source, image: nil, pixels: pixels)
+    }
+
+    /// A thumbnail's pixels for an original of `pixels`: at most ``HomeTablePictures/maxPixel`` on its long side,
+    /// as ``HomeTablePictures`` makes it, so a skeleton is exactly as large as the thumbnail that replaces it.
+    static func thumbnailPixels(_ pixels: CGSize) -> CGSize {
+        let long = max(pixels.width, pixels.height), cap = CGFloat(HomeTablePictures.maxPixel)
+        guard long > cap else { return pixels }
+        return CGSize(width: (pixels.width * cap / long).rounded(), height: (pixels.height * cap / long).rounded())
+    }
+
+    /// ``pictureSize(_:width:)`` for a picture of `pixels` (its thumbnail's size).
+    static func pictureSize(pixels: CGSize, width: CGFloat) -> CGSize {
+        let thumb = thumbnailPixels(pixels)
+        let w = thumb.width / 2, h = thumb.height / 2
+        guard w > 0, h > 0 else { return .zero }
+        let scale = min(1, max(1, width) / w, pictureMaxHeight / h)
+        return CGSize(width: (w * scale).rounded(), height: (h * scale).rounded())
     }
 
     /// A thumbnail's size: the picture's aspect, at most `width` wide and ``pictureMaxHeight`` tall,
     /// never larger than its own points (a 2x screenshot at half its pixels).
     static func pictureSize(_ image: CGImage, width: CGFloat) -> CGSize {
-        let w = CGFloat(image.width) / 2, h = CGFloat(image.height) / 2
-        guard w > 0, h > 0 else { return .zero }
-        let scale = min(1, max(1, width) / w, pictureMaxHeight / h)
-        return CGSize(width: (w * scale).rounded(), height: (h * scale).rounded())
+        pictureSize(pixels: CGSize(width: image.width, height: image.height), width: width)
     }
 
     static func attributed(_ cell: HomeTableCell, header: Bool) -> NSAttributedString {
@@ -371,6 +465,20 @@ enum HomeCardDraw {
         ctx.strokePath()
         ctx.restoreGState()
     }
+
+    /// A loading picture's place: a soft rounded block of its size (the row bitmap's still frame; Home lays a
+    /// shimmer over it while it loads, ``HomeTableShimmer``).
+    static func skeleton(_ ctx: CGContext, _ rect: CGRect) {
+        guard rect.width > 0, rect.height > 0 else { return }
+        ctx.saveGState()
+        ctx.addPath(CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil))
+        ctx.setFillColor(skeletonFill)
+        ctx.fillPath()
+        ctx.restoreGState()
+    }
+
+    /// The skeleton's fill: the secondary text colour, faint, so it reads on the light and dark cards alike.
+    static var skeletonFill: CGColor { Fixture.secondaryText.withAlphaComponent(0.14).cgColor }
 
     /// `image` in `rect` (y down), with rounded corners and a hairline edge.
     static func picture(_ ctx: CGContext, _ image: CGImage, in rect: CGRect) {

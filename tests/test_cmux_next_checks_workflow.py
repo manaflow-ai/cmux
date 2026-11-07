@@ -572,11 +572,13 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("needs.path_route.outputs.scheme == 'true'", jobs["cmux-scheme-compile"]["if"])
         # A same-repository PR runs its routed tiers; full-ci is what a fork PR needs
         # (SameRepositoryPullRequestsRunTheirTiers evaluates the conditions).
-        for job_id in ("swift-canary", "swift-test", "generated-files", "daemon-test"):
+        for job_id in ("swift-canary", "generated-files", "daemon-test"):
             self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || "
                           "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs[job_id]["if"], job_id)
-        # The two heavy app compiles are back behind full-ci on every PR (HeavyMacCompilesBehindFullCi).
-        for job_id in HEAVY_COMPILES:
+        # The two heavy app compiles and swift-test are behind full-ci on every PR
+        # (HeavyMacCompilesBehindFullCi; swift-test since 2026-11-05: on every PR push it was
+        # cancelled or skipped and never passed, and the tip suite dispatch gives the base verdict).
+        for job_id in HEAVY_COMPILES + ("swift-test",):
             self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
                           jobs[job_id]["if"], job_id)
             self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository || ", jobs[job_id]["if"], job_id)
@@ -1885,6 +1887,52 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
             self.assertIn(needle, pool)
 
 
+class GuiJobsStartFromTheSeed(unittest.TestCase):
+    """swift-test, daemon-test and generated-files off the owned Macs start from the fast-tier seed.
+
+    Leo, 2026-11-05: "If a hot swapped build works (copied versions of a certain version) / Then you
+    can skip compile skip build you only need the tests". A daemon-only change leaves every Swift
+    input as the base had it, so with the base's seeded build and its input times nothing compiles.
+    """
+
+    JOBS = ("swift-test", "daemon-test", "generated-files")
+
+    def steps(self, job: str) -> list[dict]:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][job]["steps"]
+
+    def test_restores_the_seed_publicly_and_replays_its_times_before_the_build(self):
+        for job in self.JOBS:
+            with self.subTest(job=job):
+                steps = self.steps(job)
+                names = [s.get("name") for s in steps]
+                key = index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))
+                restore = index_of(steps, lambda s: is_cache_restore(s) and s["with"]["path"] == FAST_CACHE_DIRS["swift"])
+                replay = index_of(steps, lambda s: "e2e_warm_derived_data.py replay" in s.get("run", ""))
+                build = index_of(steps, lambda s: s.get("name") == "Build package and tests")
+                link = index_of(steps, lambda s: "owned_spm_scratch.py link" in s.get("run", ""))
+                self.assertLess(link, key, names)
+                self.assertLess(key, restore, names)
+                self.assertLess(restore, replay, names)
+                self.assertLess(replay, build, names)
+                key_id, restore_id = steps[key]["id"], steps[restore]["id"]
+                self.assertIn("!contains(runner.name, '-glaeda')", steps[key]["if"], "owned Macs keep their own build")
+                if REUSE_GUARD in steps[link].get("if", ""):
+                    self.assertIn(REUSE_GUARD, steps[key]["if"])
+                cache = steps[restore]
+                self.assertEqual(cache["with"]["backend"], "r2")
+                self.assertEqual(cache.get("env", {}).get("CI_CACHE_R2_PUBLIC_URL"), NEXT_PUBLIC_URL)
+                self.assertEqual(cache["with"]["key"], "${{ steps.%s.outputs.swift-key }}" % key_id)
+                self.assertEqual(cache["with"]["restore-keys"], "${{ steps.%s.outputs.swift-prefix }}" % key_id)
+                self.assertIn("steps.%s.outputs.cache-matched-key != ''" % restore_id, steps[replay]["if"])
+                self.assertIn(FAST_CACHE_MANIFEST, steps[replay]["run"])
+                run = steps[replay]["run"]
+                self.assertLess(run.index("owned_spm_scratch.py drop-bundles " + FAST_CACHE_DIRS["swift"]),
+                                run.index("e2e_warm_derived_data.py replay"), "a seed's stale catalogs go first")
+                for step in (steps[key], cache, steps[replay]):
+                    self.assertIs(step.get("continue-on-error"), True, "a miss builds as before")
+                self.assertEqual([s.get("name") for s in steps if is_cache_save(s)], [], "a job never saves a build")
+
+
 class FastTierStartsWarm(unittest.TestCase):
     """The fast tier restores the build a feat-cmux-next push seeded into NEXT's own R2 bucket.
 
@@ -2700,6 +2748,8 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
             "vars.CI_PR_POOL_OWNED": "1",
             "needs.push-head-preflight.outputs.current": "true",
             "needs.web-bundles.result": "success",
+            # The router ran: web-bundles checks its result (a re-run skips portable-placement before it).
+            "needs.path_route.result": "success",
             "needs.path_route.outputs.tree_state": "ready",
             "needs.app-compile-fleet.outputs.verdict": "pass",
             "needs.release-compile-fast.result": "skipped",
@@ -2721,9 +2771,9 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         return {name for name in self.TIER_JOBS + ("macos-placement", "checks") if evaluate(jobs[name]["if"], context)}
 
     def test_a_same_repository_pr_runs_every_routed_tier_without_a_label(self):
-        # Except the two heavy app compiles, which need full-ci (HeavyMacCompilesBehindFullCi).
+        # Except the two heavy app compiles and swift-test, which need full-ci (HeavyMacCompilesBehindFullCi).
         self.assertEqual(self.running(self.context()),
-                         set(self.TIER_JOBS) - set(HEAVY_COMPILES) | {"macos-placement", "checks"})
+                         set(self.TIER_JOBS) - set(HEAVY_COMPILES) - {"swift-test"} | {"macos-placement", "checks"})
         self.assertEqual(self.running(self.context(labels=("full-ci",))),
                          set(self.TIER_JOBS) | {"macos-placement", "checks"})
 
@@ -2793,7 +2843,7 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         place = next(step for step in self.jobs()["macos-placement"]["steps"] if step.get("id") == "place")
         expression = place["env"]["CASCADE_RUNS"]
         self.assertEqual(set(evaluate(expression, self.context()).split()),
-                         {"fast-tier", "swift-canary", "swift-test", "daemon-test"})
+                         {"fast-tier", "swift-canary", "daemon-test"})
         self.assertEqual(set(evaluate(expression, self.context(labels=("full-ci",))).split()),
                          {"fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile", "swift-test", "daemon-test"})
         generated = self.context()

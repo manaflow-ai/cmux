@@ -6,8 +6,8 @@ One small server that speaks the two wire formats the harnesses use:
     with ANTHROPIC_BASE_URL=http://127.0.0.1:PORT;
   - OpenAI Responses (POST /v1/responses, streamed or not), for Codex with a model provider whose base_url is
     http://127.0.0.1:PORT/v1.
-GET /v1/models answers both shapes. Standard library only, Python 3.9+, so it runs on a runner, a Cloud machine
-or a Mac as it is.
+GET /v1/models answers both shapes, plus Codex's {"models": [...]}. Standard library only, Python 3.9+, so it runs
+on a runner, a Cloud machine or a Mac as it is.
 
 A script says what the model does. It is JSON: {"version": 1, "steps": [...]}. A request's step is the number of
 tool results already in its conversation, so the reply never depends on server state, and a retried request gets
@@ -279,7 +279,9 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
             stub.log({"protocol": "-", "method": "GET", "path": path, "cred_sha256": credential_sha256(self.headers)})
             if path.endswith("/models"):
                 model = {"id": "stub-model", "object": "model", "type": "model", "display_name": "Model stub", "created": 0, "owned_by": "stub"}
-                return self._json(200, {"object": "list", "data": [model], "has_more": False, "first_id": "stub-model", "last_id": "stub-model"})
+                # "data" is the Anthropic and OpenAI list; "models" is Codex's (empty: it keeps its fallback model metadata).
+                return self._json(200, {"object": "list", "data": [model], "has_more": False, "first_id": "stub-model", "last_id": "stub-model",
+                                        "models": []})
             return self._json(200, {})
 
         def do_POST(self) -> None:

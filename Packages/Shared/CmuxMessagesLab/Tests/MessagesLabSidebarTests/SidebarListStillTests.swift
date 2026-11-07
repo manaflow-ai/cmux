@@ -24,11 +24,9 @@ struct SidebarListStillTests {
                 let id = i == 0 ? "chief" : "c\(i)"
                 return CmuxSidebarEntry(id: id, title: name, people: [.init(id: "p\(i)", name: name, initials: String(name.prefix(2)).uppercased())],
                                         preview: "message \(i)", previewSender: nil, lastAt: now.addingTimeInterval(-Double(i) * 60),
-                                        unreadCount: 0, pinned: i == 0, avatar: .monogram(String(name.prefix(2)).uppercased()),
-                                        avatarMotion: i < 3 ? .idle : nil)
+                                        unreadCount: 0, pinned: i == 0, avatar: .monogram(String(name.prefix(2)).uppercased()))
             }
             window.contentView = view
-            controller.avatarMotion.onScreenPin = true
             controller.setWindowActive(true)
             view.onPlacePinned = { [unowned self] id, index in
                 pinned.removeAll { $0 == id }
@@ -81,11 +79,6 @@ struct SidebarListStillTests {
 
         // A new message moves a row to the top, with an unread badge and a typing bubble.
         f.change("c4") { $0.lastAt = f.now.addingTimeInterval(60); $0.unreadCount = 1; $0.typing = true }
-        seen += f.animations()
-        // A Chief's turn starts and ends (its avatar's state changes twice).
-        f.change("c1") { $0.avatarMotion = .thinking }
-        seen += f.animations()
-        f.change("c1") { $0.avatarMotion = .idle }
         seen += f.animations()
         // The typing stops and the row is read.
         f.change("c4") { $0.typing = false; $0.unreadCount = 0 }

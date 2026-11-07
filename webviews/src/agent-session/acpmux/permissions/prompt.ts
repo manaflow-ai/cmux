@@ -183,9 +183,10 @@ type KeyLike = Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "s
 };
 
 /// The card's keys, while it is the prompt waiting on the person: 1 allows once, 2 always allows,
-/// 3 denies, Return allows once and Esc denies (or closes the feedback field while it is open).
-/// They act only with nothing focused or with focus in the card itself: never while the composer,
-/// another field, a menu or a dialog has the keyboard, and a focused button keeps its own Return.
+/// 3 denies, Return and ⌘↩ allow once and Esc denies (or closes the feedback field while it is
+/// open). They act only with nothing focused or with focus in the card itself: never while the composer,
+/// another field, a menu or a dialog has the keyboard, and a focused button keeps its own Return
+/// (never ⌘↩, which no button takes).
 /// `card` is the card's element.
 export function permissionKeyAction(
   event: KeyLike,
@@ -193,7 +194,9 @@ export function permissionKeyAction(
   feedbackOpen: boolean,
 ): PermissionKeyAction | undefined {
   if (event.defaultPrevented || event.repeat) return undefined;
-  if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return undefined;
+  // ⌘↩ is the one modified key: Allow once, as Claude desktop's "Allow ⌘↩", on a focused button too.
+  const commandReturn = event.key === "Enter" && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+  if (!commandReturn && (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) return undefined;
   if (event.isComposing || event.keyCode === 229) return undefined;
   const target = event.target as Element | null;
   const element = typeof target?.closest === "function" ? target : null;
@@ -201,6 +204,7 @@ export function permissionKeyAction(
   const inCard = Boolean(element && card?.contains(element));
   const nowhere = !element || element === doc?.body || element === doc?.documentElement;
   if (!inCard && !nowhere) return undefined;
+  if (commandReturn) return feedbackOpen || element?.closest(OWNS_KEYS) ? undefined : "allow_once";
   if (event.key === "Escape") {
     if (feedbackOpen) return "closeFeedback";
     return element?.closest(OWNS_KEYS) ? undefined : "deny";

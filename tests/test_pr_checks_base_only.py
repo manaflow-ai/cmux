@@ -13,7 +13,7 @@ base, a head the branch has moved past, a cut history, or a previous run that
 was cancelled, held or never ran.
 
 None of the skipped jobs can fail a pull request, so a skipped one hides no
-verdict; pr-capture-check, which can, is not in this workflow.
+verdict; pr-capture-check, which can, is not in this workflow (pr-body-checks.yml).
 
 The step runs here as the workflow runs it, against a local origin, with `gh`
 replaced by a stub that answers the previous head's run.

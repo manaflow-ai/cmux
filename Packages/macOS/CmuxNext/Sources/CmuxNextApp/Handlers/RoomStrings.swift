@@ -67,7 +67,7 @@ enum RoomConfirmation {
     /// closes nothing and never asks. Nil runs without asking.
     @MainActor
     static func prompt(_ invocation: ActionInvocation, _ context: AppActionContext) async -> DestructiveConfirmation.Prompt? {
-        guard context.services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback,
+        guard context.services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault,
               let room = try? context.room(invocation), !room.isDefault,
               (try? context.optionalRoom(invocation["moveTo"])).flatMap({ $0 }) == nil else { return nil }
         let closing = closing(room.id, context)

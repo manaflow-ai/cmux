@@ -228,3 +228,38 @@ async fn a_message_the_persons_stop_sent_back_waits_for_the_person() {
     starts_the_next_turn(&hub, &id, &stopped, "m-1").await;
     let _ = std::fs::remove_file(step);
 }
+
+/// An unanswered personal steer needs a cancellation result, not an unread-message
+/// withdrawal handshake. It must not keep an agent executing after both interrupts.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_personal_steer_does_not_prevent_stop_recovery() {
+    let step = fifo();
+    let env = BTreeMap::from([
+        ("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned()),
+        ("FAKE_STEER_STEP".to_owned(), step.display().to_string()),
+    ]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "personal-steer-stop").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "works-through-cancel", Some("p-work"))).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "tool_call").await;
+    let mut personal = prompt(&id, "personal follow-up", Some("p-person"));
+    personal["_meta"]["acpmux"]["steer"] = json!(true);
+    let mut steering = connect(&hub).await;
+    let steer = steering.send(method::SESSION_PROMPT, personal).await;
+    c.wait_for(method::SESSION_UPDATE, |p| {
+        p["update"]["content"]["text"] == "steer: personal follow-up"
+    })
+    .await;
+    stop(&hub, &id).await;
+    forced_end(&mut c).await;
+    let (answer, _) = tokio::time::timeout(Duration::from_secs(10), steering.response(steer))
+        .await
+        .expect("the person's steer did not settle");
+    assert_eq!(answer.unwrap()["stopReason"], "cancelled");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while !hub.events(&id, 0, 1_000_000).unwrap().iter().any(|r| r.kind == "stop_restarted") {
+        assert!(tokio::time::Instant::now() < deadline, "the person's steer prevented recovery");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let _ = std::fs::remove_file(step);
+}

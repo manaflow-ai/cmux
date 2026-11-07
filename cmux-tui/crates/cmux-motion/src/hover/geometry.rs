@@ -190,7 +190,7 @@ pub enum HoverRowAlignment {
     #[default]
     Top,
     /// The card's top on the row's middle, below an escape slot beside the
-    /// row's upper half (Debug Settings: `sidebar.hoverCardEscapeSlot`).
+    /// row's upper half (the earlier layout; the sidebar uses `Top`).
     Middle,
 }
 

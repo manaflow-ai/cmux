@@ -47,9 +47,10 @@ public struct WindowZoom {
         guard let target = target(from: window.frame, standard: standard) else { return true }
         let generation = begin(to: target, standard: standard)
         let box = WindowZoomCompletion(window: window)
-        // Let AppKit coalesce content display with the frame's normal update instead of requesting
-        // synchronous content display during the resize.
-        Motion.panes.animateTimed(.move, in: window.contentView, { window.animator().setFrame(target, display: false) },
+        // Keep the content display synchronized with each animated frame. The
+        // asynchronous variant did not improve the same-harness pacing and
+        // could leave a late content update behind the window motion.
+        Motion.panes.animateTimed(.move, in: window.contentView, { window.animator().setFrame(target, display: true) },
                                   completion: { box.window?.windowZoomFinished(generation) })
         return true
     }

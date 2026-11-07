@@ -676,6 +676,8 @@ struct HandoffReviewScreen: View {
                     .autocorrectionDisabled()
                 Toggle("I saved the working changes, including the files I need to keep.", isOn: $attested)
                     .font(.callout)
+                    // Green when on, not the chat's neutral tint (a white track in Dark Mode).
+                    .toggleStyle(.cmuxMobileSwitch)
             } header: {
                 Text("Repository checkpoint")
             } footer: {

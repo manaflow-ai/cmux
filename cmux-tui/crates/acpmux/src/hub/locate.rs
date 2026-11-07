@@ -109,6 +109,11 @@ impl Hub {
             if link.is_some() || !names_hosts {
                 return Err(e);
             }
+            // A name in another case, a prefix or one without separators: the one session it
+            // names, as every other command finds it (`hub/key_route.rs`); several are refused.
+            if let Some(route) = self.key_route(query)?.filter(|route| route != query) {
+                return self.locate(&route, false, names_hosts);
+            }
             // The names it nearly matched, as `Hub::unknown_session` gives them: every name that
             // contains the query, any case (`session_name::candidates`), closed chats' included.
             let names = self.names_containing(&query.to_ascii_lowercase());
