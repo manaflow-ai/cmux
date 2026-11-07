@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "build": "4232007276401",
+  "notes": "notes/4232007276401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37272,
+      "title": "cmux NEXT bookmarks: Netscape codec, search and ranker in Rust (cmux-bookmarks-ops); routed bookmarks ops for the React page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37309,
+      "title": "hot-apply: acpmux is not the terminal daemon; the proof opens a workspace so a fresh copy starts one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37322,
+      "title": "cmux-layout-reducer: sidebar tree edits in Rust (sidebar_edits) over the app FFI, step A",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37333,
+      "title": "ci(base-red): excuse a step-A Rust change's stale app FFI pin",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35989,
+      "title": "fix(ci): the signing keychain guard knows the nightly-next signing route",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37199,
+      "title": "cmux-host: the bind brings the relay carrier route, kept as carrier.json; the session host registers on it and respawns when it changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37338,
+      "title": "cmux-vm: the image list says it keeps configured order",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37261,
+      "title": "perf(sidebar): drop rules as a handle per drag, a move crosses into Rust with numbers only (step A; no Swift change)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37320,
+      "title": "iOS Cloud chat start: cap new chats, wait the whole start, close a start the phone left",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37344,
+      "title": "fix(close): a page pane closes on the page's own background, not the window's",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37341,
+      "title": "fix(close): a docked pane's last-tab close stays under the pane that grows over it (strip/fixed coordinates in ClosingPanes)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37308,
+      "title": "Settings: opening at Machines lands on the Machines card, not the top of Accounts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37336,
+      "title": "acpmux: a refused sign-in end the fence stops frees its turn marker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37244,
+      "title": "acpmux: harness install claude|codex, on request only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37273,
+      "title": "cmux-next sidebar: the document mirror is always linked; delete CMUX_SIDEBAR_MIRROR_FFI and the no-mirror path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37293,
+      "title": "Cloud start-chat: a stage trace with each step's ms, for the 3 s start",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37271,
+      "title": "DEV sign-in: log why the launch credentials file signed nobody in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37329,
+      "title": "acpmux: a refused sign-in's end reads the agent generation before its turn marker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37267,
+      "title": "cmux next: folder and machine menus never cover their own button",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37328,
+      "title": "Cloud: a Cloud workspace is placed like any workspace, with no sidebar group per machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37327,
+      "title": "cloud start-chat --help: name new_machine in the answer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37325,
+      "title": "git seed: the kept push helper is the one the repository's own remote took, not a submodule's or LFS's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37270,
+      "title": "cmux NEXT Home: the Messages page and its conversation list in React",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37162,
+      "title": "Session Info: a small faint section grip at the right",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37297,
+      "title": "fix(close): the last tab of a workspace closes the workspace at once (one close kind at the close)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37282,
+      "title": "ci(nightly-next): retry each artifact upload a nightly needs once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37323,
+      "title": "acpmux: a CLI waits for acpmux.service while it stops, never starts a daemon in its own cgroup",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
