@@ -23,6 +23,7 @@
 //! matters.
 
 use crate::hash::Fnv;
+use crate::watch::sidecar;
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, OpenFlags};
 use std::collections::{BTreeMap, HashSet};
@@ -179,11 +180,7 @@ impl Snapshot {
             }
             Err(error) => return Err(io_reason("stat", &error)),
         }
-        let serial = SNAPSHOTS.fetch_add(1, Ordering::Relaxed);
-        let directory =
-            std::env::temp_dir().join(format!("cmux-cookie-sync-{}-{serial}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&directory);
-        create_private_dir(&directory).map_err(|e| io_reason("temp", &e))?;
+        let directory = fresh_private_dir().map_err(|e| io_reason("temp", &e))?;
         let snapshot = Self { directory };
         let copy = snapshot.database();
         match std::fs::copy(database, &copy) {
@@ -215,11 +212,37 @@ impl Drop for Snapshot {
     }
 }
 
-/// `path` with `suffix` appended to its file name (`Cookies-journal`).
-pub(crate) fn sidecar(path: &Path, suffix: &str) -> PathBuf {
-    let mut name = path.as_os_str().to_owned();
-    name.push(suffix);
-    PathBuf::from(name)
+/// A new directory of our own under the temporary directory: created, not
+/// found (a path someone else made first, maybe holding a symlink, is never
+/// used), mode 0700.
+fn fresh_private_dir() -> io::Result<PathBuf> {
+    let base = std::env::temp_dir();
+    let mut last = io::Error::from(io::ErrorKind::AlreadyExists);
+    for _ in 0..16 {
+        let serial = SNAPSHOTS.fetch_add(1, Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.subsec_nanos());
+        let directory =
+            base.join(format!("cmux-cookie-sync-{}-{serial}-{nanos:08x}", std::process::id()));
+        match create_new_private_dir(&directory) {
+            Ok(()) => return Ok(directory),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => last = error,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last)
+}
+
+#[cfg(unix)]
+fn create_new_private_dir(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new().mode(0o700).create(path)
+}
+
+#[cfg(not(unix))]
+fn create_new_private_dir(path: &Path) -> io::Result<()> {
+    std::fs::create_dir(path)
 }
 
 fn io_reason(step: &str, error: &io::Error) -> ScanError {
@@ -235,4 +258,25 @@ pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
 #[cfg(not(unix))]
 pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
     std::fs::create_dir_all(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fresh_private_dir;
+
+    #[test]
+    fn a_snapshot_directory_is_always_a_new_one() {
+        let first = fresh_private_dir().unwrap();
+        let second = fresh_private_dir().unwrap();
+        assert_ne!(first, second);
+        assert!(super::create_new_private_dir(&first).is_err(), "an existing path is refused");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&first).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o700);
+        }
+        std::fs::remove_dir(&first).unwrap();
+        std::fs::remove_dir(&second).unwrap();
+    }
 }

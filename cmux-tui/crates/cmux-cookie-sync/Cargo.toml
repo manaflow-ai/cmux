@@ -15,12 +15,18 @@ workspace = true
 rusqlite.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-# The Cookies file's directory, watched for the browser's commits (FSEvents on macOS).
-notify.workspace = true
 
 [target.'cfg(unix)'.dependencies]
-# The scan thread's CPU time (clock_gettime CLOCK_THREAD_CPUTIME_ID), reported with each scan.
+# The scan thread's CPU time (clock_gettime CLOCK_THREAD_CPUTIME_ID), reported
+# with each scan; on macOS also the kqueue file watch (src/watch.rs).
 libc.workspace = true
+
+# The file watch off macOS (inotify on Linux). Not on macOS: its FSEvents
+# backend needs CoreServices linked into every app target, and its kqueue
+# backend is a feature that would move every other cmux-tui crate's
+# recursive watches off FSEvents.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+notify.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

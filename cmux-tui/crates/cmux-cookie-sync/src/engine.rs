@@ -4,16 +4,14 @@
 
 use crate::baseline;
 use crate::diff::diff;
-use crate::fingerprint::{Fingerprint, Scan, ScanError, fingerprint, sidecar};
+use crate::fingerprint::{Fingerprint, Scan, ScanError, fingerprint};
 use crate::schedule::Scheduler;
-use notify::event::{EventKind, MetadataKind, ModifyKind};
-use notify::{RecursiveMode, Watcher};
+use crate::watch::{FileWatch, Stopper, Wake, refresh, sidecar, timeout};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -55,18 +53,21 @@ fn default_min_interval_ms() -> u64 {
 
 impl Config {
     /// The config in `bytes` (JSON); none unless the state directory and
-    /// every database are absolute paths and every id is non-empty and unique.
+    /// every database are absolute paths, every id is non-empty and unique,
+    /// and no two sources share a database.
     pub fn parse(bytes: &[u8]) -> Option<Self> {
         let config: Self = serde_json::from_slice(bytes).ok()?;
         let mut ids = BTreeSet::new();
+        let mut databases = BTreeSet::new();
         let valid = config.state_dir.is_absolute()
             && config.sources.iter().all(|source| {
                 !source.id.is_empty()
                     && ids.insert(source.id.as_str())
+                    && databases.insert(source.database.as_path())
                     && source.database.is_absolute()
                     && source.database.file_name().is_some()
             });
-        drop(ids);
+        drop((ids, databases));
         valid.then_some(config)
     }
 }
@@ -298,16 +299,11 @@ impl Core {
 /// Receives each report on the sync's thread.
 pub type Sink = Box<dyn FnMut(&Report) + Send>;
 
-enum Message {
-    File(notify::Result<notify::Event>),
-    Stop,
-}
-
 /// The running sync: one thread watching every source. Dropping it stops
 /// the thread and waits for it.
 pub struct CookieSync {
     core: Arc<Mutex<Core>>,
-    messages: Sender<Message>,
+    stopper: Stopper,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -316,13 +312,12 @@ impl CookieSync {
     /// then scans a source after its database changes.
     pub fn start(config: Config, sink: Sink) -> io::Result<Self> {
         let core = Arc::new(Mutex::new(Core::new(&config)));
-        let (messages, inbox) = mpsc::channel();
+        let (watch, stopper) = FileWatch::new()?;
         let thread_core = Arc::clone(&core);
-        let events = messages.clone();
         let thread = std::thread::Builder::new()
             .name("cmux-cookie-sync".to_owned())
-            .spawn(move || run(&config, &thread_core, &events, &inbox, sink))?;
-        Ok(Self { core, messages, thread: Some(thread) })
+            .spawn(move || run(&config, &thread_core, watch, sink))?;
+        Ok(Self { core, stopper, thread: Some(thread) })
     }
 
     /// See [`Core::commit`].
@@ -333,7 +328,7 @@ impl CookieSync {
 
 impl Drop for CookieSync {
     fn drop(&mut self) {
-        let _ = self.messages.send(Message::Stop);
+        self.stopper.stop();
         if let Some(thread) = self.thread.take()
             && thread.thread().id() != std::thread::current().id()
         {
@@ -346,8 +341,8 @@ fn lock(core: &Mutex<Core>) -> MutexGuard<'_, Core> {
     core.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Which file events belong to which source: a source's directory (as
-/// given and resolved; FSEvents reports resolved paths) and its database's
+/// Which changed file belongs to which source: the database's directory (as
+/// given and resolved, in case a watcher reports resolved paths) and its
 /// file names (`Cookies`, `Cookies-journal`, `Cookies-wal`; not `-shm`).
 struct Routes {
     sources: Vec<(BTreeSet<PathBuf>, BTreeSet<OsString>)>,
@@ -388,52 +383,33 @@ impl Routes {
     }
 }
 
-/// A write, create, rename or delete; not a read or an access-time touch
-/// (the scan's own read of the file must not schedule another scan).
-fn is_change(kind: &EventKind) -> bool {
-    match kind {
-        EventKind::Create(_) | EventKind::Remove(_) | EventKind::Any => true,
-        EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime)) => false,
-        EventKind::Modify(_) => true,
-        EventKind::Access(_) | EventKind::Other => false,
-    }
-}
-
-/// The thread: the launch check, then one scan per due source until `Stop`.
-/// It waits on its channel (file events, the stop) with no timer unless a
-/// scan is due.
-fn run(
-    config: &Config,
-    core: &Mutex<Core>,
-    events: &Sender<Message>,
-    inbox: &Receiver<Message>,
-    mut sink: Sink,
-) {
+/// The thread: the launch check, then one scan per due source until the
+/// stop. It blocks in one wait (a watched file's change, the stop) with no
+/// deadline unless a scan is due.
+///
+/// Each source's database is watched (and its `-wal` while it exists); a
+/// rollback journal comes and goes, but every commit writes the database.
+/// After a delete or rename the watch is made again on the path; a source
+/// that is `gone` or `failed` is no longer watched.
+fn run(config: &Config, core: &Mutex<Core>, mut watch: FileWatch, mut sink: Sink) {
     let started = Instant::now();
+    let sources = config.sources.len();
     let routes = Routes::new(&config.sources);
-    let events = events.clone();
-    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        let _ = events.send(Message::File(event));
-    })
-    .ok();
-    // directory -> the sources watched through it.
-    let mut watched: BTreeMap<PathBuf, BTreeSet<usize>> = BTreeMap::new();
-    for (index, source) in config.sources.iter().enumerate() {
-        if let Some(dir) = source.database.parent() {
-            watched.entry(dir.to_path_buf()).or_default().insert(index);
-        }
-    }
-    if let Some(watcher) = watcher.as_mut() {
-        for dir in watched.keys() {
-            let _ = watcher.watch(dir, RecursiveMode::NonRecursive);
-        }
+    let mut watched: Vec<BTreeSet<PathBuf>> = vec![BTreeSet::new(); sources];
+    for (source, files) in config.sources.iter().zip(watched.iter_mut()) {
+        refresh(&mut watch, files, &source.database, false);
     }
     let mut schedule = Scheduler::new(
-        config.sources.len(),
+        sources,
         Duration::from_millis(config.debounce_ms),
         Duration::from_millis(config.min_interval_ms),
     );
-    let mut scan = |index: usize, reason: Reason, schedule: &mut Scheduler| {
+    let mut rearm: BTreeSet<usize> = BTreeSet::new();
+    let mut scan = |index: usize,
+                    reason: Reason,
+                    schedule: &mut Scheduler,
+                    rearm: &mut BTreeSet<usize>,
+                    watch: &mut FileWatch| {
         let database = lock(core).database(index).map(Path::to_path_buf);
         let Some(database) = database else { return };
         let (outcome, cost) = measure(&database);
@@ -443,17 +419,13 @@ fn run(
             (report, core.database(index).is_some())
         };
         schedule.scanned(index, started.elapsed());
-        if !active {
-            schedule.remove(index);
-            if let Some(dir) = database.parent()
-                && let Some(sources) = watched.get_mut(dir)
-            {
-                sources.remove(&index);
-                if sources.is_empty() {
-                    watched.remove(dir);
-                    if let Some(watcher) = watcher.as_mut() {
-                        let _ = watcher.unwatch(dir);
-                    }
+        if let Some(files) = watched.get_mut(index) {
+            if active {
+                refresh(watch, files, &database, rearm.remove(&index));
+            } else {
+                schedule.remove(index);
+                for path in std::mem::take(files) {
+                    watch.unwatch(&path);
                 }
             }
         }
@@ -461,34 +433,32 @@ fn run(
             sink(&report);
         }
     };
-    for index in 0..config.sources.len() {
-        scan(index, Reason::Launch, &mut schedule);
+    for index in 0..sources {
+        scan(index, Reason::Launch, &mut schedule, &mut rearm, &mut watch);
     }
-    loop {
-        let message = match schedule.next_due() {
-            Some(at) => match inbox.recv_timeout(at.saturating_sub(started.elapsed())) {
-                Ok(message) => Some(message),
-                Err(RecvTimeoutError::Timeout) => None,
-                Err(RecvTimeoutError::Disconnected) => break,
-            },
-            None => match inbox.recv() {
-                Ok(message) => Some(message),
-                Err(_) => break,
-            },
-        };
-        match message {
-            Some(Message::Stop) => break,
-            Some(Message::File(Ok(event))) if is_change(&event.kind) => {
-                for path in &event.paths {
-                    for index in routes.matches(path) {
+    'wait: loop {
+        for wake in watch.wait(timeout(schedule.next_due(), started.elapsed())) {
+            match wake {
+                Wake::Stop => break 'wait,
+                Wake::Rescan => {
+                    for index in 0..sources {
                         schedule.event(index, started.elapsed());
                     }
                 }
+                Wake::Changed { paths, moved } => {
+                    for path in &paths {
+                        for index in routes.matches(path) {
+                            schedule.event(index, started.elapsed());
+                            if moved {
+                                rearm.insert(index);
+                            }
+                        }
+                    }
+                }
             }
-            Some(Message::File(_)) | None => {}
         }
         for index in schedule.due(started.elapsed()) {
-            scan(index, Reason::Watch, &mut schedule);
+            scan(index, Reason::Watch, &mut schedule, &mut rearm, &mut watch);
         }
     }
 }

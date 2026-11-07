@@ -16,7 +16,8 @@
 //! - [`diff`]: the domains that differ between two fingerprints;
 //! - [`baseline`]: the last imported fingerprint, saved per source;
 //! - [`schedule`]: the debounce and minimum interval, on an injected clock;
-//! - [`engine`]: what a scan reports, and the watching thread;
+//! - [`engine`]: what a scan reports, and the watching thread (`watch`:
+//!   kqueue on macOS, notify elsewhere);
 //! - [`ffi`]: the C ABI.
 
 pub mod baseline;
@@ -26,6 +27,7 @@ pub mod ffi;
 pub mod fingerprint;
 mod hash;
 pub mod schedule;
+mod watch;
 
 pub use diff::{Diff, diff};
 pub use engine::{Config, CookieSync, Core, Cost, Reason, Report, Source};
