@@ -37,12 +37,7 @@ import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { t } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
-import {
-  readRecipe,
-  readSetupReply,
-  type ResolvedWorktreeRecipe,
-  type WorktreeRecipe,
-} from "../../worktreeRecipe";
+import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
 import {
   errorCode,
   newIdempotencyKey,

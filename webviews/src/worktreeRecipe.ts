@@ -53,9 +53,22 @@ export type WorktreeSetupRun = {
   outputEnd: string;
 };
 
-export type WorktreeSetupRead = { root: string; mainRoot?: string; recipe?: ResolvedWorktreeRecipe; run: WorktreeSetupRun };
+export type WorktreeSetupRead = {
+  root: string;
+  mainRoot?: string;
+  recipe?: ResolvedWorktreeRecipe;
+  run: WorktreeSetupRun;
+};
 
-const STATES = new Set<WorktreeSetupState>(["none", "copying", "running", "succeeded", "failed", "timed_out", "interrupted"]);
+const STATES = new Set<WorktreeSetupState>([
+  "none",
+  "copying",
+  "running",
+  "succeeded",
+  "failed",
+  "timed_out",
+  "interrupted",
+]);
 
 /** True once nothing changes any more: reading again shows the same state. */
 export function isFinalSetupState(state: WorktreeSetupState): boolean {
