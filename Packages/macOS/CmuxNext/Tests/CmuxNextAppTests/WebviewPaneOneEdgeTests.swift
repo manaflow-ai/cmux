@@ -175,24 +175,28 @@ extension MainPaneGutterSuites {
         }
 
         @Test func theNewTabPageHasOneSurfaceEdge() throws {
-            let file = try Self.page("<html><body></body></html>")
-            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-            let model = AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent))
-            let newTab = try #require(AgentPaneView(model: model, source: .bundled(file)))
-            let rig = Rig(content: newTab)
-            defer { rig.tearDown() }
-            try expectOneEdge(rig, content: newTab, "New Tab")
+            try MainPaneGutterSuites.onCurvedMainPane {
+                let file = try Self.page("<html><body></body></html>")
+                defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+                let model = AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent))
+                let newTab = try #require(AgentPaneView(model: model, source: .bundled(file)))
+                let rig = Rig(content: newTab)
+                defer { rig.tearDown() }
+                try expectOneEdge(rig, content: newTab, "New Tab")
+            }
         }
 
         /// A first-party page pane (History, Settings, App Store, Activity) is a `PageWebView`.
         @Test func aPagePaneHasOneSurfaceEdge() throws {
-            let file = try Self.page("<html><body></body></html>")
-            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-            let descriptor = PageDescriptor(id: "test.one-edge", resource: "one-edge", namespaces: [])
-            let page = try #require(PageWebView(descriptor: descriptor, root: file.deletingLastPathComponent(), routes: []))
-            let rig = Rig(content: page)
-            defer { rig.tearDown() }
-            try expectOneEdge(rig, content: page, "page pane")
+            try MainPaneGutterSuites.onCurvedMainPane {
+                let file = try Self.page("<html><body></body></html>")
+                defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+                let descriptor = PageDescriptor(id: "test.one-edge", resource: "one-edge", namespaces: [])
+                let page = try #require(PageWebView(descriptor: descriptor, root: file.deletingLastPathComponent(), routes: []))
+                let rig = Rig(content: page)
+                defer { rig.tearDown() }
+                try expectOneEdge(rig, content: page, "page pane")
+            }
         }
 
         /// A webview pane's edges are any other pane's: a plain view (a terminal's place) gets the same one.
@@ -215,16 +219,18 @@ extension MainPaneGutterSuites {
         /// either side or hidden.
         @Test(arguments: [BackdropArt?.some(.friedrichForestMoonlight), nil])
         func whereThePaneMeetsTheWindowOneOutlineShows(art: BackdropArt?) throws {
-            try #require(Metrics.mainPaneCurved, "the curved main pane is on by default")
-            try MainPaneGutterSuites.withGutter(0) {
-                for (side, hidden) in [(SidebarSide.left, false), (.right, false), (.left, true)] {
-                    let rig = Rig(content: NSView(), art: art, sidebarSide: side, sidebarHidden: hidden)
-                    defer { rig.tearDown() }
-                    if art != nil { try #require(rig.root.backdrop.art != nil, "the window shows wallpaper art") }
-                    let what = "\(art.map { "art \($0.rawValue)" } ?? "opaque"), sidebar \(hidden ? "hidden" : side.rawValue)"
-                    for edge in rig.windowEdges {
-                        let outlines = rig.outlines(at: edge)
-                        #expect(outlines.count == 1, "\(what), window edge \(edge.rawValue): one outline, got \(outlines)")
+            try MainPaneGutterSuites.onCurvedMainPane {
+                try #require(Metrics.mainPaneCurved, "the curved main pane is on by default")
+                try MainPaneGutterSuites.withGutter(0) {
+                    for (side, hidden) in [(SidebarSide.left, false), (.right, false), (.left, true)] {
+                        let rig = Rig(content: NSView(), art: art, sidebarSide: side, sidebarHidden: hidden)
+                        defer { rig.tearDown() }
+                        if art != nil { try #require(rig.root.backdrop.art != nil, "the window shows wallpaper art") }
+                        let what = "\(art.map { "art \($0.rawValue)" } ?? "opaque"), sidebar \(hidden ? "hidden" : side.rawValue)"
+                        for edge in rig.windowEdges {
+                            let outlines = rig.outlines(at: edge)
+                            #expect(outlines.count == 1, "\(what), window edge \(edge.rawValue): one outline, got \(outlines)")
+                        }
                     }
                 }
             }
