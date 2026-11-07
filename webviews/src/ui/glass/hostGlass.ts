@@ -154,7 +154,8 @@ export function reportHostGlass(doc: Document, post: (surfaces: HostGlassSurface
     post(surfaces).then(() => {
       if (!live) return;
       // A surface that already fell back keeps the page's glass: a late answer never swaps it.
-      for (const element of elements) if (ids.has(element) && element.isConnected && !fellBack(element)) mark(element, "1");
+      for (const element of elements)
+        if (ids.has(element) && element.isConnected && !fellBack(element)) mark(element, "1");
     }, end);
   };
   const fellBack = (element: Element) => timedOut.has(element);
@@ -265,7 +266,7 @@ export function reportHostGlass(doc: Document, post: (surfaces: HostGlassSurface
     doc.removeEventListener("animationstart", follow, true);
     if (frame) view.cancelAnimationFrame(frame);
     frame = 0;
-    for (const element of [...ids.keys()]) forget(element);
+    for (const element of ids.keys()) forget(element);
     restyled.disconnect();
     root.removeAttribute(HOST_GLASS_ROOT_ATTRIBUTE);
     if (live && sent !== "[]") void post([]).catch(() => undefined);
