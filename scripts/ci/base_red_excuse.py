@@ -1590,7 +1590,8 @@ COMPARE_FILES_CAP = 300
 # (c) above hold as for a guard test, and instead of (b) every failed step is one of the job's test steps, naming at
 # least one failing test, and the PR's diff touches none of the job's declared reads nor GUARD_READS_DEFAULT. The
 # reads are declared, never guessed: the package directories, the Rust crates its FFI builds and the files their
-# sources include_str! (cmux-rd-ffi's tests read schemas/remote-tab/), checked against the tree by
+# sources include_str! (cmux-rd-ffi's tests read schemas/remote-tab/) and the repository files its Swift names by path
+# (its tests read cmux-tui/spec/ and schemas/deeplinks/ at run time), checked against the tree by
 # tests/test_base_red_excuse.py. At the head they are checked again: every Swift package Package.swift reaches by
 # path and every path crate in the Cargo.lock must lie in them, else the red is refused (a new dependency the
 # declaration has not caught up with reads paths this rule cannot see).
@@ -1608,7 +1609,9 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-rd-proto/", "cmux-tui/crates/cmux-remote-browser/",
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/", "schemas/remote-tab/",
                   # cmux-mobile-host's tests read the Mac's lane policy to keep the two in step
-                  "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift"),
+                  "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift",
+                  # the kit's Swift tests read the shared specs from the repository root at run time
+                  "cmux-tui/spec/full-access-modes.json", "schemas/deeplinks/agent-link.json"),
     },
 }
 SWIFT_PATH_PACKAGE = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')

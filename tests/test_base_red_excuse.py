@@ -5,6 +5,7 @@ import io
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -2953,7 +2954,8 @@ class PackageFixedOnBase(unittest.TestCase):
         for path in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkController.swift",
                      "cmux-next-ios/rust/Cargo.lock", "Packages/Shared/CmuxAuthRuntime/Sources/A.swift",
                      "cmux-tui/crates/cmux-wg/src/lib.rs", "cmux-tui/Cargo.toml", "schemas/remote-tab/client.json",
-                     "scripts/ci/select-ci-xcode.sh", ".github/workflows/cmux-next-ios-kit.yml"):
+                     "scripts/ci/select-ci-xcode.sh", ".github/workflows/cmux-next-ios-kit.yml",
+                     "cmux-tui/spec/full-access-modes.json", "schemas/deeplinks/agent-link.json"):
             with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, "reads paths the PR changes"):
                 self.judge(KitFixedOnBaseGitHub(changed=(path,)))
 
@@ -3016,6 +3018,18 @@ class PackageFixedOnBase(unittest.TestCase):
             for path in [f"{d}/Cargo.toml" for d in dirs] + files:
                 with self.subTest(path=path):
                     self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
+        # A repository path its Swift names in a string literal (a test reading a shared spec from the root at run
+        # time, which no manifest shows): every one that exists must be a declared read.
+        literal = re.compile(r'"((?:[\w.-]+/)+[\w.-]+)"')
+        for root in ("cmux-next-ios/CmuxMobileKit", "Packages/Shared", "Packages/iOS", "vendor"):
+            for source in sorted((ROOT / root).rglob("*.swift")):
+                if root != "cmux-next-ios/CmuxMobileKit" and "Tests" in source.relative_to(ROOT).parts:
+                    continue  # the job runs the kit's own tests; the packages it reaches build only their sources
+                for found in literal.finditer(source.read_text(errors="replace")):
+                    path = found.group(1)
+                    if (ROOT / path).is_file():
+                        with self.subTest(path=path, source=source.relative_to(ROOT).as_posix()):
+                            self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
         files = {path: (ROOT / path).read_text() for path in
                  sorted(str(p.relative_to(ROOT)) for p in ROOT.glob("Packages/*/*/Package.swift"))}
         files.update({path: (ROOT / path).read_text() for path in
