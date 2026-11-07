@@ -11,12 +11,15 @@
 //! the machine's coderouter edge, comes down that socket, and is answered here
 //! from a login only this process holds:
 //!
-//! - `--codex-auth PATH` (the default): a Codex login (`codex login` with
-//!   `CODEX_HOME` pointed at the gateway's own folder). The gateway sends the
-//!   call to ChatGPT's Codex backend and refreshes the token itself, writing
-//!   the rotated refresh token back to that file.
-//! - `--upstream URL`: a local subscription proxy that already holds the
-//!   login and refreshes it (CLIProxyAPI, or the team's own router).
+//! cmux runs the gateway (a tiny machine per person or team, or the person's
+//! own Mac mini or SR2); the subscription proxy behind it is the person's own
+//! choice and responsibility, so nothing is picked by default:
+//! - `--upstream URL`: the person's own subscription proxy (CLIProxyAPI, or
+//!   their own router), which holds the login and refreshes it.
+//! - `--codex-auth PATH`: opt in to letting the gateway itself hold a Codex
+//!   login (`codex login` with `CODEX_HOME` at the gateway's own folder). It
+//!   sends the call to ChatGPT's Codex backend and refreshes the token,
+//!   writing the rotated refresh token back to that file.
 //!
 //! It runs the same on a gateway machine, a Mac mini or SR2. The backend's
 //! token for this socket comes from `--token-file` (read again on every
@@ -53,6 +56,8 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 const CHUNK_BYTES: usize = 192 * 1024;
 const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 const MAX_MESSAGE: usize = 2 * 1024 * 1024;
+/// Answer frames queued for the socket at most (each at most about 256 KiB once base64'd).
+const OUT_FRAMES: usize = 32;
 /// A provider call may take minutes before its first byte (a long reasoning turn).
 const UPSTREAM_HEADERS_TIMEOUT: Duration = Duration::from_secs(600);
 const CODEX_BACKEND: &str = "https://chatgpt.com/backend-api/codex";
@@ -91,18 +96,19 @@ your Cloud machines' model calls from it. Machines never get the token.
 
 Usage:
   cmux inference gateway [--api URL] [--team TEAM]
-                         [--codex-auth PATH | --upstream URL [--upstream-key-file PATH]]
+                         (--upstream URL [--upstream-key-file PATH] | --codex-auth PATH)
                          [--token-file PATH | --token-command CMD]
 
   --api URL              the cmux API origin (or CMUX_CLOUD_API_URL)
   --team TEAM            the team whose machines it serves (default: the token's)
-  --codex-auth PATH      a Codex login file the gateway alone holds and refreshes
-                         (default: $CODEX_HOME/auth.json, else ~/.codex/auth.json).
-                         Make one with: CODEX_HOME=DIR codex login
-  --upstream URL         instead, a local subscription proxy (CLIProxyAPI or
-                         your own router) that holds the login: calls go to
-                         URL + the call's path
+  --upstream URL         your own subscription proxy (CLIProxyAPI or your own
+                         router) that holds your login: calls go to URL + the
+                         call's path. Running it is your choice and yours to keep.
   --upstream-key-file P  the proxy's own API key, sent as a bearer
+  --codex-auth PATH      or opt in to the gateway holding a Codex login itself
+                         and refreshing it. Make one with: CODEX_HOME=DIR codex login
+
+One of --upstream or --codex-auth is required: cmux picks no proxy for you.
   --token-file PATH      a cmux access token, read again on every connect
   --token-command CMD    a command that prints one, run again on every connect
                          (default: cmux auth token; or CMUX_CLOUD_ACCESS_TOKEN)
@@ -209,15 +215,17 @@ pub(super) fn parse(
             }
             Upstream::Proxy { base: base.trim_end_matches('/').to_owned(), key_file }
         }
-        (auth, None) => {
+        (Some(auth), None) => {
             if key_file.is_some() {
                 return Err("--upstream-key-file goes with --upstream".into());
             }
-            let auth = auth
-                .or_else(|| env("CODEX_HOME").map(|h| Path::new(&h).join("auth.json")))
-                .or_else(|| env("HOME").map(|h| Path::new(&h).join(".codex/auth.json")))
-                .ok_or("--codex-auth names the Codex login file")?;
             Upstream::Codex { auth }
+        }
+        (None, None) => {
+            return Err(
+                "name your subscription proxy with --upstream URL (or opt in to --codex-auth PATH); cmux picks none for you"
+                    .into(),
+            );
         }
     };
     let token = token.unwrap_or_else(|| {
@@ -251,7 +259,7 @@ fn run(options: Options) -> i32 {
 }
 
 /// The backend's token for one connect, from the configured source.
-async fn backend_token(source: &TokenSource) -> Result<String, String> {
+async fn backend_token(source: &TokenSource, team: Option<&str>) -> Result<String, String> {
     let raw = match source {
         TokenSource::Env => std::env::var("CMUX_CLOUD_ACCESS_TOKEN").unwrap_or_default(),
         TokenSource::File(path) => tokio::fs::read_to_string(path)
@@ -260,7 +268,12 @@ async fn backend_token(source: &TokenSource) -> Result<String, String> {
         TokenSource::Command(cmd) => command_output("/bin/sh", &["-c", cmd]).await?,
         TokenSource::App => {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            command_output(&exe.to_string_lossy(), &["auth", "token"]).await?
+            // An install token acts only for the team it was minted for: mint it for the gateway's team.
+            let mut args = vec!["auth", "token"];
+            if let Some(team) = team {
+                args.extend(["--team", team]);
+            }
+            command_output(&exe.to_string_lossy(), &args).await?
         }
     };
     let token = raw.trim();
@@ -330,7 +343,7 @@ async fn serve(options: Options) -> i32 {
     let mut refusals = 0u32;
     loop {
         let started = Instant::now();
-        let ended = match backend_token(&options.token).await {
+        let ended = match backend_token(&options.token, options.team.as_deref()).await {
             Ok(token) => session(&options, &token, upstream.clone()).await,
             Err(error) => Ended::Closed(error),
         };
@@ -382,6 +395,8 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
     if let Some(team) = options.team.as_deref().and_then(|t| HeaderValue::from_str(t).ok()) {
         request.headers_mut().insert("x-cmux-team", team);
     }
+    // No Sec-WebSocket-Protocol: the backend (InferenceGateway.ts) negotiates none, and tungstenite refuses a
+    // handshake whose offered protocol the server does not echo. The version is checked on its `hello` frame below.
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_MESSAGE))
         .max_frame_size(Some(MAX_MESSAGE));
@@ -395,7 +410,8 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
         Ok(Ok((stream, _))) => stream,
     };
     let (mut sink, mut source) = stream.split();
-    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    // Bounded: a slow socket holds back the provider streams (backpressure) instead of piling their chunks in memory.
+    let (tx, mut rx) = mpsc::channel::<String>(OUT_FRAMES);
     let writer = tokio::spawn(async move {
         let mut ping = tokio::time::interval(PING_EVERY);
         ping.tick().await;
@@ -497,7 +513,8 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
                                 "inference.bad_request",
                                 "the request body did not arrive whole",
                             ),
-                        );
+                        )
+                        .await;
                     }
                 }
             }
@@ -528,8 +545,9 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
     ended
 }
 
-fn send(tx: &mpsc::UnboundedSender<String>, frame: &Value) {
-    let _ = tx.send(frame.to_string());
+/// Queues a frame for the socket, waiting while the queue is full; a closed socket drops it.
+async fn send(tx: &mpsc::Sender<String>, frame: &Value) {
+    let _ = tx.send(frame.to_string()).await;
 }
 
 fn error_frame(id: &str, code: &str, message: &str) -> Value {
@@ -537,7 +555,7 @@ fn error_frame(id: &str, code: &str, message: &str) -> Value {
 }
 
 /// One call: to the provider, and its answer back down the socket as it streams.
-async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::UnboundedSender<String>) {
+async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<String>) {
     let started = Instant::now();
     let machine = call
         .headers
@@ -554,7 +572,7 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Unbound
                 call.method,
                 started.elapsed().as_millis()
             ));
-            return send(tx, &error_frame(id, code, &message));
+            return send(tx, &error_frame(id, code, &message)).await;
         }
     };
     let status = response.status().as_u16();
@@ -564,14 +582,14 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Unbound
             headers.insert((*name).to_owned(), Value::String(v.to_owned()));
         }
     }
-    send(tx, &json!({"v": 1, "t": "head", "id": id, "status": status, "headers": headers}));
+    send(tx, &json!({"v": 1, "t": "head", "id": id, "status": status, "headers": headers})).await;
     let mut body = response.bytes_stream();
     while let Some(chunk) = body.next().await {
         match chunk {
             Ok(bytes) => {
                 for part in bytes.chunks(CHUNK_BYTES) {
                     let data = base64::engine::general_purpose::STANDARD.encode(part);
-                    send(tx, &json!({"v": 1, "t": "data", "id": id, "data": data}));
+                    send(tx, &json!({"v": 1, "t": "data", "id": id, "data": data})).await;
                 }
             }
             Err(_) => {
@@ -587,7 +605,8 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Unbound
                         "inference.upstream_broken",
                         "the provider's answer broke off",
                     ),
-                );
+                )
+                .await;
             }
         }
     }
@@ -596,7 +615,7 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Unbound
         call.method,
         started.elapsed().as_millis()
     ));
-    send(tx, &json!({"v": 1, "t": "end", "id": id}));
+    send(tx, &json!({"v": 1, "t": "end", "id": id})).await;
 }
 
 /// The login this gateway holds, and how a call reaches the provider with it.
@@ -694,10 +713,9 @@ impl Provider {
             }
         }
         if let Some(bearer) = bearer {
-            let mut value = reqwest::header::HeaderValue::from_str(&format!("Bearer {bearer}"))
-                .map_err(|_| {
-                    ("inference.gateway_config", "the login is not a valid header value".to_owned())
-                })?;
+            let mut value = HeaderValue::from_str(&format!("Bearer {bearer}")).map_err(|_| {
+                ("inference.gateway_config", "the login is not a valid header value".to_owned())
+            })?;
             value.set_sensitive(true);
             request = request.header(reqwest::header::AUTHORIZATION, value);
         }
@@ -847,6 +865,17 @@ async fn refresh_codex(
     let text = tokio::fs::read_to_string(path)
         .await
         .map_err(|e| format!("cannot read the Codex login: {e}"))?;
+    // Another holder rotated the file while this refresh was in flight: theirs is the newer login, keep it.
+    if let Ok(on_disk) = parse_codex_login(&text)
+        && on_disk.refresh != login.refresh
+    {
+        return Ok(CodexLogin {
+            access: on_disk.access,
+            refresh: on_disk.refresh,
+            account: on_disk.account,
+            expires: on_disk.expires,
+        });
+    }
     let (updated, login) = apply_refresh(&text, &body, now_s())?;
     write_private(path, updated.as_bytes()).await?;
     Ok(login)
@@ -949,10 +978,23 @@ mod tests {
     #[test]
     fn parses_a_codex_gateway_and_a_proxy_gateway() {
         let env = |k: &str| (k == "HOME").then(|| "/home/p".to_owned());
-        let o = parse(&args(&["--api", "https://api.cmux.dev", "--team", "team_1"]), &env).unwrap();
+        // No proxy is picked for the person: one of the two is required, even with a ~/.codex login on the host.
+        assert!(parse(&args(&["--api", "https://api.cmux.dev"]), &env).is_err());
+        let o = parse(
+            &args(&[
+                "--api",
+                "https://api.cmux.dev",
+                "--team",
+                "team_1",
+                "--codex-auth",
+                "/g/auth.json",
+            ]),
+            &env,
+        )
+        .unwrap();
         assert_eq!(o.api, "https://api.cmux.dev");
         assert_eq!(o.team.as_deref(), Some("team_1"));
-        assert_eq!(o.upstream, Upstream::Codex { auth: PathBuf::from("/home/p/.codex/auth.json") });
+        assert_eq!(o.upstream, Upstream::Codex { auth: PathBuf::from("/g/auth.json") });
         assert_eq!(o.token, TokenSource::App);
         let o = parse(
             &args(&[
@@ -990,6 +1032,20 @@ mod tests {
             .is_err()
         );
         assert!(parse(&args(&["--codex-auth", "/a"]), &no_env).is_err());
+        assert!(
+            parse(
+                &args(&[
+                    "--api",
+                    "https://a.dev",
+                    "--upstream-key-file",
+                    "/k",
+                    "--codex-auth",
+                    "/a"
+                ]),
+                &no_env
+            )
+            .is_err()
+        );
     }
 
     #[test]
