@@ -321,21 +321,27 @@ type Json = Record<string, unknown>;
 const utf8 = (text: string) => new TextEncoder().encode(text).length;
 
 /** The daemon's palette.rank bounds: the catalog's caps on a request and on each entry, and the
- * WebSocket's 4 MiB inbound message. */
-const DAEMON = { entries: 5000, titleBytes: 1024, keywords: 64, keywordBytes: 400, messageBytes: 4 * 1024 * 1024 };
+ * WebSocket's 4 MiB inbound message; a v1 daemon (before palette-rank-v2) has smaller text caps. */
+const DAEMONS = {
+  2: { entries: 5000, titleBytes: 1024, keywords: 64, keywordBytes: 400, messageBytes: 4 * 1024 * 1024 },
+  1: { entries: 5000, titleBytes: 512, keywords: 32, keywordBytes: 256, messageBytes: 4 * 1024 * 1024 },
+};
 
 /**
  * A daemon whose palette.rank refuses a request past its bounds (as the catalog does) and ranks
  * by substring, case-insensitive: a title that starts with the query scores 10000, a title or
  * keyword that contains it 4000 (a strict match). Its typo pass (`typoPass: true`, or absent with
  * fewer than three strict matches) also finds a title that contains the query without its last
- * letter, at 3000. Rows sort by score, then entry order, cut to the row limit (400).
+ * letter, at 3000. Rows sort by score, then entry order, cut to the row limit (400). A v1 daemon
+ * refuses `typoPass`, as its catalog has no such field.
  */
-function rankingDaemon() {
+function rankingDaemon(version: 1 | 2 = 2) {
+  const DAEMON = DAEMONS[version];
   const requests: Json[] = [];
   const socket = {
     async request(command: string): Promise<unknown> {
-      if (command === "identify") return { capabilities: ["palette-rank-v1"] };
+      if (command === "identify")
+        return { capabilities: version === 2 ? ["palette-rank-v1", "palette-rank-v2"] : ["palette-rank-v1"] };
       return {};
     },
     async operation(operation: string, params: Json): Promise<unknown> {
@@ -344,6 +350,7 @@ function rankingDaemon() {
       const entries = params.entries as Entry[];
       const message = JSON.stringify({ protocol: "cmux.protocol/2", type: "request", id: "op-1", operation, params });
       if (
+        (version === 1 && "typoPass" in params) ||
         entries.length > DAEMON.entries ||
         utf8(message) > DAEMON.messageBytes ||
         entries.some(
@@ -500,4 +507,18 @@ test("a 200-character CJK title and a 100-character CJK name reach the daemon wh
   expect(sent[1]!.title).toBe(title);
   expect(sent[2]!.title).toBe(entries[2]!.title);
   expect(sent[2]!.keywords).toEqual([name]);
+});
+
+test("a v1 daemon gets requests it takes: its own caps, no typoPass, every row still searchable", async () => {
+  const daemon = rankingDaemon(1);
+  const entries = bigCatalog();
+  // A conversation of 33 participants with long names, and a title past v1's 512 bytes.
+  entries[0] = {
+    title: `Release train ${"发".repeat(190)}`,
+    keywords: Array.from({ length: 33 }, (_, index) => `${index}${"名".repeat(99)}`),
+    sectionIndex: 0,
+  };
+  expect(ranked(await daemon.rank(entries, "release train"))).toEqual([[0, [0]]]);
+  expect(ranked(await daemon.rank(entries, "New message"))).toEqual([[2, [5001]]]);
+  for (const request of daemon.requests) expect("typoPass" in request).toBe(false);
 });

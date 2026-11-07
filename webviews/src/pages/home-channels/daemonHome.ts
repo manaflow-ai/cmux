@@ -13,7 +13,14 @@ import { PAGE_CONNECTION } from "../shared/pageStreams";
 import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
 import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
 import { DaemonPeople } from "./daemonPeople";
-import { fixtureRank, rankPalette, type PaletteRankBatchReply, type PaletteRankEntry } from "./paletteRank";
+import {
+  fixtureRank,
+  PALETTE_RANK_V1,
+  PALETTE_RANK_V2,
+  rankPalette,
+  type PaletteRankBatchReply,
+  type PaletteRankEntry,
+} from "./paletteRank";
 import { AttachmentService, messageGroups } from "./attachmentService";
 import { INLINE_TEXT_BYTES, TextUpload } from "./textUpload";
 import {
@@ -90,6 +97,8 @@ export const CLOUD_PRESENCE_CAPABILITY = "cloud-conversation-presence-v1";
 const AVATARS_CAPABILITY = "participant-avatars-v1";
 /** The local owner ranks palette rows (`palette.rank`, the shared palette ranker). */
 const PALETTE_RANK_CAPABILITY = "palette-rank-v1";
+/** `palette.rank` with `typoPass`, `strictMatches` and caps that hold any title and name. */
+const PALETTE_RANK_V2_CAPABILITY = "palette-rank-v2";
 
 const time = (value: unknown): number => (typeof value === "string" ? Date.parse(value) || 0 : 0);
 const num = (value: unknown): number => (typeof value === "number" ? value : 0);
@@ -1012,13 +1021,17 @@ export class DaemonHomeClient implements PageClient {
         };
         // A daemon from before palette-rank-v1 has no ranker to ask: the plain substring filter.
         if (!(await this.capable(PALETTE_RANK_CAPABILITY))) return fixtureRank(request);
-        // Every row, in as many requests as the daemon's caps need.
-        return rankPalette(request, (batch) =>
-          this.local.operation<PaletteRankBatchReply>("palette.rank", {
-            machine: "current",
-            session: "current",
-            ...batch,
-          }),
+        // Every row, in as many requests as the daemon's caps need; a v1 daemon keeps its own caps.
+        const contract = (await this.capable(PALETTE_RANK_V2_CAPABILITY)) ? PALETTE_RANK_V2 : PALETTE_RANK_V1;
+        return rankPalette(
+          request,
+          (batch) =>
+            this.local.operation<PaletteRankBatchReply>("palette.rank", {
+              machine: "current",
+              session: "current",
+              ...batch,
+            }),
+          contract,
         );
       }
       case HomeOps.directory:

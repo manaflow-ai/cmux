@@ -1,4 +1,4 @@
-//! `palette.rank` (read, `palette-rank-v1`): ranks one palette request with
+//! `palette.rank` (read, `palette-rank-v1`, `palette-rank-v2`): ranks one palette request with
 //! the shared ranker (`cmux-palette-ranker`), so a page ranks its rows the way
 //! the app palette does without a ranker of its own.
 //!
@@ -36,6 +36,10 @@ use crate::resource::ResourceError;
 
 /// Advertised in identify: the daemon answers `palette.rank`.
 pub(crate) const CAPABILITY: &str = "palette-rank-v1";
+/// Advertised in identify: `palette.rank` takes `typoPass`, answers
+/// `strictMatches`, and its entry caps are 1024-byte titles and 64 keywords of
+/// 400 bytes (a v1 daemon refuses `typoPass` and has 512, 32 and 256).
+pub(crate) const BATCH_CAPABILITY: &str = "palette-rank-v2";
 
 /// Most usage-history entries (`frecency.entries`) one request may carry.
 pub(crate) const MAX_HISTORY_ENTRIES: usize = 5_000;

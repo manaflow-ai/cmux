@@ -39,15 +39,36 @@ export interface PaletteRankBatchReply extends PaletteRankReply {
   strictMatches?: number;
 }
 
-// The daemon's caps (`palette.rank` in resource-operations-v2.json), in UTF-8 bytes. They hold any
-// title and name the app allows: a 200-character title (the conversation owner's MAX_TITLE_CHARS)
-// with a channel's "#" is at most 801 bytes, and each of a conversation's 64 participants' names
-// (100 characters) at most 400.
-/** Most rows one request carries. */
+/** What a daemon's `palette.rank` takes: its text caps in UTF-8 bytes, and whether it has
+ * `typoPass` and `strictMatches`, so several requests decide the typo pass as one. */
+export interface PaletteRankContract {
+  titleBytes: number;
+  keywords: number;
+  keywordBytes: number;
+  decidesTypoPass: boolean;
+}
+
+/** `palette-rank-v2` (resource-operations-v2.json): its caps hold any title and name the app
+ * allows. A 200-character title (the conversation owner's MAX_TITLE_CHARS) with a channel's "#" is
+ * at most 801 bytes, and each of a conversation's 64 participants' names (100 characters) at most
+ * 400. */
+export const PALETTE_RANK_V2: PaletteRankContract = {
+  titleBytes: 1024,
+  keywords: 64,
+  keywordBytes: 400,
+  decidesTypoPass: true,
+};
+/** `palette-rank-v1`, a daemon from before v2: smaller caps, and each request decides its own
+ * typo pass (a merge of several is then close to one request's answer, not equal to it). */
+export const PALETTE_RANK_V1: PaletteRankContract = {
+  titleBytes: 512,
+  keywords: 32,
+  keywordBytes: 256,
+  decidesTypoPass: false,
+};
+
+/** Most rows one request carries (both versions). */
 export const MAX_RANK_ENTRIES = 5000;
-const MAX_TITLE_BYTES = 1024;
-const MAX_KEYWORDS = 64;
-const MAX_KEYWORD_BYTES = 400;
 const MAX_QUERY_BYTES = 1024;
 /** Most JSON bytes of entries one request carries (an upper bound, see `entryBytes`): with the
  * query and the envelope, under the daemon's 4 MiB WebSocket message. */
@@ -75,14 +96,17 @@ export function clipUtf8(text: string, max: number): string {
 
 /** The request's text clipped to the daemon's caps, so a long title never fails the rank. Every
  * row stays: `rankPalette` splits a long list into requests the daemon takes. */
-export function boundedRankRequest(request: PaletteRankRequest): PaletteRankRequest {
+export function boundedRankRequest(
+  request: PaletteRankRequest,
+  contract: PaletteRankContract = PALETTE_RANK_V2,
+): PaletteRankRequest {
   return {
     ...request,
     query: clipUtf8(request.query, MAX_QUERY_BYTES),
     entries: request.entries.map((entry) => ({
       ...entry,
-      title: clipUtf8(entry.title, MAX_TITLE_BYTES),
-      keywords: entry.keywords?.slice(0, MAX_KEYWORDS).map((keyword) => clipUtf8(keyword, MAX_KEYWORD_BYTES)),
+      title: clipUtf8(entry.title, contract.titleBytes),
+      keywords: entry.keywords?.slice(0, contract.keywords).map((keyword) => clipUtf8(keyword, contract.keywordBytes)),
     })),
   };
 }
@@ -123,12 +147,14 @@ type Row = PaletteRankedSection["rows"][number];
  * For the page's rows (no bias, usage, shortcut, handle or alias) the ranker orders rows by score,
  * then index, and cuts them to the row limit before it groups them in sections; the merge does the
  * same with the batches' rows. On the empty query every batch lists its rows in order by section.
+ * A v1 daemon has no `typoPass`: each of its batches decides the typo pass alone.
  */
 export async function rankPalette(
   request: PaletteRankRequest,
   rankOne: (batch: PaletteRankBatch) => Promise<PaletteRankBatchReply>,
+  contract: PaletteRankContract = PALETTE_RANK_V2,
 ): Promise<PaletteRankReply> {
-  const bounded = boundedRankRequest(request);
+  const bounded = boundedRankRequest(request, contract);
   const runs = batches(bounded.entries);
   const ask = (typoPass?: boolean) =>
     Promise.all(
@@ -147,8 +173,9 @@ export async function rankPalette(
     return { sections: reply!.sections };
   }
   const typed = bounded.query.trim() !== "";
-  let replies = await ask(typed ? false : undefined);
-  if (typed && replies.reduce((sum, reply) => sum + (reply.strictMatches ?? 0), 0) < TYPO_PASS_THRESHOLD)
+  const decides = typed && contract.decidesTypoPass;
+  let replies = await ask(decides ? false : undefined);
+  if (decides && replies.reduce((sum, reply) => sum + (reply.strictMatches ?? 0), 0) < TYPO_PASS_THRESHOLD)
     replies = await ask(true);
   let rows: Array<{ section: number | null; row: Row }> = replies.flatMap((reply, at) =>
     reply.sections.flatMap((section) =>
