@@ -237,14 +237,19 @@ CLAIM_COMMANDS = frozenset({
 })
 
 
-def runs_the_claim_script(step: dict) -> bool:
-    """Whether this step's whole `run:` is one of CLAIM_COMMANDS, run by bash.
+def runs_the_claim_script(step: dict, job: dict | None = None) -> bool:
+    """Whether this step's whole `run:` is one of CLAIM_COMMANDS, run by bash from the workspace root.
+
+    CLAIM_COMMANDS are paths relative to the checkout, so a `working-directory` (the step's, or JOB's
+    `defaults.run`) would run another tree's copy of the script: router-review F1 at 9aacf011fd8.
 
     Detection only: a step found here may still carry an `if:`, because test_ci_signing_owned_mac.py allows one
     (cmux-next-dev-daily's sign skips its whole body with no source artifact) and relies on the unconditional
     first-step gate instead.  owned_route_failures() is what refuses a conditional or failure-swallowing claim
     on an owned route."""
     if str(step.get("shell", "bash")) != "bash":
+        return False
+    if "working-directory" in step or "working-directory" in (((job or {}).get("defaults") or {}).get("run") or {}):
         return False
     return str(step.get("run", "")).strip() in CLAIM_COMMANDS
 
@@ -338,15 +343,17 @@ def owned_route_failures(name: str, job: dict) -> list[str]:
     job); this holds it here for the rest of the exclusive class, which makes no keychain."""
     steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
     failures = []
-    claim = next((index for index, step in enumerate(steps) if runs_the_claim_script(step)), None)
+    claim = next((index for index, step in enumerate(steps) if runs_the_claim_script(step, job)), None)
     first_secret = next((index for index, step in enumerate(steps)
                          if SIGNING_SECRET_REFERENCE.search(json.dumps(step))), None)
     if claim is None:
         failures.append(f"{name}: takes an owned route without a step whose whole run: is one of "
-                        f"{', '.join(sorted(CLAIM_COMMANDS))}")
+                        f"{', '.join(sorted(CLAIM_COMMANDS))}, run from the workspace root (no working-directory)")
     else:
-        if first_secret is not None and first_secret < claim:
-            failures.append(f"{name}: step {first_secret} names a signing secret before the claim step ({claim})")
+        # `<=`: the claim step's own env is set before its script runs (router-review F2 at 9aacf011fd8).
+        if first_secret is not None and first_secret <= claim:
+            failures.append(f"{name}: step {first_secret} names a signing secret before or in the claim step "
+                            f"({claim})")
         # The claim must be neither skippable nor survivable: an `if:` could leave the stale-keychain cleanup
         # and the claim re-check unrun, and continue-on-error would let a refused claim reach the key steps.
         if str(steps[claim].get("if", "")).strip():

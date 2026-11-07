@@ -409,12 +409,12 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             # The script has to be run, not only named: keychain_guard.CLAIM_COMMANDS, the same verbatim
             # command set rule 7a uses, so no comment, echo, conditional or chained form stands in for it.
             claim = next((index for index, step in enumerate(steps)
-                          if keychain_guard.runs_the_claim_script(step)), None)
+                          if keychain_guard.runs_the_claim_script(step, job)), None)
             first_secret = next((index for index, step in enumerate(steps) if "secrets." in json.dumps(step)), None)
             if claim is None:
                 failures.append(f"{label}: routed to owned Macs without a step that runs {CLAIM}")
-            elif first_secret is not None and first_secret < claim:
-                failures.append(f"{label}: step {first_secret} names a secret before the claim step ({claim})")
+            elif first_secret is not None and first_secret <= claim:  # the claim step's own env is set before it runs
+                failures.append(f"{label}: step {first_secret} names a secret before the claim step ({claim}) or in it")
             else:
                 # Its `if` may skip it with the job's own work (cmux-next-dev-daily's sign skips everything without a
                 # source artifact); the unconditional first-step gate is what fails the job without the claim.
@@ -1355,7 +1355,7 @@ class OwnedRouteVariableTests(unittest.TestCase):
         gate = self.gate("nightly.yml")
         job = {"runs-on": self.RUNS_ON, "steps": [gate, self.SPARKLE, {"run": f"bash {CLAIM}"}]}
         found = self.failures("nightly.yml generate-nightly-deltas", job)
-        self.assertTrue(any("names a signing secret before the claim step" in why for why in found), found)
+        self.assertTrue(any("names a signing secret before or in the claim step" in why for why in found), found)
         job = {"runs-on": self.RUNS_ON, "steps": [gate, self.SPARKLE]}
         found = self.failures("nightly.yml generate-nightly-deltas", job)
         self.assertTrue(any("without a step whose whole run: is one of" in why for why in found), found)
@@ -1426,6 +1426,28 @@ class OwnedRouteVariableTests(unittest.TestCase):
         job = {"runs-on": self.RUNS_ON,
                "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, self.SPARKLE]}
         self.assertEqual(self.failures("nightly.yml generate-nightly-deltas", job), [])
+
+    def test_the_claim_runs_from_the_workspace_root(self) -> None:
+        """router-review F1 at 9aacf011fd8: CLAIM_COMMANDS are checkout-relative, so a working directory
+        (the step's, or the job's run default) would run some other tree's copy of the script."""
+        self.assertFalse(keychain_guard.runs_the_claim_script({"run": f"bash {CLAIM}", "working-directory": "evil"}))
+        self.assertFalse(keychain_guard.runs_the_claim_script(
+            {"run": f"bash {CLAIM}"}, {"defaults": {"run": {"working-directory": "evil"}}}))
+        self.assertTrue(keychain_guard.runs_the_claim_script({"run": f"bash {CLAIM}"}, {"defaults": {"run": {}}}))
+        for job in ({"steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}", "working-directory": "evil"},
+                               self.SPARKLE]},
+                    {"defaults": {"run": {"working-directory": "evil"}},
+                     "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, self.SPARKLE]}):
+            with self.subTest(job=job):
+                found = self.failures("nightly.yml generate-nightly-deltas", dict(job, **{"runs-on": self.RUNS_ON}))
+                self.assertTrue(any("without a step whose whole run: is one of" in why for why in found), found)
+
+    def test_a_secret_in_the_claim_steps_own_env_is_before_the_claim(self) -> None:
+        """router-review F2 at 9aacf011fd8: a step's env is set before its script runs."""
+        claim = {"run": f"bash {CLAIM}", "env": {"KEY": "${{ secrets.NIGHTLY_SPARKLE_KEY }}"}}
+        job = {"runs-on": self.RUNS_ON, "steps": [self.gate("nightly.yml"), claim, self.SPARKLE]}
+        found = self.failures("nightly.yml generate-nightly-deltas", job)
+        self.assertTrue(any("before or in the claim step" in why for why in found), found)
 
     def test_an_owned_variable_only_tested_in_a_condition_is_not_the_route(self) -> None:
         """router-review F1 at 1e9095d099b: the waiver is for the variable that gives the label. Tested in a
