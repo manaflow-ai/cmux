@@ -15,6 +15,7 @@
 // which floats over the pane.
 // Text the element cuts off shows in full, wrapping in the same compact bubble.
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
+import { PointerMotion } from "./pointerMotion";
 import { UI_TOOLTIP_GAP, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH, tooltipScale } from "./tooltipTokens";
 export { UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./tooltipTokens";
 
@@ -366,9 +367,20 @@ export function installTooltips(
   let quiet: ReturnType<typeof setTimeout> | undefined;
   // The element under the pointer while a scroll is under way.
   let pending: Element | undefined;
+  // An element that came under a still pointer (the page laid out again): it waits for the pointer to move.
+  const motion = new PointerMotion();
+  let still: Element | undefined;
   const onOver = (event: PointerEvent) => {
     if (event.pointerType && event.pointerType !== "mouse") return;
     const element = (event.target as Element | null)?.closest?.("[title], [data-tooltip]") ?? undefined;
+    if (element && element !== target && !motion.arrived(event)) {
+      still = element;
+      return;
+    }
+    over(element);
+  };
+  const over = (element: Element | undefined) => {
+    still = undefined;
     if (quiet !== undefined) {
       pending = element;
       return;
@@ -385,9 +397,16 @@ export function installTooltips(
     target = element;
     intent.hover(element);
   };
+  const onMove = (event: PointerEvent) => {
+    if (!motion.moved(event) || !still) return;
+    const element = still;
+    still = undefined;
+    if (element.isConnected && element.contains(event.target as Node | null)) over(element);
+  };
   const onOut = (event: PointerEvent) => {
     // Leaving the element (not moving onto one of its children) hides it.
     const into = event.relatedTarget as Node | null;
+    if (still && !still.contains(into)) still = undefined;
     if (target && !target.contains(into)) hide();
     if (pending && !pending.contains(into)) pending = undefined;
   };
@@ -419,6 +438,7 @@ export function installTooltips(
     }, SCROLL_QUIET);
   };
   doc.addEventListener("pointerover", onOver);
+  doc.addEventListener("pointermove", onMove, true);
   doc.addEventListener("pointerout", onOut);
   doc.addEventListener("pointerdown", dismiss, true);
   doc.addEventListener("keydown", dismiss, true);
@@ -428,6 +448,7 @@ export function installTooltips(
     dismiss();
     intent.dispose();
     doc.removeEventListener("pointerover", onOver);
+    doc.removeEventListener("pointermove", onMove, true);
     doc.removeEventListener("pointerout", onOut);
     doc.removeEventListener("pointerdown", dismiss, true);
     doc.removeEventListener("keydown", dismiss, true);
