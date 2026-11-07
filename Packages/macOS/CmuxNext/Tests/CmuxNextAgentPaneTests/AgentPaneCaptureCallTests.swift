@@ -104,4 +104,29 @@ struct AgentPaneCaptureCallTests {
         let left = try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
         #expect(left == ["fresh", "kept"])
     }
+
+    /// A moved window is filmed where it is now: its part of the display, from the display's corner.
+    @Test func theStreamFollowsTheWindowOnItsDisplay() {
+        let display = CGRect(x: 1440, y: 0, width: 1920, height: 1080)
+        #expect(AgentPaneRecording.source(CGRect(x: 1540, y: 50, width: 800, height: 600), on: display) == CGRect(x: 100, y: 50, width: 800, height: 600))
+        // Half off the display's right edge: only what the display shows.
+        #expect(AgentPaneRecording.source(CGRect(x: 3000, y: 0, width: 800, height: 600), on: display)?.width == 360)
+        #expect(AgentPaneRecording.source(CGRect(x: 0, y: 0, width: 800, height: 600), on: display) == nil)
+    }
+
+    /// Save writes beside the destination and renames over it: the old file is replaced whole, and
+    /// a failed save leaves it and no partial file.
+    @Test func saveReplacesTheDestinationAtomically() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-save-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let destination = root.appendingPathComponent("Shot.png")
+        try Data("old".utf8).write(to: destination)
+        #expect(AgentPaneCapture.write(bytes: Data("new".utf8), file: nil, to: destination))
+        #expect(try Data(contentsOf: destination) == Data("new".utf8))
+        // A source that is gone: the destination stays as it was.
+        #expect(!AgentPaneCapture.write(bytes: nil, file: root.appendingPathComponent("missing.mp4"), to: destination))
+        #expect(try Data(contentsOf: destination) == Data("new".utf8))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["Shot.png"])
+    }
 }

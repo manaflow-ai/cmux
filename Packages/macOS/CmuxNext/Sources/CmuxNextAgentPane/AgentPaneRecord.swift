@@ -31,7 +31,8 @@ final class AgentPaneRecorder {
 
     private var current: AgentPaneRecording?
     private var starting = false
-    private var observers: [any NSObjectProtocol] = []
+    /// Its window's close, move and resize, and the app's quit, only while a recording runs.
+    private var observers: [MainActorObservation] = []
     /// The movies this process wrote, exactly as the page was given them (realpath's spelling):
     /// the only paths `capture.copy` and `capture.save` take.
     private(set) var written: Set<String> = []
@@ -101,11 +102,13 @@ final class AgentPaneRecorder {
         }
         current = recording
         recordingView = view(for: model)
-        let center = NotificationCenter.default
-        observers = [
-            center.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in recording.end() },
-            center.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in recording.end() },
-        ]
+        // The stream follows the window when it moves or resizes; a close or the quit ends it.
+        observers = [NSWindow.willCloseNotification, NSWindow.didMoveNotification, NSWindow.didResizeNotification].map { name in
+            MainActorObservation(name, object: window) { [weak window] in
+                guard name != NSWindow.willCloseNotification, let window else { return recording.end() }
+                recording.follow(Self.globalFrame(window))
+            }
+        } + [MainActorObservation(NSApplication.willTerminateNotification) { recording.end() }]
         // The window closed while ScreenCaptureKit started: no close notice comes any more.
         if !window.isVisible { recording.end() }
         return AgentPaneReply.success(["started": true])
@@ -134,11 +137,17 @@ final class AgentPaneRecorder {
                      scripts: ["window.cmuxAcpmuxBridge?.captureBar?.(\(value.compactText));"])
     }
 
+    /// `window`'s frame in global points from the top-left of the main display, as ScreenCaptureKit gives it.
+    static func globalFrame(_ window: NSWindow) -> CGRect {
+        let top = NSScreen.screens.first?.frame.maxY ?? window.frame.maxY
+        return CGRect(x: window.frame.minX, y: top - window.frame.maxY, width: window.frame.width, height: window.frame.height)
+    }
+
     /// The file at `path` when this bridge wrote it; nil otherwise.
     func owned(_ path: String) -> URL? { Self.owned(path, in: Self.folder, written: written) }
 
     private func removeObservers() {
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.forEach { $0.cancel() }
         observers = []
     }
 }
@@ -146,7 +155,7 @@ final class AgentPaneRecorder {
 /// One recording: ScreenCaptureKit's stream of the window's display, showing only this app's
 /// windows and cut to the window, into an AVAssetWriter. The stream's frames and the writer run on
 /// `queue`; start and the end run off the main actor, each ScreenCaptureKit call under a deadline.
-// crash-allow: `writer`, `input`, `adaptor` and `writerFailed` are touched only on `queue` (frames and the close, which hops onto it); the rest is in Mutexes.
+// crash-allow: `writer`, `input`, `adaptor`, `writerFailed` only on `queue` (frames, the close hops onto it); `output` set before the stream starts, then read; the rest in Mutexes.
 nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     nonisolated struct Options: Sendable {
         let window: CGWindowID
@@ -167,16 +176,23 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
         let description: String
     }
 
-    private nonisolated struct State: Sendable {
+    nonisolated struct State: Sendable {
         var ending = false
         var first: CMTime?
         var last: CMTime?
+        /// The display filmed, in ScreenCaptureKit's global points (top-left origin), from the start.
+        var display: CGRect?
+        /// The window's newest frame not yet given to the stream, and whether an update runs.
+        var moved: CGRect?
+        var updating = false
     }
 
     /// Seconds any one ScreenCaptureKit call may take (a disconnected replayd never answers).
     static let callLimit: Duration = .seconds(10)
 
     private let options: Options
+    /// The movie's pixel size, set once at the start before the stream runs, then only read.
+    private var output = (width: 2, height: 2)
     private let queue = DispatchQueue(label: "agent-pane.capture.record", qos: .userInitiated)
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
@@ -184,9 +200,9 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
     /// The writer could not open: no frame tries again, and the stop answers cancelled.
     private var writerFailed = false
     // concurrency-allow: held only to read or set the flags and times; no call out or I/O runs under it.
-    private let state = Mutex(State())
+    let state = Mutex(State())
     // concurrency-allow: held only to put or take the stream; no ScreenCaptureKit call runs under it.
-    private let streamSlot = Mutex<Handed<SCStream>?>(nil)
+    let streamSlot = Mutex<Handed<SCStream>?>(nil)
     // concurrency-allow: held only to make or read the one end task; the task runs after the unlock.
     private let outcome = Mutex<Task<Made?, Never>?>(nil)
     private let limit = DemandTimer(owner: "agent-pane.capture.record.limit")
@@ -221,8 +237,10 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
         // windows and panels show as on screen (a window filter misses changes outside them).
         let own = content.value.windows.filter { $0.isOnScreen && $0.frame.intersects(display.frame) }
         let filter = SCContentFilter(display: display, including: own.isEmpty ? [target] : own)
-        let source = target.frame.intersection(display.frame).offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
-        guard source.width >= 1, source.height >= 1 else { throw Failure(description: "the window is off its display") }
+        guard let source = Self.source(target.frame, on: display.frame) else { throw Failure(description: "the window is off its display") }
+        // The movie's size is the window's at the start: a later resize scales into it (aspect-fit).
+        output = AgentPaneRecorder.size(points: source.size, scale: options.scale)
+        state.withLock { $0.display = display.frame }
         let stream = SCStream(filter: filter, configuration: configuration(source), delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         let _: Bool = try await deadline("start the capture") { done in
@@ -238,12 +256,13 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
         limit.schedule(after: .seconds(AgentPaneRecorder.maxSeconds)) { [weak self] in self?.end() }
     }
 
-    private func configuration(_ source: CGRect) -> SCStreamConfiguration {
-        let size = AgentPaneRecorder.size(points: source.size, scale: options.scale)
+    func configuration(_ source: CGRect) -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
         configuration.sourceRect = source
-        configuration.width = size.width
-        configuration.height = size.height
+        configuration.width = output.width
+        configuration.height = output.height
+        configuration.scalesToFit = true
+        configuration.preservesAspectRatio = true
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: AgentPaneRecorder.framesPerSecond)
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.colorSpaceName = CGColorSpace.sRGB
@@ -358,38 +377,10 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
         }
     }
 
-    /// Runs `call` and returns its result, or throws after ``callLimit``; a late callback is dropped.
-    private func deadline<T: Sendable>(_ what: String, _ call: (@escaping @Sendable (Result<T, any Error>) -> Void) -> Void) async throws -> T {
-        let once = Once<T>()
-        let timer = DemandTimer(owner: "agent-pane.capture.record.deadline")
-        defer { timer.cancel() }
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-            once.set(continuation)
-            call { once.resume($0) }
-            timer.schedule(after: Self.callLimit) {
-                once.resume(.failure(Failure(description: "ScreenCaptureKit did not \(what) within \(Self.callLimit)")))
-            }
-        }
-    }
-
     /// A ScreenCaptureKit object handed across its callback queue once.
     // crash-allow: ScreenCaptureKit makes the value and never touches it again; one side reads it after the hand-over.
     nonisolated struct Handed<T>: @unchecked Sendable {
         let value: T
         init(_ value: T) { self.value = value }
-    }
-
-    /// Resumes a continuation once; later results are dropped.
-    private nonisolated final class Once<T: Sendable>: Sendable {
-        // concurrency-allow: held only to take or set the continuation; resuming it happens after the unlock.
-        private let slot = Mutex<CheckedContinuation<T, any Error>?>(nil)
-        func set(_ continuation: CheckedContinuation<T, any Error>) { slot.withLock { $0 = continuation } }
-        func resume(_ result: Result<T, any Error>) {
-            let pending = slot.withLock { slot -> CheckedContinuation<T, any Error>? in
-                defer { slot = nil }
-                return slot
-            }
-            pending?.resume(with: result)
-        }
     }
 }

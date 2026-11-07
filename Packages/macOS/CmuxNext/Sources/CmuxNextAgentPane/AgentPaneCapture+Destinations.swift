@@ -90,19 +90,22 @@ extension AgentPaneCapture {
         return AgentPaneReply.success(["saved": destination.path])
     }
 
-    /// Off the main actor: `bytes` written to `destination`, or `file` copied over it (the panel
-    /// asked before replacing). A file that is no longer a regular file (a link put in its place)
-    /// is refused.
+    /// Off the main actor: `bytes`, or a copy of `file`, written beside `destination` and then
+    /// moved over it in one atomic rename (the panel asked before replacing), so a failure at any
+    /// step leaves the old file whole. Only that partial copy is removed on failure; the movie
+    /// itself stays, for Copy and a later Save. A file that is no longer a regular file (a link put
+    /// in its place) is refused.
     nonisolated static func write(bytes: Data?, file: URL?, to destination: URL) -> Bool {
-        if let bytes { return (try? bytes.blockingWrite(to: destination, options: .atomic)) != nil }
-        guard let file, let type = try? FileManager.checked.attributesOfItem(atPath: file.path)[.type] as? FileAttributeType,
-              type == .typeRegular else { return false }
         let staged = destination.deletingLastPathComponent().appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).part")
         do {
-            try FileManager.checked.copyItem(at: file, to: staged)
-            // The panel asked before replacing: the old file goes once the copy is whole.
-            if FileManager.checked.fileExists(atPath: destination.path) { try FileManager.checked.removeItem(at: destination) }
-            try FileManager.checked.moveItem(at: staged, to: destination)
+            if let bytes {
+                try bytes.blockingWrite(to: staged)
+            } else {
+                guard let file, (try? FileManager.checked.attributesOfItem(atPath: file.path)[.type] as? FileAttributeType) == .typeRegular else { return false }
+                try FileManager.checked.copyItem(at: file, to: staged)
+            }
+            // rename(2) replaces an existing destination atomically (both are in its folder).
+            guard rename(staged.path, destination.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
             return true
         } catch {
             try? FileManager.checked.removeItem(at: staged)
