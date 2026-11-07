@@ -8,9 +8,14 @@ export type ContextOverrideClient = {
 
 /// Whether this connection may open the shown chat's Context screen (Session Info's View Prompt)
 /// and save or reset its guidance. acpmux hands cmux's prompt text and its editing only to this
-/// Mac's app (server/requests/context.rs).
+/// Mac's app (server/requests/context.rs), and a chat on another machine reaches it through the
+/// daemon's `agent-session-context`, which admits only the owner's carrier. Of the app's remote
+/// wires only the owner's attach carries `ownerCloud` (the Cloud API said the signed-in caller
+/// owns the machine): an observation never does (AgentTabRemoteHost passes it to an attach only),
+/// and a teammate or link guest does not own the machine. Any other origin gets no Context.
 export function contextAccess(snapshot: Pick<AcpmuxSnapshot, "origin" | "ownerCloud" | "sessionId">): boolean {
-  return snapshot.origin === "local" && Boolean(snapshot.sessionId);
+  if (!snapshot.sessionId) return false;
+  return snapshot.origin === "local" || (snapshot.origin === "remote" && snapshot.ownerCloud === true);
 }
 
 /// The Context screen's save for the chat `sessionId`, or undefined where this connection may not
