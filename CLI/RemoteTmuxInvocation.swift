@@ -42,7 +42,7 @@ struct RemoteTmuxInvocation: Equatable {
         while index < commandArgs.count {
             let arg = commandArgs[index]
             switch arg {
-            case "--port":
+            case "-p", "--port":
                 guard index + 1 < commandArgs.count else {
                     throw CLIError(message: "ssh-tmux: --port requires a value")
                 }

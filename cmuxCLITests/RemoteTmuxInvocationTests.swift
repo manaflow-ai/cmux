@@ -14,9 +14,9 @@ import Testing
         #expect(invocation.focus == false)
     }
 
-    @Test(arguments: ["list", "ls"])
-    func listAliasesDoNotSelectOrOpenAWorkspace(_ verb: String) throws {
-        let invocation = try RemoteTmuxInvocation.parse(["dev@host", verb, "--port", "2222"])
+    @Test(arguments: ["list", "ls"], ["-p", "--port"])
+    func listAliasesDoNotSelectOrOpenAWorkspace(_ verb: String, _ portFlag: String) throws {
+        let invocation = try RemoteTmuxInvocation.parse(["dev@host", verb, portFlag, "2222"])
         #expect(invocation.action == .list)
         #expect(invocation.port == 2222)
         #expect(invocation.workspaceName == nil)
