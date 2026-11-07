@@ -990,6 +990,14 @@ impl RemoteDaemon {
         let mut pending = state.pending.remove(&pending_key).expect("pending entry exists");
         drop(pending.expiry_task.take());
         drop(state);
+        // Every lane is in: the grant that formed this group admits nothing
+        // more, also once this session closes.
+        self.auth.seal_grant_link_group(
+            &key.device_id,
+            key.session,
+            accepted.generation,
+            accepted.connection_attempt,
+        );
         let mut lane_bindings =
             pending.routes.iter().map(|route| route.lanes.clone()).collect::<Vec<_>>();
         lane_bindings

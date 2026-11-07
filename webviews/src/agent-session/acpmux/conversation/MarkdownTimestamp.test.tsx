@@ -27,7 +27,7 @@ test("renders clock times, ISO timestamps, and UTC labels as hoverable times", (
   expect(html).toContain("2026-10-24T12:21:28.000Z");
 });
 
-test("infers a bare UTC clock time from the nearest earlier message date", () => {
+test("infers a bare UTC clock time from the message date nearest it", () => {
   const justAfterMidnight = Date.UTC(2026, 9, 24, 0, 10, 0);
   expect(dateTimes("The prior update was at 23:50Z.", justAfterMidnight)).toEqual(["2026-10-23T23:50:00.000Z"]);
   expect(dateTimes("The update was at 00:05Z.", justAfterMidnight)).toEqual(["2026-10-24T00:05:00.000Z"]);
@@ -134,7 +134,8 @@ test("a very long run of times without a zone scans in linear time", () => {
 test("an ISO timestamp beside a zoned clock time keeps its own hover and is not read as a list", () => {
   expect(dateTimes("2026-10-24T05:21-07:00 and 08:00 UTC", postedAt)).toEqual([
     "2026-10-24T12:21:00.000Z",
-    "2026-10-24T08:00:00.000Z",
+    // Written at 02:30Z, 08:00 UTC is the one 5.5 hours ahead, not the one 18.5 hours back.
+    "2026-10-25T08:00:00.000Z",
   ]);
   expect(sources("2026-10-24T05:21-07:00 and 08:00 UTC")).toEqual(["2026-10-24T05:21-07:00", "08:00 UTC"]);
 });

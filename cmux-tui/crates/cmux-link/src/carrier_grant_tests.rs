@@ -84,6 +84,30 @@ fn a_valid_grant_admits_with_its_signed_services() {
     assert_eq!(grant.team, "team_00000000000000000001");
     assert_eq!(grant.services, ["mux-control", "workspace-rpc"]);
     assert_eq!(grant.expires_at, NOW + 200);
+    assert_eq!(grant.vm_kind, None);
+    assert!(!grant.owner(), "a grant without vmk is never the owner's");
+}
+
+#[test]
+fn vmk_owner_marks_the_owner_and_any_other_value_does_not() {
+    let signer = Signer::generate("k1");
+    let (verifier, _) = verifier(&signer);
+    for (jti, vmk, owner) in [(1_u8, "owner", true), (2, "team", false)] {
+        let key = [jti; 32];
+        let mut c = claims(&key);
+        c["vmk"] = json!(vmk);
+        c["jti"] = json!(URL_SAFE_NO_PAD.encode([jti; 16]));
+        let grant = verifier.verify(&signer.sign(GRANT_TYP, &c), &key, ATTEMPT).unwrap();
+        assert_eq!(grant.owner(), owner, "{vmk}");
+    }
+    // A null or unknown role is malformed, never a non-owner grant.
+    for vmk in [json!(null), json!("root"), json!(true)] {
+        let key = [3_u8; 32];
+        let mut c = claims(&key);
+        c["vmk"] = vmk.clone();
+        let refusal = verifier.verify(&signer.sign(GRANT_TYP, &c), &key, ATTEMPT).unwrap_err();
+        assert_eq!(refusal.reason, "claims_malformed", "{vmk}");
+    }
 }
 
 #[test]
@@ -308,9 +332,39 @@ fn a_clock_stepped_back_revives_no_spent_grant() {
 }
 
 #[test]
+fn a_sealed_link_group_admits_no_further_link() {
+    let signer = Signer::generate("k1");
+    let (verifier, _) = verifier(&signer);
+    let key = [3_u8; 32];
+    let token = signer.sign(GRANT_TYP, &claims(&key));
+    verifier.verify(&token, &key, ATTEMPT).unwrap();
+    // Another group's seal changes nothing.
+    verifier.seal([2; 32]);
+    verifier.verify(&token, &key, ATTEMPT).unwrap();
+    verifier.seal(ATTEMPT);
+    assert_eq!(verifier.verify(&token, &key, ATTEMPT).unwrap_err().kind, TokenRefused::Replayed);
+}
+
+#[test]
 fn construction_refuses_an_empty_issuer_machine_or_team() {
     let signer = Signer::generate("k1");
     assert!(CarrierGrantVerifier::with_system_clock("", MACHINE, TEAM, signer.keyset()).is_err());
     assert!(CarrierGrantVerifier::with_system_clock(ISSUER, "", TEAM, signer.keyset()).is_err());
     assert!(CarrierGrantVerifier::with_system_clock(ISSUER, MACHINE, "", signer.keyset()).is_err());
+}
+
+/// The caller's own refusal (`verify_with`) comes before the `jti` is
+/// spent: the same grant, accepted later from another link group, is
+/// admitted once and then replayed.
+#[test]
+fn a_grant_the_caller_refuses_spends_nothing() {
+    let signer = Signer::generate("k1");
+    let (verifier, _) = verifier(&signer);
+    let key = [3_u8; 32];
+    let token = signer.sign(GRANT_TYP, &claims(&key));
+    let refusal = verifier.verify_with(&token, &key, ATTEMPT, |_| false).unwrap_err();
+    assert_eq!((refusal.kind, refusal.reason), (TokenRefused::Invalid, "no_known_service"));
+    let other = [2_u8; 32];
+    assert!(verifier.verify_with(&token, &key, other, |_| true).is_ok());
+    assert_eq!(verifier.verify(&token, &key, ATTEMPT).unwrap_err().kind, TokenRefused::Replayed);
 }

@@ -55,7 +55,7 @@ enum DestructiveConfirmation {
     /// The question for this invocation, or nil to run without asking.
     static func prompt(for id: ActionID, _ invocation: ActionInvocation, _ services: AppServices) async -> Prompt? {
         let context = AppActionContext(services: services)
-        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
+        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault
         switch id {
         case "cloudKillMachine":
             return Prompt(title: CloudStrings.killMachineTitle, body: CloudStrings.killMachineBody, button: CloudStrings.kill)

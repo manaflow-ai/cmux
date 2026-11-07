@@ -155,16 +155,15 @@ runnable = post_publish_runnable()
 if sorted(runnable) != sorted(POST_PUBLISH_JOBS):
     failures.append(f"a nightly_next_post_publish run must start only {POST_PUBLISH_JOBS}, not {runnable}")
 published_in = job("published-in")
-if "inputs.nightly_next_post_publish != ''" not in published_in:
-    failures.append("published-in must run only in the dispatched post-publish run")
+if "needs.published-build.outputs.comment == 'true'" not in published_in:
+    failures.append("published-in must comment only on a new build of the run that published (comment)")
 # The comments must not hold the mini while the whole-Mac publish jobs of the same run wait.
 for trusted in ("publish-nightly-next-github", "generate-nightly-deltas", "republish-nightly-deltas"):
     if trusted not in needs(published_in):
         failures.append(f"published-in must wait for {trusted}: the comments must not hold the mini "
                         "while the whole-Mac publishing waits")
-dispatch = job("dispatch-published-in")
-if "-f nightly_next_post_publish=" not in dispatch or "actions: write" not in dispatch:
-    failures.append("dispatch-published-in must dispatch nightly.yml with nightly_next_post_publish")
+if "\n  dispatch-published-in:\n" in TEXT or "-f nightly_next_post_publish=" in TEXT:
+    failures.append("no job may dispatch a separate post-publish run: the tail runs in the loop's own run")
 
 # The release's mutable names (rolling DMG, feed copy, body, tag) are steps of the upload job, not a job of their
 # own: a second whole-Mac claim cost run 42018687632 a second set-up, token and variant download, and let the

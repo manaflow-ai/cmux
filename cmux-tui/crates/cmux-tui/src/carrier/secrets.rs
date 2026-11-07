@@ -1,35 +1,34 @@
-//! `cmux carrier secrets --machine <vm_id> [--deadline-ms N]`: secrets and
-//! harness logins sealed to a Cloud machine's daemon and sent over its
-//! carrier session (design/cloud-carrier.md, item 5).
+//! `cmux carrier secrets --machine <vm_id> [--deadline-ms N]`: secrets
+//! sealed to a Cloud machine's daemon and sent over its carrier session
+//! (design/cloud-carrier.md, item 5).
 //!
 //! The app (CloudSealedDelivery.swift) only forwards: it reads the values
 //! from the Mac's Keychain and writes one JSON request on stdin, never in
 //! argv or the environment:
 //!
 //! ```json
-//! {"api": "https://…", "credential": "…", "team": "team_…"?,
+//! {"api": "https://…", "credential": "…", "team"?: "team_…",
 //!  "op": "replace-machine-secrets", "values": [{"name": "NAME", "value": "…"}]}
-//! {"api": "https://…", "credential": "…",
-//!  "op": "install-harness-login", "harness": "claude", "login_base64": "…"}
 //! ```
 //!
+//! `team` names the machine's team, as `cmux carrier dial --team` does.
+//!
 //! This dials the carrier (one deadline), asks the daemon for `secrets-v1`,
-//! seals each value with HPKE to the daemon key the session pinned (the
-//! carrier answer's `daemon_key`) for this machine id, sends the request and
-//! prints one JSON line on stdout:
-//! `{"ok": true, "count": N}` | `{"ok": true, "installed": "claude"}` |
+//! seals each value with HPKE, with the time it was sealed, to the daemon key
+//! the session's handshake was pinned to (the carrier answer's `daemon_key`)
+//! for this machine id, sends the request and prints one JSON line on stdout:
+//! `{"ok": true, "count": N}` |
 //! `{"ok": false, "error_code": C, "refusal"?: R, "retryable": B}`.
 //! `error_code` is a dial step (`ticket`, `relay`, `parked_timeout`,
 //! `handshake`), `bad_request`, `unsupported` (a daemon without
-//! `secrets-v1`), `unpinned` (the platform named no daemon key), `refused` (the daemon's fixed `refusal` code, such as
-//! `bad-name`, `replay` or `not-ready`) or `transport`. No value, credential
+//! `secrets-v1`), `refused` (the daemon's fixed `refusal` code, such as
+//! `bad-name`, `replay`, `stale` or the retryable `busy`) or `transport`. No value, credential
 //! or daemon text other than those codes is ever printed. Exit 0 on `ok`.
 
 use std::io::Read as _;
 use std::io::Write as _;
 use std::sync::Arc;
 
-use base64::Engine as _;
 use cmux_remote::client::WorkspaceClient;
 use cmux_remote_protocol::{RemoteCapability, WorkspaceRequest, WorkspaceResponse};
 use serde::Deserialize;
@@ -90,14 +89,7 @@ struct NamedValue {
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case")]
 enum Op {
-    ReplaceMachineSecrets {
-        values: Vec<NamedValue>,
-    },
-    InstallHarnessLogin {
-        harness: String,
-        #[serde(deserialize_with = "zeroizing")]
-        login_base64: Zeroizing<String>,
-    },
+    ReplaceMachineSecrets { values: Vec<NamedValue> },
 }
 
 #[derive(Deserialize)]
@@ -105,7 +97,6 @@ struct Request {
     api: String,
     #[serde(deserialize_with = "zeroizing")]
     credential: Zeroizing<String>,
-    /// The machine's team (`team_…`), sent as `x-cmux-team`; none: the person's own.
     #[serde(default)]
     team: Option<String>,
     #[serde(flatten)]
@@ -131,9 +122,6 @@ fn answer_for(result: Result<WorkspaceResponse, cmux_remote_protocol::RpcError>)
         Ok(WorkspaceResponse::MachineSecretsReplaced { count }) => {
             json!({ "ok": true, "count": count })
         }
-        Ok(WorkspaceResponse::HarnessLoginInstalled { name }) => {
-            json!({ "ok": true, "installed": name })
-        }
         Ok(_) => failure("transport", None, false),
         Err(error) if error.code == "secret-refused" => {
             let code = error.message.split(':').next().unwrap_or_default();
@@ -148,23 +136,11 @@ fn answer_for(result: Result<WorkspaceResponse, cmux_remote_protocol::RpcError>)
 
 /// Seal `op` to `daemon_key` for `machine`.
 fn sealed(daemon_key: &[u8; 32], machine: &str, op: Op) -> Result<WorkspaceRequest, Value> {
-    let sealing = |_| failure("bad_request", None, false);
     match op {
         Op::ReplaceMachineSecrets { values } => {
             let values: Vec<_> = values.into_iter().map(|v| (v.name, v.value)).collect();
             cmux_remote::secrets::request::replace_machine_secrets(daemon_key, machine, &values)
-                .map_err(sealing)
-        }
-        Op::InstallHarnessLogin { harness, login_base64 } => {
-            let login = Zeroizing::new(
-                base64::engine::general_purpose::STANDARD
-                    .decode(login_base64.trim().as_bytes())
-                    .map_err(|_| failure("bad_request", None, false))?,
-            );
-            cmux_remote::secrets::request::install_harness_login(
-                daemon_key, machine, &harness, &login,
-            )
-            .map_err(sealing)
+                .map_err(|_| failure("bad_request", None, false))
         }
     }
 }
@@ -201,12 +177,12 @@ pub(super) fn run(args: &[String]) -> i32 {
     let dial_failed = |failure: &Failure| {
         print(&self::failure(failure.step.error_code(), None, failure.retryable))
     };
+    if request.team.as_deref().is_some_and(|team| !contract::valid_team(team)) {
+        return print(&failure("bad_request", None, false));
+    }
     let source = match crate::cli::secure_cloud_origin(request.api.trim())
         .map_err(|why| Failure::fatal(contract::Step::Ticket, why))
         .and_then(|api| {
-            if request.team.as_deref().is_some_and(|team| !contract::valid_team(team)) {
-                return Err(Failure::fatal(contract::Step::Ticket, "the team is not a team id"));
-            }
             answer::HttpSource::new(
                 api,
                 answer::Credential::Value(request.credential.clone()),
@@ -248,8 +224,10 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
         };
         let line = send(&dialed, &machine, request.op).await;
-        dialed.multiplexer.shutdown().await;
-        let _ = dialed.connection.close().await;
+        let client::Dialed { connection, multiplexer, mux, .. } = dialed;
+        mux.close().await;
+        multiplexer.shutdown().await;
+        let _ = connection.close().await;
         line
     });
     runtime.shutdown_timeout(super::STDIO_SHUTDOWN_TIMEOUT);
@@ -266,24 +244,15 @@ async fn send(dialed: &client::Dialed, machine: &str, op: Op) -> Value {
         Ok(_) => return failure("unsupported", None, false),
         Err(error) => return failure("transport", None, error.retryable),
     }
-    // The key this session's handshake proved, pinned to the carrier
-    // answer's `daemon_key`: only that daemon can open what follows. A
-    // session the platform named no key for is never sent a value.
-    let Some(daemon_key) =
-        pinned_key(dialed.pinned_daemon_key, dialed.connection.daemon_public_key())
-    else {
-        return failure("unpinned", None, false);
-    };
+    // The key this session's handshake proved: the dial pinned it to the
+    // carrier answer's `daemon_key` (a dial with none fails), so only that
+    // daemon can open what follows.
+    let daemon_key = dialed.connection.daemon_public_key();
     let request = match sealed(&daemon_key, machine, op) {
         Ok(request) => request,
         Err(line) => return line,
     };
     answer_for(workspace.request(request).await)
-}
-
-/// The key to seal to: the platform's, and only when the handshake proved it.
-fn pinned_key(named: Option<[u8; 32]>, proved: [u8; 32]) -> Option<[u8; 32]> {
-    named.filter(|named| *named == proved)
 }
 
 #[cfg(test)]

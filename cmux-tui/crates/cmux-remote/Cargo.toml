@@ -48,7 +48,6 @@ serde_json.workspace = true
 sha2.workspace = true
 snow.workspace = true
 subtle.workspace = true
-toml.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 tower.workspace = true

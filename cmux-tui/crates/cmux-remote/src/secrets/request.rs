@@ -21,14 +21,3 @@ pub fn replace_machine_secrets(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(WorkspaceRequest::ReplaceMachineSecrets { items })
 }
-
-/// `install-harness-login` of `harness` (`claude` or `codex`).
-pub fn install_harness_login(
-    daemon_key: &[u8; 32],
-    machine_id: &str,
-    harness: &str,
-    login: &[u8],
-) -> Result<WorkspaceRequest, SealError> {
-    let item = seal::seal(daemon_key, machine_id, Purpose::HarnessLogin, harness, login)?;
-    Ok(WorkspaceRequest::InstallHarnessLogin { item })
-}

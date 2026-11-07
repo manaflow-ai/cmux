@@ -187,77 +187,34 @@ pub fn declared_names(status: &[u8]) -> Option<Vec<String>> {
         .collect()
 }
 
-/// Every file `secrets-v1` may write under `home`: the machine secrets and
-/// the harness login files. A write to any other path is refused.
+/// Every file `secrets-v1` may write under `home`: the machine secrets. A
+/// write to any other path is refused.
 pub fn allowed_paths(home: &Path) -> Vec<PathBuf> {
-    let mut paths = vec![home.join(MACHINE_SECRETS_FILE)];
-    for login in super::harness::HarnessLogin::ALL {
-        paths.extend(login.paths(home));
+    vec![home.join(MACHINE_SECRETS_FILE)]
+}
+
+/// Replace `path` with `bytes`, mode 0600 (see [`super::commit`]), only when
+/// it is one [`allowed_paths`] lists. `_lock` is the request lock: every
+/// write of `secrets-v1` happens under it.
+pub fn write_allowed(
+    _lock: &super::Lock,
+    home: &Path,
+    path: &Path,
+    bytes: &[u8],
+) -> io::Result<()> {
+    if !allowed_paths(home).iter().any(|allowed| allowed == path) {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1"));
     }
-    paths
+    let relative = path
+        .strip_prefix(home)
+        .map_err(|_| io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1"))?;
+    replace(home, relative, bytes)
 }
 
-/// What the live file must still be for a write to go ahead.
-#[derive(Clone, Copy)]
-pub enum Expect<'a> {
-    /// Replace whatever is there.
-    Anything,
-    /// Replace only these bytes (`None`: only when there is no file).
-    Exactly(Option<&'a [u8]>),
-}
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use super::commit::replace;
 
-/// One file to write: `home/relative` gets `bytes`.
-#[derive(Clone, Copy)]
-pub struct Planned<'a> {
-    pub relative: &'a Path,
-    pub bytes: &'a [u8],
-    pub expect: Expect<'a>,
-}
-
-/// The error of a write whose [`Expect`] no longer held.
-#[derive(Debug)]
-#[cfg_attr(not(unix), allow(dead_code))]
-pub(super) struct Changed;
-
-impl std::fmt::Display for Changed {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("the live file changed")
-    }
-}
-
-impl std::error::Error for Changed {}
-
-/// Whether `error` says a live file changed since the caller read it.
-pub fn is_changed(error: &io::Error) -> bool {
-    error.get_ref().is_some_and(|inner| inner.is::<Changed>())
-}
-
-/// Replace each `(path, bytes, expect)`, all or none, mode 0600 (see
-/// [`super::commit`]), only when every path is one [`allowed_paths`] lists.
-pub fn write_all_allowed(home: &Path, writes: &[(&Path, &[u8], Expect<'_>)]) -> io::Result<()> {
-    let allowed = allowed_paths(home);
-    let mut planned = Vec::with_capacity(writes.len());
-    for (path, bytes, expect) in writes {
-        if !allowed.iter().any(|allowed| allowed == path) {
-            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1"));
-        }
-        let relative = path.strip_prefix(home).map_err(|_| {
-            io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1")
-        })?;
-        planned.push(Planned { relative, bytes, expect: *expect });
-    }
-    replace_all(home, &planned)
-}
-
-/// [`write_all_allowed`] for one file, whatever is there now.
-pub fn write_allowed(home: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
-    write_all_allowed(home, &[(path, bytes, Expect::Anything)])
-}
-
-#[cfg(unix)]
-use super::commit::replace_all;
-
-#[cfg(not(unix))]
-fn replace_all(_: &Path, _: &[Planned<'_>]) -> io::Result<()> {
-    Err(io::Error::new(io::ErrorKind::Unsupported, "secrets-v1 writes need Unix"))
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn replace(_: &Path, _: &Path, _: &[u8]) -> io::Result<()> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "secrets-v1 writes need Linux"))
 }

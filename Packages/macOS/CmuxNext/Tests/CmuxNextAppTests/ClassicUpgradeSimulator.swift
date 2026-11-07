@@ -167,7 +167,7 @@ final class ClassicUpgradeSimulator {
         // changes (the echo of each adopt and move) and the personal rows, and the document path echoes
         // `placement-shift-v1`. Without them the document never confirms a placement (#28425).
         var configuration = DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true)
-        configuration.echoesPlacementShift = SidebarMirror.isLinked
+        configuration.echoesPlacementShift = true
         services.daemon.start { [configuration] in
             DaemonConnection(configuration: configuration, endpointProvider: endpoints)
         }

@@ -508,11 +508,11 @@ extension CloudHandlers {
         }
     }
 
-    /// A sealed delivery's failure as its fixed code: the machine's refusal (`bad-name`, `replay`, `not-ready`)
+    /// A sealed delivery's failure as its fixed code: the machine's refusal (`bad-name`, `replay`, `busy`)
     /// or the step that failed. Never a value or a machine's own text.
     static func sealedReason(_ answer: CloudAPIClient.SealedDelivery) -> String {
         switch answer {
-        case .wrote, .installed: "unexpected"
+        case .wrote: "unexpected"
         case .failed(let code, let refusal, _): refusal ?? code
         }
     }

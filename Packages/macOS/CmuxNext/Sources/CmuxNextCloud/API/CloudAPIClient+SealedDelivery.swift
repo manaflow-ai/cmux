@@ -1,18 +1,18 @@
 public import Foundation
 
-/// Secrets and harness logins sealed end to end to a Cloud machine (design/cloud-carrier.md, item 5):
+/// Secrets sealed end to end to a Cloud machine (design/cloud-carrier.md, item 5):
 /// the bundled cmux (`cmux carrier secrets`, cmux-tui `carrier/secrets.rs`) dials the machine's
-/// carrier, seals each value with HPKE to the daemon key the session pinned, and sends it as a
+/// carrier, seals each value with HPKE (with the time it was sealed) to the daemon key the session
+/// pinned, and sends it as a
 /// `secrets-v1` request the machine's daemon opens and writes 0600. This only forwards: one JSON request
 /// on the child's stdin (values and the credential never go in argv or the environment), one JSON line back.
 extension CloudAPIClient {
-    /// The machine's answer: how many secrets it wrote, the login it installed, or why it refused.
+    /// The machine's answer: how many secrets it wrote, or why it refused.
     public enum SealedDelivery: Sendable, Equatable {
         case wrote(Int)
-        case installed(String)
         /// `code` is a dial step (`ticket`, `relay`, `parked_timeout`, `handshake`), `unsupported` (a machine
-        /// without `secrets-v1`), `unpinned`, `refused` (with the machine's fixed `refusal`: `bad-name`,
-        /// `replay`, `not-ready`, ...), `bad_request` or `transport`. Never a value or a machine's own text.
+        /// without `secrets-v1`), `refused` (with the machine's fixed `refusal`: `bad-name`, `replay`,
+        /// `stale`, the retryable `busy`, ...), `bad_request` or `transport`. Never a value or a machine's own text.
         case failed(code: String, refusal: String?, retryable: Bool)
     }
 
@@ -21,14 +21,6 @@ extension CloudAPIClient {
         try await sealed(id, [
             "op": "replace-machine-secrets",
             "values": values.map { ["name": $0.name, "value": $0.value] },
-        ])
-    }
-
-    /// Installs `harness`'s login (`claude` or `codex`) where the machine's harness reads it. The daemon
-    /// installs on an owner guest only: a team guest's Unix user is every member's.
-    public func installSealedLogin(_ id: String, harness: String, login: Data) async throws -> SealedDelivery {
-        try await sealed(id, [
-            "op": "install-harness-login", "harness": harness, "login_base64": login.base64EncodedString(),
         ])
     }
 
@@ -42,8 +34,9 @@ extension CloudAPIClient {
         var request = fields
         request["api"] = baseURL.absoluteString
         request["credential"] = access
-        // The machine's team: without it the platform resolves the credential to the person's own team.
-        if let team = await teamID() { request["team"] = team }
+        // The machine's team, as `cmux carrier dial --team` sends it: a shared team's machine needs it.
+        // Only a platform team id (`team_` and 20 lowercase hex digits); the child refuses anything else.
+        if let team = await currentTeam(), Self.isPlatformTeam(team) { request["team"] = team }
         let input = try JSONSerialization.data(withJSONObject: request)
         let output: Data
         do {
@@ -55,6 +48,13 @@ extension CloudAPIClient {
         return Self.sealedAnswer(output)
     }
 
+    /// `team_` and 20 lowercase hex digits (cmux-platform's team id).
+    static func isPlatformTeam(_ id: String) -> Bool {
+        guard id.hasPrefix("team_") else { return false }
+        let tail = id.utf8.dropFirst(5)
+        return tail.count == 20 && tail.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
+    }
+
     /// The child's last stdout line as an answer; anything else is `transport`.
     static func sealedAnswer(_ output: Data) -> SealedDelivery {
         guard let line = output.split(separator: UInt8(ascii: "\n")).last(where: { !$0.isEmpty }),
@@ -63,7 +63,6 @@ extension CloudAPIClient {
         }
         if object["ok"] as? Bool == true {
             if let count = object["count"] as? Int { return .wrote(count) }
-            if let installed = object["installed"] as? String { return .installed(installed) }
         }
         return .failed(code: object["error_code"] as? String ?? "transport", refusal: object["refusal"] as? String,
                        retryable: object["retryable"] as? Bool ?? false)

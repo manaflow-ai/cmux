@@ -23,19 +23,17 @@ type Kem = X25519HkdfSha256;
 /// The first field of every `info`: the protocol and its version.
 const INFO_LABEL: &[u8] = b"cmux secrets-v1";
 
-/// What a sealed item is for; part of its `info`, so a secret can't be
-/// opened as a harness login or the other way round.
+/// What a sealed item is for; part of its `info`, so an item sealed for
+/// another request kind can never open as a machine secret.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Purpose {
     Secret,
-    HarnessLogin,
 }
 
 impl Purpose {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Secret => "secret",
-            Self::HarnessLogin => "harness-login",
         }
     }
 }
@@ -151,6 +149,7 @@ pub(crate) fn seal_with_nonce(
     let recipient = <Kem as hpke::Kem>::PublicKey::from_bytes(recipient)
         .map_err(|_| SealError::BadEncapsulation)?;
     let info = info(machine_id, purpose, name, nonce);
+    let mut random = Prefilled::new()?;
     let (encapsulated, ciphertext) =
         hpke::single_shot_seal::<ChaCha20Poly1305, HkdfSha256, Kem, _>(
             &OpModeS::Base,
@@ -158,9 +157,13 @@ pub(crate) fn seal_with_nonce(
             &info,
             &plaintext,
             name.as_bytes(),
-            &mut OsRandom,
+            &mut random,
         )
         .map_err(|_| SealError::SealFailed)?;
+    if random.short {
+        // It ran out of system random bytes: the seal is not used.
+        return Err(SealError::Random);
+    }
     Ok(SealedSecret {
         name: name.to_owned(),
         nonce: nonce.to_owned(),
@@ -214,10 +217,25 @@ pub fn public_key(private_key: &[u8; 32]) -> Result<[u8; 32], SealError> {
     Ok(out)
 }
 
-/// The system random source as the `rand_core` traits the `hpke` crate takes.
-struct OsRandom;
+/// System random bytes, read up front (the read can fail, and the
+/// `rand_core` trait the `hpke` crate takes can't), served to the seal. A
+/// seal takes 32 (its ephemeral X25519 key); asking for more than were read
+/// gets zeros and marks the seal `short`, which the caller never uses.
+struct Prefilled {
+    bytes: Zeroizing<[u8; 64]>,
+    used: usize,
+    short: bool,
+}
 
-impl rand_core::RngCore for OsRandom {
+impl Prefilled {
+    fn new() -> Result<Self, SealError> {
+        let mut bytes = Zeroizing::new([0_u8; 64]);
+        getrandom::fill(bytes.as_mut_slice()).map_err(|_| SealError::Random)?;
+        Ok(Self { bytes, used: 0, short: false })
+    }
+}
+
+impl rand_core::RngCore for Prefilled {
     fn next_u32(&mut self) -> u32 {
         let mut bytes = [0_u8; 4];
         self.fill_bytes(&mut bytes);
@@ -231,14 +249,18 @@ impl rand_core::RngCore for OsRandom {
     }
 
     fn fill_bytes(&mut self, destination: &mut [u8]) {
-        // A sealing device with no system random source can't seal safely:
-        // stop rather than seal with predictable bytes.
-        #[allow(
-            clippy::expect_used,
-            reason = "rand_core's fill_bytes can't fail; a seal with no system random source must not go on"
-        )]
-        getrandom::fill(destination).expect("the system random source is available");
+        let end = self.used.saturating_add(destination.len());
+        match self.bytes.get(self.used..end) {
+            Some(source) => {
+                destination.copy_from_slice(source);
+                self.used = end;
+            }
+            None => {
+                destination.fill(0);
+                self.short = true;
+            }
+        }
     }
 }
 
-impl rand_core::CryptoRng for OsRandom {}
+impl rand_core::CryptoRng for Prefilled {}

@@ -1,5 +1,6 @@
-//! A write that fails partway leaves every live file as it was and keeps
-//! the sealed request sendable again. Generated values only.
+//! A write that fails partway leaves the live file as it was (or, when only
+//! the folder sync failed, holding the new bytes) and keeps the sealed
+//! request sendable again. Generated values only.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -43,66 +44,6 @@ impl Drop for FailAt {
 }
 
 #[test]
-fn a_login_that_fails_on_any_write_changes_nothing_and_can_be_sent_again() {
-    let fixture = fixture(&[]);
-    std::fs::create_dir_all(fixture.home.join(".claude")).unwrap();
-    std::fs::create_dir_all(fixture.home.join(".config/cmux/agent-auth")).unwrap();
-    std::fs::write(fixture.home.join(".claude/settings.json"), r#"{"theme":"dark"}"#).unwrap();
-    std::fs::write(
-        fixture.home.join(".claude/.credentials.json"),
-        format!(r#"{{"claudeAiOauth":{{"accessToken":"old-{}"}}}}"#, random_hex(8)),
-    )
-    .unwrap();
-    std::fs::write(fixture.home.join(".config/cmux/agent-auth/claude"), "managed\n").unwrap();
-    let before = snapshot(&fixture.home);
-    let token = format!("sk-ant-oat01-{}", random_hex(24));
-    let item = fixture.seal(Purpose::HarnessLogin, "claude", &token);
-    // Three files: three staged writes, then three renames.
-    for step in 0..6 {
-        let _fail = FailAt::set(Some(step));
-        let error = fixture.secrets.install_harness_login(&item).unwrap_err();
-        assert!(error.message.starts_with("write"), "step {step}: {error}");
-        assert_eq!(snapshot(&fixture.home), before, "step {step} changed a live file");
-    }
-    // The same sealed login, sent again, installs.
-    assert_eq!(fixture.secrets.install_harness_login(&item).unwrap(), "claude");
-    let after = snapshot(&fixture.home);
-    assert_eq!(after.len(), before.len(), "a temporary or backup was left: {:?}", after.keys());
-    let credentials: serde_json::Value =
-        serde_json::from_slice(&after[".claude/.credentials.json"]).unwrap();
-    assert_eq!(credentials["claudeAiOauth"]["accessToken"], token.as_str());
-    assert_eq!(after[".config/cmux/agent-auth/claude"], b"own\n");
-    // A second success is still a replay.
-    let error = fixture.secrets.install_harness_login(&item).unwrap_err();
-    assert!(error.message.starts_with("replay"), "{error}");
-}
-
-#[test]
-fn a_first_login_that_fails_partway_leaves_no_new_file() {
-    let fixture = fixture(&[]);
-    let before = snapshot(&fixture.home);
-    let auth = serde_json::json!({
-        "OPENAI_API_KEY": null,
-        "tokens": {
-            "access_token": random_hex(16),
-            "refresh_token": random_hex(16),
-            "id_token": random_hex(16),
-        },
-    })
-    .to_string();
-    let item = fixture.seal(Purpose::HarnessLogin, "codex", &auth);
-    // Two files: two staged writes, then two renames.
-    for step in 0..4 {
-        let _fail = FailAt::set(Some(step));
-        let error = fixture.secrets.install_harness_login(&item).unwrap_err();
-        assert!(error.message.starts_with("write"), "step {step}: {error}");
-        assert_eq!(snapshot(&fixture.home), before, "step {step} left a file");
-    }
-    assert_eq!(fixture.secrets.install_harness_login(&item).unwrap(), "codex");
-    assert!(fixture.home.join(".codex/auth.json").is_file());
-}
-
-#[test]
 fn machine_secrets_that_fail_to_write_keep_the_file_and_can_be_sent_again() {
     let fixture = fixture(&["DEMO_KEY"]);
     let old = random_hex(16);
@@ -124,4 +65,53 @@ fn machine_secrets_that_fail_to_write_keep_the_file_and_can_be_sent_again() {
     assert_eq!(std::fs::read_to_string(path).unwrap(), format!("export DEMO_KEY='{newer}'\n"));
     let error = fixture.secrets.replace_machine_secrets(&items).unwrap_err();
     assert!(error.message.starts_with("replay"), "{error}");
+}
+
+#[test]
+fn a_failed_folder_sync_answers_write_and_the_request_can_be_sent_again() {
+    let fixture = fixture(&["DEMO_KEY"]);
+    let value = random_hex(16);
+    let items = [fixture.seal(Purpose::Secret, "DEMO_KEY", &value)];
+    let error = {
+        let _fail = FailAt::set(Some(2));
+        fixture.secrets.replace_machine_secrets(&items).unwrap_err()
+    };
+    assert!(error.message.starts_with("write"), "{error}");
+    let path = fixture.home.join(files::MACHINE_SECRETS_FILE);
+    let expected = format!("export DEMO_KEY='{value}'\n");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+    fixture.secrets.replace_machine_secrets(&items).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+    let names: Vec<_> = snapshot(&fixture.home).into_keys().collect();
+    assert!(names.iter().all(|name| !name.ends_with(".tmp")), "{names:?}");
+}
+
+#[test]
+fn a_write_failing_on_its_rename_never_clobbers_a_concurrent_one() {
+    let fixture = fixture(&["DEMO_KEY"]);
+    let path = fixture.home.join(files::MACHINE_SECRETS_FILE);
+    for _ in 0..4 {
+        let good = random_hex(16);
+        let bad = random_hex(16);
+        let good_items = [fixture.seal(Purpose::Secret, "DEMO_KEY", &good)];
+        let bad_items = [fixture.seal(Purpose::Secret, "DEMO_KEY", &bad)];
+        let (good_result, bad_result) = std::thread::scope(|scope| {
+            let secrets = &fixture.secrets;
+            let bad = scope.spawn(|| {
+                let _fail = FailAt::set(Some(1));
+                secrets.replace_machine_secrets(&bad_items)
+            });
+            let good = scope.spawn(|| secrets.replace_machine_secrets(&good_items));
+            (good.join().unwrap(), bad.join().unwrap())
+        });
+        assert_eq!(good_result.unwrap(), 1);
+        let error = bad_result.unwrap_err();
+        assert!(error.message.starts_with("write"), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), format!("export DEMO_KEY='{good}'\n"));
+        let names: Vec<_> = snapshot(&fixture.home).into_keys().collect();
+        assert!(names.iter().all(|name| !name.ends_with(".tmp")), "{names:?}");
+        // The failed one can be sent again, and then wins.
+        fixture.secrets.replace_machine_secrets(&bad_items).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), format!("export DEMO_KEY='{bad}'\n"));
+    }
 }
