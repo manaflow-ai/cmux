@@ -222,6 +222,7 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
     }
     assert_eq!(answer["sent"], true);
     assert_eq!(answer["new_machine"], true, "its own new-machine made vm-1");
+    assert_eq!(answer["placement"], "vm:vm-1", "the answer names where it ran");
     assert!(answer["follow_up"]["send"].as_str().unwrap().contains("acp send --no-wait sess-1"));
     assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--json"]));
     assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));

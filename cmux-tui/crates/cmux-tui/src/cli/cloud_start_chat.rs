@@ -535,6 +535,13 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     {
         answer.set("new_machine", json!(true));
     }
+    // Where it ran, in `--on`'s words: `cmux chat --on cloud` lets cmux Cloud choose, and a script
+    // reads the choice here rather than assuming a kind of place (chat_start.rs).
+    if let Outcome::Done(answer) = &mut outcome
+        && let Some(id) = at(answer, "machine_id").as_str().map(str::to_owned)
+    {
+        answer.set("placement", json!(format!("vm:{id}")));
+    }
     // The stage trace (cmuxterm-hq#7415): each step's start and length, on a reply and on a failure alike.
     let stages = timed.stages();
     match &mut outcome {

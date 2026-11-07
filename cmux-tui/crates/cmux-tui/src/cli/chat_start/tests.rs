@@ -162,9 +162,11 @@ fn vm_targets_are_new_or_an_existing_vm_never_made_for_them() {
 
 #[test]
 fn cloud_is_a_selector_and_needs_a_sign_in() {
-    // Four VMs, none running: which one is not guessed.
-    assert_eq!(code(at("cloud", true)), "chat_target.which_vm");
-    assert_eq!(code(at("cloud", false)), "chat_target.signed_out");
+    // Four VMs, none running: which one is not guessed, for `vm` and for `cloud` (today the same).
+    for on in ["cloud", "vm"] {
+        assert_eq!(code(at(on, true)), "chat_target.which_vm");
+        assert_eq!(code(at(on, false)), "chat_target.signed_out");
+    }
     // A device named "cloud" is reached by its id, never by the selector.
     assert_eq!(
         at("machine_cloud_named", true),
@@ -172,10 +174,10 @@ fn cloud_is_a_selector_and_needs_a_sign_in() {
     );
 }
 
-/// `--on cloud` with the app's VM list `machines`.
-fn on_cloud(listed: Value) -> Result<Route, Value> {
+/// `--on vm` with the app's VM list `listed`.
+fn on_vm(listed: Value) -> Result<Route, Value> {
     route(
-        Some("cloud"),
+        Some("vm"),
         Reads {
             catalog: || -> Result<Value, Value> { panic!("catalog") },
             signed_in: || true,
@@ -185,31 +187,31 @@ fn on_cloud(listed: Value) -> Result<Route, Value> {
 }
 
 #[test]
-fn cloud_reuses_my_vm_and_makes_one_only_when_i_have_none() {
+fn vm_reuses_my_vm_and_makes_one_only_when_i_have_none() {
     let vm = |id: &str, status: &str| json!({"machine_id": id, "title": id, "status": status});
     let mine = |rows: Vec<Value>| json!({"account": {"signed_in": true}, "machines": rows});
     // No VMs, or only failed and going ones: a new VM.
-    assert_eq!(on_cloud(mine(vec![])), Ok(Route::Cloud(Machine::New)));
+    assert_eq!(on_vm(mine(vec![])), Ok(Route::Cloud(Machine::New)));
     let gone = vec![vm("vm-x", "failed"), vm("vm-y", "deleting")];
-    assert_eq!(on_cloud(mine(gone)), Ok(Route::Cloud(Machine::New)));
+    assert_eq!(on_vm(mine(gone)), Ok(Route::Cloud(Machine::New)));
     // My one VM, paused too (the app resumes it for the chat).
     let paused = vec![vm("vm-dev", "paused"), vm("vm-x", "failed")];
-    assert_eq!(on_cloud(mine(paused)), Ok(Route::Cloud(Machine::Target("vm-dev".into()))));
+    assert_eq!(on_vm(mine(paused)), Ok(Route::Cloud(Machine::Target("vm-dev".into()))));
     // Of several, the one running.
     let several = vec![vm("vm-a", "paused"), vm("vm-b", "running"), vm("vm-c", "paused")];
-    assert_eq!(on_cloud(mine(several)), Ok(Route::Cloud(Machine::Target("vm-b".into()))));
+    assert_eq!(on_vm(mine(several)), Ok(Route::Cloud(Machine::Target("vm-b".into()))));
     // Several and not one running: refused with their names, never a guess or a new VM.
-    let unsure = on_cloud(mine(vec![vm("vm-a", "paused"), vm("vm-b", "paused")]));
+    let unsure = on_vm(mine(vec![vm("vm-a", "paused"), vm("vm-b", "paused")]));
     let error = unsure.clone().unwrap_err();
     assert_eq!(code(unsure), "chat_target.which_vm");
     assert_eq!(error["details"]["names"], json!(["vm-a", "vm-b"]));
     assert!(error["message"].as_str().unwrap().contains("--on vm:new"), "{error}");
     // Not loaded yet: say to retry, never make a VM I may already have.
     let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
-    assert_eq!(code(on_cloud(unloaded)), "chat_target.unavailable");
+    assert_eq!(code(on_vm(unloaded)), "chat_target.unavailable");
     // Signed out by the list, though the sign-in read said yes.
     let out = json!({"account": {"signed_in": false}, "machines": []});
-    assert_eq!(code(on_cloud(out)), "chat_target.signed_out");
+    assert_eq!(code(on_vm(out)), "chat_target.signed_out");
 }
 
 #[test]

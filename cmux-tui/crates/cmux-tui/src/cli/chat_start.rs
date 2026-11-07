@@ -8,8 +8,11 @@
 //!
 //! - no `--on` (and no `CMUX_ON`), or `--on here`: right here, as `cmux agents chat new`
 //!   starts it (a chat tab in the app, in this machine's acpmux);
-//! - `--on cloud`: my cmux Cloud: my one Cloud VM (or the one running of several), a new one
-//!   when I have none (`my_cloud`);
+//! - `--on vm`: my Cloud VM: my one VM (or the one running of several), a new one when I have
+//!   none (`my_vm`);
+//! - `--on cloud`: cmux Cloud decides where it runs (Leo, 2026-11-07: "in the future, the cloud
+//!   kind of namespace will be a bit reserved"). Today that is `--on vm`'s VM; the answer's
+//!   `placement` (`vm:ID`) names what it chose, so nothing depends on `cloud` meaning a VM;
 //! - `--on vm:new`: a new Cloud VM; `--on vm:ID|NAME`: the app's existing Cloud VM with that id,
 //!   or the one VM with that title, never one made for it. Both are the run `cmux cloud
 //!   start-chat` does (cloud_start_chat.rs), which stays as that run's old name;
@@ -20,7 +23,7 @@
 //!   device list of its own.
 //!
 //! `CMUX_ON` names the target when `--on` is absent, as `DOCKER_CONTEXT` does. A refusal says
-//! what to run next. `cloud`, `here` and `vm:…` are selectors, never device names: a device called
+//! what to run next. `cloud`, `here`, `vm` and `vm:…` are selectors, never device names: a device called
 //! "cloud" is reached by its id.
 
 use std::time::Duration;
@@ -55,7 +58,8 @@ usage: cmux chat [--on TARGET] [--agent AGENT] [--model MODEL] [--cwd DIR]
 Starts an agent chat, right here unless --on names another target:
 
   --on here          This machine, as a tab in the cmux app (the default)
-  --on cloud         Your Cloud VM, or a new one when you have none
+  --on cloud         cmux Cloud runs it; where may change (the answer's placement says)
+  --on vm            Your Cloud VM, or a new one when you have none
   --on vm:new        A new Cloud VM
   --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm list-machines`)
   --on DEVICE        A connected device by its id or name (`cmux machine list`);
@@ -195,7 +199,7 @@ pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Pars
                 let on = value()?.trim().to_owned();
                 if on.is_empty() {
                     return Err(UsageError::new(
-                        "--on needs a target: here, cloud, vm:new, vm:ID|NAME or a device",
+                        "--on needs a target: here, cloud, vm, vm:new, vm:ID|NAME or a device",
                     ));
                 }
                 start.on = Some(on);
@@ -255,12 +259,13 @@ where
     if on == "here" {
         return Ok(Route::Here);
     }
-    if on == "cloud" {
+    // `cloud` is cmux Cloud's choice of place; today it is `vm`'s (module docs).
+    if on == "cloud" || on == "vm" {
         if let Err(refusal) = cmux::resolve_chat_target("cloud", &Value::Null, (reads.signed_in)())
         {
             return Err(refused(&refusal));
         }
-        return my_cloud(&(reads.cloud_machines)()?).map(Route::Cloud);
+        return my_vm(&(reads.cloud_machines)()?).map(Route::Cloud);
     }
     if let Some(vm) = on.strip_prefix("vm:") {
         if vm == "new" {
@@ -315,14 +320,14 @@ where
     }
 }
 
-/// The VM statuses `--on cloud` does not reuse: a VM that is failing or going away.
+/// The VM statuses `--on vm` does not reuse: a VM that is failing or going away.
 const NOT_REUSED: &[&str] = &["failed", "deleting", "deleted", "destroyed"];
 
-/// `--on cloud`, "my Cloud" (Leo's CLI walkthrough, 2026-11-07): the one VM of yours the app
-/// lists, a new one when you have none, or the one running VM of several. Several VMs and not
+/// `--on vm`, "my VM" (Leo's CLI walkthrough, 2026-11-07; and `--on cloud` today): the one VM
+/// of yours the app lists, a new one when you have none, or the one running VM of several. Several VMs and not
 /// one running is refused with their names, never guessed; a paused VM resumes when the chat
 /// starts on it (the app's `start-chat --target`).
-fn my_cloud(listed: &Value) -> Result<Machine, Value> {
+fn my_vm(listed: &Value) -> Result<Machine, Value> {
     if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
         return Err(refused(&ChatTargetRefusal::SignedOut));
     }
