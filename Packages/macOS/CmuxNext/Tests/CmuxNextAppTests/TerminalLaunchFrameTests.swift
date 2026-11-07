@@ -181,6 +181,33 @@ import os
         #expect(Self.centerAlpha(shown) == 255, "the older file of the key showed, not the one written last")
     }
 
+    /// Review 2 of #38056 (P2): the read capped its files (``TerminalLaunchFrames/maximumFiles``) before it chose between a
+    /// key's two files, so at the cap the newer one could be cut and the older one shown. One file per key and scale is
+    /// chosen first; the cap counts what is left.
+    @Test func theNewerFileOfAKeyWinsAtTheFileCap() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let size = pane.session.surfaceView.bounds.size, scale = pane.window.backingScaleFactor, at = Int(scale)
+        // The quit's older frame, opaque (a JPEG); the keeper's newer one, clear (a PNG), sorting after it.
+        let directory = try await Self.saved(["tab-1": Self.solid(size, scale: scale, red: 0.9, green: 0.1, blue: 0.1)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let jpg = directory.appending(path: "tab-1@\(at)x.jpg")
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -60)], ofItemAtPath: jpg.path)
+        let newer = try #require(Self.frame(size, scale: scale).cgImage(forProposedRect: nil, context: nil, hints: nil)
+            .flatMap { NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:]) })
+        try newer.write(to: directory.appending(path: "tab-1@\(at)x.png"))
+        // Other terminals' frames, sorting first, up to the cap with the one file tab-1 keeps.
+        for index in 0..<(TerminalLaunchFrames.maximumFiles - 1) {
+            try Data("other".utf8).write(to: directory.appending(path: String(format: "tab-0%02d@%dx.jpg", index, at)))
+        }
+        let frames = await Self.launch(directory)
+        #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        let shown = try #require(pane.held?.layer?.contents.flatMap { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID ? unsafeDowncast($0 as AnyObject, to: CGImage.self) : nil })
+        #expect(Self.centerAlpha(shown) == 0, "the cap cut the newer file of the key and the older one showed")
+    }
+
     /// The alpha at the center of `image` (0...255).
     static func centerAlpha(_ image: CGImage) -> UInt8? {
         guard let crop = image.cropping(to: CGRect(x: image.width / 2, y: image.height / 2, width: 1, height: 1)),
