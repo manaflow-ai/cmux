@@ -76,7 +76,7 @@ import WebKit
     }
 
     /// The suite's own document: CmuxNextBrowser carries a built bundle, so a probe never runs in one
-    /// (tests/test_cmux_next_route.py). The title is read too, since the empty initial document is
+    /// (the bundle-input routing guard). The title is read too, since the empty initial document is
     /// already `complete` before the HTML load commits.
     @MainActor private static func fixturePage() async throws -> WKWebView {
         let view = WKWebView(frame: .zero)
