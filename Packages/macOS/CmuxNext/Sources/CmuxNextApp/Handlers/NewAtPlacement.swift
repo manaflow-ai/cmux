@@ -54,6 +54,11 @@ enum NewAtPlacement {
         // A browser the CLI, MCP or a script opens is an agent's: no saved password fills in it
         // (TabLifecycle.newBrowser, plans/cmux-next/browser.md). Split Browser does not mark its tab, so an
         // automated browser is always made here, marked before its first load, then moved.
+        // A pane whose daemon does not make browser tabs makes a session-local one, which no daemon move can
+        // take and which reports no surface: such a browser opens only in a new tab here.
+        if kind == "browser", plan.op != .tab, !pane.daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue) {
+            return .refused(RefusalStrings.needsDaemonCapability(DaemonCapability.frontendBrowserTabs.rawValue))
+        }
         let route = Self.route(kind, plan, origin: invocation.origin)
         if route.ownCreate, inPlace(kind, plan.op, pane: pane, aimed, ctx) { return .done }
         madeThenMoved(kind, plan.op, from: pane, agentDriven: route.agentDriven, ctx)
@@ -181,6 +186,8 @@ enum NewAtPlacement {
                 return "new: the new tab did not open"
             }
             let target = ActionTargetRef(kind: .tab, id: tab.id)
+            // Tab ids repeat across machines: every run names the tab's machine.
+            let onTab = ActionInvocation(target: target, origin: .user).onMachine(services.daemon(for: home).machineID)
             // A refused move ends the wait at once: the tab shows again in its pane now, not at the limit.
             let done: @MainActor (Bool) -> Void = { moved in if !moved { outcome.refused = true } }
             switch op {
@@ -191,13 +198,13 @@ enum NewAtPlacement {
                     TabMoves.toNewColumn(tab, anchor: home, afterColumn: column, services: services) { done($0); moved($0) }
                 }
             case .row:
-                services.daemon(for: home).placeFork(tab.surface, beside: home, left: nil, rowHeight: rowHeight) { column, moved in
+                services.daemon(for: home).placeFork(tab.surface, beside: home, left: nil, rowHeight: rowHeight, rowRefused: { done(false) }) { column, moved in
                     TabMoves.toNewColumn(tab, anchor: home, afterColumn: column, services: services) { done($0); moved($0) }
                 }
             case .workspace:
-                done(registry.perform("palette.moveTabToNewWorkspace", invocation: ActionInvocation(target: target, origin: .user)))
+                done(registry.perform("palette.moveTabToNewWorkspace", invocation: onTab))
             case .window:
-                done(registry.perform("tab.moveToNewWindow", invocation: ActionInvocation(target: target, origin: .user)))
+                done(registry.perform("tab.moveToNewWindow", invocation: onTab))
             case .tab:
                 finished(true)
                 return nil
@@ -209,7 +216,7 @@ enum NewAtPlacement {
             finished(moved)
             guard moved else { return "new: the move to its place failed (see the app log)" }
             // The tab was made unselected and its move does not focus it: focus it where it landed.
-            _ = registry.perform("tab.focus", invocation: ActionInvocation(target: target, origin: .user))
+            _ = registry.perform("tab.focus", invocation: onTab)
             return nil
         })
     }
