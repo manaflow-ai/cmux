@@ -150,10 +150,10 @@ test("a change's frame is counted, frames with no change are not", () => {
   at(32);
   watch.arm(); // a change between frames
   frame(38.3);
-  frame(63.3); // this frame drew it, 25 ms late
-  frame(71.6);
+  frame(60); // this frame drew it, 21.7 ms late: a missed 120 Hz frame
+  frame(68.3);
   for (let time = 80; time <= 1_100; time += 8.3) frame(time);
-  expect(summaries).toEqual([{ n: 3, p50: 8.3, p95: 25, max: 25, miss120: 1, miss60: 0, over50: 0, ms: 58 }]);
+  expect(summaries).toEqual([{ n: 3, p50: 8.3, p95: 21.7, max: 21.7, miss120: 1, miss60: 0, over50: 0, ms: 55 }]);
 });
 
 test("a streaming page gets one summary a second, and none once it is still", () => {
