@@ -219,8 +219,22 @@ public final class SidebarDocSections {
         unplaced = waiting
         let (place, newestFirst) = newRows(newRowsPlace(), session: session, fresh: Set(unplaced.map(\.id)), lists: { listed.contains($0) })
         // A new row stays where it first listed: the place it took then, not the current workspace now.
-        var firstPlaces = anchors[session, default: [:]].filter { id, _ in unplaced.contains { $0.id == id } }
-        for w in unplaced where firstPlaces[w.id] == nil { firstPlaces[w.id] = place }
+        let unplacedIDs = Set(unplaced.map(\.id))
+        var firstPlaces = anchors[session, default: [:]].filter { id, _ in unplacedIDs.contains(id) }
+        // A new row made below a run of new rows still waiting for their items goes under the run's last row, so a
+        // chain of creates keeps its order as their items arrive one at a time.
+        var anchored: [(NewRowsPlace, String)] = []
+        func runEnd(_ place: NewRowsPlace) -> String? {
+            guard var id = anchored.last(where: { $0.0 == place })?.1 else { return nil }
+            while let next = anchored.last(where: { $0.0 == .below(id) })?.1 { id = next }
+            return id
+        }
+        for w in unplacedOrder(newestFirst ? Array(unplaced.reversed()) : unplaced) {
+            if firstPlaces[w.id] == nil {
+                if case .below = place, !newestFirst, let end = runEnd(place) { firstPlaces[w.id] = .below(end) } else { firstPlaces[w.id] = place }
+            }
+            if let at = firstPlaces[w.id] { anchored.append((at, w.id)) }
+        }
         anchors[session] = firstPlaces
         let tail = unplaced.filter { firstPlaces[$0.id] == .last }
         if !tail.isEmpty { loose += unplacedOrder(tail) }
