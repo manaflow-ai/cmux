@@ -11,7 +11,7 @@ import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { mcpCall, mcpLabel } from "../src/agent-session/acpmux/conversation/mcpCalls";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
-import { turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
+import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -64,7 +64,7 @@ test("the live line names the MCP call in flight the way Claude Code does", () =
       { kind: "tool", text: "mcp__repo__repo_grep", tool: { ...grep("in_progress"), id: "grep-2" } },
     ],
   };
-  const live = turnView([user, activity], new Set(), { working: true }).find((row) => row.kind === WORKING);
+  const live = turnView([user, activity], new Set(), { working: true }).find((row) => row.kind === THINKING);
   expect(live?.doing).toBe("Using repo: repo grep");
 });
 

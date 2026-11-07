@@ -236,7 +236,7 @@ async function mountNewTab({
         snapshot={snapshot}
         pickerCatalog={picker.catalog}
         holdsModePick
-        {...(rail ? { fork: { to: () => undefined, ready: true } } : {})}
+        {...(rail ? { fork: true } : {})}
         onModel={(modelId) => {
           start();
           void store.pickModel(modelId, shownSession());

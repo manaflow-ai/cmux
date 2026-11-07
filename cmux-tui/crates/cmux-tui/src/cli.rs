@@ -39,6 +39,8 @@ mod billing;
 mod caller_browser;
 mod capability_cache;
 #[cfg(unix)]
+mod chat_start;
+#[cfg(unix)]
 mod chief;
 mod chief_target;
 #[cfg(unix)]
@@ -513,6 +515,20 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `vm VERB` is `cloud VERB` for every Cloud verb (`cmux cloud` is now `cmux vm`).
+    #[cfg(unix)]
+    let cloud_args;
+    #[cfg(unix)]
+    let args = match vm::cloud_alias(args) {
+        Some(rewritten) => {
+            cloud_args = rewritten;
+            cloud_args.as_slice()
+        }
+        None => {
+            vm::cloud_rename_note(args);
+            args
+        }
+    };
     // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
     #[cfg(unix)]
     let list_args;
@@ -539,7 +555,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         None => args,
     };
     #[cfg(unix)]
-    if let Some(code) = mcp::run_if_requested(args)
+    if let Some(code) = chat_start::run_if_requested(args)
+        .or_else(|| mcp::run_if_requested(args))
         .or_else(|| workflow::run_if_requested(args))
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
