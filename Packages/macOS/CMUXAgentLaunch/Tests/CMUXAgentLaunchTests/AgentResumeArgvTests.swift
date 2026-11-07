@@ -454,7 +454,7 @@ struct AgentResumeArgvTests {
                 arguments: routedArguments,
                 environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
             ) == .passthrough,
-            "An inherited raw marker without wrapper-bound proof must not reroute a direct Codex restore"
+            "A raw marker without its wrapper-bound copy is not marker proof, so launcherResolution leaves this capture to builtInKind"
         )
 
         #expect(
@@ -465,6 +465,22 @@ struct AgentResumeArgvTests {
                 arguments: routedArguments,
                 environment: boundSubrouterMarker()
             ) == .resolved(["sr", "codex", "resume", "SID"] + preserved)
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/company/bin/codex-enterprise",
+                arguments: [
+                    "/opt/company/bin/codex-enterprise",
+                    "-c", "model_provider=subrouter",
+                ],
+                environment: boundSubrouterMarker()
+            ) == .resolved([
+                "sr", "codex", "resume", "SID",
+                "-c", "check_for_update_on_startup=false",
+            ])
         )
 
         for command in ["subrouter", "cx"] {
@@ -507,6 +523,28 @@ struct AgentResumeArgvTests {
                 launcher: "codex",
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
+                arguments: ["evil", "-c", "model_provider=subrouter"],
+                environment: boundSubrouterMarker()
+            ) == .rejected,
+            "A launcher label cannot authorize Subrouter routing when argv names another executable"
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: ["evil"],
+                environment: boundSubrouterMarker()
+            ) == .rejected,
+            "A proven routed marker must fail closed even when the captured provider argv is malformed"
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
                 arguments: [
                     "/opt/bin/codex",
                     "-c", "model_provider=subrouter",
@@ -527,10 +565,7 @@ struct AgentResumeArgvTests {
                     "--config=model_provider='subrouter'",
                 ],
                 environment: boundSubrouterMarker()
-            ) == .resolved([
-                "sr", "codex", "resume", "SID",
-                "-c", "check_for_update_on_startup=false",
-            ])
+            ) == .passthrough
         )
 
         #expect(
@@ -645,6 +680,92 @@ struct AgentResumeArgvTests {
             launcher: "codex",
             environment: marker
         ) == ["codex", "--"])
+    }
+
+    @Test("A bound Subrouter capture without an executable path still routes")
+    func boundSubrouterCaptureWithoutExecutablePathRoutes() {
+        let resolution = AgentResumeArgv().launcherResolution(
+            launcher: "codex",
+            sessionId: "SID",
+            executablePath: nil,
+            arguments: ["codex", "-c", "model_provider=subrouter"],
+            environment: boundSubrouterMarker()
+        )
+        guard case .resolved(let argv?) = resolution else {
+            Issue.record("expected a routed resume, got \(resolution)")
+            return
+        }
+        #expect(Array(argv.prefix(4)) == ["sr", "codex", "resume", "SID"])
+        #expect(!argv.contains("model_provider=subrouter"))
+        // Without an executable path, argv[0] still has to be Codex.
+        #expect(AgentResumeArgv().launcherResolution(
+            launcher: "codex",
+            sessionId: "SID",
+            executablePath: nil,
+            arguments: ["/usr/bin/env", "-c", "model_provider=subrouter"],
+            environment: boundSubrouterMarker()
+        ) == .rejected)
+    }
+
+    @Test("A markerless Subrouter reroute keeps the update-check override and custom executable names")
+    func markerlessSubrouterRerouteKeepsOverrideForCustomCodex() throws {
+        let argv = try #require(AgentResumeArgv().builtInKind(
+            kind: "codex",
+            sessionId: "SID",
+            executablePath: "/opt/company/bin/codex-enterprise",
+            arguments: [
+                "/opt/company/bin/codex-enterprise",
+                "-c", "model_provider=subrouter",
+                "-c", "model_providers.subrouter.base_url=\"http://127.0.0.1:49152/v1\"",
+            ]
+        ))
+        #expect(Array(argv.prefix(4)) == ["sr", "codex", "resume", "SID"])
+        #expect(argv.contains("check_for_update_on_startup=false"))
+        #expect(!argv.joined(separator: " ").contains("127.0.0.1"))
+    }
+
+    @Test("A markerless reroute needs argv[0] to match the captured executable")
+    func markerlessRerouteRejectsMismatchedExecutable() {
+        #expect(AgentResumeArgv().builtInKind(
+            kind: "codex",
+            sessionId: "SID",
+            executablePath: "/opt/bin/codex",
+            arguments: ["evil", "-c", "model_provider=subrouter"]
+        ) == nil)
+        #expect(AgentResumeArgv().builtInKind(
+            kind: "codex",
+            sessionId: "SID",
+            executablePath: "/opt/bin/codex",
+            arguments: ["/opt/bin/codex", "-c", "model_provider=subrouter"]
+        )?.first == "sr")
+    }
+
+    @Test("Argv routing proof rejects mixed providers")
+    func argvRoutingProofRejectsMixedProviders() {
+        #expect(!SubrouterCodexResumeRouting().usesSubrouterProvider(in: [
+            "codex", "-c", "model_provider=subrouter", "-c", "model_provider=openai",
+        ]))
+    }
+
+    @Test("Structured Subrouter proof rejects spoofed executables and mixed providers")
+    func structuredRoutingProofFailsClosedAcrossSources() {
+        let router = SubrouterCodexResumeRouting()
+        #expect(router.usesSubrouterProvider(in: [
+            "codex", "-c", "model_provider=subrouter",
+        ]))
+        #expect(!router.usesSubrouterProvider(in: [
+            "evil", "-c", "model_provider=subrouter",
+        ]))
+        #expect(router.providerEvidence(in: [
+            "codex", "-c", "model_provider=subrouter",
+        ]) == .provider("subrouter"))
+        #expect(router.providerEvidence(in: [
+            "codex", "-c", "model_provider=openai", "-c", "model_provider=subrouter",
+        ]) == .ambiguous)
+        #expect(router.providerEvidence(in: [
+            "codex", "-c", "model_provider=\"subrouter",
+        ]) == .ambiguous)
+        #expect(router.providerEvidence(in: ["codex", "--help"]) == .absent)
     }
 
     @Test("Codex wrapper rendering does not rewrite sr's codex subcommand")
