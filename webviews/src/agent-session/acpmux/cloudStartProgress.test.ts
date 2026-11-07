@@ -279,7 +279,7 @@ test("a failed start drops its question and says whether Retry can help", () => 
     message: "Slow",
     retryable: true,
   });
-  expect(retry).toEqual({ ...begun(), state: "failed", message: "Slow", retryable: true });
+  expect(retry).toEqual({ ...begun(), state: "failed", code: "cloud_start_failed", message: "Slow", retryable: true });
   const final = cloudStartEnded(asked, "k-1", { ok: false, code: "cloud_start_failed", message: "No" });
   expect(final?.retryable).toBeUndefined();
   expect(final?.ask).toBeUndefined();
