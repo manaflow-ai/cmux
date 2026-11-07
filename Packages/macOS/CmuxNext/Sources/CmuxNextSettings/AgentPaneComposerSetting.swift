@@ -122,10 +122,14 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                 continue
             }
             if descriptor.path == dictationShortcutPath {
-                guard descriptor.accepts(value), let shortcut = value.stringValue,
-                      shortcut.isEmpty || AgentPaneDictationShortcut(shortcut) != nil else {
+                guard descriptor.accepts(value), let shortcut = value.stringValue else {
                     diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                     continue
+                }
+                // A chord that does not parse is kept, so the mic refuses it (`dictation.bad_shortcut`)
+                // instead of sending the app's default the person replaced.
+                if !shortcut.isEmpty, AgentPaneDictationShortcut(shortcut) == nil {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                 }
                 setting.dictationShortcut = shortcut
                 continue

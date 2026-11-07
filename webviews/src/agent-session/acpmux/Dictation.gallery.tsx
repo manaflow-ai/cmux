@@ -19,8 +19,8 @@ type Props = {
 
 /// The dictation apps this fixture Mac has, as the host's `dictation.sources` lists them.
 const APPS: InstalledDictationApp[] = [
-  { id: "chatgpt", bundleId: "com.openai.codex", running: true },
-  { id: "wisprFlow", bundleId: "com.electron.wispr-flow", running: false },
+  { id: "chatgpt", bundleId: "com.openai.codex" },
+  { id: "wisprFlow", bundleId: "com.electron.wispr-flow" },
 ];
 
 /// A stand-in app icon (the host draws the real one, `attachment.sourceIcon`): a rounded tile.

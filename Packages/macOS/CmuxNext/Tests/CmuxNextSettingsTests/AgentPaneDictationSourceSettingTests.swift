@@ -49,13 +49,14 @@ struct AgentPaneDictationSourceSettingTests {
     }
 
     /// A bare key, shift alone, an unknown key or a repeated modifier would type into the composer
-    /// or nowhere: refused, the app's default stays.
+    /// or nowhere: refused with a diagnostic, and kept, so the mic refuses it rather than sending the
+    /// app's default chord the person meant to replace.
     @Test(arguments: ["space", "shift+a", "ctrl+", "ctrl+ctrl+a", "hyper+a", "ctrl+opt+escape", "fn"])
-    func aBadChordIsTheDefaultWithADiagnostic(_ chord: String) {
+    func aBadChordIsRefusedWithADiagnostic(_ chord: String) {
         #expect(AgentPaneDictationShortcut(chord) == nil)
         let root = JSONValue.object(["agentPane": .object(["dictationShortcut": .string(chord)])])
         let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
-        #expect(snapshot.agentPaneComposer.dictationShortcut == "")
+        #expect(snapshot.agentPaneComposer.dictationShortcut == chord)
         #expect(snapshot.diagnostics.contains { $0.path == "agentPane.dictationShortcut" })
     }
 

@@ -14,7 +14,7 @@ import type { DictationSource } from "./composerSettings";
 import type { StringKey, Translate } from "./i18n";
 
 /// A dictation app this Mac has, as the host lists it.
-export type InstalledDictationApp = { id: DictationSource; bundleId: string; running: boolean };
+export type InstalledDictationApp = { id: DictationSource; bundleId: string };
 
 /// The apps' names: brand names, the same in every language. macOS Dictation's is a string.
 const APP_NAMES: Partial<Record<DictationSource, string>> = {
@@ -53,7 +53,7 @@ export function refreshDictationApps(): void {
         ? list.flatMap((item: unknown) => {
             const app = item as Partial<InstalledDictationApp> | null;
             return app && isSource(app.id) && typeof app.bundleId === "string"
-              ? [{ id: app.id, bundleId: app.bundleId, running: app.running === true }]
+              ? [{ id: app.id, bundleId: app.bundleId }]
               : [];
           })
         : [];
@@ -65,7 +65,7 @@ export function refreshDictationApps(): void {
         next.length === installed.length &&
         next.every((app, index) => {
           const was = installed[index];
-          return was && was.id === app.id && was.bundleId === app.bundleId && was.running === app.running;
+          return was && was.id === app.id && was.bundleId === app.bundleId;
         });
       if (same) return;
       installed = next;

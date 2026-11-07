@@ -69,7 +69,7 @@ test("a loaded All chats list reads its first page again when the chat index pus
 });
 
 test("the first page read again goes on top of the loaded rows, which keep the later pages", async () => {
-  const { mergeFirstPage } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const { mergeFirstPage } = await import("../src/agent-session/acpmux/newtab/allChatsListModel");
   const loaded = [row("a", 3), row("changed", 2), row("b", 1), row("older", 0)];
   expect(mergeFirstPage([row("changed", 5), row("a", 3)], loaded).map((chat) => chat.key)).toEqual([
     "changed",

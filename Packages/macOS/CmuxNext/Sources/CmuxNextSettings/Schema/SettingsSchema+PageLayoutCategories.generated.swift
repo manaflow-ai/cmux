@@ -271,7 +271,7 @@ extension SettingsPageLayout {
             // The hosts an ssh:// link from another app reaches without asking (ExternalLinkGate).
             GroupSpec(group: "settings.group.sshLinks"),
         ],
-        actions: [.home], aliases: [.home]
+        lead: [.sharedLinks], actions: [.home], aliases: [.home]
     )
 
     private static let advancedCategory = CategorySpec(

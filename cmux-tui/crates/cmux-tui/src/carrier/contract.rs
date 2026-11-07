@@ -1,5 +1,5 @@
-//! The stdio contract of `cmux carrier dial` and its pure rules: the reply
-//! line, the exit codes, the step a failure names, the one deadline and its
+//! The stdio contract of `cmux carrier dial` and `serve` and its pure rules:
+//! the reply and ready lines, the exit codes, the step a failure names, the one deadline and its
 //! full-jitter backoff, and the route log line. No I/O here.
 
 use std::time::Duration;
@@ -31,6 +31,10 @@ pub(super) enum Step {
     Parked,
     /// The Noise handshake and the daemon's admission of the grant.
     Handshake,
+    /// The daemon refused the service the dial asked for (`--service
+    /// desktop` on a session that is not the machine owner's, or a machine
+    /// that serves no desktop).
+    Service,
 }
 
 impl Step {
@@ -40,6 +44,7 @@ impl Step {
             Self::Relay => "relay",
             Self::Parked => "parked_timeout",
             Self::Handshake => "handshake",
+            Self::Service => "service_refused",
         }
     }
 
@@ -49,9 +54,16 @@ impl Step {
             Self::Relay => 3,
             Self::Parked => 4,
             Self::Handshake => 5,
+            Self::Service => 6,
         }
     }
 }
+
+/// The `error_code` of a `serve` whose listener failed for good after it
+/// was ready.
+pub(super) const SOCKET: &str = "socket";
+/// Its exit code.
+pub(super) const SOCKET_EXIT: i32 = 6;
 
 /// Why one attempt failed: the step, a short reason, and whether another
 /// attempt inside the deadline may succeed.
@@ -77,10 +89,144 @@ impl Failure {
     }
 }
 
+/// The person's role on the machine, as the carrier grant's `vmk` claim
+/// says it: `owner` for the machine's creator, `team` for a teammate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Vmk {
+    Owner,
+    Team,
+}
+
+impl Vmk {
+    pub(super) fn parse(text: &str) -> Option<Self> {
+        match text {
+            "owner" => Some(Self::Owner),
+            "team" => Some(Self::Team),
+            _ => None,
+        }
+    }
+
+    pub(super) fn name(self) -> &'static str {
+        match self {
+            Self::Owner => "owner",
+            Self::Team => "team",
+        }
+    }
+}
+
 /// The reply line of a connected dial: the daemon stream follows on stdin
 /// and stdout. `path_state` is `relay`, the only path a carrier takes.
-pub(super) fn connected_line() -> String {
-    cmux_link::dial::line(&json!({ "ok": true, "path_state": "relay", "route": "carrier" }))
+/// `vmk` is the grant's, left out when the grant has none.
+pub(super) fn connected_line(vmk: Option<Vmk>) -> String {
+    ok_line(&[("path_state", "relay")], vmk)
+}
+
+/// `{"ok":true, <fields>…, "route":"carrier", "vmk"?:…}` as one line.
+fn ok_line(fields: &[(&str, &str)], vmk: Option<Vmk>) -> String {
+    let mut value = serde_json::Map::new();
+    value.insert("ok".into(), json!(true));
+    for (key, text) in fields {
+        value.insert((*key).into(), json!(text));
+    }
+    value.insert("route".into(), json!("carrier"));
+    if let Some(vmk) = vmk {
+        value.insert("vmk".into(), json!(vmk.name()));
+    }
+    cmux_link::dial::line(&serde_json::Value::Object(value))
+}
+
+/// The longest stdin line `carrier serve` reads, in bytes.
+pub(super) const MAX_STDIN_LINE: usize = 16 * 1024;
+
+/// What one stdin line of `carrier serve` asks.
+pub(super) enum StdinLine {
+    /// Blank: nothing.
+    Blank,
+    /// `{"access_token":"…"}`: later dials use this credential.
+    Token(zeroize::Zeroizing<String>),
+    /// `{"carrier_answer":{relay, slot, ticket, expires_at, grant,
+    /// daemon_key?}}`: the next dial's first attempt uses it.
+    Answer(Box<super::answer::CarrierAnswer>),
+    /// Anything else, and why.
+    Invalid(&'static str),
+}
+
+impl PartialEq for StdinLine {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Blank, Self::Blank) => true,
+            (Self::Token(a), Self::Token(b)) => a == b,
+            (Self::Invalid(a), Self::Invalid(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl std::fmt::Debug for StdinLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Blank => f.write_str("Blank"),
+            Self::Token(_) => f.write_str("Token(..)"),
+            Self::Answer(answer) => f.debug_tuple("Answer").field(answer).finish(),
+            Self::Invalid(why) => f.debug_tuple("Invalid").field(why).finish(),
+        }
+    }
+}
+
+/// A handed-over carrier answer (`{"carrier_answer":{…}}`), checked as the
+/// platform's answer is, with a grant.
+pub(super) fn answer_line(bytes: &[u8]) -> Result<super::answer::CarrierAnswer, &'static str> {
+    let Ok(serde_json::Value::Object(object)) = serde_json::from_slice(bytes) else {
+        return Err("the answer line is one JSON object, {\"carrier_answer\":{…}}");
+    };
+    let value = object.get("carrier_answer").ok_or("the answer line has no carrier_answer")?;
+    match super::answer::parse_answer(value) {
+        Ok(answer) if answer.grant.is_some() => Ok(answer),
+        Ok(_) => Err("carrier_answer has no grant"),
+        Err(_) => Err("carrier_answer is not a valid carrier answer"),
+    }
+}
+
+/// Reads one stdin line (without its newline). The token is 1 to 8192
+/// visible ASCII bytes; other keys are ignored. A line with
+/// `carrier_answer` is a handed-over answer ([`answer_line`]).
+pub(super) fn stdin_line(bytes: &[u8]) -> StdinLine {
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        return StdinLine::Blank;
+    }
+    let Ok(serde_json::Value::Object(object)) = serde_json::from_slice(bytes) else {
+        return StdinLine::Invalid(
+            "a stdin line is one JSON object, {\"access_token\":\"…\"} or {\"carrier_answer\":{…}}",
+        );
+    };
+    if object.contains_key("carrier_answer") {
+        return match answer_line(bytes) {
+            Ok(answer) => StdinLine::Answer(Box::new(answer)),
+            Err(why) => StdinLine::Invalid(why),
+        };
+    }
+    match object.get("access_token").and_then(serde_json::Value::as_str).map(str::trim) {
+        Some(token)
+            if !token.is_empty()
+                && token.len() <= 8192
+                && token.bytes().all(|b| (0x21..=0x7e).contains(&b)) =>
+        {
+            StdinLine::Token(zeroize::Zeroizing::new(token.to_owned()))
+        }
+        _ => StdinLine::Invalid("access_token is not 1 to 8192 visible ASCII bytes"),
+    }
+}
+
+/// The line `carrier serve` writes for each connection whose dial
+/// connected: `{"ok":true,"route":"carrier","vmk"?:…}`, `vmk` as in
+/// [`connected_line`].
+pub(super) fn served_line(vmk: Option<Vmk>) -> String {
+    ok_line(&[], vmk)
+}
+
+/// The ready line of `carrier serve`, once it listens at `socket`.
+pub(super) fn serving_line(socket: &str) -> String {
+    cmux_link::dial::line(&json!({ "ok": true, "socket": socket, "route": "carrier" }))
 }
 
 /// The reply line of a failed dial.
@@ -95,8 +241,10 @@ pub(super) fn failure_line(error_code: &str, detail: Option<&str>) -> String {
     cmux_link::dial::line(&serde_json::Value::Object(value))
 }
 
-/// One display line of at most [`MAX_DETAIL_BYTES`], control characters dropped.
+/// One display line of at most [`MAX_DETAIL_BYTES`], control characters
+/// dropped. It never holds `cloud.connect`, the route lines' own marker.
 pub(super) fn clip_detail(text: &str) -> Option<String> {
+    let text = text.replace("cloud.connect", "cloud connect");
     let mut kept = String::new();
     for c in text.chars().filter(|c| !c.is_control()) {
         if kept.len() + c.len_utf8() > MAX_DETAIL_BYTES {
@@ -182,6 +330,15 @@ impl Backoff {
         let delay = jitter(ceiling).min(ceiling);
         (delay < remaining).then_some(delay)
     }
+}
+
+/// `--answer-fd`: 0 (stdin) or a descriptor past stderr, in decimal.
+pub(super) fn parse_answer_fd(text: &str) -> Option<i32> {
+    if !text.bytes().all(|b| b.is_ascii_digit()) || text.len() > 9 {
+        return None;
+    }
+    let fd: i32 = text.parse().ok()?;
+    (fd == 0 || fd > 2).then_some(fd)
 }
 
 /// `--deadline-ms N`: 1..=[`MAX_DEADLINE_MS`].

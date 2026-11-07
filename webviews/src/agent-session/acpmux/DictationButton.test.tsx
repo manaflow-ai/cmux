@@ -147,7 +147,7 @@ test("Codex's ✕ cancels the session (drops its words), as Esc does", async () 
 test("a dictation app as the source names it on the mic; cmux's own keeps Dictate", async () => {
   const { setComposerSettings } = await import("./composerSettings");
   const { setDictationApps } = await import("./dictationSources");
-  setDictationApps([{ id: "chatgpt", bundleId: "com.openai.codex", running: true }]);
+  setDictationApps([{ id: "chatgpt", bundleId: "com.openai.codex" }]);
   setComposerSettings({ dictationSource: "chatgpt" });
   try {
     const named = await render("idle");

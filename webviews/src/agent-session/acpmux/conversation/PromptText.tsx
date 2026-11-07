@@ -24,9 +24,12 @@ import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { cancelResize, foldMotion, foldMs, markHeightFold, playResize } from "./fold";
 import { holdHeader } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
+import { ExpandRow } from "./ExpandRow";
 import { SoftBroken, softBreaks } from "./softBreaks";
 import { isPromptMarkdown } from "./promptMarkdown";
-import { githubRefLabel, UrlChip, withForeignFiles } from "../chips/LinkChips";
+import { UrlChip } from "../chips/LinkChips";
+import { githubRefLabel } from "../chips/linkChipsModel";
+import { withForeignFiles } from "../chips/linkedText";
 import { foreignFileIds, textLinks } from "../chips/paths";
 import { deeplinks } from "../composer/deeplinks";
 import { SkillWordsContext } from "./skillWords";
@@ -35,7 +38,7 @@ import { Bot, ChevronDown } from "./icons";
 import { agentText } from "../agentText";
 import { experimentArm } from "../../../experiments/experiment";
 import { pastedAgentLook } from "./pastedAgentLook.experiment";
-import { pastedSize } from "../composer/TextAttachmentCard";
+import { pastedSize } from "../composer/textAttachmentCardModel";
 
 export function PromptText({
   rowId,
@@ -214,16 +217,13 @@ export function PromptText({
             )}
       </div>
       {long && (
-        <button
-          type="button"
+        <ExpandRow
           className="cv-user__more"
-          aria-expanded={!collapsed}
-          aria-controls={id}
-          data-find-skip=""
-          onClick={() => showMore(collapsed)}
-        >
-          {t(collapsed ? "message.more" : "message.less")}
-        </button>
+          open={!collapsed}
+          controls={id}
+          onToggle={() => showMore(collapsed)}
+          label={t(collapsed ? "message.more" : "message.less")}
+        />
       )}
     </>
   );
@@ -297,9 +297,9 @@ export function PromptTyped({
 const MAX_PLAIN_FOREIGN_IDS = 64;
 
 function plainWithForeignFiles(text: string): ReactNode {
-  const ids = foreignFileIds(text);
+  const ids = foreignFileIds(text, MAX_PLAIN_FOREIGN_IDS);
   if (!ids.length || ids.length > MAX_PLAIN_FOREIGN_IDS) return text;
-  return withForeignFiles(text, "f", (piece) => [piece]);
+  return withForeignFiles(text, "f", (piece) => [piece], ids);
 }
 
 /// Literal prompt text with each bare web address a link (UrlChip, as in a reply) and each cmux app

@@ -1,3 +1,4 @@
+import CmuxNextDictation
 import CmuxNextSettings
 import CoreGraphics
 import Foundation
@@ -17,7 +18,6 @@ import Testing
     private func handoff(installed: Set<String> = ["com.openai.codex"], mayPost: Bool = true, posted: Posted) -> AgentPaneDictationHandoff {
         var handoff = AgentPaneDictationHandoff()
         handoff.installedURL = { installed.contains($0) ? URL(fileURLWithPath: "/Applications/\($0).app") : nil }
-        handoff.running = { ["com.openai.codex"] }
         handoff.mayPost = { mayPost }
         handoff.post = { posted.presses.append(($0, $1)); return true }
         handoff.systemDictation = { posted.system += 1 }
@@ -76,8 +76,6 @@ import Testing
         let sources = handoff(installed: ["com.openai.chat", "com.electron.wispr-flow"], posted: posted).sources()
         #expect(sources.map { $0["id"] as? String } == ["chatgpt", "wisprFlow"])
         #expect(sources.first?["bundleId"] as? String == "com.openai.chat")
-        #expect(sources.first?["running"] as? Bool == true)
-        #expect(sources.last?["running"] as? Bool == false)
     }
 
     @Test func everyDefaultChordParsesToAKey() {
@@ -127,8 +125,8 @@ import Testing
         #expect(event.value.value(at: ["code"])?.stringValue == "dictation.accessibility")
     }
 
-    /// The hand-off posts keys into the app in front: page script with no click or key in the pane
-    /// gets nothing posted; a real gesture goes through.
+    /// The hand-off posts keys into the app in front: page script, or a gesture only the page saw,
+    /// gets nothing posted; the person's own click in the pane goes through, once.
     @Test func theHandoffNeedsAUserGesture() async {
         let posted = Posted()
         let model = AgentPaneModel(host: NoHost())
@@ -136,7 +134,18 @@ import Testing
         model.composer = setting(.chatgpt)
         let refused = await model.respond(to: .dictationHandoff, userGesture: false)
         #expect(refused["ok"] as? Bool != true)
+        // A page's gesture alone is not enough: it counts a click another process posted too.
+        let pageOnly = await model.respond(to: .dictationHandoff, userGesture: true)
+        #expect(pageOnly["ok"] as? Bool != true)
         #expect(posted.presses.isEmpty)
+        // A key press the person typed elsewhere in the pane leaves a credit, but not a click: refused.
+        model.transport.gestures.record()
+        _ = await model.respond(to: .dictationHandoff, userGesture: true)
+        #expect(posted.presses.isEmpty)
+        // The person's own click in the pane (AgentPaneView's judge records it), spent once.
+        model.transport.gestures.record(click: true)
+        _ = await model.respond(to: .dictationHandoff, userGesture: true)
+        #expect(posted.presses.count == 1)
         _ = await model.respond(to: .dictationHandoff, userGesture: true)
         #expect(posted.presses.count == 1)
     }
@@ -152,5 +161,26 @@ import Testing
         #expect(handoff.handOff(setting(.cmux)) == .ownDictation)
         #expect(handoff.handOff(setting(.wisprFlow)) == .notInstalled)
         #expect(posted.stops == 2)
+    }
+
+    /// Home's or a terminal's dictation holds the microphone through the app's claims: the
+    /// hand-off's yield stops it too, keeping its words, and leaves the microphone to no one.
+    @Test func aYieldStopsWhoeverHoldsTheMicrophone() {
+        let claims = DictationMicrophoneClaims()
+        let home = NSObject()
+        var stopped = 0
+        claims.claim(home) { stopped += 1 }
+        claims.yield()
+        #expect(stopped == 1)
+        #expect(!claims.isHeld(by: home))
+        claims.yield()
+        #expect(stopped == 1)
+    }
+
+    /// A chord the person set that does not parse is refused, never swapped for the app's default.
+    @Test func aBadChordIsRefusedNotReplaced() {
+        let posted = Posted()
+        #expect(handoff(posted: posted).handOff(setting(.chatgpt, shortcut: "ctrl+")) == .badShortcut)
+        #expect(posted.presses.isEmpty)
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CmuxNextDictation
 import CmuxNextSettings
 
 /// The composer's mic when `agentPane.dictationSource` names an app the person already dictates
@@ -34,8 +35,6 @@ struct AgentPaneDictationHandoff {
 
     /// Where an app is installed (tests pass their own).
     var installedURL: (String) -> URL? = { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
-    /// The bundle ids running now.
-    var running: () -> Set<String> = { Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)) }
     /// Whether this app may post key events (Accessibility), asking once when it may not.
     var mayPost: () -> Bool = {
         if CGPreflightPostEventAccess() { return true }
@@ -53,22 +52,24 @@ struct AgentPaneDictationHandoff {
         up.post(tap: .cghidEventTap)
         return true
     }
-    /// Ends cmux's own dictation wherever it runs (another pane's included), keeping its words: the
-    /// microphone goes to the app the mic hands off to, never to two listeners at once.
-    var stopOwnDictation: () -> Void = { DictationMicrophone.shared.stopListening() }
+    /// Ends cmux's own dictation wherever it runs (another pane's, Home's or a terminal's), keeping
+    /// its words: the microphone goes to the app the mic hands off to, never to two listeners at once.
+    var stopOwnDictation: () -> Void = {
+        DictationMicrophone.shared.stopListening()
+        DictationMicrophoneClaims.shared.yield()
+    }
     /// macOS Dictation, in the composer that has the keyboard.
     var systemDictation: () -> Void = { _ = NSApp.tryToPerform(AgentPaneDictationKey.action, with: nil) }
 
     /// The bundle id of `app` this Mac has, or nil.
     func installed(_ app: App) -> String? { app.bundleIds.first { installedURL($0) != nil } }
 
-    /// `dictation.sources`: each app source this Mac has, with whether it runs now, for the mic's
-    /// menu. Apps the Mac does not have are left out, so the page learns nothing about them.
+    /// `dictation.sources`: each app source this Mac has, for the mic's menu. Apps the Mac does not
+    /// have are left out, so the page learns nothing about them. Whether one runs is not read: cmux
+    /// never scans processes (plans/cmux-next/pty-holder.md).
     func sources() -> [[String: Any]] {
-        let running = running()
-        return Self.apps.compactMap { app in
-            guard let bundleId = installed(app) else { return nil }
-            return ["id": app.source.rawValue, "bundleId": bundleId, "running": app.bundleIds.contains { running.contains($0) }]
+        Self.apps.compactMap { app in
+            installed(app).map { ["id": app.source.rawValue, "bundleId": $0] }
         }
     }
 
@@ -76,6 +77,9 @@ struct AgentPaneDictationHandoff {
     enum Failure: Error, Equatable {
         /// The source is cmux's own: the caller starts cmux's dictation.
         case ownDictation
+        /// Automation ran it (`cmux action run`, an agent): only a person's own press types into
+        /// another app.
+        case notPersons
         case notInstalled
         case noAccessibility
         case badShortcut
@@ -139,6 +143,7 @@ struct AgentPaneDictationHandoff {
     static func code(_ failure: Failure) -> String {
         switch failure {
         case .ownDictation: "dictation.own"
+        case .notPersons: "dictation.person_only"
         case .notInstalled: "dictation.app_not_installed"
         case .noAccessibility: "dictation.accessibility"
         case .badShortcut: "dictation.bad_shortcut"

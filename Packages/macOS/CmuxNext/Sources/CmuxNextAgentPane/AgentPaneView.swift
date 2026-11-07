@@ -350,6 +350,7 @@ public final class AgentPaneView: NSView {
         observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         installSessionInfo()
+        installHostGlass()
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -437,10 +438,16 @@ public final class AgentPaneView: NSView {
         super.layout()
         let frame = topBar.contentFrame(in: bounds)
         let shown = holdsPageAway ? Self.awayFrame(of: frame) : frame
-        if let page { page.frame = shown } else { webView.frame = shown }
+        if let page {
+            let moved = page.frame != shown
+            page.frame = shown
+            // Held away and back (an adopted chat drew), or resized: the native holes follow the page.
+            if moved { applyNativeRects() }
+        } else { webView.frame = shown }
         placeChromiumMove(at: frame)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
+        layoutHostGlass()
         // A pane resized or moved under shown toasts: its band follows at once.
         if toastsRect != nil || sentToastRoom != 0 { sendToastRoom(duration: 0) }
         redraw.laidOut(self)
@@ -462,8 +469,9 @@ public final class AgentPaneView: NSView {
 
     /// Toggle Dictation (the shortcut, palette or menu). From a key press,
     /// holding the key past a moment makes it push-to-talk: dictation stops
-    /// when the key comes up.
-    public func toggleDictation(from event: NSEvent? = NSApp.currentEvent) {
+    /// when the key comes up. `byPerson` is false for automation's runs (`cmux action run`), which
+    /// never hand off: a hand-off types into whichever app is in front.
+    public func toggleDictation(from event: NSEvent? = NSApp.currentEvent, byPerson: Bool = true) {
         // A dictation app the person picked (`agentPane.dictationSource`) gets the press instead,
         // as the mic's click does (`dictation.handoff`). macOS Dictation writes where the keyboard
         // is, so the pane's page takes it first, in whichever engine shows it (the page keeps its
@@ -475,7 +483,11 @@ public final class AgentPaneView: NSView {
             dictation.toggle(from: event)
             return
         }
-        switch model.dictationHandoff.handOff(model.composer) {
+        // A hand-off types into another app: only for the person's own key or click (Globe-D, the
+        // Edit menu, the palette), never a posted one or a script's run.
+        let person = byPerson && (event ?? NSApp.currentEvent).map { AgentPanePersonInput.isPerson($0, sources: eventSources) } == true
+        let handOff = person || model.composer.dictationSource == .cmux
+        switch handOff ? model.dictationHandoff.handOff(model.composer) : .notPersons {
         case nil: return
         case .ownDictation: dictation.toggle(from: event)
         case let failure?:
@@ -648,6 +660,7 @@ public final class AgentPaneView: NSView {
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
         themeSessionInfo(tokens)
+        themeHostGlass()
         themeLoadingState(tokens)
         page?.themeSurface = surface
         if let pageEvents {
@@ -676,5 +689,13 @@ public final class AgentPaneView: NSView {
         } else {
             for script in scripts() { evaluateScript(script) }
         }
+    }
+
+    /// Publishes a Cloud preview port event: an event on the page host, the store's window hook on
+    /// the old host (`agent.pageHost` off, the default; cloudPreviewPorts.ts).
+    public func cloudPreviewPortOpened(port: Int, process: String?, machineID: String? = nil,
+                                       state: String = "up", known: Bool = false) {
+        let event = AgentPageEvent.cloudPreviewPort(port: port, process: process, machineID: machineID, state: state, known: known)
+        deliver([event], scripts: [event.cloudPreviewPortScript])
     }
 }

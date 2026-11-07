@@ -121,7 +121,7 @@
 
 /* The app the mic dictates with (DictationButton, `agentPane.dictationSource`): its icon in the
    mic's place, at the glyph's size, so the button keeps its footprint. */
-.acpmux-mic-app {
+.acpmux-mic-app-icon {
   display: block;
   width: 16px;
   height: 16px;

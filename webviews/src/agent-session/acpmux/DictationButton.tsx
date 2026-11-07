@@ -6,7 +6,7 @@
 // three drawn bars take the glyph's place and the tooltip names the app; the button keeps its size,
 // its press and its focus behavior, so the composer goes on as before.
 import React, { useRef } from "react";
-import { useSourceIcon } from "./composer/SourceBadge";
+import { useSourceIcon } from "./composer/sourceBadgeModel";
 import { MicIcon, StopIcon } from "./ComposerPickers";
 import { useComposerLook } from "./composerLook";
 import { useComposerSettings } from "./composerSettings";
@@ -73,7 +73,7 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
       {look === "codex" && isActive(state) ? (
         <StopIcon />
       ) : icon && !isActive(state) ? (
-        <img className="acpmux-mic-app" src={icon} alt="" width={16} height={16} draggable={false} />
+        <img className="acpmux-mic-app-icon" src={icon} alt="" width={16} height={16} draggable={false} />
       ) : (
         <MicIcon />
       )}
