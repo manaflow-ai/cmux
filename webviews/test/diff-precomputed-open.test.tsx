@@ -182,8 +182,7 @@ test("a reconcile's renames carry the reader's file and the comment draft to the
   // (`a.ts` to `a.ts?deleted`, the new one is `a.ts?2`). A reconcile renamed only its staged items, so
   // the reader on `a.ts` fell back to the first file and the draft kept an id no file has.
   const status = createDiffViewerStatus("", { loading: false });
-  const item = (id: string) =>
-    ({ id, type: "diff", version: 0, fileDiff: { name: "a.ts", hunks: [{}] } }) as never;
+  const item = (id: string) => ({ id, type: "diff", version: 0, fileDiff: { name: "a.ts", hunks: [{}] } }) as never;
   let state = initialAppState({ payload: {} } as never, status);
   state = reducer(state, { type: "append-items", items: [item("z.ts"), item("a.ts")] });
   state = reducer(state, { type: "set-active-item", itemId: "a.ts" });

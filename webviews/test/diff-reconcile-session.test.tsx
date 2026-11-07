@@ -150,7 +150,15 @@ async function reconcile(
     if (whileStreaming) {
       await act(async () => whileStreaming());
       // Taken now: the unmount below closes whatever is still open.
-      return { calls: [...calls], actions, dispatched, prepared, patchURLs, active: active.current, retained: retained.current };
+      return {
+        calls: [...calls],
+        actions,
+        dispatched,
+        prepared,
+        patchURLs,
+        active: active.current,
+        retained: retained.current,
+      };
     }
     // Until the reconcile ends: its new diff committed, or it failed and the shown one stays.
     for (
@@ -196,8 +204,14 @@ test("a reconcile that commits makes its session the active one and closes the o
 // with its items, its generated paths wait for the commit, and a page hidden mid-reconcile closes it.
 // The first `a.ts` must have left the stream's pending batch (at most 96 files) before the second
 // arrives, or the stream renames it in place and reports no rename.
-const added = (path: string) =>
-  [`diff --git a/${path} b/${path}`, "new file mode 100644", "--- /dev/null", `+++ b/${path}`, "@@ -0,0 +1 @@", "+x"];
+const added = (path: string) => [
+  `diff --git a/${path} b/${path}`,
+  "new file mode 100644",
+  "--- /dev/null",
+  `+++ b/${path}`,
+  "@@ -0,0 +1 @@",
+  "+x",
+];
 const twice = [
   "diff --git a/a.ts b/a.ts",
   "deleted file mode 100644",
@@ -231,7 +245,7 @@ test("a failed reconcile leaves the shown diff's generated paths alone", async (
 test("a reconcile that commits applies its generated paths before its items", async () => {
   const result = await reconcile(async () => new Response(""), { generatedPaths: ["gen/out.ts"] });
   const types = result.dispatched.map((action) => action.type);
-  const generated = result.dispatched.findLastIndex((action) => action.type === "set-generated-paths");
+  const generated = types.lastIndexOf("set-generated-paths");
   expect(result.dispatched[generated]?.paths).toEqual(["gen/out.ts"]);
   expect(generated).toBeLessThan(types.indexOf("replace-items"));
 });
