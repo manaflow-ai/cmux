@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextLayout
 import Testing
 
 /// Main pane layout (`layout.mainPane`, Leo 2026-10-20): an agent chat is its screen's one main

@@ -50,6 +50,6 @@ import Testing
         #expect(rules.columnPlan("column.moveRight", facts) == .swapPane(right: true, pane: "p"))
         #expect(rules.columnPlan("column.widthHalf", facts) == .refuse(.alreadyHasWidth, quiet: true))
         #expect(rules.columnAvailability("column.widthHalf", column: column) == .addSecondColumn)
-        #expect(rules.dockNeeds(band: true, dockColumns: true, edgeDocks: false) == .edgeDocks)
+        #expect(rules.dockNeeds(band: true, dockColumns: true, edgeDocks: false) == "edge-docks-v1")
     }
 }
