@@ -114,6 +114,10 @@ export class BookmarksStore {
   private epoch = 0;
   /** Icon keys asked for and not answered yet. */
   private readonly asking = new Set<string>();
+  /** The editor's last unanswered save (its reply was lost): a retry of the same ops reuses its
+   * idempotency key, so the daemon replays it instead of making a second bookmark. */
+  private unanswered?: { ops: string; key: string };
+  private saving = false;
   /** A `reveal` of a node the tree does not hold yet. */
   private pendingReveal?: string;
 
@@ -403,6 +407,7 @@ export class BookmarksStore {
   }
 
   startAddBookmark(): void {
+    this.unanswered = undefined;
     this.set({
       editor: { mode: { kind: "addBookmark" }, isFolder: false, title: "", url: "", folder: this.addFolder() },
     });
@@ -410,10 +415,12 @@ export class BookmarksStore {
 
   startAddFolder(): void {
     const title = this.options.newFolderTitle ?? "";
+    this.unanswered = undefined;
     this.set({ editor: { mode: { kind: "addFolder" }, isFolder: true, title, url: "", folder: this.addFolder() } });
   }
 
   startEdit(node: Bookmark): void {
+    this.unanswered = undefined;
     this.set({ editor: editState(node) });
   }
 
@@ -426,17 +433,28 @@ export class BookmarksStore {
     if (this.snapshot.editor) this.set({ editor: undefined });
   }
 
-  /** Save (Return): one apply; an invalid URL or a refusal keeps the editor open and says why. */
+  /** Save (Return): one apply; an invalid URL or a refusal keeps the editor open and says why.
+   * A second Save while one is in flight does nothing. */
   async commitEditor(): Promise<boolean> {
     const editor = this.snapshot.editor;
-    if (!editor) return false;
+    if (!editor || this.saving) return false;
     const plan = editorOps(this.snapshot.tree, this.snapshot.profile, editor);
     if (!plan.ok) {
       this.set({ editor: { ...editor, error: { kind: "invalidURL" } } });
       return false;
     }
     if (plan.ops.length > 0) {
-      const refusal = await this.apply(plan.ops, false);
+      const ops = JSON.stringify(plan.ops);
+      const key = this.unanswered?.ops === ops ? this.unanswered.key : this.key();
+      this.saving = true;
+      let refusal: Notice | null;
+      try {
+        refusal = await this.apply(plan.ops, false, key, (lost) => {
+          this.unanswered = lost ? { ops, key } : undefined;
+        });
+      } finally {
+        this.saving = false;
+      }
       if (refusal) {
         // The editor may have closed (Escape) while the apply was in flight.
         const still = this.snapshot.editor;
@@ -543,13 +561,23 @@ export class BookmarksStore {
     this.set({ icons });
   }
 
-  /** One `cmux.bookmarks.apply`, then a re-list. Returns the refusal, or null. */
-  private async apply(ops: BookmarkOp[], report = true): Promise<Notice | null> {
+  /** One `cmux.bookmarks.apply`, then a re-list. Returns the refusal, or null. `answered` hears
+   * whether the reply was lost (the link closed or the call failed outside the page protocol):
+   * then the ops may have run. */
+  private async apply(
+    ops: BookmarkOp[],
+    report = true,
+    key = this.key(),
+    answered?: (lost: boolean) => void,
+  ): Promise<Notice | null> {
     if (!this.client) return null;
     try {
-      await this.client.call(BookmarkOps.apply, { ops, idempotency_key: this.key() });
+      await this.client.call(BookmarkOps.apply, { ops, idempotency_key: key });
+      answered?.(false);
     } catch (error) {
       const refusal = noticeOf(error);
+      const lost = !isPageError(error) || error.code === LINK_CLOSED;
+      answered?.(lost);
       if (isPageError(error) && error.code === LINK_CLOSED) this.set({ connection: "disconnected" });
       else if (report) this.set({ notice: refusal });
       // Ops before a refusal stay applied (`details.extra.applied`): the tree is re-read either way.

@@ -182,7 +182,11 @@ public final class BookmarkPageHostProvider: PageProvider {
         // task-owner: lives while the page listens (stopFollowingIcons); event-driven (Observation)
         iconObservation = Task { [weak self] in
             var first = true
-            for await _ in ObservationStream({ [weak host] in host?.bookmarkIconRevision ?? 0 }) {
+            // A row the app's tree gets after the page listed it has its icon now: the tree's
+            // count is followed too, so the page asks again for the icons it was told were missing.
+            for await _ in ObservationStream({ [weak self, weak host] in
+                [host?.bookmarkIconRevision ?? 0, self.flatMap { page in host?.bookmarkTree(page.profile).count } ?? 0]
+            }) {
                 // The stream's first value is the state at subscribe, not a change.
                 if first { first = false; continue }
                 self?.post("icons")

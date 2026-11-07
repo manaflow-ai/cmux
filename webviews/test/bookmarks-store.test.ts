@@ -120,6 +120,39 @@ test("a bad URL keeps the editor open without an apply; a refusal shows inline",
   expect(second.store.getSnapshot().editor?.error).toEqual({ kind: "refused", message: "Too many." });
 });
 
+test("a Save whose reply was lost is retried with the same key; a second Save in flight sends nothing", async () => {
+  let lose = true;
+  let hold = false;
+  let release: () => void = () => {};
+  class Flaky extends MockBookmarksProvider {
+    override async call<R>(op: string, params: unknown): Promise<R> {
+      if (op === BookmarkOps.apply && lose) {
+        lose = false;
+        await super.call(op, params);
+        throw new Error("the reply was lost");
+      }
+      if (op === BookmarkOps.apply && hold) await new Promise<void>((done) => (release = done));
+      return super.call<R>(op, params);
+    }
+  }
+  const provider = new Flaky();
+  let keys = 0;
+  const store = new BookmarksStore(provider, { newKey: () => `k${++keys}` });
+  await store.start();
+  store.startAddBookmark();
+  store.setEditor({ title: "x", url: "example.com" });
+  expect(await store.commitEditor()).toBe(false);
+  hold = true;
+  const first = store.commitEditor();
+  expect(await store.commitEditor()).toBe(false);
+  release();
+  expect(await first).toBe(true);
+  expect(applies(provider).map((call) => (call.params as { idempotency_key: string }).idempotency_key)).toEqual([
+    "k1",
+    "k1",
+  ]);
+});
+
 test("deleting a folder with its child selected is one apply that deletes the folder once", async () => {
   const { store, provider } = await started();
   const work = byTitle(store, "Work");
