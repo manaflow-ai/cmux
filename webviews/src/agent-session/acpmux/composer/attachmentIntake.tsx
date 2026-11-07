@@ -24,11 +24,12 @@ import {
 } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
-import { Close, FileDoc, ImageIcon, PlayTriangle, Retry, Spinner } from "../conversation/icons";
+import { Close, FileDoc, ImageIcon, PlayTriangle, Retry } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { keptThumb, keepThumb } from "./imagePool";
+import { imageSize, MAX_DECODE_PIXELS } from "./imageWork";
 import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { pastesPlaced } from "./composerCopy";
@@ -43,6 +44,8 @@ import { useAttachedVideoPlayer, VideoAttachmentTile } from "./VideoAttachmentTi
 import { FileAttachment } from "../FileAttachment";
 import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { PasteLoadingMark } from "./pasteLoading";
+import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 
 const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -72,7 +75,8 @@ function intakeErrorText(error: IntakeError, t: Translate): string {
 }
 
 export type AttachmentIntakeOptions = {
-  place?(chips: readonly PendingAttachment[]): void;
+  /// `kind`: how they came (a paste takes the selection's place; a drop or a pick replaces nothing).
+  place?(chips: readonly PendingAttachment[], kind?: DroppedKind): void;
   /// The agent takes images (`promptCapabilities.image`); false refuses an image with a note.
   allowImages: boolean;
   /// Whether a paste on `target` is this composer's: undefined is not; `uploads` false keeps its
@@ -165,7 +169,47 @@ export type PendingAttachment = {
   /// Its upload failed (the host's words, after its own tries again): a send waits for its Retry
   /// or x. A file the composer refused (`failed` alone, which Retry cannot change) holds none.
   uploadFailed?: boolean;
+  /// A failed chip that a Retry can make: its upload, or a chip the host makes (`bound`). A file
+  /// the composer refused fails the same way again, so it shows no Retry, only its x (Leo,
+  /// 2026-11-07: "idk why we even show the retry symbol then (do we even retry?").
+  retryable?: boolean;
+  /// An image's picture from the file itself (a `data:` URL of its own bytes), shown as soon as the
+  /// browser has read it, before its preview is scaled and encoded (Leo, 2026-11-07: "can't we make this all
+  /// "appear" a lot faster").
+  preview?: string;
 };
+
+/// Past this many bytes a loading tile shows no picture of the file itself, only its preview once
+/// made: its `data:` URL is a string the page holds and parses on its main thread, and three 8 MB
+/// screenshots' stalled typing (agent-pane-paste-large-screenshots). A display choice only: the file
+/// attaches whatever its size.
+const INSTANT_PREVIEW_MAX_BYTES = 4 * 1024 * 1024;
+
+/// `file`'s own picture as a `data:` URL (a cmux page's CSP allows `img-src data:`, not `blob:`),
+/// encoded by the browser off the main thread (FileReader); undefined for one that is not an image,
+/// past INSTANT_PREVIEW_MAX_BYTES, whose header gives no size, or whose pixels pass the limit its
+/// preview is held to (imageWork.ts MAX_DECODE_PIXELS: a small file can decode to gigabytes), or that
+/// cannot be read here (a test's DOM). Such a tile shows its kind's glyph until its preview is made.
+export async function instantPreview(file: File | MadeFile): Promise<string | undefined> {
+  if (
+    isMadeFile(file) ||
+    !isImageFile(file) ||
+    file.size > INSTANT_PREVIEW_MAX_BYTES ||
+    typeof FileReader === "undefined"
+  )
+    return undefined;
+  const size = await imageSize(file).catch(() => undefined);
+  if (!size?.width || !size.height || size.width * size.height > MAX_DECODE_PIXELS) return undefined;
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      resolve(url.startsWith("data:image/") ? url : undefined);
+    };
+    reader.onerror = () => resolve(undefined);
+    reader.readAsDataURL(file);
+  });
+}
 
 /// What Retry needs of a pending chip: its file and how it came in.
 /// Whether chip `chip` (an image whose original may still upload) was taken out of its chat's
@@ -325,6 +369,18 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       ...(isVideoName(file.name) ? { video: true } : {}),
       scope: batch.scope,
     }));
+    // Each image's own picture, on its tile while the tile still loads.
+    files.forEach((file, index) => {
+      const id = shown[index]!.id;
+      void instantPreview(file).then((preview) => {
+        if (!preview) return;
+        setPending((chips) =>
+          chips.some((chip) => chip.id === id && !chip.failed && !chip.preview)
+            ? chips.map((chip) => (chip.id === id ? { ...chip, preview } : chip))
+            : chips,
+        );
+      });
+    });
     // This read's own source for each chip: a chip cancelled and brought back (undo, `revive`) or
     // read again (Retry) under the same id has a new one, and only the read that owns the id's
     // source now settles it, so an older read still running never takes or drops the newer one's.
@@ -351,7 +407,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       );
     else {
       setPending((chips) => [...chips, ...shown]);
-      current.place?.(shown);
+      current.place?.(shown, dropped);
     }
     const paths = current.localPaths;
     /// The chip each file became, by index, for its original's path arriving later.
@@ -450,7 +506,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           if (!still()) return;
           setPending((chips) =>
             chips.map((chip) =>
-              chip.id === id ? { ...chip, failed, uploadFailed: true, uploading: false, progress: undefined } : chip,
+              chip.id === id
+                ? { ...chip, failed, uploadFailed: true, retryable: true, uploading: false, progress: undefined }
+                : chip,
             ),
           );
         };
@@ -558,8 +616,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
             // Only in the chat shown: a chip in another chat's kept draft comes back unmarked.
             if (!id || !staged.has(id) || batch.scope !== live.current.options.scope) return;
             originals.current.set(id, settled[index]!);
-            const failed = intakeErrorText(error, live.current.t);
-            setOriginalFailures((now) => ({ ...now, [id]: failed }));
+            originalMissed(id, intakeErrorText(error, live.current.t));
           },
         },
       );
@@ -599,7 +656,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           batches.current.delete(batch);
           if (!sources.current.has(chip.id)) return;
           if (!attachment) {
-            setPending((chips) => chips.map((shown) => (shown.id === chip.id ? { ...shown, failed: failure } : shown)));
+            setPending((chips) =>
+              chips.map((shown) => (shown.id === chip.id ? { ...shown, failed: failure, retryable: true } : shown)),
+            );
             return;
           }
           sources.current.delete(chip.id);
@@ -659,6 +718,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     void intake(["then" in file ? { name, type, file } : file], source.uploads, undefined, id);
     return true;
   });
+  /// The original of staged image `id` was not saved (`failed`, why): its chip shows Retry, local
+  /// chat or not, since saving it again is a real retry (a prompt too large for one message goes
+  /// with links to the originals only once they are saved, promptBudget.ts). Nothing retries on its
+  /// own: an upload only ever runs from a Retry click, in the chat that shows it.
+  const [originalMissed] = useState(
+    () => (id: string, failed: string) => setOriginalFailures((now) => ({ ...now, [id]: failed })),
+  );
   /// A staged image's Retry for its original: the original uploads again, its preview staying staged.
   const [retryOriginal] = useState(() => async (id: string) => {
     const file = originals.current.get(id);
@@ -689,7 +755,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     originals.current.set(id, file);
     const error: IntakeError =
       sent && "error" in sent ? { text: sent.error } : { name: file.name, reason: "unsupported" };
-    failure(intakeErrorText(error, live.current.t));
+    originalMissed(id, intakeErrorText(error, live.current.t));
   });
   /// An image no longer in the strip has no Retry to show: its original's file and failure go.
   useEffect(() => {
@@ -783,6 +849,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     attachments,
     setAttachments,
     pending: shown,
+    // Every chat shows these: saving an original again is a real retry wherever the agent runs.
     originalFailures,
     originalUploads,
     loading,
@@ -1042,6 +1109,7 @@ function PendingChip({
   onRetry?(id: string): void;
 }) {
   const t = useT();
+  const look = usePasteLoadingLook();
   const name = chip.image ? imageLabel(t, { name: chip.name }) : chip.name;
   const remove = onCancel && (
     <button
@@ -1078,20 +1146,40 @@ function PendingChip({
             <span className="acpmux-attachment-failed-name">{chip.name}</span>
           </>
         )}
-        {onRetry && <RetryButton reason={chip.failed} onRetry={() => onRetry(chip.id)} />}
+        {onRetry && chip.retryable && <RetryButton reason={chip.failed} onRetry={() => onRetry(chip.id)} />}
         {remove}
       </div>
     );
   return (
-    <div className={`acpmux-attachment ${kind} acpmux-attachment-pending`} aria-busy="true" aria-label={name}>
-      {chip.progress === undefined ? (
-        <Spinner loading size={16} className="acpmux-attachment-spinner" />
-      ) : (
-        <UploadProgress value={chip.progress} name={name} />
-      )}
+    <div
+      className={`acpmux-attachment ${kind} acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}
+      data-paste-look={look}
+      aria-busy="true"
+      aria-label={name}
+      // The image's own picture behind the spinner (a background, not an <img>: the strip's images
+      // are its ready chips).
+      {...(chip.preview && square ? { "data-instant": "", style: { backgroundImage: `url("${chip.preview}")` } } : {})}
+    >
+      <PasteLoadingMark
+        look={look}
+        size={16}
+        className="acpmux-attachment-spinner"
+        upload={chip.progress === undefined ? undefined : <UploadProgress value={chip.progress} name={name} />}
+      />
       {!square && <span>{chip.name}</span>}
       {remove}
     </div>
+  );
+}
+
+/// A loading image tile's picture, from the file itself (PendingAttachment `preview`): under the
+/// tile's spinner, filling it, until the chip it becomes takes its place. One the engine cannot
+/// draw (a HEIC in Chromium) just goes, leaving the tile as it was.
+export function InstantPreview({ src }: { src: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return null;
+  return (
+    <img className="acpmux-attachment-instant" src={src} alt="" draggable={false} onError={() => setBroken(true)} />
   );
 }
 
