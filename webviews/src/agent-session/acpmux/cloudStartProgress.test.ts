@@ -7,6 +7,7 @@ import {
   cloudStartBegun,
   cloudStartEnded,
   cloudStartPushed,
+  cloudStartSignedIn,
 } from "./cloudStartProgress";
 
 const begun = () => cloudStartBegun("k-1", "fix the build", "/Users/me/src/paint/");
@@ -14,6 +15,21 @@ const begun = () => cloudStartBegun("k-1", "fix the build", "/Users/me/src/paint
 test("a start shows the message and the folder by its name", () => {
   expect(begun()).toEqual({ key: "k-1", task: "fix the build", state: "starting", folder: "paint" });
   expect(cloudStartBegun("k", "t", undefined)).toEqual({ key: "k", task: "t", state: "starting" });
+});
+
+test("a start waiting on its browser sign-in is marked until it signs in or ends", () => {
+  const waiting = cloudStartBegun("k-1", "fix the build", "/Users/me/src/paint/", undefined, undefined, true);
+  expect(waiting).toEqual({ ...begun(), signingIn: true });
+  // Signed in: the same start goes on, no longer waiting.
+  expect(cloudStartSignedIn(waiting, "k-1")).toEqual(begun());
+  // Another start's sign-in, or a start that never waited, is unchanged.
+  expect(cloudStartSignedIn(waiting, "k-2")).toBe(waiting);
+  expect(cloudStartSignedIn(begun(), "k-1")).toEqual(begun());
+  // A sign-in that failed or timed out ends the wait: the card offers sign in again.
+  const ended = cloudStartEnded(waiting, "k-1", { ok: false, code: "not_signed_in", message: "Sign-in timed out." });
+  expect(ended?.state).toBe("failed");
+  expect(ended?.code).toBe("not_signed_in");
+  expect(ended?.signingIn).toBeUndefined();
 });
 
 test("the host's push fills the card, field by field, each checked", () => {
@@ -64,6 +80,9 @@ test("the start's answer: an opened chat clears the card, a failure keeps it wit
     state: "failed",
     code: "unavailable",
   });
+  expect(
+    cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_plan_required", message: "Upgrade to use Cloud" }),
+  ).toEqual({ ...begun(), state: "failed", code: "cloud_plan_required", message: "Upgrade to use Cloud" });
   expect(cloudStartEnded(begun(), "k-2", { ok: true })).toEqual(begun());
   expect(cloudStartEnded(undefined, "k-1", { ok: true })).toBeUndefined();
 });

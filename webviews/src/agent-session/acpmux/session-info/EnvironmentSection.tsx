@@ -11,12 +11,11 @@
 // repository is there, which the pane opens in the browser as it opens a reply's link, and Changes
 // opens the diff.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useT, type StringKey } from "../i18n";
+import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { machineColor } from "../machineColor";
-import type { SavedEnvironmentDraft } from "../environments";
-import type { AcpmuxSnapshot } from "../model";
+
 import { chatMachine, type ChatPlace } from "../chatMachine";
 import { homePath } from "../sessionList";
 import { chatProject } from "./chatFolders";
@@ -24,15 +23,9 @@ import { Counts } from "../changes/Counts";
 import { openCloudEnvironment } from "../cloudEnvironment";
 import { Switch } from "../../../ui/Switch";
 import "../../../ui/controls.css";
-import {
-  CloudRepositoryPicker,
-  loadAttachedCloudRepos,
-  type AttachedCloudRepo,
-  type PendingCloudRepo,
-} from "./CloudRepositoryPicker";
-
-type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
-
+import { CloudRepositoryPicker } from "./CloudRepositoryPicker";
+import { loadAttachedCloudRepos, type AttachedCloudRepo, type PendingCloudRepo } from "./cloudRepositoryPickerModel";
+import { type Summary, REMOTE_CONTROL_ICON, MACHINE_KIND_LABELS } from "./environmentSectionModel";
 /// Something the chat was granted (App.tsx `accessGrants`): its label, and how Revoke takes it back.
 export type AccessGrant = {
   id: string;
@@ -46,42 +39,6 @@ const ROW_ICON = rowIconSize(12);
 /// Gallery alternatives: `branch`, the branch as a chip in the project's row, with no branch row;
 /// `parent`, the name with its parent folder after it (the path text Leo asked not to see).
 export type ProjectRowLook = "name" | "branch" | "parent";
-
-/// Remote Control's row icon. Shipped: `computeruse.click`, a pointer, as Claude Code desktop marks its
-/// Remote Control row; Leo, 2026-11-01: "i think we should rethink what symbol we have for remote
-/// control at least" (it was `device.phone`, a bare phone outline). The gallery shows the others.
-export const REMOTE_CONTROL_ICON = "computeruse.click";
-
-/// Where the chat runs, in words beside the machine's name: Local, SSH or Cloud, the words the
-/// environment picker gives each kind (EnvironmentPicker.tsx KIND_LABELS). A name alone never said
-/// whether the chat was on this Mac (Leo, 2026-10-31: "WHY IS THERE NOTHING THAT
-/// TELLS ME IF IT'S LOCAL OR IF").
-export const MACHINE_KIND_LABELS: Readonly<Record<"local" | "ssh" | "cloud", StringKey>> = {
-  local: "composer.envLocal",
-  ssh: "composer.envSSH",
-  cloud: "composer.cloud",
-};
-
-/// What Save keeps of the chat's environment (environments.ts, the New Tab page's saved
-/// environments): this Mac or the SSH machine, and the chat's folder, named after its project. Only
-/// a chat in a project has one: a chat in a temporary or internal folder (chatFolders.ts) saves
-/// nothing useful, and a Cloud machine's chat has none (a saved environment is this Mac or an SSH
-/// machine).
-export function environmentToSave(
-  summary: Summary | undefined,
-  peerKinds?: Readonly<Record<string, "ssh" | "cloud">>,
-  repository?: string,
-  place?: ChatPlace,
-): SavedEnvironmentDraft | undefined {
-  const machine = chatMachine(summary, undefined, peerKinds, place);
-  const project = chatProject(summary, repository);
-  const folder = summary?.cwd;
-  if (!summary || !folder || !project || machine.kind === "cloud") return undefined;
-  // An SSH machine is saved by its peer name; a chat reached over a remote route has none to save.
-  if (machine.kind === "ssh")
-    return summary.peer ? { name: project.name, kind: "ssh", host: summary.peer, folder } : undefined;
-  return { name: project.name, kind: "local", folder };
-}
 
 /// A row that does something when it is clicked (`onClick`, or `href`: a web address the pane opens
 /// in the browser as it opens a reply's link), else plain text.

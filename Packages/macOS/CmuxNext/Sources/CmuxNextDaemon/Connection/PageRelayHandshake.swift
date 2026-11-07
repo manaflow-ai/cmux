@@ -100,6 +100,8 @@ public struct PageOperations: Sendable, Equatable {
                               gesture: ["chief.profile.create", "chief.profile.delete", "chief.profile.undo", "workspace.open_url"], confirm: []),
         "stash": PageOperations(read: ["stash.list"],
                               gesture: ["stash.import"], confirm: []),
+        "tasks": PageOperations(read: ["tasks.snapshot"],
+                              gesture: ["tasks.archive", "tasks.create", "tasks.delegate", "tasks.move", "tasks.update"], confirm: []),
     ]
 
     /// Whether `operation` may go out where nothing narrows it: a listed read always, a `gesture`

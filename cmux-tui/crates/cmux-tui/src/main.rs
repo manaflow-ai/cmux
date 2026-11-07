@@ -1735,7 +1735,7 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
             raw_args.drain(..2);
             raw_args.insert(0, "remote-stop".to_string());
         }
-        Some("connect" | "ssh" | "forward" | "rpc" | "enroll" | "known-daemons") => {
+        Some("connect" | "ssh" | "forward" | "dial-tcp" | "rpc" | "enroll" | "known-daemons") => {
             raw_args.remove(0);
         }
         Some("-h" | "--help") | None => {}

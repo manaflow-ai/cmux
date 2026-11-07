@@ -294,6 +294,7 @@ impl SurfaceSessionScope {
             | MuxEvent::MachineUsageChanged(_)
             | MuxEvent::AppsChanged(_)
             | MuxEvent::StashChanged { .. }
+            | MuxEvent::TasksChanged(_)
             | MuxEvent::Empty => true,
         }
     }

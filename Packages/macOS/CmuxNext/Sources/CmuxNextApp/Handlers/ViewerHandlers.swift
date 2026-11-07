@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDiff
 import CmuxNextPalette
+import CmuxNextWindowRules
 
 /// The viewers' open actions (R89), one path for the palette, the CLI or
 /// socket, the File menu and shortcuts:
@@ -24,21 +25,23 @@ enum ViewerHandlers {
             guard let pane = context.paneController(asked) else { return }
             // On a chat (the shortcut, the palette, the File menu): beside it, as the header's Changes.
             let invocation = AgentBesidePlacement.besideChat(asked, in: pane)
-            // `path`: that folder's repository; else the pane's folder.
-            let given = invocation["path"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-            // A chat's turn whose changes no git source holds (a folder in no repository, a file
-            // outside it): a tab that shows the chat's own patch, beside the chat as any diff is.
-            if let patch = invocation[AgentPaneDiffPatch.textArgument]?.stringValue, !patch.isEmpty {
+            // `path`'s repository, else the pane's folder's; a chat's own patch (changes no git source holds) beside it (`files::open_diff`).
+            let patch = invocation[AgentPaneDiffPatch.textArgument]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+            let ask = WindowRules.DiffAsk(patch: patch != nil, path: invocation["path"]?.stringValue, paneFolder: ViewerService.folder(of: pane),
+                                          allowsViewChange: invocation.allowsViewChange, besideCaller: invocation.besideCaller)
+            guard let open = WindowRules().openDiff(ask) else { throw ActionFailure(message: MiscHandlerStrings.pickerNeedsFocus) }
+            if open.decision == "chatPatch", let patch {
                 let opening = invocation.besideCaller ? AgentBesidePlacement.opening(invocation, in: pane, then: nil) : nil
-                let chat = DiffChatPatch(text: patch, file: invocation[AgentPaneDiffPatch.fileArgument]?.stringValue, folder: given ?? ViewerService.folder(of: pane))
-                viewers.diffPages.open(chatPatch: chat, in: pane, focus: invocation.allowsViewChange && !invocation.besideCaller, created: opening?.created,
+                let chat = DiffChatPatch(text: patch, file: invocation[AgentPaneDiffPatch.fileArgument]?.stringValue, folder: open.folder)
+                viewers.diffPages.open(chatPatch: chat, in: pane, focus: open.focus == true, created: opening?.created,
                                        failed: { opening?.failed($0.map { ActionWorkFailure("open diff", $0) }) })
                 return
             }
-            guard let folder = given ?? ViewerService.folder(of: pane) else {
-                return try showPicker(diffPicker(invocation, pane, viewers), context, invocation)
+            guard open.decision == "folder", let folder = open.folder else {
+                if open.decision == "picker" { return context.services.palette.show(page: diffPicker(invocation, pane, viewers), relativeTo: context.activeWindow?.window) }
+                throw ActionFailure(message: MiscHandlerStrings.pickerNeedsFocus)
             }
-            let focus = invocation.allowsViewChange && !invocation.besideCaller
+            let focus = open.focus == true
             // A chat's open (its header's Changes, an edited-files card) names a turn for Last turn.
             let turn = diffTurn(invocation), showTurn = invocation[AgentPaneDiffTurn.showArgument]?.boolValue == true
             // An agent's diff beside its chat: selected in the column right of it, or moved into a new one.
@@ -57,10 +60,12 @@ enum ViewerHandlers {
                     opening?.failed(nil)
                     // This Mac's picker cannot choose a folder of another machine (#25581): say why
                     // the pane's folder did not open (no repository, the machine is offline).
-                    guard pane.daemon.isLocal else { return ActionWorkFailure("open diff", ActionFailure(message: ViewerService.reason(error))) }
-                    guard invocation.allowsViewChange else { return backgroundPickerRefusal() }
+                    switch WindowRules().diffFailed(local: pane.daemon.isLocal, allowsViewChange: invocation.allowsViewChange) {
+                    case "reason"?: return ActionWorkFailure("open diff", ActionFailure(message: ViewerService.reason(error)))
                     // The header's pick still opens beside the chat, as its diff would have.
-                    context.services.palette.show(page: diffPicker(invocation, pane, viewers), relativeTo: context.activeWindow?.window)
+                    case "picker"?: context.services.palette.show(page: diffPicker(invocation, pane, viewers), relativeTo: context.activeWindow?.window)
+                    default: return backgroundPickerRefusal()
+                    }
                 }
                 return nil
             })
@@ -74,19 +79,23 @@ enum ViewerHandlers {
         registry.bindEffect("openMarkdownFile", effect: { invocation in
             guard let pane = context.paneController(invocation) else { return .done }
             do {
-                if let path = invocation["path"]?.stringValue, !path.isEmpty {
-                    if !pane.daemon.isLocal {
-                        guard path.hasPrefix("/"), !path.contains("\u{0}") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
-                        if let reason = viewers.openFile(URL(fileURLWithPath: path), on: pane.daemon, from: pane, userChose: invocation.origin == .user) {
-                            throw ActionFailure(message: reason)
-                        }
-                    } else if AgentBesidePlacement.showsChat(pane) {
-                        if let reason = viewers.openFile(URL(fileURLWithPath: path), on: nil, from: pane, userChose: true) { throw ActionFailure(message: reason) }
-                    } else {
-                        viewers.openFile(URL(fileURLWithPath: path), in: pane, markdown: true)
+                let open = WindowRules().openMarkdown(path: invocation["path"]?.stringValue, local: pane.daemon.isLocal, // `files::open_markdown`
+                                                      showsChat: AgentBesidePlacement.showsChat(pane), allowsViewChange: invocation.allowsViewChange)
+                switch (open?.decision, open?.place, open?.path) {
+                case ("open"?, "remote"?, let path?):
+                    if let reason = viewers.openFile(URL(fileURLWithPath: path), on: pane.daemon, from: pane, userChose: invocation.origin == .user) {
+                        throw ActionFailure(message: reason)
                     }
-                } else {
-                    try showPicker(viewers.filePickerPage(for: pane, markdown: true), context, invocation)
+                case ("open"?, "besideChat"?, let path?):
+                    if let reason = viewers.openFile(URL(fileURLWithPath: path), on: nil, from: pane, userChose: true) { throw ActionFailure(message: reason) }
+                case ("open"?, _, let path?):
+                    viewers.openFile(URL(fileURLWithPath: path), in: pane, markdown: true)
+                case ("picker"?, _, _):
+                    context.services.palette.show(page: viewers.filePickerPage(for: pane, markdown: true), relativeTo: context.activeWindow?.window)
+                case ("refused"?, _, let path?) where open?.refusal == "pathNotAbsolute":
+                    throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
+                default:
+                    throw ActionFailure(message: MiscHandlerStrings.pickerNeedsFocus)
                 }
                 return .done
             } catch {

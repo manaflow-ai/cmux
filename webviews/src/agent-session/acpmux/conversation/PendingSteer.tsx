@@ -3,7 +3,8 @@ import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
 import { Close } from "./icons";
-import { MessageCopy, MessageFooterRow, ROW_ICON } from "./MessageActions";
+import { MessageCopy, MessageFooterRow } from "./MessageActions";
+import { ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext, type QueuedActions, type TakeBack } from "./turnActions";
 
 /// Under a steer the agent has not read yet: a quiet clock (it reads a steer when its current

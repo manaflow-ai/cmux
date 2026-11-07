@@ -30,6 +30,7 @@ import {
   offersRetry,
   retryPlacement,
   workedLabel,
+  workedMessagesText,
 } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
@@ -37,15 +38,14 @@ import { hasTokens, TimedLabel, tokensText } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
-  forkWithFeedback,
   MessageCopy,
   MessageFooterRow,
   MessageMore,
   PinButton,
   ReadAloudButton,
   ReplyTime,
-  ROW_ICON,
 } from "./MessageActions";
+import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import type { CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
@@ -61,9 +61,10 @@ import {
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
-import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
+import { CodeRouterAction } from "./CodeRouterOffer";
+import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
-import { PresentationContext } from "./PresentationContext";
+import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./TurnWaterfall";
 
@@ -75,7 +76,8 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   const t = useT();
   if (row.previous !== undefined || row.durationMs === undefined) return workedLabel(t, row);
   const key = row.status === "cancelled" ? "turn.stopped" : "turn.worked";
-  return <TimedLabel text={(time) => t(key, { time })} time={row.durationMs} />;
+  const messages = workedMessagesText(t, row);
+  return <TimedLabel text={(time) => t(key, { time }) + messages} time={row.durationMs} />;
 }
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls. It says the time alone,

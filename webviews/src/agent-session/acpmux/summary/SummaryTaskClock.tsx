@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { formatDuration } from "../conversation/turns";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 
 // One page clock subscription for this entire Summary, however many tasks it lists.
 // Only elapsed labels consume its value: finished rows are never revisited on a tick.

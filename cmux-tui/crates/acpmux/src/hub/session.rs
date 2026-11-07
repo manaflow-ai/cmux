@@ -756,9 +756,13 @@ impl Session {
     pub fn moving(&self) -> Option<String> {
         self.moving.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
-    /// A failed turn holds the prompts that waited behind it (`queue.rs` `pause_queue`).
+    /// A prompt a hold keeps waits for the person's Resume (`queue.rs` `pause_queue`,
+    /// `QueuedPrompt::waits_for_resume`). What a failed turn held goes in again by itself after
+    /// its wait, so that pauses nothing.
     pub fn queue_paused(&self) -> bool {
-        self.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| q.held)
+        let stop_held = self.stop_hold.load(Ordering::SeqCst) != 0;
+        let queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        queue.iter().any(|q| q.held && q.waits_for_resume(stop_held))
     }
     pub fn pending_permissions(&self) -> Vec<(String, Value)> {
         self.permissions

@@ -68,6 +68,7 @@ type SizeResult = {
   layout: Summary;
   response_frames: Summary;
   stalls: number;
+  failed_ticks: number;
   long_tasks: number;
   long_task_max: number;
   ticks: number;
@@ -89,12 +90,15 @@ async function tickRun({
   live,
   pagingMs,
   input,
+  hold,
 }: {
   rounds: number;
   session: string;
   live: boolean;
   pagingMs: number;
   input: "notch" | "precise";
+  /// Waits after paging and settling until the bench sets `cmuxTickGo` (it starts its CPU profile then).
+  hold: boolean;
 }): Promise<Omit<SizeResult, "turns" | "open_ms"> | { error: string }> {
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   if (!scroller) return { error: "no transcript" };
@@ -222,11 +226,20 @@ async function tickRun({
       });
     }
   }
+  const signals = window as unknown as {
+    cmuxTickSettled?: boolean;
+    cmuxTickGo?: boolean;
+    cmuxTickReady?: boolean;
+    cmuxTickInputDone?: boolean;
+  };
+  signals.cmuxTickSettled = true;
+  while (hold && !signals.cmuxTickGo) await frame();
   const work: number[] = [];
   const responses: number[] = [];
   let reversals = 0;
   let movedFrames = 0;
   let stalls = 0;
+  let failedTicks = 0;
   let ticks = 0;
   let lastTop = scroller.scrollTop;
   let frameStart = await frame();
@@ -258,11 +271,13 @@ async function tickRun({
       }),
     );
   };
-  /// After a tick: frames until the first move (the response), then until the glide rests for 6 frames.
+  /// After a tick: frames until the first move (the response), then until the glide rests for 6 frames. A
+  /// tick that never moves within `cap` frames counts as failed; still frames inside its glide as stalls.
   const ride = async (cap = 240) => {
     let frames = 0;
     let moved = false;
     let still = 0;
+    const moves: boolean[] = [];
     while (frames < cap) {
       frames += 1;
       const now = await step();
@@ -270,16 +285,19 @@ async function tickRun({
         if (now) {
           moved = true;
           responses.push(frames);
+          moves.push(true);
         }
         continue;
       }
+      moves.push(now);
       if (now) {
         still = 0;
       } else if ((still += 1) >= 6) {
-        // The frames that sat still before it came to rest were a stall only if it moved again after.
-        return;
+        break;
       }
     }
+    if (!moved) failedTicks += 1;
+    glideStalls(moves);
   };
   const glideStalls = (moves: boolean[]) => {
     // A still frame between two moving frames, inside one glide.
@@ -287,7 +305,6 @@ async function tickRun({
       if (!moves[index] && moves.slice(0, index).includes(true) && moves.slice(index + 1).includes(true)) stalls += 1;
   };
 
-  const signals = window as unknown as { cmuxTickReady?: boolean; cmuxTickInputDone?: boolean };
   if (input === "precise") {
     // The bench sends the input from outside the page; the frames are recorded until it is done.
     signals.cmuxTickReady = true;
@@ -358,6 +375,7 @@ async function tickRun({
     layout: pick(perf.layout),
     response_frames: summary(responses),
     stalls,
+    failed_ticks: failedTicks,
     long_tasks: longTasks.length,
     long_task_max: Math.round(Math.max(0, ...longTasks)),
     ticks,
@@ -474,22 +492,57 @@ try {
     if (seeded.error) throw new Error(`wheel-tick-scaling: seed ${turns}: ${seeded.error}`);
     await page.locator(".acpmux-scroll").hover();
     const cdp = PROFILE ? await page.context().newCDPSession(page) : undefined;
-    if (cdp) {
-      await cdp.send("Profiler.enable");
-      await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
-      await cdp.send("Profiler.start");
-    }
     const running = page.evaluate(tickRun, {
       rounds: ROUNDS,
       session: seeded.session,
       live: MODE === "live",
       pagingMs: 120_000,
       input: INPUT,
+      hold: cdp !== undefined,
     });
-    if (INPUT === "precise") {
-      await page.waitForFunction(() => (window as unknown as { cmuxTickReady?: boolean }).cmuxTickReady, null, {
-        timeout: 180_000,
-      });
+    // The profile covers the measured input only, not the history paging and mounting before it. A run
+    // that ends before it settles (no transcript, no mock daemon) skips the profile and reports its error.
+    const settled = cdp
+      ? page
+          .waitForFunction(() => (window as unknown as { cmuxTickSettled?: boolean }).cmuxTickSettled, null, {
+            timeout: 180_000,
+          })
+          .then(
+            () => true,
+            // The page closed or the wait timed out after the run ended: no profile.
+            () => false,
+          )
+      : Promise.resolve(false);
+    let ended = false;
+    const end = running.then(
+      () => (ended = true),
+      () => (ended = true),
+    );
+    const profiling = cdp !== undefined && (await Promise.race([settled, end.then(() => false)]));
+    if (cdp && profiling) {
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+      await cdp.send("Profiler.start");
+    }
+    // A held run goes on whether or not it is profiled: a settle that timed out can still come later.
+    if (cdp && !ended)
+      await page
+        .evaluate(() => {
+          (window as unknown as { cmuxTickGo?: boolean }).cmuxTickGo = true;
+        })
+        .catch(() => {});
+    // A run that ended first (an error) gets no input: `await running` below reports it.
+    const ready = async () =>
+      !ended &&
+      (await Promise.race([
+        page
+          .waitForFunction(() => (window as unknown as { cmuxTickReady?: boolean }).cmuxTickReady, null, {
+            timeout: 180_000,
+          })
+          .then(() => true),
+        end.then(() => false),
+      ]));
+    if (INPUT === "precise" && (await ready())) {
       // A tick or a flick as a smoothing tool sends it: `events` pixel deltas 8 ms apart, easing out, `total`
       // px in all. Deltas are fractional, never a legacy 120-unit notch. The pause between is input pacing.
       // Chromium's mouse.wheel sends legacy 120-unit ticks, which the glide takes as a notch; its synthetic
@@ -530,7 +583,7 @@ try {
       });
     }
     const run = await running;
-    if (cdp) await printProfile(vite, turns, (await cdp.send("Profiler.stop")).profile);
+    if (cdp && profiling) await printProfile(vite, turns, (await cdp.send("Profiler.stop")).profile);
     await page.close();
     if ("error" in run) throw new Error(`wheel-tick-scaling: ${turns} turns: ${run.error}`);
     if ((INPUT === "precise" ? run.moved_frames === 0 : run.response_frames.p50 === 0) || run.frames < ROUNDS * 4)
@@ -544,7 +597,7 @@ try {
       `wheel-tick-scaling ${ENGINE} ${MODE}${INPUT === "precise" ? " precise" : ""}${DEV ? " dev" : ""} turns=${turns} loaded_px=${result.loaded_px} history_left=${result.history_left} frames=${result.frames} ticks=${result.ticks} ` +
         `work=${pick(result.work)} over_120=${result.over_120} over_60=${result.over_60} ` +
         `react=${pick(result.react)} layout=${pick(result.layout)} response_frames=${pick(result.response_frames)} ` +
-        `stalls=${result.stalls} long_tasks=${result.long_tasks} long_task_max=${result.long_task_max} ` +
+        `stalls=${result.stalls} failed_ticks=${result.failed_ticks} long_tasks=${result.long_tasks} long_task_max=${result.long_task_max} ` +
         `heap_mb=${result.heap_mb} dom_nodes=${result.dom_nodes} open_ms=${result.open_ms} spans_p95/max=${result.spans}` +
         (INPUT === "precise"
           ? ` moved_frames=${result.moved_frames} reversals=${result.reversals} js_writes=${result.js_writes} js_write_max_px=${result.js_write_max_px} notch_events=${result.notch_events}` +
