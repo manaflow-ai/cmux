@@ -679,9 +679,7 @@ export function Composer({
   const locationSlotSession = useRef<string | undefined>(undefined);
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
-  // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, composerRing, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
-    useComposerSettings();
+  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter } = useComposerSettings();
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
@@ -2023,7 +2021,6 @@ export function Composer({
   const escapeStop = useEscapeStop({
     stoppable: running && !stopping,
     session: sessionId,
-    double: escapeDoublePress,
     pageEscape: !onOpenInWindow,
     onStop: stopTurn,
   });
