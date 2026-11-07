@@ -696,9 +696,10 @@ describe("the tray", () => {
       expect(mark.dataset.look).toBe("check");
       expect(mark.querySelector('svg[data-icon="status.check"]')).not.toBeNull();
       expect(mark.querySelector(".acpmux-agent-line__sr")?.textContent).toBe("Done");
-      expect(mark.querySelector(".acpmux-done-mark__time")?.textContent).toBe("36s");
+      // The time stays in the line's own time column, as every line's does (the layout lanes measure it).
+      expect(mark.querySelector(".acpmux-done-mark__time")).toBeNull();
+      expect(finished.querySelector(".acpmux-agent-line__time")?.textContent).toBe("36s");
       expect(finished.querySelector(".acpmux-summary-agent__state")).toBeNull();
-      expect(finished.querySelector(".acpmux-agent-line__time")).toBeNull();
       expect(finished.querySelector(".acpmux-agent-line__sep")).toBeNull();
     } finally {
       await done();

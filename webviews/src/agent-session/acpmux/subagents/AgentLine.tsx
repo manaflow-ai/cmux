@@ -256,33 +256,28 @@ export function AgentLine({
               ChatGPT's task rows read (Leo, 2026-11-02, on "36s Done": "this running thing now looks
               mildly awkward"). The time ends the cluster, so a tick never moves its right edge. */}
           <span className="acpmux-agent-line__trail">
-            {status === "done" && doneLook !== "words" ? (
-              // A finished line ends in its done mark (DoneMark.tsx), which holds its time.
-              <span className="acpmux-summary-meta acpmux-agent-line__meta" data-tray-status>
-                <DoneMark state={state} time={time} look={doneLook} />
-              </span>
-            ) : (
-              <>
-                <span className="acpmux-summary-meta acpmux-agent-line__meta" data-tray-status>
-                  {timed ? (
-                    // Running says itself by its ticking time and Stop; the word is for screen readers.
-                    <span className="acpmux-agent-line__sr">{state}</span>
-                  ) : (
-                    <>
-                      <Tick className="acpmux-summary-agent__state" text={state} />
-                      {time !== undefined && (
-                        <span className="acpmux-agent-line__sep" aria-hidden="true">
-                          ·
-                        </span>
-                      )}
-                    </>
+            <span className="acpmux-summary-meta acpmux-agent-line__meta" data-tray-status>
+              {timed ? (
+                // Running says itself by its ticking time and Stop; the word is for screen readers.
+                <span className="acpmux-agent-line__sr">{state}</span>
+              ) : status === "done" && doneLook !== "words" ? (
+                // A finished line's done mark (DoneMark.tsx) in place of the word and its dot; the
+                // line's own time follows in its column, as every line's does.
+                <DoneMark state={state} look={doneLook} />
+              ) : (
+                <>
+                  <Tick className="acpmux-summary-agent__state" text={state} />
+                  {time !== undefined && (
+                    <span className="acpmux-agent-line__sep" aria-hidden="true">
+                      ·
+                    </span>
                   )}
-                </span>
-                <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
-                  {time}
-                </span>
-              </>
-            )}
+                </>
+              )}
+            </span>
+            <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
+              {time}
+            </span>
           </span>
           {/* Stop's track (the stop slot, outside this button, lies over it), then the chevron's,
               last at the line's end: the column the header's chevron ends in. */}
