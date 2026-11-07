@@ -7,7 +7,7 @@ public import Foundation
 /// import of the same source replaces its file, so nothing is duplicated.
 /// An actor: every read and write happens off the main thread.
 public actor ImportedDataStore {
-    public let directory: URL
+    public nonisolated let directory: URL
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
