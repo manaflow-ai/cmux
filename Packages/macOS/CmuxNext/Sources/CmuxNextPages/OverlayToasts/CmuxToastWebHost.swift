@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Draws each window's toasts as the overlay page's React toast stack (`cmux-page://cmux.overlay/`,
 /// route `/toasts`, webviews/src/pages/overlay/toasts) on the window's `WindowOverlayHost` (`.toast`).
@@ -29,8 +30,12 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
         /// Where the toasts rest and where fading ones still draw (window coordinates), as the page last said.
         var rects: [NSRect] = []
         var fading: [NSRect] = []
+        /// Each resting toast's rect (window coordinates), by serial, as the page last said.
+        var placed: [Int: NSRect] = [:]
         /// The union last told to the views that reserve room.
         var settled: NSRect?
+        /// Ends a move's wider click regions (each toast's old and new rect) once the move is done.
+        let moveEnd = DemandTimer(owner: "CmuxToastWebHost.move")
 
         init(window: NSWindow, page: PageWebView, provider: CmuxToastPageProvider) {
             self.window = window
@@ -149,14 +154,31 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
             let live = Set(stack.shown.map(\.serial))
             let resting = rects.filter { live.contains($0.serial) }
             let leaving = fading + rects.filter { !live.contains($0.serial) }
+            let before = stack.placed
+            stack.placed = Dictionary(resting.map { ($0.serial, windowRect($0, of: stack.page)) }) { first, _ in first }
             stack.rects = resting.map { windowRect($0, of: stack.page) }
             stack.fading = leaving.map { windowRect($0, of: stack.page) }
             stack.view.placeGlass(resting: resting.map { ($0.serial, localRect($0, of: stack.page)) },
-                                  fading: leaving.map { ($0.serial, localRect($0, of: stack.page)) })
-            stack.handle?.update(hitRegions: stack.rects)
+                                  fading: leaving.map { ($0.serial, localRect($0, of: stack.page)) },
+                                  zoom: CGFloat(stack.page.pageZoom))
+            updateHitRegions(stack, movedFrom: before)
             settled(stack, in: window, duration: Self.moveDuration)
             // The last toast faded: the page leaves the overlay (it stays warm for the next toast).
             if stack.shown.isEmpty, stack.rects.isEmpty, stack.fading.isEmpty { retire(stack, in: window) }
+        }
+    }
+
+    /// Where the toasts take clicks: while they slide to new places (the page and their glass move over
+    /// ``moveDuration``), each takes them over its old and its new rect, so a click on a toast still on
+    /// its way reaches it (review 4 of #37289); then only its new rect.
+    private func updateHitRegions(_ stack: Stack, movedFrom before: [Int: NSRect]) {
+        let moving = stack.placed.compactMap { serial, rect in before[serial].flatMap { $0 == rect ? nil : $0.union(rect) } }
+        stack.moveEnd.cancel()
+        stack.handle?.update(hitRegions: Self.moveDuration > 0 ? stack.rects + moving : stack.rects)
+        guard !moving.isEmpty, Self.moveDuration > 0 else { return }
+        stack.moveEnd.schedule(after: .seconds(Self.moveDuration)) { @MainActor [weak stack] in
+            guard let stack else { return }
+            stack.handle?.update(hitRegions: stack.rects)
         }
     }
 
@@ -191,6 +213,7 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
         CmuxToastAvoidance.unregister(self, from: window)
         guard let stack = stacks.removeValue(forKey: ObjectIdentifier(window)) else { return }
         stack.provider.onReport = nil
+        stack.moveEnd.cancel()
         stack.provider.publish(CmuxToastPageProvider.state([], floor: 0))
         stack.view.releasePage()
         pool.release(stack.page)

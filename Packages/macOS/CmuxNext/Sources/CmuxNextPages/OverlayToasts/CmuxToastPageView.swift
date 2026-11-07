@@ -24,9 +24,15 @@ final class CmuxToastPageView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Puts the glass at the toasts' rects (this view's coordinates): a resting toast's glass fades in
-    /// with it, a fading toast's fades out with it, and one the page no longer draws goes.
-    func placeGlass(resting: [(serial: Int, rect: NSRect)], fading leaving: [(serial: Int, rect: NSRect)]) {
+    /// How far below its slot a new toast starts, in points at zoom 1 (the page's `RISE_PX`).
+    static let rise: CGFloat = 8
+
+    /// Puts the glass at the toasts' rects (this view's coordinates), moving as the page moves the toasts
+    /// (useToastMotion): a new toast's glass rises and fades in with it, one that moved slides from where it
+    /// was drawn with the same spring (review 4 of #37289), a fading toast's fades out with it, and one the
+    /// page no longer draws goes. `zoom` is the page's, for the rise.
+    func placeGlass(resting: [(serial: Int, rect: NSRect)], fading leaving: [(serial: Int, rect: NSRect)],
+                    zoom: CGFloat = 1) {
         let kept = Set(resting.map(\.serial) + leaving.map(\.serial))
         for (serial, surface) in glass where !kept.contains(serial) {
             surface.removeFromSuperview()
@@ -34,11 +40,20 @@ final class CmuxToastPageView: NSView {
             fading.remove(serial)
         }
         for (serial, rect) in resting {
-            let surface = glass[serial] ?? makeGlass(serial)
-            surface.frame = rect
+            guard let surface = glass[serial] else {
+                let surface = makeGlass(serial)
+                surface.frame = rect
+                // Up from below its slot (down is -y here unless flipped), as the page's toast rises.
+                let below = (isFlipped ? 1 : -1) * Self.rise * zoom
+                if let layer = surface.layer {
+                    Motion.overlays.set(layer, "transform.translation.y", to: CGFloat(0), spring: .appear, from: below)
+                }
+                continue
+            }
             if fading.remove(serial) != nil, let layer = surface.layer {
                 Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn)
             }
+            slide(surface, to: rect)
         }
         for (serial, rect) in leaving {
             guard let surface = glass[serial] else { continue }
@@ -52,6 +67,18 @@ final class CmuxToastPageView: NSView {
     func releasePage() {
         placeGlass(resting: [], fading: [])
         page.removeFromSuperview()
+    }
+
+    /// Moves `surface` to `rect` from where it is drawn now (its frame plus any slide still running).
+    private func slide(_ surface: OverlaySurfaceView, to rect: NSRect) {
+        let old = surface.frame
+        surface.frame = rect
+        guard let layer = surface.layer, old.origin != rect.origin else { return }
+        for (axis, offset) in [("x", old.minX - rect.minX), ("y", old.minY - rect.minY)] {
+            let keyPath = "transform.translation.\(axis)"
+            let shown = (Motion.presentationValue(layer, keyPath) as? CGFloat) ?? 0
+            Motion.overlays.set(layer, keyPath, to: CGFloat(0), spring: .move, from: shown + offset)
+        }
     }
 
     private func makeGlass(_ serial: Int) -> OverlaySurfaceView {

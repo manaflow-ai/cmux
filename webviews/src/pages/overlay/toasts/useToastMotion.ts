@@ -119,12 +119,11 @@ export function useToastMotion(
     const plan = planToasts(before, toasts);
     drawn.current = toasts;
     const elements = toastElements(root);
-    // Reads first: where each toast is drawn now (its slide included), then its new layout place.
-    const shown = new Map<number, Place>();
-    for (const [serial, element] of elements) {
-      const rect = element.getBoundingClientRect();
-      shown.set(serial, { x: rect.left, y: rect.top, w: rect.width, h: rect.height });
-    }
+    // Reads first: how far each toast's running slide still has it from its place. React has already
+    // laid the toasts out at their new places, so where one was drawn before this change is its last
+    // place plus that offset (review 4 of #37289: read from the new layout, a restack never slid).
+    const sliding = new Map<number, { x: number; y: number }>();
+    for (const [serial, element] of elements) sliding.set(serial, drawnShift(element));
     for (const animations of running.current.values()) for (const animation of animations) animation.cancel();
     running.current.clear();
     const after = new Map([...elements].map(([serial, element]) => [serial, layoutPlace(element)] as const));
@@ -168,11 +167,12 @@ export function useToastMotion(
           );
         continue;
       }
-      const from = shown.get(serial);
-      if (!from || mode !== "full") continue;
-      // From where it is drawn to its new place: a restack, Details, the floor moving.
-      const dy = from.y - is.y;
-      const dx = from.x - is.x;
+      const was = previous.get(serial);
+      if (!was || mode !== "full") continue;
+      // From where it was drawn to its new place: a restack, Details, the floor moving.
+      const shift = sliding.get(serial) ?? { x: 0, y: 0 };
+      const dy = was.y + shift.y - is.y;
+      const dx = was.x + shift.x - is.x;
       if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
       track(
         element.animate(
