@@ -70,7 +70,15 @@ export function toolIcon(kind?: string): ReactNode {
 /// edit opens to its diff.
 // Unchanged item snapshots keep their rendered row as another call streams; local state and
 // context changes (Find, language, cwd) still reach this component through React's subscriptions.
-export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity }) {
+export const ToolRow = memo(function ToolRow({
+  item,
+  asRun = false,
+}: {
+  item: AcpmuxActivity;
+  /// The call as it was made (a sent message's Raw, SentMessageLine.tsx): a shell reads as its
+  /// command line, never as what it did or its description, since Raw is where the line is shown.
+  asRun?: boolean;
+}) {
   const t = useT();
   const step = useInStep();
   // Closed, or open in the Verbose transcript view.
@@ -100,6 +108,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     (command) => t(foreground ? "tools.runningCommand" : "tools.ranCommand", { command }),
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
+    !asRun,
   );
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
@@ -120,7 +129,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // its words hold it ("Checked git status"), as on a command row (CommandRow.tsx).
   const drawsCommand =
     shell &&
-    !commandSaid(t, tool) &&
+    (asRun || !commandSaid(t, tool)) &&
     shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim() &&
     label.includes(tool.command?.trim() ?? "");
   // A shell prints what it printed. Any other call's result is shown without the JSON envelope a
