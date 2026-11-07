@@ -72,23 +72,21 @@ struct MoveWorkspacesToWindowSpaceTests {
     }
 
     /// The related report: a workspace started from one window landed in the window the Chief works from. A Chief
-    /// turn names the store's Home as its caller workspace (`ControlCallerLocation.homeChat`), and the create took
-    /// that Home's window; it goes to the window the person acts in.
+    /// turn names the store's Home as its caller workspace (`ControlCallerLocation.homeChat`), and New Workspace
+    /// Below / at Top anchored on it took that Home's window; it goes to the window the person acts in. A row
+    /// anchor still takes its own window.
     @Test func aWorkspaceAnchoredOnTheChiefsHomeOpensInThePersonsWindow() throws {
         let services = try GatherWindowsTests.services(storeHome: true)
         defer { GatherWindowsTests.closeAll(services) }
-        AppActions.bind(services)
         let here = try GatherWindowsTests.open(["k0"], services), chief = try GatherWindowsTests.open(["k2", "hs"], services)
-        #expect(services.workspace(id: "hs")?.kind == "home")
+        let home = try #require(services.workspace(id: "hs"))
+        #expect(home.kind == "home")
         services.keyWindowSource = { here.window }
         #expect(services.windows.active === here)
-        let before = Set(services.windows.claims.pending.keys)
+        let context = AppActionContext(services: services)
 
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: "hs"), origin: .cli)
-        #expect(services.registry.perform("workspace.newAtTop", invocation: invocation))
-
-        let claimed = services.windows.claims.pending.filter { !before.contains($0.key) }
-        #expect(claimed.count == 1, "no new workspace was claimed: \(claimed)")
-        #expect(claimed.values.allSatisfy { $0 == here.state.id }, "it went to the Chief's window \(chief.state.id): \(claimed)")
+        #expect(WorkspaceVerbHandlers.window(for: home, context) == here.state.id, "it went to the Chief's window")
+        #expect(WorkspaceVerbHandlers.window(for: try #require(services.workspace(id: "k2")), context) == chief.state.id)
+        #expect(WorkspaceVerbHandlers.window(for: nil, context) == here.state.id)
     }
 }
