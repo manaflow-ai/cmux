@@ -39,11 +39,13 @@ import { WebSources } from "./WebSources";
 import { webSources, withoutLinks } from "./webSourceList";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
-import { RepoRecoveryCard, repoRecoveryFor } from "./RepoRecoveryCard";
+import { RepoRecoveryCard } from "./RepoRecoveryCard";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, useInStep } from "./toolFailureCauseModel";
 import { Check, ChevronRight } from "./icons";
 import { toolIcon } from "./toolRowModel";
+import { repoRecoveryFor } from "./repoRecoveryCardModel";
+
 /// One tool call. A call with output opens it below; a
 /// shell call opens to its Shell block, with the command line even before any output, and an
 /// edit opens to its diff.

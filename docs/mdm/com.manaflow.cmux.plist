@@ -3119,6 +3119,7 @@
 				<string>panes</string>
 				<string>two-tone</string>
 				<string>floating</string>
+				<string>blocks</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Window Style</string>
@@ -9199,6 +9200,40 @@
 			<string>Show Dictation Button</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>cmux</string>
+			<key>pfm_description</key>
+			<string>What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut.</string>
+			<key>pfm_name</key>
+			<string>agentPane.dictationSource</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>cmux</string>
+				<string>macos</string>
+				<string>chatgpt</string>
+				<string>claude</string>
+				<string>gemini</string>
+				<string>wisprFlow</string>
+				<string>superwhisper</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Dictate With</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default.</string>
+			<key>pfm_name</key>
+			<string>agentPane.dictationShortcut</string>
+			<key>pfm_title</key>
+			<string>Dictation App Shortcut</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
