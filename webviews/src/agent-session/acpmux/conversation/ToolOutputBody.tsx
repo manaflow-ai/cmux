@@ -66,10 +66,13 @@ export const ToolOutput = memo(function ToolOutput({
   id,
   result,
   reveal = 0,
+  ownCopy = true,
 }: {
   id?: string;
   result: ToolResult;
   reveal?: number;
+  /// Whether the card draws its own copy button; false where its heading already has one (ToolDetail.tsx).
+  ownCopy?: boolean;
 }) {
   const t = useT();
   const generated = useId();
@@ -95,7 +98,7 @@ export const ToolOutput = memo(function ToolOutput({
       <div className="cv-tool-output__box" id={bodyId}>
         <span className="cv-tool-output__actions" data-find-skip="">
           {!rendered && <WrapButton kind="output" />}
-          {experimentArm(hoverActions) === "all" && (
+          {ownCopy && experimentArm(hoverActions) === "all" && (
             <CopyButton text={raw.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
           )}
         </span>
@@ -120,11 +123,12 @@ export const ToolOutput = memo(function ToolOutput({
             viewport={viewport}
           />
         )}
-      </div>
-      <div className="cv-tool-output__controls" data-find-skip="">
+        {/* Show all / Show less is the box's whole bottom row, on its own fill (ExpandRow.tsx). */}
         <PreviewMore preview={preview} />
         {!preview.long && <OutputMore output={shown} />}
-        {markdown && (
+      </div>
+      {markdown && (
+        <div className="cv-tool-output__controls" data-find-skip="">
           <button
             type="button"
             className="cv-tool-output__raw"
@@ -134,10 +138,10 @@ export const ToolOutput = memo(function ToolOutput({
             onClick={() => setRawShown((value) => !value)}
           >
             {t("subsession.raw")}
-            <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${rawShown ? " is-open" : ""}`} />
+            <ChevronRight size={12} className={`cv-rotor${rawShown ? " is-open" : ""}`} />
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 });

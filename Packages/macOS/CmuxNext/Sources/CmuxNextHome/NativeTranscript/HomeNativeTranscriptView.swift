@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextDesign
+public import CmuxNextHomeModel
 public import MessagesLabHome
 
 /// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's
@@ -19,8 +20,20 @@ public import MessagesLabHome
 /// `HomeStoreBinding` (refusals, unanswered ops, attachment fetches, Cancel
 /// Upload), so no host can leave those unwired.
 public final class HomeNativeTranscriptView: NSView {
+    public var isPersonApprovalEvent: (NSEvent) -> Bool {
+        get { transcript.isPersonApprovalEvent }
+        set { transcript.isPersonApprovalEvent = newValue }
+    }
+    public var approvals: (any HomeApprovalDeciding)? {
+        get { transcript.approvals }
+        set { transcript.approvals = newValue }
+    }
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
+    /// The agent pane's tabs (one per agent opened from its pill) and its view on the right; the view is made
+    /// at the first open (HomeNativeTranscriptView+AgentPane.swift).
+    lazy var agentPane = HomeAgentPane(conversation: conversationID, threads: binding.store)
+    var agentPaneView: HomeAgentPaneView?
     var starterSent = false
     var starterIntakes = 0 { didSet { updateStarterAvailability() } }
     let me: ParticipantID
@@ -52,6 +65,8 @@ public final class HomeNativeTranscriptView: NSView {
     private(set) var stopped = false
     /// The composer rect toasts last moved clear of (posted on change).
     private var lastToastAvoidance = NSRect.zero
+    /// Where the window's toasts rest (window coordinates), nil when none shows (+ToastRoom.swift).
+    var toastsRect: NSRect?
     /// False while the owner is unreachable (H17: offline Send is off; the
     /// text stays a draft). The wiring sets it from `HomeStore.connection`.
     public var isSendEnabled = true {
@@ -149,6 +164,8 @@ public final class HomeNativeTranscriptView: NSView {
     public var onHeaderPanel: (String) -> Void = { _ in }
     /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
     let headerPanels = HomeHeaderPanelBar()
+    /// The section pinned under the header (HomeNativeTranscriptView+PinnedSection.swift) and its measured height.
+    var pinned: (view: NSView, height: CGFloat?)?
     /// The window's key and occlusion observers; each token removes itself when released (on any thread).
     private var observers: [MainActorObservation] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
@@ -163,8 +180,6 @@ public final class HomeNativeTranscriptView: NSView {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
-        // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
-        MessagesLabHomeView.richTables = HomeTunables.richTables.value
         conversationID = conversation
         // One binding per shown conversation; it opens the conversation on
         // the store now and `stop()` closes exactly that open, once. Before the
@@ -204,6 +219,7 @@ public final class HomeNativeTranscriptView: NSView {
             self?.onHideSwitchKeys()
         }
         firstRun.switchCard.onOpenSettings = { [weak self] in self?.onOpenKeyboardShortcutSettings() }
+        transcript.onAgentPill = { [weak self] peer in self?.openAgent(peer) }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         // A long draft grows the field with no size change: refit the panel and the notice above it.
@@ -211,7 +227,6 @@ public final class HomeNativeTranscriptView: NSView {
         followTextSize()
         followZoom()
         followBubbleStyle()
-        followHeroTunable()
         followChiefPet()
         followPresence()
         applyTheme()
@@ -242,6 +257,7 @@ public final class HomeNativeTranscriptView: NSView {
         stopped = true
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
+        agentPaneView?.stop()
         voice.close()
         transcript.stop()
         binding.stop()
@@ -274,6 +290,12 @@ public final class HomeNativeTranscriptView: NSView {
     public var onNamePill: () -> Void {
         get { transcript.onNamePill }
         set { transcript.onNamePill = newValue }
+    }
+
+    /// A small control right after the header's name pill (the Chief's location chip); nil: none.
+    public var headerPillAccessory: NSView? {
+        get { transcript.headerPillAccessory }
+        set { transcript.headerPillAccessory = newValue }
     }
 
     /// The header's name pill, which the Chief's settings popover opens under.
@@ -449,6 +471,7 @@ public final class HomeNativeTranscriptView: NSView {
         // debugTranscriptWidthTrim narrows it (automation: a pane width change).
         var place = bounds.offsetBy(dx: debugTranscriptOffset.x, dy: debugTranscriptOffset.y)
         place.size.width = max(0, place.width - debugTranscriptWidthTrim)
+        place.size.width = max(0, place.width - layoutAgentPane())
         if transcript.frame != place {
             let resized = transcript.frame.size != place.size
             transcript.frame = place
@@ -457,10 +480,12 @@ public final class HomeNativeTranscriptView: NSView {
         // Every pass: the field can grow (a multi-line draft) without a size
         // change (`onFieldTopChange` asks for this pass), and the first-run
         // panel fits what it shows above it, under the header.
-        let top = transcript.headerHeight
+        layoutPinnedSection()
+        let top = transcript.headerHeight + pinnedSectionClearance
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
         layoutNotice()
+        followToasts()
     }
 
     /// Above the field, inset like it; MessagesLab's field keeps its geometry.
@@ -529,6 +554,8 @@ public final class HomeNativeTranscriptView: NSView {
             if window == nil || stopped { linkPreviews.coordinator.unregister(linkPreviews) } else { linkPreviews.coordinator.register(linkPreviews) }
         }
         guard let window else { return }
+        // The toasts may have come or gone while the tab was out of the window.
+        CmuxToastAvoidance.reservingViewMoved(self, to: window)
         if attachmentPreparer != nil { attachmentPanel?.warmWhenIdle() }  // the "+" opens without making a panel
         observers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didChangeOcclusionStateNotification].map { name in

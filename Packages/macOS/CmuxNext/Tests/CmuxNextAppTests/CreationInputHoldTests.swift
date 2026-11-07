@@ -183,4 +183,26 @@ import Testing
         #expect(buffer.keysKeptForLeftWorkspace(shown: "w2", terminalReady: true) == nil,
                 "W2 shows with its terminal, but W1's kept keys still hold the hold open (keys typed into W2 wait up to 2 s)")
     }
+
+    /// Lead on STATUS 7828: a second ready-for-keys for a restored page (a page attached again, or another page's
+    /// signal) never sends held keys twice or out of order. A page hold's keys are taken once at the ready signal (the
+    /// coordinator's flush, which then drops the hold); keys typed after it are held only by a new hold, and go on at
+    /// the next ready signal, after the first ones. The page receives every key once, in the order typed.
+    @Test func twoReadySignalsWithKeysHeldBetweenThemDeliverEachKeyOnceInOrder() {
+        let typed = "abcdef".map { Self.key(String($0), code: 0) }
+        var page: [NSEvent] = []
+        let first = CreationInputBuffer(began: .now)
+        first.awaitContent(AwaitedContent(tab: "b", kind: .browser), machine: nil)
+        typed[0..<3].forEach { first.capture($0, focusedTab: "b") }
+        let ready = { (buffer: CreationInputBuffer) in page += buffer.take(focused: nil) { _, _ in false }.flatMap { $0.keys.map { $0.event } } }
+        ready(first) // the first ready signal
+        let second = CreationInputBuffer(began: .now) // the page is awaited again (attached again)
+        second.awaitContent(AwaitedContent(tab: "b", kind: .browser), machine: nil)
+        typed[3...].forEach { second.capture($0, focusedTab: "b") }
+        ready(first) // a second signal for a hold already flushed: nothing again
+        ready(second)
+        ready(second)
+        #expect(page.map(\.characters) == typed.map(\.characters), "the page got \(page.compactMap(\.characters).joined()), not abcdef")
+        #expect(Set(page.map(ObjectIdentifier.init)).count == typed.count, "a held key went to the page twice")
+    }
 }

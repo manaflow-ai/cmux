@@ -165,3 +165,49 @@ a839, test (linux) green on run 40985398560. Product fixes in acpmux:
 Test-only: fake agent sends `totalTokens` (#27132), session_pool expects a crashed daemon's
 pooled host to end itself (c7e99bd), remote_guard_modes expects the VM-boundary ambiguity
 refusal (#26276), agent_tools and tailnet_embedded_logout use the hermetic helper.
+
+## Notice to PL-acpmux: chat guidance and the person's skills (2026-11-05)
+
+Design: [agent-guidance-DESIGN.md](agent-guidance-DESIGN.md). What changed in acpmux:
+- `agent_guidance.rs` (new): cmux's built-in chat guidance (plan list, side sessions, session
+  links, closing recap, editing cmux live) and the person's skills from `~/.config/cmux/skills`.
+- First-turn context: a new part `cmux-guidance` (`context_inventory::snapshot_for`, sent as
+  `<cmux-guidance-context>`), beside the default/user/project rule, never replacing it. Claude
+  Code gets a short pointer to the skill; Codex and other harnesses get the compact guidance and
+  an index of the person's skills. Fresh forks get it too (`hub/fork.rs`).
+- Skills: `cmux:cmux-chat` joins `SKILL_FILES`; the person's skills are a second session plugin,
+  `cmux-user`, written per content hash under `agent-tools/user-<hash>` (regular files only) and
+  passed as a second `--plugin-dir` (`AgentTools::user_plugin_dir`).
+- Settings `agents.guidance.{claude,codex,otherAgents,userSkills}` (default on, user-only), read
+  when a chat is created. The test fakes treat `<cmux-guidance-context>` as hidden guidance.
+
+## Notice to PL-acpmux: Claude chats start in Auto, and a set_mode answer keeps the mode option (2026-11-06)
+
+Landed on feat-cmux-next as `fc0f7c63..4de1fcdf` (a1022; red test first, `787bd5f5`). The user
+asked for it: workers stuck in Manual were "a huge blocker". What changed in acpmux:
+- `claude_stdio::OWN_MODE` (new, `"auto"`): the mode a Claude chat starts in when acpmux sets
+  no other. Before, the fallback was `default` (Manual), and every tool call then waited on the
+  person. That fallback was used at the `standard` start level ("Harness Default"), for pooled
+  chats (`hub/pool/start.rs`), for chats with no recorded mode (`hub/lifecycle.rs`), and in
+  `spawn_plan` when Claude Code cannot take bypassPermissions (as root without a sandbox). Not
+  changed: a Web start is Manual until the remote guard settles it, and a resumed full-access
+  chat with `sessions.allowFullAccess` off goes back to Manual (`resumable_mode(.., "default",
+  ..)`). Chief's turn preset and a person's preset now start in Auto, not Manual
+  (`tests/start_mode.rs`).
+- `Hub::may_move_without_person` (`hub/start_mode.rs`, called from `hub/person.rs` where
+  `is_start_full_access` was): a running chat may move to Auto without the person when it is a
+  Claude chat (family `claude`, or a profile that offers all of Claude Code's modes), its start
+  level is `fullAccess` or `standard`, it has no policy narrower than approve-all, and it is not
+  a Web start. Under `ask` Auto still needs the person, and every other mode that does not ask
+  (`acceptEdits`, `dontAsk`) does too. `agents.defaultPermissionMode` stays user-only.
+- `hub/turns.rs`, `session/set_mode` answer: the hub now keeps the `configOptions` Claude Code
+  returns as well as `currentModeId`. Before, the chat's `mode` option kept showing its start
+  mode after a switch. Starting in Manual hid this
+  (`tests/hub_integration/fork_before.rs`).
+- Tests: `tests/person_auto_start.rs` (two new), `tests/start_mode.rs` (now expects Auto, and an
+  agent's switch to Auto is allowed while `acceptEdits` is refused). Full Linux suite: the 10
+  failures it shows also fail on the base tip by itself (cross_host_send_cli,
+  hermetic_daemon_guard, request_stack, send_async x2, tool_inventory, plus cmux-tui
+  cli/snapshot/terminal_host_recovery), so they are not from this change.
+- Open for the owner: whether the Settings choice "Harness Default" should be renamed for Claude
+  (it now means Auto), and whether Codex needs a similar "own mode" fallback.

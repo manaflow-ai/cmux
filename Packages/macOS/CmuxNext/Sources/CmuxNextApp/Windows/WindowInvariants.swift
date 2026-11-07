@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCloudUI
 import CmuxNextSettings
 import os
 
@@ -20,7 +21,7 @@ enum WindowInvariants {
             }
             if !window.isOpen { problems.append("window \(id) is on screen but closed") }
             if window.workspaceIDs.isEmpty { problems.append("window \(id) has 0 workspaces") }
-            if manager.awaitingContent[id] == nil, !window.workspaceIDs.isEmpty, !manager.hasMirroredWorkspace(window) {
+            if manager.awaitingContent[id] == nil, !window.workspaceIDs.isEmpty, !manager.hasMirroredWorkspace(window), !(controller.root.content is CloudProgressHost) {
                 problems.append("window \(id) is presented but none of its workspaces is mirrored")
             }
         }

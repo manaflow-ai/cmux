@@ -17,6 +17,8 @@ import Foundation
 ///   (``AgentQuestion/reply(_:)``). A prompt whose choices are permission options (an
 ///   interactive ACP prompt) is a permission here: it is only denied.
 /// - What this desk answered stays listed with `pending_only: false` for this launch only.
+/// - The app's own asks (an agent's Cloud start card, ``AgentDialogAppAsks``) are listed after
+///   acpmux's, and their answers go to them, which decide who may give each.
 @MainActor
 final class AgentDialogDesk {
     typealias Opener = @MainActor () async -> (any AgentDialogLine)?
@@ -28,10 +30,13 @@ final class AgentDialogDesk {
     /// The tab id of the chat that shows an acpmux session, when this app shows it.
     private let tab: @MainActor (String) -> String?
     private var answered: [JSONValue] = []
+    /// The app's own asks, listed and answered beside acpmux's prompts.
+    private let asks: (any AgentDialogAppAsks)?
 
-    init(open: @escaping Opener, tab: @escaping @MainActor (String) -> String? = { _ in nil }) {
+    init(open: @escaping Opener, tab: @escaping @MainActor (String) -> String? = { _ in nil }, asks: (any AgentDialogAppAsks)? = nil) {
         self.open = open
         self.tab = tab
+        self.asks = asks
     }
 
     /// One pending prompt as acpmux reports it.
@@ -46,6 +51,7 @@ final class AgentDialogDesk {
             defer { line.close() }
             items = await line.pendingPrompts().map { item($0) }
         }
+        items += asks?.items() ?? []
         if !pendingOnly { items += answered.reversed() }
         return .object(["items": .array(items)])
     }
@@ -87,6 +93,7 @@ final class AgentDialogDesk {
     func replyPermission(_ params: [String: JSONValue]) async throws -> JSONValue {
         let id = try requestID(params)
         let mode = params["mode"]?.stringValue ?? ""
+        if let asks, asks.owns(id) { return try remembering(asks.reply(id, selection: mode, params: params), id) }
         guard mode == "deny" else {
             throw ControlError(code: "person_required", message: Self.text("agentDialogs.allowRefused",
                 "Only a deny can be sent here; a person approves permissions in cmux"), data: ["request_id": .string(id)])
@@ -114,6 +121,11 @@ final class AgentDialogDesk {
         let selections = params["selections"]?.arrayValue?.compactMap(\.stringValue) ?? []
         guard !selections.isEmpty else {
             throw ControlError.invalidParams(Self.text("agentDialogs.noSelections", "feed.question.reply needs `selections`"))
+        }
+        if let asks, asks.owns(id) {
+            // One item: its choice, given as CHOICE or ITEM=CHOICE.
+            let choice = selections.count == 1 ? String(selections[0].split(separator: "=", maxSplits: 1).last ?? "") : ""
+            return try remembering(asks.reply(id, selection: choice, params: params), id)
         }
         let (line, prompt) = try await find(id)
         defer { line.close() }
@@ -206,6 +218,14 @@ final class AgentDialogDesk {
         }
     }
 
+    /// An app ask's answer, listed with `pending_only: false` like acpmux's.
+    private func remembering(_ reply: JSONValue, _ id: String) -> JSONValue {
+        answered.append(.object(["id": .string(id), "request_id": .string(id), "source": "cmux",
+                                 "status": reply.objectValue?["status"] ?? "answered"]))
+        if answered.count > Self.answeredLimit { answered.removeFirst(answered.count - Self.answeredLimit) }
+        return reply
+    }
+
     private func remember(_ prompt: Pending, status: String) {
         answered.append(item(prompt, status: status))
         if answered.count > Self.answeredLimit { answered.removeFirst(answered.count - Self.answeredLimit) }
@@ -218,6 +238,19 @@ final class AgentDialogDesk {
     private static func text(_ key: StaticString, _ english: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
         String(format: String(localized: key, defaultValue: english, table: "AgentDialogs", bundle: .module), arguments: arguments)
     }
+}
+
+/// Asks the app itself shows in a chat (not acpmux prompts), listed and answered through the desk.
+/// Each decides who may answer it: the desk only routes.
+@MainActor
+protocol AgentDialogAppAsks: AnyObject {
+    /// Whether dialog `id` is one of these asks.
+    func owns(_ id: String) -> Bool
+    /// The pending asks, as `feed.list` items.
+    func items() -> [JSONValue]
+    /// Answers ask `id` with `selection` (an option's id or label, or a permission mode) for the
+    /// request `params` (its `origin` and `caller` say who answers); throws a refusal.
+    func reply(_ id: String, selection: String, params: [String: JSONValue]) throws -> JSONValue
 }
 
 extension AgentDialogPrompt {

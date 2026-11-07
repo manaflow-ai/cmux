@@ -13,6 +13,13 @@
  * MANAFLOW_TEAM_TENANT_IDS may create without billing during the internal phase.
  * They stay product tenants (no dev/test idle cap). Who pays after the internal
  * phase is Lawrence's decision.
+ *
+ * Entitled services (CMUX_VM_ENTITLED_SERVICE_IDS): a request made with one of
+ * these service keys (CMUX_VM_SERVICE_KEYS ids) is entitled for the team it
+ * acts for. The service (cmux-platform) has already decided that team's plan,
+ * for example the company grant for @cmux.com members, so this Worker does not
+ * keep a second, hand-written list of those teams. The key's own team list,
+ * scopes and labels still apply.
  */
 import { Context, Layer } from "effect";
 import { httpsOrigin } from "./network-origin.ts";
@@ -31,6 +38,8 @@ export interface TenantPolicyService {
   readonly isDevTest: (tenantId: TenantId) => boolean;
   /** Listed in MANAFLOW_TEAM_TENANT_IDS: entitled without billing (the manaflow-team flag), still a product tenant. */
   readonly isManaflowTeam: (tenantId: TenantId) => boolean;
+  /** Listed in CMUX_VM_ENTITLED_SERVICE_IDS: this service key's requests are entitled for the team they act for. */
+  readonly isEntitledService: (serviceId: string) => boolean;
   /** Live VMs a tenant may hold. */
   readonly maxVms: (tenantId: TenantId) => number;
   /** Live snapshots per tenant; a budget separate from VMs. */
@@ -48,6 +57,8 @@ export interface PolicyConfig {
   readonly devTestTenantIds?: ReadonlyArray<string>;
   /** Stack team ids under the manaflow-team flag (MANAFLOW_TEAM_TENANT_IDS). */
   readonly manaflowTenantIds?: ReadonlyArray<string>;
+  /** Service key ids whose requests are entitled for the team they act for (CMUX_VM_ENTITLED_SERVICE_IDS). */
+  readonly entitledServiceIds?: ReadonlyArray<string>;
   /** Live VMs per tenant for every tenant (tests); overrides the defaults. */
   readonly maxVms?: number;
   /** Per-tenant live VM limits, by Stack team id, from TENANT_VM_QUOTAS. */
@@ -75,11 +86,13 @@ export const makeTenantPolicy = (config: PolicyConfig): TenantPolicyService => {
   const listed = new Set(config.devTestTenantIds ?? []);
   const isDevTest = (tenantId: TenantId) => config.environment !== "production" || listed.has(tenantId);
   const manaflow = new Set(config.manaflowTenantIds ?? []);
+  const entitledServices = new Set(config.entitledServiceIds ?? []);
   return {
     httpsProxyOrigins: new Set((config.httpsProxyOrigins ?? []).flatMap((value) => { const origin = httpsOrigin(value); return origin === null ? [] : [origin]; })),
     environment: config.environment,
     isDevTest,
     isManaflowTeam: (tenantId) => manaflow.has(tenantId),
+    isEntitledService: (serviceId) => entitledServices.has(serviceId),
     maxVms: (tenantId) =>
       config.maxVms ?? config.vmQuotas?.[tenantId] ?? (isDevTest(tenantId) ? DEFAULT_DEV_TEST_MAX_VMS : DEFAULT_MAX_VMS),
     maxSnapshots: () => config.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS,
@@ -103,6 +116,19 @@ export const parseTenantList = (value: string | undefined): ReadonlyArray<string
  * (for example a team that needs more than the default). Bad entries are
  * ignored, never widened.
  */
+/**
+ * The live-VM quota of each CI trust row's team is at most the row's maxVms. The tenant ledger enforces it atomically
+ * with every create, so concurrent jobs cannot pass the row's own (read-then-create) budget check together.
+ */
+export const withCiTeamQuotas = (
+  quotas: Readonly<Record<string, number>>,
+  rows: ReadonlyArray<{ readonly team: string; readonly maxVms: number }>,
+): Readonly<Record<string, number>> => {
+  const merged: Record<string, number> = { ...quotas };
+  for (const row of rows) merged[row.team] = Math.min(merged[row.team] ?? row.maxVms, row.maxVms);
+  return merged;
+};
+
 export const parseVmQuotas = (value: string | undefined): Readonly<Record<string, number>> => {
   if (value === undefined || value.trim() === "") return {};
   let parsed: unknown;

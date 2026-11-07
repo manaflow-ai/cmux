@@ -63,6 +63,12 @@ pub struct SubagentTree {
     /// The background subagents still running: they outlive the turn that
     /// started them, so the session works on past it (`hub/work_below.rs`).
     background: HashSet<String>,
+    /// Every subagent ever marked background, ended ones included: one that ended (a failed
+    /// Claude agent) and runs again (SendMessage resumed it, its retry went on) says `running`
+    /// without the mark, and is background work again. Its ids are among `parents`' keys and
+    /// leave with them (a root learned late), so it holds no more than the tree already does; the
+    /// tree goes with its hub session.
+    was_background: HashSet<String>,
     /// Every subagent that runs now (live updates only), foreground or background, at any
     /// depth, oldest first, each with the label a list names it by (its name, else its task):
     /// the summary's `subagentsRunning` and `subagentNames` (`hub/views.rs`).
@@ -91,6 +97,10 @@ struct ChildPreview {
     /// whose page starts after the spawn still names it by its description (Leo, 2026-11-03: a
     /// background agent's end read "Subagent finished: Subagent").
     task: Option<String>,
+    /// The `agentId` an event of it gave (a Claude agent's task id, the id SendMessage names it
+    /// by), carried onto a later event that says none: its completed or cancelled end, so a page
+    /// holding only that end still says which agent it was (cmux#33292, cmux#33336).
+    agent_id: Option<String>,
 }
 
 impl SubagentTree {
@@ -233,6 +243,9 @@ impl SubagentTree {
                     if known.task.is_none() {
                         known.task = preview.task;
                     }
+                    if known.agent_id.is_none() {
+                        known.agent_id = preview.agent_id;
+                    }
                 }
                 std::collections::hash_map::Entry::Vacant(slot) => {
                     slot.insert(preview);
@@ -243,6 +256,7 @@ impl SubagentTree {
             self.names.entry(id).or_insert(name);
         }
         self.background.extend(log.background.into_iter().filter(|id| !known.contains(id)));
+        self.was_background.extend(log.was_background);
         for (id, label) in log.running {
             if !known.contains(&id) && !self.running.iter().any(|(r, _)| *r == id) {
                 self.running.push((id, label));
@@ -356,13 +370,17 @@ impl SubagentTree {
 
     /// Follows the background subagents through one update's events: one
     /// marked `background` that runs is added (a later event of it need not
-    /// repeat the mark), and any that ends leaves.
+    /// repeat the mark), any that ends leaves, and one that ended runs again as
+    /// background work (`was_background`).
     fn note_background(&mut self, events: &[Value]) {
         for event in events {
             let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
             if event.get("state").and_then(Value::as_str) != Some("running") {
                 self.background.remove(id);
             } else if event.get("background") == Some(&Value::Bool(true)) {
+                self.was_background.insert(id.to_owned());
+                self.background.insert(id.to_owned());
+            } else if self.was_background.contains(id) {
                 self.background.insert(id.to_owned());
             }
         }
@@ -435,6 +453,7 @@ impl SubagentTree {
                 if let Some(tokens) = update.get("tokens").and_then(Value::as_u64) {
                     event.insert("tokens".into(), json!(tokens));
                 }
+                self.remember_label(&id, &event);
                 self.label(&id, &mut event);
                 vec![Value::Object(event)]
             }
@@ -643,20 +662,27 @@ impl SubagentTree {
     }
 
     /// Keeps the task an event of `id` gives (at most a last message's length, so a task that is
-    /// a whole prompt is never repeated on every later event).
+    /// a whole prompt is never repeated on every later event), and its agentId.
     fn remember_label(&mut self, id: &str, event: &Map<String, Value>) {
-        if let Some(v) = event.get("task").and_then(Value::as_str).filter(|v| !v.is_empty()) {
+        let text = |key: &str| event.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
+        if let Some(v) = text("task") {
             let preview = self.previews.entry(id.to_owned()).or_default();
             preview.task = (v.chars().count() <= LAST_MESSAGE_CHARS).then(|| v.to_owned());
         }
+        if let Some(v) = text("agentId") {
+            self.previews.entry(id.to_owned()).or_default().agent_id = Some(v.to_owned());
+        }
     }
 
-    /// Writes the task `id` was given into an event that says none.
+    /// Writes the task and agentId `id` was given into an event that says none.
     fn label(&self, id: &str, event: &mut Map<String, Value>) {
-        if let Some(task) = self.previews.get(id).and_then(|p| p.task.as_ref())
-            && !event.contains_key("task")
-        {
-            event.insert("task".into(), json!(task));
+        let Some(preview) = self.previews.get(id) else { return };
+        for (key, value) in [("task", &preview.task), ("agentId", &preview.agent_id)] {
+            if let Some(value) = value
+                && !event.contains_key(key)
+            {
+                event.insert(key.into(), json!(value));
+            }
         }
     }
 
@@ -779,6 +805,7 @@ impl SubagentTree {
         }
         // An echo that arrived before the root was known counted it as background work.
         self.background.remove(id);
+        self.was_background.remove(id);
         self.running.retain(|(known, _)| known != id);
         let children = self
             .parents
@@ -950,6 +977,49 @@ mod codex_tests {
         );
         assert_eq!(end[0]["name"], "Watch CI");
         assert_eq!(end[0]["task"], "Watch CI");
+    }
+
+    /// A subagent's completed or cancelled end, which its harness sends with no agent id, still
+    /// says the agentId an earlier event gave it, beside its name and task: a page holding only
+    /// that end names the agent (cmux#33292, cmux#33336).
+    #[test]
+    fn an_end_repeats_the_agent_id_an_earlier_event_gave() {
+        for state in ["completed", "cancelled"] {
+            let mut tree = SubagentTree::default();
+            subagents(
+                &mut tree,
+                json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t1",
+                       "name": "Watch CI", "task": "Watch CI"}),
+            );
+            subagents(
+                &mut tree,
+                json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/t1", "agentId": "a6ab"}),
+            );
+            let end = subagents(
+                &mut tree,
+                json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t1", "state": state}),
+            );
+            assert_eq!(end[0]["state"], state);
+            assert_eq!(end[0]["name"], "Watch CI");
+            assert_eq!(end[0]["task"], "Watch CI");
+            assert_eq!(end[0]["agentId"], "a6ab", "{state}: {end:?}");
+        }
+        // One whose resume named it (a SendMessage) keeps that id for its later end too.
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t2", "task": "Fix it"}),
+        );
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t2", "state": "running", "agentId": "a8e1"}),
+        );
+        let end = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t2", "state": "completed"}),
+        );
+        assert_eq!(end[0]["agentId"], "a8e1", "{end:?}");
+        assert_eq!(end[0]["task"], "Fix it");
     }
 
     /// Codex runs a `spawnAgent` child in its own thread: it outlives the turn

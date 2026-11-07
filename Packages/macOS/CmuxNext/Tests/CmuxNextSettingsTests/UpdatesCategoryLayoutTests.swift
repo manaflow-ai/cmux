@@ -1,7 +1,8 @@
 import CmuxNextSettings
 import Testing
 
-/// Settings > Updates is its own category: how this Mac updates, then the Web UI card and the
+/// Settings > Updates is its own category: the App Update card (a download's progress and its
+/// Cancel, Restart to Update, a failure's Try Again), how this Mac updates, then the Web UI card and the
 /// Channels card with every channel's recent builds. General no longer holds the update rows.
 struct UpdatesCategoryLayoutTests {
     private static let categories = SettingsPageLayout().categories()
@@ -9,6 +10,7 @@ struct UpdatesCategoryLayoutTests {
     @Test func updatesHoldsTheUpdateRowsThenTheWebUIAndChannelsCards() throws {
         let updates = try #require(Self.categories.first { $0.spec.id == "updates" })
         #expect(updates.groups.flatMap(\.rows).contains("updates.channel"))
+        #expect(updates.spec.lead == [.appUpdate])
         #expect(updates.spec.trail == [.webUpdates, .channels])
         #expect(Self.categories.map(\.spec.id).prefix(2) == ["general", "updates"])
     }

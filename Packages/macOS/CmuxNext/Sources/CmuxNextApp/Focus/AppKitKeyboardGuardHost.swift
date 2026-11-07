@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextFocusUI
+import CmuxNextWakeups
 
 /// A retained AppKit application reference that can safely cross the resolver
 /// queue. Reading `NSRunningApplication.processIdentifier` can make a
@@ -23,6 +24,11 @@ final class AppKitKeyboardGuardHost: NoActivateKeyboardGuard.Host {
     var commandHeld: Bool { NSEvent.modifierFlags.contains(.command) }
     var isAppActive: Bool { NSApp.isActive }
     var now: ContinuousClock.Instant { .now }
+    private let intentWait = DemandTimer(owner: "NoActivateKeyboardGuard.intentArrival")
+
+    func schedule(after delay: Duration, _ body: @escaping @MainActor @Sendable () -> Void) {
+        intentWait.schedule(after: delay) { @MainActor in body() }
+    }
 
     func giveActivationBack(to app: NSRunningApplication?) {
         // Deactivate synchronously so the guard never retains the keyboard.

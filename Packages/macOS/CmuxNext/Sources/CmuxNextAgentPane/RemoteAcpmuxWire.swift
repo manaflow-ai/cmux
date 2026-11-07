@@ -217,12 +217,15 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             ]])
         case "session/prompt":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
-            guard names(params["sessionId"]), let text = Self.text(params["prompt"]) else { return refuse(id, method) }
+            guard names(params["sessionId"]), let blocks = params["prompt"] as? [[String: Any]], !blocks.isEmpty,
+                  let content = try? JSONSerialization.data(withJSONObject: blocks) else { return refuse(id, method) }
+            let text = Self.text(blocks)
             let prompt = ((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["promptId"] as? String
                 ?? UUID().uuidString.lowercased()
             let session = state.withLock { $0.session } ?? ""
             run(id) { [weak self] client in
-                let accepted = try await client.prompt(id: prompt, text: text)
+                let accepted = if let text { try await client.prompt(id: prompt, text: text) }
+                    else { try await client.prompt(id: prompt, content: content) }
                 let object = (try? JSONSerialization.jsonObject(with: accepted)) as? [String: Any] ?? [:]
                 let turn = object["turn_id"] ?? NSNull()
                 self?.notify("_acpmux/prompt_accepted", ["sessionId": session, "promptId": prompt, "turnId": turn,
@@ -258,6 +261,19 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 case .config(let config, let value): return try await client.setConfig(id: config, value: value)
                 }
             }
+        case "_acpmux/context":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]) else { return refuse(id, method) }
+            run(id) { client in try await client.context() }
+        case "_acpmux/context_override":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]), let scope = params["scope"] as? String,
+                  params["text"] == nil || params["text"] is NSNull || params["text"] is String,
+                  params["partId"] == nil || params["partId"] is NSNull || params["partId"] is String else { return refuse(id, method) }
+            // The daemon pins the project directory from the attached session, never the page.
+            let text = params["text"] as? String
+            let partId = params["partId"] as? String
+            run(id, afterEarlierPicks: true) { client in try await client.setContextOverride(scope: scope, text: text, partId: partId) }
         case "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
              "_acpmux/agent_login/cancel":
             // A Cloud chat's own sign-in on its machine (the failed turn's card): the host already
@@ -478,10 +494,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         return json(object)
     }
 
+    /// What `_acpmux/watch` attaches with: the newest transcript record only.
+    static let watchPage = AgentSessionPage(limit: 1, kinds: ["transcript"], listing: true)
+
     private static func page(_ params: [String: Any], method: String) -> AgentSessionPage {
         let number = { (key: String) -> UInt64? in (params[key] as? NSNumber)?.uint64Value }
         let kinds = (params["kinds"] as? [Any])?.compactMap { $0 as? String }
-        if method == "_acpmux/watch" { return AgentSessionPage(limit: 1, kinds: ["transcript"]) }
+        if method == "_acpmux/watch" { return watchPage }
         return AgentSessionPage(afterSeq: number("afterSeq"), beforeSeq: number("beforeSeq"),
                                 limit: (params["limit"] as? NSNumber)?.intValue, kinds: kinds)
     }
@@ -538,12 +557,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         return state.withLock { state in state.session != nil && (name == state.session || name == state.resolved) }
     }
 
-    /// The text of a prompt made only of text blocks; nil for any other block.
+    /// Legacy text-only prompts. Metadata-bearing text uses content so pasted chips keep it.
     static func text(_ value: Any?) -> String? {
         guard let blocks = value as? [[String: Any]], !blocks.isEmpty else { return nil }
         var parts: [String] = []
         for block in blocks {
-            guard block["type"] as? String == "text", let text = block["text"] as? String else { return nil }
+            guard Set(block.keys) == ["type", "text"], block["type"] as? String == "text",
+                  let text = block["text"] as? String else { return nil }
             parts.append(text)
         }
         return parts.joined(separator: "\n\n")

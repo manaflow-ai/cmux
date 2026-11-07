@@ -111,7 +111,7 @@ final class TabDragSession: NSObject {
             self.settleGhost(drag)
         }) { [weak self, weak drag] tick in
             guard let self, let drag else { return false }
-            return self.tick(drag, elapsed: tick.elapsed)
+            return self.tick(drag, elapsed: tick.frameElapsed)
         }
         drag.link?.activate()
         update(point)
@@ -122,7 +122,7 @@ final class TabDragSession: NSObject {
         guard let tab else { return }
         let cache = services.cache
         Task { [weak drag] in
-            let image = await TabPreviewSource.shown(cache.previewImage(for: tab, maxPixelSize: TabPreviewFitting.cachedPixelSize, captureIfMissing: true),
+            let image = await TabPreviewSource.shown(cache.previewImage(for: tab, maxPixelSize: PreviewImageCache.pagePixelSize, captureIfMissing: true),
                                                      key: tab, cache: cache)
             guard let drag, let image else { return }
             drag.ghost.setThumbnail(image)

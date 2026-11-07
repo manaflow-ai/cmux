@@ -4,6 +4,7 @@ import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextSettings
 
 /// `home-chief`: Home in the capture window, showing the Chief conversation

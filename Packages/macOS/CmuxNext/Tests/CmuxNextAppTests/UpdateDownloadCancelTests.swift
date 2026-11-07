@@ -33,7 +33,7 @@ import Testing
             .presentation(version: "1.0.0", build: "100")
         let notice = SidebarCardFeed.notice(shown, asked: true)
         let card = SidebarNoticeCardView(motionPolicy: { MotionPolicy(speed: .fast, reduceMotion: true) })
-        card.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: notice))
+        card.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: notice, width: 240))
         card.configure(notice)
         card.layoutSubtreeIfNeeded()
         let pad = Metrics.space3

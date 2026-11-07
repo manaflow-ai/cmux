@@ -219,7 +219,6 @@ await requireBrowserLane("agent-pane-streaming-no-flicker.test.ts", async () => 
       }
     });
 
-  type Box = { el: number; x: number; y: number; w: number; h: number; o: string; v: string; text: boolean };
   type Report = {
     frames: number;
     keys: string[];
@@ -283,7 +282,8 @@ await requireBrowserLane("agent-pane-streaming-no-flicker.test.ts", async () => 
       };
       const animations: string[] = [];
       const removed: string[] = [];
-      const onAnimation = (event: Event) => {
+      // globalThis.Event: the file's own `Event` (the acpmux event, above) would shadow the DOM one here.
+      const onAnimation = (event: globalThis.Event) => {
         if (!inside(event.target as Node)) return;
         const name = (event as AnimationEvent).animationName ?? (event as TransitionEvent).propertyName;
         animations.push(`${event.type} ${name} on ${label(event.target as Element)}`);

@@ -35,6 +35,9 @@
          location = "group:CmuxChiefVoiceCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxDeviceHub">
+      </FileRef>
+      <FileRef
          location = "group:CmuxFeedPushCore">
       </FileRef>
       <FileRef

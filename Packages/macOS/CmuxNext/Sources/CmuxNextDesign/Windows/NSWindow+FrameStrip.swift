@@ -27,11 +27,11 @@ extension NSWindow {
         let content = contentHost.flatMap { pixelRect(of: $0, frame: first) }
         // The pane's strip, apart: its own motion (tabs sliding over) is not content.
         let strip = stripView.flatMap { $0.isHiddenOrHasHiddenAncestor ? nil : pixelRect(of: $0, frame: first) }
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var rows: [[String: Any]] = []
         var intermediate = 0, blank = 0, contentIntermediate = 0, desync = 0, stripIntermediate = 0
         var settledAt: Double?, firstChange: Double?
         var progress = MotionFrameProgress(jump: jump)
+        var writes: [(frame: WindowFrame, path: String)] = []
         let shown = frames.firstIndex { $0.milliseconds >= before.milliseconds } ?? frames.endIndex
         // Off the main actor: six comparisons a frame stalled it past the watchdog in a Debug build.
         let measures = await WindowFrame.measure(Array(frames[shown...]), before: before, last: last, content: content, strip: strip)
@@ -57,14 +57,17 @@ extension NSWindow {
                 if insideFinal > tolerance { settledAt = nil } else if settledAt == nil { settledAt = frame.milliseconds - sentAt }
             }
             let name = String(format: "frame-%03d.png", index)
-            frame.write(to: (dir as NSString).appendingPathComponent(name))
+            writes.append((frame, (dir as NSString).appendingPathComponent(name)))
             rows.append([
                 "ms": (frame.milliseconds - sentAt).rounded(), "file": name,
                 "outside_vs_before": m.outsideBefore, "outside_vs_final": m.outsideFinal, "intermediate": isIntermediate,
                 "blank": isBlank, "desync": isDesync, "content_intermediate": isContentIntermediate,
+                // The content area's own differences, for a script's first-content and final-frame times.
+                "content_vs_before": insideBefore, "content_vs_final": insideFinal, "flatness": m.flatness,
             ])
         }
-        WindowFrame.writeStrip(frames.filter { $0.milliseconds >= before.milliseconds }, to: (dir as NSString).appendingPathComponent("strip.png"))
+        await WindowFrame.writeAll(writes, strip: frames.filter { $0.milliseconds >= before.milliseconds },
+                                   stripPath: (dir as NSString).appendingPathComponent("strip.png"), in: dir)
         let motion = progress.fields(moving: intermediate, tabs: MotionTravelSummary("tabs.travel", after: sentTime))
         let report: [String: Any] = [
             "dir": dir, "frames": rows, "intermediate": Double(intermediate), "blank": Double(blank), "frame_count": Double(rows.count),

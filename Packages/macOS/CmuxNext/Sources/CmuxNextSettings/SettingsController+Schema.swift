@@ -34,11 +34,14 @@ extension SettingsController {
         var linked = try await windowBackgroundLinkedEdits(writing: descriptor.path, value: value)
         // A built-in density (any write of appearance.density) ends the custom one, which would win
         // over it (plans/cmux-next/density-DESIGN.md).
-        let customDensity = CustomDensitySelectionSetting().configPath
-        if descriptor.path == DensitySetting().configPath, try await file.value(at: customDensity) != nil {
+        let customDensity = CustomDensitySelectionSetting.configPath
+        if descriptor.path == DensitySetting.configPath, try await file.value(at: customDensity) != nil {
             linked.append((path: customDensity, value: nil))
         }
         if let value, !descriptor.accepts(value) { throw SettingRefused(key: descriptor.id, value: value) }
+        // A write never copies the theme file's own entries into cmux-next.json (Theme Studio writes
+        // the whole edits map it shows, which holds the file's colors).
+        let value = strippingThemeFileEntries(descriptor, value)
         // Before the write, so an observer of the new value already sees what the hook recorded;
         // the hook's undo runs if the write fails.
         let undo = writer == .user ? userWillWrite?(descriptor, value) : nil

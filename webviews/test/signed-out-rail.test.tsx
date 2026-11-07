@@ -185,11 +185,18 @@ const openQuickPicker = () =>
   );
 
 const tabFor = (name: string) =>
-  [...dom.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-quick-rail-tab")].find(
-    (button) => button.getAttribute("aria-label") === name,
+  [...dom.window.document.querySelectorAll<HTMLElement>('.acpmux-cols-tab[role="tab"]')].find(
+    (tab) => tab.getAttribute("aria-label") === name,
   );
+/// The model rows of either menu: the columns' (a menu with a rail) or the list's (a started chat's).
 const modelRows = () => [
-  ...dom.window.document.querySelectorAll<HTMLElement>('.acpmux-quick-menu .acpmux-quick-item[role="menuitemradio"]'),
+  ...dom.window.document.querySelectorAll<HTMLElement>(
+    '.acpmux-cols [role="listbox"] [role="option"], .acpmux-quick-menu .acpmux-quick-item[role="menuitemradio"]',
+  ),
+];
+/// The models column's rows that are not models (notes, Log In, Install…).
+const columnRows = () => [
+  ...dom.window.document.querySelectorAll<HTMLElement>('.acpmux-cols [role="listbox"] .acpmux-cols-row'),
 ];
 
 test("a signed-out harness offers Log In, never its models", async () => {
@@ -206,14 +213,16 @@ test("a signed-out harness offers Log In, never its models", async () => {
   expect(tab, "the Codex rail tab").toBeDefined();
   expect(tab!.title).toContain("Signed out");
   await act(async () => tab!.click());
+  expect(tab!.getAttribute("aria-selected")).toBe("true");
   expect(modelRows().map((row) => row.textContent)).toEqual([]);
-  const login = [
-    ...dom.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-quick-menu .acpmux-quick-item"),
-  ].find((item) => item.textContent === "Log In");
+  expect(columnRows().map((row) => row.textContent)).toEqual(["Signed out", "Log In"]);
+  const login = columnRows().find((row) => row.getAttribute("role") === "button");
   expect(login?.textContent).toBe("Log In");
   await act(async () => login!.click());
   expect(logins).toEqual(["codex: codex login"]);
   expect(sent).toEqual([]);
+  // Log In closes the menu.
+  expect(dom.window.document.querySelector(".acpmux-cols")).toBeNull();
 });
 
 // Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add credits or add
@@ -234,12 +243,20 @@ test("a signed-out harness offers its own Log In alone, never credits or a key t
     openQuickPicker();
   });
   await act(async () => tabFor(codex.name)!.click());
-  const labels = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .acpmux-quick-item")].map(
-    (item) => item.textContent,
-  );
+  // The models column and the account card (the avatar opens it) are where a sign-in shows.
+  const profile = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-cols-profile");
+  expect(profile, "the account avatar").not.toBeNull();
+  await act(async () => profile!.click());
+  const card = dom.window.document.querySelector<HTMLElement>(".acpmux-cols-card");
+  expect(card, "the account card").not.toBeNull();
+  const labels = [
+    ...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-cols .acpmux-cols-row, .acpmux-cols button"),
+  ].map((item) => item.textContent);
   expect(labels).toContain("Log In");
+  expect(labels).toContain(`Sign in to ${codex.name}…`);
   expect(labels).not.toContain("Add Credits…");
   expect(labels).not.toContain("Add API Key…");
+  expect(labels).not.toContain("Use an API key…");
   expect(asked).toEqual([]);
   expect(sent).toEqual([]);
 });
@@ -252,7 +269,7 @@ test("a search never lists a signed-out harness's models", async () => {
   await act(async () => {
     openQuickPicker();
   });
-  const input = dom.window.document.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
+  const input = dom.window.document.querySelector<HTMLInputElement>(".acpmux-cols-search input")!;
   const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
     setValue.call(input, "gpt");
@@ -260,10 +277,10 @@ test("a search never lists a signed-out harness's models", async () => {
   });
   // Other providers can offer GPT models; none of these results may come from signed-out Codex.
   expect(modelRows().length).toBeGreaterThan(0);
-  expect(modelRows().every((row) => !row.querySelector(".acpmux-quick-value")?.textContent?.includes("Codex"))).toBe(
-    true,
-  );
-  const headings = [...dom.window.document.querySelectorAll(".acpmux-quick-menu .ui-menu-group-label")];
+  // A searched row's title is its name, its harness, then its provider ("GPT 5.3 Codex" is a model).
+  expect(modelRows().every((row) => row.title.split(" · ")[1] !== "Codex")).toBe(true);
+  const headings = [...dom.window.document.querySelectorAll(".acpmux-cols .acpmux-cols-group")];
+  expect(headings.length).toBeGreaterThan(0);
   expect(headings.map((heading) => heading.textContent)).not.toContain("Codex");
   expect(sent).toEqual([]);
 });
@@ -296,8 +313,8 @@ test("Starred lists no model of a signed-out harness", async () => {
   await act(async () => {
     openQuickPicker();
   });
-  const starred = dom.window.document.querySelector<HTMLButtonElement>('.acpmux-quick-rail-tab[aria-label="Starred"]');
-  expect(starred, "the Starred tab").not.toBeNull();
+  const starred = tabFor("Starred");
+  expect(starred, "the Starred tab").toBeDefined();
   await act(async () => starred!.click());
   const names = modelRows().map((row) => row.textContent ?? "");
   expect(names).toHaveLength(1);

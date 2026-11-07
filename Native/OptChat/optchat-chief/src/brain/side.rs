@@ -284,9 +284,13 @@ impl Brain {
                 serde_json::json!({"id": message.id, "person": person}),
             );
             let sender = self.settings.membership.agent_sender(summary, &message);
+            let relay = sender
+                .as_ref()
+                .filter(|s| self.chief.trusts_agent(&s.name))
+                .map(|s| s.name.clone());
             let logged = super::files::logged_text(
                 &super::images::logged_text(
-                    &super::inbox::agent_framed(sender.as_ref(), &labelled),
+                    &super::inbox::agent_framed(sender.as_ref(), relay.is_some(), &labelled),
                     &images,
                 ),
                 &files,
@@ -294,6 +298,8 @@ impl Brain {
             if let Some(target) = crate::membership::thread_target(summary, &message) {
                 self.reply_threads.insert(message.id.clone(), target);
             }
+            self.posted
+                .insert(message.id.clone(), message.created_at.clone());
             self.queue_in(
                 Some(conversation.to_owned()),
                 logged,
@@ -303,6 +309,7 @@ impl Brain {
                     id: message.id.clone(),
                     remote,
                     requires_approval: !owner_msg && !lifts_floor,
+                    relay,
                 },
             );
             return;

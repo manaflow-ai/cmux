@@ -150,8 +150,7 @@ fn line_of(h: &Harness, seq: u64) -> u64 {
 fn send(text: &str) -> SendCall {
     SendCall {
         text: Some(text.to_owned()),
-        attachments: Vec::new(),
-        reply_to: None,
+        ..SendCall::default()
     }
 }
 
@@ -506,6 +505,34 @@ fn turn_tools_sleep_until_event_is_dropped_when_a_message_comes_first() {
 }
 
 #[test]
+fn spawn_place_parser_preserves_machine_names_and_checks_cloud_sizes() {
+    for place in [
+        "here",
+        "local",
+        "mac",
+        "cloud",
+        "cloud:small",
+        "cloud:medium",
+        "cloud:large",
+        "design-mini",
+    ] {
+        let call = Call::parse(
+            "spawn",
+            &json!({"tasks": ["build a hello web page"], "place": format!(" {place} ")}),
+        )
+        .unwrap();
+        assert!(matches!(call, Call::Spawn { place: Some(actual), .. } if actual == place));
+    }
+    let error = Call::parse(
+        "spawn",
+        &json!({"tasks": ["build it"], "place": "cloud:giant"}),
+    )
+    .unwrap_err();
+    assert!(error.contains("no Cloud size giant"), "{error}");
+    assert!(error.contains("small, medium, large"), "{error}");
+}
+
+#[test]
 fn turn_tools_sleep_zero_clears_wakes_and_bounds_hold() {
     assert!(
         Call::parse("sleep", &json!({"seconds": 5})).is_err(),
@@ -599,4 +626,44 @@ fn turn_tools_send_refuses_the_first_long_reply_of_a_turn_then_posts_the_next() 
     h.agents.hold(false);
     h.agents.release();
     h.settle_posts();
+}
+
+/// Leo, 2026-11-02: the 45-word refusal cost a resend each time Chief already
+/// knew its answer was long (a status list he asked for). `long: true` says so
+/// up front: the first send posts as is, and `send` without it is still gated.
+#[test]
+fn turn_tools_send_marked_long_posts_on_the_first_try() {
+    assert_eq!(
+        Call::parse("send", &json!({"text": "hi", "long": true})),
+        Ok(Call::Send(SendCall {
+            long: true,
+            ..send("hi")
+        })),
+        "`long` parses"
+    );
+    assert!(
+        Call::parse("send", &json!({"text": "hi", "long": "yes"})).is_err(),
+        "`long` must be a boolean"
+    );
+    let mut h = Harness::new(default_script());
+    running(&mut h, "list every open PR");
+    let long_text = "item ".repeat(80);
+    let sp = spawner(&h);
+    let gated = long_text.clone();
+    let refused = run(&mut h, move || sp.send(send(&gated)));
+    assert!(
+        refused.is_err(),
+        "unmarked long send is refused once: {refused:?}"
+    );
+    let mut h = Harness::new(default_script());
+    running(&mut h, "list every open PR");
+    let sp = spawner(&h);
+    let call = SendCall {
+        long: true,
+        ..send(&long_text)
+    };
+    let answer = run(&mut h, move || sp.send(call)).expect("send answers");
+    assert!(answer.starts_with("outcome: done"), "{answer}");
+    let posted = wait_send(&mut h, "item item");
+    assert_eq!(posted.len(), 1, "{posted:?}");
 }

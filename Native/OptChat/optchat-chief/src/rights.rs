@@ -771,6 +771,32 @@ pub fn hook(phase: &str, socket: &Path, stdin: &mut dyn std::io::Read) -> String
 /// optchat-chief rights name PERSON NAME
 /// optchat-chief rights check PERSON TOOL [INPUT_JSON]
 /// ```
+/// The `--mux-home DIR` (or `--mux-home=DIR`) of a `rights` or `audit`
+/// command line, wherever it stands, and the other words in order. A
+/// `--mux-home` with no directory is an error, never the default home.
+pub fn split_mux_home(args: &[String]) -> Result<(Option<PathBuf>, Vec<String>), String> {
+    let mut home = None;
+    let mut words = Vec::new();
+    let mut it = args.iter();
+    while let Some(w) = it.next() {
+        if w == "--mux-home" {
+            let dir = it
+                .next()
+                .filter(|d| !d.is_empty())
+                .ok_or("--mux-home takes a directory")?;
+            home = Some(PathBuf::from(dir));
+        } else if let Some(dir) = w.strip_prefix("--mux-home=") {
+            if dir.is_empty() {
+                return Err("--mux-home takes a directory".into());
+            }
+            home = Some(PathBuf::from(dir));
+        } else {
+            words.push(w.clone());
+        }
+    }
+    Ok((home, words))
+}
+
 pub fn run(words: &[String], optchat_root: &Path, owner: &str) -> Result<String, String> {
     run_as(words, optchat_root, owner, owner, "terminal")
 }
@@ -975,6 +1001,30 @@ mod tests {
     use serde_json::json;
 
     const OWNER: &str = "user_local";
+
+    #[test]
+    fn mux_home_is_read_wherever_it_stands() {
+        let w = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // A bare flag before it does not swallow it.
+        assert_eq!(
+            split_mux_home(&w(&["--json", "--mux-home", "/b/mux", "show"])).unwrap(),
+            (Some(PathBuf::from("/b/mux")), w(&["--json", "show"]))
+        );
+        assert_eq!(
+            split_mux_home(&w(&["grant", "user_ben", "Read(/a)", "--mux-home=/b/mux"])).unwrap(),
+            (
+                Some(PathBuf::from("/b/mux")),
+                w(&["grant", "user_ben", "Read(/a)"])
+            )
+        );
+        assert_eq!(
+            split_mux_home(&w(&["--last", "5"])).unwrap(),
+            (None, w(&["--last", "5"]))
+        );
+        // No directory is an error, never the default home.
+        assert!(split_mux_home(&w(&["show", "--mux-home"])).is_err());
+        assert!(split_mux_home(&w(&["--mux-home="])).is_err());
+    }
 
     fn table() -> Rights {
         let mut r = Rights::default();

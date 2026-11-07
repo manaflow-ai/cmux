@@ -178,6 +178,14 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
         {
             Some(true)
         }
+        ["native", "pi-session", ".pi", "agent", "sessions", dir, f]
+            if !dir.is_empty() && jsonl(f) =>
+        {
+            Some(true)
+        }
+        ["native", "opencode-export", f] if f.len() > ".json".len() && f.ends_with(".json") => {
+            Some(true)
+        }
         ["native", "codex-rollout", ".codex", "sessions", rest @ ..]
             if (1..=5).contains(&rest.len())
                 && rest.iter().all(|p| !p.is_empty())
@@ -410,7 +418,7 @@ impl Hub {
                 format!("mode {shown} does not ask before it acts for a {family} chat here"),
             ));
         }
-        let options = meta.config_options.as_ref().and_then(Value::as_array);
+        let options = meta.config_options.as_deref().and_then(Value::as_array);
         for o in options.into_iter().flatten() {
             let id = o.get("id").and_then(Value::as_str).unwrap_or("");
             let value = o.get("currentValue").and_then(Value::as_str);

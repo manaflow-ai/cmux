@@ -64,8 +64,10 @@ extension AuthCoordinator {
             ))
             return
         }
+        #endif
 
-        if autoLoginCredentials != nil {
+        // After the DEBUG-only mock and fixture states, as before; a capture build (`environmentAutoLogin`) too.
+        if launch.environmentAutoLogin, autoLoginCredentials != nil {
             authLog.debug("Auto-login credentials detected")
             apply(.primed(
                 clearAuthRequested: false,
@@ -78,7 +80,6 @@ extension AuthCoordinator {
             ))
             return
         }
-        #endif
 
         apply(.primed(
             clearAuthRequested: false,
@@ -168,18 +169,19 @@ extension AuthCoordinator {
             }
             return
         }
+        #endif
 
-        if let credentials = autoLoginCredentials,
+        if launch.environmentAutoLogin,
+           let credentials = autoLoginCredentials,
            AuthLaunchOptions.shouldStartAutoLogin(
                hasCredentials: true,
                hasStoredTokens: hasStoredTokens
            ),
            credentials.email.isEmpty == false {
-            authLog.debug("Starting auto-login")
+            authLog.info("Starting auto-login")
             await performAutoLogin(credentials, generation: generation, storeWriteHighWater: storeWriteHighWater)
             return
         }
-        #endif
 
         if hasStoredTokens {
             sessionCache.setHasTokens(true)
@@ -255,7 +257,10 @@ extension AuthCoordinator {
                 authLog.info("Auto-login superseded by a newer session transition; leaving state untouched")
                 return
             }
-            authLog.error("Auto-login failed: \(error.localizedDescription, privacy: .private)")
+            // The kind (type, domain, code) is public: a launch that never signed in from its credentials
+            // file says which step refused it, while the message, which can name the account, stays private.
+            let kind = error as NSError
+            authLog.error("Auto-login failed (\(String(describing: type(of: error)), privacy: .public) \(kind.domain, privacy: .public) \(kind.code, privacy: .public)): \(error.localizedDescription, privacy: .private)")
             // No expected refresh token: auto-login only starts against an
             // empty token store, so there is no dead session's token to
             // compare against; the staleness guards inside cover the rest.

@@ -86,6 +86,7 @@ use registry_layout::set_layout_split_ratio;
 use registry_layout::swap_layout_panes;
 mod batch_close;
 mod client_ids;
+pub(crate) use client_ids::ensure_client_pane_id_unused;
 mod close_effects;
 mod column_update;
 mod creation_burst_seams;
@@ -96,6 +97,7 @@ mod effectful_operation;
 mod emptied_workspace;
 mod end_terminals_batch;
 mod layout_ops;
+pub(in crate::mux) use layout_ops::LayoutSizesUnchanged;
 mod layout_projection;
 mod pane_browser;
 mod pane_tab_moves;
@@ -398,3 +400,6 @@ mod structural_tab_move_tests;
 
 #[cfg(test)]
 mod creation_recovery_tests;
+
+#[cfg(all(test, unix))]
+mod launch_activation_tests;

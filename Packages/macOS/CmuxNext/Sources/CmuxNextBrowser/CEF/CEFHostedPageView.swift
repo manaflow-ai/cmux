@@ -13,6 +13,17 @@ import QuartzCore
 ///
 /// A context id is a WindowServer name, not a pointer: the same view hosts
 /// a page whose browser runs in another process.
+/// Where a page window shows none of its page's pixels in the web contents: before a tab's first real page (the New Tab
+/// page, a blank page) the web contents are a hole, so the window backdrop shows there (`CEFTab.applyOcclusion`).
+enum CEFPageHole: Equatable {
+    /// The page shows all its pixels.
+    case none
+    /// The whole page is a hole.
+    case whole
+    /// Only this rect (the web contents beside an open side panel), in the host view's coordinates, is a hole.
+    case rect(CGRect)
+}
+
 final class CEFHostedPageView: NSView {
     /// The hosted context, 0 while no page is hosted.
     private(set) var contextID: UInt32 = 0
@@ -31,11 +42,51 @@ final class CEFHostedPageView: NSView {
         root.actions = Self.noActions
         layer = root
         wantsLayer = true
+        // m18: a page's pixels never pass its pane's edge, also while its last frame is larger than the shrunk pane.
+        // AppKit keeps the layer's masksToBounds in step with clipsToBounds (macOS 14), so the view must clip too.
+        clipsToBounds = true
         autoresizingMask = [.width, .height]
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Where the page window shows none of the page's pixels (`CEFLayerHosting.pageHole`): this view shows none there
+    /// either, through a mask on its root layer, so the window backdrop shows as over the page window's hole.
+    var hole: CEFPageHole = .none {
+        didSet { if hole != oldValue { applyHole() } }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        // A partial hole's mask covers the bounds; the other cases do not depend on the size.
+        if case .rect = hole { applyHole() }
+    }
+
+    private func applyHole() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        switch hole {
+        case .none:
+            root.mask = nil
+        case .whole:
+            // An empty mask covers no point: the page shows nothing, at any size.
+            let mask = CALayer()
+            mask.actions = Self.noActions
+            root.mask = mask
+        case .rect(let rect):
+            let mask = root.mask as? CAShapeLayer ?? CAShapeLayer()
+            mask.actions = Self.noActions
+            mask.frame = root.bounds
+            let path = CGMutablePath()
+            path.addRect(root.bounds)
+            path.addRect(rect)
+            mask.path = path
+            mask.fillRule = .evenOdd
+            root.mask = mask
+        }
+        CATransaction.commit()
+    }
 
     /// Not flipped: the fork's root layer is unflipped, origin bottom left.
     override var isFlipped: Bool { false }
@@ -90,5 +141,6 @@ final class CEFHostedPageView: NSView {
 
     private static let noActions: [String: any CAAction] = [
         "position": NSNull(), "bounds": NSNull(), "sublayers": NSNull(), "contents": NSNull(), "hidden": NSNull(),
+        "path": NSNull(),
     ]
 }

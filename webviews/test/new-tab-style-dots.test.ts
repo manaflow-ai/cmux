@@ -16,6 +16,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { chromium, type Browser } from "playwright";
 import { StyleSwitch } from "../src/agent-session/acpmux/newtab/StyleSwitch";
 import { PAGE_STYLES, type PageStyle } from "../src/agent-session/acpmux/newtab/templates";
+import { designTokenCss } from "./support/gridTokens";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("new-tab-style-dots.test.ts", async () => {
@@ -27,7 +28,9 @@ await requireBrowserLane("new-tab-style-dots.test.ts", async () => {
     describe.skip("style dots", () => test("chromium", () => {}));
     return;
   }
-  const screen = readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/newtab/screen.css"), "utf8");
+  // The token sheet first, as the page loads it (desktop.css), so screen.css's tokenised gaps resolve.
+  const sheet = readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/newtab/screen.css"), "utf8");
+  const screen = designTokenCss() + sheet;
   let browser: Browser | undefined;
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });

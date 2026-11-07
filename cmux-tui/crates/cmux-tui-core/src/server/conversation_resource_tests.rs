@@ -209,7 +209,8 @@ fn typing_and_drafts_are_for_the_caller_itself() {
         (replay["value"]["published"].clone(), replay["replayed"].clone()),
         (json!(false), json!(true))
     );
-    assert_eq!(error(&draft(&chief, 2, &"x".repeat(16 * 1024 + 1), false)).1, "text_too_large");
+    let large = "x".repeat(3 * 1024 * 1024);
+    assert_eq!(ok(&draft(&chief, 2, &large, false))["value"]["published"], true);
     let mut limited = false;
     for seq in 2..=12 {
         let response = draft(&chief, seq, "y", false);

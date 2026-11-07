@@ -34,6 +34,12 @@
       "status": "build"
     },
     {
+      "id": "design-scale",
+      "generator": "webviews/scripts/pages/gen-design-scale.mjs",
+      "outputs": ["webviews/src/ui/theme.generated.css", "webviews/src/ui/designTokens.generated.ts"],
+      "status": "build"
+    },
+    {
       "id": "settings-sources",
       "generator": "scripts/cmux-next/gen-settings-sources.py",
       "outputs": [

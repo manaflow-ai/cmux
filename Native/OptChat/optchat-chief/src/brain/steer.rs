@@ -266,9 +266,35 @@ impl Brain {
         self.add_turn_people(items);
         self.forget_authors(items);
         if items.iter().any(Queued::requires_approval) {
+            // Untrusted text, or other-person text in an owner's turn, ends
+            // a trusted agent's tell and spawn for the rest of the turn.
+            self.turn_relay = match (self.turn_ask, self.turn_relay.take()) {
+                (true, Some(before)) => trusted_relays(items).map(|now| {
+                    if before.split(", ").any(|n| n == now) {
+                        before
+                    } else {
+                        format!("{before}, {now}")
+                    }
+                }),
+                _ => None,
+            };
             self.turn_ask = true;
             self.last_turn_ask = true;
             self.interrupt.set_gate(true);
         }
     }
+}
+
+/// The trusted agent sessions behind `items`' other-person text, joined
+/// with `, `, when every item that takes the ask floor is a trusted agent's
+/// message (`relay.trustedAgents`); None when any is not, or none is.
+pub(super) fn trusted_relays(items: &[Queued]) -> Option<String> {
+    let mut names: Vec<&str> = Vec::new();
+    for item in items.iter().filter(|i| i.requires_approval()) {
+        let name = item.trusted_relay()?;
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    (!names.is_empty()).then(|| names.join(", "))
 }

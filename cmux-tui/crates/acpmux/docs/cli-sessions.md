@@ -70,6 +70,7 @@ boundary); `--no-steer` queues it instead.
 | The prompts waiting on it | `acpmux session queue list coord` |
 | Take other agents' messages out of its queue | `acpmux session queue clear coord --from-agents` |
 | Follow its raw events | `acpmux session tail coord -f` |
+| Find its messages holding every word, newest first (`--role user\|assistant\|tool`, `--since 24h`, `-n`) | `acpmux session search coord merged sha --role assistant` |
 | Label it | `acpmux session tag review-27310 pr=27310` |
 | How many sub-sessions it runs and queues | `acpmux session limits coord` |
 | Export it as a bundle; import the folder it prints elsewhere | `acpmux session export coord --dest ~/bundles` |

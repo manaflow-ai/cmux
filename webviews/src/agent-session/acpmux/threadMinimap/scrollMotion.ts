@@ -14,8 +14,9 @@ const running = new WeakMap<HTMLElement, () => void>();
 /// paints, so what must move with the scroll on its own frame (the minimap's band) listens for this too.
 export const MOTION_SCROLL_EVENT = "acpmux-motion-scroll";
 
-/// Tells `node`'s listeners that the motion just moved it (`MOTION_SCROLL_EVENT`).
-function announceScroll(node: HTMLElement): void {
+/// Tells `node`'s listeners that a RAF-driven motion just moved it (`MOTION_SCROLL_EVENT`).
+/// Never call from React layout work: transcript listeners synchronously commit visible rows.
+export function announceScroll(node: HTMLElement): void {
   // A stand-in scroller (a unit test's) may have no document or events of its own.
   if (typeof node.dispatchEvent !== "function") return;
   const Event_ = node.ownerDocument?.defaultView?.Event ?? globalThis.Event;

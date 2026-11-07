@@ -3,10 +3,10 @@ import CmuxNextSettings
 import Foundation
 
 extension AgentPageProvider {
-    static func tail(_ method: String, params: JSONValue, op: String, host: (any AgentPaneHostProviding)?) async throws -> JSONValue {
+    static func tail(_ method: String, params: JSONValue, op: String, host: (any AgentPaneHostProviding)?, pageGeneration: UInt64? = nil) async throws -> JSONValue {
         guard case .object(let body) = params, case .string(let session)? = body["sessionId"], !session.isEmpty
         else { throw PageError.invalidParams(op) }
-        return try value(of: await AgentPaneTailCache.reply(to: method, params: params.foundationObject as? [String: Any], host: host))
+        return try value(of: await AgentPaneTailCache.reply(to: method, params: params.foundationObject as? [String: Any], host: host, pageGeneration: pageGeneration))
     }
 
     /// `chat.tail` (`sessionId`, `tail` or none) and `chat.tail.get` (`sessionId`): what a page last

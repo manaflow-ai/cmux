@@ -1,11 +1,12 @@
 import Foundation
 
-/// The palette's user aliases and pins in cmux.json (cx-9ce.43):
+/// The palette's user aliases, pins and search memory in cmux.json (cx-9ce.43):
 ///
 /// ```jsonc
 /// "palette": {
 ///   "aliases": { "vs": "splitRight", "nt": "newTab.default" },
-///   "pins": ["newTab.default", "splitRight"]
+///   "pins": ["newTab.default", "splitRight"],
+///   "searchHistory": true
 /// }
 /// ```
 ///
@@ -15,11 +16,14 @@ import Foundation
 public nonisolated struct PaletteRankingSetting: Sendable, Hashable {
     public static let aliasesPath = ["palette", "aliases"]
     public static let pinsPath = ["palette", "pins"]
+    public static let searchHistoryPath = ["palette", "searchHistory"]
 
     /// The aliases of each action id, in alias order.
     public var aliases: [String: [String]] = [:]
     /// Pinned action ids, in the user's order, each once.
     public var pins: [String] = []
+    /// Whether the palette learns from what the person runs (`palette.searchHistory`, default on).
+    public var remembersSearches = true
 
     /// The setting in `root` (the file's whole JSON).
     public init(_ root: JSONValue) {
@@ -32,6 +36,7 @@ public nonisolated struct PaletteRankingSetting: Sendable, Hashable {
         if case .array(let items) = root.value(at: Self.pinsPath) {
             pins = items.compactMap { $0.stringValue }.filter { !$0.isEmpty && seen.insert($0).inserted }
         }
+        if case .bool(let on) = root.value(at: Self.searchHistoryPath) { remembersSearches = on }
     }
 
     /// Raw action ids mean nothing on the Settings page; the user writes them in cmux.json.
@@ -56,6 +61,13 @@ public nonisolated struct PaletteRankingSetting: Sendable, Hashable {
                 kind: .stringList, default: .array([]), keywords: ["palette", "pin", "favorite", "command"]
             )
             .hiddenFromSettingsPage(Self.cmuxJSONOnly),
+            SettingDescriptor(
+                searchHistoryPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.palette.searchHistory", "Remember Palette Searches"),
+                help: SettingsText.keyed("settings.palette.searchHistory.help",
+                                         "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only."),
+                kind: .toggle, default: .bool(true), keywords: ["palette", "search", "history", "memory", "recent", "frecency", "ranking"]
+            ),
         ]
     }
 }

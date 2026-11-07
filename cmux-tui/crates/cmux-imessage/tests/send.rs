@@ -141,3 +141,28 @@ fn system_runner_reads_stderr_past_the_pipe_buffer_without_stalling() {
     assert_eq!(output.stderr.len(), 300_000);
     assert!(started.elapsed() < std::time::Duration::from_secs(30), "took {:?}", started.elapsed());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_timeout_returns_even_when_a_descendant_holds_stderr() {
+    use cmux_imessage::send::TimedRunner;
+    let started = std::time::Instant::now();
+    let runner = TimedRunner { timeout: std::time::Duration::from_secs(1) };
+    let args = vec!["-c".to_string(), "sleep 20 & wait".to_string()];
+    let error = runner.run("sh", &args).expect_err("times out");
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(started.elapsed() < std::time::Duration::from_secs(8), "took {:?}", started.elapsed());
+}
+
+#[cfg(unix)]
+#[test]
+fn an_exit_returns_even_when_a_descendant_keeps_stderr_open() {
+    use cmux_imessage::send::TimedRunner;
+    let started = std::time::Instant::now();
+    let runner = TimedRunner { timeout: std::time::Duration::from_secs(60) };
+    let args = vec!["-c".to_string(), "echo early >&2; sleep 20 & exit 4".to_string()];
+    let output = runner.run("sh", &args).expect("sh runs");
+    assert!(!output.success);
+    assert!(output.stderr.contains("early"), "stderr so far is kept: {:?}", output.stderr);
+    assert!(started.elapsed() < std::time::Duration::from_secs(8), "took {:?}", started.elapsed());
+}

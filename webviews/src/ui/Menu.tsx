@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type FocusEvent,
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
@@ -20,6 +21,7 @@ import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { useNativePopup, type NativePopupDescription, type NativePopupEvent } from "./nativePopup";
 import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
+import { useScrollEdges } from "./scrollEdges";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { popupCollision, type UiPopupFlip } from "./openSide";
 import { usePopupPadding } from "./popupInset";
@@ -31,7 +33,13 @@ import { useNativeFinalFocus } from "./useNativeFinalFocus";
 export interface MenuProps {
   open?: boolean;
   /** Optional declarative rows for WebPopupHost. When supplied, no popup rows mount in the page. */
-  native?: { model: NativePopupDescription; onEvent?(event: NativePopupEvent): void; onDismiss?(): void };
+  native?: {
+    model: NativePopupDescription;
+    onEvent?(event: NativePopupEvent): void;
+    onDismiss?(): void;
+    /** The host refused to draw the rows; when set, the menu stays open for the owner's fallback. */
+    onRefused?(): void;
+  };
   onOpenChange?(open: boolean): void;
   onOpenChangeComplete?(open: boolean): void;
   children: ReactNode;
@@ -80,7 +88,8 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
       native?.onEvent?.(event);
       if (action && !action.keepOpen) setMenuOpen(false);
     },
-    onDismiss: () => {
+    onDismiss: (reason) => {
+      if (reason === "refused" && native?.onRefused) return native.onRefused();
       if (open === undefined) setInternalOpen(false);
       onOpenChange?.(false);
       native?.onDismiss?.();
@@ -365,12 +374,14 @@ export function MenuPopup({
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   // The popup's last node: Base UI asks where focus goes after the close fade, as it unmounts.
   const popupNode = useRef<HTMLElement | null>(null);
+  const edges = useScrollEdges();
   const attachPopup = useCallback(
     (node: HTMLElement | null) => {
+      edges(node);
       if (node) popupNode.current = node;
       if (host) setPopup(node);
     },
-    [host],
+    [host, edges],
   );
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
   useEscapingPopup(
@@ -404,7 +415,14 @@ export function MenuPopup({
           ref={attachPopup}
           id={id}
           aria-label={label}
-          className={cx("ui-popup ui-glass ui-menu", matchTrigger && "ui-menu-match-trigger", className)}
+          // The App's menu glass under the page (glass/hostGlass.ts).
+          data-host-glass="menu"
+          data-host-glass-cover=""
+          className={cx(
+            "ui-popup ui-glass ui-menu ui-scroll-edge-fade",
+            matchTrigger && "ui-menu-match-trigger",
+            className,
+          )}
           finalFocus={
             finalFocus ?? (nested ? undefined : (closeType) => focusAfterClose(closeType, menu, popupNode.current))
           }
@@ -473,16 +491,32 @@ function anchorElement(anchor: MenuPopupProps["anchor"], popup: HTMLElement | nu
 
 export interface MenuItemProps {
   className?: string;
+  /** Stable action id for automation and gallery fixtures. */
+  "data-value"?: string;
   disabled?: boolean;
   shortcut?: ReactNode;
+  onPointerMove?(event: PointerEvent<HTMLElement>): void;
+  onPointerEnter?(event: PointerEvent<HTMLElement>): void;
+  onPointerLeave?(event: PointerEvent<HTMLElement>): void;
+  onMouseEnter?(event: MouseEvent<HTMLElement>): void;
+  onMouseLeave?(event: MouseEvent<HTMLElement>): void;
+  /** The row took focus: the arrow keys focus the highlighted row. */
+  onFocus?(event: FocusEvent<HTMLElement>): void;
   onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
   children: ReactNode;
 }
 
 export function MenuItem({
   className,
+  "data-value": dataValue,
   disabled,
   shortcut,
+  onPointerMove,
+  onPointerEnter,
+  onPointerLeave,
+  onMouseEnter,
+  onMouseLeave,
+  onFocus,
   onSelect,
   closeOnClick,
   expanded,
@@ -501,12 +535,21 @@ export function MenuItem({
   return (
     <BaseMenu.Item
       className={cx("ui-menu-item", className)}
+      {...(dataValue === undefined ? {} : { "data-value": dataValue })}
       disabled={disabled}
       {...(closeOnClick === undefined ? {} : { closeOnClick })}
       {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
       {...(controls ? { "aria-controls": controls } : {})}
       {...(closeOnClick === false ? { "data-keeps-open": "" } : {})}
-      onPointerMove={(event) => context?.movePointer(event)}
+      onPointerMove={(event) => {
+        context?.movePointer(event);
+        onPointerMove?.(event);
+      }}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onFocus={onFocus}
       onPointerUp={(event) => {
         if (disabled) return;
         if (context?.activatePointer(event, () => onSelect?.(event), closeOnClick === false)) {
@@ -624,9 +667,9 @@ export function MenuRadioItem({
   );
 }
 
-export function MenuGroup({ label, children }: { label: string; children: ReactNode }) {
+export function MenuGroup({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
-    <BaseMenu.Group className="ui-menu-group">
+    <BaseMenu.Group className={cx("ui-menu-group", className)}>
       <BaseMenu.GroupLabel className="ui-menu-group-label">{label}</BaseMenu.GroupLabel>
       {children}
     </BaseMenu.Group>

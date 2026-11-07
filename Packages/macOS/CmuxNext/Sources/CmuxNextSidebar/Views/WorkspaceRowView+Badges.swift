@@ -79,7 +79,7 @@ extension WorkspaceRowView {
         } else if badge.state == .dot {
             // The legacy unread style shares Search's center too. Reserve the column before
             // laying out counts or other marks, so none can occupy the dot's slot at rest.
-            badge.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: cy, side: SidebarStyle.unreadDotSize)
+            badge.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: cy, side: SidebarStyle.statusDotSize)
             view = badge
         } else {
             return nil

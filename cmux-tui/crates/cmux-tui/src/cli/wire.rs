@@ -199,6 +199,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         return code;
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
+        | workspace_created_by::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
         | list_order::apply(&mut plan, &mut request, &socket)
     {
@@ -485,6 +486,20 @@ pub(super) fn response_read_timeout(
             .and_then(|value| value.parse::<u64>().ok())
             .map(Duration::from_millis)
             .and_then(|timeout| timeout.checked_add(Duration::from_secs(2)));
+    }
+    // The user's git actions run under a 120 s deadline, and a worktree
+    // removal runs its project's teardown (at most a minute) first.
+    if matches!(
+        &plan.operation,
+        WireOperation::Typed(
+            cmux_tui_core::resource::ResourceOperation::GitCommit
+                | cmux_tui_core::resource::ResourceOperation::GitPush
+                | cmux_tui_core::resource::ResourceOperation::GitWorktreeCreate
+                | cmux_tui_core::resource::ResourceOperation::GitWorktreeApply
+                | cmux_tui_core::resource::ResourceOperation::GitWorktreeRemove
+        )
+    ) {
+        return Some(Duration::from_secs(200));
     }
     Some(Duration::from_secs(10))
 }
@@ -876,6 +891,12 @@ fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a,
     if let Some(roster) = agent_roster::human_view(plan, result) {
         return roster;
     }
+    if matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::SettingsList)
+    ) {
+        return std::borrow::Cow::Owned(super::command::settings_human_rows(result));
+    }
     let personal = matches!(
         &plan.operation,
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
@@ -1123,12 +1144,14 @@ mod notify_desktop;
 mod retry;
 mod sanitize;
 mod socket;
+mod workspace_created_by;
 pub(super) use agent_roster::across as agent_roster_across;
 pub(super) use hints::connect_failure;
 #[cfg(test)]
 use human::human_text;
 use human::{append_table_row, human_cell, write_human};
 use sanitize::{sanitize_human_block, sanitize_human_cell};
+pub(super) use workspace_created_by::drop_unsupported as drop_unsupported_created_by;
 
 /// Remote-supplied error text made safe for a terminal (cx-8mla8: the chief
 /// CLI shows a daemon's own words).

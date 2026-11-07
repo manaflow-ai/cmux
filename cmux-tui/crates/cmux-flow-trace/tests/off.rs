@@ -37,6 +37,7 @@ fn a_hop_with_marks_off_allocates_nothing_and_starts_nothing() {
     for _ in 0..10_000 {
         cmux_flow_trace::hop("daemon.send.write", 7, "00ff");
         cmux_flow_trace::hop_id("holder.pty.read", 0, &[1; 16]);
+        cmux_flow_trace::hop_on_traced("daemon.output.host", "00ff");
     }
     assert_eq!(ALLOCATIONS.with(Cell::get) - before, 0, "a hop with marks off allocated");
     assert!(!cmux_flow_trace::flush(), "flush with marks off reported a writer");

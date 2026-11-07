@@ -7,7 +7,7 @@
 // `layout` keeps the gallery's alternatives (VideoFramesCard.gallery.tsx); the transcript draws `strip`.
 import { createContext, useContext, type CSSProperties } from "react";
 import { callChipHost } from "../chips/host";
-import { formatDuration } from "../chips/ReplyMedia";
+import { formatDuration } from "../chips/replyMediaModel";
 import { useT } from "../i18n";
 import { ImageViewerContext } from "./imageViewerContext";
 import { PlayTriangle } from "./icons";
@@ -80,7 +80,7 @@ export function VideoFramesCard({ video }: { video: VideoFrames }) {
           aria-label={length ? t("composer.playVideo", { name, length }) : t("media.play")}
           onClick={() => void callChipHost("video.quickLook", { src: video.path! })}
         >
-          <PlayTriangle size={10} className="cv-video-frames__play" />
+          <PlayTriangle size={12} className="cv-video-frames__play" />
           <span className="cv-video-frames__label">{name}</span>
         </button>
       ) : (

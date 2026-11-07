@@ -11,10 +11,14 @@ use crate::path_canon::canonical_path;
 /// its content, and the update itself for its input's `file_path`. Paths are
 /// read from the session's cwd. A place that already carries one (a fork's copy
 /// of its parent's record) keeps it, and nothing else in `_meta` changes.
+/// Every record that passes here also gets a shell call's exit code and command
+/// where clients read them (`tool_shell::add_shell_fields`).
 pub(super) fn add_canonical_paths(session: &Session, kind: &str, msg: &mut Value) {
     if !matches!(kind.strip_suffix(".replay").unwrap_or(kind), "tool_call" | "tool_call_update") {
         return;
     }
+    // A shell call's exit code and command where clients read them (`tool_shell.rs`).
+    super::tool_shell::add_shell_fields(kind, msg);
     let Some(update) = msg.pointer_mut("/params/update").filter(|u| u.is_object()) else {
         return;
     };
@@ -36,6 +40,9 @@ pub(super) fn add_canonical_paths(session: &Session, kind: &str, msg: &mut Value
     if input.is_some() {
         note(update, || canonical(input.as_deref()));
     }
+    // A finished read of an image file that returned no image gets the file's image
+    // (`tool_read_images.rs`): Codex's View of a PNG drew as its bare path.
+    super::tool_read_images::add_read_image(kind, msg, &cwd);
 }
 
 /// `target._meta.acpmux.canonicalPath` = `canonical()`, unless it has one or
@@ -154,5 +161,32 @@ mod tests {
             hub.append_logged(&session, "in", "agent_message_chunk", chunk.clone(), None);
         assert_eq!(said.msg, chunk);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The log stores an OpenCode shell call's exit code where clients read it
+    /// (`tool_shell.rs`), so a replay hears the same record.
+    #[cfg(unix)]
+    #[test]
+    fn a_logged_shell_result_records_its_exit_code() {
+        let store = cmux_unix_socket::short_test_dir("acpmux-ts");
+        let hub = hub_at(store.path());
+        let session = session_in(&hub, store.path());
+        let (rec, _) = hub.append_logged(
+            &session,
+            "in",
+            "tool_call_update",
+            update(json!({
+                "sessionUpdate": "tool_call_update", "toolCallId": "call_1", "status": "completed",
+                "rawOutput": {"output": "boom", "metadata": {"exit": 1, "truncated": false}},
+            })),
+            None,
+        );
+        assert_eq!(rec.msg["params"]["update"]["rawOutput"]["exit_code"], 1, "{}", rec.msg);
+        let mut stored = Vec::new();
+        let _ = hub.store.scan_kinds(&session.id, &["tool_call_update"], &mut |e: EventRecord| {
+            stored.push(e.msg);
+            true
+        });
+        assert_eq!(stored, std::slice::from_ref(&rec.msg));
     }
 }

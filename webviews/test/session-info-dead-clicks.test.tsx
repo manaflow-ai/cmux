@@ -236,22 +236,15 @@ test("every clickable thing in Session Info does something, and nothing else loo
   for (const id of ["environment", "context", "connectors", "changes", "subagents", "tasks", "outputs"])
     expect(sections).toContain(id);
   // The dev servers head Background tasks (SessionInfo.tsx RAIL_LAYOUT).
-  expect(container.querySelector('section[data-section="tasks"] .acpmux-session-info-server')).not.toBeNull();
+  expect(container.querySelector('section[data-section="tasks"] [data-kind="server"]')).not.toBeNull();
   expect(container.querySelector(".acpmux-session-info-subagents__more")).not.toBeNull();
   expect(container.querySelector(".acpmux-session-info-subagents__ended")).not.toBeNull();
-  // Ended-agent avatars preview the fold; their containing button owns the click.
-  const avatars = [...container.querySelectorAll(".cv-subagent-avatar")];
-  expect(avatars.length).toBeGreaterThan(0);
-  for (const avatar of avatars) {
-    expect(avatar.closest("button.acpmux-session-info-subagents__ended")).not.toBeNull();
-    expect(avatar.closest('[aria-hidden="true"]')).not.toBeNull();
-  }
   expect(loneChevrons(container)).toEqual([]);
   const { dead, clicked } = await deadClicks(container, calls);
   expect(dead).toEqual([]);
   // The folds opened as it went: every ended subagent's line was clicked too.
   expect(clicked).toBeGreaterThan(150);
-  for (const handler of ["onOpenSubagent", "onOpenSession", "onOpenUrl", "onOpenOutput", "onStopProcess"])
+  for (const handler of ["onOpenSubagent", "onOpenSession", "onOpenUrl", "onStopProcess"])
     expect(calls).toContain(handler);
   // A background task's row opens its terminal through the host.
   expect(native).toContain("chat.processTerminal");
@@ -315,6 +308,11 @@ test("every line of the tray, and its header, does something", async () => {
   const { dead } = await deadClicks(container, calls);
   expect(dead).toEqual([]);
   for (const handler of ["onOpen", "onOpenCommand", "onOpenSession"]) expect(calls).toContain(handler);
+  // Folded, the header names what runs; open, it reads the counts (#33104), so the sweep sees it as a
+  // second control and its last round, the one that clicks what closes, folds the tray again. Open it
+  // to reach the lines' menus.
+  const head = container.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+  if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
   // A line's Stop is in its context menu (#28533), and each one there does something too.
   for (const name of ["Land piece 0", "bun run dev"]) {
     const line = [...container.querySelectorAll<HTMLElement>(".acpmux-agent-line")].find((each) =>

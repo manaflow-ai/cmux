@@ -276,6 +276,20 @@ public final class AppStore {
         workspaceAliases[id] ?? id
     }
 
+    /// Reveal Workspace in List (the Mac's Reveal Workspace in Sidebar): the Workspaces list
+    /// scrolls to this workspace's row and flashes it. `id` moves on each request, so the same
+    /// workspace can be revealed again.
+    public struct RevealRequest: Equatable, Sendable {
+        public var workspaceID: String
+        public var id: Int
+    }
+
+    public private(set) var revealRequest: RevealRequest?
+
+    public func requestReveal(_ workspaceID: String) {
+        revealRequest = RevealRequest(workspaceID: resolvedWorkspaceID(workspaceID), id: (revealRequest?.id ?? 0) + 1)
+    }
+
     /// Workspaces this phone just created: their first tab opens ready to
     /// type (keyboard up), like a new chat in ChatGPT or Claude.
     public private(set) var focusOnOpenWorkspaceIDs: Set<String> = []

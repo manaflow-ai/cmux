@@ -3,7 +3,9 @@
 To stay under GitHub's workflow file size limit, some nightly.yml steps run
 `bash scripts/ci/nightly-steps/<step>.sh` (`bash -e` for a block that ran under GitHub's
 default `bash -e {0}` without its own `set -e`; or the same path under
-.publish-tooling/) instead of an inline `run: |` block. Tests that read the
+.publish-tooling/, or build-sign-notarize-nightly's
+`s=<path>; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"` for an
+unsigned resume of an older tree) instead of an inline `run: |` block. Tests that read the
 workflow's text or YAML read this expansion, so they keep checking those
 steps' commands in place.
 """
@@ -15,7 +17,9 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 NIGHTLY_YML = ROOT / ".github/workflows/nightly.yml"
 STEP_CALL = re.compile(
-    r"^(?P<indent> *)run: bash (?:-e )?(?:\.publish-tooling/)?(?P<path>scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh)[ \t]*$",
+    r"^(?P<indent> *)run: (?:bash (?:-e )?(?:\.publish-tooling/)?(?P<path>scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh)"
+    r"|s=(?P<signing_path>scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh); "
+    r'\[ -f "\$s" \] \|\| s="\.nightly-signing-control/\$s"; bash (?:-e )?"\$s")[ \t]*$',
     re.MULTILINE,
 )
 
@@ -31,7 +35,7 @@ def step_body(path: str) -> str:
 def expand(text: str) -> str:
     def inline(match: re.Match[str]) -> str:
         indent = match.group("indent")
-        body = "\n".join(f"{indent}  {line}" if line else "" for line in step_body(match.group("path")).split("\n"))
+        body = "\n".join(f"{indent}  {line}" if line else "" for line in step_body(match.group("path") or match.group("signing_path")).split("\n"))
         return f"{indent}run: |\n{body}"
 
     return STEP_CALL.sub(inline, text)

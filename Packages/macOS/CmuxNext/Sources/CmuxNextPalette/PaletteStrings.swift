@@ -27,7 +27,25 @@ nonisolated enum PaletteStrings {
     static var settingsTitle: String { String(localized: "palette.page.settings", defaultValue: "Change Settings", bundle: .module) }
     static var settingsPlaceholder: String { String(localized: "palette.placeholder.settings", defaultValue: "Search settings…", bundle: .module) }
     static var searchActionsPlaceholder: String { String(localized: "palette.placeholder.actions", defaultValue: "Search actions…", bundle: .module) }
+    /// A title with its state at the end ("Toggle Left Sidebar · On").
+    static func titleWithState(_ title: String, _ state: String) -> String {
+        String(localized: "palette.toggle.titleWithState", defaultValue: "\(title) · \(state)", bundle: .module)
+    }
     static var noResults: String { String(localized: "palette.noResults", defaultValue: "No Results", bundle: .module) }
+    static var create: String { String(localized: "palette.command.create", defaultValue: "Create", bundle: .module) }
+    static var sectionNoMatch: String { String(localized: "palette.section.noMatch", defaultValue: "Use What You Typed", bundle: .module) }
+    static func noMatchAskAgent(_ text: String) -> String {
+        String(localized: "palette.noMatch.askAgent", defaultValue: "Ask Agent “\(text)”", bundle: .module)
+    }
+    static func noMatchSearchWeb(_ text: String) -> String {
+        String(localized: "palette.noMatch.searchWeb", defaultValue: "Search the Web for “\(text)”", bundle: .module)
+    }
+    static func noMatchNewWorkspace(_ text: String) -> String {
+        String(localized: "palette.noMatch.newWorkspace", defaultValue: "New Workspace “\(text)”", bundle: .module)
+    }
+    static func noMatchRunCommand(_ text: String) -> String {
+        String(localized: "palette.noMatch.runCommand", defaultValue: "Run “\(text)” in a New Workspace", bundle: .module)
+    }
     static var noResultsHint: String { String(localized: "palette.noResults.hint", defaultValue: "Try a different search, or press Esc to go back.", bundle: .module) }
     static var actions: String { String(localized: "palette.footer.actions", defaultValue: "Actions", bundle: .module) }
     static var hideFromPalette: String { String(localized: "palette.action.hideFromPalette", defaultValue: "Hide from Palette", bundle: .module) }

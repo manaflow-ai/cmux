@@ -160,3 +160,20 @@ import Testing
         #expect(coordinator.isAuthenticated == false)
     }
 }
+
+/// ``AuthLaunchOptions/allowsEnvironmentAutoLogin``: off unless the caller asks (only cmux NEXT's PR capture
+/// builds do), and a DEBUG compile signs in from the environment either way, as before.
+@Suite struct AuthLaunchOptionsEnvironmentAutoLoginTests {
+    @Test func offByDefaultAndAlwaysOnInADebugCompile() {
+        let plain = AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: [:], includesDevAuth: false)
+        #expect(!plain.allowsEnvironmentAutoLogin)
+        let capture = AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: [:], includesDevAuth: true,
+                                        allowsEnvironmentAutoLogin: true)
+        #expect(capture.allowsEnvironmentAutoLogin)
+        #if DEBUG
+        #expect(plain.environmentAutoLogin && capture.environmentAutoLogin)
+        #else
+        #expect(!plain.environmentAutoLogin && capture.environmentAutoLogin)
+        #endif
+    }
+}

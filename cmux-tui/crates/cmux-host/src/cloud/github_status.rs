@@ -19,6 +19,11 @@ use super::sender::Answer;
 pub const REQUEST_KEY: &str = "github_status";
 /// The platform route (cmux-platform `GET /v1/me/github`).
 pub const STATUS_PATH: &str = "/v1/me/github";
+/// Set (to `1`) on a `gh` run that asks for this machine's own gh login only: the Cloud `gh`
+/// shim then never answers `gh auth status` / `gh api user` from cmux's connection
+/// (`github_cli_identity.rs`), so acpmux's `github_status` does not count the team's account
+/// twice, once as the person's own gh login.
+pub const GH_OWN_LOGIN_ONLY_ENV: &str = "CMUX_GITHUB_GH_OWN_LOGIN_ONLY";
 
 /// The `github_status` object of a socket line: it takes no fields, so a
 /// caller cannot steer the read.
@@ -107,11 +112,12 @@ pub fn sanitize(body: &Value) -> Value {
                 .and_then(Value::as_str)
                 .filter(|s| matches!(*s, "all" | "selected"));
             if let Some(count) = count {
-                let mut r = json!({"count": count});
+                let mut r = Map::new();
+                r.insert("count".into(), json!(count));
                 if let Some(selection) = selection {
-                    r["selection"] = json!(selection);
+                    r.insert("selection".into(), json!(selection));
                 }
-                out.insert("repositories".into(), r);
+                out.insert("repositories".into(), Value::Object(r));
             }
         }
     } else if let Some(url) =

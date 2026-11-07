@@ -122,6 +122,10 @@ jobs:
           # demand from the public origin.
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
           persist-credentials: false
           ref: ${{ github.sha }}
 

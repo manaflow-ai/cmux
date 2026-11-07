@@ -30,6 +30,9 @@ struct StandInWait {
 
     /// Where stand-in `handle` (made by `origin`) stands in `store` now.
     @MainActor static func state(of handle: PaneID, origin: StandInOrigin?, in store: DaemonStore) -> State {
+        // The daemon's pane a pending close of this stand-in hides (``Intent/closeStandInPane(pane:paneID:workspace:)``)
+        // is out of the visible records, yet it is what that close must name.
+        if let hidden = CancelledCreation.hiddenDaemonPane(closing: handle, in: store) { return .adopted(hidden) }
         guard let origin else { return .notCreated }
         if let pane = ProvisionalSplit.daemonPane(of: origin, showing: handle, in: store), pane.rawValue < ProvisionalPane.firstHandle {
             return .adopted(pane)
@@ -77,5 +80,14 @@ extension DaemonStore {
     /// for a stand-in handle no pending intent names (rare: a create sent after its stand-in's hand-over).
     func adoptedStandIn(_ handle: PaneID) -> WorkspaceKey? {
         workspaces.first { $0.tookOverStandIn?.pane == handle }?.key
+    }
+
+    /// The daemon's pane that took stand-in pane `handle` over (Cmd-N's first pane, a split's) once the records hold it; nil
+    /// while the stand-in still shows, and for a pane that is no stand-in. A window shows Cmd-N's daemon pane under another
+    /// layout id than its stand-in, so it hands the stand-in's selection to that pane's new controller by this.
+    public func daemonPane(takingOver handle: PaneID) -> PaneID? {
+        guard ProvisionalPane.isStandIn(handle), let origin = standInTargets[handle] ?? ProvisionalSplit.standInOrigin(of: handle, in: self),
+              let pane = ProvisionalSplit.daemonPane(of: origin, showing: handle, in: self), !ProvisionalPane.isStandIn(pane) else { return nil }
+        return pane
     }
 }

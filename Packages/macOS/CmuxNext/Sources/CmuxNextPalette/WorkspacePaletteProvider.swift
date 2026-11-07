@@ -22,9 +22,23 @@ public final class WorkspacePaletteProvider: PaletteProvider {
     public var immediateItems: [PaletteItem]? { makeItems() }
     public func items() async -> [PaletteItem] { makeItems() }
 
+    /// Higher in the sidebar ranks higher among equal matches.
+    var sidebarPrior = PaletteSidebarPrior()
+
+    /// The workspaces in sidebar order (top first), then those the sidebar does not draw in the
+    /// source's order: the empty Cmd-P lists them as the sidebar does.
     func makeItems() -> [PaletteItem] {
         let source = source
-        return source.workspaces.map { workspace in
+        let prior = sidebarPrior
+        let ordered = source.workspaces.enumerated().sorted { left, right in
+            switch (left.element.sidebarRank, right.element.sidebarRank) {
+            case let (lhs?, rhs?) where lhs != rhs: lhs < rhs
+            case (.some, nil): true
+            case (nil, .some): false
+            default: left.offset < right.offset
+            }
+        }.map(\.element)
+        return ordered.map { workspace in
             let id = workspace.id
             // The subagent id, the machine, the parent group, then the folder: rows of the same name tell apart.
             let parents = [workspace.agentID, workspace.machineName, workspace.groupName, workspace.directory.map(abbreviatePath)]
@@ -62,7 +76,7 @@ public final class WorkspacePaletteProvider: PaletteProvider {
                     }),
                 ],
                 frecencyKey: "workspace:\(id)",
-                rankBias: workspace.isSelected ? -5 : 0
+                rankBias: (workspace.isSelected ? -5 : 0) + prior.bias(rank: workspace.sidebarRank)
             )
             if let agentID = workspace.agentID, !agentID.isEmpty { item.handles = [agentID] }
             item.actionRefs = [PaletteActionRef("goToWorkspace", arguments: ["workspace": .target(ActionTargetRef(kind: .workspace, id: id))],
