@@ -325,6 +325,7 @@ pub(super) fn create_terminal(
             "raw.terminal.create",
             &projection_fingerprint,
             &key,
+            result.created_surface,
             json!({
                 "terminal_id":result.terminal_id,
                 "workspace_key":key,

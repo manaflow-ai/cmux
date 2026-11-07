@@ -289,13 +289,16 @@ impl Mux {
     }
 
     /// [`Self::commit_full_resource_projection_with_mutation`] for a terminal
-    /// just created in the workspace whose key is `workspace_key`: once the
-    /// public fold is seeded, only that workspace is projected (as
-    /// [`Self::created_view_projection_locked`] does for an effect commit),
-    /// so the commit and its journal record do not grow with the session.
-    /// Each keyed `create-terminal` restated every live resource, about 1500
-    /// upserts and 650 KB on the session stream per create at 290 workspaces
-    /// in the classic import.
+    /// just created as `surface` in the workspace whose key is
+    /// `workspace_key`: once the public fold is seeded, only the workspace
+    /// the surface is in now (a concurrent move can bind it elsewhere) and
+    /// the requested one are projected, as
+    /// [`Self::created_view_projection_locked`] does for an effect commit, so
+    /// the commit and its journal record do not grow with the session. When
+    /// the surface is in no workspace, the projection is full. Each keyed
+    /// `create-terminal` restated every live resource, about 1500 upserts and
+    /// 650 KB on the session stream per create at 290 workspaces in the
+    /// classic import.
     #[track_caller]
     pub(crate) fn commit_created_terminal_projection_with_mutation(
         &self,
@@ -303,6 +306,7 @@ impl Mux {
         operation: &str,
         fingerprint: &Value,
         workspace_key: &str,
+        surface: Option<SurfaceId>,
         result: Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
         self.commit_resource_mutation_plan(
@@ -312,13 +316,21 @@ impl Mux {
             None,
             None,
             |state, registry| {
-                let workspace = state
-                    .workspace_by_key(workspace_key)
-                    .map(|workspace| workspace.public_id.clone())
-                    .filter(|_| registry.public_fold_seeded());
-                let projection = match workspace {
-                    Some(workspace) => self
-                        .resource_effect_projection_scoped_locked(registry, state, &[workspace], result)?,
+                let placed = surface
+                    .and_then(|surface| state.pane_of(surface))
+                    .and_then(|pane| state.screen_of(pane))
+                    .map(|(workspace, _)| state.workspaces[workspace].public_id.clone());
+                let scope = placed.filter(|_| registry.public_fold_seeded()).map(|placed| {
+                    let requested = state
+                        .workspace_by_key(workspace_key)
+                        .map(|workspace| workspace.public_id.clone())
+                        .filter(|requested| *requested != placed);
+                    std::iter::once(placed).chain(requested).collect::<Vec<_>>()
+                });
+                let projection = match scope {
+                    Some(scope) => {
+                        self.resource_effect_projection_scoped_locked(registry, state, &scope, result)?
+                    }
                     None => self.resource_effect_projection_locked(registry, state, result)?,
                 };
                 Ok(projection_plan(projection))
