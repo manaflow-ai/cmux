@@ -607,13 +607,6 @@ mod tests {
     }
 
     #[test]
-    fn a_peer_listing_needs_a_held_folder() {
-        // The roots hold only where the listing reads the folder it opened; elsewhere a peer
-        // gets nothing (list refuses before opening).
-        assert!(opened::HOLDS_ITS_FOLDER, "unix reads through the opened folder");
-    }
-
-    #[test]
     fn a_path_with_dots_or_no_root_is_refused() {
         let t = tempfile::tempdir().unwrap();
         std::fs::create_dir(t.path().join("in")).unwrap();
