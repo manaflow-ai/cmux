@@ -378,7 +378,7 @@ const InlineChip = memo(function InlineChip({
   // An image, a PDF, a video or a file: the strip's chip, so it previews, opens, plays and falls back
   // (an image that cannot be drawn) as it does there.
   return (
-    <span className="acpmux-md-inline-chip" data-state="ready" data-chip="strip">
+    <span className="acpmux-md-inline-chip" data-state="ready" data-chip="strip" data-attachment-id={id}>
       <AttachmentChip
         attachment={attachment}
         codex={codex}

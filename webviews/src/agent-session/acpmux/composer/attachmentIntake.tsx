@@ -1000,6 +1000,8 @@ export function AttachmentStrip({
           key={attachment.id}
           className="acpmux-attachment-slot"
           data-attachment-index={index}
+          // Where its chip is when the prompt goes: the sent preview moves from it (sendMorph.ts).
+          data-attachment-id={attachment.id}
           data-dragging={reorder.dragging === attachment.id || undefined}
         >
           <AttachmentChip

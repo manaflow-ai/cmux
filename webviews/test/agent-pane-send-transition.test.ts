@@ -74,6 +74,8 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
           return { left, top, width, height };
         };
         const start = performance.now();
+        // raf-read: the move is the behavior; each frame's boxes are read as that frame is drawn,
+        // its animations' current transforms included, so a frame after paint would skip the first.
         const tick = () => {
           const row = [...document.querySelectorAll(".cv-user")].at(-1);
           const shown = row?.querySelector(preview);
@@ -86,14 +88,20 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
               bubble: box(row.querySelector(".cv-user__bubble")),
               loaded: !!image && image.complete && image.naturalWidth > 0,
             });
+          // raf-read: every frame of the move, as it is drawn (above).
           if (performance.now() - start < ms) requestAnimationFrame(tick);
+          else (window as unknown as { __sendDone: boolean }).__sendDone = true;
         };
+        (window as unknown as { __sendDone: boolean }).__sendDone = false;
         requestAnimationFrame(tick);
       },
       { preview, ms },
     );
-  const sentFrames = (page: Page) =>
-    page.evaluate(() => (window as unknown as { __sendFrames: Frame[] }).__sendFrames);
+  /// The frames `watchSentRow` read, once its time is up.
+  const sentFrames = async (page: Page) => {
+    await page.waitForFunction(() => (window as unknown as { __sendDone: boolean }).__sendDone);
+    return page.evaluate(() => (window as unknown as { __sendFrames: Frame[] }).__sendFrames);
+  };
 
   const near = (a: Box | undefined, b: Box | undefined, label: string) => {
     expect(a, label).toBeDefined();
@@ -162,7 +170,6 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
         });
       await watchSentRow(page, "img.cv-user__image, .cv-user__image-placeholder");
       await page.keyboard.press("Enter");
-      await page.waitForTimeout(2000);
       expectOneMove(await sentFrames(page), chip, "screenshot");
     } finally {
       await page.close();
@@ -186,7 +193,6 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       });
       await watchSentRow(page, ".cv-user__video");
       await page.locator("[data-send]").click();
-      await page.waitForTimeout(2000);
       expectOneMove(await sentFrames(page), chip, "recording");
     } finally {
       await page.close();
@@ -204,7 +210,6 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       await page.evaluate(() => (document.documentElement.dataset.agentMotion = "off"));
       await watchSentRow(page, ".cv-user__video");
       await page.locator("[data-send]").click();
-      await page.waitForTimeout(1500);
       const frames = await sentFrames(page);
       expect(frames.length).toBeGreaterThan(2);
       for (const frame of frames) {
