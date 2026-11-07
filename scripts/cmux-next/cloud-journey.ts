@@ -132,6 +132,9 @@ export function scrub(text: string, secrets: string[] = []): string {
   return out;
 }
 
+/** A failed command's output for a step's detail: its start, where a CLI puts the error, and its end. */
+const headTail = (out: string): string => (out.length <= 600 ? out : `${out.slice(0, 300)} ... ${out.slice(-300)}`);
+
 export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<string, string> = {}): string {
   const failed = steps.filter((s) => s.status === "fail").length;
   const total = steps.reduce((n, s) => n + s.ms, 0);
@@ -1011,7 +1014,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (team) args.push("--team", team);
           const r = spawnSync(gatewayCmux, args, { encoding: "utf8", timeout: 600_000, env: { PATH: process.env.PATH ?? "", HOME: dir } });
           const out = scrub(`${r.stdout ?? ""}${r.stderr ?? ""}`, J.secrets);
-          if (r.status !== 0 || !out.includes("Path: gateway")) throw new Error(`exit ${r.status}: ${out.slice(-600)}`);
+          if (r.status !== 0 || !out.includes("Path: gateway")) throw new Error(`exit ${r.status}: ${headTail(out)}`);
           return { value: null, detail: out.trim().split("\n").filter((l) => l.startsWith("Path:") || l.startsWith("This machine")).join(" ").slice(0, 300) };
         } finally {
           rmSync(dir, { recursive: true, force: true });
@@ -1050,7 +1053,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (team) args.push("--team", team);
           const r = spawnSync(gatewayLocal, args, { encoding: "utf8", timeout: 600_000, env: { PATH: process.env.PATH ?? "", HOME: dir } });
           const out = scrub(`${r.stdout ?? ""}${r.stderr ?? ""}`, J.secrets);
-          if (r.status !== 0 || !out.includes("Path: gateway")) throw new Error(`exit ${r.status}: ${out.slice(-600)}`);
+          if (r.status !== 0 || !out.includes("Path: gateway")) throw new Error(`exit ${r.status}: ${headTail(out)}`);
           return { value: null, detail: out.trim().split("\n").filter((l) => l.startsWith("Path:") || l.startsWith("This machine")).join(" ").slice(0, 300) };
         } finally {
           rmSync(dir, { recursive: true, force: true });
