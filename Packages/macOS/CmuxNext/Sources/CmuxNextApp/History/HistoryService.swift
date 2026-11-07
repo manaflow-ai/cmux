@@ -17,6 +17,7 @@ final class HistoryService {
     /// history in memory only (tests).
     var supportDirectory: URL?
     private var sinks: [BrowserProfileID: BrowserVisitSink] = [:]
+    var pageEntries: [String: HistoryEntry] = [:] // The History page's last read, by id (HistoryPageEditing.list).
     /// The omnibox persistence per profile: the daemon when it serves `history-v1`, else `sinks`.
     private var routes: [BrowserProfileID: RoutingVisitSink] = [:]
     let hidden: HiddenHistoryStore
@@ -111,9 +112,7 @@ final class HistoryService {
     // MARK: Entries
 
     /// Every entry matching `query`, newest first.
-    func entries(_ query: HistoryQuery) async -> [HistoryEntry] {
-        await read(query).entries
-    }
+    func entries(_ query: HistoryQuery) async -> [HistoryEntry] { await read(query).entries }
 
     /// Same, with whether an owner did not answer (an empty list is then not "nothing there").
     func read(_ query: HistoryQuery) async -> HistoryRead {
@@ -144,8 +143,9 @@ final class HistoryService {
         return HistoryRead(entries: query.apply(to: all))
     }
 
-    /// The entry with `id` among every owner's current entries, or nil when it is gone.
+    /// The entry with `id`: one the History page shows, else among every owner's current entries, or nil when it is gone.
     func entry(id: String) async -> HistoryEntry? {
+        if let shown = pageEntries[id] { return shown }
         if let daemon = daemonHistory { return await daemonEntry(id: id, daemon) }
         return await entries(HistoryQuery(limit: 5_000)).first { $0.id == id }
     }
