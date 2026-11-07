@@ -134,6 +134,8 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 Err(refusal) => json!({ "refusal": refusal }),
             }
         }
+        // `{user, expiresAt, team}`, each null when absent: `team` is the backend team an
+        // install token names, the one `cmux auth token` mints for with no asked or active team.
         b"cloud_identity_token" => {
             #[derive(Deserialize)]
             struct Request {
