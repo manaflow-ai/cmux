@@ -731,7 +731,11 @@ export class SettingsStore {
 
   /** Saves the project's own recipe (null clears it); the host's failure text, else null. */
   async saveWorktreeRecipe(path: string, worktree: WorktreeRecipe | null): Promise<string | null> {
-    const reply = await this.request("cmux.settings.worktree.save", { path, worktree, idempotency_key: newIdempotencyKey() });
+    const reply = await this.request("cmux.settings.worktree.save", {
+      path,
+      worktree,
+      idempotency_key: newIdempotencyKey(),
+    });
     return reply.ok ? null : reply.error.message;
   }
 

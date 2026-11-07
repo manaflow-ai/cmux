@@ -19,6 +19,7 @@ import {
 import { AlertCircle, Check, ChevronDown, ChevronRight, Spinner } from "./conversation/icons";
 import { useT, type Translate } from "./i18n";
 import {
+  forgetWorktreeSetup,
   startedWorktreeSetup,
   subscribeWorktreeSetups,
   worktreeSetupsVersion,

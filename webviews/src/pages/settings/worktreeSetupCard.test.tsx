@@ -65,7 +65,9 @@ test("Use Repository's drops the project's script; Clear Saved sends null", asyn
   expect(field(page.container, "setup").value).toBe("");
   expect(note(page.container, "setup")).not.toContain("Replaces");
   await click(card(page.container).querySelector<HTMLButtonElement>('[data-worktree="clear"]')!);
-  expect(ops(page.provider, "cmux.settings.worktree.save")).toEqual([{ path: "/Users/you/src/website", worktree: null }]);
+  expect(ops(page.provider, "cmux.settings.worktree.save")).toEqual([
+    { path: "/Users/you/src/website", worktree: null },
+  ]);
   expect(page.provider.worktreeProjects.find((row) => row.name === "website")?.saved).toBeUndefined();
   page.unmount();
 });

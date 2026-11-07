@@ -91,7 +91,12 @@ export async function newWorktree(
     use(folder);
   });
   const branch = reply?.value?.branch;
-  return { root, ...(typeof branch === "string" ? { branch } : {}), ...(ask ? { ask } : {}), ...(setup ? { setup } : {}) };
+  return {
+    root,
+    ...(typeof branch === "string" ? { branch } : {}),
+    ...(ask ? { ask } : {}),
+    ...(setup ? { setup } : {}),
+  };
 }
 
 /// Use Home Folder: the answer goes to the host from this click (it spends the click's gesture
