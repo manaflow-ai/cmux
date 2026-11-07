@@ -166,7 +166,7 @@ impl Hub {
             let durable = self.store.events(&session.id, at, usize::MAX);
             let durable = match durable {
                 Ok(durable) => durable,
-                Err(e) => return Err(stopped(session, &anyhow::Error::from(e))),
+                Err(e) => return Err(stopped(session, &e)),
             };
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             for record in &durable {
