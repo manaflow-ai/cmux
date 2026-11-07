@@ -5,11 +5,15 @@
 // special never-fold type"). Each variant is one finished turn with replies before, between and after
 // its work; the arms of turnFoldReplies.experiment.ts differ only in how the work between the replies
 // folds: one line per stretch (shipped), one line per run, or none (all of it under Worked for).
-// Test: turn-fold-keeps-replies.test.ts.
+// Another agent's message that came in mid-turn stays in sight with the work beside it, and a step
+// that also wrote a file keeps its commands on the line (Leo, 2026-11-07: "some of the tool calls,
+// like, literally just get swallowed").
+// Tests: turn-fold-keeps-replies.test.ts, agent-message-keeps-calls.test.ts.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { incomingPrompt } from "./incomingMessage";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
 
 const run = (description: string, command: string): AcpmuxActivity =>
@@ -108,6 +112,74 @@ function aroundNotices(): AcpmuxRow[] {
   ];
 }
 
+/// Another agent's inbox notice, as acpmux steers it into the running turn.
+function agentMessage(minutes: number): AcpmuxRow {
+  const text =
+    "[inbox] New messages from other agents in 1 thread.\n- 1 new in #37761 from cloud-reviewer: The cloud run is green.";
+  return row("user", minutes, {
+    text,
+    continues: true,
+    incoming: incomingPrompt(text, {
+      _meta: {
+        provenance: {
+          kind: "inbox_notice",
+          threads: [
+            {
+              threadId: "from:cloud-reviewer/pr:37761",
+              label: "#37761",
+              new: 1,
+              from: ["cloud-reviewer"],
+              promptIds: ["gallery-inbox-1"],
+              preview: "The cloud run is green.",
+            },
+          ],
+        },
+      },
+    }) as AcpmuxRow["incoming"],
+  } as Partial<AcpmuxRow>);
+}
+
+/// Leo's 2026-11-07 turn: a reply, another agent's message while a command ran, the reply after it.
+function agentMessageMidTurn(): AcpmuxRow[] {
+  return [
+    user("Watch the cloud run and send the result on", 40),
+    activity([run("Checked the cloud run", "gh run view 42 --json status")], 39),
+    assistant(
+      "The cloud run is still building: the compile check passed and the gallery shard is halfway through its states, with no failures so far. Next check in about 25 minutes.",
+      38,
+    ),
+    activity([run("Waited on the cloud run", "gh run watch 42 --exit-status")], 37),
+    agentMessage(14),
+    assistant("I sent the result to the other session: the run is green, so its PR can land.", 12),
+    summary(11.8, { status: "completed", durationMs: 1_700_000, toolCount: 2 }),
+  ];
+}
+
+/// A step that ran commands and wrote a file, then another agent's message: the file goes on the
+/// turn's edits card, the commands stay on the line.
+function mixedStep(): AcpmuxRow[] {
+  const path = "/home/dev/notes/status.md";
+  return [
+    user("Record the lease state", 40),
+    activity([run("Tried the land", "gh pr merge 37572 --squash")], 39),
+    assistant(
+      "Still refused, and it shows two different leases: the one I hold expired, and the controller's store has another one under a different lane. I'm writing that down in the notes before I retry the land.",
+      38,
+    ),
+    activity(
+      [
+        run("Printed the lease", "printf '%s\\n' \"#37572 lease\""),
+        tool(`Write ${path}`, "edit", "completed", { diffs: [{ path, newText: "lease\n" }] }),
+        run("Indexed the note", "echo '- lease note' >> /home/dev/notes/index.md"),
+      ],
+      37,
+    ),
+    agentMessage(30),
+    assistant("#37572 is approved but did not land: the land refused on the stale lease.", 29),
+    summary(28.8, { status: "completed", durationMs: 660_000, toolCount: 4 }),
+  ];
+}
+
 const snapshot = (rows: AcpmuxRow[], family = "claude") => {
   const base = chat(rows, { title: "Turn fold keeps replies", harness: family });
   return { ...base, summary: { ...base.summary!, family } };
@@ -159,6 +231,14 @@ export default agentPaneEntry({
     "around-notices": variant(
       aroundNotices(),
       "A reply after a background task's notice stays in sight under the closed line.",
+    ),
+    "agent-message-mid-turn": variant(
+      agentMessageMidTurn(),
+      "Another agent's message came in while a command ran: it and the command stay between the two replies, one line.",
+    ),
+    "agent-message-after-edit": variant(
+      mixedStep(),
+      "A step that ran commands and wrote a file, then another agent's message: the commands and the message stay on the line, the file on the edits card.",
     ),
   },
 });
