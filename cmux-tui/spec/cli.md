@@ -18,7 +18,8 @@ cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token-stdin]
 cmux wg dial --hub <unix socket> <host> <port>
-cmux carrier dial --machine <vm_id> [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]
+cmux carrier dial --machine <vm_id> [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N]
+cmux carrier key --public
 cmux carrier serve --machine <vm_id> --socket <absolute path> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]
 cmux link dial --host <install or host id> [--service daemon|ssh|owner_session|desktop] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--cloud-token-file PATH] [--handoff]
@@ -80,6 +81,20 @@ retries inside it. Exit codes: 0, 2 ticket, 3 relay, 4 parked_timeout, 5 handsha
 unlock, this device only); elsewhere each dial makes its own.
 The ok line also has `"vmk":"owner"` or `"vmk":"team"`, the person's role on the
 machine from the carrier grant's `vmk` claim; a grant without one leaves it out.
+`--answer-fd N` hands over the first attempt's answer, the `carrier` that a create or
+spare claim answered with: the descriptor's first line is `{"carrier_answer":{…}}`
+holding that object as answered (with 0, stdin's first line, and the stream follows it). That attempt dials at once without asking the platform. Without
+`daemon_key`, it asks for the key while the relay holds the connect, and once more when
+the daemon registers if needed. The handshake always waits for the pin. A stale answer is
+dropped and the attempt asks; any line that is not an answer is `bad_request` (64).
+
+`carrier key --public` prints this device's carrier Noise static public key on stdout as
+one line of unpadded base64url (43 characters), the `carrier.noise_key` of a create
+request, and exits 0. It is the key dial and serve use: on a Mac the login Keychain item
+`com.cmuxterm.app.next.carrier-noise-key` (account `device`), made the same way when
+missing. Nothing private is printed. Elsewhere no key lasts past one dial, so it prints
+nothing and writes the dial's failure line (`handshake`, exit 5); other arguments are
+`bad_request` (64).
 
 `carrier serve` serves the same stream on a Unix socket, for callers that hand a
 daemon socket path on: each accepted connection is its own dial (a fresh grant,
@@ -95,7 +110,9 @@ dial connected (`vmk` as on the dial's ok line) or the dial's failure line (`tic
 `relay`, `parked_timeout`, `handshake`) when it did not, plus one `bad_request` per
 unusable stdin line and one `socket` if the listener fails for good. None holds `cloud.connect`: route lines go
 only to `connect.log`. stdin carries JSON lines: `{"access_token":"…"}` replaces the
-credential for every later dial, and sessions already up stay up. Before ready a
+credential for every later dial, and sessions already up stay up.
+`{"carrier_answer":{…}}` is used by the next accepted connection's first attempt,
+as with `dial --answer-fd`. Before ready a
 failure writes the dial's failure line: exit 64 usage or a path it cannot claim (a
 live listener, a file that is not a socket), 2 no API or credential, 5 no device
 key. It exits 0 when stdin ends or on SIGTERM or SIGINT, 6 when accepting fails for
