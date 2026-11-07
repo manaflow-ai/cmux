@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42390260276",
+  "recorded_at": "2026-11-07T16:16:35Z",
+  "reason": "cmux-tui cc9d9c87c2d8 changes the image's cmux-tui (pinned ace6366eb509)",
+  "dry_run": false,
+  "cmux_tui": "cc9d9c87c2d83ac0569c79f71644c5f4b40eabad",
+  "fixes": [
+    {
+      "sha": "cc9d9c87c2d83ac0569c79f71644c5f4b40eabad",
+      "mergedAt": "2026-11-07T07:59:57-08:00",
+      "subject": "smoltcp (vendored): an RST in SYN-RECEIVED returns to LISTEN with a fresh MSS and window (#37922)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-07T16:16:35Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
