@@ -1914,10 +1914,63 @@ fn a_start_with_no_machine_named_says_the_machine_is_new_only_when_it_has_the_fr
     let mut fake = Fake::new(vec![signed_in(), other, sent()]);
     let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x"])) else { panic!() };
     assert!(answer.get("new_machine").is_none());
+}
 
-    // Every fresh name was taken already: the machine of that name may be someone's.
-    let taken = ok(json!({"account": {"signed_in": true}, "machines": [{"title": "chat-fresh"}]}));
-    let mut fake = Fake::new(vec![taken, started(), sent()]);
-    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x"])) else { panic!() };
-    assert!(answer.get("new_machine").is_none());
+/// A name the run makes up is never one a machine or a create has, and never one the list could not say about:
+/// a fresh name that is taken, or a list the app has not loaded, ends the run with a typed error before any
+/// `start-session` or `new-machine`, so the run never attaches to a person's machine or makes a second of its
+/// name (the sixth review of #37159).
+#[test]
+fn a_fresh_name_that_is_taken_or_unread_never_reaches_a_start_or_a_create() {
+    let lists = [
+        (
+            "a machine has it",
+            json!({"machines": [{"title": "chat-fresh", "machine_id": "vm-9"}]}),
+            "cloud.name_taken",
+        ),
+        (
+            "a create has it",
+            json!({"machines": [], "creating": [{"name": "chat-fresh", "status": "creating"}]}),
+            "cloud.name_taken",
+        ),
+        ("the list is not loaded", json!({"loaded": false, "machines": []}), "cloud.list_unread"),
+    ];
+    let paths: [(&str, &[&str]); 4] = [
+        ("start-session, no --wait", &["--prompt", "x"]),
+        ("no prompt", &["--wait"]),
+        ("the relay's new-machine", &["--prompt", "x", "--wait"]),
+        ("--environment's new-machine", &["--prompt", "x", "--environment", "env_1"]),
+    ];
+    for (list, mut listed, code) in lists {
+        listed["account"] = json!({"signed_in": true});
+        for (path, words) in paths {
+            let mut fake = Fake::new(vec![ok(listed.clone())]);
+            let Outcome::Failed { error, exit } = run(&mut fake, &request(words)) else {
+                panic!("{list}, {path}: {:?}", fake.ran)
+            };
+            assert_eq!((error["code"].as_str(), exit), (Some(code), 75), "{list}, {path}: {error}");
+            assert_eq!(
+                fake.ran.len(),
+                1,
+                "{list}, {path}: nothing started or made: {:?}",
+                fake.ran
+            );
+        }
+    }
+}
+
+/// The real runner's fresh name: the run's prefix and 16 hex characters from the OS's random source, so two runs
+/// (or a person's own machine) share one only by a negligible chance.
+#[test]
+fn a_fresh_name_has_sixteen_random_hex_characters() {
+    let mut runner = SelfRunner { globals: Vec::new() };
+    let names: Vec<String> = (0..64).map(|_| runner.fresh_name()).collect();
+    for name in &names {
+        let hex = name.strip_prefix("chat-").unwrap_or_else(|| panic!("{name}"));
+        assert!(hex.len() >= 16 && hex.chars().all(|c| c.is_ascii_hexdigit()), "{name}");
+    }
+    let mut unique = names.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), names.len());
 }
