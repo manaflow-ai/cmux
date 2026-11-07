@@ -20,6 +20,11 @@ pane (`content: "rightmost"`, where every right-side open lands) stops changing:
   new_tab      the header's [+] New tab: a New Tab page in a column right of the chat (layout.json too)
   subagent     a click on a subagent's line in the transcript: the subagent's chat on the right
   side_chat    the "..." menu's New side chat: another session's chat on the right (the menu opens first, untimed)
+  reopen_right Reopen Closed (Cmd-Shift-T) of a subagent's chat that was open on the chat's right: the subagent's
+               chat opens on the right and closes again (both untimed), then the key is timed. Leo, 2026-11-07: "it
+               should just reopen on the right straight up and just play that rightmost opening animation. And also
+               it should load a lot faster." `motion.phases` 2 or more is the old two-step (a tab opened in the main
+               pane, then the split on the right); `main_steps` counts it per surface.
 
 Per open, from the frames (chat_open_frames.final_frame) and frame_strip's own report:
 
@@ -76,7 +81,7 @@ import chat_open_frames as cof  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402
 
-SURFACES = ("terminal", "browser", "changes", "files", "new_tab", "subagent", "side_chat")
+SURFACES = ("terminal", "browser", "changes", "files", "new_tab", "subagent", "side_chat", "reopen_right")
 # The header's quick actions by id (webviews acpmux header/quickActions.ts, ChatHeaderTools `data-quick-action`).
 QUICK = {"terminal": "terminal", "browser": "browser", "changes": "changes", "files": "files", "new_tab": "newTab"}
 # A subagent's line in the transcript (chat-open-bench.py's SUBAGENT_LINES): by its name or task first.
@@ -399,9 +404,14 @@ class Chat:
 # ---------------------------------------------------------------------------------------------
 # One open.
 
+# Reopen Closed: the key the strip sends through the real key path instead of a click (`reopen_right`).
+REOPEN_KEY = {"key": "t", "modifiers": ["command", "shift"]}
+
+
 def strip(run, chat, click, label, content="rightmost"):
     folder = os.path.join(tempfile.gettempdir(), f"right-pane-open-{os.getpid()}", label)
-    params = {"action": "frame_strip", "gesture": "agent_click", "click": {**click, "pane": chat.pane}, "above": True,
+    gesture = dict(REOPEN_KEY) if click is REOPEN_KEY else {"gesture": "agent_click", "click": {**click, "pane": chat.pane}}
+    params = {"action": "frame_strip", **gesture, "above": True,
               "content": content, "duration_ms": opts.strip_ms, "dir": folder, "tolerance": opts.strip_tolerance}
     cef = {}
     if opts.motion:
@@ -480,6 +490,8 @@ def clicks(surface, round_index):
     """The click targets to try for `surface`, in order: the first one the page shows is clicked."""
     if surface in QUICK:
         return [{"selector": f'[data-quick-action="{QUICK[surface]}"]'}]
+    if surface == "reopen_right":
+        return [REOPEN_KEY]
     if surface == "subagent":
         order = [round_index % SUBAGENTS] + [k for k in range(SUBAGENTS - 1, -1, -1) if k != round_index % SUBAGENTS]
         texts = [t for k in order for t in (f"Auditor {k}", f"Audit area {k}: crashes, edge cases, slow paths")]
@@ -489,9 +501,35 @@ def clicks(surface, round_index):
     raise ValueError(surface)
 
 
+def open_and_close_right(run, chat, round_index, before):
+    """`reopen_right`'s untimed setup: a subagent's chat opened on the chat's right, shown, then closed (its pane goes
+    with it), so the next Reopen Closed is that chat. Returns None, or what went wrong."""
+    opened = {}
+    for target in clicks("subagent", round_index):
+        opened = run.rpc("debug.agent_pane", {"action": "click", **target, "pane": chat.pane}) or {}
+        if NO_MATCH not in str(opened.get("error") or ""):
+            break
+    if opened.get("error"):
+        return f"open the subagent: {str(opened['error'])[:300]}"
+    if not STRESS.wait(lambda: chat.tabs() - before, 15, step=0.1):
+        return "the subagent's chat never opened"
+    time.sleep(2.5)  # test script: the subagent's chat draws its transcript before it closes, as a person reads it
+    for tab in chat.tabs() - before:
+        chat.stress.action("closeTab", target=f"tab:{tab}", focus=False)
+    STRESS.wait(lambda: not (chat.tabs() - before), 10, step=0.1)
+    STRESS.wait(lambda: len(chat.stress.panes(chat.stress.workspace(chat.workspace))) <= 1, 10, step=0.1)
+    chat.show()
+    time.sleep(0.6)  # test script: the close's own motion ends before the timed key
+    return None
+
+
 def measure(run, chat, surface, label, round_index):
     chat.repane()
     before = chat.tabs()
+    if surface == "reopen_right":
+        problem = open_and_close_right(run, chat, round_index, before)
+        if problem:
+            return {"error": problem, "close": chat.close_new(before)}
     if surface == "side_chat":
         # The "..." menu first (not timed): New side chat is its row.
         opened = run.rpc("debug.agent_pane", {"action": "click", "selector": ".acpmux-header-more", "pane": chat.pane}) or {}
@@ -550,6 +588,8 @@ def summarize(records):
     frames = [r.get("mean_interval_ms") for r in good if isinstance(r.get("mean_interval_ms"), (int, float))]
     out["frame_ms"] = round(sum(frames) / len(frames), 1) if frames else None
     out["over"] = over_budget(out)
+    # Opens that moved in two steps or more (`reopen_right`'s tab in the main pane first, then the split on the right).
+    out["main_steps"] = sum(1 for r in good if ((r.get("motion") or {}).get("phases") or 0) >= 2)
     if opts.motion:
         out["motion"] = motion_summary([r.get("motion") for r in good], [r.get("main_frames") for r in good])
         closes = [r.get("close_motion") for r in good if isinstance(r.get("close_motion"), dict) and not r["close_motion"].get("error")]
@@ -596,14 +636,14 @@ def markdown(results):
              f"content: its first non-blank frame; final: the first frame of its settled run. OVER: p95 commit past a frame "
              f"plus 10 ms (commit), or the final frame more than a frame after the commit (content); missed: an open that "
              f"errored or never settled in {opts.strip_ms:g} ms",
-             "", "| surface | condition | n | commit | content | final | over |", "|---|---|---|---|---|---|---|"]
+             "", "| surface | condition | n | commit | content | final | two-step | over |", "|---|---|---|---|---|---|---|---|"]
     for surface in WANTED:
         for condition in CONDITIONS:
             s = results["surfaces"].get(surface, {}).get(condition)
             if not s:
                 continue
             lines.append(f"| {surface} | {condition} | {s['ok']}/{s['n']} | {triple(s, 'commit_ms')} | {triple(s, 'first_content_ms')} | "
-                         f"{triple(s, 'final_ms')} | {s['over'] or 'ok'} |")
+                         f"{triple(s, 'final_ms')} | {s.get('main_steps', 0)} | {s['over'] or 'ok'} |")
     if opts.motion:
         lines += ["", "Transition (--motion): composited frames from the first change to the last, p50/p95/max. stalls: unchanged "
                   "frames inside it; longest stall ms; phases: moving runs split by a stand of "
