@@ -226,6 +226,7 @@ import Testing
         first.container.layoutSubtreeIfNeeded()
 
         #expect(!host.hostView.layerHosting.inPaneDrag, "the old pane's page window keeps waiting for a resize the page left")
+        #expect(!host.hostView.layerHosting.inResizeMotion, "the moved page's window stays detached (no clicks) for a motion it left")
         #expect(first.container.heldPageSize == nil, "the moved page keeps its old pane's size")
         #expect(first.container.pageMotionHold == nil, "the moved page keeps its old pane's key resize")
         #expect(host.hostView.frame == first.container.bounds, "the moved page is not at its new pane's size")
