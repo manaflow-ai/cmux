@@ -888,10 +888,14 @@ button.cv-subagent > :last-child {
   align-items: flex-start;
   padding-block: 4px;
 }
-/* One leading title track, then fixed duration, status, Stop and chevron tracks. */
+/* One leading title track, then the time and status tracks, then fixed Stop and chevron tracks. The
+   time and status tracks take only what their words need, up to their old fixed widths
+   (`fit-content`), so the title runs up to the time and cuts only when it truly overflows (Leo,
+   2026-11-07, on "glaeda-gh wait file ~..." cut well short of its time). Every time still ends on one
+   x, against Stop's track; the status track is 0 wide, so its gap is all it adds. */
 .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--acpmux-tray-time-width) var(--acpmux-tray-status-width) var(--acpmux-tray-stop-width) var(--acpmux-tray-chevron-width);
+  grid-template-columns: minmax(0, 1fr) fit-content(calc(var(--acpmux-tray-time-width) + var(--acpmux-tray-status-width))) 0px var(--acpmux-tray-stop-width) var(--acpmux-tray-chevron-width);
   column-gap: var(--acpmux-tray-gap);
   align-items: center;
   padding-inline: var(--acpmux-tray-inset);
@@ -919,6 +923,9 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray .acpmux-agent-line__stop-track {
   grid-area: 1 / 4;
   width: var(--acpmux-tray-stop-width);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .acpmux-running-tray .acpmux-agent-line__stop-slot > button {
   scroll-margin-block: 2px;
@@ -1591,11 +1598,6 @@ button.cv-subagent > :last-child {
   letter-spacing: var(--text-detail--letter-spacing);
   white-space: nowrap;
 }
-.acpmux-agent-line__name-link {
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
-  text-underline-offset: 2px;
-}
 /* What a running agent did last (AgentLine.tsx `latest`, trayLatest.experiment.ts): one quiet
    line under the title, cut with an ellipsis, so a new step changes its words and never the
    line's height. The state, time and Stop centre on the two lines (Leo, 2026-11-03: "Tray only,
@@ -2105,4 +2107,32 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__chevron[data-open] {
   rotate: 0deg;
+}
+/* A line's open detail (TrayLineDetail.tsx), under the line inside the hat, on the shared fold. A line
+   that expands in place turns its chevron down while open, as the hat's own header does, on the move
+   token (Leo, 2026-11-07: "my expansions and contractions would all look about the same"). */
+.acpmux-running-tray .acpmux-agent-line__chevron > svg {
+  transition: rotate var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
+}
+.acpmux-running-tray .acpmux-agent-line__button[aria-expanded="true"] .acpmux-agent-line__chevron > svg {
+  rotate: 90deg;
+}
+.acpmux-running-tray__detail-task,
+.acpmux-running-tray__detail-latest {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: var(--text-detail--line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* A long task scrolls inside its detail, at most six lines, so one open line never takes the hat. */
+.acpmux-running-tray__detail-task {
+  max-height: calc(var(--text-detail--line-height) * 6);
+  overflow-y: auto;
+  color: var(--agent-text);
+}
+.acpmux-running-tray__detail-latest {
+  color: var(--agent-muted);
 }
