@@ -608,12 +608,15 @@ const questionAsk = (count: number, description?: string): AcpmuxRow =>
 
 test("permission estimates use the grid frame and reserve a command preview only when drawn", () => {
   const plain = heightsOf([permissionAsk()])[0]!;
-  // 12px edges, 13px/1.35 title, 12px button gap, 4px edges around 13px/1.25 action text.
-  expect(plain).toBeCloseTo(24 + 13 * 1.35 + 12 + 8 + 13 * 1.25);
+  // 16px around the 18px title, then 12px above and 16px below a 28px button row.
+  expect(plain).toBeCloseTo(16 + 18 + 16 + 12 + 28 + 16);
   const command = heightsOf([permissionAsk({ command: "pwd" })])[0]!;
-  expect(command - plain).toBeCloseTo(8 + 16 + 12 * 1.5);
+  // The details band's 12px, then the preview's 8px insets around one 12px/1.5 line.
+  expect(command - plain).toBeCloseTo(12 + 8 + 12 * 1.5 + 8);
   const scope = heightsOf([permissionAsk({ scope: { kind: "directory", value: "/project" } })])[0]!;
-  expect(scope - plain).toBeCloseTo(8 + 11 * 1.3);
+  expect(scope - plain).toBeCloseTo(12 + 11 * 1.3);
+  const both = heightsOf([permissionAsk({ command: "pwd", scope: { kind: "directory", value: "/project" } })])[0]!;
+  expect(both - plain).toBeCloseTo(12 + 8 + 12 * 1.5 + 8 + 8 + 11 * 1.3);
 });
 
 test("the first layout reserves every question option before placing the reply below", () => {

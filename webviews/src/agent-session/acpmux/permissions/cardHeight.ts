@@ -85,25 +85,36 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
   return height;
 }
 
+// PermissionCard's frame (styles.css, .acpmux-permission-*): the request block is 16px around its
+// title and description lines 4px apart; the details band adds 12px above the command and scope,
+// 8px apart; the button row is 12px above and 16px below rows of 28px buttons, 8px apart.
+const EDGE = 16;
+const BAND = 12;
+const GAP = 8;
+const CONTROL_ROW = 28;
+
 function estimatePermission(permission: AcpmuxPermission, width: number, scale: number): number {
   if (permission.question) return questionHeight(permission.question, width / scale) * scale;
-  const room = Math.max(1, width / scale - 2 * padding);
+  const room = Math.max(1, width / scale - 2 * EDGE);
   const external = permission.externalAccess;
   const plan = permission.plan;
-  let height = 2 * padding + Math.max(16, body.size * 1.35);
+  let height = 2 * EDGE + body.lineHeight;
   const description = external ? translate("permission.external.detail") : permissionDetail(permission);
-  if (description) height += 8 + textHeight(description, room, detail.size, detail.size * 1.4);
+  if (description) height += 4 + textHeight(description, room, body.size, body.lineHeight);
   // The plan's Markdown, inset 8 by 12 and scrolled past 320px.
-  if (plan) height += 8 + Math.min(320, 16 + textHeight(plan, room - 24, detail.size, detail.size * 1.5));
+  if (plan) height += 4 + Math.min(320, 16 + textHeight(plan, room - 24, detail.size, detail.size * 1.5));
+  const { allowOnce, allowAlways, deny, others } = permissionAnswers(permission.options);
   const command = permissionCommand(permission);
+  const scoped = !external && Boolean(permission.scope || (allowAlways && alwaysAllowScope(permission, allowAlways)));
+  if (command || scoped) height += BAND;
   if (command) {
     const preview = commandPreview(command);
     const line = detail.size * 1.5;
-    const full = textHeight(preview.line, room - 16, detail.size, line, true);
-    height += 8 + 16 + Math.min(2 * line, full);
+    const full = textHeight(preview.line, room - 2 * GAP, detail.size, line, true);
+    height += 2 * GAP + Math.min(2 * line, full);
     if (preview.more || full > 2 * line) height += 4 + caption.size * 1.3;
   }
-  const { allowOnce, allowAlways, deny, others } = permissionAnswers(permission.options);
+  if (scoped) height += (command ? GAP : 0) + caption.size * 1.3;
   const labels = [
     ...(allowOnce ? [translate(plan ? "permission.plan.approve" : "permission.allowOnce")] : []),
     ...(allowAlways
@@ -119,19 +130,16 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
     ...(external ? [translate("permission.external.openSettings")] : []),
   ];
   const taken = new Set(labels);
-  const widths = labels.map(
-    (label, index) => textWidth(label, body.size, allowOnce && index === 0 ? 500 : 400) + 2 * padding,
-  );
+  // Buttons are 12px either side of their label.
+  const widths = labels.map((label, index) => textWidth(label, body.size, allowOnce && index === 0 ? 500 : 400) + 24);
   for (const option of others) {
     const label = optionButtonLabel(option, translate, taken);
     taken.add(label);
     // Custom action labels are ellipsized at 14ch; transcript cards omit keyboard shortcuts.
-    widths.push(Math.min(textWidth(label, body.size), 14 * textWidth("0", body.size)) + 2 * padding);
+    widths.push(Math.min(textWidth(label, body.size), 14 * textWidth("0", body.size)) + 24);
   }
-  const rows = wrappedRows(widths, room, 8);
-  height += padding + rows * Math.max(24, body.size * 1.25 + 8) + Math.max(0, rows - 1) * 8;
-  if (!external && (permission.scope || (allowAlways && alwaysAllowScope(permission, allowAlways))))
-    height += 8 + caption.size * 1.3;
+  const rows = wrappedRows(widths, room, GAP);
+  height += BAND + EDGE + rows * CONTROL_ROW + Math.max(0, rows - 1) * GAP;
   return height * scale;
 }
 
