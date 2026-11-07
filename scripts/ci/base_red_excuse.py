@@ -177,11 +177,20 @@ class GitHub(_evidence.GitHub):
         """MEMBER's text in Actions ARTIFACT's zip, or None when the zip has no such file. Refused when the download
         fails, passes ARTIFACT_SECONDS, or the zip or the file passes ARTIFACT_MAX_BYTES."""
         with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+            # gh in a group of its own: a gh wrapper's child holds stdout too, and only killing the whole group
+            # ends the read.
             process = subprocess.Popen(["gh", "api", f"repos/{repo}/actions/artifacts/{int(artifact)}/zip"],
-                                       stdout=subprocess.PIPE, stderr=errors)
-            # A read blocks while gh sends nothing: the deadline kills gh, which ends the read (router-review F1
-            # of #37969: a stalled download held the whole run's deadline, not ARTIFACT_SECONDS).
-            deadline = threading.Timer(ARTIFACT_SECONDS, process.kill)
+                                       stdout=subprocess.PIPE, stderr=errors, start_new_session=True)
+
+            def kill() -> None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+            # A read blocks while gh sends nothing: the deadline kills gh's group, which ends the read
+            # (router-review F1 of #37969: a stalled download held the whole run's deadline, not ARTIFACT_SECONDS).
+            deadline = threading.Timer(ARTIFACT_SECONDS, kill)
             deadline.start()
             try:
                 kept = 0
@@ -195,9 +204,8 @@ class GitHub(_evidence.GitHub):
                     raise Refused(f"artifact {artifact} took over {ARTIFACT_SECONDS} seconds to read")
             finally:
                 deadline.cancel()
-                if process.poll() is None:
-                    process.kill()
-                    process.wait()
+                kill()  # a stray child of a wrapper too, on every path
+                process.wait()
             if process.returncode:
                 errors.seek(0)
                 raise Refused(REQUEST_FAILED + errors.read(2000).decode(errors="replace"))
