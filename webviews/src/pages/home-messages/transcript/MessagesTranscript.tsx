@@ -34,7 +34,7 @@ import { bubbleStyle, type BubbleLook, type ChatColors } from "./colors";
 import { historyEntries } from "./history";
 import { MessageComposer, dragOffersFiles, type DictationCall, type MessageComposerHandle } from "./MessageComposer";
 import { estimateRow, RowCache, transcriptRows, type TranscriptData, type TranscriptRow } from "./rows";
-import { TranscriptHeader, alsoHereNames, type HeaderPanelItem } from "./TranscriptHeader";
+import { TranscriptHeader, alsoHereNames, type HeaderPanelItem, type TranscriptHeaderProps } from "./TranscriptHeader";
 import { TranscriptRowView, type RowActions, type RowLinks } from "./TranscriptRows";
 import "./transcript.css";
 
@@ -61,6 +61,10 @@ export interface MessagesTranscriptProps extends TranscriptData {
   panels?: readonly HeaderPanelItem[];
   onPanel?(id: string): void;
   onContact?(anchor: { x: number; y: number; width: number; height: number }): void;
+  /** A Chief chat's face and location chip in the header (``TranscriptHeader``). */
+  face?: TranscriptHeaderProps["face"];
+  place?: TranscriptHeaderProps["place"];
+  onPlace?: TranscriptHeaderProps["onPlace"];
   /** A section pinned under the header (Needs you); it lies over the rows. */
   pinned?: ReactNode;
   /** The page's attachment service: images draw, files attach. Absent: named rows only, no +. */
@@ -336,6 +340,9 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
         <TranscriptHeader
           title={title}
           participant={other}
+          {...(props.face ? { face: props.face } : {})}
+          {...(props.place ? { place: props.place } : {})}
+          {...(props.onPlace ? { onPlace: props.onPlace } : {})}
           alsoHere={alsoHere}
           panels={props.panels}
           onPanel={props.onPanel}

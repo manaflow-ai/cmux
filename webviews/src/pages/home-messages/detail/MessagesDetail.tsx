@@ -15,6 +15,7 @@ import { FirstRunPanel } from "../cards/firstRun/FirstRunPanel";
 import { chiefIntroText, FIRST_RUN_OPS, starterPrompts } from "../cards/firstRun/firstRunModel";
 import { HEADER_PANELS, headerPanelItems } from "../cards/header/HeaderPanelBar";
 import { NeedsYouSection, parseNeedsYou, type NeedsYouState } from "../cards/needsYou/NeedsYouSection";
+import { parseChiefFace, parseChiefPlace, type ChiefFace, type ChiefPlace } from "../transcript/ChiefPlace";
 import { cardStrings } from "../cards/strings";
 import type { MessagesNav, NavState } from "../nav";
 import { hostActions, type GroupInfoActions } from "../sheets/actions";
@@ -85,6 +86,8 @@ export function MessagesDetail(props: MessagesDetailProps) {
   const firstRun = useHostStream(host, DetailOps.firstRun, parseFirstRun, NO_FIRST_RUN);
   const chiefTurn = useHostStream(host, DetailOps.chiefTurn, parseChiefTurn, NO_CHIEF_TURN);
   const needsYou = useHostStream(host, DetailOps.needsYou, parseNeedsYou, undefined);
+  const chiefFace = useHostStream(host, DetailOps.chiefFace, parseChiefFace, undefined);
+  const chiefPlace = useHostStream(host, DetailOps.chiefPlace, parseChiefPlace, undefined);
   const dictation = useHostDictation(host);
   const links = useMemo<RowLinks>(
     () => ({
@@ -180,6 +183,8 @@ export function MessagesDetail(props: MessagesDetailProps) {
     transcript,
     chiefTurn,
     needsYou,
+    chiefFace,
+    chiefPlace,
   };
 
   let main: ReactNode = null;
@@ -294,6 +299,8 @@ interface ConversationViewProps {
   transcript: React.RefObject<MessagesTranscriptHandle | null>;
   chiefTurn: ChiefTurnState;
   needsYou: NeedsYouState | undefined;
+  chiefFace: ChiefFace | undefined;
+  chiefPlace: ChiefPlace | undefined;
 }
 
 /** The open conversation: its transcript and composer, a Chief's first run while it is empty. */
@@ -348,6 +355,14 @@ function ConversationView(
             ? hostCall(DetailOps.chiefSettings, { conversation: id, anchor })
             : nav.present({ kind: "groupInfo", conversation: id })
         }
+        {...(isChief && props.chiefFace?.conversation === id ? { face: props.chiefFace } : {})}
+        {...(isChief && props.chiefPlace?.conversation === id
+          ? {
+              place: props.chiefPlace,
+              onPlace: (anchor: { x: number; y: number; width: number; height: number }) =>
+                hostCall(DetailOps.chiefPlaceOpen, { conversation: id, anchor }),
+            }
+          : {})}
         working={working}
         onStop={(all) => hostCall(DetailOps.chiefStop, { conversation: id, all })}
         continueAvailable={continueAvailable}

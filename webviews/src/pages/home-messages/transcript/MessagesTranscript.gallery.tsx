@@ -15,6 +15,7 @@ import type { BubbleLook, ChatColors } from "./colors";
 import { MessagesTranscript, type MessagesTranscriptProps } from "./MessagesTranscript";
 import type { ReadCursor } from "./rows";
 import { createTranscriptStrings } from "./strings";
+import type { ChiefPlace } from "./ChiefPlace";
 
 type State = "conversation" | "empty" | "long" | "failed" | "offline" | "typing" | "attachments" | "diagram" | "group";
 
@@ -23,7 +24,37 @@ type Fixture = Pick<MessagesTranscriptProps, "conversation" | "messages" | "conn
     Pick<MessagesTranscriptProps, "readCursors" | "pending" | "typing" | "hasOlder" | "viewing" | "initialDraft">
   >;
 
-type Props = { look: BubbleLook; state: State; colors?: ChatColors; panels?: boolean };
+type ChiefHeader = "here" | "away" | "moving" | "failed";
+type Props = { look: BubbleLook; state: State; colors?: ChatColors; panels?: boolean; chiefHeader?: ChiefHeader };
+
+/** A Chief's picked character, as the host sends it (a data URL). */
+const CHIEF_PICTURE =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><rect width="36" height="36" fill="#5E5CE6"/><circle cx="13" cy="15" r="3" fill="#fff"/><circle cx="23" cy="15" r="3" fill="#fff"/><path d="M11 23q7 6 14 0" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>',
+  );
+
+/** The header's face and location chip for each Chief header state (the host's words). */
+function chiefHeaderProps(kind: ChiefHeader): Pick<MessagesTranscriptProps, "face" | "place"> {
+  const chip = (tone: ChiefPlace["tone"], text: string, glyph: ChiefPlace["glyph"]): ChiefPlace => ({
+    conversation: "c-chief",
+    tone,
+    text,
+    glyph,
+    label: `Chief location: ${text}`,
+    help: "Moves the Chief to another Mac or to cmux Cloud",
+  });
+  switch (kind) {
+    case "here":
+      return { face: { picture: CHIEF_PICTURE }, place: chip("here", "This Mac", "thisMac") };
+    case "away":
+      return { face: { picture: CHIEF_PICTURE }, place: chip("away", "Chief is on studio-mini", "host") };
+    case "moving":
+      return { face: { text: "🦊" }, place: chip("running", "Moving to cmux Cloud…", "moving") };
+    case "failed":
+      return { place: chip("failed", "Move to studio-mini failed", "failed") };
+  }
+}
 
 const me: HomeParticipant = { id: "me", kind: "human", name: "Taylor", chief: false };
 const chief: HomeParticipant = { id: "chief", kind: "agent", name: "Chief", chief: true };
@@ -214,7 +245,7 @@ const panelIcon = (d: string) => (
   </svg>
 );
 
-function TranscriptGallery({ look, state, colors, panels }: Props) {
+function TranscriptGallery({ look, state, colors, panels, chiefHeader }: Props) {
   const [strings] = useState(() => createTranscriptStrings());
   const [service] = useState(() => new AttachmentService(new MockHomeProvider(undefined, false, "none", false, true)));
   const [fixture] = useState(() => data(state));
@@ -232,6 +263,7 @@ function TranscriptGallery({ look, state, colors, panels }: Props) {
         colors={colors}
         attachments={service}
         now={GALLERY_NOW}
+        {...(chiefHeader ? chiefHeaderProps(chiefHeader) : {})}
         panels={
           panels
             ? [
@@ -277,6 +309,7 @@ export default componentEntry<Props>({
     "pages/home-messages/transcript/TranscriptRows.tsx#TranscriptRowView",
     "pages/home-messages/transcript/MessageComposer.tsx#MessageComposer",
     "pages/home-messages/transcript/TranscriptHeader.tsx#TranscriptHeader",
+    "pages/home-messages/transcript/ChiefPlace.tsx#ChiefPlaceChip",
   ],
   load: async () => TranscriptGallery,
   styles: () => Promise.all([import("../../home-channels/styles.css"), import("./transcript.css")]),
@@ -321,6 +354,22 @@ export default componentEntry<Props>({
     diagram: {
       note: "A mermaid fence in the Chief's reply draws as a diagram.",
       props: { look: "imessage", state: "diagram" },
+    },
+    "chief-here": {
+      note: "Picked: a Chief chat's header with the Chief's picked character and its location chip (This Mac); the chip opens the app's Teleport menu.",
+      props: { look: "imessage", state: "conversation", panels: true, chiefHeader: "here" },
+    },
+    "chief-away": {
+      note: "The Chief runs on another Mac: the chip says where.",
+      props: { look: "imessage", state: "conversation", panels: true, chiefHeader: "away" },
+    },
+    "chief-moving": {
+      note: "A move runs: the chip shows its step; the profile's text avatar in the header.",
+      props: { look: "imessage", state: "conversation", panels: true, chiefHeader: "moving" },
+    },
+    "chief-failed": {
+      note: "A move failed: the chip in the danger colour; no picture, the name's monogram.",
+      props: { look: "imessage", state: "conversation", panels: true, chiefHeader: "failed" },
     },
     group: {
       note: "A group chat: names over each run, avatars beside its last bubble, faces of who else is here, Sam typing.",

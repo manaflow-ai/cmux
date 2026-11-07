@@ -15,6 +15,9 @@
 //   chiefTurn (stream) {conversation, continueAvailable}: the shown Chief's turn after a Stop
 //   chief.continue {conversation}: goes on with a stopped turn; chief.retry {conversation, message}:
 //                      the Chief answers my message again (Retry Reply) (each a click only)
+//   chiefFace (stream) {conversation, picture?, text?}: the shown Chief's header avatar as the app reads it
+//   chiefPlace (stream) {conversation, chip: {tone, text, glyph, label, help}} | null: its location chip;
+//                      chief.place {conversation, anchor}: the Teleport menu under the chip (a click only)
 //   needsYou (stream) {title, rows, more?, look} | null: the pinned Needs you section of the shown
 //                      Chief chat (cards/needsYou); needsYou.open {id}, needsYou.answer {id, answer},
 //                      needsYou.showAll {} (each a click only)
@@ -50,6 +53,9 @@ export const DetailOps = {
   chiefContinue: "cmux.home.messages.chief.continue",
   chiefRetry: "cmux.home.messages.chief.retry",
   chiefTurn: "cmux.home.messages.chiefTurn",
+  chiefFace: "cmux.home.messages.chiefFace",
+  chiefPlace: "cmux.home.messages.chiefPlace",
+  chiefPlaceOpen: "cmux.home.messages.chief.place",
   needsYou: "cmux.home.messages.needsYou",
   needsYouOpen: "cmux.home.messages.needsYou.open",
   needsYouAnswer: "cmux.home.messages.needsYou.answer",

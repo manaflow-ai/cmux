@@ -177,6 +177,54 @@
   white-space: nowrap;
 }
 
+/* The Chief's face as the app read it (a picture, or its profile's text in the initials tile). */
+.mt-header-picture {
+  width: var(--mt-header-avatar);
+  height: var(--mt-header-avatar);
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+/* The location chip beside a Chief's name (ChiefTeleportChip, plain): caption words, the place's
+   glyph, a chevron; the running move and a failure in their colours. */
+.mt-place-chip {
+  display: inline-flex;
+  max-width: 200px;
+  height: 20px;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mt-caption);
+  font: var(--text-caption);
+  cursor: default;
+}
+
+.mt-place-chip:hover {
+  background: color-mix(in srgb, var(--page-text) 6%, transparent);
+}
+
+.mt-place-chip.running {
+  color: var(--page-text);
+}
+
+.mt-place-chip.failed {
+  color: var(--mt-danger);
+}
+
+.mt-place-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mt-place-chevron {
+  flex: none;
+  opacity: 0.6;
+}
+
 .mt-faces {
   display: inline-flex;
 }
