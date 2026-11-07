@@ -149,7 +149,7 @@ fn print(line: &Value) -> i32 {
     let mut stdout = std::io::stdout().lock();
     let _ = writeln!(stdout, "{line}");
     let _ = stdout.flush();
-    if line["ok"] == json!(true) { 0 } else { 1 }
+    if line.get("ok") == Some(&json!(true)) { 0 } else { 1 }
 }
 
 fn read_request() -> Result<Request, Value> {
