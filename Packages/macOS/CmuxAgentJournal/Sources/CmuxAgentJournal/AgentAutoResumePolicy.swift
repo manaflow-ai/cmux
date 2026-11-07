@@ -81,13 +81,23 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
     /// the app observes it.
     ///
     /// - Parameter projected: The notification reconciler's lifecycle
-    ///   projection of the same event.
+    ///   projection of the same event. A child event declares no phase of its
+    ///   own, so it takes the reconciled session phase from the projection: a
+    ///   child that finishes after the root's final Stop leaves the session
+    ///   idle and must not reopen the finished turn.
     public mutating func observe(
         _ draft: AgentJournalEventDraft,
         surfaceId: String,
         projected: AgentJournalEventDraft
     ) -> Action {
-        observe(
+        var declaredPhase = draft.declaredPhase
+        switch draft.kind {
+        case .childSpawned, .childCompleted, .childFailed:
+            declaredPhase = projected.declaredPhase
+        default:
+            break
+        }
+        return observe(
             kind: draft.kind,
             surfaceId: surfaceId,
             isSubagent: draft.isSubagent,
@@ -96,7 +106,7 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             // Pending background work continues the turn, and the pane's own
             // idle settlement can land before a slow StopFailure.
             endsTurn: !draft.pendingWork && draft.nativeEvent != "program_status_idle",
-            declaredPhase: draft.declaredPhase
+            declaredPhase: declaredPhase
         )
     }
 
