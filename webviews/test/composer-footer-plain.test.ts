@@ -10,8 +10,7 @@
 //     plus its label").
 //     The mode's chevron stays; the model button, as Claude Code's, draws none.
 // No chip draws a fill, ring or border at rest; hover, keyboard focus and an open menu draw the
-// row's wash. Labels and keyboard behavior are the same; widths may shrink with the icons hidden,
-// but the row's controls never overlap.
+// row's wash. Labels and keyboard behavior are the same, and the row's controls never overlap.
 //
 // It renders the real composer (the gallery's `agent-pane.composer-row` entry, `claude-auto`: Claude
 // Opus 5.5, Medium, Auto) in Chromium at three pane widths, light and dark, and turns the look off and on

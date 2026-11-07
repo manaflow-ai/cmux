@@ -222,7 +222,11 @@ function HarnessIcon({
       </span>
     );
   }
-  const { background, color } = monogramColors(spec.hue, dark);
+  // Themed, a monogram is its letters in the text colour on a faint tile of it, as a symbol is its
+  // shape in that colour: a custom harness's chip follows its row's ink and hover too.
+  const { background, color } = tint
+    ? { background: "color-mix(in srgb, currentColor 16%, transparent)", color: "currentColor" }
+    : monogramColors(spec.hue, dark);
   return (
     <span
       className="agent-mark agent-mark-monogram"
