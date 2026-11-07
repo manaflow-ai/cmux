@@ -135,6 +135,10 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onSetAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onRemoveAgentAvatar: ((String) -> Void)?
+    /// The agent session the floating mini stands for (nil: the Chief), and Show in Mini for one
+    /// (nil: the Chief again): the chat menu's Show in Mini row. Unset, the page hides the row.
+    @ObservationIgnored public var onMiniSubject: (() -> String?)?
+    @ObservationIgnored public var onShowInMini: ((String?) -> Void)?
     /// `chief.face`: Chief `chief`'s name and avatar as the sidebar shows them (`name`, `src` or `text`).
     @ObservationIgnored public var onChiefFace: ((String) async -> [String: String])?
     /// Returns bounded project paths for the picker, optionally filtered by query.
@@ -434,7 +438,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
+             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .projectIcon, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
@@ -563,6 +567,13 @@ public final class AgentPaneModel {
             return AgentPaneReply.success(harnessSymbols.dataURL(name).map { ["src": $0] } ?? [:])
         case .removeAgentAvatar(let session):
             onRemoveAgentAvatar?(session)
+            return AgentPaneReply.success()
+        case .miniSubject:
+            guard let onMiniSubject else { return Self.unsupported("agent.mini") }
+            return AgentPaneReply.success(["sessionId": onMiniSubject() ?? NSNull()])
+        case .showInMini(let session):
+            guard let onShowInMini else { return Self.unsupported("agent.mini.show") }
+            onShowInMini(session)
             return AgentPaneReply.success()
         case .chiefFace(let chief):
             return AgentPaneReply.success(await onChiefFace?(chief) ?? [:])

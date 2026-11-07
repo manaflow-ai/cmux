@@ -295,6 +295,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 requires: [.agentPaneFocused], targets: [.pane],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
+            // The floating mini (the Chief pet) stands for the focused chat (Leo 2026-11-07); run while
+            // it does, it gives the mini back to the Chief (its palette title says so).
+            ActionDescriptor(
+                id: "agentPane.showInMini",
+                title: String(localized: "action.agentPane.showInMini", defaultValue: "Show in Mini", bundle: .module),
+                keywords: ["agent", "chat", "mini", "pet", "chief", "floating", "avatar", "coordinator"],
+                category: .agents, symbol: "pip", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
             ActionDescriptor(
                 id: "agentPane.archiveChat",
                 title: String(localized: "action.agentPane.archiveChat", defaultValue: "Archive Chat", bundle: .module),

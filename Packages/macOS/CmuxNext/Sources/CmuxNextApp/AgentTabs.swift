@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextChiefPetWiring
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -195,6 +196,8 @@ final class AgentTabStore {
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
     /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
     var agentAvatars: AgentAvatars?
+    /// The floating mini's chat: the chat menu's Show in Mini (`agent.mini`, `agent.mini.show`).
+    var mini: ChiefPetMini?
     /// A Chief's name and avatar as the sidebar shows them, by participant id (`chief.face`).
     var chiefFace: (@MainActor (String) async -> [String: String])?
     /// Opens a redeemed Run attempt's terminal, owned by an enrolled worker daemon, in the tab's pane.
