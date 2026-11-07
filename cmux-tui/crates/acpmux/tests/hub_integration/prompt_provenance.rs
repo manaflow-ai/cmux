@@ -234,6 +234,30 @@ async fn an_unnamed_web_prompt_is_the_persons_only_from_a_paired_device() {
 }
 
 #[tokio::test]
+async fn only_a_peer_daemon_names_a_messages_sender() {
+    // A paired `client` device is served as a peer (`pairing::origin_of`), but only the peer
+    // token proves a daemon that stamps `messageSender` itself; the device could name any agent.
+    let hub = hub();
+    let mut local = Client::open(&hub);
+    let session = local.new_session(json!({"harness": "fake"})).await;
+    let victim = local.new_session(json!({"harness": "fake"})).await;
+    for (auth, id, kind) in [
+        (ConnAuth::Device, "p-device", Some(json!("unverified"))),
+        (ConnAuth::PeerToken, "p-peer", Some(json!("agent_message"))),
+    ] {
+        let mut peer = Client::open_authed(&hub, Origin::Peer, auth);
+        let mut params = prompt(&session, id, "hi", None);
+        params["_meta"]["acpmux"]["messageSender"] =
+            json!({"name": "builder", "sessionId": victim, "host": "peer-host"});
+        peer.call("session/prompt", params).await;
+        let message = local.user_message(&session, id).await;
+        assert_eq!(message.pointer("/_meta/provenance/kind").cloned(), kind, "{auth:?}: {message}");
+    }
+    let messages = local.records(&session, "_acpmux/message").await;
+    assert_eq!(messages.len(), 1, "only the peer daemon's prompt is a message: {messages:#?}");
+}
+
+#[tokio::test]
 async fn a_malformed_provenance_is_refused() {
     let hub = hub();
     let mut c = Client::open(&hub);
