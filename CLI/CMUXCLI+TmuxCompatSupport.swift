@@ -263,6 +263,19 @@ extension CMUXCLI {
         return tmuxShellInvokedStartCommand("\(exports); \(trimmed)")
     }
 
+    /// Provider search path and server port shared by both respawn commands.
+    func tmuxRespawnStartupEnvironment() -> [String: String] {
+        let environment = ProcessInfo.processInfo.environment
+        var startupEnvironment: [String: String] = [:]
+        for key in ["PATH", "OPENCODE_PORT"] {
+            if let value = environment[key],
+               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                startupEnvironment[key] = value
+            }
+        }
+        return startupEnvironment
+    }
+
     /// Environment that a claude-teams teammate pane must start with.
     ///
     /// Teammate panes are respawned by cmux's surface layer, not by `cmux
