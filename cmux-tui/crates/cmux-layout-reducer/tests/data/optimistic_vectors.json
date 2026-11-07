@@ -1751,6 +1751,180 @@
   "response": null
  },
  {
+  "name": "a split whose pane the screen's tree already places shows nothing (the daemon's layout placed it)",
+  "swift": "ProvisionalSplit.apply (daemonPlaces: never applied once the daemon has placed the pane)",
+  "request": {
+   "op": "split",
+   "dir": "right",
+   "ratio": 0.5,
+   "leaf": 9,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "screen": {
+    "layout": {
+     "type": "split",
+     "split": 4,
+     "dir": "right",
+     "ratio": 0.5,
+     "a": {
+      "type": "leaf",
+      "pane": 3
+     },
+     "b": {
+      "type": "leaf",
+      "pane": 9
+     }
+    },
+    "columns": [],
+    "zoomed_pane": null,
+    "panes": [
+     3,
+     9
+    ]
+   },
+   "target": 3
+  },
+  "response": null
+ },
+ {
+  "name": "a New Column whose pane the screen's tree already places shows nothing",
+  "swift": "ProvisionalSplit.apply (daemonPlaces)",
+  "request": {
+   "op": "split",
+   "dir": "right",
+   "ratio": 0.5,
+   "leaf": 9,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "screen": {
+    "layout": {
+     "type": "split",
+     "dir": "right",
+     "ratio": 0.5,
+     "a": {
+      "type": "leaf",
+      "pane": 3
+     },
+     "b": {
+      "type": "leaf",
+      "pane": 9
+     }
+    },
+    "columns": [
+     {
+      "id": 1,
+      "width": 1.0,
+      "layout": {
+       "type": "leaf",
+       "pane": 3
+      },
+      "rows": []
+     },
+     {
+      "id": 2,
+      "width": 0.5,
+      "layout": {
+       "type": "leaf",
+       "pane": 9
+      },
+      "rows": []
+     }
+    ],
+    "zoomed_pane": null,
+    "panes": [
+     3,
+     9
+    ]
+   },
+   "target": 3,
+   "column": {
+    "handle": 4611686018427387905,
+    "width": 0.5,
+    "left": false
+   }
+  },
+  "response": null
+ },
+ {
+  "name": "a New Row whose stand-in the screen's tree already shows is not shown twice",
+  "swift": "ProvisionalSplit.apply (the provisional pane already in the records)",
+  "request": {
+   "op": "split",
+   "dir": "down",
+   "ratio": 0.5,
+   "leaf": 4611686018427387905,
+   "split_id": "split_0123456789abcdef0123456789abcdef",
+   "screen": {
+    "layout": {
+     "type": "split",
+     "split_id": "split_0123456789abcdef0123456789abcdef",
+     "dir": "down",
+     "ratio": 0.5,
+     "a": {
+      "type": "leaf",
+      "pane": 3
+     },
+     "b": {
+      "type": "leaf",
+      "pane": 4611686018427387905
+     }
+    },
+    "columns": [],
+    "zoomed_pane": null,
+    "panes": [
+     3,
+     4611686018427387905
+    ]
+   },
+   "target": 3,
+   "row": {
+    "handle": 4611686018427387905,
+    "height": 300
+   }
+  },
+  "response": null
+ },
+ {
+  "name": "a dock whose pane the screen's tree already places shows nothing",
+  "swift": "ProvisionalDock.apply (daemonPlaces)",
+  "request": {
+   "op": "dock",
+   "screen": {
+    "layout": {
+     "type": "split",
+     "dir": "right",
+     "ratio": 0.5,
+     "a": {
+      "type": "leaf",
+      "pane": 9
+     },
+     "b": {
+      "type": "leaf",
+      "pane": 3
+     }
+    },
+    "columns": [],
+    "zoomed_pane": null,
+    "panes": [
+     9,
+     3
+    ]
+   },
+   "leaf": 9,
+   "column": {
+    "handle": 4611686018427387905,
+    "width": 0.5,
+    "left": true
+   },
+   "dock": {
+    "edge": "left",
+    "mode": "docked",
+    "role": "agent_chat",
+    "pinned": false,
+    "allow_tabs": false
+   }
+  },
+  "response": null
+ },
+ {
   "name": "a move to where the tab is changes nothing",
   "swift": "IntentOverlay.apply(.moveTab)",
   "request": {

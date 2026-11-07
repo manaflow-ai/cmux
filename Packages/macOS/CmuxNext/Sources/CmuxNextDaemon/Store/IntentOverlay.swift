@@ -13,9 +13,8 @@ import Foundation
         case .moveTab(let surface, let toPane, let index):
             guard let target = store.panesByHandle[toPane], let source = store.pane(containing: surface),
                   let from = source.tabs.firstIndex(where: { $0.surface == surface }) else { return nil }
-            let final = source === target ? min(max(index, 0), target.tabs.count - 1) : min(max(index, 0), target.tabs.count)
-            if source === target, from == final { return nil }
-            guard let tab = source.removeTab(surface: surface) else { return nil }
+            guard let final = OptimisticRules.moveTab(samePane: source === target, from: from, index: index, targetCount: target.tabs.count),
+                  let tab = source.removeTab(surface: surface) else { return nil }
             target.insertTab(tab, at: final)
             store.index.insert(tab, in: target)
             store.index.noteTabOrderChanged()
@@ -70,13 +69,13 @@ import Foundation
         case .moveWorkspace(let key, let index):
             guard let from = store.workspaces.firstIndex(where: { $0.key == key }),
                   let current = store.workspaces[checked: from] else { return nil }
-            return place(at: from, index: min(max(index, 0), store.workspaces.count - 1), group: current.group, in: store)
+            return place(from, .move, group: current.group, index: index, in: store)
         case .setWorkspaceGroup(let key, let group):
             guard let from = store.workspaces.firstIndex(where: { $0.key == key }), group.map({ store.group($0) != nil }) ?? true else { return nil }
-            return place(at: from, index: from, group: group, in: store)
+            return place(from, .group, group: group, index: from, in: store)
         case .placeWorkspace(let key, let group, let index):
             guard let from = store.workspaces.firstIndex(where: { $0.key == key }), group.map({ store.group($0) != nil }) ?? true else { return nil }
-            return place(at: from, index: sectionPlacement(from: from, group: group, index: index, in: store), group: group, in: store)
+            return place(from, .place, group: group, index: index, in: store)
         case .setWorkspaceGroupCollapsed(let id, let collapsed):
             guard let group = store.group(id), group.collapsed != collapsed else { return nil }
             group.setCollapsed(collapsed)
@@ -126,18 +125,16 @@ import Foundation
     /// in the mirror, its row set differs (the daemon refuses that,
     /// `row-set-stale`) or nothing changes.
     private static func setRowHeights(_ heights: [RowHeightValue], of column: ColumnID, in store: DaemonStore) -> IntentUndo? {
-        let byRow = Dictionary(heights.map { ($0.row, $0.height) }, uniquingKeysWith: { _, new in new })
         for screen in store.screensByHandle.values {
             guard let current = screen.columns.first(where: { $0.id == column }) else { continue }
+            guard let next = OptimisticRules.rowHeights(current.rows, heights) else { return nil }
+            let previous = current.rows.map { RowHeightValue(row: $0.id, height: $0.height) }
             var entry = current
-            guard Set(entry.rows.map(\.id)) == Set(byRow.keys), entry.rows.count == byRow.count else { return nil }
-            let previous = entry.rows.map { RowHeightValue(row: $0.id, height: $0.height) }
-            entry.rows = entry.rows.map { row in
+            entry.rows = zip(entry.rows, next).map { row, height in
                 var row = row
-                row.height = byRow[row.id] ?? row.height
+                row.height = height.height
                 return row
             }
-            guard entry != current else { return nil }
             screen.columns.modifyFirst(where: { $0.id == column }) { $0 = entry }
             return .rowHeights(column: column, heights: previous)
         }
@@ -257,21 +254,13 @@ import Foundation
         return undo
     }
 
-    /// cmux-tui's `move-workspace-to-group` placement (presentation.rs
-    /// `move_workspace_to_group`) on the records: a section is the daemon
-    /// order filtered by group, so the workspace goes before the member now
-    /// at `index`, after the last member, or stays put in an empty section.
-    /// Kept here because the intent names a section index, which only this
-    /// rule turns into a daemon-order index on the current mirror.
-    private static func sectionPlacement(from old: Int, group: WorkspaceGroupID?, index: Int, in store: DaemonStore) -> Int {
-        let remaining = store.workspaces.indices.filter { $0 != old }
-        let members = store.workspaces.enumerated().filter { $0.offset != old && $0.element.group == group }.map(\.offset)
-        let position = { (target: Int) in remaining.firstIndex(of: target) ?? old }
-        var new = old
-        if let last = members.last {
-            // A negative section index means the front, as a negative move index does.
-            new = members[checked: max(index, 0)].map(position) ?? position(last) + 1
-        }
-        return min(new, store.workspaces.count - 1)
+    /// Places the workspace at `from` by `kind` (cmux-layout-reducer `place_workspace`: a move clamps, a regroup
+    /// keeps its place, a section index goes before the member now there, after the last one, or stays put in an
+    /// empty section); nil when it stays where it is in the group it is in.
+    private static func place(_ from: Int, _ kind: OptimisticRules.PlaceKind, group: WorkspaceGroupID?, index: Int,
+                              in store: DaemonStore) -> IntentUndo? {
+        guard let target = OptimisticRules.placeWorkspace(groups: store.workspaces.map(\.group), from: from, kind: kind,
+                                                          group: group, index: index) else { return nil }
+        return place(at: from, index: target, group: group, in: store)
     }
 }
