@@ -7,9 +7,13 @@ import CmuxNextSettings
 /// page's `cmux.<page>.command` and `cmux.<page>.size` calls go back to the owner.
 @MainActor
 public final class BrowserChromeWebHost: BrowserChromeWebContent {
-    /// The page floats in a glass panel that closes when it loses the keys; a Chromium page is an
-    /// opaque child window that takes them.
-    static let engineOptions = PageEngineOptions(requiresWebKit: .transparentOverlay)
+    /// The page floats in a glass panel that closes when it loses the keys, or draws the toolbar row
+    /// over the chrome's own surface; a Chromium page is an opaque child window that takes them. The
+    /// toolbar and the suggestion card act on the first click in a window that is not key, as the
+    /// native controls did.
+    static func engineOptions(_ surface: BrowserChromeWebPage) -> PageEngineOptions {
+        PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: surface != .pageInfo)
+    }
 
     let page: PageWebView
     private let provider: BrowserChromeWebProvider
@@ -24,12 +28,14 @@ public final class BrowserChromeWebHost: BrowserChromeWebContent {
         let descriptor: PageDescriptor
         switch surface {
         case .pageInfo: descriptor = .pageInfo
+        case .browserToolbar: descriptor = .browserToolbar
+        case .omniboxPopup: descriptor = .omniboxPopup
         }
         let provider = BrowserChromeWebProvider(namespace: descriptor.id + ".")
         guard let page = PageWebView(descriptor: descriptor, routes: [PageRoute(prefix: provider.namespace, provider: provider)],
-                                     options: Self.engineOptions) else { return nil }
-        // The owner sizes the card in points from the page's reports and pushes its metrics in
-        // points: one CSS pixel is one point.
+                                     options: Self.engineOptions(surface)) else { return nil }
+        // The owner sizes its card or row in points from the page's reports and pushes its
+        // metrics in points: one CSS pixel is one point.
         page.followsUIScale = false
         self.page = page
         self.provider = provider
@@ -41,6 +47,23 @@ public final class BrowserChromeWebHost: BrowserChromeWebContent {
 
     public func focus() {
         page.focusPage()
+    }
+
+    public var focusView: NSView { page.focusView }
+
+    public var acceptsKeyFocus: (() -> Bool)? {
+        get { page.acceptsKeyFocus }
+        set { page.acceptsKeyFocus = newValue }
+    }
+
+    public var onResignedKeys: (() -> Void)? {
+        get { page.onResignedKeys }
+        set { page.onResignedKeys = newValue }
+    }
+
+    public var contextMenuEditor: (@MainActor (NSMenu) -> Void)? {
+        get { page.contextMenuEditor }
+        set { page.contextMenuEditor = newValue }
     }
 
     public func close() {

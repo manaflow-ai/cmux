@@ -2,21 +2,26 @@ import AppKit
 import CmuxNextDesign
 
 /// Back/forward menus: right-click or long-press the Back or
-/// Forward button for the tab's entries, nearest first (plans/cmux-next/
+/// Forward button of the toolbar page for the tab's entries, nearest first (plans/cmux-next/
 /// history.md 4.1). Only for tabs whose engine lists its entries
 /// (`BrowserBackForwardListing`). Reload has its own menu (`BrowserReloadMenu`).
 /// Both are standard macOS menus in the toolbar's light or dark look (`NSMenu.themeRows(in:)`).
 extension BrowserChromeView {
     static let backForwardMenuLimit = 16
 
-    /// Targets the Back and Forward buttons at this view and gives them
-    /// their entry menus.
-    func installBackForwardMenus() {
-        backButton.target = self
-        forwardButton.target = self
-        backButton.menuProvider = { [weak self] in self?.backForwardMenu(forward: false) }
-        forwardButton.menuProvider = { [weak self] in self?.backForwardMenu(forward: true) }
-        reloadButton.menuProvider = { [weak self] in self.map { BrowserReloadMenu.make(for: $0.tab, in: $0.themeScope.fullStrength) } }
+    /// A right-click on Back, Forward or Reload in the toolbar page: the button's menu under it.
+    func showNavigationMenu(_ button: ToolbarNavigationButton) {
+        guard let menu = navigationMenu(button), let anchor = addressBar.anchor(button.rawValue), anchor.window != nil else { return }
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: anchor, gap: 4), in: anchor)
+    }
+
+    /// The menu of Back, Forward or Reload; nil when the button has none (no entries).
+    func navigationMenu(_ button: ToolbarNavigationButton) -> NSMenu? {
+        switch button {
+        case .back: backForwardMenu(forward: false)
+        case .forward: backForwardMenu(forward: true)
+        case .reload: BrowserReloadMenu.make(for: tab, in: themeScope.fullStrength)
+        }
     }
 
     func backForwardMenu(forward: Bool) -> NSMenu? {

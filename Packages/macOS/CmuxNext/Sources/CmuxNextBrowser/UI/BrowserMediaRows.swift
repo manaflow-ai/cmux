@@ -2,7 +2,7 @@ public import AppKit
 
 /// The media hub's cards, kept per tab between opens: an open updates the cards it has and
 /// builds only new ones (u2426: the hub built every card, with its four buttons, on each click).
-/// One per toolbar (`BrowserToolbarButtonsView.mediaRows`).
+/// One per toolbar (`BrowserToolbarButtons.mediaRows`).
 @MainActor
 public final class BrowserMediaRows {
     /// One card to show.

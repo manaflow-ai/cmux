@@ -1,6 +1,6 @@
 import Foundation
 
-// The trailing toolbar buttons (BrowserToolbarButtonsView).
+// The trailing toolbar buttons (BrowserToolbarButtons).
 nonisolated extension Strings {
     static func toolbarZoom(_ percent: Int) -> String {
         String(localized: "browser.toolbar.zoom", defaultValue: "Zoom \(percent)%: Reset to Actual Size", bundle: .module)
