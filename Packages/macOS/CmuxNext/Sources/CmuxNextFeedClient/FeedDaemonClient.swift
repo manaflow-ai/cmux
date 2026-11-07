@@ -28,6 +28,10 @@ package final class FeedDaemonClient {
     private var listeners: [UInt64: @MainActor (Change) -> Void] = [:]
     private var nextListener: UInt64 = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "feed.daemon")
+    /// The GitHub setting last sent, and the posts no daemon took yet (by key): the daemon keeps
+    /// both in memory only, so ``restore()`` sends them to each new serving connection.
+    private var gitHub: [String: JSONValue]?
+    private var pendingPosts: [String: [String: JSONValue]] = [:]
 
     package init(send: @escaping Send) {
         self.send = send
@@ -122,6 +126,22 @@ package final class FeedDaemonClient {
         _ = try await send("feed.post", ["item": .object(item)], key)
     }
 
+    /// `feed.post` with nobody waiting: a post no daemon took stays pending for ``restore()``.
+    package func keepPosting(item: [String: JSONValue], key: String) {
+        pendingPosts[key] = item
+        // task-owner: one daemon post; it clears the pending post once the daemon took it.
+        Task { [weak self] in
+            guard (try? await self?.post(item: item, key: key)) != nil else { return }
+            self?.pendingPosts[key] = nil
+        }
+    }
+
+    /// A new daemon connection serves the feed: it gets the GitHub setting and the pending posts.
+    package func restore() {
+        if let gitHub { fire("feed.github.configure", gitHub) }
+        pendingPosts.forEach { keepPosting(item: $0.value, key: $0.key) }
+    }
+
     /// `feed.presence.set {active}`: the owner's push rule.
     package func setPresence(active: Bool) {
         fire("feed.presence.set", ["active": .bool(active)])
@@ -129,7 +149,9 @@ package final class FeedDaemonClient {
 
     /// `feed.github.configure {enabled, interval_s}`.
     package func configureGitHub(enabled: Bool, intervalSeconds: Double) {
-        fire("feed.github.configure", ["enabled": .bool(enabled), "interval_s": .number(intervalSeconds)])
+        let params: [String: JSONValue] = ["enabled": .bool(enabled), "interval_s": .number(intervalSeconds)]
+        gitHub = params
+        fire("feed.github.configure", params)
     }
 
     /// One mutation whose answer nobody waits on (a later call replaces its effect).

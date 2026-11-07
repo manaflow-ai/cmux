@@ -53,6 +53,7 @@ final class FeedService {
             for await serving in ObservationStream({ ObservationTrigger(local?.supports(FeedDaemonClient.capability) == true ? local?.connection.map(ObjectIdentifier.init) : nil) }) {
                 guard let self, serving.value != nil else { continue }
                 daemon.setPresence(active: appActive())
+                daemon.restore() // a new daemon starts with the poller off and no update cards
                 daemon.deliver(FeedDaemonClient.Change(changed: nil))
                 self.readClosedHolds()
             }
@@ -110,13 +111,10 @@ final class FeedService {
     var isSignedIn: Bool { auth.isSignedIn }
 
     /// Posts an installed update's card (cmux or an agent CLI) through the daemon's integration
-    /// owner, never a cloud session; the owner's dedupe keeps one card per version.
+    /// owner, never a cloud session; the owner's dedupe keeps one card per version. A card no daemon
+    /// took stays pending until one does.
     func post(update card: UpdateFeedCard) {
-        let daemon = daemon
-        // task-owner: one daemon post; nothing waits on it.
-        Task {
-            try? await daemon.post(item: card.item, key: card.dedupeKey)
-        }
+        daemon.keepPosting(item: card.item, key: card.dedupeKey)
     }
 
     /// Applies the user-owned GitHub connection setting to the daemon's poller.

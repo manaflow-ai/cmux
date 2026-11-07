@@ -6,7 +6,7 @@ import { pageError, type PageClient } from "../shared/pageClient";
 import { formatString } from "../shared/i18n";
 import generated from "./generated/strings.json";
 import { rejectText } from "./FeedPage";
-import { feedRefusal, MockFeedProvider, sampleFeed } from "./mockProvider";
+import { feedRefusal, MockFeedProvider, sampleFeed, type MockItem } from "./mockProvider";
 import { FeedStore, rejectOf } from "./store";
 import { canChange } from "./context";
 import { ACTION_RUN, FeedOps, type FeedIntentParams, type FeedView, type FeedViewParams, type ViewItem } from "./types";
@@ -205,6 +205,33 @@ describe("intents", () => {
     list.store.markAllRead();
     await settle();
     expect(intents(list.provider)).toEqual([{ kind: "mark_all_read", before: NOW, idempotency_key: "k1" }]);
+  });
+
+  test("Mark All Read of a long Inbox marks every shown item, in intents of 256 ids", async () => {
+    const notices: MockItem[] = Array.from({ length: 300 }, (_, index) => ({
+      id: `fi_notice_${index}`,
+      home: "local",
+      kind: "notice",
+      title: `Build ${index} finished`,
+      state: "open",
+      count: 1,
+      revision: 1,
+      poster: { kind: "integration", label: "CI" },
+      created_at: NOW - index * 1000,
+    }));
+    const provider = new MockFeedProvider(notices, { now: () => NOW });
+    const store = new FeedStore(provider, "#/inbox", {
+      clock: () => NOW,
+      tzOffsetMin: () => 0,
+      newKey: () => crypto.randomUUID(),
+      rejectText: (reject) => rejectText(reject, strings),
+    });
+    await store.start();
+    store.markShownRead();
+    await settle();
+    const sent = intents(provider).filter((intent) => intent.kind === "read");
+    expect(sent.map((intent) => intent.items!.length)).toEqual([256, 44]);
+    expect(new Set(sent.flatMap((intent) => intent.items!)).size).toBe(300);
   });
 
   test("an item waits dimmed while its intent is in flight", async () => {
