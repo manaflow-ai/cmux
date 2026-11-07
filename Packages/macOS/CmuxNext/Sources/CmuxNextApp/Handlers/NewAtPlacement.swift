@@ -6,6 +6,7 @@ import CmuxNextDaemonService
 import CmuxNextLayout
 import CmuxNextWakeups
 import Foundation
+import Observation
 
 /// New ▸ Kind ▸ Placement (`new.<kind>.<place>`): one function opens a Terminal, a Browser, an
 /// Agent Chat or a New Tab Page at any of Fork To's ten places, from the pane's New menu, its •••
@@ -122,14 +123,15 @@ enum NewAtPlacement {
             } else {
                 made = pane.newBrowserTab(background: true, placementOwner: true, then: placed)
             }
-            if !outbound.started(made) { outbound.finish(moved: false) }
+            _ = outbound.started(made) // a refused open finishes the outbound hold itself
         case "agentChat":
             _ = services.agentTabs.openTab(in: pane, seed: pane.agentSeedFromSelectedTab(), select: false, hidden: true) { [weak pane] key in
                 guard let pane else { return }
                 place({ services.locateTab(key, onMachine: machineID) }, from: pane, op, ctx) { [weak pane] _ in pane?.dockFinished(key) }
             }
         case "newTabPage":
-            NewTabPage.split(pane, edge: .right, placed: { [weak pane] key in
+            // The page shows only after its move: it takes no held keys (focusesPage false); the move focuses it.
+            NewTabPage.split(pane, edge: .right, focusesPage: false, placed: { [weak pane] key in
                 guard let pane else { return }
                 place({ services.locateTab(key, onMachine: machineID) }, from: pane, op, ctx) { [weak pane] _ in pane?.dockFinished(key) }
             })
@@ -142,43 +144,59 @@ enum NewAtPlacement {
     /// `finished` gets whether it left its pane (the source's strip may list it again either way).
     @MainActor static func place(_ locate: @escaping @MainActor () -> (TabModel, PaneModel)?, from source: PaneController,
                                  _ op: NewPlacementPlan.Op, _ ctx: AppActionContext, finished: @escaping @MainActor (Bool) -> Void) {
-        let services = source.services, registry = ctx.registry
+        let services = source.services, registry = ctx.registry, store = source.daemon.store
+        // A new tab is listed and a moved one leaves its pane with the store's tab-list revision (its
+        // surface index is not observed): every wait reads it, as LinkOpener's do.
+        let listed = { @MainActor in _ = store.tabListRevision; return locate() }
+        let outcome = MoveOutcome()
         let rowHeight = source.workspace?.layoutModel.newRowHeight(below: source.layoutPaneID) ?? 1000
         // main-hop-allow: the action's effect already ran in its turn (the tab is made); this tracked work only waits
         // for the store to list the tab and then sends one daemon move, as NewTabPage.moveToSplit does. Each wakeup is
         // one locateTab lookup, and both waits end at `listLimit` (DemandTimer).
         services.registry.track(Task { @MainActor () -> ActionWorkFailure? in
-            guard await within(listLimit, { locate() != nil }), case let (tab, home)? = locate() else {
+            guard await within(listLimit, { listed() != nil }), case let (tab, home)? = listed() else {
                 finished(false)
                 return "new: the new tab did not open"
             }
             let target = ActionTargetRef(kind: .tab, id: tab.id)
+            // A refused move ends the wait at once: the tab shows again in its pane now, not at the limit.
+            let done: @MainActor (Bool) -> Void = { moved in if !moved { outcome.refused = true } }
             switch op {
             case .split(let edge):
-                TabMoves.toNewSplit(tab, pane: home, edge: PaneEdge(rawValue: edge) ?? .right, services: services)
+                TabMoves.toNewSplit(tab, pane: home, edge: PaneEdge(rawValue: edge) ?? .right, services: services, completion: done)
             case .column(let left):
-                services.daemon(for: home).placeFork(tab.surface, beside: home, left: left, rowHeight: rowHeight) {
-                    TabMoves.toNewColumn(tab, anchor: home, afterColumn: $0, services: services, completion: $1)
+                services.daemon(for: home).placeFork(tab.surface, beside: home, left: left, rowHeight: rowHeight) { column, moved in
+                    TabMoves.toNewColumn(tab, anchor: home, afterColumn: column, services: services) { done($0); moved($0) }
                 }
             case .row:
-                services.daemon(for: home).placeFork(tab.surface, beside: home, left: nil, rowHeight: rowHeight) {
-                    TabMoves.toNewColumn(tab, anchor: home, afterColumn: $0, services: services, completion: $1)
+                services.daemon(for: home).placeFork(tab.surface, beside: home, left: nil, rowHeight: rowHeight) { column, moved in
+                    TabMoves.toNewColumn(tab, anchor: home, afterColumn: column, services: services) { done($0); moved($0) }
                 }
             case .workspace:
-                _ = registry.perform("palette.moveTabToNewWorkspace", invocation: ActionInvocation(target: target, origin: .user))
+                done(registry.perform("palette.moveTabToNewWorkspace", invocation: ActionInvocation(target: target, origin: .user)))
             case .window:
-                _ = registry.perform("tab.moveToNewWindow", invocation: ActionInvocation(target: target, origin: .user))
+                done(registry.perform("tab.moveToNewWindow", invocation: ActionInvocation(target: target, origin: .user)))
             case .tab:
                 finished(true)
                 return nil
             }
             let machineID = services.daemon(for: home).machineID
-            let moved = await within(listLimit) { services.locateTab(tab.id, onMachine: machineID).map { $0.1 !== home } ?? false }
+            let left = { @MainActor in _ = store.tabListRevision; return services.locateTab(tab.id, onMachine: machineID).map { $0.1 !== home } ?? false }
+            _ = await within(listLimit) { outcome.refused || left() }
+            let moved = left()
             finished(moved)
             guard moved else { return "new: the move to its place failed (see the app log)" }
+            // A split, a new workspace or a new window focuses the moved tab itself; a strip column or row does not.
+            if case .split = op { return nil }
+            if op == .workspace || op == .window { return nil }
             _ = registry.perform("tab.focus", invocation: ActionInvocation(target: target, origin: .user))
             return nil
         })
+    }
+
+    /// A move's refusal, which ends its wait (observed).
+    @Observable @MainActor private final class MoveOutcome {
+        var refused = false
     }
 
     /// Whether `holds` turns true within `limit`, read now and on every change it observes.

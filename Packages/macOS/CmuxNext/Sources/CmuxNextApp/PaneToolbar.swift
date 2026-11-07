@@ -250,6 +250,7 @@ final class PaneToolbar {
         while menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
         // New ▸ Kind ▸ place, the pane menu's rows (a Terminal, Browser, Agent Chat or New Tab Page at any of Fork To's places).
         if let paneTarget, let folder = ContextMenuCatalog.shared.newPlacementFolder() {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
             for item in registry.makeContextMenu(for: .pane, target: paneTarget, entries: [folder], customize: false, machineID: machineID()).items {
                 item.menu?.removeItem(item)
                 menu.addItem(item)
