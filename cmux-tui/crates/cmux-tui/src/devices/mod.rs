@@ -10,6 +10,7 @@ use cmux_json::JsonSet as _;
 mod model;
 mod network;
 mod removal;
+pub(crate) mod removed;
 #[cfg(test)]
 mod tests;
 
@@ -21,7 +22,7 @@ use anyhow::{Context as _, anyhow, bail};
 use serde_json::{Value, json};
 
 use crate::remote_host::{audit, config as host_config, self_exe};
-use model::{Device, Listing, Role, Sources, State};
+use model::{Listing, Role, Sources, State, Via};
 use network::{Choice, TailscaleNetwork, WeftNetwork};
 
 const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
@@ -31,11 +32,17 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
        cmux device network [--json]
+       cmux device SELECTOR show [--catalog]   (one device of the machine catalog, `cmux machine ls`)
+       cmux device revoke|rotate ID|NAME       (a machine that joined with a pasted line)
+       cmux device doctor [MACHINE] [--fix]    (check an SSH machine and fix what it can)
 
-  cmux device add HOST (no --yes) opens Add Device in the cmux app.";
+  cmux device add HOST (no --yes) opens Add Device in the cmux app.
+  `cmux machine` is the old name of `cmux device`; `cmux machine add` still prints a join line.
+  Cloud VMs (new, run, pause, resume, rm) are `cmux vm`: `cmux vm --help`.";
 
 /// The verbs this module runs; `add` only with `--yes`.
-const VERBS: &[&str] = &["list", "ls", "remove", "rm", "audit", "network", "invite", "help"];
+const VERBS: &[&str] =
+    &["list", "ls", "remove", "rm", "audit", "network", "invite", "help", "-h", "--help"];
 
 /// The output flags a device verb takes anywhere: before `device`, before the verb or after.
 fn output_flag(word: &str) -> bool {
@@ -87,7 +94,7 @@ pub(crate) fn run(rest: &[String]) -> i32 {
         "network" => show_network(args),
         _ => {
             println!("{USAGE}");
-            return if verb == "help" { 0 } else { 2 };
+            return if matches!(verb, "help" | "-h" | "--help") { 0 } else { 2 };
         }
     };
     match result {
@@ -616,9 +623,45 @@ fn remove(args: &[String]) -> anyhow::Result<()> {
         }
         return Ok(());
     }
-    let device: Device = model::find(&listing, key)
-        .cloned()
-        .ok_or_else(|| anyhow!("no device {key:?} here (cmux device list shows them)"))?;
+    let Some(device) = model::find(&listing, key).cloned() else {
+        // A joined machine the list no longer offers (revoked, so it lets nothing in) still
+        // shows in `machine list` as revoked: removing it only takes it off the lists. Only
+        // the hub's own list says it is revoked; one already removed stays removed.
+        if let Some(machine_id) = key.strip_prefix("joined:").filter(|id| !id.is_empty()) {
+            if !removed::ids().contains(machine_id) {
+                #[cfg(unix)]
+                let rows = crate::cli::joined_machine_rows(
+                    auth.platform.as_deref(),
+                    auth.credential.clone(),
+                );
+                #[cfg(not(unix))]
+                let rows = None;
+                if !removed::listed_revoked(rows, machine_id)? {
+                    bail!(
+                        "{machine_id} is not a revoked machine of this team (cmux machine list shows them)"
+                    );
+                }
+            }
+            if !flags.has("yes") {
+                println!("Removing {machine_id} will:\n  - leave the machine list");
+                if !confirm("Remove it?")? {
+                    bail!("not removed (pass --yes to remove without asking)");
+                }
+            }
+            removed::add(machine_id)?;
+            record("device.removed", json!({"device": key, "done": ["leave the machine list"]}));
+            if flags.has("json") {
+                println!(
+                    "{}",
+                    json!({"removed": {"joined": machine_id}, "done": ["leave the machine list"], "failed": []})
+                );
+            } else {
+                println!("Removed {machine_id} from the machine list.");
+            }
+            return Ok(());
+        }
+        bail!("no device {key:?} here (cmux device list shows them)");
+    };
     let steps = removal::plan(&device);
     if !flags.has("yes") {
         let what: Vec<&str> = steps.iter().map(|s| s.what.as_str()).collect();
@@ -650,6 +693,16 @@ fn remove(args: &[String]) -> anyhow::Result<()> {
                 json!({"step": step.what, "error": String::from_utf8_lossy(&o.stderr).trim()}),
             ),
             Err(e) => failed.push(json!({"step": step.what, "error": e.to_string()})),
+        }
+    }
+    // A joined machine that is fully removed leaves every list (the platform keeps it, revoked).
+    if failed.is_empty() {
+        for via in &device.via {
+            if let Via::Joined { machine_id } = via
+                && let Err(e) = removed::add(machine_id)
+            {
+                failed.push(json!({"step": "leave the machine list", "error": format!("{e:#}")}));
+            }
         }
     }
     record(

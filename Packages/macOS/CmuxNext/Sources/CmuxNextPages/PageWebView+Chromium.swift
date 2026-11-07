@@ -46,7 +46,7 @@ extension PageWebView {
     static let chromiumFireAndForget = [
         PagePaintProbe.handlerName, PageInputReadiness.handlerName, ConsoleErrorCapture.handlerName,
         PageChromiumDocumentScripts.navigateHandler, PageChromiumDocumentScripts.hostDropHandler,
-        PageChromiumDocumentScripts.pageDropHandler,
+        PageChromiumDocumentScripts.pageDropHandler, PageTitleRowPress.handlerName,
     ]
 
     /// How long after a drag of files entered the page its drop may still open one in the host.
@@ -88,8 +88,9 @@ extension PageWebView {
     /// The Chromium page that shows the page now; nil on WebKit.
     public var chromiumPage: (any PageChromiumPage)? { chromiumSession?.page }
 
-    /// The page zoom both engines show: `uiScale` times ``additionalZoom``.
-    var pageZoom: Double { Double(DesignSettings.shared.uiScale) * additionalZoom }
+    /// The page zoom both engines show: `uiScale` (unless ``followsUIScale`` is off) times
+    /// ``additionalZoom``.
+    public var pageZoom: Double { (followsUIScale ? Double(DesignSettings.shared.uiScale) : 1) * additionalZoom }
 
     // MARK: Engine-neutral document calls
 
@@ -318,6 +319,8 @@ extension PageWebView {
         switch name {
         case PagePaintProbe.handlerName:
             notePainted()
+        case PageTitleRowPress.handlerName:
+            if let report = PageTitleRowPress.Report(body) { titleRowPressed(report) }
         case PageInputReadiness.handlerName:
             inputReadiness.receive(body)
         case ConsoleErrorCapture.handlerName:

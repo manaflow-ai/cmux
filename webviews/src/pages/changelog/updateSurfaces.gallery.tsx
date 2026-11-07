@@ -9,7 +9,7 @@ import nightlySpan from "./fixtures/nightly-3913596493801-span.json";
 import table from "./generated/strings.json";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
-import { UpdatedCard, UpdateReadyHighlights, type BriefLayout } from "./UpdateSurfaces";
+import { UpdatedCard, UpdateReadyHighlights, type BriefLayout, type WhatsNewPlacement } from "./UpdateSurfaces";
 
 const base: UpdateHighlights = {
   version: "1.0.0-nightly.3845050428001",
@@ -63,6 +63,12 @@ type Props = {
   animate?: boolean;
   /** The stage's width (the sidebar's), default 260. */
   width?: number;
+  /** Where the card puts What's New (Leo 2026-11-07); `title` ships. */
+  placement?: WhatsNewPlacement;
+  /** The card's hover preview held open (the still of a pointer resting on the card). */
+  previewOpen?: boolean;
+  /** A one-line composer box beside the card, its edges lined up, as in the window. */
+  besideComposer?: boolean;
 };
 
 // Three themes as WebTheme sends them (the page's --page-* and the glass's surface), each over its
@@ -80,6 +86,9 @@ function themeStyle(name: keyof typeof themes): Record<string, string> {
     background: sidebar,
     color: text,
     "--glass-surface": surface,
+    // The host's theme tokens the composer's material reads (WebTheme).
+    "--cmux-surface-solid": surface,
+    "--cmux-text": text,
     "--page-text": text,
     "--page-text-2": `color-mix(in srgb, ${text} 70%, transparent)`,
     "--page-text-3": `color-mix(in srgb, ${text} 50%, transparent)`,
@@ -201,6 +210,33 @@ function doodleFontLoaded(doc: Document): boolean {
 // A stand-in wallpaper: a busy photo-like gradient, so the card's translucency shows.
 const wallpaper = "linear-gradient(160deg, #3b5b7a 0%, #c98b5a 45%, #e7c9a0 60%, #2f4a3a 100%)";
 
+/** A one-line composer box in the composer's material and size (the agent pane's own box needs the
+    whole agent session around it): its placeholder and +, so the two surfaces compare edge to edge. */
+function ComposerStandIn() {
+  return (
+    <div
+      data-composer-material=""
+      style={{
+        flex: 1,
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        boxSizing: "border-box",
+        height: "var(--composer-material-height)",
+        padding: "0 8px",
+        borderRadius: "var(--composer-material-radius)",
+        background: "var(--composer-material-tint)",
+        boxShadow: "var(--composer-material-ring), var(--composer-material-rim)",
+        color: "var(--page-text-3)",
+        fontSize: "var(--text-content)",
+      }}
+    >
+      <span style={{ width: 28, textAlign: "center", fontSize: "var(--text-title)" }}>+</span>
+      <span>Type / for commands</span>
+    </div>
+  );
+}
+
 function UpdateSurfacesGallery({
   surface,
   data,
@@ -212,6 +248,9 @@ function UpdateSurfacesGallery({
   decoration = null,
   animate = false,
   width,
+  placement,
+  previewOpen,
+  besideComposer = false,
 }: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
@@ -226,14 +265,24 @@ function UpdateSurfacesGallery({
       }}
     >
       {surface === "card" ? (
-        <UpdatedCard
-          data={data}
-          span={notes}
-          strings={strings}
-          actions={{ openChangelog: noop, dismiss: noop }}
-          decoration={decoration}
-          animate={animate}
-        />
+        <div
+          className="wn-gallery-card-row"
+          style={besideComposer ? { display: "flex", alignItems: "flex-end", gap: 12 } : undefined}
+        >
+          <div style={besideComposer ? { flex: "0 0 236px" } : undefined}>
+            <UpdatedCard
+              data={data}
+              span={notes}
+              strings={strings}
+              actions={{ openChangelog: noop, dismiss: noop }}
+              decoration={decoration}
+              animate={animate}
+              placement={placement}
+              previewOpen={previewOpen}
+            />
+          </div>
+          {besideComposer && <ComposerStandIn />}
+        </div>
       ) : (
         <div
           style={{
@@ -265,11 +314,13 @@ export default componentEntry<Props>({
   covers: [
     "pages/changelog/UpdateSurfaces.tsx#UpdatedCard",
     "pages/changelog/UpdateSurfaces.tsx#UpdateReadyHighlights",
+    "pages/changelog/UpdatedCardPreview.tsx#UpdatedCardPreview",
   ],
   load: async () => UpdateSurfacesGallery,
   styles: async () => {
     await import("../shared/pageBase.css");
     await import("./styles.css");
+    await import("../../ui/glass/composerMaterial.css");
     await import("./updateSurfaces.css");
   },
   variants: {
@@ -311,8 +362,36 @@ export default componentEntry<Props>({
       },
     },
     card: {
-      note: 'Short card (2026-10-31, "too much text"): "Updated to Nightly", the update\'s one top change and What\'s New; the x on hover only. A click on Nightly copies the full build. The theme\'s surface on a plain page.',
-      props: { surface: "card", data: base },
+      note: "Picked and shipped (Leo 2026-11-07: \"just update it to Nightly, and then What's New with the up and to the right arrow that you can click as a thing\"): \"Updated to Nightly · What's New ↗\" on one line over the top change, in the composer's material at the composer's one-line height (48) and corner. Chosen over What's New at the line's far end because it reads as one sentence, keeps the link beside the words it belongs to, and leaves the line's end free for the x that shows on hover, so nothing shifts when it does. The freed button row is the height the card gives back. The x on hover only; a click on Nightly copies the full build.",
+      props: { surface: "card", data: base, theme: "dark" },
+    },
+    "card-whats-new-top-right": {
+      note: "Variant: What's New ↗ at the far end of the title line, beside the x's room. It lines up with the x, but in a narrow sidebar the title and the link meet in the middle, and the x that shows on hover crowds the link.",
+      props: { surface: "card", data: base, theme: "dark", placement: "top-right" },
+    },
+    "card-whats-new-button": {
+      note: "Before (the look Leo flagged on 2026-11-07, in the new material): the What's New button on its own row under the note. The card is taller than the composer beside it and the button row is mostly empty.",
+      props: { surface: "card", data: base, theme: "dark", placement: "button" },
+    },
+    "card-beside-composer": {
+      note: 'The shipped card beside a one-line composer box in the same material: one height (48), one corner, one edge and one fill (Leo 2026-11-07: "it becomes the exact same height as the composer").',
+      props: { surface: "card", data: base, theme: "dark", besideComposer: true, width: 640 },
+    },
+    "card-beside-composer-light": {
+      note: "The same in a light theme.",
+      props: { surface: "card", data: base, theme: "light", besideComposer: true, width: 640 },
+    },
+    "card-hover-preview": {
+      note: "Shipped: resting on the card for the hover dwell (400 ms) opens a scrollable list of the update's changes in the card's own glass, above its two lines (Leo 2026-11-07: \"a quick access scroll through of what's new. Right in that bottom left of the sidebar area\"). The card stands on its slot, so the glass's top edge rises over the rows and nothing else moves; in the sidebar it opens over the list without moving it. A click on a row or on What's New opens the full page; Escape or leaving the card closes it.",
+      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true },
+    },
+    "card-hover-preview-light": {
+      note: "The open preview in a light theme, from the host's own items (before the span's notes load).",
+      props: { surface: "card", data: base, theme: "light", previewOpen: true },
+    },
+    "card-hover-preview-top-right": {
+      note: "The open preview with the top-right What's New variant.",
+      props: { surface: "card", data: spanData, span, theme: "dark", placement: "top-right", previewOpen: true },
     },
     "card-doodle": {
       note: 'Leo 2026-11-05, on the Yab browser\'s after-update note: "They have that little line thing, which is kind of cutesy quirky." The doodle in the card\'s decoration slot (Debug Settings "Doodle on the Updated card", off by default): "you\'re on nightly 3845050!" with a check, a curved arrow from "have a look" to What\'s New with a loop around it, and "got it" (hides the card for this version, as its x does). Drawn, on a light theme.',
@@ -355,7 +434,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: { ...base, delivery: "background" } },
     },
     "card-theme-light": {
-      note: "Leo 2026-11-02, \"why is the update thing unthemed\": the card's surface is the theme's (its surface at the card veil's 42%, as the sidebar draws it natively), here a light theme over its sidebar.",
+      note: "Leo 2026-11-02, \"why is the update thing unthemed\": the card's surface is the theme's (since 2026-11-07 the composer's material, which derives from the theme's surface), here a light theme over its sidebar.",
       props: { surface: "card", data: base, theme: "light" },
     },
     "card-theme-dark": {
@@ -387,7 +466,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: { ...spanData, items: [], source: "none" }, span: internalOnly },
     },
     "card-wallpaper": {
-      note: "The same card on a wallpaper: the liquid glass (.ui-glass); under plain glass the theme's surface at the card veil's 42% (Leo 2026-11-02).",
+      note: "The same card on a wallpaper: the composer's material, frosting what is behind it as the composer does over art.",
       props: { surface: "card", data: base, wallpaper: true },
     },
     "card-one-change": {
@@ -395,7 +474,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: { ...base, items: base.items.slice(0, 1), moreCount: 0 } },
     },
     "card-no-highlights": {
-      note: 'An update whose notes list nothing (source none): "What\'s new in this build", the button stays.',
+      note: "An update whose notes list nothing (source none): \"What's new in this build\"; What's New stays on the title line.",
       props: { surface: "card", data: { ...base, source: "none", items: [], moreCount: 0 } },
     },
     "card-no-highlights-wallpaper": {

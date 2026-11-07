@@ -14,7 +14,9 @@ public nonisolated struct FirstPartyPages {
     public static let ids: Set<String> = [
         "cmux.history", "cmux.apps", "cmux.settings", "cmux.cloud", "cmux.agent", "cmux.keybindings",
         "cmux.diff", "cmux.markdown", "cmux.icon-picker", "cmux.passwords", "cmux.editor", "cmux.chief-inspector", "cmux.debug-settings",
-        "cmux.home-channels", "cmux.home-messages", "cmux.changelog",
+        "cmux.home-channels", "cmux.home-messages", "cmux.changelog", "cmux.page-info",
+        "cmux.site-settings", "cmux.site-data", "cmux.certificate",
+        "cmux.cookie-import",
     ]
 
     /// The Origin of every first-party page (`cmux-page://cmux.history`, ...), sorted, so the

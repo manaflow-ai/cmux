@@ -10,8 +10,10 @@ import CmuxNextChiefMemory
 import CmuxNextChiefPetWiring
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -58,6 +60,7 @@ final class HomeHostView: PaneMotionFollowingView {
     private var showsCloud = false
     private var showsHosted = false
     private var isWorking = false
+    /// The Chief is answering (Esc stops it; the floating Chief panel hides on Esc only when it is not).
     lazy var turnActions = HomeChiefTurnActions(transcript: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
@@ -172,7 +175,8 @@ final class HomeHostView: PaneMotionFollowingView {
         transcript.onAppLink = { [weak self, weak services, weak fileActions] url in
             if url.isFileURL, url.path.hasPrefix("/") { fileActions?.open(URL(fileURLWithPath: url.path)); return }
             guard let services else { return }
-            // No link docks the Chief (cmux#37372): it docks only when the person asks (Open Chief Dock, Cmd-I).
+            // A link to elsewhere shows it beside the docked Chief, whose view stays as it is.
+            WindowDockActions(host: services).chiefLinkWillOpen(in: self?.window.flatMap(services.windows.owner(of:)))
             CmuxAppLinks.open(url, services: services, click: .init(source: self.flatMap(LinkRouter.shared.sourceTab)))
         }
         // A link chip's hover card: the app's one coordinator, the target's live facts.
@@ -591,3 +595,4 @@ extension HomeHostView: PrimaryInputTarget {
         focusTargetShouldTakeKeyboard(from: responder)
     }
 }
+extension HomeHostView: ChiefPanelContent { var chiefIsAnswering: Bool { isWorking } }

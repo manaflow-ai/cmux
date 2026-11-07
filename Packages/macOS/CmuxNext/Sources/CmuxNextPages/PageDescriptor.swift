@@ -20,6 +20,11 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// Registry actions the page may run through `cmux.app.action.run` (`history.open`). A page
     /// runs nothing else, so a page bug cannot reach unrelated app actions.
     public let actions: Set<String>
+    /// Of ``actions``, those the person's own fresh click or key in the page view runs as theirs
+    /// (origin `user`, as the palette and menus run it), one gesture spent per run
+    /// (``PageGestureActionProvider``): an action whose handler only opens its setup sheet for the person
+    /// (`newCloudMachine` on Home). Page script alone, or a spent gesture, still runs it as `page`.
+    public let gestureActions: Set<String>
     /// The dispatcher commands this page takes on `cmux.page.command` (default: every page command).
     public let commands: Set<String>
     /// Namespace ops the page may only run through `cmux.app.action.run {action: <op>, args}`: the
@@ -52,7 +57,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     public let passiveFrames: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
-                actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
+                actions: Set<String> = [], gestureActions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
                 dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false,
                 passiveFrames: Bool = false) {
@@ -62,6 +67,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.nativeOps = nativeOps
         self.denied = denied.union(confirmedOps.keys)
         self.actions = actions
+        self.gestureActions = gestureActions.intersection(actions)
         self.commands = commands
         self.confirmedOps = confirmedOps
         // Only a first-party page may widen its policy (PageID); any other id gets the strict one.
@@ -236,6 +242,24 @@ public extension PageDescriptor {
     /// in a page already running, never a new tab or a new web page.
     static let github = PageDescriptor(id: "cmux.github", resource: "github", namespaces: ["cmux.github."])
 
+    /// The browser's Page Info bubble (webviews/src/pages/page-info, its owner CmuxNextBrowser's
+    /// PageInfoController through the App's BrowserChromeWebHost): one page per pane, kept between
+    /// opens. `cmux.page-info.state` brings the bubble's state; the page sends its commands and size.
+    static let pageInfo = PageDescriptor(id: "cmux.page-info", resource: "page-info", namespaces: ["cmux.page-info."])
+
+    /// Page Info's windows (webviews/src/pages/site-settings, site-data, certificate), each in a
+    /// native window CmuxNextBrowser's PageInfoWindows owns: `cmux.<page>.state` brings the
+    /// window's state; the page sends its commands and its content height.
+    static let siteSettings = PageDescriptor(id: "cmux.site-settings", resource: "site-settings", namespaces: ["cmux.site-settings."])
+    static let siteData = PageDescriptor(id: "cmux.site-data", resource: "site-data", namespaces: ["cmux.site-data."])
+    static let certificate = PageDescriptor(id: "cmux.certificate", resource: "certificate", namespaces: ["cmux.certificate."])
+    /// The browser's Import Cookies card (webviews/src/pages/cookie-import, its owner CmuxNextBrowser's
+    /// BrowserCookieImportCard through BrowserChromeWebHost), inside the card's native glass on the
+    /// window's overlay. `cmux.cookie-import.state` brings the card's lines; the page sends the
+    /// person's answer and its size. It takes the first click: the card's window is never key.
+    static let cookieImport = PageDescriptor(id: "cmux.cookie-import", resource: "cookie-import", namespaces: ["cmux.cookie-import."],
+                                             acceptsFirstMouse: true)
+
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.
     static let changelogReelSource = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/"
@@ -250,6 +274,12 @@ public extension PageDescriptor {
     /// opens a file; the only native op copies a path.
     static let files = PageDescriptor(
         id: "cmux.files", resource: "files", namespaces: ["cmux.files."], nativeOps: [PageNativeOp.clipboardWrite])
+
+    /// The Tasks page (webviews/src/pages/tasks, plans/cmux-next/tasks.md section 14). Its `cmux.tasks.` ops go
+    /// to the daemon, which relays them to the local Tasks owner (cmux-tui/spec/page-router.md, routed namespace
+    /// `tasks`); its only native op writes the pasteboard (Copy Command when no owner runs).
+    static let tasks = PageDescriptor(
+        id: "cmux.tasks", resource: "tasks", namespaces: ["cmux.tasks."], nativeOps: [PageNativeOp.clipboardWrite])
 
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(

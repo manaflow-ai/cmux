@@ -13498,6 +13498,138 @@
           }
         }
       }
+    },
+    "conductorImport.preview.recipes" : {
+      "comment" : "A line of the Import from Conductor preview: how many projects get a saved worktree recipe (setup, run and teardown commands and files to copy), each listed below it with its commands as written.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projects whose new worktrees get the same setup (edit it in the project’s settings): %@"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projekte, deren neue Worktrees dieselbe Einrichtung bekommen (bearbeite sie in den Projekteinstellungen): %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projets dont les nouveaux worktrees reçoivent la même configuration (modifiez-la dans les réglages du projet) : %@"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "المشاريع التي تحصل مساحات العمل الجديدة فيها على الإعداد نفسه (عدّله في إعدادات المشروع): %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Proyectos cuyos nuevos worktrees reciben la misma configuración (edítala en los ajustes del proyecto): %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新 worktree 使用相同設定的專案（可在專案設定中編輯）：%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新 worktree 使用相同设置的项目（可在项目设置中编辑）：%@"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새 worktree가 같은 설정을 받는 프로젝트(프로젝트 설정에서 편집): %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい worktree で同じセットアップを使うプロジェクト（プロジェクト設定で編集できます）: %@"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projekti čiji novi worktreeovi dobijaju isto podešavanje (uredi ga u postavkama projekta): %@"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projekter, hvis nye worktrees får samme opsætning (rediger den i projektets indstillinger): %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Progetti i cui nuovi worktree ricevono la stessa configurazione (modificala nelle impostazioni del progetto): %@"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "គម្រោងដែល worktree ថ្មីទទួលបានការរៀបចំដូចគ្នា (កែវានៅក្នុងការកំណត់គម្រោង): %@"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prosjekter der nye worktrees får samme oppsett (rediger det i prosjektinnstillingene): %@"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projekty, których nowe worktree dostają tę samą konfigurację (edytuj ją w ustawieniach projektu): %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projetos cujos novos worktrees recebem a mesma configuração (edite-a nos ajustes do projeto): %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проекты, новые worktree которых получают ту же настройку (её можно изменить в настройках проекта): %@"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "โปรเจกต์ที่ worktree ใหม่ได้รับการตั้งค่าเดียวกัน (แก้ไขได้ในการตั้งค่าโปรเจกต์): %@"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni worktree'leri aynı kurulumu alan projeler (proje ayarlarından düzenleyebilirsin): %@"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проєкти, нові worktree яких отримують те саме налаштування (його можна змінити в налаштуваннях проєкту): %@"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các dự án có worktree mới nhận cùng thiết lập (sửa trong cài đặt dự án): %@"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

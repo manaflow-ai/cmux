@@ -66,37 +66,6 @@ public extension WindowDockFrame {
         frameDidChange()
     }
 
-    // MARK: Chief dock
-
-    /// Open Chief Dock (Cmd-I): Home (`home`, this window's) docks at `edge` unless it is docked already (a hidden
-    /// dock shows again, at its own edge), and takes the focus. The stage keeps the workspace it showed (Home
-    /// itself, when it filled the window, gives the stage the most recent other workspace, or a new one).
-    func openChiefDock(_ home: String, edge: DockEdge) {
-        if frameDocks.isDocked(home) {
-            _ = frameDocks.reveal(home)
-        } else {
-            dockWorkspace(home, at: edge)
-        }
-        frameShow(home, thisWindow: true)
-        frameDidChange()
-    }
-
-    /// Undock Chief (cmux#37372): Home (`home`, this window's) leaves its dock and goes back to the sidebar. The stage
-    /// keeps the workspace it shows and takes the keys when the Chief had them. False when Home is not docked.
-    @discardableResult
-    func undockChief(_ home: String) -> Bool {
-        guard frameDocks.undock(home) else { return false }
-        if frameFocusedWorkspaceID == home {
-            if let stage = frameStageWorkspaceID, stage != home {
-                frameShow(stage, thisWindow: false)
-            } else {
-                frameStageWorkspaceID = home
-            }
-        }
-        frameDidChange()
-        return true
-    }
-
     // MARK: Any dock
 
     /// The dock the window-dock actions act on: the one with the focus, else the first shown, else the first hidden.

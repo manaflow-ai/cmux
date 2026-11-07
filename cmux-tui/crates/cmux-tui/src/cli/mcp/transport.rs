@@ -165,6 +165,9 @@ pub(super) fn resource(
     ) {
         return opened.map_err(|failure| app_open_failure(failure, key.as_deref()));
     }
+    // `agents workspace create` from a cmux terminal against an older
+    // daemon: sent without `created_by`, as `cmux workspace create` is.
+    wire::drop_unsupported_created_by(&mut reader, &socket, &mut request);
     super::super::launch_credential::attach(&mut reader, &socket, &mut request);
     let encoded = resolve::encode_request_bytes(&request)
         .map_err(|message| fail(NotRun, "validation.invalid", message))?;
