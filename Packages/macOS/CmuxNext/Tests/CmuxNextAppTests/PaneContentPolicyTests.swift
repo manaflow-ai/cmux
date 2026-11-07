@@ -622,9 +622,12 @@ struct PaneContentPolicyTests {
         rig.root.layoutSubtreeIfNeeded()
         for _ in 1...6 { _ = rig.frame() }
         // The tab switch: the joining terminal takes the pane's content area in the middle of the spring.
+        print("JOINDIAG before show inPaneMotion=\(joining.surfaceView.isInPaneMotion)")
         pane.show(joining.view)
+        print("JOINDIAG after show fitted=\(String(describing: joining.surfaceView.fittedGrid)) inPaneMotion=\(joining.surfaceView.isInPaneMotion) follows=\(joining.view.surfaceFollowsArea) bounds=\(joining.surfaceView.bounds.size)")
         rig.root.layoutSubtreeIfNeeded()
         let atShow = joining.surfaceView.fittedGrid
+        print("JOINDIAG after layout fitted=\(String(describing: atShow)) bounds=\(joining.surfaceView.bounds.size)")
         var off: [String] = [], atFirstFrame: TerminalGridSize?
         let frames = try Self.run(rig) { frame in
             let host = joining.view, area = try #require(host.superview)

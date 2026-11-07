@@ -178,6 +178,7 @@ final class TerminalGridReportCoalescer {
     /// refresh's own tick, which keeps ticking by its return value).
     private func deliver(_ grid: TerminalGridSize, ticking: Bool = false) {
         guard grid != lastSent else { return }
+        if grid.columns == 99 { print("JOINDIAG deliver \(grid) ticking=\(ticking) spent=\(spent) hasTicks=\(ticks() != nil)\n" + Thread.callStackSymbols.prefix(16).joined(separator: "\n")) }
         lastSent = grid
         if ticking {
             spent = true

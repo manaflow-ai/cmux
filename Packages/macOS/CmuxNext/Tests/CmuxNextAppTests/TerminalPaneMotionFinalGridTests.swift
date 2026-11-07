@@ -317,6 +317,7 @@ nonisolated final class GridRecordingTerminalIO: TerminalIO {
 
     func write(_ data: Data) async { writeSink.yield() }
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
+        print("JOINDIAG io resize \(cols)x\(rows)")
         itemSink.yield(.grid(TerminalGridSize(columns: cols, rows: rows)))
     }
     func focusGained() async { itemSink.yield(.marker) }
