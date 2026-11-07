@@ -14,7 +14,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
-use acpmux::server::{Origin, serve_connection_with};
+use acpmux::server::{ConnAuth, Origin, serve_connection_authed, serve_connection_with};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -47,6 +47,13 @@ impl Client {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
+        Client(in_tx, out_rx, 0)
+    }
+
+    fn authed(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));
         Client(in_tx, out_rx, 0)
     }
 
@@ -390,6 +397,69 @@ async fn directory_listings_are_for_the_local_app_and_the_unix_socket() {
         let r = c.call("_acpmux/directories", p.clone()).await;
         assert!(r["result"]["directories"].is_array(), "{origin:?}: {r}");
     }
+    let _ = std::fs::remove_dir_all(&d.base);
+}
+
+#[tokio::test]
+async fn folder_browsing_is_for_the_owner_and_a_peer_sees_only_its_roots() {
+    let d = dirs("browse");
+    let hub = hub();
+    let base = std::fs::canonicalize(&d.base).unwrap();
+    let p = json!({"path": base, "dirsOnly": true});
+    let mut web = Client::new(&hub, Origin::Web);
+    let r = web.call("_acpmux/browse", p.clone()).await;
+    assert_eq!(r["error"]["code"], json!(-32601), "no listing for the Web: {r}");
+    for origin in [Origin::Local, Origin::LocalApp, Origin::Peer] {
+        let mut c = Client::new(&hub, origin);
+        let r = c.call("_acpmux/browse", p.clone()).await;
+        assert!(r["result"]["entries"].is_array(), "{origin:?}: {r}");
+    }
+    // A peer is held to the folders it may start a chat in (this hub's webRoots: the temp dir).
+    let mut peer = Client::new(&hub, Origin::Peer);
+    let r = peer.call("_acpmux/browse", json!({"path": "/"})).await;
+    assert_eq!(r["error"]["data"]["reason"], "browse.outside_roots", "{r}");
+    let r = peer.call("_acpmux/browse", json!({})).await;
+    assert_eq!(r["result"]["path"], Value::Null, "with no path a peer lists its roots: {r}");
+    // Only this machine's own client may name a peer, one hop.
+    let r = peer.call("_acpmux/browse", json!({"peer": "x", "path": base})).await;
+    assert_eq!(r["error"]["data"]["reason"], "peer.forward_refused", "{r}");
+    // A paired `client` machine (served as a peer, pairing.rs `origin_of`) is the owner's own
+    // machine: held to the same roots, and it names no peer either.
+    let mut device = Client::authed(&hub, Origin::Peer, ConnAuth::Device);
+    let r = device.call("_acpmux/browse", p.clone()).await;
+    assert!(r["result"]["entries"].is_array(), "a paired client: {r}");
+    let r = device.call("_acpmux/browse", json!({"path": "/"})).await;
+    assert_eq!(r["error"]["data"]["reason"], "browse.outside_roots", "{r}");
+    let r = device.call("_acpmux/browse", json!({"peer": "x", "path": base})).await;
+    assert_eq!(r["error"]["data"]["reason"], "peer.forward_refused", "{r}");
+    // A read-only device and a phone are served as Web, and a peer forwarding for its own Web
+    // client says so (`via: web`): none of them lists a folder.
+    for (origin, auth, params) in [
+        (Origin::Web, ConnAuth::ReadOnlyDevice, p.clone()),
+        (Origin::Web, ConnAuth::Device, p.clone()),
+        (
+            Origin::Peer,
+            ConnAuth::PeerToken,
+            json!({"path": base, "_meta": {"acpmux": {"via": "web"}}}),
+        ),
+        (
+            Origin::Peer,
+            ConnAuth::Device,
+            json!({"path": base, "_meta": {"acpmux": {"via": "web"}}}),
+        ),
+    ] {
+        let mut c = Client::authed(&hub, origin, auth);
+        let r = c.call("_acpmux/browse", params).await;
+        // A read-only device is turned away by the read-only gate first (`read_only`).
+        let code = r["error"]["code"].as_i64();
+        assert!(
+            r.get("result").is_none() && matches!(code, Some(-32601 | -32003)),
+            "{origin:?} {auth:?}: {r}"
+        );
+    }
+    let mut local = Client::new(&hub, Origin::LocalApp);
+    let r = local.call("_acpmux/browse", json!({"peer": "nopeer"})).await;
+    assert!(err(&r).contains("no peer"), "{r}");
     let _ = std::fs::remove_dir_all(&d.base);
 }
 
