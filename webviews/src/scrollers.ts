@@ -206,18 +206,44 @@ export function wheelTarget(event: Pick<WheelEvent, "composedPath" | "deltaX" | 
 
 const installed = new WeakSet<Document>();
 
-/** When the user last turned a wheel, pressed a key or a button in each document (ms, `now()`). */
-const lastUserInput = new WeakMap<Document, number>();
+/** The user's last wheel, key or button in a document: when (ms, `now()`), what it was aimed at,
+    and the key, for a key. */
+export type UserInput = { at: number; target: EventTarget | null; key?: string };
+
+/** The user's last input in each document. */
+const lastUserInput = new WeakMap<Document, UserInput>();
+
+/** Keys that scroll whatever the page scrolls by keyboard, wherever focus is (outside a text field). */
+const SCROLLING_KEYS = new Set(["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "]);
+
+function editable(node: Node): boolean {
+  const element = node as HTMLElement;
+  return element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.isContentEditable === true;
+}
+
+/** Whether `input` can have scrolled `element`: it was aimed inside it, or it is a scrolling key
+    pressed outside a text field. A key or button aimed elsewhere (Enter in a composer, a click on
+    Send) leaves the page to scroll it, and that is the page's scroll. */
+function reaches(input: UserInput, element: Element): boolean {
+  const target = input.target as Node | null;
+  if (!target || typeof target.nodeType !== "number") return true;
+  if (target.nodeType === 1 && element.contains(target)) return true;
+  return input.key !== undefined && SCROLLING_KEYS.has(input.key) && !editable(target);
+}
 
 /**
- * Whether a scroll event on `element` is the user's: always, except on a scroller whose thumb is
- * shown or fades by script (`SHOWN_SCROLLER_ATTRIBUTE`, `MINIMAL_SCROLLER_ATTRIBUTE`), where a
- * scroll with no wheel, key or button in the last `SCROLLING_HIDE_MS` is the page following new rows
- * or the caret, which must not flash the thumb (Leo 2026-10-21: it never flashes as rows arrive).
+ * Whether a scroll event on `element` is the user's. Right after a wheel, key or button (within
+ * `SCROLLING_HIDE_MS`), it is when that input could have scrolled it (`reaches`): a send's scroll
+ * after an Enter in the composer or a click on Send is the page's, and must not flash the thumb
+ * (Leo 2026-11-07: "the thumb scroll sidebar thing, like, kind of flashes for a second"). With no
+ * input that recent, it is on an ordinary scroller (a scroll by the track or a scroller of its own),
+ * and never on a scroller whose thumb is shown or fades by script (`SHOWN_SCROLLER_ATTRIBUTE`,
+ * `MINIMAL_SCROLLER_ATTRIBUTE`): that is the page following new rows or the caret, which must not
+ * flash the thumb (Leo 2026-10-21: it never flashes as rows arrive).
  */
-export function isUserScroll(element: Element, lastInput: number | undefined, now: number): boolean {
-  if (!element.hasAttribute(SHOWN_SCROLLER_ATTRIBUTE) && !element.hasAttribute(MINIMAL_SCROLLER_ATTRIBUTE)) return true;
-  return lastInput !== undefined && now - lastInput <= SCROLLING_HIDE_MS;
+export function isUserScroll(element: Element, lastInput: UserInput | undefined, now: number): boolean {
+  if (lastInput !== undefined && now - lastInput.at <= SCROLLING_HIDE_MS) return reaches(lastInput, element);
+  return !element.hasAttribute(SHOWN_SCROLLER_ATTRIBUTE) && !element.hasAttribute(MINIMAL_SCROLLER_ATTRIBUTE);
 }
 
 /**
@@ -238,7 +264,12 @@ export function installScrollingMarks(document: Document, timers: ScrollTimers =
     { capture: true, passive: true },
   );
   const now = () => document.defaultView?.performance.now() ?? Date.now();
-  const input = () => lastUserInput.set(document, now());
+  const input = (event: Event) =>
+    lastUserInput.set(document, {
+      at: now(),
+      target: event.composedPath?.()[0] ?? event.target,
+      key: event.type === "keydown" ? (event as KeyboardEvent).key : undefined,
+    });
   for (const type of ["wheel", "keydown", "pointerdown"])
     document.addEventListener(type, input, { capture: true, passive: true });
   document.addEventListener(
