@@ -23488,6 +23488,7 @@
         "appearance",
         "iconTheme"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,
