@@ -29,14 +29,15 @@ const AGENTS: [(&str, &str, &str); 2] = [
 const CODEX_LOGIN_PORT: u16 = 1455;
 
 /// Finds each agent on the machine (PATH, else the native installer's `~/.local/bin`, else
-/// cmux's managed Codex) and asks whether it is signed in: `claude auth status` (exit 0 signed
-/// in, 1 not) and `codex login status` (exit 0, or Codex's own "Not logged in"). Each check is
+/// cmux's managed Codex) and asks whether it is signed in: `claude auth status` (its JSON's
+/// `loggedIn`, as the app's Claude plan read; it can exit 0 signed out, so an exit 0 with no
+/// `loggedIn` is unknown) and `codex login status` (exit 0, or Codex's own "Not logged in"). Each check is
 /// bounded where the machine has `timeout`. One `agent\tID\tPATH\tSTATUS` line per agent:
 /// STATUS 0 signed in, 1 signed out, anything else unknown, empty when not installed.
 /// cmux's managed Codex lives in the machine's acpmux home, [`REMOTE_HOME`].
 fn probe_script() -> String {
     format!(
-        r#"printf 'os\t%s\n' "$(uname -s)"; t=; command -v timeout >/dev/null 2>&1 && t="timeout 20"; for a in claude codex; do p=$(command -v "$a" 2>/dev/null); for c in "$HOME/.local/bin/$a" {REMOTE_HOME}/codex-runtime/current/"$a"; do [ -z "$p" ] && [ -x "$c" ] && p=$c; done; s=; if [ -n "$p" ]; then case $a in claude) $t "$p" auth status </dev/null >/dev/null 2>&1; s=$? ;; codex) o=$($t "$p" login status </dev/null 2>&1); s=$?; if [ "$s" -ne 0 ]; then case $o in *"ot logged in"*) s=1 ;; *) s=9 ;; esac; fi ;; esac; fi; printf 'agent\t%s\t%s\t%s\n' "$a" "$p" "$s"; done"#
+        r#"printf 'os\t%s\n' "$(uname -s)"; t=; command -v timeout >/dev/null 2>&1 && t="timeout 20"; for a in claude codex; do p=$(command -v "$a" 2>/dev/null); for c in "$HOME/.local/bin/$a" {REMOTE_HOME}/codex-runtime/current/"$a"; do [ -z "$p" ] && [ -x "$c" ] && p=$c; done; s=; if [ -n "$p" ]; then case $a in claude) o=$($t "$p" auth status </dev/null 2>/dev/null); s=$?; case $o in *'"loggedIn":true'*|*'"loggedIn": true'*) s=0 ;; *'"loggedIn":false'*|*'"loggedIn": false'*) s=1 ;; *) [ "$s" -eq 0 ] && s=9 ;; esac ;; codex) o=$($t "$p" login status </dev/null 2>&1); s=$?; if [ "$s" -ne 0 ]; then case $o in *"ot logged in"*) s=1 ;; *) s=9 ;; esac; fi ;; esac; fi; printf 'agent\t%s\t%s\t%s\n' "$a" "$p" "$s"; done"#
     )
 }
 
