@@ -461,11 +461,14 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
         return task
     }
 
-    /// Stops the stream, then closes the movie on `queue`; a recording with no movie leaves no folder.
+    /// Closes the movie on `queue` while the stream stops beside it; a recording with no movie leaves no folder.
     private func close() async -> Made? {
         limit.cancel()
+        // The movie is finished first, never after the stream's stop: frames that still come are
+        // dropped (`isEnding`), and a stop ScreenCaptureKit is slow to answer (up to `callLimit`)
+        // runs beside it, so a quit's deadline never cuts the movie off unfinished.
         if let handed = streamSlot.withLock({ slot -> Handed<SCStream>? in defer { slot = nil }; return slot }) {
-            _ = try? await stop(handed.value)
+            Task.detached(priority: .userInitiated) { [self] in _ = try? await stop(handed.value) }
         }
         let stoppedAt = CMClockGetTime(CMClockGetHostTimeClock())
         let made = await withCheckedContinuation { (done: CheckedContinuation<Made?, Never>) in
