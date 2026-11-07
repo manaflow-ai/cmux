@@ -48,8 +48,10 @@ if (!SIZES.every((size) => Number.isInteger(size) && size > 0) || !Number.isInte
 if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error(`wheel-tick-scaling: unknown engine ${ENGINE}`);
 const BUDGET_120 = 1000 / 120;
 const PROFILE = process.env.CMUX_TICK_PROFILE === "1" && ENGINE === "chromium";
-const INPUT = process.env.CMUX_TICK_INPUT ?? "notch";
-if (INPUT !== "notch" && INPUT !== "precise") throw new Error(`wheel-tick-scaling: unknown input ${INPUT}`);
+const INPUT_NAME = process.env.CMUX_TICK_INPUT ?? "notch";
+if (INPUT_NAME !== "notch" && INPUT_NAME !== "precise")
+  throw new Error(`wheel-tick-scaling: unknown input ${INPUT_NAME}`);
+const INPUT: "notch" | "precise" = INPUT_NAME;
 const webviews = path.resolve(import.meta.dir, "..");
 
 type Summary = { p50: number; p95: number; max: number };
