@@ -328,7 +328,7 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
  * line gets the daemon's answer. connectMs is the dial's own `cloud.connect ... ms=` (ticket, relay, Noise handshake);
  * replyMs runs from the spawn to the answer.
  */
-export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; reply: string }> {
+export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; retries: number; reply: string }> {
   const started = performance.now();
   // The team is the journey's own or none: an inherited CMUX_CLOUD_TEAM would send a header its API calls do not.
   const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
@@ -368,13 +368,29 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
     return Promise.race([p, late, failure]).finally(() => clearTimeout(timer));
   };
   try {
-    const first = await within("status line", err());
-    const status = JSON.parse(first ?? "null");
-    if (status?.ok !== true) throw new Error(`carrier dial: ${short(status ?? "ended with no status line")}`);
-    if (status.route !== "carrier") throw new Error(`carrier dial: route ${status.route}, not carrier`);
-    const route = (await within("route line", err())) ?? "";
-    const connectMs = Number(/ ms=(\d+)/.exec(route)?.[1] ?? NaN);
-    if (!/^cloud\.connect route=carrier .*outcome=ok/.test(route) || !Number.isFinite(connectMs)) throw new Error(`carrier dial: route line ${short(route)}`);
+    // stderr: the JSON status line, and a `cloud.connect route=carrier ... outcome=<ok|error_code> ms=N` line per
+    // connection attempt. A failed attempt the dial retries is counted, not fatal; the ok attempt's ms is the connect time.
+    let status: any = undefined;
+    let connectMs = NaN;
+    let retries = 0;
+    while (status === undefined || !Number.isFinite(connectMs)) {
+      const line = await within(status === undefined ? "status line" : "ok route line", err());
+      if (line === null) throw new Error(`carrier dial: ${status === undefined ? "ended with no status line" : "ended with no ok route line"}`);
+      const attempt = /^cloud\.connect route=carrier .*outcome=(\S+) ms=(\d+)/.exec(line);
+      if (attempt) {
+        if (attempt[1] === "ok") connectMs = Number(attempt[2]);
+        else retries += 1;
+        continue;
+      }
+      if (status !== undefined) throw new Error(`carrier dial: unexpected line ${short(line)}`);
+      try {
+        status = JSON.parse(line);
+      } catch {
+        throw new Error(`carrier dial: not a status line: ${short(line)}`);
+      }
+      if (status?.ok !== true) throw new Error(`carrier dial: ${short(status)}`);
+      if (status.route !== "carrier") throw new Error(`carrier dial: route ${status.route}, not carrier`);
+    }
     child.stdin!.write('{"cmd":"identify","id":1}\n');
     // The daemon may push events first; the answer is the line with id 1, and it must be ok with the daemon's identity.
     for (;;) {
@@ -388,7 +404,7 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
       }
       if (answer?.id !== 1) continue;
       if (answer.ok !== true || typeof answer.data?.app !== "string") throw new Error(`carrier dial: identify answered ${short(answer)}`);
-      return { connectMs, replyMs: Math.round(performance.now() - started), reply };
+      return { connectMs, replyMs: Math.round(performance.now() - started), retries, reply };
     }
   } finally {
     if (!failed) child.stdin!.end();
@@ -1397,7 +1413,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (cmux) {
       await J.step("connect (carrier dial)", async () => {
         const d = await carrierDial(cmux, api, created.id);
-        return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms: ${d.reply.slice(0, 160)}` };
+        return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts: ${d.reply.slice(0, 160)}` };
       });
     } else {
       J.skip("connect (carrier dial)", "--cmux is required for a carrier dial");
@@ -1455,7 +1471,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (cmux) {
         await J.step("carrier dial after resume", async () => {
           const d = await carrierDial(cmux, api, created.id);
-          return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms: ${d.reply.slice(0, 160)}` };
+          return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts: ${d.reply.slice(0, 160)}` };
         });
       } else {
         J.skip("carrier dial after resume", "--cmux is required for a carrier dial");
