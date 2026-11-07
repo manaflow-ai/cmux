@@ -147,9 +147,16 @@ export function SessionInfoSectionList({
     const animate = motionOn();
     // A section that left keeps no place: shown again, it appears where it lands.
     for (const id of places.current.keys()) if (!shown.includes(id)) places.current.delete(id);
-    for (const node of root.querySelectorAll<HTMLElement>(":scope > [data-slot]")) {
+    // Every section's place and drawn shift first, then the writes: a read after the last
+    // section's restyle would lay the list out again for each section (cmux-perf/layout-thrash-in-loop).
+    const measured = Array.from(root.querySelectorAll<HTMLElement>(":scope > [data-slot]"), (node) => ({
+      node,
+      top: node.offsetTop,
+      // Only a reorder that slides reads the shift (a style read on every render otherwise).
+      shift: moved && animate ? drawnShift(node) : 0,
+    }));
+    for (const { node, top, shift } of measured) {
       const id = node.dataset.slot as SessionInfoSectionId;
-      const top = node.offsetTop;
       const was = places.current.get(id);
       places.current.set(id, top);
       if (drag.current?.id === id) continue;
@@ -179,7 +186,7 @@ export function SessionInfoSectionList({
       }
       if (!moved || !animate || was === undefined || was === top) continue;
       // From where it is drawn now (its old place plus any slide still running) to its new place.
-      const from = was + drawnShift(node) - top;
+      const from = was + shift - top;
       slides.current.get(id)?.cancel();
       if (from === 0) continue;
       const slide = slideFrom(node, from);

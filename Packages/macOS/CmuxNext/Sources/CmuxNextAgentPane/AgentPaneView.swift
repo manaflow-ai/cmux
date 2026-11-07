@@ -347,6 +347,7 @@ public final class AgentPaneView: NSView {
         observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         installSessionInfo()
+        installHostGlass()
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -438,6 +439,7 @@ public final class AgentPaneView: NSView {
         placeChromiumMove(at: frame)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
+        layoutHostGlass()
         // A pane resized or moved under shown toasts: its band follows at once.
         if toastsRect != nil || sentToastRoom != 0 { sendToastRoom(duration: 0) }
         redraw.laidOut(self)
@@ -611,6 +613,7 @@ public final class AgentPaneView: NSView {
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
         themeSessionInfo(tokens)
+        themeHostGlass()
         themeLoadingState(tokens)
         page?.themeSurface = surface
         if let pageEvents {
@@ -639,5 +642,13 @@ public final class AgentPaneView: NSView {
         } else {
             for script in scripts() { evaluateScript(script) }
         }
+    }
+
+    /// Publishes a Cloud preview port event: an event on the page host, the store's window hook on
+    /// the old host (`agent.pageHost` off, the default; cloudPreviewPorts.ts).
+    public func cloudPreviewPortOpened(port: Int, process: String?, machineID: String? = nil,
+                                       state: String = "up", known: Bool = false) {
+        let event = AgentPageEvent.cloudPreviewPort(port: port, process: process, machineID: machineID, state: state, known: known)
+        deliver([event], scripts: [event.cloudPreviewPortScript])
     }
 }

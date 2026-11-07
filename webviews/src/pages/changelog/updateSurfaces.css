@@ -270,16 +270,27 @@
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
   backdrop-filter: var(--ds-glass-popover-blur);
 }
+/* The card with the theme's doodle decoration wears the same material: the sidebar draws no glass
+   under the card's page (review F3 of #37615). Its own box and padding stay the doodle's. */
+.wn-card[data-decoration="doodle"] {
+  border-radius: var(--composer-material-radius);
+  background: var(--composer-material-tint);
+  box-shadow: var(--composer-material-ring), var(--composer-material-rim);
+}
+.wn-card[data-decoration="doodle"][data-glass] {
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
+}
 /* Reduce Transparency: the composer's solid surface, as the composer's. */
 /* glass-opaque-allow: the Reduce Transparency fill only */
-:root[data-reduce-transparency] .wn-card.wn-updated {
+:root[data-reduce-transparency] :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) {
   background: var(--composer-material-solid);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 @media (prefers-reduced-transparency: reduce) {
   /* glass-opaque-allow: the Reduce Transparency fill only */
-  .wn-card.wn-updated {
+  :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) {
     background: var(--composer-material-solid);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;

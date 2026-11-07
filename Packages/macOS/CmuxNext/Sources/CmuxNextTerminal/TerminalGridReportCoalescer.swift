@@ -4,35 +4,40 @@ import CmuxNextWakeups
 /// Coalesces the grid reports a terminal view sends to its PTY owner (the cmux-tui daemon), which resizes
 /// the PTY and sends SIGWINCH for each one.
 ///
-/// During a key resize or a divider drag the view's fit grid changes on almost every display frame. This
-/// follows Ghostty.app's own rule (`src/termio/Thread.zig`, `min_ms = 25`): the shell sees at most one
-/// resize per ``defaultInterval``, and always the newest grid.
+/// During a key resize or a divider drag the view's fit grid changes on almost every display frame. The shell sees
+/// at most one resize per display refresh, and always the newest grid: Chromium's rule for a renderer's size (the
+/// new size goes with the next frame, its visual properties at the begin-frame), not Ghostty.app's 25 ms timer
+/// (`src/termio/Thread.zig`, `min_ms`). RESIZE P0 6 (cause T): a held key moves a pane 10-20 pt per 120 Hz refresh,
+/// and one grid per 25 ms window (4 refreshes) left the program's own drawing 40-80 pt off its pane edge (the m20
+/// judge allows 2 refreshes and one cell; px-keys-held-2-s1r x1, P0 runner 2b757265: 63 frames).
 ///
-/// - A new grid while nothing waits opens one ``interval`` window; it is not sent at once.
+/// - A new grid while nothing waits opens a window; it is not sent at once.
 /// - Each later grid inside that window replaces the waiting one (no timer work: a compare and a store).
-/// - The window ends at the first display refresh at or after ``interval`` (its window's frame ticks,
-///   ``TerminalGridReportTicks``), or when its ``DemandTimer`` fires, whichever comes first: the newest waiting
-///   grid is sent once. The next change opens a new window. The refresh is the clock that runs while frames
-///   run (a timer task can come late on a loaded main thread: 124 ms for a 25 ms window, diag bf2b674a); the
-///   timer ends a window no refresh reaches (no frames run, a test that steps frames by hand).
+/// - The window ends at the next display refresh of the view's window (its frame ticks, ``TerminalGridReportTicks``),
+///   or when its ``DemandTimer`` fires after ``interval``, whichever comes first: the newest waiting grid is sent
+///   once. The next change opens a new window. The refresh is the clock that runs while frames run (a timer task
+///   can come late on a loaded main thread: 124 ms for a 25 ms window, diag bf2b674a); the timer ends a window no
+///   refresh reaches (no frames run, a test that steps frames by hand).
 /// - A grid equal to the last sent grid sends nothing: one that arrives while nothing waits starts no
 ///   window, and a waiting grid that changed back to the last sent grid makes the fire send nothing.
 ///
 /// ``flush()`` ends the window now. Call it when the gesture ends (the key resize or the drag lands, the
 /// pane's layout spring settles) and for a report at rest, so the shell gets the final grid in the same
-/// turn instead of up to 25 ms later. ``reportNow(_:)`` is the forced report (a new PTY owner, the
+/// turn instead of at the next refresh. ``reportNow(_:)`` is the forced report (a new PTY owner, the
 /// session's first report): it sends even a grid equal to the last sent one. ``cancel()`` drops the
 /// waiting grid (the view is hidden, closed or detached from its session).
 ///
-/// Main thread only. It never blocks or sleeps: the window's time is the injected clock and its ticks the
-/// injected tick source, so tests drive both by hand. A grid inside a window allocates nothing; a new window
-/// costs the timer's one task.
+/// Main thread only. It never blocks or sleeps: the window's backstop is the injected clock and its ticks the
+/// injected tick source, so tests drive both by hand. A grid inside a window allocates nothing. The backstop is armed
+/// only when none is pending and a refresh does not cancel it, so windows that refreshes end (one per frame while a
+/// pane moves) cost one timer task per ``interval``, not one per frame; a window no refresh reaches waits at most two
+/// intervals.
 @MainActor
 final class TerminalGridReportCoalescer {
-    /// Ghostty.app's resize coalescing window (`Thread.zig`, `min_ms`).
+    /// The backstop of a window no refresh reaches: Ghostty.app's resize coalescing window (`Thread.zig`, `min_ms`).
     nonisolated static let defaultInterval: Duration = .milliseconds(25)
 
-    /// How long a window waits before it sends its newest grid.
+    /// How long a window that no refresh reaches waits before it sends its newest grid.
     let interval: Duration
 
     /// The grid the open window will send when it fires; nil while no window is open.
@@ -46,20 +51,16 @@ final class TerminalGridReportCoalescer {
 
     private let send: @MainActor (TerminalGridSize) -> Void
     private let timer: DemandTimer
-    /// The refreshes of the view's window, nil out of a window: an open window is ticked each refresh.
+    /// The refreshes of the view's window, nil out of a window: an open window ends at the next one.
     private let ticks: @MainActor () -> (any TerminalGridReportTicks)?
-    /// Time since the coalescer was made, on its clock.
-    private let elapsed: @Sendable () -> Duration
-    /// When the open window opened (``elapsed``).
-    private var opened: Duration = .zero
     /// Counts windows, so a fire that was already on its way when its window ended (``flush()``,
     /// ``cancel()``) sends nothing into the next window.
     private var window: UInt64 = 0
 
     /// - Parameters:
-    ///   - interval: The coalescing window; Ghostty's 25 ms by default.
-    ///   - clock: The window's clock (its timer and its refresh check); tests pass a manual one.
-    ///   - ticks: The display refreshes that end a window early (the view's window presenter); nil: the timer only.
+    ///   - interval: The backstop of a window no refresh reaches; Ghostty's 25 ms by default.
+    ///   - clock: The backstop timer's clock; tests pass a manual one.
+    ///   - ticks: The display refreshes that end a window (the view's window presenter); nil: the timer only.
     ///   - send: Reports one grid to the PTY owner. Called on the main thread, at most once per window.
     init(interval: Duration = TerminalGridReportCoalescer.defaultInterval,
          clock: any Clock<Duration> = ContinuousClock(),
@@ -68,13 +69,7 @@ final class TerminalGridReportCoalescer {
         self.interval = interval
         self.send = send
         self.ticks = ticks
-        elapsed = Self.stopwatch(clock)
         timer = DemandTimer(owner: "TerminalGridReportCoalescer.window", clock: clock)
-    }
-
-    private nonisolated static func stopwatch<C: Clock<Duration>>(_ clock: C) -> @Sendable () -> Duration {
-        let origin = clock.now
-        return { origin.duration(to: clock.now) }
     }
 
     /// The view's fit grid is now `grid`: it waits for the open window, or opens one.
@@ -86,20 +81,14 @@ final class TerminalGridReportCoalescer {
         guard grid != lastSent else { return }
         pending = grid
         window &+= 1
-        opened = elapsed()
-        let window = window
-        // The backstop: a window no refresh reaches (no frames run, frames stepped by hand) ends here.
-        timer.schedule(after: interval) { @MainActor [weak self] in
-            self?.windowEnded(window)
-        }
+        armBackstop()
         ticks()?.tickGridReports(self)
     }
 
-    /// A display refresh of the view's window (``TerminalGridReportTicks``): the open window ends at the first one at or
-    /// after ``interval``. Returns whether a window is still open (the source ticks it again).
+    /// A display refresh of the view's window (``TerminalGridReportTicks``): the open window ends now and its newest grid
+    /// goes. Returns whether a window is still open (never: the source stops ticking it).
     func frameTicked() -> Bool { // perf-hot: 1ms motion-frame
         guard pending != nil else { return false }
-        guard elapsed() - opened >= interval else { return true }
         windowEnded(window)
         return false
     }
@@ -131,13 +120,30 @@ final class TerminalGridReportCoalescer {
         timer.cancel()
     }
 
-    /// The window `ended` is over (its refresh or its timer, whichever came first): its grid goes once; the other
-    /// finds the window closed and sends nothing.
+    /// The backstop of the open window: a window no refresh reaches (no frames run, frames stepped by hand) ends when
+    /// it fires. A pending backstop (armed by an earlier window that a refresh ended) is kept, not reset: it fires for
+    /// its own window only and then arms again for the window open at that time.
+    private func armBackstop() {
+        let armed = window
+        timer.scheduleIfIdle(after: interval) { @MainActor [weak self] in
+            self?.backstopFired(armed)
+        }
+    }
+
+    private func backstopFired(_ armed: UInt64) {
+        if armed == window {
+            windowEnded(armed)
+        } else if pending != nil {
+            armBackstop()
+        }
+    }
+
+    /// The window `ended` is over (its refresh, its backstop or a flush): its grid goes once; a later end of the same
+    /// window finds it closed and sends nothing.
     private func windowEnded(_ ended: UInt64) {
         guard ended == window, let grid = pending else { return }
         pending = nil
         window &+= 1
-        timer.cancel()
         deliver(grid)
     }
 
@@ -148,7 +154,7 @@ final class TerminalGridReportCoalescer {
     }
 }
 
-/// The display refreshes that end a coalescer's window early (``TerminalGridReportCoalescer/frameTicked()``): the
+/// The display refreshes that end a coalescer's window (``TerminalGridReportCoalescer/frameTicked()``): the
 /// view's window presenter (``TerminalFramePresenter``), whose frame client ticks while frames run.
 protocol TerminalGridReportTicks: AnyObject {
     /// Ticks `coalescer` each refresh until it reports no window open.

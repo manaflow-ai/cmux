@@ -303,7 +303,17 @@ describe("the card", () => {
   });
 });
 
-test("the sidebar's surface reports the preview's room with the card's height, and forwards the host's pointer", async () => {
+/** Mounts the sidebar's Updated surface in a DOM of its own and runs `body` with it. */
+async function withSurface(
+  body: (surface: {
+    dom: JSDOM;
+    host: HTMLElement;
+    sizes: { height: number; overlay?: number }[];
+    ops: string[];
+    pointer: (event: unknown) => void;
+    state: () => string | null | undefined;
+  }) => Promise<void>,
+) {
   const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "https://cmux.test/#/surface/updated" });
   const scope = globalThis as Record<string, unknown>;
   Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
@@ -330,9 +340,11 @@ test("the sidebar's surface reports the preview's room with the card's height, a
   const saved = Object.keys(globals).map((key) => [key, key in scope, scope[key]] as const);
   Object.assign(scope, globals);
   const sizes: { height: number; overlay?: number }[] = [];
+  const ops: string[] = [];
   let pointer: ((event: unknown) => void) | undefined;
   const client = {
     call: (op: string, params: unknown) => {
+      ops.push(op);
       if (op === "cmux.changelog.surface.get") return Promise.resolve(data);
       if (op === "cmux.changelog.surface.size") {
         sizes.push(params as { height: number; overlay?: number });
@@ -352,20 +364,9 @@ test("the sidebar's surface reports the preview's room with the card's height, a
     const host = dom.window.document.getElementById("root")!;
     await act(async () => mountUpdateSurface(host, "updated", client));
     await until(() => sizes.length > 0 && pointer !== undefined);
-    expect(sizes.at(-1)?.overlay).toBe(0);
     expect(pointer).toBeDefined();
     const state = () => host.querySelector(".wn-card")?.getAttribute("data-preview");
-    await act(async () => pointer!({ inside: true }));
-    await until(() => state() === "open");
-    expect(state()).toBe("open");
-    expect(sizes.at(-1)?.overlay).toBe(100);
-    await act(async () => pointer!({ inside: false }));
-    await until(() => state() === "closed");
-    expect(state()).toBe("closed");
-    // The glass closes first; then the room goes back.
-    expect(sizes.at(-1)?.overlay).toBe(100);
-    await until(() => sizes.at(-1)?.overlay === 0);
-    expect(sizes.at(-1)?.overlay).toBe(0);
+    await body({ dom, host, sizes, ops, pointer: (event) => pointer!(event), state });
   } finally {
     dom.window.close();
     for (const [key, had, value] of saved) {
@@ -373,4 +374,41 @@ test("the sidebar's surface reports the preview's room with the card's height, a
       else delete scope[key];
     }
   }
+}
+
+test("the sidebar's surface reports the preview's room with the card's height, and forwards the host's pointer", async () => {
+  await withSurface(async ({ sizes, pointer, state }) => {
+    expect(sizes.at(-1)?.overlay).toBe(0);
+    await act(async () => pointer({ inside: true }));
+    await until(() => state() === "open");
+    expect(state()).toBe("open");
+    expect(sizes.at(-1)?.overlay).toBe(100);
+    await act(async () => pointer({ inside: false }));
+    await until(() => state() === "closed");
+    expect(state()).toBe("closed");
+    // The glass closes first; then the room goes back.
+    expect(sizes.at(-1)?.overlay).toBe(100);
+    await until(() => sizes.at(-1)?.overlay === 0);
+    expect(sizes.at(-1)?.overlay).toBe(0);
+  });
+});
+
+// Review F2 of #37615: a preview the host's hover opened has no focus inside the card, so Escape
+// reaches only the document; it closes the preview, and only a second Escape dismisses the card.
+test("Escape on a hover-opened preview closes the preview, not the card", async () => {
+  await withSurface(async ({ dom, ops, pointer, state }) => {
+    await act(async () => pointer({ inside: true }));
+    await until(() => state() === "open");
+    expect(state()).toBe("open");
+    const escape = () =>
+      dom.window.document.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+    await act(async () => void escape());
+    await until(() => state() === "closed");
+    expect(state()).toBe("closed");
+    expect(ops).not.toContain("cmux.changelog.surface.dismiss");
+    await act(async () => void escape());
+    expect(ops).toContain("cmux.changelog.surface.dismiss");
+  });
 });
