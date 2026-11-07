@@ -87,8 +87,10 @@ import Testing
         #expect(unchanged.isEmpty, "a hide and show with no change sent the PTY \(unchanged)")
 
         // A key resize the host follows: each size is live. Two sizes in one turn, then the hide in the same turn (no
-        // await: no refresh or 25 ms window can end in between). The first grid goes at once (RESIZE P0 7: the first of
-        // a refresh); the second waits in the coalescer's window, as the refresh already sent one.
+        // await: no refresh or 25 ms window can end in between). While its refresh sent nothing, the first grid goes at
+        // once (RESIZE P0 7); else it waits in the coalescer's window. This rig's window is not on screen, so its
+        // presenter may never tick to clear the refresh the last send spent: both paths are exact here, and the at-once
+        // rule itself is TerminalGridReportCoalescerTests (10) and (11). The second size waits in the window either way.
         let coalescer = session.surfaceView.gridReports.coalescer
         let sentBefore = coalescer.lastSent
         session.view.followPaneMotion(PaneMotionHold(trailing: false, bottom: false), heldSize: session.view.bounds.size)
@@ -96,9 +98,10 @@ import Testing
         workspace.layoutSubtreeIfNeeded()
         let first = try #require(session.surfaceView.fittedGrid)
         try #require(first != sentBefore, "the 760x520 size did not change the grid (\(first))")
-        #expect(coalescer.lastSent == first && !coalescer.isWaiting,
-                "the first grid of the refresh did not go at once (last sent \(String(describing: coalescer.lastSent)))")
-        let atOnce = [first]
+        let wentAtOnce = coalescer.lastSent == first
+        #expect(wentAtOnce ? !coalescer.isWaiting : coalescer.pending == first,
+                "the first grid neither went nor waits (sent \(String(describing: coalescer.lastSent)))")
+        let atOnce = wentAtOnce ? [first] : []
         session.view.frame = NSRect(x: 0, y: 0, width: 700, height: 480)
         workspace.layoutSubtreeIfNeeded()
         let newest = try #require(session.surfaceView.fittedGrid)
