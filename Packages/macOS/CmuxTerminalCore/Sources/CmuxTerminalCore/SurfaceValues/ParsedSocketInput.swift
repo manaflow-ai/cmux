@@ -8,4 +8,7 @@ public enum ParsedSocketInput: Sendable {
     case terminalBytes(Data)
     /// A control character translated into a named-key press.
     case key(PendingKeyEvent)
+    /// The body of a bracketed paste, without its markers, delivered through
+    /// the surface's paste encoder.
+    case pastedText(Data)
 }
