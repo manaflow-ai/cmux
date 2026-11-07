@@ -188,9 +188,7 @@ export function RemoteFolderBrowser({
       <div ref={scroller} className="acpmux-browse-rows ui-scroll-edge-fade">
         {view.loading ? (
           // The rows' room is kept while the machine answers: the footer never moves under the pointer.
-          <div className="acpmux-location-empty" role="status">
-            {t("composer.browseLoading")}
-          </div>
+          <output className="acpmux-location-empty">{t("composer.browseLoading")}</output>
         ) : failure ? (
           <div className="acpmux-location-empty" role="alert">
             {failure}

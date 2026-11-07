@@ -98,7 +98,10 @@ const fromTree = (asked: BrowseParams[]) => async (params: BrowseParams) => {
 };
 
 const rows = () => [...document.querySelectorAll<HTMLButtonElement>(".acpmux-browse-row")];
-const click = (el: Element) => act(async () => void (el as HTMLElement).click());
+const click = (el: Element) =>
+  act(async () => {
+    (el as HTMLElement).click();
+  });
 
 test("opens one folder at a time and picks the folder shown", async () => {
   const asked: BrowseParams[] = [];

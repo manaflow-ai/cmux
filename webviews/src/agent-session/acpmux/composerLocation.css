@@ -1148,7 +1148,7 @@
 .acpmux-menu-text.acpmux-location-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-suffix,
 .acpmux-location-suffix-dot { color: var(--agent-muted); }
-.acpmux-location-empty { padding: 6px 8px; color: var(--agent-muted); }
+.acpmux-location-empty { display: block; padding: 6px 8px; color: var(--agent-muted); }
 /* Where a new chat with no folder starts (its workspace's private folder), under the list: quiet
    text, never a row of its own. */
 .acpmux-folder-popover .acpmux-location-note {
