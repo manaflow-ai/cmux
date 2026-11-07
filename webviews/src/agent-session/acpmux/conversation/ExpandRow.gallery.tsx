@@ -5,6 +5,9 @@
 // 2026-11-07, on an edit's diff card: "why is it, like, just this hard line cut off here between
 // the green and then the rest of the card situation?" and "what if the whole bottom row area were
 // clickable in this, like, show more show less area? And I mean likewise for the other bits".
+// The experiment's arms (expandRow.experiment.ts) compare the row continuing the block's surface
+// (shipped), its label in the fade over the last lines, a tinted row under a hairline, and a centred
+// label.
 import { useLayoutEffect } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -12,6 +15,7 @@ import type { DiffHunk, TurnFile } from "../diff";
 import type { AcpmuxRow } from "../model";
 import { setCardOpen } from "../turnChanges/openStore";
 import { EditDiff } from "./EditDiff";
+import { expandRowLook } from "./expandRow.experiment";
 import { EditedFilesCard } from "./EditedFilesCard";
 import { FileResultCard } from "./FileResultCard";
 import { PromptText } from "./PromptText";
@@ -195,4 +199,11 @@ export default componentEntry<Props>({
       import("../turnChanges/turnChanges.css"),
     ]),
   variants,
+  experiment: {
+    definition: expandRowLook,
+    script: [
+      { name: "Hover the row", run: hovered("edited") },
+      { name: "Show all", run: expanded("edited") },
+    ],
+  },
 });

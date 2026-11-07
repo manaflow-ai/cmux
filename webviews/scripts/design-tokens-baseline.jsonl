@@ -439,7 +439,6 @@
 {"file":"agent-session/acpmux/threadMinimap/threadMinimap.css","kind":"spacing","property":"top","values":{"4.5px":1}}
 {"file":"agent-session/acpmux/turnChanges/turnChanges.css","kind":"height","property":"height","values":{"22px":3}}
 {"file":"agent-session/acpmux/turnChanges/turnChanges.css","kind":"height","property":"min-height","values":{"22px":1}}
-{"file":"agent-session/acpmux/turnChanges/turnChanges.css","kind":"spacing","property":"padding","values":{"2px 8px 4px":1}}
 {"file":"agent-session/guest/guest.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
 {"file":"gallery/fixtures/inlineChips.gallery.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
 {"file":"gallery/fixtures/inlineChips.gallery.css","kind":"radius","property":"border-radius","values":{"3px":1}}

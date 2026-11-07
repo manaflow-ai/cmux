@@ -14,6 +14,7 @@ import { usePathInfo } from "../chips/linkStore";
 import { useMessageScope } from "../chips/messageScope";
 import { isDeniedPath, pathName } from "../chips/paths";
 import { PreviewMore, usePreview } from "./BlockParts";
+import { ExpandRow } from "./ExpandRow";
 import { CodeLines } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
 import type { FileCard, ReadPeek, SearchFile, SearchResult } from "./fileResults";
@@ -184,15 +185,12 @@ function SearchCard({
         </div>
       ))}
       {long && (
-        <button
-          type="button"
+        <ExpandRow
           className="cv-output-more"
-          aria-expanded={all}
-          data-find-skip=""
-          onClick={() => setAll((value) => !value)}
-        >
-          {all ? t("shell.showLess") : t("fileCards.showAllFiles", { n: result.files.length })}
-        </button>
+          open={all}
+          onToggle={() => setAll((value) => !value)}
+          label={all ? t("shell.showLess") : t("fileCards.showAllFiles", { n: result.files.length })}
+        />
       )}
     </div>
   );
