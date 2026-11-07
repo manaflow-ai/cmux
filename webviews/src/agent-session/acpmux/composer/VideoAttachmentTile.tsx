@@ -12,7 +12,8 @@
 // rectangles anyway?").
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { callChipHost } from "../chips/host";
-import { formatDuration, loadPlayableMedia, VideoViewer } from "../chips/ReplyMedia";
+import { VideoViewer } from "../chips/ReplyMedia";
+import { formatDuration, loadPlayableMedia } from "../chips/replyMediaModel";
 import { PlayTriangle, Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import type { VideoInfo } from "./videoAttachments";
