@@ -832,8 +832,12 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         Outcome::Failed { error, .. } => {
             if let Some(details) = error.get_mut("details").and_then(Value::as_object_mut) {
                 details.insert("stages_ms".to_owned(), stages);
+                // A create still on its way: its id, and the name a rerun finds it by.
                 if let Some(creation) = &progress.creation {
                     details.entry("creation_id").or_insert_with(|| json!(creation));
+                    if let Some(name) = &progress.created {
+                        details.entry("machine_name").or_insert_with(|| json!(name));
+                    }
                 }
                 // A failure after this run made its machine names it, so the caller can delete it.
                 if let Some(id) = &progress.made {
@@ -1299,6 +1303,7 @@ const CREATE_POLL_PAUSE: Duration = Duration::from_secs(3);
 /// when it runs out.
 fn await_created(
     runner: &mut dyn Runner,
+    request: &Request,
     listed: &Value,
     created: &Value,
     name: &str,
@@ -1335,30 +1340,36 @@ fn await_created(
             .find(|row| creation.is_some() && at(row, "creation_id").as_str() == creation);
         if let Some(row) = row {
             if at(row, "status").as_str() == Some("failed") {
-                let reason = at(row, "reason").as_str().unwrap_or("no reason given");
-                return Err(failed(
-                    "cloud.start_failed",
-                    format!("the new machine's create failed: {reason}"),
-                    json!({"app": created, "creation": row}),
-                    1,
-                ));
+                return Err(create_failed(request, created, row, &now));
             }
             continue;
         }
-        // The run's own name, when the app lists it: that machine, whatever else appeared beside it.
-        let named = at(&now, "machines").as_array().into_iter().flatten().find(|row| {
-            at(row, "title").as_str() == Some(name)
-                && !before.iter().any(|id| Some(id.as_str()) == at(row, "machine_id").as_str())
-        });
-        if let Some(id) = named.and_then(|row| at(row, "machine_id").as_str()) {
-            return Ok(id.to_owned());
+        // The run's own name, when the app lists it: that machine, whatever else appeared beside it; else the one
+        // machine the first list did not have.
+        let rows: Vec<&Value> = at(&now, "machines")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|row| {
+                at(row, "machine_id").as_str().is_some_and(|id| !before.iter().any(|b| b == id))
+            })
+            .collect();
+        let found = match rows.iter().find(|row| at(row, "title").as_str() == Some(name)) {
+            Some(row) => Some(*row),
+            None => match rows.as_slice() {
+                [row] => Some(*row),
+                // The create row can leave the list a moment before its machine is listed: read again.
+                [] => None,
+                _ => return Err(pending()),
+            },
+        };
+        let Some(row) = found else { continue };
+        // A machine that failed is the create's failure, never the chat's machine.
+        if at(row, "status").as_str() == Some("failed") {
+            return Err(create_failed(request, created, row, &now));
         }
-        let new: Vec<String> = ids(&now).into_iter().filter(|id| !before.contains(id)).collect();
-        match new.as_slice() {
-            [id] => return Ok(id.clone()),
-            // The create row can leave the list a moment before its machine is listed: read again.
-            [] => {}
-            _ => return Err(pending()),
+        if let Some(id) = at(row, "machine_id").as_str() {
+            return Ok(id.to_owned());
         }
     }
 }
@@ -1694,7 +1705,7 @@ fn new_machine(
         )
     };
     // A slow create: `--wait` with a prompt waits for it, within what is left of `--timeout`.
-    let id = await_created(runner, listed, &made, &name, deadline, &pending)?;
+    let id = await_created(runner, request, listed, &made, &name, deadline, &pending)?;
     progress.made = Some(id.clone());
     progress.machine = Some(Machine::Target(id.clone()));
     Ok(id)
@@ -1928,15 +1939,50 @@ fn start_refused(error: Value, listed: &Value, request: &Request) -> Outcome {
     let message = at(&error, "message").as_str().unwrap_or_default();
     match cap::cap_of(code, message) {
         Some(found) if !signed_out(&error) => {
-            let (text, mut details) = cap::at_cap(found, message, listed, |id| {
-                again_command(request, &Machine::Target(id.to_owned()))
-            });
-            if let Some(fields) = details.as_object_mut() {
-                fields.insert("app".to_owned(), error);
-            }
-            failed("cloud.machine_cap", text, details, 1)
+            let message = message.to_owned();
+            cap_refusal(found, &message, listed, request, error)
         }
         _ => app_failure(error),
+    }
+}
+
+/// `cloud.machine_cap`: the cap `found` refused (`refusal`, its words), the account's machines in `listed`
+/// and the commands that free one; `app` is what the app answered.
+fn cap_refusal(
+    found: cap::Cap,
+    refusal: &str,
+    listed: &Value,
+    request: &Request,
+    app: Value,
+) -> Outcome {
+    let (text, mut details) = cap::at_cap(found, refusal, listed, |id| {
+        again_command(request, &Machine::Target(id.to_owned()))
+    });
+    if let Some(fields) = details.as_object_mut() {
+        fields.insert("app".to_owned(), app);
+    }
+    failed("cloud.machine_cap", text, details, 1)
+}
+
+/// A create that failed after the app answered it pending (its row under `creating`, or the machine it became
+/// under `machines`, with status `failed`): the same answer as a create refused at once. A cap reason is the cap
+/// answer, on the latest list (`now`); any other is `cloud.start_failed` with the reason.
+fn create_failed(request: &Request, created: &Value, row: &Value, now: &Value) -> Outcome {
+    let code = at(row, "error").get("code").and_then(Value::as_str).unwrap_or_default();
+    let reason = at(row, "error")
+        .get("message")
+        .and_then(Value::as_str)
+        .or_else(|| at(row, "reason").as_str())
+        .unwrap_or("no reason given");
+    let app = json!({"app": created, "creation": row});
+    match cap::cap_of(code, reason) {
+        Some(found) => cap_refusal(found, reason, now, request, app),
+        None => failed(
+            "cloud.start_failed",
+            format!("the new machine's create failed: {reason}"),
+            app,
+            1,
+        ),
     }
 }
 
