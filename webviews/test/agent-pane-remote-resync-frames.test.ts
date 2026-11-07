@@ -582,3 +582,16 @@ test("a chat with more older rows read than a kept tail holds keeps them all whe
   expect(left).toEqual([]);
   expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("turn 0 part 2.");
 });
+
+test("a chat that stays gone past its hold keeps no tail of it for a relist", async () => {
+  const chat = await openChat();
+  chat.daemon().listed = false;
+  chat.daemon().purge();
+  await flush(4);
+  const kept = () => (chat.client as unknown as { leftTail?: unknown }).leftTail;
+  // Kept for the hold, for a relist during it.
+  expect(kept()).toBeDefined();
+  await until(() => chat.drawn.at(-1)?.missingSession === SESSION, "the chat said gone", 3_000);
+  // The hold is over: the rows it kept (every one the page read) are not held on to.
+  expect(kept()).toBeUndefined();
+});
