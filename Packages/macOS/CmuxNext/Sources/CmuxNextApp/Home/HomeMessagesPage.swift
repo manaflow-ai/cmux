@@ -159,18 +159,7 @@ final class HomeMessagesPage: NSView {
 
     /// The name pill's settings and the compose bar's Stop, for the conversation shown.
     private func wireChief() {
-        host.onChiefSettings = { [weak self] id, pill in
-            guard let chief = self?.chief, chief.conversation == id else { return false }
-            return chief.toggleSettings(under: pill)
-        }
-        host.onChiefStop = { [weak self] id, all in
-            guard let self, let chief, chief.conversation == id else { return }
-            if all { chief.stopAllAgents() } else {
-                _ = services?.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user))
-            }
-        }
-        host.onChiefContinue = { [weak self] id in if let chief = self?.chief, chief.conversation == id { chief.turnActions.continueTurn() } }
-        host.onChiefRetry = { [weak self] id, message in if let chief = self?.chief, chief.conversation == id { chief.turnActions.retry(message) } }
+        host.chiefShown = { [weak self] id in self?.chief.flatMap { $0.conversation == id ? $0 : nil } }
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {

@@ -35,16 +35,7 @@ final class HomeConversationPage: NSView {
         setAccessibilityIdentifier("cmux.homeConversation")
         wantsLayer = true
         addSubview(page)
-        host.onChiefSettings = { [weak self] id, pill in
-            guard let self, id == conversation else { return false }
-            return chief.toggleSettings(under: pill)
-        }
-        host.onChiefStop = { [weak self] id, all in
-            guard let self, id == conversation else { return }
-            if all { chief.stopAllAgents() } else { stopChief() }
-        }
-        host.onChiefContinue = { [weak self] id in if id == conversation { self?.chief.turnActions.continueTurn() } }
-        host.onChiefRetry = { [weak self] id, message in if id == conversation { self?.chief.turnActions.retry(message) } }
+        host.chiefShown = { [weak self] id in id == conversation ? self?.chief : nil }
         host.follow(chief)
         // A launch holds a Home still being made until its page paints (WorkspaceContentController).
         let reveal = services.launchReveal
@@ -114,11 +105,6 @@ final class HomeConversationPage: NSView {
 
     /// The person opened this conversation from Home (a click, Return, a switch key): its message box takes the keyboard.
     func takeKeyboardOnOpen() { focusPrimaryInput() }
-
-    /// Stop: the shared stop action, which acts on the front window's Chief (this one).
-    private func stopChief() {
-        _ = services?.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user))
-    }
 
     /// The tab closed: the page's document ends.
     func close() {

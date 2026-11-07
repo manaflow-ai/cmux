@@ -30,18 +30,18 @@ import MessagesLabHome
 /// - `teamInvite.seatImpact {}` -> `{impact}`; `teamInvite.send {email}` -> `{result}`.
 /// - `linkPreview {url, kind, details}` -> a preview (cards/links/linkPreview.ts).
 /// - `headerPanels.toggle {id}`: runs that panel's action as the person's own (a click only).
-/// - `chief.settings {conversation, anchor}`: the Chief's settings under the name pill (`anchor`, page
-///   points) -> `{shown}`; `chief.stop {conversation, all}`: Stop, or Stop All Agents (a click only).
-/// - `chief.continue {conversation}`, `chief.retry {conversation, message}`, `needsYou.open {id}`,
-///   `needsYou.answer {id, answer}`, `needsYou.showAll {}`: Continue, Retry Reply, the Needs you pin (clicks).
+/// - Clicks: `chief.settings {conversation, anchor}` -> `{shown}` (the settings under the name pill, page points),
+///   `chief.stop {conversation, all}`, `chief.continue {conversation}`, `chief.retry {conversation, message}`,
+///   `chief.place {conversation, anchor}` (the Teleport menu), `needsYou.open|answer|showAll {id, answer}`.
 /// Streams, sent on subscribe and on every change: `appearance` (bubble look, chat colours), `headerPanels`,
-/// `chiefTurn` (`{conversation, continueAvailable}`), `needsYou` (``FeedNeedsYouRows`` or null).
+/// `chiefTurn` (`{conversation, continueAvailable}`), `chiefFace` (`{conversation, picture?, text?}`),
+/// `chiefPlace` (`{conversation, chip}`: ``ChiefTeleportChipFace``, or null), `needsYou` (``FeedNeedsYouRows`` or null).
 @MainActor
 final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
     static let prefixes = ["selected", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
-                           "linkPreview", "openLink", "headerPanels", "appearance", "chiefTurn", "needsYou"].map { HomeMessagesPageRoute.prefix + $0 }
+                           "linkPreview", "openLink", "headerPanels", "appearance", "chiefTurn", "chiefFace", "chiefPlace", "needsYou"].map { HomeMessagesPageRoute.prefix + $0 }
 
     private weak var services: AppServices?
     /// The page's open conversation, as it last said.
@@ -53,13 +53,11 @@ final class HomeMessagesHostProvider: PageProvider {
     private lazy var panelsStream = HomePageStream(observing: { [weak self] in self?.panels() ?? .null })
     private lazy var needsYouStream = HomePageStream(observing: { [weak self] in self?.needsYouRows() ?? .null })
     private let chiefTurn = HomePageStream(initial: .object(["continueAvailable": .bool(false)]))
-    /// The name pill of Chief conversation `id` was clicked at `pill` (page points): its settings
-    /// toggle; true when they show. Set by the view that holds the page.
-    var onChiefSettings: (@MainActor (ConversationID, CGRect?) -> Bool)?
-    /// Stop (or with `all`, Stop All Agents) on Chief conversation `id`'s compose bar.
-    var onChiefStop: (@MainActor (ConversationID, Bool) -> Void)?
-    var onChiefContinue: (@MainActor (ConversationID) -> Void)?
-    var onChiefRetry: (@MainActor (ConversationID, MessageID) -> Void)?
+    private let chiefFace = HomePageStream(initial: .null)
+    private lazy var chiefPlace = HomePageStream(observing: { [weak self] in self?.place() ?? .null })
+    /// The page's Chief controls for conversation `id` (its name pill's settings, Stop, Continue, Retry,
+    /// the location chip's menu); nil when the page does not show that Chief. Set by the view that holds the page.
+    var chiefShown: @MainActor (ConversationID) -> HomeChiefSurface? = { _ in nil }
     /// The pinned Needs you section, made on the first listener.
     private var needsYou: FeedNeedsYouPin?
     /// The first run's facts follow the conversation shown (held strongly: the page's route holds it too).
@@ -85,6 +83,7 @@ final class HomeMessagesHostProvider: PageProvider {
                 shown = id
                 onShown?(id)
                 panelsStream.restart()
+                chiefPlace.restart()
                 needsYouStream.restart()
                 firstRun?.restart()
             }
@@ -150,28 +149,23 @@ final class HomeMessagesHostProvider: PageProvider {
         case "start":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             return (await start(fields, home: home)).pageOutcome
-        case "chief.settings":
+        case "chief.settings", "chief.place", "chief.stop", "chief.continue", "chief.retry":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
-            let id = try conversation(fields)
+            let chief = chiefShown(try conversation(fields))
             let box = fields["anchor"]?.objectValue
             let number = { (key: String) in box?[key]?.doubleValue }
-            let pill = number("x").flatMap { x in number("y").flatMap { y in number("width").flatMap { w in number("height").map { h in
+            let anchor = number("x").flatMap { x in number("y").flatMap { y in number("width").flatMap { w in number("height").map { h in
                 CGRect(x: x, y: y, width: max(1, min(w, 4096)), height: max(1, min(h, 4096)))
             } } } }
-            return .object(["shown": .bool(onChiefSettings?(id, pill) ?? false)])
-        case "chief.stop":
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
-            let id = try conversation(fields)
-            onChiefStop?(id, fields["all"]?.boolValue == true)
-            return .null
-        case "chief.continue", "chief.retry":
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
-            let id = try conversation(fields)
-            if name == "chief.continue" {
-                onChiefContinue?(id)
-            } else {
+            switch name {
+            case "chief.settings": return .object(["shown": .bool(chief?.toggleSettings(under: anchor) ?? false)])
+            case "chief.place": if let chief, let anchor { chief.openTeleportMenu(under: anchor) }
+            case "chief.stop" where fields["all"]?.boolValue == true: chief?.stopAllAgents()
+            case "chief.stop": if chief != nil { _ = services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
+            case "chief.continue": chief?.turnActions.continueTurn()
+            default:
                 guard let message = fields["message"]?.stringValue, Self.isID(message) else { throw PageError.invalidParams("message must be a message id") }
-                onChiefRetry?(id, MessageID(message))
+                chief?.turnActions.retry(MessageID(message))
             }
             return .null
         case "needsYou.open", "needsYou.answer", "needsYou.showAll":
@@ -216,6 +210,10 @@ final class HomeMessagesHostProvider: PageProvider {
         case HomeMessagesPageRoute.prefix + "appearance": return appearanceStream.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "headerPanels": return panelsStream.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "chiefTurn": return chiefTurn.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + "chiefFace": return chiefFace.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + "chiefPlace":
+            _ = services?.chiefTeleport.refresh()
+            return chiefPlace.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "needsYou":
             if let services, needsYou == nil {
                 needsYou = FeedNeedsYouPin.home(services)
@@ -232,6 +230,20 @@ final class HomeMessagesHostProvider: PageProvider {
         let id = chief.conversation
         chief.turnActions.onContinueAvailable = { [weak self] in self?.publishChiefTurn(id, continueAvailable: $0) }
         publishChiefTurn(id, continueAvailable: chief.turnActions.continueAvailable)
+        chief.onFace = { [weak self] picture, text in
+            var face: [String: JSONValue] = ["conversation": .string(id.rawValue)]
+            if let picture { face["picture"] = .string(picture) }
+            if let text { face["text"] = .string(text) }
+            self?.chiefFace.publish(.object(face))
+        }
+    }
+
+    /// The header's location chip on the conversation that shows it (``HomeService/showsTeleport(conversation:)``).
+    private func place() -> JSONValue {
+        guard let services, let shown, services.home.showsTeleport(conversation: shown.rawValue),
+              let face = try? JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(services.chiefTeleport.chipFace(saysAway: true)))
+        else { return .null }
+        return .object(["conversation": .string(shown.rawValue), "chip": face])
     }
 
     /// The shown Chief's turn changed (``HomeChiefTurnActions/onContinueAvailable``).

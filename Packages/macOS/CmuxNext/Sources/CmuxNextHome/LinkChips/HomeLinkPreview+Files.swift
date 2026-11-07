@@ -1,4 +1,5 @@
 public import Foundation
+public import MessagesLabHome
 
 /// The cards a link chip shows from its URL alone (a file, a GitHub object), and a file's first
 /// lines for its card (read off the main thread by the caller).

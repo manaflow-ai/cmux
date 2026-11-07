@@ -34,6 +34,11 @@ final class HomeChiefSurface {
     /// The Chief's stop and stop-all, one request at a time.
     let turnActions = HomeChiefTurnActions()
     private(set) var isChief = false
+    /// The Chief's participant id (its picked character is its own).
+    private var participant: String?
+    /// The header's avatar was read (`picture`: a PNG data URL; `text`: the profile's text; both nil:
+    /// its name's monogram), for the page to draw.
+    var onFace: ((_ picture: String?, _ text: String?) -> Void)?
     private(set) var isWorking = false
     private weak var services: AppServices?
     /// The view the popover's anchor lies in (the page).
@@ -104,7 +109,8 @@ final class HomeChiefSurface {
                 // A named Chief's conversation: its panel, Stop and avatar name it (cx-327wl).
                 let renamed = named != control.chief
                 if renamed { control.chief = named }
-                self.isChief = isChief
+                let reread = renamed || isChief != self.isChief || participant != self.participant
+                (self.isChief, self.participant) = (isChief, participant)
                 isWorking = isChief && typing
                 turnActions.update(control: control.turnControl, isChief: isChief, working: isWorking, sequence: lastSeq)
                 let engineMoved = cloud != showsCloud || (cloud && hosted != showsHosted)
@@ -115,8 +121,8 @@ final class HomeChiefSurface {
                     made.view.setName(title)
                     if !isChief, made.settings.isShown { made.settings.close() }
                     if made.settings.isShown { made.view.refresh() }
-                    if renamed { loadAvatar() }
                 }
+                if reread { loadAvatar() }
                 openPendingSettings()
             }
         }
@@ -144,6 +150,12 @@ final class HomeChiefSurface {
         }
         made.view.refresh()
         return made.settings.show(relativeTo: anchor, toggles: [anchor])
+    }
+
+    /// The header's location chip was clicked at `chip` (page points): the Teleport menu pops up under it.
+    func openTeleportMenu(under chip: CGRect) {
+        guard showsChiefOnScreen, let owner else { return }
+        control.services.chiefTeleport.openMenu(under: Self.frame(of: chip, in: owner), in: owner)
     }
 
     /// Opens the settings `HomeChiefActions` asked for once this view shows its Chief (Toggle Chief
@@ -245,15 +257,15 @@ final class HomeChiefSurface {
         return (avatars, HomeChiefAvatars.chiefID(named: control.named))
     }
 
-    /// The card's avatar of the Chief shown here: its registry picture, else its profile's text, else
-    /// its worn upload, else its name's monogram.
+    /// The avatar of the Chief shown here, on the page's header and the card: its registry picture,
+    /// else its profile's text, else its worn upload, else its name's monogram.
     private func loadAvatar() {
-        guard let made else { return }
+        guard isChief else { return }
         let home = control.brainHome
         let files = HomeChiefFiles(muxHome: home)
         let store = pictureStore()
-        made.view.pictureStore = store
-        let fallback = control.services.chosenPicture(of: made.petRows.chief)
+        made?.view.pictureStore = store
+        let fallback = control.services.chosenPicture(of: participant)
         // task-owner: one avatar read (registry, else files off the main actor); ends when it is shown
         Task { [weak self] in
             let avatar = if let store {
@@ -263,11 +275,12 @@ final class HomeChiefSurface {
             }
             // task-owner: one decode of the avatar picture; ends when it is shown
             let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { avatar.picture.flatMap(Self.decode) }.value
+            let page = if let data = avatar.picture { await HomeChiefAvatars.pagePicture(data) } else { String?.none }
             // A read for the Chief shown before (another came in since) is dropped.
-            guard let self, let made = self.made, control.brainHome == home else { return }
-            let picture = decoded.map { NSImage(cgImage: $0, size: .zero) }
+            guard let self, control.brainHome == home else { return }
+            onFace?(page, avatar.text)
             let name = control.services.home.chiefName(of: conversation) ?? ""
-            made.view.setAvatar(picture: picture, text: avatar.text ?? HomeChiefAvatar.monogram(of: name))
+            made?.view.setAvatar(picture: decoded.map { NSImage(cgImage: $0, size: .zero) }, text: avatar.text ?? HomeChiefAvatar.monogram(of: name))
         }
     }
 
