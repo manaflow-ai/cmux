@@ -235,8 +235,8 @@ struct CloudStartSession {
         }
         let anchor: (id: String, key: WorkspaceKey, pane: PaneModel)
         do {
-            anchor = try await CloudHandlers.terminalAnchor(on: session, context) { [services] in
-                try Self.check(account, now: services.cloud.account, request.asked(machine: name))
+            anchor = try await CloudWait.relinkedOnce(epoch: { session.daemon.store.connectionEpoch }, held: session.linkHeld, relink: { guard (try? await connected(session, request, account: account, byPerson: byPerson)) != nil else { return false }; return await CloudMachineWorkspace.live(session.daemon.store, within: Self.connectWait) }) {
+                try await CloudHandlers.terminalAnchor(on: session, context) { [services] in try Self.check(account, now: services.cloud.account, request.asked(machine: name)) }
             }
         } catch let changed as AccountChanged {
             throw changed.failure

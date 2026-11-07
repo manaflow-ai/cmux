@@ -280,6 +280,12 @@ export const PAGES = {
     out: "webviews/src/pages/home-channels/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
   },
+  // The cards drawn in a Home chat (home-messages/cards: agent pills, link previews, MCP connect,
+  // first run, header toggles), with the Swift keys they replace; their table lives next to them.
+  "home-messages-cards": {
+    out: "webviews/src/pages/home-messages/cards/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-messages/cards/Localizable.xcstrings" }],
+  },
   // The Messages transcript and composer (home-messages/transcript): the Swift transcript's keys, so
   // their translations carry over. The parts it reuses from Channels read Channels' table beside it.
   "home-messages-transcript": {
