@@ -10219,7 +10219,10 @@ export class AcpmuxDirectClient {
   async loadThrough(seq: number): Promise<boolean> {
     const generation = this.selectionGeneration;
     const held = () => generation === this.selectionGeneration && this.firstSeq !== undefined && this.firstSeq <= seq;
-    for (let pages = 0; pages < 200; pages++) {
+    // Each loadOlder call publishes one bounded page (or the bounded remainder of a large
+    // active turn), so keep walking until the target is held. A fixed iteration cap here would
+    // make a far minimap jump fail once a long chat spans more than that many pages.
+    for (;;) {
       const from = this.firstSeq;
       if (held()) return true;
       if (generation !== this.selectionGeneration || from === undefined || !this.seqHistoryLeft()) return false;
