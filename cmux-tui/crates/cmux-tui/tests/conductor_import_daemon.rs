@@ -16,6 +16,8 @@ struct Daemon {
     child: Child,
     socket: PathBuf,
     dir: PathBuf,
+    /// HOME, outside `/tmp`: a temporary folder is never a project.
+    home: PathBuf,
 }
 
 fn git(dir: &Path, args: &[&str]) {
@@ -71,7 +73,9 @@ impl Daemon {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp")
             .join(format!("cmux-conductor-{name}-{}-{stamp}", std::process::id()));
-        let home = dir.join("home");
+        let home = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("cmux-conductor-{name}-{}-{stamp}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
         fs::create_dir_all(&home).unwrap();
         conductor_home(&home.canonicalize().unwrap());
         let socket = dir.join("mux.sock");
@@ -100,7 +104,7 @@ impl Daemon {
             assert!(Instant::now() < deadline, "daemon did not create {}", socket.display());
             std::thread::sleep(Duration::from_millis(25));
         }
-        Self { child, socket, dir }
+        Self { child, socket, dir, home }
     }
 
     /// One `cmux.protocol/2` request; the reply's `result`, or its `error`.
@@ -164,6 +168,7 @@ impl Drop for Daemon {
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = fs::remove_dir_all(&self.dir);
+        let _ = fs::remove_dir_all(&self.home);
     }
 }
 
@@ -224,11 +229,13 @@ fn conductor_import_plans_a_worktree_recipe_and_keeps_a_saved_one() {
     assert_eq!(recipe["include"], json!([".env"]), "{recipe}");
 
     // The app saves it on the project; the next plan keeps that one.
-    daemon.send("project.add", json!({"path": path}), Some("add")).unwrap();
+    daemon
+        .send("project.add", json!({"path": path}), Some("add"))
+        .unwrap_or_else(|error| panic!("project.add: {error}"));
     let worktree = json!({"setup": "bun install", "include": [".env"]});
     daemon
         .send("project.update", json!({"path": path, "worktree": worktree}), Some("save"))
-        .unwrap();
+        .unwrap_or_else(|error| panic!("project.update: {error}"));
     let again = daemon.plan();
     assert!(again["plan"]["projects"][0]["recipe"].is_null(), "{again}");
     assert_eq!(again["plan"]["projects"][0]["recipe_kept"], true, "{again}");
