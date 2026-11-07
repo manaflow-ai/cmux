@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -9,6 +11,13 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui.yml"
+GATE_VERDICT = ROOT / "scripts" / "ci" / "gate_verdict.py"
+
+_GATE_SPEC = importlib.util.spec_from_file_location("tui_gate_verdict", GATE_VERDICT)
+assert _GATE_SPEC is not None and _GATE_SPEC.loader is not None
+_GATE_VERDICT = importlib.util.module_from_spec(_GATE_SPEC)
+sys.modules["tui_gate_verdict"] = _GATE_VERDICT
+_GATE_SPEC.loader.exec_module(_GATE_VERDICT)
 
 FOCUSED_SENTINEL_STEPS = (
     "focused Linux journal process-fence test",
@@ -21,6 +30,91 @@ FOCUSED_SENTINEL_STEPS = (
 def _test_job() -> dict:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     return workflow["jobs"]["test"]
+
+
+def _runner_context(
+    *,
+    repository_owner: str = "manaflow-ai",
+    event_name: str = "push",
+    head_repository: str = "manaflow-ai/cmux",
+    run_attempt: int = 1,
+    variables: dict[str, str] | None = None,
+) -> dict:
+    context_variables = {
+        "CI_PR_POOL_OWNED": "",
+        "CI_SIDE_LANE_RUNNER": "",
+        "LINUX_RUNNER": "",
+    }
+    context_variables.update(variables or {})
+    return {
+        "github": {
+            "repository_owner": repository_owner,
+            "repository": "manaflow-ai/cmux",
+            "event_name": event_name,
+            "run_attempt": run_attempt,
+            "event": {
+                "pull_request": {
+                    "head": {"repo": {"full_name": head_repository}},
+                },
+            },
+        },
+        "vars": context_variables,
+    }
+
+
+def _evaluate_runner(entry: dict, context: dict) -> str:
+    expression = _GATE_VERDICT.strip_expression(entry["runner"])
+    return str(_GATE_VERDICT.evaluate(expression, context, {}))
+
+
+def _assert_runner_routing(matrix: list[dict]) -> None:
+    """Evaluate every matrix expression through the same routing semantics as CI."""
+    by_os = {entry["os"]: entry for entry in matrix}
+    assert set(by_os) == {"linux", "macos"}
+
+    owned_mac_runner = "owned-macos-lint"
+    scenarios = (
+        (
+            "hosted",
+            _runner_context(repository_owner="contributor"),
+            {"linux": "ubuntu-24.04", "macos": "macos-26"},
+        ),
+        (
+            "fork",
+            _runner_context(
+                event_name="pull_request",
+                head_repository="contributor/cmux",
+                variables={"LINUX_RUNNER": "linux-32vcpu-override"},
+            ),
+            {
+                "linux": "blacksmith-4vcpu-ubuntu-2404",
+                "macos": "blacksmith-6vcpu-macos-15",
+            },
+        ),
+        (
+            "repository Linux override",
+            _runner_context(variables={"LINUX_RUNNER": "linux-32vcpu-override"}),
+            {"linux": "linux-32vcpu-override"},
+        ),
+        (
+            "owned macOS first attempt",
+            _runner_context(
+                variables={"CI_PR_POOL_OWNED": "1", "CI_SIDE_LANE_RUNNER": owned_mac_runner},
+            ),
+            {"macos": owned_mac_runner},
+        ),
+        (
+            "owned macOS retry",
+            _runner_context(
+                run_attempt=2,
+                variables={"CI_PR_POOL_OWNED": "1", "CI_SIDE_LANE_RUNNER": owned_mac_runner},
+            ),
+            {"macos": "blacksmith-6vcpu-macos-15"},
+        ),
+    )
+    for scenario, context, expected in scenarios:
+        for os_name, expected_runner in expected.items():
+            assert _evaluate_runner(by_os[os_name], context) == expected_runner, scenario
 
 
 def test_ignored_only_listing_has_no_runnable_test_names() -> None:
@@ -121,19 +215,14 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert lint["needs"] == "validate-inputs"
     assert lint["name"] == "lint (${{ matrix.os }})"
     assert lint["strategy"]["fail-fast"] is False
-    assert lint["strategy"]["matrix"]["include"] == [
-        {
-            "os": "macos",
-            "runner": "blacksmith-6vcpu-macos-15",
-        },
-        {
-            "os": "linux",
-            "runner": "blacksmith-4vcpu-ubuntu-2404",
-        },
-    ]
+    matrix = lint["strategy"]["matrix"]["include"]
+    assert len(matrix) == 2
+    _assert_runner_routing(matrix)
     assert "cargo fmt --check" in lint_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in lint_commands
-    assert "cargo fmt --check" not in test_commands
+    # Keep the formatting check in both hosted OS lanes as the workflow does;
+    # clippy remains owned by the dedicated lint matrix below.
+    assert "cargo fmt --check" in test_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" not in test_commands
     assert "lint" in gate["needs"]
     assert gate["env"]["LINT_RESULT"] == "${{ needs.lint.result }}"
@@ -149,7 +238,6 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
 
     assert {entry["os"] for entry in matrix} == {"linux", "macos"}
     for entry in matrix:
-        runner_os = "Linux" if entry["os"] == "linux" else "macOS"
         linux_dependency_steps = [
             step
             for step in steps
@@ -157,12 +245,9 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         ]
         assert len(linux_dependency_steps) == 1
         assert linux_dependency_steps[0]["if"] == "runner.os == 'Linux'"
-        if runner_os == "Linux":
-            assert entry["runner"].endswith("ubuntu-2404")
-        else:
-            assert entry["runner"].endswith("macos-15")
 
         clippy_steps = [step for step in steps if step.get("name") == "cargo clippy"]
         assert len(clippy_steps) == 1
+        assert "if" not in clippy_steps[0]
         assert clippy_steps[0]["working-directory"] == "cmux-tui"
         assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
