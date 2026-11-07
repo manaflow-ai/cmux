@@ -93,6 +93,12 @@
   height: var(--ds-icon-16);
   border-radius: var(--ds-radius-sm);
 }
+/* Chromium's drawing of the whole button (icon, badge, disabled state): drawn at the button's size. */
+img.bc-extension-icon {
+  width: var(--bc-button);
+  height: var(--bc-button);
+  border-radius: 0;
+}
 .bc-extension-initial {
   display: inline-flex;
   align-items: center;

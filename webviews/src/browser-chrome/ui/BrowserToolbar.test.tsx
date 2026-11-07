@@ -205,3 +205,27 @@ test("a row that cannot reload draws Reload off (the Markdown tab's empty state)
   );
   expect(doc.getElementById("browser.toolbar.reload")?.hasAttribute("disabled")).toBe(true);
 });
+
+test("Chromium's drawing of an extension button draws alone; the letter fallback draws its badge", () => {
+  const doc = render(
+    <BrowserToolbar
+      navigation={{ canGoBack: true, canGoForward: true, loading: false }}
+      omnibar={{ text: "example.com", chip: resolveChip(null), bookmark: "off" }}
+      extensions={{
+        shows: true,
+        pinned: [
+          { id: "drawn", name: "Drawn", iconUrl: "data:image/png;base64,AA==", badge: { text: "3" } },
+          { id: "letter", name: "Letter", badge: { text: "4" } },
+        ],
+      }}
+      onCommand={() => {}}
+      width={1200}
+    />,
+  );
+  const drawn = doc.getElementById("browser.extension.action.drawn")!;
+  expect(drawn.querySelector("img.bc-extension-icon")).not.toBeNull();
+  expect(drawn.querySelector(".bc-extension-badge")).toBeNull();
+  const letter = doc.getElementById("browser.extension.action.letter")!;
+  expect(letter.querySelector(".bc-extension-initial")?.textContent).toBe("L");
+  expect(letter.querySelector(".bc-extension-badge")?.textContent).toBe("4");
+});

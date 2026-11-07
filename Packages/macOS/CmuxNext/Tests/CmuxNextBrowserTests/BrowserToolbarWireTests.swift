@@ -442,4 +442,41 @@ struct BrowserToolbarReloadDraftTests {
         content.onMessage?("command", ["type": "status", "text": "x", "tab": "other", "binding": bar.binding, "draft": ["text": "x", "selection": [1, 0]]])
         #expect(content.kept == nil)
     }
+
+    @Test func aLaterPushStillCarriesTheTextTypedSince() throws {
+        let content = RecordingContent()
+        let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
+        bar.makeWebContent = { content }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 40), styleMask: [], backing: .buffered, defer: true)
+        window.contentView?.addSubview(bar)
+        bar.pushNow()
+        content.onMessage?("command", ["type": "status", "editing": true, "text": "hello", "tab": bar.tabSlot, "binding": bar.binding,
+                                       "draft": ["text": "hello", "selection": [5, 0]]])
+        // Any later push (here the page's URL) is what a reload starts from: it keeps the typed text.
+        bar.reportedURL = URL(string: "https://example.com/")
+        bar.pushNow()
+        let pushed = try #require(content.pushed.last?["draft"] as? [String: Any])
+        #expect(pushed["text"] as? String == "hello")
+        content.onMessage?("command", ["type": "status", "editing": true, "text": "hello!", "tab": bar.tabSlot, "binding": bar.binding,
+                                       "draft": ["text": "hello!", "selection": [6, 0]]])
+        let kept = try #require(content.kept?["draft"] as? [String: Any])
+        #expect(kept["text"] as? String == "hello!")
+    }
+
+    @Test func restoringFocusGivesTheKeysBackWhileTheStatusStillSaysEditing() throws {
+        let content = RecordingContent()
+        let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
+        bar.makeWebContent = { content }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 40), styleMask: [], backing: .buffered, defer: true)
+        window.contentView?.addSubview(bar)
+        bar.pushNow()
+        // The page's status lags the blur the host sent when another tab's field took the keys.
+        content.onMessage?("command", ["type": "status", "editing": true, "text": "a", "tab": bar.tabSlot, "binding": bar.binding])
+        #expect(bar.isEditing)
+        #expect(window.firstResponder !== content.focusView)
+        bar.restoreFocus()
+        bar.pushNow()
+        let events = try #require(content.pushed.last?["events"] as? [[String: Any]])
+        #expect(events.contains { ($0["event"] as? [String: Any])?["kind"] as? String == "focus" })
+    }
 }

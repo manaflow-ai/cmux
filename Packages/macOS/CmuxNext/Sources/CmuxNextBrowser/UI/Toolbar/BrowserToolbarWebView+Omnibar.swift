@@ -28,7 +28,9 @@ extension BrowserToolbarWebView {
     /// The focus coordinator's return to a tab left from its address bar: focuses the field with
     /// the selection it had when focus left.
     public func restoreFocus() {
-        guard !isEditing else { return }
+        // Nothing to restore only while the field edits with the keys here: the page's status can
+        // lag a blur the host just sent (another tab's field took the keys), so the responder decides.
+        if isEditing, let content, window?.firstResponder === content.focusView { return }
         giveKeys(source: "programmatic")
     }
 

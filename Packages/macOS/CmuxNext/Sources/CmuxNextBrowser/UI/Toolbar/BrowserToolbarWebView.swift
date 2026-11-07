@@ -133,6 +133,9 @@ public final class BrowserToolbarWebView: NSView {
     private var lastPushed: NSDictionary?
     /// The state last pushed, which a reloaded page starts from (`keepForReload`).
     private var lastPushedState: [String: Any]?
+    /// The shown tab's unsent text as the page last reported it: every later state carries it as
+    /// `draft`, so a reload after any push starts from it.
+    private var liveDraft: (tab: String, draft: OmnibarDraft?)?
     /// Host requests the page has not acked, oldest first (`ToolbarHostEvent`), each with the binding
     /// it was queued under: the page drops a tab-scoped one of an older binding.
     private var events: [(seq: Int, binding: Int, event: [String: Any])] = []
@@ -271,7 +274,7 @@ public final class BrowserToolbarWebView: NSView {
         let coverage: Double = performWithTheme { Palette.addressBar.resolvedCoverage(look.backgroundOpacity) }
         return [
             "tab": tabSlot,
-            "draft": tabDraft?.wire ?? NSNull(),
+            "draft": shownDraft?.wire ?? NSNull(),
             "url": reportedURL?.absoluteString ?? NSNull(),
             "site": site.isEmpty ? NSNull() : site.wire,
             "title": pageTitle?() ?? NSNull(),
@@ -298,6 +301,12 @@ public final class BrowserToolbarWebView: NSView {
         let top = ToolbarRowMetrics.barTop(scale: scale, withButtons: showsButtons)
         guard toolbarOpensUpward, bounds.height > 0 else { return top }
         return bounds.height - top - ToolbarRowMetrics.barHeight
+    }
+
+    /// The draft the state carries: the shown tab's latest unsent text, else the one it brought.
+    private var shownDraft: OmnibarDraft? {
+        if let liveDraft, liveDraft.tab == tabSlot { return liveDraft.draft }
+        return tabDraft
     }
 
     /// The badges part of the state: focus mode text, profile monogram and color, machine name.
@@ -351,11 +360,15 @@ public final class BrowserToolbarWebView: NSView {
 
     private func statusChanged(_ next: OmnibarStatus) {
         let wasEditing = status.isEditing
-        if next.draft != status.draft, next.tab == tabSlot, var kept = lastPushedState {
+        if next.tab == tabSlot, liveDraft?.tab != tabSlot || liveDraft?.draft != next.draft {
             // A renderer crash reloads the page from the last state: it rests on the text typed
-            // since, not on the draft that state carried.
-            kept["draft"] = next.draft?.wire ?? NSNull()
-            content?.keepForReload(kept)
+            // since, not on the draft that state carried. No push: the running page has the text.
+            liveDraft = (tabSlot, next.draft)
+            if var kept = lastPushedState {
+                kept["draft"] = next.draft?.wire ?? NSNull()
+                lastPushedState = kept
+                content?.keepForReload(kept)
+            }
         }
         status = next
         if next.isEditing { focusPending = false }

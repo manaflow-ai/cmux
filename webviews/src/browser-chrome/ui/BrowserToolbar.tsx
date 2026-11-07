@@ -420,7 +420,8 @@ function ExtensionButton({
           {Array.from(action.name)[0]?.toUpperCase()}
         </span>
       )}
-      {action.badge?.text && (
+      {/* Chromium's drawing already carries the badge; only the letter fallback draws its own. */}
+      {!action.iconUrl && action.badge?.text && (
         <span
           className="bc-extension-badge"
           style={action.badge.color ? ({ "--bc-badge": action.badge.color } as CSSProperties) : undefined}
