@@ -78,6 +78,11 @@ final class AgentReplyAvatars {
         return entry?.image
     }
 
+    /// Whether `login`'s avatar is loading now. A load ends within the fetch's timeout.
+    func loading(_ login: String) -> Bool {
+        inflight[login] != nil
+    }
+
     /// Waits for `login`'s load when one runs, for the tests.
     func loaded(_ login: String) async {
         await inflight[login]?.value

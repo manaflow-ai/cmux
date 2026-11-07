@@ -146,13 +146,16 @@ public final class AgentReplyPullRequests {
         }
         let entry = entries[url]
         var pullRequest = entry?.pullRequest
+        var avatarLoading = false
         if let held = pullRequest {
             pullRequest?.authorAvatar = avatars.image(login: held.author, address: held.authorAvatarURL)
+            avatarLoading = avatars.loading(held.author)
         }
+        // An avatar still loading counts as reading, so an open card keeps asking until it arrives.
         return AgentPanePullRequestAnswer(pullRequest: pullRequest,
                                           fetchedAt: entry?.at?.timeIntervalSince1970,
                                           readFrom: entry?.readFrom?.timeIntervalSince1970,
-                                          reading: inflight[url] != nil)
+                                          reading: inflight[url] != nil || avatarLoading)
     }
 
     /// Keeps the pull requests a reply links fresh, so a card has them before the pointer arrives:
