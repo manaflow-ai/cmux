@@ -67,6 +67,8 @@
     "cloud.repo.sync": "cloud.repo.sync",
     "cloud.repo.wait_github": "cloud.repo.wait_github",
     "cloud.reserve": "cloud.reserve",
+    "cloud.signIn": "cloud.signIn",
+    "cloud.signInCancel": "cloud.signInCancel",
     "cloud.startChat": "cloud.startChat",
     "cloudMachine.attach": "cloudMachine.attach",
     "cloudMachine.list": "cloudMachine.list",

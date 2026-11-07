@@ -27,6 +27,9 @@ final class PaneHostView: NSView, RestingPlacement {
     /// rounded card the clip, border and ring trace (`LayoutStyle.floatingPanes`).
     private(set) var wholeCard = false
     private var reporter: PaneContentChrome? { content as? PaneContentChrome }
+    /// Whether the content draws its pane's outline and ring (`PaneContentChrome.paneFramesContent`):
+    /// an agent chat does not, and the dividers beside it draw their line instead (`ScreenContentView.showsIdleLine`).
+    var framesContent: Bool { reporter?.paneFramesContent ?? true }
     private var lastWindowFrame: CGRect?
 
     /// Whether content keeps its size while the host is on a split, close or zoom spring: the provider's rule (an agent
@@ -380,7 +383,10 @@ final class PaneHostView: NSView, RestingPlacement {
             reporter?.setPaneContentCornerRadius(0)
             clipView.setCornerRadius(radius)
         }
-        chrome.showsContentFrame = framesContent
+        if chrome.showsContentFrame != framesContent {
+            chrome.showsContentFrame = framesContent
+            (superview as? ScreenContentView)?.paneFramingDidChange()
+        }
         chrome.setShape(padding: padding, cornerRadius: style.paneCornerRadius, headerHeight: header, footerHeight: footer)
     }
 

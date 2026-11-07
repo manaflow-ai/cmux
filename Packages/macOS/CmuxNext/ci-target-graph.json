@@ -886,6 +886,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextAgentActivity",
         "CmuxNextCompat",
         "CmuxNextSettings",
@@ -1871,9 +1872,12 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextServer",
       "targets": [
         "CmuxNextCloud",
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextPages",
         "CmuxNextRemote",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": []

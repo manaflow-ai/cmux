@@ -6,6 +6,7 @@ import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment"
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
 import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
+import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
@@ -26,6 +27,7 @@ import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/plac
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
+import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
@@ -65,11 +67,13 @@ export const EXPERIMENTS: readonly Experiment[] = [
   fileKindIcon,
   finishedTaskLook,
   claudeTurnFold,
+  turnFoldReplies,
   threadMinimapLayout,
   threadMinimapHeight,
   threadMinimapGutter,
   newTabHeadline,
   newTabComposerTrailingGap,
+  newTabIconColumn,
   threadMinimapLit,
   threadMinimapMark,
   threadMinimapWave,
