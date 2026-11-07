@@ -12,6 +12,7 @@ import { formatDuration } from "../conversation/turns";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import { agentTone, AgentTonesContext } from "./agentTones";
 import { AgentIdentity, foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { useSenderIconLook } from "./senderIconLook";
 import { subagentProgress } from "./subagentProgress";
 import { subagentDisplayName } from "./subsessions";
 import { waveProps } from "../../../ui/wave";
@@ -90,7 +91,7 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
   // An agent a shell call started (`codex exec`) runs on its own harness, not the chat's: its mark
   // shows; one of the chat's own family keeps the toned subagent mark.
   const chat = useContext(SubagentHarnessContext);
-  const harness = foreignHarness(agent.harness, chat);
+  const harness = foreignHarness(agent.harness, chat, useSenderIconLook().badge);
   const { className, style } = waveProps(wave);
   return (
     <span

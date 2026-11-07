@@ -30,6 +30,14 @@ struct AgentPaneDisplaySettingTests {
         // Where the hat's tuck handle sits along the composer's top edge: the middle unless set.
         Row(key: "agentPane.display.trayHandle", fallback: .string("middle"), accepted: [.string("left"), .string("right")],
             refused: [.string("top"), .bool(true)]),
+        // A sender's icon: the family's mark big, a diamond badge at its bottom right, unless set.
+        Row(key: "agentPane.display.senderIcon.lead", fallback: .string("family"), accepted: [.string("session")],
+            refused: [.string("big"), .bool(true)]),
+        Row(key: "agentPane.display.senderIcon.badge", fallback: .string("diamond"),
+            accepted: [.string("robot"), .string("none")], refused: [.string("cloud"), .bool(true)]),
+        Row(key: "agentPane.display.senderIcon.corner", fallback: .string("bottom-right"),
+            accepted: [.string("bottom-left"), .string("top-right"), .string("top-left")],
+            refused: [.string("right"), .bool(true)]),
         Row(key: "agentPane.display.font.preset", fallback: .string("markdown"),
             accepted: [.string("system"), .string("serif"), .string("mono")], refused: [.string("comic")]),
         // The whole chat's face: today's tuned Inter unless one of the candidates is picked.

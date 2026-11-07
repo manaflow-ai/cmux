@@ -156,6 +156,39 @@
       "title" : "Prompt Rail Side",
       "type" : "string"
     },
+    "agentPane.display.senderIcon.badge" : {
+      "default" : "diamond",
+      "description" : "The small colored glyph on a sender's icon that tells sessions of one model family apart.",
+      "enum" : [
+        "diamond",
+        "robot",
+        "none"
+      ],
+      "title" : "Sender Badge",
+      "type" : "string"
+    },
+    "agentPane.display.senderIcon.corner" : {
+      "default" : "bottom-right",
+      "description" : "Where the small glyph sits on a sender's icon.",
+      "enum" : [
+        "bottom-right",
+        "bottom-left",
+        "top-right",
+        "top-left"
+      ],
+      "title" : "Sender Badge Corner",
+      "type" : "string"
+    },
+    "agentPane.display.senderIcon.lead" : {
+      "default" : "family",
+      "description" : "Which is big in a sender's icon: the model family's mark, or the session's own colored badge.",
+      "enum" : [
+        "family",
+        "session"
+      ],
+      "title" : "Sender Icon Emphasis",
+      "type" : "string"
+    },
     "agentPane.display.sessionInfo.placement" : {
       "default" : "overlay",
       "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",

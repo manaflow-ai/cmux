@@ -31,6 +31,7 @@ import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 import { AgentIdentity, foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
 import { agentTone } from "../subagents/agentTones";
+import { useSenderIconLook } from "../subagents/senderIconLook";
 import { orderedSubagents } from "./subagentOrder";
 
 const ROW_ICON = rowIconSize(12);
@@ -181,6 +182,9 @@ export function SubagentStatusList({
   /// when acpmux reports none.
   stack?: readonly SummarySubagent[];
 }) {
+  // The badge look picks which subagents show their family mark (foreignHarness): read here, so a
+  // change of the setting draws them again.
+  const senderBadge = useSenderIconLook().badge;
   const t = useT();
   const chatHarness = useContext(SubagentHarnessContext);
   const now = useNow(agents.some(ticking));
@@ -216,7 +220,7 @@ export function SubagentStatusList({
               <AgentLine
                 name={agent.name}
                 icon={SUBAGENT_FALLBACK}
-                mark={foreignHarness(agent.harness, chatHarness)}
+                mark={foreignHarness(agent.harness, chatHarness, senderBadge)}
                 status={status}
                 state={subagentStateText(t, agent, waiting)}
                 working={Boolean(retrying(agent))}

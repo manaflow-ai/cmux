@@ -38,6 +38,7 @@ import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
 import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
+import { SenderIcon } from "./SenderIcon";
 import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
 
@@ -186,6 +187,9 @@ export function AgentLine({
       >
         {working && !timed ? (
           <Spinner size={iconSize} loading />
+        ) : tone !== undefined ? (
+          // An agent or a chat: its sender icon, its family's mark with its badge in its tone.
+          <SenderIcon harness={mark} tone={tone} size={iconSize} fallback={icon} />
         ) : brand ? (
           <AgentMark agent={brand} size={iconSize} fallback={glyph} />
         ) : (
