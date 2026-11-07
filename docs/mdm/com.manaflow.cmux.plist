@@ -1998,6 +1998,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here.</string>
+			<key>pfm_name</key>
+			<string>chat.on</string>
+			<key>pfm_title</key>
+			<string>Default Chat Target</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
 			<string>The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.</string>
@@ -7816,6 +7828,18 @@
 			<string>browser.openSignInPagesInCmux</string>
 			<key>pfm_title</key>
 			<string>Open Sign-In Pages in cmux Browser</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.</string>
+			<key>pfm_name</key>
+			<string>browser.openPullRequestsInGitHubPage</string>
+			<key>pfm_title</key>
+			<string>Open Pull Requests in cmux GitHub Page</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
