@@ -459,7 +459,7 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                             let note = format!(
                                 "answer {}: {} already",
                                 approval.key,
-                                failure.code.clone().unwrap_or_default()
+                                failure.code.unwrap_or_default()
                             );
                             (Ok(json!({ "already": true })), Some((approval.key, None, note)))
                         }
