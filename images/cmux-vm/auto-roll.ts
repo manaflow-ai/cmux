@@ -141,7 +141,8 @@ export function rollback(text: string, id: string): { text: string; rolledBack: 
   if (inProd && nextProd.length === 0) return { text, rolledBack: false, reason: `${id} is production's only image`, nowFirst: first };
   let out = inProd ? replaceList(text, "production", nextProd) : text;
   if (staging.some((i) => i.id === id)) out = replaceList(out, "staging", staging.filter((i) => i.id !== id));
-  const nowFirst = nextProd[0]!.id;
+  const nowFirst = nextProd[0]?.id ?? "";
+  if (!nowFirst) return { text: out, rolledBack: true, reason: `${id} removed from staging; production lists no image and boots its pin`, nowFirst };
   return { text: out, rolledBack: true, reason: first === id ? `${id} removed; ${nowFirst} boots again` : `${id} removed; ${nowFirst} stays first`, nowFirst };
 }
 
@@ -188,6 +189,8 @@ export type SettleInput = {
   tipHas: boolean;
   /** Whether the image is in production's list in the deployed commit. */
   deployedHas: boolean;
+  /** Whether the image is in staging's list in the deployed commit. */
+  deployedStagingHas: boolean;
   /** Rollback only: which production deploy of the rollback this was, 1 for the rollback commit's own. */
   attempt: number;
 };
@@ -217,6 +220,10 @@ export function settle(s: SettleInput): Settle {
   }
   if (smokeGreen && !s.deployedHas && s.deployedFirst !== "" && s.bootImage === s.deployedFirst)
     return done("verified", `rollback of ${s.image}: ${s.deployedFirst} boots in production again (${seen})`);
+  // Production lists no image (it boots the platform's pin) and the rollback only took the image out of staging:
+  // no production create can boot a "first entry", so the deployed lists are the proof. A failed deploy still retries.
+  if (s.deploy === "success" && s.deployedFirst === "" && !s.deployedHas && !s.deployedStagingHas)
+    return done("verified", `rollback of ${s.image}: gone from both lists in the deployed commit; production lists no image and boots its pin (${seen})`);
   if (s.attempt < ROLLBACK_DEPLOYS) return done("retry", `rollback of ${s.image} not verified on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying again`, s.attempt + 1);
   return done("rollback_failed", `rollback of ${s.image} not verified after ${ROLLBACK_DEPLOYS} production deploys (${seen}); production may still boot it`);
 }
@@ -279,14 +286,15 @@ async function plan(opts: { event: string; commit: string; before: string; dryRu
   }
   if (!/^[0-9a-f]{40}$/u.test(opts.commit)) throw new Error("--commit must be 40 hex");
   const commit = opts.commit;
+  // Every ancestry answer below needs real history and the pin: a shallow checkout cuts ancestry at its boundary,
+  // so is-ancestor can answer "not on the branch" for a build that is, or "not older" for an older one. Either
+  // missing fails the plan instead of deciding.
+  if (gitOut(["rev-parse", "--is-shallow-repository"]) !== "false") throw new Error("plan needs full history; the checkout is shallow (fetch-depth: 0)");
+  if (!gitOk(["cat-file", "-e", `${pinned}^{commit}`])) throw new Error(`the pinned cmux-tui ${pinned.slice(0, 12)} is not in this checkout; fetch it before planning`);
   // Only a build of the branch itself rolls (the exact head a journey ran on), never a lane branch's.
   if (!gitOk(["merge-base", "--is-ancestor", commit, opts.tip])) return none(`${commit} is not on ${opts.tip}`);
   if (commit === pinned) return none(`cmux-tui ${commit.slice(0, 12)} is already pinned`);
-  // Never back: an older build than the pinned one does not roll. Deciding that needs the pin and real history: a
-  // shallow checkout cuts ancestry at its boundary, so is-ancestor can answer "not older" for an older build.
-  // Either missing fails the plan instead of rolling.
-  if (gitOut(["rev-parse", "--is-shallow-repository"]) !== "false") throw new Error("plan needs full history; the checkout is shallow (fetch-depth: 0)");
-  if (!gitOk(["cat-file", "-e", `${pinned}^{commit}`])) throw new Error(`the pinned cmux-tui ${pinned.slice(0, 12)} is not in this checkout; fetch it before planning`);
+  // Never back: an older build than the pinned one does not roll.
   if (gitOk(["merge-base", "--is-ancestor", commit, pinned])) return none(`${commit.slice(0, 12)} is older than the pinned ${pinned.slice(0, 12)}`);
 
   // What the build would change in the lock (files.cmux.com only); unchanged binaries roll nothing.
@@ -377,6 +385,7 @@ async function main(argv: string[]): Promise<number> {
       tipFirst: tip.prod[0] ?? "",
       tipHas: tip.prod.includes(image) || tip.staging.includes(image),
       deployedHas: deployed.prod.includes(image),
+      deployedStagingHas: deployed.staging.includes(image),
       attempt,
     };
     console.log(JSON.stringify({ ...settle(input), deployedFirst: input.deployedFirst, tipFirst: input.tipFirst }, null, 2));

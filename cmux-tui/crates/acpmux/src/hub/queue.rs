@@ -1192,8 +1192,11 @@ impl Hub {
                 "promptId": prompt_id,
                 "turnId": turn_id,
                 "prompt": blocks,
-                // Checked again: the folder's trust may have changed across the restart.
-                "trustGate": true,
+                // Gated as it came: a prompt from the CLI's unix socket never was, so a restart
+                // does not hold it on a trust question nobody asked (cmux#37231). The gated ones
+                // are checked again, since the folder's trust may have changed across the
+                // restart, as is one from a log from before `user_message` recorded its gate.
+                "trustGate": e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true),
                 "restored": "unstarted",
             });
             for k in ["control", "cloudMobile", "images", "inlineParts", "pasted", "_meta"] {
