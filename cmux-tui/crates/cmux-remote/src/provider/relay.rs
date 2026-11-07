@@ -254,7 +254,17 @@ async fn read_credential_command(
         }
     };
     let result = tokio::time::timeout(source.timeout, async {
-        let output = read_limited_credential(stdout).await?;
+        let output = match read_limited_credential(stdout).await {
+            Ok(output) => output,
+            // An oversized or unreadable answer still names what stderr said.
+            Err(ProviderError::Transport(message)) => {
+                return Err(ProviderError::Transport(format!(
+                    "{message}{}",
+                    stderr.describe().await
+                )));
+            }
+            Err(error) => return Err(error),
+        };
         let status = child
             .wait()
             .await
@@ -380,17 +390,29 @@ fn stderr_summary(tail: &[u8]) -> String {
     }
 }
 
-/// `word` without a trailing `:` when it is an error code: dotted lowercase
-/// segments of letters and `_`, such as `carrier.unavailable:` or
-/// `vm.agent_unreachable`, at most 64 bytes. Segments carry no digits, so a
-/// lowercase hex or dotted ticket (`v1.0af3.9c2e`) is never one.
-fn error_code(word: &str) -> Option<&str> {
+/// The error codes a relay ticket command may name in a log: the refusals
+/// `cmux host cloud carrier-ticket` prints (cmux-host `cloud/carrier_ticket.rs`)
+/// and the platform codes it passes on. Only these exact words are copied out
+/// of stderr; any other word, however code-shaped (`dead.beef`), is not.
+const KNOWN_ERROR_CODES: [&str; 12] = [
+    "auth.forbidden",
+    "auth.refused",
+    "carrier.bad_answer",
+    "carrier.busy",
+    "carrier.rate_limited",
+    "carrier.unavailable",
+    "carrier.unreachable",
+    "cloud.machine.not_found",
+    "owner.unreachable",
+    "validation.invalid",
+    "vm.agent_unreachable",
+    "vm.unbound",
+];
+
+/// `word` without a trailing `:` when it is one of [`KNOWN_ERROR_CODES`].
+fn error_code(word: &str) -> Option<&'static str> {
     let code = word.strip_suffix(':').unwrap_or(word);
-    let segment = |part: &str| {
-        part.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
-            && part.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_')
-    };
-    (code.len() <= 64 && code.contains('.') && code.split('.').all(segment)).then_some(code)
+    KNOWN_ERROR_CODES.iter().copied().find(|known| *known == code)
 }
 
 /// Kill and reap a credential command on every cancellation or failure path.
@@ -2372,6 +2394,24 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn oversized_credential_answer_reports_its_stderr_code() {
+        // #37670 review 4 F3: a bad answer on stdout keeps stderr's code.
+        let script = format!(
+            "echo carrier.bad_answer: too long >&2; head -c {} /dev/zero | tr '\\0' a",
+            MAX_RELAY_CREDENTIAL_BYTES + 10
+        );
+        let source = RelayCredentialSource::command_with_timeout(
+            "/bin/sh",
+            ["-c".to_owned(), script],
+            Duration::from_secs(10),
+        );
+        let message = source.fetch().await.unwrap_err().to_string();
+        assert!(message.contains("was too large"), "{message}");
+        assert!(message.ends_with("codes carrier.bad_answer"), "{message}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn timed_out_credential_command_reports_its_stderr_length() {
         let source = RelayCredentialSource::command_with_timeout(
             "/bin/sh",
@@ -2429,6 +2469,18 @@ mod tests {
         let stopped = count();
         tokio::time::sleep(Duration::from_millis(1500)).await;
         assert_eq!(count(), stopped, "the registration kept running after shutdown");
+    }
+
+    #[test]
+    fn stderr_summary_names_only_known_codes() {
+        // #37670 review 4 F1: a code-shaped secret is not a code.
+        let stderr = b"carrier.unavailable: no route; dead.beef password.secret v1.abc.def\n";
+        assert_eq!(
+            stderr_summary(stderr),
+            format!("; stderr: {} bytes, codes carrier.unavailable", stderr.len())
+        );
+        let stderr = b"dead.beef\n";
+        assert_eq!(stderr_summary(stderr), format!("; stderr: {} bytes", stderr.len()));
     }
 
     #[test]

@@ -113,7 +113,7 @@ fn printed_code(code: Option<&str>) -> String {
             && part.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_')
     };
     match code {
-        Some(code) if code.len() <= 48 && code.split('.').all(segment) => {
+        Some(code) if code.len() <= 64 && code.split('.').all(segment) => {
             if code.contains('.') {
                 code.to_owned()
             } else {
