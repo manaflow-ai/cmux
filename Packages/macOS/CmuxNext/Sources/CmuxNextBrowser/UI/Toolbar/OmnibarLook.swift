@@ -25,6 +25,9 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     public var toolbarIconSize: CGFloat
     /// The star and other trailing address-bar icons.
     public var trailingIconSize: CGFloat
+    /// The bookmark star's drawing side: `toolbarIconSize` (one ink box with the toolbar's glyphs),
+    /// clamped to the star's button, `trailingIconSize + 2`.
+    public var starIconSize: CGFloat { min(toolbarIconSize, trailingIconSize + 2) }
 
     /// `browser.omnibar.height`'s allowed range in points (`BrowserOmnibarSetting.heightRange`).
     public static let heightRange: ClosedRange<Double> = 20...56
@@ -45,7 +48,7 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
         self.fontSize = font
         buttonSize = tokens.toolbarButtonSize
         iconPointSize = min(tokens.resolve(compact: 13, comfortable: 15), ((barHeight - 8) / 1.2).rounded(.down))
-        toolbarIconSize = min(tokens.resolve(compact: 20, comfortable: 22), buttonSize - 4)
+        toolbarIconSize = min(tokens.toolbarGlyphSize, buttonSize - 4)
         trailingIconSize = min(tokens.resolve(compact: 18, comfortable: 20), barHeight - 6)
     }
 
@@ -205,7 +208,7 @@ enum ToolbarRowMetrics {
         let metrics = self.metrics
         return [
             "bar": metrics.barHeight, "button": metrics.buttonSize, "fontSize": metrics.fontSize,
-            "toolbarIcon": metrics.toolbarIconSize, "trailingIcon": metrics.trailingIconSize, "chipIcon": metrics.iconPointSize,
+            "toolbarIcon": metrics.toolbarIconSize, "trailingIcon": metrics.trailingIconSize, "starIcon": metrics.starIconSize, "chipIcon": metrics.iconPointSize,
             "spacing": buttonSpacing, "margin": barMargin, "inset": toolbarInset, "trailingInset": toolbarTrailingInset,
             "barTop": barTop ?? self.barTop(scale: scale, withButtons: withButtons), "cornerRadius": cornerRadius,
             "preferredAddress": Metrics.tabMaxWidth, "minimumAddress": BrowserMetrics.minimumAddressWidth,

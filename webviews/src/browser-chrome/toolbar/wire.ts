@@ -61,6 +61,8 @@ export type ToolbarMetrics = {
   fontSize: number;
   toolbarIcon: number;
   trailingIcon: number;
+  /** The bookmark star: the toolbar glyph side, clamped to its button (`OmnibarMetrics.starIconSize`). */
+  starIcon: number;
   chipIcon: number;
   /** Space between neighboring buttons. */
   spacing: number;

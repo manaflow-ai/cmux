@@ -408,6 +408,7 @@ describe("drafts move with their tab (two panes, two toolbar pages)", () => {
         fontSize: 13,
         toolbarIcon: 16,
         trailingIcon: 18,
+        starIcon: 20,
         chipIcon: 16,
         spacing: 3,
         margin: 6,

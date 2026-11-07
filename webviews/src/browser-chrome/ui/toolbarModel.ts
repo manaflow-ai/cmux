@@ -254,6 +254,7 @@ export type ToolbarRowMetrics = LayoutMetrics & {
   fontSize: number;
   toolbarIcon: number;
   trailingIcon: number;
+  starIcon: number;
   chipIcon: number;
   cornerRadius: number;
 };
