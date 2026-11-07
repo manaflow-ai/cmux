@@ -109,7 +109,9 @@ pub fn survivor(
     windows: &[Vec<String>],
     closing: &[String],
 ) -> Option<usize> {
-    let stays = |index: usize| windows[index].iter().any(|id| !closing.contains(id));
+    let stays = |index: usize| {
+        windows.get(index).is_some_and(|window| window.iter().any(|id| !closing.contains(id)))
+    };
     active
         .filter(|&index| index < windows.len() && stays(index))
         .or_else(|| (0..windows.len()).find(|&index| stays(index)))
@@ -503,7 +505,8 @@ pub fn notes(verb: &NotesVerb) -> Result<NotesUpdate, Vec<&'static str>> {
             let next = current
                 .as_deref()
                 .and_then(|lane| STATUS_LANES.iter().position(|known| *known == lane))
-                .map_or(STATUS_LANES[0], |index| STATUS_LANES[(index + 1) % STATUS_LANES.len()]);
+                .and_then(|index| STATUS_LANES.get(index.checked_add(1)?))
+                .map_or(STATUS_LANES[0], |lane| *lane);
             (FieldUpdate::Unchanged, set(next))
         }
         NotesVerb::SetStatus { status } => match status.as_deref().unwrap_or("") {
@@ -636,18 +639,21 @@ pub enum ScreenClose {
 /// The screens (indices) `verb` closes around screen `index`; `pinned` says
 /// which screens are pinned. Empty: the app refuses it (no other screens).
 pub fn screen_close(verb: ScreenClose, index: usize, pinned: &[bool]) -> Vec<usize> {
-    (0..pinned.len())
-        .filter(|&other| match verb {
-            ScreenClose::Others => other != index && !pinned[other],
+    pinned
+        .iter()
+        .enumerate()
+        .filter(|&(other, &is_pinned)| match verb {
+            ScreenClose::Others => other != index && !is_pinned,
             ScreenClose::ToRight => other > index,
-            ScreenClose::ToLeft => other < index && !pinned[other],
+            ScreenClose::ToLeft => other < index && !is_pinned,
         })
+        .map(|(other, _)| other)
         .collect()
 }
 
 /// Where Move Screen Left/Right puts screen `index`, or None at the edge.
 pub fn screen_move(index: usize, offset: i64, count: usize) -> Option<usize> {
-    let target = i64::try_from(index).ok()? + offset;
+    let target = i64::try_from(index).ok()?.checked_add(offset)?;
     usize::try_from(target).ok().filter(|&target| target < count)
 }
 
@@ -672,8 +678,8 @@ pub fn screen_group_move(group: &str, forward: bool, screens: &[GroupedScreen]) 
         })
     };
     if forward {
-        let neighbor = screens.get(last + 1)?;
-        return Some(first + span(neighbor));
+        let neighbor = screens.get(last.checked_add(1)?)?;
+        return first.checked_add(span(neighbor));
     }
     let neighbor = screens.get(first.checked_sub(1)?)?;
     if neighbor.pinned {

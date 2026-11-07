@@ -11,10 +11,109 @@ import {
   cloudStartKeys,
   cloudStartToasted,
   grantedCloudStart,
+  makeCloudSignInRetry,
   newTabProjectPick,
   oneCloudStart,
+  resumeSignedIn,
   startCloudChat,
+  type CloudStartAnswer,
 } from "./cloudRun";
+
+test("sign-in recovery preserves the prompt and resumes it once", async () => {
+  const prompt = { task: "Fix the failing Cloud build", home: true, harness: "codex", model: "gpt-6.1-sol" };
+  let resolveSignIn!: (signedIn: boolean) => void;
+  const sends: [string, Record<string, unknown>][] = [];
+  let delivered = 0;
+  const send = oneCloudStart(async (method, params) => {
+    sends.push([method, params]);
+    if (method === "cloud.startChat" && params.signedIn) return void (delivered += 1);
+    if (method !== "cloud.signIn") throw { code: "not_signed_in" };
+    const signedIn = await new Promise<boolean>((resolve) => {
+      resolveSignIn = resolve;
+    });
+    // The host starts nothing on sign-in: it keeps the click for the page's send again.
+    throw { code: signedIn ? "cloud_signed_in" : "not_signed_in" };
+  });
+  expect(await send(prompt, "first-send")).toEqual({ ok: false, code: "not_signed_in" });
+  const signingIn = () =>
+    send(prompt, "first-send", true)?.then((answer) =>
+      resumeSignedIn(
+        answer,
+        () => true,
+        () => send({ ...prompt, signedIn: true }, "first-send"),
+      ),
+    );
+  const retry = makeCloudSignInRetry(signingIn);
+  const first = retry();
+  const second = retry();
+  expect(first).toBe(second);
+  expect(delivered).toBe(0);
+  resolveSignIn(true);
+  await expect(first).resolves.toBe(true);
+  expect(delivered).toBe(1);
+  expect(sends).toEqual([
+    ["cloud.startChat", { ...prompt, key: "first-send" }],
+    ["cloud.signIn", { ...prompt, key: "first-send" }],
+    ["cloud.startChat", { ...prompt, key: "first-send", signedIn: true }],
+  ]);
+  await expect(retry()).resolves.toBe(false);
+  expect(sends).toHaveLength(3);
+});
+
+test("a page that left Cloud after the browser signed in sends nothing again", async () => {
+  // The race: the host answered signed in, and the page withdrew before reading that answer.
+  let waiting = true;
+  const sends: string[] = [];
+  const again = () => (sends.push("again"), Promise.resolve<CloudStartAnswer>({ ok: true }));
+  const signedIn = Promise.resolve<CloudStartAnswer>({ ok: false, code: "cloud_signed_in" });
+  waiting = false;
+  const answer = await signedIn.then((reply) => resumeSignedIn(reply, () => waiting, again));
+  expect(answer).toEqual({ ok: false, code: "cloud_sign_in_cancelled" });
+  expect(sends).toEqual([]);
+  // Still waiting: the start goes again once; any other answer passes through untouched.
+  await expect(resumeSignedIn({ ok: false, code: "cloud_signed_in" }, () => true, again)).resolves.toEqual({
+    ok: true,
+  });
+  await expect(resumeSignedIn({ ok: false, code: "not_signed_in" }, () => true, again)).resolves.toEqual({
+    ok: false,
+    code: "not_signed_in",
+  });
+  expect(sends).toEqual(["again"]);
+});
+
+test("sign-in recovery can be reused after its card resets", async () => {
+  let starts = 0;
+  const retry = makeCloudSignInRetry(async () => {
+    starts += 1;
+    return { ok: true };
+  });
+  await expect(retry()).resolves.toBe(true);
+  await expect(retry()).resolves.toBe(false);
+  retry.reset();
+  await expect(retry()).resolves.toBe(true);
+  expect(starts).toBe(2);
+});
+
+test("a reset while a sign-in is out leaves the next card its own retry", async () => {
+  const pending: ((answer: { ok: true }) => void)[] = [];
+  const retry = makeCloudSignInRetry(
+    () =>
+      new Promise((resolve) => {
+        pending.push(resolve);
+      }),
+  );
+  const stale = retry();
+  retry.reset();
+  const fresh = retry();
+  expect(fresh).not.toBe(stale);
+  expect(pending).toHaveLength(2);
+  // The old card's sign-in comes back first: it counts for nothing and leaves the new one out.
+  pending[0]!({ ok: true });
+  await expect(stale).resolves.toBe(false);
+  expect(retry()).toBe(fresh);
+  pending[1]!({ ok: true });
+  await expect(fresh).resolves.toBe(true);
+});
 
 test("a Cloud start sends the prompt, folder, agent and model with a key, and answers ok", async () => {
   const calls: [string, Record<string, unknown>][] = [];

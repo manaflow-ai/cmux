@@ -160,6 +160,14 @@ impl CircuitLedger {
         circuit_deadline.into_iter().chain(allocation_deadline).min()
     }
 
+    /// Pending allocations still inside their join deadline.
+    pub fn pending_count(&self, now_ms: u64) -> usize {
+        self.entries
+            .values()
+            .filter(|lease| matches!(lease, CircuitLease::Pending { deadline_ms } if *deadline_ms > now_ms))
+            .count()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty() && self.allocations_in_window == 0
     }
@@ -223,6 +231,8 @@ mod tests {
         assert!(ledger.reserve("after-expiry".into(), 300, 200));
         assert_eq!(ledger.len(), 1);
         assert_eq!(ledger.next_deadline_ms(), Some(300));
+        assert_eq!(ledger.pending_count(200), 1);
+        assert_eq!(ledger.pending_count(300), 0);
         assert!(ledger.release("after-expiry"));
         assert_eq!(ledger.next_deadline_ms(), Some(100 + CIRCUIT_ALLOCATION_WINDOW_MS));
     }

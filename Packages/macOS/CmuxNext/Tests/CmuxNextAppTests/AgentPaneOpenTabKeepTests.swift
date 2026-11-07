@@ -26,4 +26,15 @@ struct AgentPaneOpenTabKeepTests {
         #expect(opened.map(\.keep) == [true, true, false])
         #expect(opened.first == AgentPaneOpenTab(kind: .terminal, text: "codex login", cwd: "/tmp/project", run: true, keep: true))
     }
+
+    /// The New Tab page's create buttons send `inPlace`; every other open leaves it off.
+    @Test func inPlaceReachesTheHostOnlyWhenThePageAsks() async {
+        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        var opened: [AgentPaneOpenTab] = []
+        model.onOpenTab = { opened.append($0) }
+        _ = await Self.ask(model, ["kind": "terminal", "text": "", "run": false, "inPlace": true])
+        _ = await Self.ask(model, ["kind": "browser", "text": "", "inPlace": true])
+        _ = await Self.ask(model, ["kind": "browser", "text": "example.com"])
+        #expect(opened.map(\.inPlace) == [true, true, false])
+    }
 }

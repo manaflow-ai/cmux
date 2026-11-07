@@ -30,6 +30,8 @@ pub(crate) fn early_unix_scope(raw_args: &[String]) -> Option<fn(&[String]) -> i
         Some(run_team)
     } else if github_requested(raw_args, Surface::current()) {
         Some(run_github)
+    } else if gitlab_requested(raw_args, Surface::current()) {
+        Some(run_gitlab)
     } else {
         None
     }
@@ -53,6 +55,16 @@ fn github_requested(raw_args: &[String], surface: Surface) -> bool {
 
 fn run_github(rest: &[String]) -> i32 {
     i32::from(cmux_host::github_cli::run(rest))
+}
+
+/// `cmux gitlab credential` (crate `cmux-host`): git for GitLab and other
+/// hosts with the token sealed to the machine, on the `cmux` surface only.
+fn gitlab_requested(raw_args: &[String], surface: Surface) -> bool {
+    surface == Surface::Cmux && raw_args.first().is_some_and(|first| first == "gitlab")
+}
+
+fn run_gitlab(rest: &[String]) -> i32 {
+    i32::from(cmux_host::gitlab_cli::run(rest))
 }
 
 /// Runs `cmux team <rest>` on the team VM and returns its exit code.
@@ -116,5 +128,7 @@ mod tests {
         assert!(github_requested(&args(&["github", "credential", "get"]), Surface::Cmux));
         assert!(!github_requested(&args(&["github", "gh"]), Surface::CmuxTui));
         assert!(!github_requested(&args(&["git", "status"]), Surface::Cmux));
+        assert!(gitlab_requested(&args(&["gitlab", "credential", "get"]), Surface::Cmux));
+        assert!(!gitlab_requested(&args(&["gitlab", "credential"]), Surface::CmuxTui));
     }
 }

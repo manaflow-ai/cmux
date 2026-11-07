@@ -95,16 +95,20 @@ pub enum Toast {
 /// terminal shows it only if it runs a program; one idle tab and tabs that
 /// reopen free never do.
 pub fn toast(tabs: &[ClosingTab]) -> Toast {
-    let real: Vec<usize> = (0..tabs.len()).filter(|&i| !reopens_free(&tabs[i])).collect();
+    let real: Vec<(usize, &ClosingTab)> =
+        tabs.iter().enumerate().filter(|(_, tab)| !reopens_free(tab)).collect();
     if real.len() >= 2 {
         return Toast::Show;
     }
     let working = |tab: &ClosingTab| tab.agent_at_work || tab.status_working || tab.unsent_draft;
-    if real.iter().any(|&i| working(&tabs[i])) {
+    if real.iter().any(|(_, tab)| working(tab)) {
         return Toast::Show;
     }
-    let terminals: Vec<usize> =
-        real.into_iter().filter(|&i| tabs[i].kind == TabKind::Pty).collect();
+    let terminals: Vec<usize> = real
+        .into_iter()
+        .filter(|(_, tab)| tab.kind == TabKind::Pty)
+        .map(|(index, _)| index)
+        .collect();
     if terminals.is_empty() { Toast::Skip } else { Toast::AskTerminals { terminals } }
 }
 
@@ -145,7 +149,8 @@ pub fn reads(tabs: &[ClosingTab], warnings: Warnings) -> Option<Reads> {
     for (index, tab) in tabs.iter().enumerate().filter(|(_, tab)| tab.is_live_terminal()) {
         if tab.agent_at_work {
             agents.push(display_name(tab.agent.as_deref()));
-        } else {
+        } else if warnings.warn_tab {
+            // Only the program warning reads what a terminal runs.
             others.push(index);
         }
     }

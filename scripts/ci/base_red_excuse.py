@@ -45,6 +45,12 @@ lines are compared with commit shas masked, so a real red that names each run's 
 No failure is exit 0: asked about no red run or check (or about a green ws-check), it prints why and exits 0. A
 red run or check it was named that shows no failed job is still refused (2026-11-05: merge_hold asks it about
 every merge, and a green head read as exit 1).
+
+Every run is bounded: past DEADLINE_SECONDS of wall clock (BASE_RED_EXCUSE_DEADLINE_SECONDS) it stops and refuses as
+infra, not a verdict. A --sha that is one character forty times (a test's "a" * 40, an all-zero sha) is refused at
+once, before any read, unless BASE_RED_EXCUSE_FIXTURE_SHA=1 says a test fixture answers for it. 2026-11-05: a
+gh-merge-green test run's classifier, --sha aaaa... against a fake gh whose list never ended, outlived its test and ran
+for three days on gcp-agent-lane-2, holding 27.6 GB.
 """
 from __future__ import annotations
 
@@ -60,6 +66,7 @@ import importlib.util
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -174,6 +181,27 @@ BLOB_QUERY = ("query($owner: String!, $name: String!, $expression: String!) { re
 # host whose cache lives elsewhere.
 SOURCE_CACHE_ENV = "BASE_RED_EXCUSE_SOURCE_CACHE"
 GIT_SECONDS = 60
+# The whole run's wall-clock bound (module docs). Real runs read a few job logs and finish in well under a minute.
+DEADLINE_SECONDS = 1200
+PLACEHOLDER_SHA = re.compile(r"([0-9a-fA-F])\1{39}")
+
+
+class Deadline(BaseException):
+    """The run passed its deadline. A BaseException, so no `except Refused` or `except Exception` on the way out
+    takes it for a verdict and reads on."""
+
+
+def deadline_seconds() -> int:
+    raw = os.environ.get("BASE_RED_EXCUSE_DEADLINE_SECONDS", "")
+    try:
+        value = int(raw) if raw else DEADLINE_SECONDS
+    except ValueError:
+        return DEADLINE_SECONDS
+    return value if value > 0 else DEADLINE_SECONDS
+
+
+def _past_deadline(signum, frame):
+    raise Deadline()
 
 
 def source_cache() -> Path:
@@ -468,15 +496,36 @@ def _needs(jobs: dict, job_id: str, where: str) -> list[str]:
     return needs
 
 
+# PyYAML 6.0.3's pure-Python lib/yaml, unmodified (sdist sha256 d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f,
+# MIT, its LICENSE beside it): the YAML reader where the interpreter has no PyYAML. merge_hold runs this script as
+# `python3 -I` under Homebrew's Python on the Mac that lands PRs, which has none, and every cmuxterm-hq rollup red
+# was refused there with "no YAML parser" (2026-11-07, hq#7398).
+VENDORED_YAML = Path(__file__).resolve().with_name("_vendor")
+
+
+def yaml_module():
+    """PyYAML: the interpreter's own, else the vendored copy (VENDORED_YAML). Refused when neither imports."""
+    try:
+        import yaml  # noqa: PLC0415 - only deriving reads YAML; judging this repo reads ROLLUPS_FILE
+        return yaml
+    except ImportError:
+        pass
+    if (VENDORED_YAML / "yaml" / "__init__.py").is_file():
+        if str(VENDORED_YAML) not in sys.path:
+            sys.path.append(str(VENDORED_YAML))
+        try:
+            import yaml  # noqa: PLC0415
+            return yaml
+        except ImportError:
+            pass
+    raise Refused("no YAML parser to read the workflows' rollups; no rollup red is excused")
+
+
 def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTED_ROLLUPS, read=None) -> dict:
     """The rollups contract (ROLLUPS_FILE) derived from the workflow files; refuses any shape it does not know.
     RUN and ROUTED name the rollups (another repo's, OTHER_REPO_ROLLUPS); READ(file) gives a workflow's text when it
     is not under WORKFLOWS (another repo's, at its base)."""
-    try:
-        import yaml  # noqa: PLC0415 - only deriving reads YAML; judging this repo reads ROLLUPS_FILE
-    except ImportError:
-        raise Refused("no YAML parser to read the workflows' rollups; no rollup red is excused") from None
-
+    yaml = yaml_module()
     if read is None:
         def read(file: str) -> str:
             return (workflows / file).read_text()
@@ -934,29 +983,96 @@ BASE_STATUS_COMMITS = 10
 VERCEL_RATE_LIMITED = re.compile(r"Deployment rate limited\b")
 VERCEL_NOT_BUILT = re.compile(r"(?i)\bIgnored Build Step\b|\bcancel(?:l?ed)?\b")
 VERCEL_TREE = "web/"
-PR_FILES_QUERY = ("query($owner: String!, $name: String!, $oid: GitObjectID!) { repository(owner: $owner, name: $name) "
-                  "{ object(oid: $oid) { ... on Commit { associatedPullRequests(first: 10) { nodes { number "
-                  "baseRefName headRefOid changedFiles files(first: 100) { nodes { path } pageInfo { hasNextPage } } "
-                  "} } } } } }")
+# A PR's files are read PR_FILES_PAGE at a time through files(after:) until the last page (cmux#37362 at 54470673
+# changes 108 files; one page of 100 refused it). The PR's head and base commits must stay the same on every page, so
+# the pages all list one diff.
+PR_FILES_PAGE = 100
+PR_FILES_PAGES = 30  # 3000 files, GitHub's own limit on a PR's file list
+PR_FILES_QUERY = ("query($owner: String!, $name: String!, $oid: GitObjectID!, $after: String) { repository(owner: "
+                  "$owner, name: $name) { object(oid: $oid) { ... on Commit { associatedPullRequests(first: 10) { "
+                  f"nodes {{ number baseRefName baseRefOid headRefOid changedFiles files(first: {PR_FILES_PAGE}, "
+                  "after: $after) { nodes { path } pageInfo { hasNextPage endCursor } } } } } } } }")
 
 
 def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
-    """The open PR into BASE whose head is SHA, and every path it changes, in one GraphQL read (no REST). Refused when
-    there is no such PR or GitHub lists fewer files than the PR changes."""
+    """The open PR into BASE whose head is SHA, and every path it changes, over GraphQL (no REST), page by page.
+    Refused when there is no such PR, when its base moves while it is read, or when GitHub lists fewer files than
+    the PR changes."""
     owner, _, name = repo.partition("/")
-    found = json.loads(github.run(["api", "graphql", "-f", f"query={PR_FILES_QUERY}", "-f", f"owner={owner}",
-                                   "-f", f"name={name}", "-f", f"oid={sha}"]))
-    commit = (((found.get("data") or {}).get("repository") or {}).get("object") or {}) if isinstance(found, dict) else {}
-    for pr in (commit.get("associatedPullRequests") or {}).get("nodes") or []:
-        if pr.get("headRefOid") != sha or pr.get("baseRefName") != base:
-            continue
+    number, base_oid, paths, after, pr, info = None, None, [], None, {}, {}
+    for _page in range(PR_FILES_PAGES):
+        found = json.loads(github.run(["api", "graphql", "-f", f"query={PR_FILES_QUERY}", "-f", f"owner={owner}",
+                                       "-f", f"name={name}", "-f", f"oid={sha}",
+                                       "-F" if after is None else "-f", f"after={after or 'null'}"]))
+        commit = (((found.get("data") or {}).get("repository") or {}).get("object") or {}) \
+            if isinstance(found, dict) else {}
+        pr = next((node for node in (commit.get("associatedPullRequests") or {}).get("nodes") or []
+                   if node.get("headRefOid") == sha and node.get("baseRefName") == base
+                   and (number is None or node.get("number") == number)), None)
+        if pr is None:
+            if number is None:
+                raise Refused(f"no PR into {base} has head {sha} to read its changed files from")
+            raise Refused(f"#{number}: no longer a PR into {base} with head {sha} while its files were read")
+        if number is None:
+            number, base_oid = pr.get("number"), pr.get("baseRefOid")
+        elif pr.get("baseRefOid") != base_oid:
+            raise Refused(f"#{number}: its base moved from {base_oid} to {pr.get('baseRefOid')} while its files "
+                          "were read")
         files = pr.get("files") or {}
-        paths = [node.get("path") for node in files.get("nodes") or [] if isinstance(node.get("path"), str)]
-        if (files.get("pageInfo") or {}).get("hasNextPage") or len(paths) != pr.get("changedFiles"):
-            raise Refused(f"#{pr.get('number')}: GitHub listed {len(paths)} of its {pr.get('changedFiles')} changed "
-                          f"files, too few to show it stays out of {VERCEL_TREE}")
-        return pr.get("number"), paths
-    raise Refused(f"no PR into {base} has head {sha} to read its changed files from")
+        paths += [node.get("path") for node in files.get("nodes") or [] if isinstance(node.get("path"), str)]
+        info = files.get("pageInfo") or {}
+        after = info.get("endCursor")
+        if not info.get("hasNextPage") or not after:
+            break
+    if info.get("hasNextPage") or len(paths) != pr.get("changedFiles"):
+        raise Refused(f"#{number}: GitHub listed {len(paths)} of its {pr.get('changedFiles')} changed files, too "
+                      f"few to judge what it changes")
+    return number, paths
+
+
+# A step-A Rust change (cmux#37292, 2026-11-06): the app links one pinned release of the app FFI, and
+# scripts/cmux-next/check-app-ffi-pin.sh reports "error: the app FFI sources changed since the pinned source" on any PR
+# that changes its inputs. app-ffi-release.yml publishes only from a feat-cmux-next push, so such a PR can never carry
+# its own pin: its merge is what publishes the release the re-pin then names. That error alone, in the cmux-next checks
+# job, is excused when the PR changes FFI inputs, leaves Package.swift (the pin) alone and changes no Swift, so no app
+# code calls a symbol or op the pinned library lacks. Any other red in the job is judged as before.
+FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+FFI_PIN_CHECK = "Check the app FFI pin"
+FFI_PIN_ROLLUP_STEP = "Fail on any red check"  # the job's last step, red when a continue-on-error check is
+FFI_PIN_ERROR = "error: the app FFI sources changed since the pinned source"
+FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh")
+
+
+def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], errors: set[str], tests: set[str],
+                   log: str, github) -> str | None:
+    """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR (the
+    rule above). Wherever the pin error shows, the PR must be one the rule covers, whatever else is red: Refused
+    when it changes Swift or Package.swift or no FFI input, since the base comparison may set the error aside beside
+    another red the base shares (review of d5c11dd8). None when there is no pin error, or when something else is red
+    too (another failed step, a failing test, a crash, another error): that red is judged as before. The caller asks
+    only after test_reds.read found no crash or cut-short run."""
+    pin, rollup = normalise_error(FFI_PIN_ERROR), normalise_error(f"red check: {FFI_PIN_CHECK}")
+    if name != FFI_PIN_JOB or not any(error.startswith(pin) for error in errors):
+        return None
+    number, paths = pr_paths(repo, base, sha, github)
+    if FFI_PIN_MANIFEST in paths:
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes {FFI_PIN_MANIFEST}: a PR that moves "
+                      "the pin must pin a release built from its own sources")
+    if swift := [path for path in paths if path.endswith(".swift")]:
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes Swift ({'; '.join(swift[:5])}): "
+                      "app code may call what the pinned library lacks; land the Rust alone, then the Swift after "
+                      "the re-pin")
+    if not any(touches(path, read) for path in paths for read in FFI_INPUTS):
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes no app FFI input")
+    others = {error for error in errors if not error.startswith(pin)} - {rollup}
+    # The rollup must have named the pin as its red check: a rollup that failed before saying so is another red.
+    if (tests or crash_signals(log) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
+            or rollup not in errors):
+        return None
+    return (f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} changes app FFI "
+            f"inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned by the release its merge "
+            "publishes")
 
 
 def vercel_not_built(repo: str, base: str, sha: str | None, name: str, description: str, found: dict, github) -> str | None:
@@ -1436,7 +1552,8 @@ def created(run: dict) -> datetime | None:
 #   (c) the run is whole: a crash or a cut-short run never counts (refused before this is asked).
 # Only a declared guard job (GUARD_JOBS) qualifies, and each failing test must be one its failed step's own script
 # runs (the step's echo names the test file) with a whole test-run summary printed: a Swift, cargo or webview job, or
-# product code printing a `FAILED tests/x.py::...` line, is never fixed on the base.
+# product code printing a `FAILED tests/x.py::...` line, is never fixed on the base, unless it is a package job whose
+# inputs are declared (PACKAGE_JOBS, below).
 TOP_LEVEL = "top-level files"  # every path with no directory: package.json, .gitmodules, the entitlements, ...
 RELEASE_MANIFESTS = (TOP_LEVEL, "release-notes/", "homebrew-cmux/", "cmux.xcodeproj/", "Resources/", "ghostty-next",
                      "vendor/")
@@ -1463,6 +1580,179 @@ TRACEBACK_FRAME = re.compile(r'^\s*File "(?:[^"]*/)?(tests/[\w.-]+\.py)", line \
 ROLLUP_RED = re.compile(r"^##\[error\]red check: \S")
 # A compare lists at most 300 files: a longer diff cannot be shown to stay out of a test's paths.
 COMPARE_FILES_CAP = 300
+
+
+# Fixed on the base for a package's own test job (2026-11-07). cmux#36988 (policy.json, pane methods and the web
+# Context screen, d286aa2f) failed CmuxMobileKit's silentDropDetectionBenchmark, a wall-clock bound a loaded runner
+# missed with no CmuxMobileKit change in the PR; once the base fixed the test (#37535), a PR branched before the fix
+# kept that red as its own. A package job is the test run of one Swift package and the Rust it links, so a PR that
+# changes none of its inputs cannot have caused a red that passes on the newest base after its merge-base: (a) and
+# (c) above hold as for a guard test, and instead of (b) every failed step is one of the job's test steps, naming at
+# least one failing test, and the PR's diff touches none of the job's declared reads nor GUARD_READS_DEFAULT. The
+# reads are declared, never guessed: the package directories, the Rust crates its FFI builds and the files their
+# sources include_str! (cmux-rd-ffi's tests read schemas/remote-tab/) and the repository files its Swift names by path
+# (its tests read cmux-tui/spec/ and schemas/deeplinks/ at run time), checked against the tree by
+# tests/test_base_red_excuse.py. At the head they are checked again: every Swift package Package.swift reaches by
+# path and every Rust crate the Cargo manifests reach by path (cargo_crates, which must cover every path crate in the
+# Cargo.lock) must lie in them, and every failed step must name its own failing test, else the red is refused (a new dependency the
+# declaration has not caught up with reads paths this rule cannot see).
+PACKAGE_JOBS = {
+    "CmuxMobileKit tests (macOS swift test, iOS simulator)": {
+        "steps": ("swift test (macOS)", "xcodebuild test (iOS simulator)"),
+        "swift": ("cmux-next-ios/CmuxMobileKit",),
+        "cargo_lock": "cmux-next-ios/rust/Cargo.lock",
+        "reads": ("cmux-next-ios/CmuxMobileKit/", "cmux-next-ios/rust/", "cmux-next-ios/.cargo/", ".cargo/",
+                  "Packages/Shared/", "Packages/iOS/", "cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock",
+                  "cmux-tui/rust-toolchain.toml", "cmux-tui/rust-toolchain", "cmux-tui/.cargo/",
+                  "cmux-tui/crates/cmux-rd-core/", "cmux-tui/crates/cmux-rd-engine/", "cmux-tui/crates/cmux-rd-ffi/",
+                  "cmux-tui/crates/cmux-rd-proto/", "cmux-tui/crates/cmux-remote-browser/",
+                  "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/", "schemas/remote-tab/",
+                  # cmux-mobile-host's tests read the Mac's lane policy to keep the two in step
+                  "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift",
+                  # the kit's Swift tests read the shared specs from the repository root at run time
+                  "cmux-tui/spec/full-access-modes.json", "schemas/deeplinks/agent-link.json"),
+    },
+}
+SWIFT_PATH_PACKAGE = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
+
+
+CARGO_DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
+CARGO_MANIFESTS = 200  # a bound on the manifests one resolution reads
+
+
+def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
+    """{crate name: its directory} of every path crate the Cargo workspace beside LOCK builds at SHA: its members,
+    then each path dependency (a `path`, or `workspace = true` resolved in the crate's own workspace root, the nearest
+    ancestor manifest with a [workspace]), read from the manifests at SHA, never from a declaration. Raises Refused
+    when a manifest cannot be read or parsed, a member is a glob, or a path crate in LOCK resolves to no directory."""
+    import posixpath
+    import tomllib
+    manifests: dict[str, dict | None] = {}
+
+    def manifest(where: str, required: bool) -> dict | None:
+        if where not in manifests:
+            if len(manifests) >= CARGO_MANIFESTS:
+                raise Refused(f"resolving {lock}'s crates read more than {CARGO_MANIFESTS} manifests")
+            path = f"{where}/Cargo.toml" if where else "Cargo.toml"
+            try:
+                text = source_text(repo, sha, path, github)
+            except Refused as why:
+                if required:
+                    raise Refused(f"{path} could not be read at {sha[:12]}: {why}") from None
+                text = None
+            try:
+                manifests[where] = None if text is None else tomllib.loads(text)
+            except tomllib.TOMLDecodeError as why:
+                raise Refused(f"{path} could not be parsed at {sha[:12]}: {why}") from None
+        return manifests[where]
+
+    def workspace_of(where: str) -> tuple[str, dict]:
+        at = where
+        while True:
+            found = manifest(at, at == where)
+            if found is not None and isinstance(found.get("workspace"), dict):
+                return at, found["workspace"]
+            if not at:
+                return where, {}
+            at = posixpath.dirname(at)
+
+    root = posixpath.dirname(lock)
+    top = (manifest(root, True) or {}).get("workspace")
+    if not isinstance(top, dict):
+        raise Refused(f"{root}/Cargo.toml has no [workspace]")
+    members = top.get("members") or []
+    if any(not isinstance(member, str) or any(c in member for c in "*?[") for member in members):
+        raise Refused(f"{root}/Cargo.toml names its members by a glob")
+    queue = [posixpath.normpath(posixpath.join(root, member)) for member in members] + [root]
+    crates: dict[str, str] = {}
+    seen: set[str] = set()
+    while queue:
+        where = queue.pop()
+        if where in seen:
+            continue
+        seen.add(where)
+        if where.startswith(".."):
+            raise Refused(f"a path crate of {lock} is outside the repository ({where})")
+        found = manifest(where, True) or {}
+        package = found.get("package")
+        if isinstance(package, dict) and isinstance(package.get("name"), str):
+            crates[package["name"]] = where
+        home, workspace = workspace_of(where)
+        shared = workspace.get("dependencies") if isinstance(workspace.get("dependencies"), dict) else {}
+        tables = [found.get(name) for name in CARGO_DEPENDENCY_TABLES]
+        targets = found.get("target") if isinstance(found.get("target"), dict) else {}
+        tables += [target.get(name) for target in targets.values() if isinstance(target, dict)
+                   for name in CARGO_DEPENDENCY_TABLES]
+        tables += [patch for patch in (found.get("patch") or {}).values() if isinstance(patch, dict)]
+        tables += [shared] if where == home else []
+        for table in tables:
+            for name, spec in (table or {}).items() if isinstance(table, dict) else ():
+                if not isinstance(spec, dict):
+                    continue
+                if isinstance(spec.get("path"), str):
+                    base = home if table is shared else where
+                    queue.append(posixpath.normpath(posixpath.join(base, spec["path"])))
+                elif spec.get("workspace") and isinstance(shared.get(name), dict) \
+                        and isinstance(shared[name].get("path"), str):
+                    queue.append(posixpath.normpath(posixpath.join(home, shared[name]["path"])))
+    try:
+        locked = tomllib.loads(source_text(repo, sha, lock, github)).get("package", [])
+    except (Refused, tomllib.TOMLDecodeError) as why:
+        raise Refused(f"{lock} could not be read at {sha[:12]}: {why}") from None
+    if missing := sorted({str(crate.get("name")) for crate in locked if isinstance(crate, dict)
+                          and "source" not in crate} - crates.keys()):
+        raise Refused(f"{lock} has path crates its manifests do not reach: {', '.join(missing)}")
+    return crates
+
+
+def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]:
+    """PACKAGE's declared reads, once its Swift path packages and Cargo.lock path crates at SHA are shown to lie in
+    them; raises Refused naming the first that does not."""
+    import posixpath
+    reads = package["reads"]
+    seen: set[str] = set()
+    queue = list(package["swift"])
+    while queue:
+        where = queue.pop()
+        if where in seen:
+            continue
+        seen.add(where)
+        if not any(touches(where + "/Package.swift", read) for read in reads + GUARD_READS_DEFAULT):
+            raise Refused(f"its Swift package {where} is outside its declared reads (PACKAGE_JOBS)")
+        try:
+            manifest = source_text(repo, sha, f"{where}/Package.swift", github)
+        except Refused as why:
+            raise Refused(f"{where}/Package.swift could not be read at {sha[:12]}: {why}") from None
+        for found in SWIFT_PATH_PACKAGE.finditer(manifest):
+            path = posixpath.normpath(posixpath.join(where, found.group(1)))
+            if path.startswith(".."):
+                raise Refused(f"{where}/Package.swift reaches {found.group(1)}, outside the repository")
+            queue.append(path)
+    crates = cargo_crates(repo, sha, package["cargo_lock"], github)
+    for crate, where in sorted(crates.items()):
+        if not any(touches(where + "/Cargo.toml", read) for read in reads + GUARD_READS_DEFAULT):
+            raise Refused(f"its Rust crate {crate} at {where} is outside its declared reads (PACKAGE_JOBS)")
+    return reads
+
+
+def package_tests(package: dict, job: dict, head_log: str) -> list[str]:
+    """The failing tests of a PACKAGE_JOBS job, whose every failed step is one of its test steps and names a failing
+    test of its own (one step's test failure never covers another's compile error); raises Refused."""
+    steps, _, _ = signature(job, head_log)
+    if other := sorted(steps - set(package["steps"])):
+        raise Refused(f"its failed step {other[0]!r} is not one of the job's test steps")
+    if not steps:
+        raise Refused("no failing test in its test steps")
+    by_step = step_lines(job, head_log)
+    if by_step is None:
+        raise Refused("its log's lines cannot each be told to one step")
+    failed: set[str] = set()
+    for step in sorted(steps):
+        found = test_reds.read("\n".join(by_step.get(step, []))).failed
+        if not found:
+            raise Refused(f"its failed step {step!r} names no failing test of its own")
+        failed |= found
+    return sorted(failed)
 
 
 def guard_job(name: str) -> bool:
@@ -1524,12 +1814,15 @@ def touches(path: str, read: str) -> bool:
     return path.startswith(read) if read.endswith("/") else path == read or path.startswith(read + "/")
 
 
-def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base_run: dict, github) -> str:
+def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base_run: dict, github,
+                  job: dict | None = None) -> str:
     """The audit line for a red job whose every failing test is fixed on the base (the rule above); raises Refused
     with the reason it is not. BASE_RUN is the newest base run with a verdict for the job, and that verdict passed."""
-    if not guard_job(name):
-        raise Refused(f"'{name}' is not a declared guard job (GUARD_JOBS); its tests may read product code")
-    tests = guard_tests(head_log)
+    package = PACKAGE_JOBS.get(name)
+    if not guard_job(name) and package is None:
+        raise Refused(f"'{name}' is not a declared guard job (GUARD_JOBS) or package job (PACKAGE_JOBS); its tests "
+                      "may read product code")
+    tests = guard_tests(head_log) if package is None else dict.fromkeys(package_tests(package, job or {}, head_log))
     tested = tested_sha(base_run)
     if not re.fullmatch(r"[0-9a-f]{40}", tested):
         raise Refused(f"{base} run {base_run['id']} names no commit it tested")
@@ -1547,12 +1840,15 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base
                       f"{merge_base[:12]} ({after.get('status')})")
     changed = sorted({path for found in files for path in (found.get("filename"), found.get("previous_filename"))
                       if isinstance(path, str) and path})
-    if undeclared := sorted({path for path in tests.values() if path not in GUARD_READS}):
+    if package is not None:
+        tests = dict.fromkeys(tests, package_reads(repo, sha, package, github))
+    elif undeclared := sorted({path for path in tests.values() if path not in GUARD_READS}):
         raise Refused(f"{', '.join(undeclared)} declares no read paths (GUARD_READS), so a pass on the base proves "
                       "nothing about this PR")
     reads: list[str] = []
     for test, path in sorted(tests.items()):
-        test_reads = (path,) + GUARD_READS_DEFAULT + GUARD_READS.get(path, ())
+        test_reads = (path + GUARD_READS_DEFAULT if package is not None
+                      else (path,) + GUARD_READS_DEFAULT + GUARD_READS.get(path, ()))
         if hit := [changed_path for changed_path in changed if any(touches(changed_path, r) for r in test_reads)]:
             raise Refused(f"{test} reads paths the PR changes: {'; '.join(hit[:5])}")
         reads.extend(r for r in test_reads if r not in reads)
@@ -1723,19 +2019,13 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
         raise
 
 
-def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
-    """A whole test-step red explained entirely by matching quarantines, with no additional failing step/error."""
-    found = test_reds.read(head_log)
-    steps, _, errors = signature(job, head_log)
-    if (not found.failed or found.crashes or found.truncated or found.failed - known.keys()
-            or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)):
-        return False
-    # A generic failed test-named step must not borrow a quarantined test from another step. gh run view labels
-    # steps, while the live job-log endpoint has only timestamps: use its step windows, refusing ambiguous lines.
+def step_lines(job: dict, head_log: str) -> dict[str, list[str]] | None:
+    """{step name: its log lines} of JOB's HEAD_LOG, or None when a line's step cannot be told. gh run view labels
+    steps, while the live job-log endpoint has only timestamps: use its step windows, refusing ambiguous lines."""
     metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
     names = [step.get("name") for step in metadata]
     if len(set(names)) != len(names):
-        return False
+        return None
     by_step: dict[str, list[str]] = {}
     for line in head_log.splitlines():
         parts = line.split("\t", 2)
@@ -1752,7 +2042,7 @@ def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
         for step in metadata:
             start, end = timestamp(step.get("started_at")), timestamp(step.get("completed_at"))
             if start is None or end is None or end < start:
-                return False
+                return None
             # Actions step metadata rounds to seconds. A line in a shared boundary second cannot identify its
             # step, so match every possible window and retain it only when there is exactly one owner.
             windows.append((step["name"], start, end + timedelta(seconds=1)))
@@ -1764,6 +2054,20 @@ def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
             owners = [name for name, start, end in windows if start <= when < end]
             if len(owners) == 1:
                 by_step.setdefault(owners[0], []).append(line)
+    return by_step
+
+
+def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
+    """A whole test-step red explained entirely by matching quarantines, with no additional failing step/error."""
+    found = test_reds.read(head_log)
+    steps, _, errors = signature(job, head_log)
+    if (not found.failed or found.crashes or found.truncated or found.failed - known.keys()
+            or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)):
+        return False
+    # A generic failed test-named step must not borrow a quarantined test from another step.
+    by_step = step_lines(job, head_log)
+    if by_step is None:
+        return False
     for step in steps:
         result = test_reds.read("\n".join(by_step.get(step, [])))
         if not result.failed or result.crashes or result.truncated or result.failed - known.keys():
@@ -2123,6 +2427,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if own.crashes or (own.truncated and not chromium_without_diagnostics):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
+        if (pinned := ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests, head_log,
+                                     github)) is not None:
+            audit.append(pinned)
+            continue
         workflow_info = rest_run(repo, job["run_id"], github, run_reads)
         workflow = workflow_info.get("workflow_id")
         if not isinstance(workflow, int):
@@ -2160,7 +2468,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             continue
         if base_job.get("conclusion") != "failure":
             try:
-                audit.append(fixed_on_base(repo, base, sha, name, head_log, base_run, github))
+                audit.append(fixed_on_base(repo, base, sha, name, head_log, base_run, github, job))
             except Refused as why:
                 if (stale := before_merge_base(repo, base, sha, base_run, github, merge_bases)) is not None:
                     raise Refused(f"'{name}' has no {base} verdict at or after this PR's merge-base yet: the newest, "
@@ -2218,6 +2526,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="append", default=[], help="a red required check on the head")
     parser.add_argument("--flake-state", help="tap-tests/v1 JSON; TAP_TESTS_STATE=off disables base-flake quarantine")
     args = parser.parse_args(argv)
+    if PLACEHOLDER_SHA.fullmatch(args.sha) and os.environ.get("BASE_RED_EXCUSE_FIXTURE_SHA") != "1":
+        print(f"not excused: --sha {args.sha} is a placeholder, not a commit; nothing was read", file=sys.stderr)
+        return 1
+    limit = deadline_seconds()
+    previous = signal.signal(signal.SIGALRM, _past_deadline) if hasattr(signal, "SIGALRM") else None
+    if previous is not None:
+        signal.alarm(limit)
     try:
         audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,
                       flake_state=test_reds.load_flake_state(args.flake_state, fetch=True))
@@ -2230,6 +2545,13 @@ def main(argv: list[str] | None = None) -> int:
     except (Refused, KeyError, ValueError) as error:
         print(f"not excused: {error}", file=sys.stderr)
         return 1
+    except Deadline:
+        print(f"not excused: infra, not a verdict: ran past its {limit} s deadline", file=sys.stderr)
+        return 1
+    finally:
+        if previous is not None:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous)
     print("\n".join(audit))
     return 0
 
