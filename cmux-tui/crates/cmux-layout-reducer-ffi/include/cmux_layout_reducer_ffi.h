@@ -727,7 +727,8 @@ typedef struct CmuxClosingFrame {
     double vw;
     double vh;
     uint8_t moving;
-    uint8_t reserved[7];
+    uint8_t fixed; /* 1: it does not scroll with the strip (x in view coordinates) */
+    uint8_t reserved[6];
 } CmuxClosingFrame;
 
 typedef struct CmuxClosingRow {
@@ -761,13 +762,13 @@ typedef struct CmuxClosingPlacedList {
 
 CmuxClosingPanes *cmux_closing_panes_new(void);
 void cmux_closing_panes_free(CmuxClosingPanes *closing);
-int32_t cmux_closing_panes_begin(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingEdges *shown, const CmuxClosingPane *panes, size_t pane_count, const CmuxClosingHandle *handles, size_t handle_count, double max_gap, uint8_t has_view_shift, double view_shift);
+int32_t cmux_closing_panes_begin(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingEdges *shown, const CmuxClosingPane *panes, size_t pane_count, const CmuxClosingHandle *handles, size_t handle_count, double max_gap, uint8_t has_view_shift, double view_shift, double strip_shift);
 int32_t cmux_closing_panes_settle(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, CmuxClosingIds *out);
-int32_t cmux_closing_panes_rects(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, CmuxClosingPlacedList *out);
+int32_t cmux_closing_panes_rects(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, double strip, double rest_strip, CmuxClosingPlacedList *out);
 int32_t cmux_closing_panes_carry(CmuxClosingPanes *closing, double drift, uint8_t has_view_shift, double view_shift);
 int32_t cmux_closing_panes_settle_carried(CmuxClosingPanes *closing, double strip_shift);
 int32_t cmux_closing_panes_shift_y(CmuxClosingPanes *closing, uint64_t column, double delta);
-int32_t cmux_closing_panes_remove(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingFrame *frames, size_t frame_count, CmuxClosingTaken *out);
+int32_t cmux_closing_panes_remove(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingFrame *frames, size_t frame_count, double strip, CmuxClosingTaken *out);
 int32_t cmux_closing_panes_drop(CmuxClosingPanes *closing, uint64_t pane);
 uint8_t cmux_closing_panes_has_awaiting(const CmuxClosingPanes *closing);
 uint64_t cmux_closing_panes_state_hash(const CmuxClosingPanes *closing); /* tests: the whole state, hashed */
