@@ -152,10 +152,10 @@ fn replace_all_with(
     // written to it since: what was swapped out is removed only while it is
     // still the bytes the change read.
     for (file, write) in staged.iter().zip(writes) {
-        if let (Placed::Exchanged, Expect::Exactly(Some(expected))) = (file.placed, write.expect) {
-            if !is_ours(file, &file.temporary, &[expected]) {
-                keep(file, &file.temporary);
-            }
+        if let (Placed::Exchanged, Expect::Exactly(Some(expected))) = (file.placed, write.expect)
+            && !is_ours(file, &file.temporary, &[expected])
+        {
+            keep(file, &file.temporary);
         }
     }
     discard(&staged);
