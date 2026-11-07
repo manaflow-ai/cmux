@@ -64,21 +64,49 @@ async fn reconnect_prompt(
     })
 }
 
+/// A daemon going away: its connection closed, or it answered that it is shutting down
+/// ([`daemon_restarting_error`]). Every prompt path (queue, stream, wait, send) reconnects to
+/// the next daemon on it, or tells the caller to send again with the same prompt id.
 pub(crate) fn daemon_closed_error(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<crate::cli::errors::AppError>()
         .is_some_and(|app| app.detail == "daemon_closed")
         || error.is::<crate::client::TransportClosed>()
+        || daemon_restarting_error(error)
 }
 
 /// The daemon's refusal as it shuts down (`hub::SHUTTING_DOWN`, typed `daemon.restarting`): a
 /// prompt it answered with it is the next daemon's, never the agent's failure.
-pub(crate) fn daemon_restarting_error(error: &anyhow::Error) -> bool {
+fn daemon_restarting_error(error: &anyhow::Error) -> bool {
     error.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| {
         d.0.message == crate::hub::SHUTTING_DOWN
             || d.0.data.as_ref().and_then(|v| v["errorKind"].as_str())
                 == Some(crate::recovery::kind::DAEMON_RESTARTING)
     })
+}
+
+/// The turn's failure as `agent_error`. ACP internal (-32603) or parse (-32700) errors with
+/// nothing produced are the only retryable failures.
+fn agent_error(e: &anyhow::Error, id: &str, produced: bool) -> crate::cli::errors::AppError {
+    let msg = e.to_string();
+    let retryable = !produced
+        && (msg.contains("-32603")
+            || msg.contains("-32700")
+            || msg.to_lowercase().contains("internal error"));
+    let mut app =
+        crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "agent_error", msg)
+            .with_session(id);
+    if retryable {
+        app = app.retryable();
+    }
+    // A typed failure (`recovery.rs`: `auth.signed_out`, `agent.exited`, ...) keeps its kind
+    // and recovery: the envelope and the Cloud relay's `error_kind` name it, not only the text.
+    if let Some(data) =
+        e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone())
+    {
+        app = app.with_data(data);
+    }
+    app
 }
 
 pub(crate) fn arg_or_stdin(words: &[String]) -> Result<String> {
@@ -1022,28 +1050,10 @@ async fn collect_once(
         Ok(v) => v,
         // A daemon that answered it is restarting handed the turn to the next one, as one that
         // closed mid-turn did (chaos fault `daemon-restart-session-new`).
-        Err(e) if daemon_closed_error(&e) || daemon_restarting_error(&e) => {
+        Err(e) if daemon_closed_error(&e) => {
             return Err(prompt.closed(&client, id, "waiting for the turn"));
         }
-        Err(e) => {
-            // ACP internal (-32603) or parse (-32700) errors with nothing
-            // produced are the only retryable failures.
-            let msg = e.to_string();
-            let retryable = !produced
-                && (msg.contains("-32603")
-                    || msg.contains("-32700")
-                    || msg.to_lowercase().contains("internal error"));
-            let mut app = crate::cli::errors::AppError::new(
-                crate::cli::errors::Code::Runtime,
-                "agent_error",
-                msg,
-            )
-            .with_session(id);
-            if retryable {
-                app = app.retryable();
-            }
-            return Err(app.into());
-        }
+        Err(e) => return Err(agent_error(&e, id, produced).into()),
     };
     let mut reply = t
         .items
@@ -1516,4 +1526,28 @@ fn a_restarting_daemons_answer_is_a_restart_not_an_agent_error() {
         crate::client::DaemonError(crate::rpc::RpcError::internal("no agent session")).into();
     assert!(!daemon_restarting_error(&agent));
     assert!(!daemon_restarting_error(&anyhow!(crate::hub::SHUTTING_DOWN)));
+    // Every prompt path (queue, stream, wait, send) and every reconnect asks
+    // `daemon_closed_error`: the shutdown's answer is a daemon going away there too.
+    assert!(daemon_closed_error(&restarting));
+    assert!(!daemon_closed_error(&agent));
+}
+
+/// Cloud chaos fault `token-rejected` (run 42346668793): the turn failed typed `auth.signed_out`
+/// with its recovery, and the CLI's `agent_error` dropped both, so the chat error carried no
+/// kind up the relay (`error_kind`), only the text.
+#[test]
+fn an_agent_error_keeps_the_daemons_typed_kind_and_recovery() {
+    let mut typed = crate::rpc::RpcError::internal(
+        "Failed to authenticate. API Error: 401 authentication_error",
+    );
+    typed.data = Some(json!({"errorKind": "auth.signed_out", "recovery": "Sign in to Claude."}));
+    let e: anyhow::Error = crate::client::DaemonError(typed).into();
+    let app = agent_error(&e, "s-1", false);
+    assert_eq!(app.detail, "agent_error");
+    let envelope = app.envelope();
+    assert_eq!(envelope["error"]["data"]["errorKind"], "auth.signed_out", "{envelope}");
+    assert_eq!(envelope["error"]["data"]["recovery"], "Sign in to Claude.", "{envelope}");
+    // An untyped failure stays as it was.
+    let plain: anyhow::Error = anyhow!("agent said no");
+    assert!(agent_error(&plain, "s-1", true).data.is_none());
 }
