@@ -432,8 +432,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // app data) and stash restore and delete with the Undo toast.
         .target(
             name: "CmuxNextHistoryPages",
-            dependencies: ["CmuxNextBrowserAutomation", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings",
-                           "CmuxNextStash", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowserAutomation", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextHistory", "CmuxNextPages",
+                           "CmuxNextSettings", "CmuxNextStash", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],

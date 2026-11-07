@@ -31,6 +31,7 @@ struct PageFactory {
     func historyWebPage() -> PageWebView? {
         let backups = HistoryCookieBackupsPageProvider { [weak services] in services?.browserHost?.driver.cookieBackups }
         backups.relay = DaemonPageRelay(services: services)
+        backups.history = services.history
         let routes = [PageRoute(prefix: "cmux.history.", provider: backups)] + pageRoutes(for: .history)
         guard let page = services.pageHostPool.claim(.history, routes: routes,
                                                       window: services.windows.active?.window, focus: false)
@@ -352,3 +353,5 @@ struct PageFactory {
                                              updateLabel: DaemonUpdateBoard.updateLabel)
     }
 }
+
+extension HistoryService: HistoryPageEditing {}

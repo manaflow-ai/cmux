@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextBrowserAutomation
 import CmuxNextDaemonService
 public import CmuxNextDesign
+public import CmuxNextHistory
 public import CmuxNextPages
 public import CmuxNextSettings
 import Foundation
@@ -19,7 +20,9 @@ import os
 ///
 /// Every other `cmux.history.` call and stream goes to `relay` (the daemon). A remove or clear
 /// (``gestureOperations``) goes only on the person's own click, each click once, whatever the
-/// daemon checks (an older daemon has no page allow list; cmux#37302).
+/// daemon checks (an older daemon has no page allow list; cmux#37302), and then through
+/// ``history``: the app's own History path, which also drops the page from every profile's
+/// omnibar suggestions, the imported pages and the Back/Forward trail.
 @MainActor
 public final class HistoryCookieBackupsPageProvider: PageProvider {
     public static let prefix = "cmux.history.cookie_backups."
@@ -28,6 +31,8 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
     private let backups: () -> CookieBackups?
     /// The daemon relay for the rest of `cmux.history.`; none answers `unknown_op`.
     public var relay: (any PageProvider)?
+    /// The app's History owner for remove and clear (HistoryService, as the native page); nil relays them.
+    public weak var history: (any HistoryPageEditing)?
     /// The gesture (its event's uptime) the last delete, remove or clear spent.
     private var spentGesture: TimeInterval?
     /// The page view the dialog attaches to.
@@ -54,8 +59,11 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
             return ["confirmed": true, "deleted": CmuxNextSettings.JSONValue(await delete(ids))]
         default:
             guard let relay, op.hasPrefix("cmux.history.") else { throw PageError.unknownOp(op) }
-            if Self.gestureOperations.contains(op) { try spendGesture(context) }
-            return try await relay.call(op, params: params, context: context)
+            guard Self.gestureOperations.contains(op) else { return try await relay.call(op, params: params, context: context) }
+            try spendGesture(context)
+            guard let history else { return try await relay.call(op, params: params, context: context) }
+            try await history.apply(op, params)
+            return ["ok": true]
         }
     }
 
@@ -119,6 +127,39 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cookie-backups")
+}
+
+/// The app's History owner as the History page's remove and clear reach it: the calls the native
+/// page made (HistoryService), which also drop the pages from every profile's omnibar suggestions.
+@MainActor
+public protocol HistoryPageEditing: AnyObject {
+    func entry(id: String) async -> HistoryEntry?
+    func remove(_ entry: HistoryEntry)
+    func removePages(host: String)
+    func clear(kinds: Set<HistoryEntry.Kind>, range: HistoryRange)
+}
+
+extension HistoryPageEditing {
+    /// The page op's params, read the way the daemon reads them; anything else is refused.
+    func apply(_ op: String, _ params: CmuxNextSettings.JSONValue) async throws {
+        switch op {
+        case "cmux.history.entries.remove":
+            let ids = params["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            guard !ids.isEmpty, ids.count == params["ids"]?.arrayValue?.count else { throw PageError.invalidParams("ids must be entry ids") }
+            for id in ids {
+                if let entry = await entry(id: id) { remove(entry) }
+            }
+        case "cmux.history.site.remove":
+            guard let host = params["host"]?.stringValue, !host.isEmpty else { throw PageError.invalidParams("host is required") }
+            removePages(host: host)
+        default:
+            guard let range = params["range"]?.stringValue.flatMap(HistoryRange.init(rawValue:)) else { throw PageError.invalidParams("range is required") }
+            let names = params["kinds"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            let kinds = Set(names.compactMap(HistoryEntry.Kind.init(rawValue:)))
+            guard kinds.count == names.count else { throw PageError.invalidParams("kinds names an unknown kind") }
+            clear(kinds: kinds, range: range)
+        }
+    }
 }
 
 /// The delete question's strings (this target's Localizable.xcstrings); the panel's own are the page's.

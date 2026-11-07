@@ -45,7 +45,7 @@ final class HistoryPageService {
         guard let pane = window.focusedPane else { return }
         if let tab = pane.selectedTab, tab.kind == .browser, let page = services.cache.existingBrowser(tab.id)?.tab,
            BrowserNewTabPage.isNewTabPage(page.state.url) {
-            services.cache.showHistoryPage(in: tab)
+            services.cache.showAppPage(URL.historyPage, in: tab)
             return
         }
         pane.newBrowserTab(url: URL.historyPage)
@@ -113,9 +113,6 @@ extension TabContentCache {
         guard RemoteViewPageService.isPersonInput(scope), browsers[key] != nil, let tab else { return }
         showAppPage(url, in: tab)
     }
-
-    /// Replaces a page with the history page.
-    func showHistoryPage(in tab: TabModel) { showAppPage(URL.historyPage, in: tab) }
 
     /// Replaces a page with the app page at `url`.
     func showAppPage(_ url: URL, in tab: TabModel) {
