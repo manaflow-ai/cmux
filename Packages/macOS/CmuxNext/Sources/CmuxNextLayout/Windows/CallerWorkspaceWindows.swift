@@ -12,31 +12,47 @@ public import Observation
 public final class ChiefPromptWindow {
     /// The prompting window's id (`WindowState.id`).
     public private(set) var id: String?
-    /// The person's newest messages to the Chief that the store showed (their ids; nil until the
-    /// first read), and whether a send from a window's Home transcript is still to show there.
-    @ObservationIgnored private var seenPersonMessages: Set<String>?
-    @ObservationIgnored private var awaitsWindowSend = false
+    /// A Chief conversation's newest message as the store shows it: its id, and whether this
+    /// app's person wrote it (the Chief's replies and a teammate's messages are not theirs).
+    public struct Last: Equatable, Sendable {
+        public var message: String
+        public var byPerson: Bool
+
+        public init(message: String, byPerson: Bool) {
+            self.message = message
+            self.byPerson = byPerson
+        }
+    }
+
+    /// Each Chief conversation's newest message last seen, and the sends from a window's Home
+    /// transcript not yet seen there (by conversation).
+    @ObservationIgnored private var seen: [String: Last] = [:]
+    @ObservationIgnored private var awaiting: [String: Int] = [:]
 
     public init() {}
 
-    /// Window `id`'s Home transcript sent a message to the Chief.
-    public func note(_ id: String) {
+    /// Window `id`'s Home transcript sent a message to the Chief in `conversation`.
+    public func note(_ id: String, conversation: String) {
         if self.id != id { self.id = id }
-        awaitsWindowSend = true
+        awaiting[conversation, default: 0] += 1
     }
 
-    /// The newest message from the person in each Chief conversation (their ids). A new one that a
-    /// window's send made keeps that window; any other new one came from elsewhere and clears it.
-    /// The first read (at launch) only sets the baseline.
-    public func personMessages(_ ids: Set<String>) {
-        guard ids != seenPersonMessages else { return }
-        let previous = seenPersonMessages
-        seenPersonMessages = ids
-        guard previous != nil || awaitsWindowSend, !ids.subtracting(previous ?? []).isEmpty else { return }
-        if awaitsWindowSend {
-            awaitsWindowSend = false
-        } else if id != nil {
-            id = nil
+    /// The newest message of each Chief conversation (by conversation id). A new message from the person
+    /// that a window's send accounts for keeps that window; any other new one from them came from elsewhere
+    /// (a phone, another Mac, New Message, an action) and clears it. A reply or a teammate's message after
+    /// it means the window's sends there already landed. A conversation's first read only sets its baseline.
+    public func observe(_ lasts: [String: Last]) {
+        for (conversation, last) in lasts {
+            guard let previous = seen.updateValue(last, forKey: conversation), previous != last else { continue }
+            guard last.byPerson else {
+                awaiting[conversation] = nil
+                continue
+            }
+            if let pending = awaiting[conversation] {
+                awaiting[conversation] = pending > 1 ? pending - 1 : nil
+            } else if id != nil {
+                id = nil
+            }
         }
     }
 

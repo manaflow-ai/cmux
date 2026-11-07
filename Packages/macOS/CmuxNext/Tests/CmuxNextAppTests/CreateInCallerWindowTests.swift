@@ -53,6 +53,8 @@ struct CreateInCallerWindowTests {
     private static func reconciledClaim(_ id: String, surface: UInt64, mutation: String,
                                         _ services: AppServices) throws -> (window: String?, quiet: Bool) {
         let store = services.machines.local.store
+        // The membership loop installs the store's hooks on its first pass; run that pass now.
+        if store.onWorkspaceListChanged == nil { services.windows.reconcileMembership() }
         let reconcile = try #require(store.onWorkspaceListChanged, "membership installed no list hook")
         var seen: (window: String?, quiet: Bool) = (nil, false)
         store.onWorkspaceListChanged = {
@@ -90,7 +92,7 @@ struct CreateInCallerWindowTests {
         defer { for controller in [prompted, other] { controller.teardown(); controller.window?.close() } }
 
         // The person sent the Chief a message from the window the most recent rule would not pick.
-        services.windows.chiefPrompt.note(prompted.state.id)
+        services.windows.chiefPrompt.note(prompted.state.id, conversation: "chief")
         let topology = ControlSnapshotPublisher.topology(services)
         #expect(topology.chiefPromptWindowID == prompted.state.id)
         _ = try services.windows.expectCreate(["idempotency_key": "turn-key", "caller": ["home_chat": true]], topology: topology)
@@ -136,12 +138,14 @@ struct CreateInCallerWindowTests {
         var chief = ActionInvocation(origin: .cli)
         chief.callerWindow = prompted.state.id
         #expect(context.createWindow(chief)?.state.id == prompted.state.id)
-        #expect(try context.createAnchor(chief).id == "ws-a", "a Chief's create was placed next to another window's workspace")
+        #expect(try context.createAnchor(chief).id == prompted.state.workspaceID, "a Chief's create was placed next to another window's workspace")
 
         // A named target still wins over the caller's window.
-        var targeted = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: "ws-b"), origin: .cli)
+        var targeted = ActionInvocation(origin: .cli)
         targeted.callerWindow = prompted.state.id
-        #expect(try context.createAnchor(targeted).id == "ws-b")
+        let otherWorkspace = try #require(other.state.workspaceID)
+        targeted.target = ActionTargetRef(kind: .workspace, id: otherWorkspace)
+        #expect(try context.createAnchor(targeted).id == otherWorkspace)
 
         // A closed caller window, or none: the active window, as before.
         var gone = ActionInvocation(origin: .cli)
@@ -153,22 +157,32 @@ struct CreateInCallerWindowTests {
     /// A message to the Chief that no window's Home transcript sent (the phone, another Mac, New Message, an
     /// action) means no window prompted that turn: its workspaces go to the most recent window again.
     @Test func aMessageFromElsewhereStopsNamingThePromptedWindow() {
+        typealias Last = ChiefPromptWindow.Last
         let prompt = ChiefPromptWindow()
-        prompt.personMessages(["m0"]) // launch: the baseline
-        prompt.note("window-a")
-        prompt.personMessages(["m1"]) // the window's own send arriving
+        prompt.observe(["chief": Last(message: "m0", byPerson: true)]) // launch: the baseline
+        prompt.note("window-a", conversation: "chief")
+        prompt.note("window-a", conversation: "chief") // two quick sends
+        prompt.observe(["chief": Last(message: "m1", byPerson: true)])
+        prompt.observe(["chief": Last(message: "m2", byPerson: true)])
+        #expect(prompt.id == "window-a", "the window's own second send cleared it")
+        prompt.observe(["chief": Last(message: "r1", byPerson: false)]) // the Chief replied
+        prompt.observe(["chief": Last(message: "t1", byPerson: false)]) // a teammate wrote
         #expect(prompt.id == "window-a")
-        prompt.personMessages([]) // the Chief replied: no person message is last
-        #expect(prompt.id == "window-a")
-        prompt.personMessages(["m2"]) // sent from the phone
+        prompt.observe(["chief": Last(message: "m3", byPerson: true)]) // sent from the phone
         #expect(prompt.id == nil, "a message from elsewhere kept the old prompting window")
-        prompt.note("window-b")
-        prompt.personMessages(["m3"])
-        #expect(prompt.id == "window-b")
+        // A send whose own message the store skipped (the reply came in the same pass) is settled by the reply.
+        prompt.note("window-b", conversation: "chief")
+        prompt.observe(["chief": Last(message: "r2", byPerson: false)])
+        prompt.observe(["chief": Last(message: "m5", byPerson: true)])
+        #expect(prompt.id == nil)
+        // A send to another Chief conversation does not account for a message here.
+        prompt.note("window-c", conversation: "named-chief")
+        prompt.observe(["chief": Last(message: "m6", byPerson: true)])
+        #expect(prompt.id == nil)
     }
 
-    /// Only a person's last message in a Chief conversation counts; the Chief's own replies and other chats don't.
-    @Test func personMessagesAreReadFromChiefConversationsOnly() {
+    /// Each Chief conversation's last message, and whether this app's person wrote it; other chats are not read.
+    @Test func lastMessagesAreReadFromChiefConversationsOnly() {
         let person = ConversationParticipant(id: ConversationParticipant.localUserID, kind: .human, displayName: "Me")
         let mux = ConversationParticipant(id: "agent_mux", kind: .agent, displayName: "Chief", agentClass: "mux")
         let friend = ConversationParticipant(id: "user_friend", kind: .human, displayName: "Friend")
@@ -179,12 +193,14 @@ struct CreateInCallerWindowTests {
             .init(id: id, title: id, participants: participants, lastSeq: 1, rev: 1, createdAt: "2026-11-06T00:00:00.000Z",
                   updatedAt: "2026-11-06T00:00:00.000Z", lastMessage: last)
         }
-        let ids = HomeService.personMessagesToChief(in: [
+        let lasts = HomeService.chiefLastMessages(in: [
             summary("chief", [person, mux], last: message("asked", by: person.id, in: "chief")),
             summary("chief-replied", [person, mux], last: message("reply", by: mux.id, in: "chief-replied")),
+            summary("channel", [person, friend, mux], last: message("hey", by: friend.id, in: "channel")),
             summary("dm", [person, friend], last: message("hi", by: person.id, in: "dm")),
-        ])
-        #expect(ids == ["asked"])
+        ], me: person.id)
+        #expect(lasts == ["chief": .init(message: "asked", byPerson: true), "chief-replied": .init(message: "reply", byPerson: false),
+                          "channel": .init(message: "hey", byPerson: false)])
     }
 }
 

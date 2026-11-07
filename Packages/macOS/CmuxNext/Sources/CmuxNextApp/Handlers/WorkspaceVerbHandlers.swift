@@ -15,7 +15,8 @@ enum WorkspaceVerbHandlers {
         registry.bind("workspace.newAbove", run: { try create(context, $0) { .above($0.id) } })
         // On one of several selected rows: below the last of them (Chrome's New Tab Below).
         registry.bind("workspace.newBelow", run: { invocation in
-            let anchor = try WindowMembershipHandlers.rowTargets(invocation, context).last ?? context.createAnchor(invocation)
+            // A person's selected rows; a caller's create goes by its own window (createAnchor, #32989).
+            let anchor = try (invocation.origin == .user ? WindowMembershipHandlers.rowTargets(invocation, context).last : nil) ?? context.createAnchor(invocation)
             try spawn(context, invocation, anchor: anchor, cwd: nil, slot: .below(anchor.id), newTabPage: invocation.origin == .user)
         })
         registry.bind("workspace.newAtTop", run: { try create(context, $0, anchorFree: .top(anchor: nil)) })
@@ -116,7 +117,7 @@ enum WorkspaceVerbHandlers {
     /// showed no workspace (`WorkspaceSpawn.placesFromCurrent`).
     static func create(_ context: AppActionContext, _ invocation: ActionInvocation, anchorFree slot: WorkspaceSlot?,
                        fromCurrent: Bool = true, then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
-        try spawn(context, invocation, anchor: try? context.createAnchor(invocation), cwd: nil, slot: slot, newTabPage: invocation.origin == .user,
+        try spawn(context, invocation, anchor: (try? context.createAnchorIfAny(invocation)) ?? nil, cwd: nil, slot: slot, newTabPage: invocation.origin == .user,
                   fromCurrent: fromCurrent, then: then)
     }
 

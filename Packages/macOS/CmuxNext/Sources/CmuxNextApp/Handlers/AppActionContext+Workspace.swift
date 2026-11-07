@@ -23,11 +23,20 @@ extension AppActionContext {
     func createWindow(_ invocation: ActionInvocation) -> WindowController? { callerWindow(invocation) ?? activeWindow }
 
     /// The workspace a create of `invocation` is placed next to: its target, else the one the caller's window
-    /// shows (a Chief's create goes where it was prompted, #32989), else the active window's.
-    func createAnchor(_ invocation: ActionInvocation) throws -> WorkspaceModel {
+    /// shows (a Chief's create goes where it was prompted, #32989), else the active window's. Nil when the
+    /// caller's window shows none: the create goes to that window (``createWindow(_:)``), never the active one's.
+    func createAnchorIfAny(_ invocation: ActionInvocation) throws -> WorkspaceModel? {
         let targeted = (invocation.target ?? invocation["workspace"]?.targetValue)?.kind == .workspace
-        if !targeted, let shown = callerWindow(invocation)?.state.workspaceID.flatMap(services.workspace(id:)) { return shown }
+        if !targeted, let caller = callerWindow(invocation) {
+            return caller.state.workspaceID.flatMap(services.workspace(id:)).flatMap { $0.key == nil ? nil : $0 }
+        }
         return try workspace(invocation).model
+    }
+
+    /// ``createAnchorIfAny(_:)`` for a create that needs an anchor; refused when there is none.
+    func createAnchor(_ invocation: ActionInvocation) throws -> WorkspaceModel {
+        guard let anchor = try createAnchorIfAny(invocation) else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
+        return anchor
     }
 
     /// Throws unless the daemon serves `capability`.
