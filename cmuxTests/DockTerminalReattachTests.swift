@@ -1560,6 +1560,78 @@ extension DockSocketLifecycleTests {
         #expect(detached.resumeBinding == nil)
     }
 
+    @Test("Normally ended Claude hook binding is admitted during Dock restore")
+    @MainActor
+    func normallyEndedClaudeHookBindingRestoresWhenProcessWasNotRunning() throws {
+        let defaultsName = "DockTerminalReattachTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let savedPanelId = UUID()
+        let sessionId = "claude-normally-ended-\(UUID().uuidString)"
+        let directory = "/tmp/cmux-claude-normally-ended"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: directory,
+            launchCommand: nil,
+            hadActivePromptTurn: false
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Claude Code",
+            kind: "claude",
+            command: "claude --resume \(sessionId)",
+            cwd: directory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+        let panelSnapshot = SessionPanelSnapshot(
+            id: savedPanelId,
+            type: .terminal,
+            title: "Restored Claude",
+            customTitle: nil,
+            directory: directory,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: directory,
+                agent: agent,
+                resumeBinding: binding,
+                wasAgentRunning: false
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { store.closeAllPanels() }
+
+        let restoredIds = store.restoreSessionSnapshot(SessionSplitContainerSnapshot(
+            focusedPanelId: savedPanelId,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [savedPanelId],
+                selectedPanelId: savedPanelId
+            )),
+            panels: [panelSnapshot]
+        ))
+        let panelId = try #require(restoredIds[savedPanelId])
+        let panel = try #require(store.panels[panelId] as? TerminalPanel)
+        #expect(panel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(panel.surface.initialInput?.contains(sessionId) == true)
+    }
+
     @Test("Dock detach drops agent metadata whose recorded processes all exited")
     @MainActor
     func dockDetachDropsAgentMetadataWhoseRecordedProcessesAllExited() throws {
