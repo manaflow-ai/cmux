@@ -37,12 +37,14 @@ public final class SidebarView: NSView {
         headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
     }
     /// The narrowest width that fits the titlebar row: everything before ``titlebarLeadingX``,
-    /// then the Priority bell while it shows, the + (New Workspace) and its trailing inset. The
-    /// options chevron hides first, so it does not count.
+    /// then the accessory as its square icon (an incognito window's mark never drops out), the
+    /// Priority bell while it shows, the + (New Workspace) and its trailing inset. The options
+    /// chevron hides first, so it does not count.
     var titlebarControlsWidth: CGFloat {
         let button = SidebarStyle.toolbarButtonSize
+        let accessory = titlebarAccessory == nil ? 0 : button + Metrics.space2
         let priority = priorityButton.isHidden ? 0 : button + Metrics.space1
-        return titlebarLeadingX + priority + button + Metrics.space3
+        return titlebarLeadingX + accessory + priority + button + SidebarStyle.titlebarPlusTrailingInset
     }
 
     /// The reserve or the row's buttons changed: lay the row out again and give the model the
@@ -194,7 +196,7 @@ public final class SidebarView: NSView {
                 titlebarAccessory.translatesAutoresizingMaskIntoConstraints = true
                 addSubview(titlebarAccessory)
             }
-            needsLayout = true
+            titlebarReserveChanged()
         }
     }
 
@@ -356,7 +358,7 @@ public final class SidebarView: NSView {
         // Every control in the row centers on the traffic lights' line (the
         // tabs and the toolbar band do too); the row's middle without them.
         let button = SidebarStyle.toolbarButtonSize
-        let rowMidY = window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
+        let rowMidY = window.flatMap(Self.titlebarRowMidY(in:)).map { convert(CGPoint(x: 0, y: $0), from: nil).y } ?? titlebarHeight / 2
         let x = titlebarLeadingX
         let buttonY = (rowMidY - button / 2).rounded()
         let trailing = b.width - Metrics.space3
@@ -366,20 +368,27 @@ public final class SidebarView: NSView {
         // beside the +, it hides before either one reaches the leading reserve (the toolbar band
         // sits above it there and takes the clicks), and the + takes the trailing slot alone.
         let segment = SidebarStyle.toolbarMenuSegmentWidth
-        let pairMinX = trailing - segment - button - (priorityButton.isHidden ? 0 : Metrics.space1 + button)
+        // The accessory's square icon (an incognito window's mark) keeps its room ahead of the chevron.
+        let accessoryRoom = titlebarAccessory == nil ? 0 : button + Metrics.space2
+        let pairMinX = trailing - segment - button - (priorityButton.isHidden ? 0 : Metrics.space1 + button) - accessoryRoom
         // `sidebar.showNewWorkspaceChooser` (off by default, Lawrence 2026-10-30: "by default i dont want to have
         // workspace titlebar dropdowns at all"): without it the + stands alone and its right-click menu holds the chooser.
         let showsChevron = design.sidebarSections.showNewWorkspaceChooser && pairMinX >= x
         newWorkspaceOptionsButton.isHidden = !showsChevron
-        newButton.frame = NSRect(x: trailing - button - (showsChevron ? segment : 0), y: buttonY, width: button, height: button)
+        // The + alone centers on the trailing column, the rows' status marks' and footer Search's one x (Leo
+        // 2026-11-07: "the top of the sidebar with the subsequent elements below (workspaces and their notification
+        // symbols, then the search icon)"); with its chooser segment the pair keeps the row's trailing inset.
+        let plusX = showsChevron ? trailing - button - segment
+            : SidebarStyle.trailingColumnFrame(sidebarWidth: b.width, centerY: rowMidY, side: button).minX
+        newButton.frame = NSRect(x: plusX, y: buttonY, width: button, height: button)
         newWorkspaceOptionsButton.frame = NSRect(x: newButton.frame.maxX, y: buttonY, width: segment, height: button)
         joinSplitButtonCorners(showsChevron)
         let titlebarButtonsMinX = layoutPriorityButton(before: newButton.frame)
         if let accessory = titlebarAccessory {
-            let size = accessory.fittingSize
-            let width = max(0, min(size.width, titlebarButtonsMinX - Metrics.space2 - x))
-            accessory.frame = NSRect(x: x, y: (rowMidY - size.height / 2).rounded(), width: width, height: size.height)
-            accessory.isHidden = width < size.height
+            accessory.frame = Self.titlebarAccessoryFrame(fitting: accessory.fittingSize, x: x,
+                                                          room: titlebarButtonsMinX - Metrics.space2 - x,
+                                                          button: button, buttonY: buttonY, rowMidY: rowMidY)
+            accessory.isHidden = accessory.frame.isEmpty
         }
 
         // Footer slots.

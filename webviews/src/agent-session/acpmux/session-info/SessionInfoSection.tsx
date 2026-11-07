@@ -5,7 +5,7 @@
 // line lines up with the rows above it (the rail's top block, SessionInfo.tsx `RAIL_LAYOUT`).
 // `bare` draws the body alone, with no head: rows that need no title over them. Inside the panel's
 // list (SessionInfoGroup.tsx) it also has the six-dot handle that moves it anywhere in the panel, in
-// the panel's gutter left of its head (sessionInfo.css).
+// the panel's right gutter past its head's count (sessionInfo.css).
 import type { ReactNode } from "react";
 import { Disclosure } from "../../../ui/Disclosure";
 import { useT } from "../i18n";
@@ -42,10 +42,10 @@ export function SessionInfoFold({
   );
 }
 
-/// Six dots, drawn here (the icon pack has no grip glyph): two across and three down, in the panel's left
-/// gutter beside the head, outside its pill (sessionInfo.css; Lucas, 2026-11-05, Session Info lab: the
-/// grip inside the pill "looks strange and poorly positioned").
-const GRIP_DOTS = [2, 6, 10].flatMap((y) => [2, 6].map((x) => ({ x, y })));
+/// Six dots, drawn here (the icon pack has no grip glyph): two across and three down, 4px apart with
+/// 1.5px dots, the reference panel's size, in the panel's right gutter past the head's count, outside its
+/// pill (sessionInfo.css; Leo, 2026-11-06: "I do not like the layout and proportion of the dragger").
+const GRIP_DOTS = [0.75, 4.75, 8.75].flatMap((y) => [0.75, 4.75].map((x) => ({ x, y })));
 
 function ReorderHandle({ id, title }: { id: SessionInfoSectionId; title: string }) {
   const reorder = useReorder();
@@ -64,9 +64,9 @@ function ReorderHandle({ id, title }: { id: SessionInfoSectionId; title: string 
         reorder.step(id, event.key === "ArrowUp" ? -1 : 1);
       }}
     >
-      <svg width="8" height="12" viewBox="0 0 8 12" aria-hidden="true">
+      <svg width="5.5" height="9.5" viewBox="0 0 5.5 9.5" aria-hidden="true">
         {GRIP_DOTS.map(({ x, y }) => (
-          <circle key={`${x}-${y}`} cx={x} cy={y} r="1" fill="currentColor" />
+          <circle key={`${x}-${y}`} cx={x} cy={y} r="0.75" fill="currentColor" />
         ))}
       </svg>
     </button>

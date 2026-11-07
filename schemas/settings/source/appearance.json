@@ -1,0 +1,2149 @@
+{
+  "$comment": "HAND-EDITED source of the Appearance section's theme, background, density, pane and focus ring rows (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it; its docstring is the row format (tabs.json's $comment repeats it, plus choices_from and \"swift_case\": null). Lists: SettingsSchema.all concatenates them, so rows keep the export's order; schemas/settings/settings-schema.json must not change when rows move here.",
+  "lists": [
+    {
+      "name": "appTheme",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.appTheme",
+        "text": "App Theme"
+      },
+      "rows": [
+        {
+          "key": "appearance.theme",
+          "note": "cmux's terminal theme: a Ghostty theme name or a light/dark pair; unset is the Ghostty config's theme.",
+          "title": {
+            "key": "settings.appearance.theme",
+            "text": "Theme"
+          },
+          "help": {
+            "key": "settings.appearance.theme.help",
+            "text": "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."
+          },
+          "summary": {
+            "key": "settings.appearance.theme.summary",
+            "text": "Colors for terminals, and cmux unless App Theme is set"
+          },
+          "kind": "theme",
+          "swift_owner": "AppThemeSetting",
+          "default": null,
+          "default_label": {
+            "key": "settings.source.ghostty",
+            "text": "Ghostty"
+          },
+          "keywords": [
+            "theme",
+            "color",
+            "colors",
+            "color scheme",
+            "dark",
+            "light",
+            "ghostty",
+            "palette"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.appTheme",
+          "note": "The theme of cmux's own surfaces; followTerminal (the default) uses the terminal theme.",
+          "title": {
+            "key": "settings.appearance.appTheme",
+            "text": "App Theme"
+          },
+          "help": {
+            "key": "settings.appearance.appTheme.help",
+            "text": "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."
+          },
+          "summary": {
+            "key": "settings.appearance.appTheme.summary",
+            "text": "Colors for the window, sidebar, tabs and pages"
+          },
+          "kind": "theme",
+          "swift_owner": "ChromeThemeSetting",
+          "default": "followTerminal",
+          "default_label": {
+            "key": "settings.default.followTerminal",
+            "text": "Match Terminal Theme"
+          },
+          "keywords": [
+            "app theme",
+            "accent",
+            "chrome",
+            "interface",
+            "colors",
+            "contrast",
+            "wcag"
+          ]
+        },
+        {
+          "key": "appearance.themeEdits",
+          "title": {
+            "key": "settings.appearance.themeEdits",
+            "text": "Theme Edits"
+          },
+          "help": {
+            "key": "settings.appearance.themeEdits.help",
+            "text": "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color."
+          },
+          "kind": "string_map",
+          "swift_owner": "ThemeEditsSetting",
+          "default": {},
+          "keywords": [
+            "theme",
+            "custom",
+            "edit",
+            "color",
+            "colour",
+            "palette",
+            "background",
+            "foreground",
+            "cursor",
+            "selection"
+          ]
+        },
+        {
+          "key": "appearance.favoriteThemes",
+          "name": "favorites",
+          "title": {
+            "key": "settings.appearance.favoriteThemes",
+            "text": "Starred Themes"
+          },
+          "help": {
+            "key": "settings.appearance.favoriteThemes.help",
+            "text": "Themes starred in a theme picker. The picker lists them first."
+          },
+          "kind": "string_list",
+          "swift_owner": {
+            "type": "ThemeFavoritesSetting",
+            "prefixed": true
+          },
+          "default": [],
+          "keywords": [
+            "theme",
+            "star",
+            "starred",
+            "favorite",
+            "favourite",
+            "pin"
+          ],
+          "palette_hidden": "a theme picker's stars edit it: a list of theme names"
+        },
+        {
+          "key": "appearance.rotateFavoriteThemes",
+          "name": "rotation",
+          "note": "When launch turns appearance.theme to the next starred theme.",
+          "title": {
+            "key": "settings.appearance.rotateFavoriteThemes",
+            "text": "Rotate Starred Themes"
+          },
+          "help": {
+            "key": "settings.appearance.rotateFavoriteThemes.help",
+            "text": "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on."
+          },
+          "summary": {
+            "key": "settings.appearance.rotateFavoriteThemes.summary",
+            "text": "Change to the next starred theme"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "ThemeFavoritesSetting",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "ThemeRotation"
+          },
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "launch",
+              "title": {
+                "key": "settings.choice.eachLaunch",
+                "text": "Each Launch"
+              },
+              "note": "Every launch."
+            },
+            {
+              "value": "daily",
+              "title": {
+                "key": "settings.choice.everyDay",
+                "text": "Every Day"
+              },
+              "note": "The first launch of each day."
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "theme",
+            "rotate",
+            "rotation",
+            "shuffle",
+            "starred",
+            "favorite",
+            "daily",
+            "launch"
+          ]
+        },
+        {
+          "key": "appearance.accent",
+          "note": "Art Color (art) is no ThemeAccent: the accent takes the hue of the art a window shows (AccentSetting.artID).",
+          "title": {
+            "key": "settings.appearance.accent",
+            "text": "Accent"
+          },
+          "help": {
+            "key": "settings.appearance.accent.help",
+            "text": "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris."
+          },
+          "summary": {
+            "key": "settings.appearance.accent.summary",
+            "text": "Color of selection and focus"
+          },
+          "kind": "choice",
+          "swift_owner": "AccentSetting",
+          "swift_enum": {
+            "name": "ThemeAccent",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "neutral",
+              "title": {
+                "key": "settings.choice.accent.neutral",
+                "text": "Neutral"
+              }
+            },
+            {
+              "value": "theme",
+              "title": {
+                "key": "settings.choice.accent.theme",
+                "text": "Theme Color"
+              }
+            },
+            {
+              "value": "art",
+              "title": {
+                "key": "settings.choice.accent.art",
+                "text": "Art Color"
+              },
+              "swift_case": null
+            },
+            {
+              "value": "red",
+              "title": {
+                "key": "settings.choice.accent.red",
+                "text": "Red"
+              }
+            },
+            {
+              "value": "green",
+              "title": {
+                "key": "settings.choice.accent.green",
+                "text": "Green"
+              }
+            },
+            {
+              "value": "yellow",
+              "title": {
+                "key": "settings.choice.accent.yellow",
+                "text": "Yellow"
+              }
+            },
+            {
+              "value": "blue",
+              "title": {
+                "key": "settings.choice.accent.blue",
+                "text": "Blue"
+              }
+            },
+            {
+              "value": "magenta",
+              "title": {
+                "key": "settings.choice.accent.magenta",
+                "text": "Magenta"
+              }
+            },
+            {
+              "value": "cyan",
+              "title": {
+                "key": "settings.choice.accent.cyan",
+                "text": "Cyan"
+              }
+            }
+          ],
+          "default": "neutral",
+          "keywords": [
+            "accent",
+            "color",
+            "colour",
+            "highlight",
+            "selection",
+            "personality",
+            "rose pine",
+            "ansi"
+          ]
+        },
+        {
+          "key": "appearance.themeFile",
+          "title": {
+            "key": "settings.appearance.themeFile",
+            "text": "Theme File"
+          },
+          "help": {
+            "key": "settings.appearance.themeFile.help",
+            "text": "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."
+          },
+          "summary": {
+            "key": "settings.appearance.themeFile.summary",
+            "text": "A look from ~/.config/cmux/themes"
+          },
+          "kind": "text",
+          "swift_owner": "ThemeFileSetting",
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.none",
+            "text": "None"
+          },
+          "keywords": [
+            "theme file",
+            "rice",
+            "ricing",
+            "dotfile",
+            "dotfiles",
+            "look",
+            "config",
+            "themes folder",
+            "json"
+          ]
+        },
+        {
+          "key": "appearance.highlightColor",
+          "title": {
+            "key": "settings.appearance.highlightColor",
+            "text": "Highlight Color"
+          },
+          "help": {
+            "key": "settings.appearance.highlightColor.help",
+            "text": "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."
+          },
+          "summary": {
+            "key": "settings.appearance.highlightColor.summary",
+            "text": "Color of selected text"
+          },
+          "kind": "color",
+          "swift_owner": "HighlightColorSetting",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.terminalTheme",
+            "text": "Terminal Theme"
+          },
+          "keywords": [
+            "highlight",
+            "selection",
+            "selected text",
+            "selection-background",
+            "color",
+            "colour",
+            "theme"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "windowBackground",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.windowBackground",
+        "text": "Window Background"
+      },
+      "rows": [
+        {
+          "key": "appearance.backdropArt",
+          "note": "Legacy: the bundled paintings (BackdropArt) follow None; appearance.background wins when both are set.",
+          "title": {
+            "key": "settings.appearance.backdropArt",
+            "text": "Backdrop Art"
+          },
+          "help": {
+            "key": "settings.appearance.backdropArt.help",
+            "text": "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above."
+          },
+          "summary": {
+            "key": "settings.appearance.backdropArt.summary",
+            "text": "Painting behind the window"
+          },
+          "kind": "choice",
+          "swift_owner": "BackdropArtSetting",
+          "choices": [
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "choices_from": "BackdropArtSetting.artChoices",
+          "default": "none",
+          "keywords": [
+            "painting",
+            "art",
+            "wallpaper",
+            "backdrop",
+            "attribution",
+            "legacy"
+          ],
+          "page_hidden": "legacy: the wallpaper card's appearance.background replaces it; the key still loads"
+        },
+        {
+          "key": "appearance.background",
+          "note": "None and Shuffle Paintings, then the bundled art by collection and Desktop Wallpaper (BackdropSelectionSetting.catalogChoices).",
+          "title": {
+            "key": "settings.appearance.background",
+            "text": "Background"
+          },
+          "help": {
+            "key": "settings.appearance.background.help",
+            "text": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
+          },
+          "summary": {
+            "key": "settings.appearance.background.summary",
+            "text": "Image behind your terminals"
+          },
+          "kind": "choice",
+          "swift_owner": "BackdropSelectionSetting",
+          "choices": [
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            },
+            {
+              "value": "daily",
+              "title": {
+                "key": "settings.choice.shufflePaintings",
+                "text": "Shuffle Paintings"
+              }
+            }
+          ],
+          "choices_from": "BackdropSelectionSetting.catalogChoices",
+          "default": "none",
+          "keywords": [
+            "painting",
+            "art",
+            "wallpaper",
+            "backdrop",
+            "desktop",
+            "attribution",
+            "museum",
+            "dark",
+            "doré",
+            "shuffle",
+            "folder"
+          ]
+        },
+        {
+          "key": "appearance.backgroundRotation",
+          "name": "rotation",
+          "title": {
+            "key": "settings.appearance.backgroundRotation",
+            "text": "Change Picture"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundRotation.help",
+            "text": "How often a shuffled background turns to its next picture."
+          },
+          "summary": {
+            "key": "settings.appearance.backgroundRotation.summary",
+            "text": "How often Shuffle changes the picture"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "BackdropRotation",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "15m",
+              "title": {
+                "key": "settings.choice.every15Minutes",
+                "text": "Every 15 Minutes"
+              },
+              "swift_case": "quarterHour"
+            },
+            {
+              "value": "hourly",
+              "title": {
+                "key": "settings.choice.everyHour",
+                "text": "Every Hour"
+              }
+            },
+            {
+              "value": "daily",
+              "title": {
+                "key": "settings.choice.everyDay",
+                "text": "Every Day"
+              }
+            }
+          ],
+          "default": "daily",
+          "keywords": [
+            "shuffle",
+            "rotate",
+            "rotating",
+            "wallpaper",
+            "interval",
+            "change picture",
+            "background"
+          ]
+        },
+        {
+          "key": "appearance.displayBackgrounds",
+          "name": "displayBackgrounds",
+          "title": {
+            "key": "settings.appearance.displayBackgrounds",
+            "text": "Per-display Backgrounds"
+          },
+          "help": {
+            "key": "settings.appearance.displayBackgrounds.help",
+            "text": "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none."
+          },
+          "kind": "string_map",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "display",
+            "screen",
+            "wallpaper",
+            "background",
+            "folder",
+            "none"
+          ]
+        },
+        {
+          "key": "appearance.displayBackgroundRotations",
+          "name": "displayBackgroundRotations",
+          "title": {
+            "key": "settings.appearance.displayBackgroundRotations",
+            "text": "Per-display Background Rotation"
+          },
+          "help": {
+            "key": "settings.appearance.displayBackgroundRotations.help",
+            "text": "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation."
+          },
+          "kind": "string_map",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "display",
+            "screen",
+            "wallpaper",
+            "rotation",
+            "cadence",
+            "hourly"
+          ]
+        },
+        {
+          "key": "appearance.paneBackgrounds",
+          "title": {
+            "key": "settings.appearance.paneBackgrounds",
+            "text": "Pane Backgrounds"
+          },
+          "help": {
+            "key": "settings.appearance.paneBackgrounds.help",
+            "text": "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."
+          },
+          "summary": {
+            "key": "settings.appearance.paneBackgrounds.summary",
+            "text": "One background or one per pane"
+          },
+          "kind": "choice",
+          "swift_owner": "PaneBackgroundsSetting",
+          "swift_enum": {
+            "name": "PaneBackgroundMode",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "shared",
+              "title": {
+                "key": "settings.choice.paneBackgrounds.shared",
+                "text": "One for the Window"
+              }
+            },
+            {
+              "value": "perPane",
+              "title": {
+                "key": "settings.choice.paneBackgrounds.perPane",
+                "text": "One per Pane"
+              }
+            }
+          ],
+          "default": "shared",
+          "keywords": [
+            "background",
+            "wallpaper",
+            "pane",
+            "split",
+            "per pane",
+            "each pane",
+            "backdrop",
+            "art"
+          ]
+        },
+        {
+          "key": "ui.reducedBackgrounds",
+          "title": {
+            "key": "settings.ui.reducedBackgrounds",
+            "text": "Plain Backgrounds"
+          },
+          "help": {
+            "key": "settings.ui.reducedBackgrounds.help",
+            "text": "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off."
+          },
+          "kind": "toggle",
+          "swift_owner": "ReducedBackgroundsSetting",
+          "default": false,
+          "keywords": [
+            "background",
+            "plain",
+            "reduce",
+            "reduced",
+            "painting",
+            "wallpaper",
+            "glass",
+            "transparency",
+            "backdrop",
+            "art",
+            "simple",
+            "performance"
+          ]
+        },
+        {
+          "key": "appearance.experimentalControls",
+          "title": {
+            "key": "settings.appearance.experimentalControls",
+            "text": "Experimental Appearance Controls"
+          },
+          "help": {
+            "key": "settings.appearance.experimentalControls.help",
+            "text": "Applies Hue and Saturation to the window's tint. Off, they have no effect."
+          },
+          "kind": "toggle",
+          "swift_owner": "ExperimentalAppearanceSetting",
+          "default": false,
+          "keywords": [
+            "experimental",
+            "tuning",
+            "tint",
+            "transparency",
+            "hue",
+            "saturation",
+            "labs"
+          ]
+        },
+        {
+          "key": "appearance.backgroundOpacity",
+          "name": "opacity",
+          "title": {
+            "key": "settings.appearance.backgroundOpacity",
+            "text": "Opacity"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundOpacity.help",
+            "text": "How much of the theme color covers the material behind the window."
+          },
+          "summary": {
+            "key": "settings.appearance.backgroundOpacity.summary",
+            "text": "Theme color over the backdrop"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "WindowBackgroundSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction",
+            "placeholder": 1
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.source.ghostty",
+            "text": "Ghostty"
+          },
+          "keywords": [
+            "transparency",
+            "translucent",
+            "background-opacity",
+            "blur",
+            "glass"
+          ]
+        },
+        {
+          "key": "appearance.backgroundBlur",
+          "name": "material",
+          "title": {
+            "key": "settings.appearance.backgroundBlur",
+            "text": "Material"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundBlur.help",
+            "text": "Unset, the window follows Ghostty's background-opacity and background-blur."
+          },
+          "summary": {
+            "key": "settings.appearance.backgroundBlur.summary",
+            "text": "Clear Glass shows the desktop through the wallpaper"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "WindowBackgroundSetting",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "WindowMaterialChoice",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "frosted",
+              "title": {
+                "key": "settings.choice.frosted",
+                "text": "Frosted"
+              }
+            },
+            {
+              "value": "glass",
+              "title": {
+                "key": "settings.choice.glass",
+                "text": "Glass"
+              }
+            },
+            {
+              "value": "glass-clear",
+              "title": {
+                "key": "settings.choice.glassClear",
+                "text": "Clear Glass"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              },
+              "swift_case": "unblurred"
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.source.ghostty",
+            "text": "Ghostty"
+          },
+          "keywords": [
+            "blur",
+            "vibrancy",
+            "liquid glass",
+            "background-blur",
+            "transparency"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.inactiveWindowDim",
+          "name": "inactiveDim",
+          "title": {
+            "key": "settings.appearance.inactiveWindowDim",
+            "text": "Dim Inactive Windows"
+          },
+          "help": {
+            "key": "settings.appearance.inactiveWindowDim.help",
+            "text": "How much more theme color covers a window while another one is in front. 0 keeps the same look."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "WindowBackgroundSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": 0,
+          "keywords": [
+            "inactive",
+            "unfocused",
+            "focus",
+            "dim",
+            "opacity",
+            "transparency",
+            "background"
+          ]
+        },
+        {
+          "key": "appearance.wallpaperTint",
+          "title": {
+            "key": "settings.appearance.wallpaperTint",
+            "text": "Tint with Desktop Wallpaper"
+          },
+          "help": {
+            "key": "settings.appearance.wallpaperTint.help",
+            "text": "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."
+          },
+          "kind": "toggle",
+          "swift_owner": "WallpaperTintSetting",
+          "default": true,
+          "keywords": [
+            "wallpaper",
+            "desktop",
+            "tint",
+            "tinting",
+            "glass",
+            "color",
+            "colour",
+            "space",
+            "background"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tuning",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.appearanceTuning",
+        "text": "Appearance Tuning"
+      },
+      "rows": [
+        {
+          "key": "appearance.glassTransparency",
+          "name": "glassTransparency",
+          "title": {
+            "key": "settings.appearance.glassTransparency",
+            "text": "Glass Transparency"
+          },
+          "help": {
+            "key": "settings.appearance.glassTransparency.help",
+            "text": "How much of the desktop or wallpaper shows through the glass."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "AppearanceTuningSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": 0,
+          "keywords": [
+            "glass",
+            "transparency",
+            "alpha",
+            "clear"
+          ],
+          "page_hidden": "duplicates appearance.backgroundOpacity; the key still loads"
+        },
+        {
+          "key": "appearance.hue",
+          "name": "hue",
+          "title": {
+            "key": "settings.appearance.hue",
+            "text": "Hue"
+          },
+          "help": {
+            "key": "settings.appearance.hue.help",
+            "text": "Shift the tint color around the hue wheel."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "AppearanceTuningSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction",
+            "placeholder": 0.5
+          },
+          "default": 0.5,
+          "keywords": [
+            "tint",
+            "color",
+            "colour"
+          ]
+        },
+        {
+          "key": "appearance.saturation",
+          "name": "saturation",
+          "title": {
+            "key": "settings.appearance.saturation",
+            "text": "Saturation"
+          },
+          "help": {
+            "key": "settings.appearance.saturation.help",
+            "text": "Increase or reduce the tint color intensity."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "AppearanceTuningSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 2,
+            "step": 0.05,
+            "unit": "fraction",
+            "placeholder": 1
+          },
+          "default": 1,
+          "keywords": [
+            "tint",
+            "color",
+            "colour",
+            "intensity"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "look",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.densityMotion",
+        "text": "Density and Motion"
+      },
+      "rows": [
+        {
+          "key": "appearance.density",
+          "title": {
+            "key": "settings.appearance.density",
+            "text": "Density"
+          },
+          "help": {
+            "key": "settings.appearance.density.help",
+            "text": "Row height, padding, corners, icons and text size together. Compact is the default."
+          },
+          "kind": "choice",
+          "swift_owner": "DensitySetting",
+          "swift_enum": {
+            "name": "DensityPreset",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "ultraCompact",
+              "title": {
+                "key": "settings.choice.ultraCompact",
+                "text": "Ultra-compact"
+              }
+            },
+            {
+              "value": "compact",
+              "title": {
+                "key": "settings.choice.compact",
+                "text": "Compact"
+              }
+            },
+            {
+              "value": "cozy",
+              "title": {
+                "key": "settings.choice.cozy",
+                "text": "Cozy"
+              }
+            },
+            {
+              "value": "comfortable",
+              "title": {
+                "key": "settings.choice.comfortable",
+                "text": "Comfortable"
+              }
+            },
+            {
+              "value": "spacious",
+              "title": {
+                "key": "settings.choice.spacious",
+                "text": "Spacious"
+              }
+            }
+          ],
+          "default": "compact",
+          "keywords": [
+            "size",
+            "spacing",
+            "compact",
+            "comfortable",
+            "cozy",
+            "spacious",
+            "dense",
+            "font"
+          ]
+        },
+        {
+          "key": "appearance.customDensity",
+          "title": {
+            "key": "settings.appearance.customDensity",
+            "text": "Custom Density"
+          },
+          "kind": "text",
+          "swift_owner": "CustomDensitySelectionSetting",
+          "default": null,
+          "keywords": [
+            "density",
+            "custom"
+          ],
+          "palette_hidden": "the Density card and the palette's density rows pick it"
+        },
+        {
+          "key": "appearance.customDensities",
+          "title": {
+            "key": "settings.appearance.customDensities",
+            "text": "Custom Densities"
+          },
+          "kind": "text",
+          "swift_owner": "CustomDensitiesSetting",
+          "default": [],
+          "keywords": [
+            "density",
+            "custom"
+          ],
+          "palette_hidden": "the Density card edits them: a list of density objects"
+        },
+        {
+          "key": "app.uiScale",
+          "title": {
+            "key": "settings.appearance.uiScale",
+            "text": "Interface Scale"
+          },
+          "kind": "number",
+          "swift_owner": "UIScaleSetting",
+          "range": {
+            "min": 0.85,
+            "max": 1.5,
+            "step": 0.05,
+            "unit": "fraction",
+            "placeholder": 1
+          },
+          "default": 1,
+          "keywords": [
+            "scale",
+            "zoom",
+            "size",
+            "chrome",
+            "web",
+            "bigger",
+            "smaller"
+          ]
+        },
+        {
+          "key": "appearance.metrics.chromeFontSize",
+          "title": {
+            "key": "settings.appearance.interfaceSize",
+            "text": "Interface Size"
+          },
+          "help": {
+            "key": "settings.appearance.interfaceSize.help",
+            "text": "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+          },
+          "kind": "number",
+          "swift_owner": "InterfaceSizeSetting",
+          "range": {
+            "min": 10,
+            "max": 16,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 12
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "font",
+            "text",
+            "size",
+            "chromeFontSize"
+          ]
+        },
+        {
+          "key": "appearance.interfaceScale",
+          "title": {
+            "key": "settings.appearance.interfaceSize",
+            "text": "Interface Size"
+          },
+          "help": {
+            "key": "settings.appearance.interfaceSize.help",
+            "text": "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+          },
+          "summary": {
+            "key": "settings.appearance.interfaceSize.summary",
+            "text": "Text size of tabs, sidebar and controls"
+          },
+          "kind": "number",
+          "swift_owner": "InterfaceScaleSetting",
+          "range": {
+            "min": 0.9,
+            "max": 1.25,
+            "step": 0.05,
+            "unit": "fraction",
+            "placeholder": 1
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "font",
+            "text",
+            "size",
+            "zoom",
+            "scale",
+            "bigger",
+            "smaller",
+            "interfaceScale"
+          ],
+          "page_hidden": "opt-in: the Debug Settings toggle chrome.interfaceSize turns it on, until it is promoted"
+        },
+        {
+          "key": "appearance.metrics.sidebarWidth",
+          "name": "sidebarWidth",
+          "title": {
+            "key": "settings.appearance.sidebarWidth",
+            "text": "Sidebar Width"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 160,
+            "max": 420,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 208
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "width",
+            "size",
+            "sidebarWidth"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.columnGap",
+          "name": "columnGap",
+          "title": {
+            "key": "settings.appearance.columnGap",
+            "text": "Column Gap"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 24,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 6
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "column",
+            "gap",
+            "spacing",
+            "columnGap"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.metrics.dividerThickness",
+          "name": "dividerThickness",
+          "title": {
+            "key": "settings.appearance.dividerThickness",
+            "text": "Divider Thickness"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 6,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 1
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "divider",
+            "split",
+            "pane",
+            "line",
+            "thickness",
+            "dividerThickness"
+          ]
+        },
+        {
+          "key": "appearance.metrics.dividerHitWidth",
+          "name": "dividerHitWidth",
+          "title": {
+            "key": "settings.appearance.dividerHitWidth",
+            "text": "Divider Drag Width"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 1,
+            "max": 24,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 7
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "divider",
+            "split",
+            "pane",
+            "drag",
+            "hit",
+            "width",
+            "dividerHitWidth"
+          ]
+        },
+        {
+          "key": "appearance.metrics.titlebarHeight",
+          "name": "titlebarHeight",
+          "title": {
+            "key": "settings.appearance.titlebarHeight",
+            "text": "Titlebar Height"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 24,
+            "max": 56,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 32
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "titlebar",
+            "title bar",
+            "header",
+            "height",
+            "titlebarHeight"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.borders",
+          "title": {
+            "key": "settings.appearance.borders",
+            "text": "Borders"
+          },
+          "help": {
+            "key": "settings.appearance.borders.help",
+            "text": "None removes every border, hairline and separator in the app."
+          },
+          "kind": "choice",
+          "swift_owner": "BordersSetting",
+          "swift_enum": {
+            "name": "BorderMode",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "default",
+              "title": {
+                "key": "settings.choice.default",
+                "text": "Default"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "default",
+          "keywords": [
+            "border",
+            "hairline",
+            "separator",
+            "outline",
+            "line"
+          ]
+        },
+        {
+          "key": "appearance.focusIndicator",
+          "name": "focusIndicator",
+          "title": {
+            "key": "settings.appearance.focusIndicator",
+            "text": "Focused Pane"
+          },
+          "help": {
+            "key": "settings.appearance.focusIndicator.help",
+            "text": "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."
+          },
+          "summary": {
+            "key": "settings.appearance.focusIndicator.summary",
+            "text": "How the focused pane stands out"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "PaneFocusSettings",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "FocusIndicator",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "border",
+              "title": {
+                "key": "settings.choice.border",
+                "text": "Border"
+              }
+            },
+            {
+              "value": "tabs",
+              "title": {
+                "key": "settings.choice.tabs",
+                "text": "Tabs"
+              }
+            },
+            {
+              "value": "both",
+              "title": {
+                "key": "settings.choice.both",
+                "text": "Both"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "tabs",
+          "keywords": [
+            "focus",
+            "active",
+            "pane",
+            "tab",
+            "ring"
+          ]
+        },
+        {
+          "key": "focus.inactiveTabStyle",
+          "name": "inactiveTabStyle",
+          "title": {
+            "key": "settings.focus.inactiveTabStyle",
+            "text": "Unfocused Pane Tabs"
+          },
+          "help": {
+            "key": "settings.focus.inactiveTabStyle.help",
+            "text": "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."
+          },
+          "summary": {
+            "key": "settings.focus.inactiveTabStyle.summary",
+            "text": "How tabs in other panes tone down"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "PaneFocusSettings",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "InactiveTabStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "fade",
+              "title": {
+                "key": "settings.choice.fade",
+                "text": "Fade"
+              }
+            },
+            {
+              "value": "tonal",
+              "title": {
+                "key": "settings.choice.tonal",
+                "text": "Tonal"
+              }
+            },
+            {
+              "value": "quiet",
+              "title": {
+                "key": "settings.choice.quiet",
+                "text": "Quiet"
+              }
+            }
+          ],
+          "default": "fade",
+          "keywords": [
+            "focus",
+            "inactive",
+            "unfocused",
+            "pane",
+            "tab",
+            "fade",
+            "dim"
+          ]
+        },
+        {
+          "key": "ui.animationSpeed",
+          "title": {
+            "key": "settings.ui.animationSpeed",
+            "text": "Animations"
+          },
+          "kind": "choice",
+          "swift_owner": "AnimationSpeedSetting",
+          "swift_enum": {
+            "name": "MotionSpeed",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "fast",
+              "title": {
+                "key": "settings.choice.fast",
+                "text": "Fast"
+              }
+            },
+            {
+              "value": "normal",
+              "title": {
+                "key": "settings.choice.normal",
+                "text": "Normal"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "fast",
+          "keywords": [
+            "motion",
+            "speed"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "chromeStyle",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.panes",
+        "text": "Panes"
+      },
+      "rows": [
+        {
+          "key": "appearance.chromeStyle",
+          "note": "The window's look; its choices and their titles are schemas/settings/chrome-styles.json (ChromeStyleSetting+Choices.swift).",
+          "title": {
+            "key": "settings.appearance.chromeStyle",
+            "text": "Window Style"
+          },
+          "help": {
+            "key": "settings.appearance.chromeStyle.help",
+            "text": "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them."
+          },
+          "summary": {
+            "key": "settings.appearance.chromeStyle.summary",
+            "text": "Card, lines and sidebar background"
+          },
+          "kind": "choice",
+          "swift_owner": "ChromeStyleSetting",
+          "swift_enum": {
+            "name": "ChromeStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [],
+          "choices_from": "ChromeStyleSetting.choices",
+          "default": "flat",
+          "keywords": [
+            "window",
+            "style",
+            "chrome",
+            "card",
+            "flat",
+            "border",
+            "borders",
+            "lines",
+            "divider",
+            "outline",
+            "seam",
+            "sidebar",
+            "two-tone",
+            "minimal",
+            "bare",
+            "floating",
+            "gaps"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "lookMotion",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.densityMotion",
+        "text": "Density and Motion"
+      },
+      "rows": [
+        {
+          "key": "ui.paneAnimations",
+          "title": {
+            "key": "settings.ui.paneAnimations",
+            "text": "Animate Panes"
+          },
+          "help": {
+            "key": "settings.ui.paneAnimations.help",
+            "text": "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."
+          },
+          "kind": "toggle",
+          "swift_owner": "PaneAnimationsSetting",
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "pane",
+            "split",
+            "zoom",
+            "slide",
+            "spring"
+          ]
+        },
+        {
+          "key": "ui.animations.newTab",
+          "name": "newTab",
+          "title": {
+            "key": "settings.ui.animations.newTab",
+            "text": "Animate New Tabs"
+          },
+          "help": {
+            "key": "settings.ui.animations.newTab.help",
+            "text": "A new tab grows into its place in the tab bar. Off shows it there at once."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "AnimationKindsSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "tab"
+          ]
+        },
+        {
+          "key": "ui.animations.newWorkspace",
+          "name": "newWorkspace",
+          "title": {
+            "key": "settings.ui.animations.newWorkspace",
+            "text": "Animate New Workspaces"
+          },
+          "help": {
+            "key": "settings.ui.animations.newWorkspace.help",
+            "text": "A new workspace row opens in the sidebar. Off shows it there at once."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "AnimationKindsSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "workspace",
+            "sidebar"
+          ]
+        },
+        {
+          "key": "ui.animations.bounce",
+          "name": "bounce",
+          "title": {
+            "key": "settings.ui.animations.bounce",
+            "text": "Animation Bounce"
+          },
+          "help": {
+            "key": "settings.ui.animations.bounce.help",
+            "text": "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce."
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "AnimationKindsSetting",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "MotionBounce",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            },
+            {
+              "value": "subtle",
+              "title": {
+                "key": "settings.choice.subtle",
+                "text": "Subtle"
+              }
+            }
+          ],
+          "default": "none",
+          "keywords": [
+            "motion",
+            "spring",
+            "bounce"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "panes",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.panes",
+        "text": "Panes"
+      },
+      "rows": [
+        {
+          "key": "layout.paneSeparation",
+          "name": "paneSeparation",
+          "note": "Unset follows the curved main pane (Metrics.defaultPaneSeparation).",
+          "title": {
+            "key": "settings.layout.paneSeparation",
+            "text": "Separation"
+          },
+          "help": {
+            "key": "settings.layout.paneSeparation.help",
+            "text": "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise."
+          },
+          "summary": {
+            "key": "settings.layout.paneSeparation.summary",
+            "text": "How panes are told apart"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "PaneChromeConfigParser",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "PaneSeparation",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            },
+            {
+              "value": "dividers",
+              "title": {
+                "key": "settings.choice.dividers",
+                "text": "Dividers"
+              }
+            },
+            {
+              "value": "borders",
+              "title": {
+                "key": "settings.choice.borders",
+                "text": "Borders"
+              }
+            },
+            {
+              "value": "cards",
+              "title": {
+                "key": "settings.choice.cards",
+                "text": "Cards"
+              }
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.default",
+            "text": "Default"
+          },
+          "keywords": [
+            "border",
+            "divider",
+            "separator",
+            "gap",
+            "cards",
+            "lines",
+            "seamless",
+            "pane"
+          ]
+        },
+        {
+          "key": "layout.panePadding",
+          "name": "panePadding",
+          "title": {
+            "key": "settings.layout.panePadding",
+            "text": "Padding"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "PaneChromeConfigParser",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 16,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 4
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": []
+        },
+        {
+          "key": "layout.paneCornerRadius",
+          "name": "paneCornerRadius",
+          "title": {
+            "key": "settings.layout.paneCornerRadius",
+            "text": "Corner Radius"
+          },
+          "help": {
+            "key": "settings.layout.paneCornerRadius.help",
+            "text": "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "PaneChromeConfigParser",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 20,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 8
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "rounded",
+            "radius",
+            "tabs",
+            "concentric",
+            "corners"
+          ]
+        },
+        {
+          "key": "layout.cornerPadding",
+          "name": "cornerPadding",
+          "title": {
+            "key": "settings.layout.cornerPadding",
+            "text": "Corner Padding"
+          },
+          "help": {
+            "key": "settings.layout.cornerPadding.help",
+            "text": "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "PaneChromeConfigParser",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 12,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 2
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "inset",
+            "gap",
+            "tabs",
+            "concentric",
+            "corners",
+            "radius"
+          ]
+        },
+        {
+          "key": "layout.paneBorder",
+          "name": "paneBorder",
+          "title": {
+            "key": "settings.layout.paneBorder",
+            "text": "Border"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "PaneChromeConfigParser",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "PaneBorderStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "subtle",
+              "title": {
+                "key": "settings.choice.subtle",
+                "text": "Subtle"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "subtle",
+          "keywords": []
+        },
+        {
+          "key": "layout.paneBorderColor",
+          "name": "paneBorderColor",
+          "title": {
+            "key": "settings.layout.paneBorderColor",
+            "text": "Border Color"
+          },
+          "kind": "color",
+          "swift_owner": {
+            "type": "PaneChromeConfigParser",
+            "prefixed": true
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.theme",
+            "text": "Theme"
+          },
+          "keywords": []
+        },
+        {
+          "key": "layout.paneBorderWidth",
+          "name": "paneBorderWidth",
+          "title": {
+            "key": "settings.layout.paneBorderWidth",
+            "text": "Border Width"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "PaneChromeConfigParser",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0.5,
+            "max": 4,
+            "step": 0.5,
+            "unit": "points"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.onePixel",
+            "text": "One pixel"
+          },
+          "keywords": []
+        }
+      ]
+    },
+    {
+      "name": "focusRing",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.focusRing",
+        "text": "Focus Ring"
+      },
+      "rows": [
+        {
+          "key": "focusRing.enabled",
+          "name": "focusRingEnabled",
+          "title": {
+            "key": "settings.focusRing.enabled",
+            "text": "Show Focus Ring"
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "PaneRingConfigParser",
+            "prefixed": true
+          },
+          "default": false,
+          "keywords": [],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "focusRing.style",
+          "name": "focusRingStyle",
+          "title": {
+            "key": "settings.focusRing.style",
+            "text": "Style"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "PaneRingConfigParser",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "FocusRingStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "ring",
+              "title": {
+                "key": "settings.choice.ring",
+                "text": "Ring"
+              }
+            },
+            {
+              "value": "glow",
+              "title": {
+                "key": "settings.choice.glow",
+                "text": "Glow"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "ring",
+          "keywords": []
+        },
+        {
+          "key": "focusRing.contrast",
+          "name": "focusRingContrast",
+          "title": {
+            "key": "settings.focusRing.contrast",
+            "text": "Contrast"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "PaneRingConfigParser",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "FocusRingContrast",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "subtle",
+              "title": {
+                "key": "settings.choice.subtle",
+                "text": "Subtle"
+              }
+            },
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "strong",
+              "title": {
+                "key": "settings.choice.strong",
+                "text": "Strong"
+              }
+            }
+          ],
+          "default": "subtle",
+          "keywords": []
+        },
+        {
+          "key": "focusRing.color",
+          "name": "focusRingColor",
+          "title": {
+            "key": "settings.focusRing.color",
+            "text": "Color"
+          },
+          "kind": "color",
+          "swift_owner": {
+            "type": "PaneRingConfigParser",
+            "prefixed": true
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.theme",
+            "text": "Theme"
+          },
+          "keywords": [],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "focusRing.width",
+          "name": "focusRingWidth",
+          "title": {
+            "key": "settings.focusRing.width",
+            "text": "Width"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "PaneRingConfigParser",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0.5,
+            "max": 8,
+            "step": 0.5,
+            "unit": "points"
+          },
+          "default": 1,
+          "keywords": [],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "focusRing.showWhenSinglePane",
+          "name": "focusRingShowWhenSinglePane",
+          "title": {
+            "key": "settings.focusRing.showWhenSinglePane",
+            "text": "Show With One Pane"
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "PaneRingConfigParser",
+            "prefixed": true
+          },
+          "default": false,
+          "keywords": []
+        }
+      ]
+    }
+  ]
+}

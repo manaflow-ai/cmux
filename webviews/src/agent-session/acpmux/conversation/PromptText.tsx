@@ -26,13 +26,16 @@ import { holdHeader } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
 import { SoftBroken, softBreaks } from "./softBreaks";
 import { isPromptMarkdown } from "./promptMarkdown";
-import { githubRefLabel, UrlChip } from "../chips/LinkChips";
-import { textLinks } from "../chips/paths";
+import { githubRefLabel, UrlChip, withForeignFiles } from "../chips/LinkChips";
+import { foreignFileIds, textLinks } from "../chips/paths";
 import { deeplinks } from "../composer/deeplinks";
 import { SkillWordsContext } from "./skillWords";
 import { withSkillWords } from "./SkillWord";
-import { ChevronDown } from "./icons";
-import { pastedSize } from "../composer/TextAttachmentCard";
+import { Bot, ChevronDown } from "./icons";
+import { agentText } from "../agentText";
+import { experimentArm } from "../../../experiments/experiment";
+import { pastedAgentLook } from "./pastedAgentLook.experiment";
+import { pastedSize } from "../composer/textAttachmentCardModel";
 
 export function PromptText({
   rowId,
@@ -270,7 +273,7 @@ export function PromptTyped({
   const shown = show(text);
   // A skill's `/name` draws as the composer's command words do, its description on hover.
   const skills = useContext(SkillWordsContext).words;
-  if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{shown}</span>;
+  if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{plainWithForeignFiles(shown)}</span>;
   // Drawn as Markdown, the renderer reads its code as send does (`commonmark`) and lights skills
   // only in its own plain text.
   return isPromptMarkdown(text) ? (
@@ -288,16 +291,27 @@ export function PromptTyped({
   );
 }
 
+/// A huge prompt's drawn text (#29840): one literal text node but for provider file ids, each its
+/// `ForeignFileRef`. One scan over the drawn text; past `MAX_PLAIN_FOREIGN_IDS` ids it stays one
+/// text node, so a prompt of ids alone never draws a node per id.
+const MAX_PLAIN_FOREIGN_IDS = 64;
+
+function plainWithForeignFiles(text: string): ReactNode {
+  const ids = foreignFileIds(text, MAX_PLAIN_FOREIGN_IDS);
+  if (!ids.length || ids.length > MAX_PLAIN_FOREIGN_IDS) return text;
+  return withForeignFiles(text, "f", (piece) => [piece], ids);
+}
+
 /// Literal prompt text with each bare web address a link (UrlChip, as in a reply) and each cmux app
 /// link (`cmux://workspace/…`, `cmux-nightly://agent/…`) a link the host opens in the app, as a
 /// reply's app link draws (Markdown.tsx); the rest keeps its break points (softBreaks.tsx).
 function LiteralText({ text }: { text: string }) {
   const links = text.includes("://") ? promptLinks(text) : [];
-  if (!links.length) return <SoftBroken text={text} />;
+  if (!links.length) return <>{withForeignFiles(text, "f", softBreaks)}</>;
   const out: ReactNode[] = [];
   let at = 0;
   links.forEach((link, index) => {
-    if (link.start > at) out.push(...softBreaks(text.slice(at, link.start), `t${index}`));
+    if (link.start > at) out.push(...withForeignFiles(text.slice(at, link.start), `t${index}`, softBreaks));
     out.push(
       link.app ? (
         // A plain anchor, so the click takes the host's link path (opened in the app).
@@ -312,7 +326,7 @@ function LiteralText({ text }: { text: string }) {
     );
     at = link.end;
   });
-  if (at < text.length) out.push(...softBreaks(text.slice(at), "tail"));
+  if (at < text.length) out.push(...withForeignFiles(text.slice(at), "tail", softBreaks));
   return <>{out}</>;
 }
 
@@ -391,9 +405,23 @@ export function PasteChip({
   }, []);
   const preview = useMemo(() => (open ? text : pastePreview(text)), [open, text]);
   const size = pastedSize(t, language, text);
+  // A paste that reads as another agent's output names it, never the person's words (agentText.ts):
+  // from its text, so the bubble draws the same before and after acpmux's echo.
+  const agent = useMemo(() => {
+    const found = agentText(text);
+    return found.signals.length ? { from: found.from } : undefined;
+  }, [text]);
+  const look = agent ? experimentArm(pastedAgentLook) : undefined;
+  const agentName = agent?.from ?? "";
+  const from = agent
+    ? agentName
+      ? t("transcript.pastedFrom", { name: agentName })
+      : t("transcript.pastedFromAgent")
+    : undefined;
+  const name = from && look !== "badge" ? from : t("composer.pastedText");
   return (
     <span className="cv-user__paste-block">
-      <span ref={card} className="cv-user__paste-card" data-open={open ? "" : undefined}>
+      <span ref={card} className="cv-user__paste-card" data-open={open ? "" : undefined} data-agent={look}>
         {/* Closed, its lines are a wider mouse target for the label's toggle; the label is the
             keyboard and screen reader control. */}
         {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
@@ -416,12 +444,19 @@ export function PasteChip({
           data-find-skip=""
           // The preview is hidden from screen readers, so the name says whose paste it is, as the
           // composer's card does.
-          aria-label={`${pasteName(text)}, ${t("composer.pastedText")} · ${size}`}
+          aria-label={`${pasteName(text)}, ${from ?? t("composer.pastedText")} · ${size}`}
           aria-expanded={open}
           aria-controls={id}
           onClick={toggle}
         >
-          <span className="cv-user__paste-name">{t("composer.pastedText")}</span>
+          {look === "badge" && (
+            <span className="cv-user__paste-agent">
+              <Bot size={12} />
+              {agentName || t("transcript.pastedFromAgent")}
+            </span>
+          )}
+          {look && look !== "badge" && <Bot size={12} className="cv-user__paste-glyph" />}
+          <span className="cv-user__paste-name">{name}</span>
           <span className="cv-user__paste-lines">{size}</span>
           <ChevronDown size={12} className="cv-user__paste-chevron" />
         </button>
