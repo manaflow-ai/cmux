@@ -81,22 +81,14 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         return region
     }
 
-    /// A tab dialog's region, its tab (the blocked region) and its card (window coordinates; empty before
-    /// the page laid it out): the region takes clicks only on the card, so a neighboring pane the region
-    /// grew over keeps its clicks outside the card.
+    /// A tab dialog's region, its tab (the blocked region) and its card (the dialog view's coordinates;
+    /// empty before the page laid it out): the region takes clicks only on the card, so a neighboring pane
+    /// the region grew over keeps its clicks outside the card.
     private static func tabPlacement(_ entry: Shown) -> (region: NSRect, tab: NSRect, card: NSRect)? {
         guard case .tab(let view)? = entry.scope.live, let window = view.window else { return nil }
         let tab = view.convert(view.bounds, to: nil)
         let content = window.contentView.map { $0.convert($0.bounds, to: nil) }
-        let region = tabRegion(tab, holding: entry.dialog.cardRect, in: content)
-        return (region, tab, cardInWindow(entry.dialog.cardRect, region: region, flipped: entry.dialog.view?.isFlipped ?? false))
-    }
-
-    /// `card` (the dialog view's coordinates, the view filling `region`) in window coordinates.
-    static func cardInWindow(_ card: CGRect?, region: NSRect, flipped: Bool) -> NSRect {
-        guard let card else { return .zero }
-        let y = flipped ? region.maxY - card.maxY : region.minY + card.minY
-        return NSRect(x: region.minX + card.minX, y: y, width: card.width, height: card.height)
+        return (tabRegion(tab, holding: entry.dialog.cardRect, in: content), tab, entry.dialog.cardRect ?? .zero)
     }
 
     /// The app-scope region for a card of `card` points: never smaller than ``appRegion``, so a card the

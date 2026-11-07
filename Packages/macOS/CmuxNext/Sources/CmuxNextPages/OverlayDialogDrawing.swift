@@ -83,8 +83,6 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
     /// Bumped by each focus move a key asks, so the page moves once per ask.
     private var focusSerial = 0
     private var focusBackward = false
-    /// The person's event the last press from the page spent: one key or click answers one dialog.
-    private var spentGesture: TimeInterval?
 
     func show(_ dialog: CmuxDialogPresentation?) {
         self.dialog = dialog
@@ -151,14 +149,12 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let dialog, params["id"]?.doubleValue == Double(dialog.id) else { return .null }
         switch op {
+        // Answered as the person's: a dialog's page refuses page probes (the pool's `refusesProbes`), so no
+        // `debug.page` call or script reaches it, while a click, a key or VoiceOver's press does.
         case "cmux.overlay.dialog.edit":
-            try Self.requirePerson(context)
             dialog.edited(Self.values(params["values"]))
         case "cmux.overlay.dialog.press":
             guard let button = params["button"]?.stringValue else { throw PageError.invalidParams(op) }
-            try Self.requirePerson(context)
-            guard context.gestureEvent != spentGesture else { throw Self.personOnly }
-            spentGesture = context.gestureEvent
             dialog.press(button, values: Self.values(params["values"]))
         case "cmux.overlay.dialog.layout":
             // CSS px from the page's top-left, in points at the page's zoom (the interface scale); the view
@@ -248,15 +244,6 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
         keys["command"] = .object(command)
         return .object(keys)
     }
-
-    /// Only the person answers a dialog from its page: an edit or a press needs their real key or mouse event
-    /// on the page (the host's record, never the page's word), so a page probe or page script cannot answer a
-    /// consent prompt. Automation answers through `debug.dialog`, which keeps user-only dialogs to the person.
-    static func requirePerson(_ context: PageCallContext) throws {
-        guard context.userGesture, context.gestureEvent != nil else { throw personOnly }
-    }
-
-    static let personOnly = PageError(code: PageNativeOp.userOnlyCode, message: "")
 
     static func wire(_ field: CmuxDialogField) -> JSONValue {
         switch field {

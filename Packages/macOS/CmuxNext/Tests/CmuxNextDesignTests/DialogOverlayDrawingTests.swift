@@ -153,14 +153,12 @@ import Testing
         #expect(!overlay.acceptsMouse(at: NSPoint(x: 300, y: 50)))
         #expect(overlay.acceptsMouse(at: NSPoint(x: 300, y: 240)))
         #expect(overlay.acceptsMouse(at: NSPoint(x: 500, y: 50)))
-    }
-
-    @Test func aCardIsPlacedInTheWindowFromItsRegion() {
-        let region = NSRect(x: 228, y: 0, width: 412, height: 480)
-        let card = CGRect(x: 16, y: 100, width: 380, height: 180)
-        #expect(CmuxDialogOverlayHost.cardInWindow(card, region: region, flipped: false) == NSRect(x: 244, y: 100, width: 380, height: 180))
-        #expect(CmuxDialogOverlayHost.cardInWindow(card, region: region, flipped: true) == NSRect(x: 244, y: 200, width: 380, height: 180))
-        #expect(CmuxDialogOverlayHost.cardInWindow(nil, region: region, flipped: false).isEmpty)
+        // Review 25 (F2): the card is where the host placed the view, which it may clamp inside the window,
+        // not at the region's origin: a click just inside the card's left edge is the card's.
+        // The card spans the view's middle (y 150...330 of 480), flipped or not.
+        let placed = center.dialog(id)?.view?.frame ?? .zero
+        #expect(overlay.acceptsMouse(at: NSPoint(x: placed.minX + 17, y: placed.midY)))
+        #expect(!overlay.acceptsMouse(at: NSPoint(x: placed.minX + 15, y: placed.midY)))
     }
 
     /// Review 15 of #37296 (F2): a tab dialog's view was its tab's size, so in a narrow split the card was

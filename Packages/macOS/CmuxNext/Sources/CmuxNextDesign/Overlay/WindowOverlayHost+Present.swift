@@ -116,6 +116,14 @@ public extension WindowOverlayHost {
         return handle.content.frame.offsetBy(dx: clip.frame.minX, dy: clip.frame.minY)
     }
 
+    /// ``OverlayOptions/mouseRect`` in window coordinates, at the content's frame as placed.
+    func mouseRect(of handle: OverlayHandle) -> NSRect? {
+        guard let rect = handle.options.mouseRect else { return nil }
+        let frame = frameInWindow(handle)
+        let y = handle.content.isFlipped ? frame.maxY - rect.maxY : frame.minY + rect.minY
+        return NSRect(x: frame.minX + rect.minX, y: y, width: rect.width, height: rect.height)
+    }
+
     /// What of the overlay shows (window coordinates): a `.pane` overlay
     /// inside its clip and outside every occluder.
     func visibleRegion(of handle: OverlayHandle) -> [NSRect] {
@@ -166,7 +174,7 @@ public extension WindowOverlayHost {
             if let region = options.modalRegion { rects.append(region) }
             if !options.passesThroughClicks {
                 let visible = visibleRegion(of: handle)
-                rects += options.mouseRect.map { mouse in visible.map { $0.intersection(mouse) }.filter { !$0.isEmpty } } ?? visible
+                rects += mouseRect(of: handle).map { mouse in visible.map { $0.intersection(mouse) }.filter { !$0.isEmpty } } ?? visible
             }
             return rects
         }

@@ -97,8 +97,12 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout, onPainted }: 
       // left edge, which its scrollWidth never counts.
       const buttons = [...row.children].filter((child): child is HTMLElement => child instanceof HTMLElement);
       const gap = Number.parseFloat(getComputedStyle(row).columnGap) || 0;
+      // Drawn widths at the row's layout size: the entrance's opening scale shrinks what is drawn, and a
+      // ResizeObserver never hears it end, so a row that does not fit would measure as fitting.
+      const drawn = row.getBoundingClientRect().width;
+      const scale = row.offsetWidth > 0 && drawn > 0 ? drawn / row.offsetWidth : 1;
       const needed =
-        buttons.reduce((sum, button) => sum + button.getBoundingClientRect().width, 0) +
+        buttons.reduce((sum, button) => sum + button.getBoundingClientRect().width, 0) / scale +
         gap * Math.max(0, buttons.length - 1);
       const overflows = needed > row.clientWidth + 0.5;
       if (overflows) row.dataset.stacked = "";

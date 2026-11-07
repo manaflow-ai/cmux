@@ -50,9 +50,9 @@ public struct OverlayOptions: Equatable, Sendable {
     /// Window coordinates: mouse input inside this rect is blocked (a
     /// tab-region modal), the rest of the window stays usable.
     public var modalRegion: NSRect?
-    /// Window coordinates: an overlay that takes clicks takes them only here, not across its whole frame
-    /// (a tab dialog's card, in a region grown past a narrow tab); empty takes none. ``modalRegion``
-    /// still blocks.
+    /// The overlay content's own coordinates: an overlay that takes clicks takes them only here, not across
+    /// its whole frame (a tab dialog's card, in a region grown past a narrow tab); empty takes none.
+    /// ``modalRegion`` still blocks. Placed where the host put the content, which it may clamp inside the window.
     public var mouseRect: NSRect?
     /// Nil: `.modal` for dialogs, `.window` otherwise (`effectiveLayer`).
     public var layer: OverlayLayer?

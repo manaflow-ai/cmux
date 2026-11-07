@@ -255,6 +255,51 @@ test("buttons that do not fit on one line stack, and stay on one line when they 
   expect((await mount({ ...quitChoice, buttons: quitChoice.buttons.slice(2) })).dataset.stacked).toBeUndefined();
 });
 
+// Review 25 of #37296 (F3): the buttons were measured drawn, at the entrance's opening scale, against the
+// row's layout width, so a row that does not fit measured as fitting while the card scaled in.
+test("buttons that do not fit stack while the card is drawn at its opening scale", async () => {
+  installDom();
+  const proto = dom!.window.HTMLElement.prototype;
+  const scale = 0.97;
+  const isRow = (node: HTMLElement) => node.classList.contains("overlay-dialog-buttons");
+  Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => 400 });
+  Object.defineProperty(proto, "offsetWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return isRow(this) ? 400 : 0;
+    },
+  });
+  const rect = proto.getBoundingClientRect;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    // Two buttons of 200 and an 8 px gap need 408 of the row's 400; drawn, they are 194 each.
+    const width = isRow(this) ? 400 * scale : this.classList.contains("overlay-dialog-button") ? 200 * scale : 0;
+    if (width === 0) return rect.call(this);
+    return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: 26, width, height: 26, toJSON() {} };
+  };
+  const style = scope.getComputedStyle as (node: Element) => CSSStyleDeclaration;
+  scope.getComputedStyle = (node: Element) => {
+    const computed = style(node);
+    if (!(node instanceof dom!.window.HTMLElement) || !isRow(node)) return computed;
+    return new Proxy(computed, { get: (target, key) => (key === "columnGap" ? "8px" : Reflect.get(target, key)) });
+  };
+  root ??= createRoot(dom!.window.document.getElementById("root")!);
+  const dialog: DialogState = {
+    ...quit,
+    layout: "standard",
+    fields: [],
+    values: {},
+    buttons: [
+      { id: "cancel", title: "Cancel", role: "cancel" },
+      { id: "keep", title: "Keep Sessions", role: "default" },
+    ],
+  };
+  await act(async () => {
+    root!.render(<OverlayDialog dialog={dialog} onPress={() => {}} onEdit={() => {}} onLayout={() => {}} />);
+  });
+  const row = dom!.window.document.body.querySelector<HTMLElement>(".overlay-dialog-buttons")!;
+  expect(row.dataset.stacked).not.toBeUndefined();
+});
+
 test("a value the host sets wins over the secure text the person typed", async () => {
   const login: DialogState = {
     ...quit,
