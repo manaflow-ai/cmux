@@ -60,7 +60,18 @@ impl Hub {
 
     /// Fences new turns and automatic continuations before transports begin draining.
     pub(crate) fn begin_shutdown(&self) {
-        self.shutdown_plan.lock().unwrap().started = true;
+        self.start_shutdown();
+        self.wake_start_retries();
+    }
+
+    /// Marks the shutdown begun, under the lock an unstarted turn's end is decided and written
+    /// under (`start_retry.rs` `fail_unless_shutdown_settles`): that end is wholly before the
+    /// shutdown began, or sees it. Returns the plan's `end_agents` and `keep`.
+    fn start_shutdown(&self) -> (bool, std::collections::HashSet<String>) {
+        let _ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+        let mut plan = self.shutdown_plan.lock().unwrap();
+        plan.started = true;
+        (plan.end_agents, plan.keep.clone())
     }
 
     /// Stop every agent at once and save. Each agent's process group gets
@@ -105,22 +116,44 @@ impl Hub {
         let ends_by = now.checked_add(SHUTDOWN_GRACE).unwrap_or(now);
         // The idle reaper must not end a hosted agent this shutdown hands off.
         self.stop_idle_reaper();
+        // Fence new sessions and agent starts before draining the notice loop. The drain can take
+        // up to its cache-write deadline; a start admitted in that window would be absent from the
+        // snapshot below and outlive this daemon.
+        let (end_agents, keep) = self.start_shutdown();
+        // The notice loop owns the trailing cache flush; join its bounded exit before the
+        // shutdown budget can tear down the Tokio runtime.
+        self.wait_peer_notice_loop().await;
         // A pass that already started finishes first (bounded by its kills).
         drop(self.idle_pass.lock().await);
-        let (end_agents, keep) = {
-            let mut plan = self.shutdown_plan.lock().unwrap();
-            plan.started = true;
-            (plan.end_agents, plan.keep.clone())
-        };
+        // A start that waits to be tried again ends its wait (`start_retry.rs`).
+        self.wake_start_retries();
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).
         self.retention_wake.notify_one();
         let sessions = self.sessions();
         // A scheduled provider retry must not survive an explicit daemon shutdown: settle it
         // before teardown so restart restoration cannot replay it. A turn this shutdown cuts
         // is still the next daemon's to continue (`restart_resume.rs`).
+        // Each stop reads the chat's log back to its last turn boundary, synchronously: one
+        // pass over every chat of a large store took minutes, and since nothing yielded, the
+        // daemon's own shutdown deadline could not end it (a NIGHTLY daemon sat with its lock
+        // held and its socket already removed, 2026-11-02). So chats with a retry mark go
+        // first, each stop yields, and the pass ends at its own budget, which each scan also
+        // checks line by line; a chat left over, or whose scan was cut short, keeps only a
+        // retry its journal held that the startup had not restored yet.
         if !preserve_auto_resume {
-            for s in &sessions {
-                self.stop_retry_at_shutdown(s);
+            let budget = tokio::time::Instant::now() + RETRY_STOP_BUDGET;
+            let (marked, unmarked): (Vec<_>, Vec<_>) =
+                sessions.iter().partition(|s| self.has_auto_resume_mark(s));
+            let total = marked.len() + unmarked.len();
+            for (done, s) in marked.into_iter().chain(unmarked).enumerate() {
+                if tokio::time::Instant::now() >= budget {
+                    tracing::warn!(
+                        "shutdown stopped the retries of {done} of {total} chats within {RETRY_STOP_BUDGET:?}; leaving the rest"
+                    );
+                    break;
+                }
+                self.stop_retry_at_shutdown(s, budget.into_std());
+                tokio::task::yield_now().await;
             }
         }
         // Startup may have been cancelled before adoption reached these hosts. Keep their
@@ -294,6 +327,10 @@ pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
 pub(crate) fn shutting_down_error() -> RpcError {
     RpcError::internal(SHUTTING_DOWN)
 }
+
+/// How long an explicit shutdown spends stopping provider retries before it ends agents
+/// (`shutdown_sessions`): a part of the daemon's own shutdown budget.
+const RETRY_STOP_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// How long agents get between SIGTERM and SIGKILL when the daemon stops.
 pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);

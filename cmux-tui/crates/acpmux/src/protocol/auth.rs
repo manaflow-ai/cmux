@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 /// check that reads no keychain, when no newer evidence answers.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
 pub struct SessionAuthParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
@@ -24,6 +25,9 @@ pub struct SessionAuthParams {
 #[serde(rename_all = "camelCase")]
 pub struct SessionAuthTarget {
     pub harness: String,
+    /// Absolute project directory on the destination daemon. Absent: project auth is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<std::path::PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

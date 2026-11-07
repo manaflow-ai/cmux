@@ -347,7 +347,7 @@ impl Mux {
         mutation: &WorkspaceMutation,
         if_empty: bool,
     ) -> anyhow::Result<WorkspaceMutationResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let authority = self.authorize_workspace_lifecycle_mutation(
             WorkspaceMutationAuthority::Ordinary,
@@ -413,7 +413,7 @@ impl Mux {
         project_resource: bool,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
         let _creation_handoff =
-            project_resource.then(|| self.resource_creation_handoff.lock().unwrap());
+            project_resource.then(|| self.resource_creation_handoff.write().unwrap());
         let _creation_fence =
             project_resource.then(|| self.resource_creation_execution.lock().unwrap());
         let authority = self.authorize_workspace_lifecycle_mutation(authorization, "close")?;
@@ -573,9 +573,8 @@ impl Mux {
                     &committed_result,
                 )?
             };
-            let resource_revision = project_resource
-                .then(|| registry.snapshot().map(|snapshot| snapshot.resource_revision))
-                .transpose()?;
+            let resource_revision =
+                project_resource.then(|| registry.resource_revision()).transpose()?;
             let mut delta = close_workspace_delta(&state, &notifications, workspace_id)
                 .expect("live workspace has a close delta");
             let was_active = state.active_workspace == index;

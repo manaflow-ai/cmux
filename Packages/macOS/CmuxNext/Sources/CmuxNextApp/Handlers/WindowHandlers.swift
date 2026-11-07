@@ -21,11 +21,13 @@ enum WindowHandlers {
         })
         // DEV and NIGHTLY only: the descriptor is `isDebugOnly` (`DevTools`).
         registry.bind("openDebugSettings", run: { invocation in try context.services.debugSettings.show(focus: invocation.allowsViewChange) })
+        DebugTunableSwitchActions(show: "hostPressure.showWarning", hide: "hostPressure.hideWarning", tunable: HostPressureTunables.enabled).bind(into: registry)
         // DEV and NIGHTLY (`isDebugOnly`): the per-action budget's HUD; it never takes the keys.
         registry.bindEffect("debug.actionLatencyHUD", effect: { _ in
             context.services.actionLatencyHUD.toggle(over: context.services.windows.active?.window)
             return .done
         })
+        ActionTargetTitles.setPaletteState("debug.actionLatencyHUD", in: registry) { context.services.actionLatencyHUD.isShown }
         // DEV and NIGHTLY (`isDebugOnly`): Debug menu > Main-Thread Blocking (N) > Reset Counts. Enabled only
         // in a build that has the detector (Debug, `CMUX_BLOCKING_CHECKS`): elsewhere reset does nothing.
         let blocking = context.services.blocking
@@ -47,9 +49,9 @@ enum WindowHandlers {
                 showMainWindow(context)
             }
         })
-        registry.bind("minimizeWindow", run: { _ in
-            // Show Main Window (showMainWindow) restores it.
-            context.activeWindow?.window?.miniaturize(nil)
+        registry.bind("minimizeWindow", run: { invocation in
+            // The window the target names (an agent's `window:<id>`), else the active one; Show Main Window restores it.
+            try context.window(invocation).window?.miniaturize(nil)
         })
         registry.bind("closeAllWindows", run: { _ in
             // Each window's own close check (an incognito window asks), then close.

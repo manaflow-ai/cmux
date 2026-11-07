@@ -25,10 +25,18 @@
 //! - `drag_begin`: `{items:[id]}` (or a bare array): the acceptance table
 //!   `{row_key: {before, into, after, refusal?}}` over the rows of the last
 //!   view.
+//! - `project`: a view request's rows on the shown document as the sections
+//!   the app's list draws (`sidebar_doc::project`); its rows become the last
+//!   view's, as `view`'s do.
+//! - `plan`: the ops of New Subgroup or of a remote group on the shown
+//!   document (`sidebar_doc::plan`): `{"ok":true,"ops":[...]}` or
+//!   `{"refusal":"<code>"}`.
 
 use crate::typed::{CAcceptanceTable, CReply, CRows, Out};
 use cmux_layout_reducer::sidebar_doc::{
-    Doc, Item, Op, Section, accept, reduce,
+    Doc, Item, Op, Section, accept,
+    plan::{self, PlanRequest},
+    project, reduce,
     view::{self, Row, ViewRequest},
 };
 use serde::Deserialize;
@@ -66,6 +74,15 @@ fn refusal(reason: &str) -> Value {
 
 fn error(message: impl std::fmt::Display) -> Value {
     json!({"error": message.to_string()})
+}
+
+/// `result["dropped"] = dropped` without the index: every result here is an
+/// object (`json!({...})` or [`error`]), so this sets the key as the index
+/// did, and a value of another kind is left as it is instead of a panic.
+fn set_dropped(result: &mut Value, dropped: Value) {
+    if let Some(map) = result.as_object_mut() {
+        map.insert("dropped".to_owned(), dropped);
+    }
 }
 
 impl Mirror {
@@ -128,7 +145,7 @@ impl Mirror {
             Ok(batch) => batch,
             Err(e) => return error(e),
         };
-        let changes = batch["changes"].as_array().cloned().unwrap_or_default();
+        let changes = batch.get("changes").and_then(Value::as_array).cloned().unwrap_or_default();
         // The document revisions come from the `sidebar_doc` markers (a
         // session.events delta's own revisions are the session's): the
         // first marker's previous revision and the last marker's revision
@@ -158,7 +175,7 @@ impl Mirror {
         };
         // What the batch is: refused, not a sidebar batch, early, stale,
         // gapped, or rows to apply.
-        let verdict = if batch["rejected"] == true {
+        let verdict = if batch.get("rejected") == Some(&Value::Bool(true)) {
             Some(json!({"ok": true}))
         } else if let Some(revision) = revision {
             if !self.loaded {
@@ -213,14 +230,14 @@ impl Mirror {
         let applies = verdict.is_none() && bad_row.is_none();
         if !confirms && !applies {
             let mut result = verdict.or(bad_row).unwrap_or_else(|| json!({"ok": true}));
-            result["dropped"] = json!(Vec::<String>::new());
+            set_dropped(&mut result, json!(Vec::<String>::new()));
             return result;
         }
         if !self.loaded {
             // Nothing is shown yet: drop the intent; `load` replays the rest.
             self.pending.retain(|intent| Some(&intent.key) != key.as_ref());
             let mut result = verdict.unwrap_or_else(|| json!({"refetch": true}));
-            result["dropped"] = json!(key.into_iter().collect::<Vec<_>>());
+            set_dropped(&mut result, json!(key.into_iter().collect::<Vec<_>>()));
             return result;
         }
         self.unwind();
@@ -242,7 +259,7 @@ impl Mirror {
             }
         };
         dropped.extend(self.replay());
-        result["dropped"] = json!(dropped);
+        set_dropped(&mut result, json!(dropped));
         result
     }
 
@@ -302,6 +319,24 @@ impl Mirror {
         match self.view_rows(input) {
             Ok(()) => json!(self.rows),
             Err(e) => e,
+        }
+    }
+
+    pub fn project(&mut self, input: &[u8]) -> Value {
+        match self.view_rows(input) {
+            Ok(()) => json!(project::project(&self.shown, &self.rows)),
+            Err(e) => e,
+        }
+    }
+
+    pub fn plan(&mut self, input: &[u8]) -> Value {
+        let request: PlanRequest = match serde_json::from_slice(input) {
+            Ok(request) => request,
+            Err(e) => return error(e),
+        };
+        match plan::plan(&self.shown, &request) {
+            Ok(ops) => json!({"ok": true, "ops": ops}),
+            Err(reason) => json!({"refusal": reason}),
         }
     }
 

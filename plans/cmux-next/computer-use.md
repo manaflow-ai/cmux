@@ -11,6 +11,9 @@ User goal (verbatim): "SOTA computer use, for both linux and macOS. we need to i
 - Engine (cmux-cua at the pin): a session is a caller-chosen string (`start_session(session)`), used for the cursor color, per-session config and recording ownership; it is not authenticated. Session state lives in process-global statics (`session.rs`: activity map, `ENDED_SESSIONS` that never shrinks). Recording is one daemon-global `RecordingSession` (per-turn `turn-NNNNN/` folders, off by default; a second session's start replaces the first). There is no durable event log, no session list API and no timeline. `begin_turn`/`finish_turn` in `cmux-cua-core/src/recording.rs` is the one chokepoint every non-read-only tool call passes; it already captures before/after window frames and the click point when recording is on.
 - Reliability: 12.6 percent of agent calls failed in 2026-09-20..29 (idle sweep ending live sessions, 55 s permission stall); fixes are on the pin line.
 
+Posted input and the agent pane's person gate: [person-input-gate.md](person-input-gate.md)
+("Computer use can act as me", off by default).
+
 ## 1. Process model
 
 ```

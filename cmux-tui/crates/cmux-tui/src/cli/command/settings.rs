@@ -5,7 +5,8 @@
 //! what keeps CLI writes behind the daemon's schema, managed-key and policy
 //! checks.
 
-use serde_json::{Map, Value};
+use cmux_config::Schema;
+use serde_json::{Map, Value, json};
 
 use super::{CommandPlan, Flags, ResourceOperation, Selectors, UsageError, request};
 
@@ -44,6 +45,103 @@ pub(super) fn parse(
     }
 }
 
+/// Short CLI names of settings keys: (alias, key). An alias is never a schema key itself. Both
+/// settings parsers read them (this one and the app's, cli/app/settings.rs); they live here
+/// because the app's parser is Unix-only and this one builds everywhere.
+pub(in crate::cli) const KEY_ALIASES: &[(&str, &str)] = &[("on", "chat.on")];
+
+/// The key `path` names: its key when it is an alias, else `path` itself.
+pub(in crate::cli) fn resolve_alias(path: &str) -> &str {
+    KEY_ALIASES.iter().find(|(alias, _)| *alias == path).map_or(path, |(_, key)| *key)
+}
+
+/// The request's `key`: a CLI alias (`on`) is its schema key, as the app's parser reads it.
 fn key_params(key: &str) -> Map<String, Value> {
+    let key = resolve_alias(key);
     Map::from_iter([(String::from("key"), Value::String(key.to_owned()))])
+}
+
+pub(in crate::cli) struct SettingsList {
+    pub section: Option<String>,
+    pub keys: bool,
+}
+
+impl SettingsList {
+    pub(in crate::cli) fn parse(args: &[String]) -> Result<Self, UsageError> {
+        let messages = &crate::localization::catalog().app_control;
+        let mut options = Self { section: None, keys: false };
+        let mut words = args.iter();
+        while let Some(word) = words.next() {
+            match word.as_str() {
+                "--keys" => options.keys = true,
+                "--section" if options.section.is_none() => {
+                    options.section = Some(
+                        words
+                            .next()
+                            .ok_or_else(|| UsageError::new(messages.settings_usage))?
+                            .clone(),
+                    );
+                }
+                _ => return Err(UsageError::new(messages.settings_usage)),
+            }
+        }
+        let schema = Schema::embedded();
+        if let Some(name) = &options.section
+            && schema.rows_in(Some(name)).next().is_none()
+        {
+            let mut sections: Vec<&str> =
+                schema.rows.iter().map(|row| row.section.as_str()).collect();
+            sections.sort_unstable();
+            sections.dedup();
+            return Err(UsageError::new(
+                messages
+                    .settings_unknown_section
+                    .replace("{section}", name)
+                    .replace("{sections}", &sections.join(", ")),
+            ));
+        }
+        Ok(options)
+    }
+}
+
+pub(super) fn request_list(args: &[String]) -> Result<CommandPlan, UsageError> {
+    let options = SettingsList::parse(args)?;
+    // Key completion stays local in app/settings.rs. It must never silently
+    // turn into a value read if reached through a different parser.
+    if options.keys {
+        return Err(UsageError::new(crate::localization::catalog().app_control.settings_usage));
+    }
+    let mut params = Map::new();
+    if let Some(section) = options.section {
+        params.insert("section".into(), Value::String(section));
+    }
+    request(ResourceOperation::SettingsList, &Selectors::default(), &mut Flags::default(), params)
+}
+
+/// Keep the existing human table concise; JSON retains all owner metadata.
+pub(in crate::cli) fn human_rows(rows: &Value) -> Value {
+    json!(rows.as_array().map(|rows| {
+        rows.iter()
+            .map(|row| {
+                json!({
+                    "key": row.get("key"), "value": row.get("value"), "default": row.get("default"),
+                })
+            })
+            .collect::<Vec<_>>()
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_list_human_table_keeps_values_and_defaults() {
+        let rows =
+            json!([{"key":"sidebar.side", "value":"right", "default":"left", "customized":true}]);
+        assert_eq!(
+            human_rows(&rows),
+            json!([{"key":"sidebar.side", "value":"right", "default":"left"}])
+        );
+    }
 }

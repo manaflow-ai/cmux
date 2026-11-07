@@ -80,7 +80,7 @@ export function VideoFramesCard({ video }: { video: VideoFrames }) {
           aria-label={length ? t("composer.playVideo", { name, length }) : t("media.play")}
           onClick={() => void callChipHost("video.quickLook", { src: video.path! })}
         >
-          <PlayTriangle size={10} className="cv-video-frames__play" />
+          <PlayTriangle size={12} className="cv-video-frames__play" />
           <span className="cv-video-frames__label">{name}</span>
         </button>
       ) : (

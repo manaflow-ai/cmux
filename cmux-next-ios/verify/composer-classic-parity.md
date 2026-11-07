@@ -51,7 +51,7 @@ Sources compared:
 | --- | --- | --- |
 | Structure | Paperclip button (40 pt glass circle), mic button (40 pt glass circle), then the field in a rounded glass container (radius 20, min 40 pt) with a 28 pt send circle inside it, riding the last line | One glass card (radius 24) holding a 36 pt `+` circle, the field, and a 36 pt send circle |
 | Attach menu | Photo Library, Choose Files, Paste | Paste (only for an image or file, first), Camera, Photos, Files |
-| Dictation | Mic toggles on-device dictation into the field (pulsing red mic while listening; the field locks while it listens) | None (the keyboard's own mic) |
+| Dictation | Mic toggles on-device dictation into the field (pulsing red mic while listening; the field locks while it listens) | Replaced by voice mode (waveform): a GPT Realtime line to the agent, its replies read aloud without code or diffs, speech sent as prompts; the keyboard's own mic still dictates |
 | Placeholder | "Message" | "Send to <program>", or "Typing into terminal" with a keyboard glyph while keys go to the terminal |
 | Return key | Inserts a new line; only Send sends | Sends (Shift-Return or the edit menu's New Line inserts one) |
 | Lines | Grows 1 to 14 lines, then scrolls | 1 to 6 lines |

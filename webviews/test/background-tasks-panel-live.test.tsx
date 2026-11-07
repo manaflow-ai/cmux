@@ -88,7 +88,10 @@ test("a group whose agent ended runs while its nested agent does", async () => {
   );
   const block = container.querySelector<HTMLElement>('[data-group="agent:a"]')!;
   expect(block.dataset.state).toBe("running");
-  expect(block.querySelector(".acpmux-bg__name .cv-spinner")).not.toBeNull();
+  // What runs draws no running symbol, only its time (Leo, 2026-11-03: "do we really need a running
+  // symbol vs just having the time and a square stop button?").
+  expect(block.querySelector(".cv-spinner")).toBeNull();
+  expect(block.querySelector(".acpmux-bg__agent .acpmux-bg__time")?.textContent).not.toBe("");
   expect(block.textContent).toContain("Nested agent");
 });
 

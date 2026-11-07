@@ -1,9 +1,8 @@
 public import AppKit
 import CmuxNextDesign
 
-// Development builds only: the pane is not exposed in Release until the
-// overlay link token authenticates hello claims (RemoteViewAvailability).
-#if DEBUG
+// Every build: Release shows it only for a Cloud machine's desktop over its Native link
+// (RemoteViewAvailability).
 /// The remote desktop pane: video, input surface and chrome variant A.
 /// AppKit, manual layout. It renders a `RemotePaneState` and reports the
 /// viewer's choices through closures; `RemoteDesktopPane` owns the state.
@@ -155,4 +154,3 @@ public final class RemoteDesktopPaneView: NSView {
             width: max(cardWidth, 0), height: cardSize.height)
     }
 }
-#endif

@@ -21,6 +21,8 @@ import Foundation
 ///   (where the width allows it: an iPad). `CMUX_MOBILE_LIST_HOLD_X=PT` with `LIST_PASSES=0`: pans the
 ///   widest scroll view to PT and holds (screenshots of the pinned gutter).
 /// - `CMUX_MOBILE_LIST_EXIT_WHEN_DONE=1`: exit after the last pass (the rig waits for the exit).
+/// - `CMUX_MOBILE_LIST_GIANT=1` (chat): every third replayed prompt is a pasted raw log (hundreds of
+///   lines with emoji, CJK, tabs, ANSI escapes and unbroken tokens), the GUI stress loop's long rows.
 public struct ListStressSettings: Equatable, Sendable {
     public static let shared = ListStressSettings()
 
@@ -48,6 +50,8 @@ public struct ListStressSettings: Equatable, Sendable {
     public var plainCards: Set<String>
     /// `CMUX_MOBILE_LIST_NO_CARD_PICTURES=1`: agent cards are never drawn into pictures.
     public var noCardPictures: Bool
+    /// `CMUX_MOBILE_LIST_GIANT=1`: giant pasted-log prompts (`MockStressContent.giantPrompt`).
+    public var giant: Bool
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -68,6 +72,7 @@ public struct ListStressSettings: Equatable, Sendable {
         holdY = environment["CMUX_MOBILE_LIST_HOLD_Y"].flatMap(Double.init)
         plainCards = Set((environment["CMUX_MOBILE_LIST_PLAIN_CARDS"] ?? "").split(separator: ",").map(String.init))
         noCardPictures = environment["CMUX_MOBILE_LIST_NO_CARD_PICTURES"] == "1"
+        giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
     }
 
     /// Turns the mock agent replays as history: the chat and diff screens' load.
@@ -80,8 +85,27 @@ public struct ListStressSettings: Equatable, Sendable {
 enum MockStressContent {
     static let largeDiffLines = 2400
 
+    /// A pasted raw log as a prompt: lines of mixed scripts and widths that wrap unevenly, with
+    /// emoji and CJK (taller fallback fonts), tabs, ANSI escapes and an unbroken 400-character token.
+    static func giantPrompt(_ index: Int, lines: Int = 240) -> String {
+        let shapes = [
+            "2026-11-03T04:12:%02d.%03dZ INFO  link.dialer attempt=%d mac=Lawrence’s-MacBook-Pro rtt=41ms ✅",
+            "\u{1B}[31merror\u{1B}[0m: frame header mismatch at offset %d (expected 9 bytes, got %d) 🔥🔥",
+            "\tat CmuxMobileTransport.LinkDialer.connect(mac:timeout:) (LinkDialer.swift:%d:%d)",
+            "警告: 接続がタイムアウトしました (試行 %d / %d) — 再試行します 🔁",
+            "%d %d",
+        ]
+        let token = String(repeating: "deadbeef", count: 50)
+        return (0..<lines).map { line in
+            if line % 37 == 36 { return "payload=\(token)" }
+            let shape = shapes[(line + index) % shapes.count]
+            return String(format: shape, line % 60, (line * 7) % 1000, line, line * 3)
+        }.joined(separator: "\n")
+    }
+
     static func prompt(_ index: Int) -> String {
-        ["Make the dialer retry with backoff (#\(index))", "Why does the relay drop frames on cellular?",
+        if ListStressSettings.shared.giant, index % 3 == 1 { return giantPrompt(index) }
+        return ["Make the dialer retry with backoff (#\(index))", "Why does the relay drop frames on cellular?",
          "Add tests for the transport switch", "Summarize what changed since yesterday"][index % 4]
     }
 

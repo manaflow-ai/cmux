@@ -1,0 +1,367 @@
+name: Machine vault E2E (development)
+
+# "Make this Mac a cmux machine", with the vault, end to end against the DEVELOPMENT platform
+# (https://cmux-platform-development.debussy.workers.dev) only, as a disposable macOS user made for
+# the run: put a nonce in the dogfood account's vault with `cmux machine vault set`, run the one command
+# `cmux machine add --vault --yes USER@localhost` (the join token rides ssh's stdin, the served join.sh
+# installs acpmux, Claude Code and Codex and pulls the vault into the user's login keychain), check
+# `acpmux machine vault status` as that user, then sign Claude Code in with the team's subscription and
+# have a session started through acpmux print the nonce from its env and reply. The model is the shared
+# model stub (tests/fixtures/model-stub) on the runner's loopback by default, with a made-up login the
+# stub checks arrived; `model: real` signs Claude Code in with the team's subscription instead, and is
+# the slow-schedule canary's run (real-login-canaries.yml on main dispatches it).
+# The evidence (no secret; the nonce and the reply text are fine) is the run summary and the only
+# artifact.
+#
+# Secrets: the dev stack pair (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD) and, with `model: real` only,
+# the team's Claude subscription login (CLAUDE_CODE_OAUTH_TOKEN) reach the one run step, through env only.
+# scripts/cmux-next/machine-vault-e2e.ts masks each value the moment it exists, gives the CLI the cmux
+# token in one 0600 file under the runner's private temp (removed in its `finally`), passes vault
+# values on stdin, and revokes the machine, removes the vault entries it set and revokes its install in
+# `finally` and on a cancel. The Claude login goes on one ssh session's stdin into the disposable
+# user's acpmux daemon env (never argv, never a file, never the vault, which refuses subscription
+# logins); cleanup kills the user's processes that held it and confirms none is left, and the secret
+# scan of the home and the output counts its hits (0 or the run fails). The disposable user, its home,
+# its ssh key and its keychain are removed in an always() step. Manual dispatch on feat-cmux-next only.
+on:
+  workflow_dispatch:
+    inputs:
+      join_channel:
+        description: The acpmux channel join.sh installs from (files.cmux.com/cmux-tui/channels/NAME.json); it must carry the vault (cmux#33020)
+        required: false
+        default: feat-cmux-next
+        type: string
+      model:
+        description: stub (the shared model stub, no login) or real (the team's Claude subscription; the canary)
+        required: false
+        default: stub
+        type: choice
+        options: [stub, real]
+
+permissions:
+  contents: read
+
+# One run at a time: every run uses the same account's vault and the same MACHINE_VAULT_E2E name. A
+# second dispatch queues; a started run is never cancelled (it would leave its machine and entries).
+concurrency:
+  group: machine-vault-e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    # The same environment as machine-join-e2e.yml: limited to feat-cmux-next by GitHub's branch
+    # policy (tests/test_machine_vault_e2e_workflow.py pins the job's three secret references).
+    environment: cmux-next-vm-image-dev
+    # An ephemeral Blacksmith macOS VM, made for this one job and destroyed after it: the job adds an
+    # OS user, opens ssh to it and holds the stack secrets, so never a persistent owned Mac (the minis'
+    # pools) and never a runner variable that could name one. The AWS Macs have no GitHub runners
+    # except the trusted promote runner, which this job must not take.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 60
+    env:
+      HUB_ORIGIN: https://cmux-platform-development.debussy.workers.dev
+    steps:
+      - name: Refuse any ref but feat-cmux-next
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != refs/heads/feat-cmux-next ]; then
+            echo "::error::machine-vault-e2e runs on feat-cmux-next only (got $REF)"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # The published CLI step looks back along feat-cmux-next for the newest published tree.
+          fetch-depth: 30
+
+      # The channel join.sh installs acpmux from must be at or after the vault's merge (cmux#33020,
+      # 4cfaaa8d), or the join would succeed and pull nothing. The run checks the installed binary's
+      # capability too; this refuses early, before any secret is in reach.
+      - name: Refuse a channel without the vault
+        id: channel
+        env:
+          CHANNEL_INPUT: ${{ inputs.join_channel }}
+          GH_TOKEN: ${{ github.token }}
+          VAULT_MERGE: 4cfaaa8d3891d43b3e237c70b0dbf701feb92de2
+        run: |
+          set -euo pipefail
+          channel="${CHANNEL_INPUT:-feat-cmux-next}"
+          if ! printf '%s' "$channel" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::join_channel must be lowercase letters, digits and -"
+            exit 1
+          fi
+          commit="$(curl --proto '=https' --tlsv1.2 -fsSL "https://files.cmux.com/cmux-tui/channels/$channel.json" | jq -r '.commit // empty' | tr -cd '0-9a-f')"
+          if [ "${#commit}" -ne 40 ]; then
+            echo "::error::the $channel channel names no commit"
+            exit 1
+          fi
+          status="$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/compare/$VAULT_MERGE...$commit" | jq -r '.status // empty' | tr -cd 'a-z')"
+          if [ "$status" != ahead ] && [ "$status" != identical ]; then
+            echo "::error::the $channel channel is at $commit, which does not contain the vault (cmux#33020, $VAULT_MERGE): compare says '$status'. Run again once the channel has moved past it."
+            exit 1
+          fi
+          echo "channel $channel is at $commit, which contains the vault"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      # The harness's own tests, before any secret is in reach.
+      - name: Test the harness
+        run: bun test scripts/cmux-next/machine-vault-e2e.test.ts
+
+      # The cmux CLI as people get it: the build files.cmux.com published for the run's commit, or for the
+      # newest first-parent ancestor that has one (a tree publishes a few minutes after its merge), checked
+      # against its manifest's sha256 and required to contain `cmux machine add --vault` (cmux#33031).
+      # Nothing compiles here: no toolchain, no submodules, no cache in a job that holds secrets.
+      - name: Download the published cmux CLI
+        id: cli
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MACHINE_ADD_MERGE: 657906ec79ebd3704cdf6be709e3a206be438754
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            arm64) target=aarch64-apple-darwin ;;
+            x86_64) target=x86_64-apple-darwin ;;
+            *) echo "::error::unsupported machine $(uname -m)"; exit 1 ;;
+          esac
+          dir="$RUNNER_TEMP/cmux-cli"
+          mkdir -p "$dir"
+          chmod 0700 "$dir"
+          found=""
+          for commit in $(git rev-list --first-parent -n 30 HEAD); do
+            if curl --proto '=https' --tlsv1.2 -fsSL "https://files.cmux.com/cmux-tui/$commit/manifest.json" -o "$dir/manifest.json" 2>/dev/null \
+              && [ "$(jq -r '.commit // empty' "$dir/manifest.json")" = "$commit" ]; then
+              found="$commit"
+              break
+            fi
+          done
+          if [ -z "$found" ]; then
+            echo "::error::no cmux-tui tree is published for the last 30 commits of feat-cmux-next"
+            exit 1
+          fi
+          status="$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/compare/$MACHINE_ADD_MERGE...$found" | jq -r '.status // empty' | tr -cd 'a-z')"
+          if [ "$status" != ahead ] && [ "$status" != identical ]; then
+            echo "::error::the published CLI at $found does not contain cmux machine add --vault ($MACHINE_ADD_MERGE): compare says '$status'"
+            exit 1
+          fi
+          want="$(jq -r --arg k "cmux-tui-$target" '.binaries[$k] // empty' "$dir/manifest.json" | tr -cd '0-9a-f')"
+          if [ "${#want}" -ne 64 ]; then
+            echo "::error::the manifest for $found has no cmux-tui-$target"
+            exit 1
+          fi
+          curl --proto '=https' --tlsv1.2 -fsSL "https://files.cmux.com/cmux-tui/$found/cmux-tui-$target" -o "$dir/cmux"
+          got="$(shasum -a 256 "$dir/cmux" | awk '{print $1}')"
+          if [ "$got" != "$want" ]; then
+            echo "::error::checksum mismatch for cmux-tui-$target at $found ($got, the manifest says $want)"
+            exit 1
+          fi
+          chmod 0700 "$dir/cmux"
+          echo "path=$dir/cmux" >> "$GITHUB_OUTPUT"
+          echo "the cmux CLI published for $found (sha256 $got)"
+
+      # The user, its home, a login keychain made the way a GUI login makes one (random password, set
+      # as default, unlocked, no auto-lock), and an ephemeral ssh key, all before any secret is in reach.
+      # The outputs come first so the removal step runs even if a later line fails.
+      - name: Create the disposable user
+        id: user
+        env:
+          CHANNEL: ${{ steps.channel.outputs.channel }}
+          CLI: ${{ steps.cli.outputs.path }}
+        run: |
+          set -euo pipefail
+          user="cmuxvault${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+          user="${user:0:31}"
+          home="/Users/$user"
+          work="$(mktemp -d "$RUNNER_TEMP/machine-vault-e2e.XXXXXX")"
+          chmod 0700 "$work"
+          {
+            echo "user=$user"
+            echo "home=$home"
+            echo "work=$work"
+          } >> "$GITHUB_OUTPUT"
+          if id "$user" >/dev/null 2>&1 || [ -e "$home" ]; then
+            echo "::error::$user or $home already exists"
+            exit 1
+          fi
+          # Throwaway values for a user that is deleted at the end of this job.
+          password="$(openssl rand -hex 24)"
+          keychain_password="$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          echo "::add-mask::$keychain_password"
+          sudo -n sysadminctl -addUser "$user" -fullName "cmux vault e2e $GITHUB_RUN_ID" -shell /bin/zsh \
+            -home "$home" -password "$password" >/dev/null 2>&1
+          unset password
+          sudo -n createhomedir -c -u "$user" >/dev/null
+          uid="$(id -u "$user")"
+          echo "uid=$uid" >> "$GITHUB_OUTPUT"
+          # Remote Login may admit only a group (System Settings > Sharing > Remote Login > only these users).
+          if dscl . -read /Groups/com.apple.access_ssh >/dev/null 2>&1; then
+            sudo -n dseditgroup -o edit -a "$user" -t user com.apple.access_ssh
+          fi
+          as_user() { sudo -n -u "$user" -- /usr/bin/env -i HOME="$home" USER="$user" LOGNAME="$user" PATH=/usr/bin:/bin:/usr/sbin:/sbin "$@"; }
+          kc="$home/Library/Keychains/login.keychain-db"
+          as_user /bin/mkdir -p "$home/Library/Keychains"
+          as_user /usr/bin/security create-keychain -p "$keychain_password" "$kc"
+          as_user /usr/bin/security list-keychains -d user -s "$kc"
+          as_user /usr/bin/security default-keychain -d user -s "$kc"
+          as_user /usr/bin/security set-keychain-settings "$kc"
+          as_user /usr/bin/security unlock-keychain -p "$keychain_password" "$kc"
+          # Every shell of the user (the join's ssh session, the harness's commands) unlocks it first, as a
+          # GUI login would, and gets the run's join knobs. The file is the user's own, 0600, and goes
+          # with the home. CMUX_JOIN_INTERACTIVE=0: no sign-in prompt on a run with no terminal.
+          printf '%s\n' "$keychain_password" | as_user /usr/bin/tee "$home/.cmux-e2e-keychain" >/dev/null
+          unset keychain_password
+          as_user /bin/chmod 0600 "$home/.cmux-e2e-keychain"
+          {
+            printf '%s\n' "/usr/bin/security unlock-keychain -p \"\$(/bin/cat \"\$HOME/.cmux-e2e-keychain\")\" \"\$HOME/Library/Keychains/login.keychain-db\" >/dev/null 2>&1"
+            printf 'export CMUX_JOIN_CHANNEL=%s CMUX_JOIN_INTERACTIVE=0\n' "$CHANNEL"
+          } | as_user /usr/bin/tee "$home/.zshenv" >/dev/null
+          # The ssh key: the private half in the runner's private work directory, the public half the
+          # user's only authorized key. A wrapper first on the CLI's PATH makes `ssh` use it, a known_hosts
+          # of its own and no prompt.
+          ssh-keygen -q -t ed25519 -N '' -C "machine-vault-e2e-$GITHUB_RUN_ID" -f "$work/id_ed25519"
+          as_user /bin/mkdir -m 0700 -p "$home/.ssh"
+          as_user /usr/bin/tee "$home/.ssh/authorized_keys" <"$work/id_ed25519.pub" >/dev/null
+          as_user /bin/chmod 0600 "$home/.ssh/authorized_keys"
+          mkdir -m 0700 "$work/bin"
+          cat >"$work/bin/ssh" <<EOF
+          #!/bin/sh
+          exec /usr/bin/ssh -F /dev/null -i "$work/id_ed25519" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$work/known_hosts" "\$@"
+          EOF
+          chmod 0700 "$work/bin/ssh"
+          install -m 0700 "$CLI" "$work/bin/cmux"
+          # Remote Login: on where it is off (an ephemeral VM), then proved with the user's own key.
+          if ! nc -z -w 3 127.0.0.1 22 >/dev/null 2>&1; then
+            sudo -n launchctl enable system/com.openssh.sshd || true
+            sudo -n launchctl bootstrap system /System/Library/LaunchDaemons/ssh.plist 2>/dev/null || true
+          fi
+          if ! "$work/bin/ssh" -o ConnectTimeout=15 -- "$user@localhost" true; then
+            echo "::error::ssh to $user@localhost with its key failed: Remote Login is off or refuses this user"
+            exit 1
+          fi
+          echo "made $user (uid $uid) with a login keychain and an ssh key"
+
+      # The model stub: loopback only, this checkout's script; the run step reads its log.
+      - name: Start the model stub
+        id: stub
+        if: inputs.model != 'real'
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/model-stub"
+          mkdir -m 0700 "$dir"
+          nohup python3 tests/fixtures/model-stub/model_stub.py --script tests/fixtures/model-stub/machine-vault-e2e.json \
+            --log "$dir/log.jsonl" --ready-file "$dir/ready.json" >"$dir/out.txt" 2>&1 &
+          # A fresh macOS VM's first python3 start can take well over 10 s (run 41830168353 timed out at 10 s
+          # with the stub still starting); give it two minutes, and show its output if it never listens.
+          for _ in $(seq 600); do [ -s "$dir/ready.json" ] && break; sleep 0.2; done
+          if [ ! -s "$dir/ready.json" ]; then
+            echo "::error::the model stub did not listen within 120 s ($(command -v python3 || echo no python3))"
+            cat "$dir/out.txt" || true
+            exit 1
+          fi
+          port="$(jq -r '.port' "$dir/ready.json")"
+          echo "url=http://127.0.0.1:$port" >> "$GITHUB_OUTPUT"
+          echo "log=$dir/log.jsonl" >> "$GITHUB_OUTPUT"
+          echo "model stub on 127.0.0.1:$port"
+
+      # The only step that sees the secrets, through env. No `set -x`: the script prints its own lines.
+      - name: Vault, join, agent and cleanup
+        timeout-minutes: 40
+        env:
+          CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          MODEL_STUB_URL: ${{ steps.stub.outputs.url }}
+          MODEL_STUB_LOG: ${{ steps.stub.outputs.log }}
+          VAULT_USER: ${{ steps.user.outputs.user }}
+          VAULT_HOME: ${{ steps.user.outputs.home }}
+          VAULT_WORK: ${{ steps.user.outputs.work }}
+        # exec: bun is the step's process, so a cancel's SIGINT reaches it and it cleans up at once.
+        run: |
+          exec bun scripts/cmux-next/machine-vault-e2e.ts --origin "$HUB_ORIGIN" --cmux "$VAULT_WORK/bin/cmux" \
+            --user "$VAULT_USER" --home "$VAULT_HOME" --ssh "$VAULT_WORK/bin/ssh" --name "ci-vault-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --work "$VAULT_WORK" --evidence "$RUNNER_TEMP/machine-vault-e2e-evidence/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA"
+
+      # Fails on a token or credential prefix, a JWT, an Anthropic key or Claude login shape (sk-ant-,
+      # which covers sk-ant-oat01-...) or an auth header in the evidence (nothing is then uploaded or
+      # summarized), on missing evidence, and on a run that did not pass.
+      - name: Check the evidence
+        id: evidence
+        if: always() && steps.user.outcome == 'success'
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/machine-vault-e2e-evidence/evidence.json"
+          if [ ! -s "$file" ]; then
+            echo "::error::no evidence was written; if a machine joined, revoke it in the platform's machine list and remove MACHINE_VAULT_E2E from the vault"
+            exit 1
+          fi
+          if grep -Eqi 'cmj_|cmm_|sk-ant-|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.|bearer|authorization' "$file"; then
+            echo "::error::the evidence holds a secret-shaped value; it is not uploaded"
+            exit 1
+          fi
+          echo "clean=true" >> "$GITHUB_OUTPUT"
+          {
+            echo '## Machine vault E2E (development)'
+            echo
+            echo '```json'
+            cat "$file"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(jq -r '.result' "$file")" != pass ]; then
+            echo "::error::$(jq -r '.reason' "$file" | tr -cd 'A-Za-z0-9 ._:;,()/-' | cut -c1-500)"
+            exit 1
+          fi
+
+      - name: Upload the evidence
+        if: always() && steps.evidence.outputs.clean == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: machine-vault-e2e-evidence
+          path: ${{ runner.temp }}/machine-vault-e2e-evidence/evidence.json
+          if-no-files-found: error
+          retention-days: 3
+
+      # The user's processes (its acpmux daemon, its agents), the user, its home (keychain, ssh key,
+      # vault items) and the runner's private work directory (the ssh key's private half, the CLI).
+      # `kill -1` run as the disposable user signals exactly the processes that user owns.
+      - name: Remove the disposable user
+        if: always() && steps.user.outputs.user != ''
+        env:
+          VAULT_USER: ${{ steps.user.outputs.user }}
+          VAULT_UID: ${{ steps.user.outputs.uid }}
+          VAULT_HOME: ${{ steps.user.outputs.home }}
+          VAULT_WORK: ${{ steps.user.outputs.work }}
+        run: |
+          set -uo pipefail
+          if id "$VAULT_USER" >/dev/null 2>&1; then
+            sudo -n -u "$VAULT_USER" -- /bin/kill -KILL -1 2>/dev/null || true
+            sleep 1
+            # The user's login keychain (its vault items) first, then the user and its home.
+            sudo -n -u "$VAULT_USER" -- /usr/bin/env -i HOME="$VAULT_HOME" /usr/bin/security delete-keychain \
+              "$VAULT_HOME/Library/Keychains/login.keychain-db" 2>/dev/null || true
+            if [ -n "$VAULT_UID" ]; then sudo -n launchctl bootout "user/$VAULT_UID" 2>/dev/null || true; fi
+            sudo -n dseditgroup -o edit -d "$VAULT_USER" -t user com.apple.access_ssh 2>/dev/null || true
+            sudo -n sysadminctl -deleteUser "$VAULT_USER" >/dev/null 2>&1 || true
+          fi
+          case "$VAULT_HOME" in
+            /Users/cmuxvault*) sudo -n rm -rf -- "$VAULT_HOME" ;;
+          esac
+          case "$VAULT_WORK" in
+            "$RUNNER_TEMP"/machine-vault-e2e.*) rm -rf -- "$VAULT_WORK" ;;
+          esac
+          if [ -n "$VAULT_UID" ]; then sudo -n rm -rf -- "/tmp/acpmux-$VAULT_UID"; fi
+          if id "$VAULT_USER" >/dev/null 2>&1 || [ -e "$VAULT_HOME" ]; then
+            echo "::error::the disposable user $VAULT_USER or its home is still present"
+            exit 1
+          fi

@@ -4,8 +4,8 @@
 // DisclosureRow), whose panel holds the whole message, never cut (Leo, 2026-10-29: "why the fuck
 // did you guys ffucking ellipsis EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE"), and a
 // Claude Code task notification as one quiet line (IncomingMessageCard.tsx, incomingMessage.ts). A
-// message from a chat here also has Open chat and Reply at the line's end; Reply answers in place in
-// the sender's chat and thread. Each message is its own line: several in a row never fold into one.
+// message from a chat here also has Reply at the line's end; clicking the sender's name opens the
+// sender's chat and thread. Each message is its own line: several in a row never fold into one.
 // cmux's Minimal Mode (`sidebar.minimal`) draws the same line: the minimal-* variants. A, the line
 // as it ships; B (a fade and "+N lines") and C (the name in bold, no mark) are drawn here only,
 // over the shipped line.
@@ -79,10 +79,20 @@ const FILES_HOST: ChipHostFixture = {
   },
   policy: { outsideRoots: "open", remoteImages: "click" },
 };
-/// Each received message's own line (its DisclosureRow toggle). Three in a row stay three lines, each
-/// where it arrived: nothing folds them into one card.
+/// Each received message's own line (its DisclosureRow toggle); inside an opened "Received N
+/// messages" row, each message keeps its own line.
 const RECEIVED_LINE = ".cv-received .cv-disclosure__toggle";
+/// Received lines next to each other gather in one "Received N messages" row (#32720), closed, whose
+/// lines show once it opens: opens it when the stage draws one, then waits for a line.
+const RECEIVED_ROW = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
+const openReceivedRow: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(`${RECEIVED_ROW}, .cv-received`));
+  if (ctx.document.querySelector(RECEIVED_ROW)?.getAttribute("aria-expanded") === "false")
+    await ctx.click({ selector: RECEIVED_ROW });
+  await ctx.waitFor(() => ctx.document.querySelector(RECEIVED_LINE));
+};
 const openAllLines: Play = async (ctx) => {
+  await openReceivedRow(ctx);
   for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(RECEIVED_LINE)) toggle.click();
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 2);
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text .cv-chip").length > 0);
@@ -131,8 +141,11 @@ const minimalChat = chat([
   assistant("Merged cmux/grid-fix into this branch.", 4.5),
   summary(4.5, { status: "completed" }),
 ]);
+const PREVIEW = ".cv-received__preview, .cv-received > .cv-disclosure__below";
 const linesDrawn: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__preview").length >= minimalTexts.length);
+  await openReceivedRow(ctx);
+  // A line's first line: on the line (`single`) or under it (stacked, messageLineLook.ts).
+  await ctx.waitFor(() => ctx.document.querySelectorAll(PREVIEW).length >= minimalTexts.length);
 };
 const ALT_ID = "incoming-minimal-alt";
 /// Draws a gallery-only line over the shipped one: its stylesheet, then `mark` on each line (its
@@ -147,7 +160,7 @@ const alternate =
     style.textContent = css;
     ctx.document.head.append(style);
     ctx.document.querySelectorAll<HTMLElement>(".cv-received").forEach((line, index) => {
-      const preview = line.querySelector<HTMLElement>(".cv-received__preview");
+      const preview = line.querySelector<HTMLElement>(PREVIEW);
       const name = line.querySelector(".cv-received__from")?.textContent ?? "";
       if (preview) mark(preview, minimalTexts[index] ?? "", name);
     });
@@ -185,7 +198,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/IncomingMessageCard.tsx"],
   variants: {
     messages: {
-      note: "A chat here sends a message (hovering its line shows Open chat); a Claude Code session sends one from outside cmux (no Open chat). Each is one line with the message's first line; the line opens the whole message, with Details for the envelope.",
+      note: "A chat here sends a message (clicking its sender name opens that chat); a Claude Code session sends one from outside cmux (no chat target). Each is one line with the message's first line; the line opens the whole message, with Details for the envelope.",
       snapshot: chat([
         user("Split the grid fix into its own chat and report back", 9),
         assistant("Started Grid fix; it will message this chat when done.", 8.5),
@@ -209,7 +222,7 @@ export default agentPaneEntry({
       ]),
     },
     subsession: {
-      note: "A sub-session's chat: its first prompt and a later message from the chat that started it read Parent · coordinator, and a report from its own sub-session reads Sub-session · fixture; each line's Open chat opens that chat beside this one.",
+      note: "A sub-session's chat: its first prompt and a later message from the chat that started it read Parent · coordinator, and a report from its own sub-session reads Sub-session · fixture; clicking a sender name opens that chat beside this one.",
       snapshot: chat(
         [
           user("Run the net tests and report which fail.", 9, {
@@ -401,7 +414,7 @@ export default agentPaneEntry({
       ]),
     },
     reply: {
-      note: "A message from a chat here, with its id and thread: Open chat opens it beside, and Reply answers in its thread.",
+      note: "A message from a chat here, with its id and thread: clicking its sender name opens it beside, and Reply answers in its thread.",
       snapshot: chat([
         user("Split the grid fix out to its own chat and tell me when tests pass", 9, { seq: 1 }),
         assistant("Started Grid fix; I'll hand back here when it reports.", 8.5),
@@ -478,7 +491,7 @@ export default agentPaneEntry({
       play: openAllLines,
     },
     minimal: {
-      note: "Minimal Mode (shipped, A): the same line as out of it: the sender's name, the message's first line cut with an ellipsis, and a chevron; the line opens it, Open chat on hover opens that chat.",
+      note: "Minimal Mode (shipped, A): the same line as out of it: the sender's name, the message's first line cut with an ellipsis, and a chevron; the line opens it, and the sender name opens that chat.",
       display: MINIMAL,
       snapshot: minimalChat,
     },

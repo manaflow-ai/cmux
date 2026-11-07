@@ -171,7 +171,9 @@ nonisolated enum SidebarDocWire {
                                   label: label ?? self.body.string("label"), iconURL: self.body.string("icon_url") ?? (extra?.value as? [String: Any])?["icon_url"] as? String,
                                   pinnedInGroup: (extra?.value as? [String: Any])?["pinned"] as? Bool == true,
                                   archived: (extra?.value as? [String: Any])?["archived"] as? Bool == true,
-                                  autoArchive: SidebarDocAutoArchiveRule(wire: (extra?.value as? [String: Any])?["auto_archive"]))
+                                  autoArchive: SidebarDocAutoArchiveRule(wire: (extra?.value as? [String: Any])?["auto_archive"]),
+                                  sort: SidebarGroupSort(wire: (extra?.value as? [String: Any])?["sort"]),
+                                  room: self.body.tag == "group" ? self.body.string("profile") : (extra?.value as? [String: Any])?["room"] as? String)
         }
     }
 

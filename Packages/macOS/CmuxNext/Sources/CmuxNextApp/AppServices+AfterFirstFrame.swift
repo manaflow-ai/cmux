@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCrashReporting
 import CmuxNextAgentPane
+import CmuxNextDaemon
 
 // Launch work no first frame needs: AppDelegate starts it once the first window's
 // frame is committed (FirstFrameGate), so it never delays that frame (perf-launch-memory).
@@ -19,10 +20,11 @@ extension AppServices {
         if let feed = chatsFeed { AgentPageChats.wire(agentTabs, to: feed, opener: chatsOpener) }
         NewTabPlacesFeed.wire(agentTabs, services: self)
         NewTabWeather.wire(agentTabs, services: self)
+        dockMenu.start()
         DebugTimings.markLaunch("launch.post_frame_feeds")
     }
 
-    /// The free-tier attest, SSH, server reach and the updater (Sparkle).
+    /// The free-tier attest, SSH, server reach, the updater (Sparkle) and the marked-tab watch.
     func startNonPaintServices() {
         FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: feed.apiBaseURL, settings: settings, signedIn: { [weak self] in self.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
         ssh.start()
@@ -40,6 +42,12 @@ extension AppServices {
                                 browserFailures: cache.cef.crashLog.total, footprintMegabytes: 0,
                                 actions: CrashContext.actions(runs, now: Date(), nowUptimeNanos: ActionBudgetMonitor.now()))
         }
+        // Needs you's marked tabs (tab-attention-v1) for every agent page and the palette.
+        attentionTabsWatch = AttentionTabsWatch(tabs: attentionTabs, snapshots: { [weak self] in
+            self?.machines.daemons.filter { $0.supports(DaemonCapability.tabAttentionRequestID.rawValue) }.map { AttentionTabsWatch.Snapshot(machine: $0.machineID, store: $0.store) }
+        }, onChange: { [weak self] items, eligibleRequests in
+            self?.notifications.attention.marksChanged(items, eligibleRequests: eligibleRequests)
+        })
         DebugTimings.markLaunch("launch.non_paint_services")
     }
 

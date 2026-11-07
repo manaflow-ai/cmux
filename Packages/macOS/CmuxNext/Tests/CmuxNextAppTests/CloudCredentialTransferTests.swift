@@ -11,29 +11,69 @@ struct CloudCredentialTransferTests {
     @MainActor final class Recorder {
         var commands: [String] = []
         var writes: [(String, Data)] = []
-        var logins = 0, stores = 0
+        var logins = 0, stores = 0, pauses = 0
         var cached: Data?
         var owner = true
+        var allowed = true
         var preflight: Int = 0
+        /// How many times the guest check refuses before it passes (a guest that binds late).
+        var preflightRefusals = 0
+        /// Exit codes of other commands; any other command exits `preflight`.
+        var answers: [String: Int] = [:]
+        /// How long each exec takes (a slow guest), and the transfer's wait budget.
+        var execDelay: Duration?
+        var budget: Duration?
         var team: String? = "team"
         var user: String? = "user"
         var onAcquire: (() throws -> Void)?
         var onWrite: (() -> Void)?
         var effects: CloudCredentialTransfer.Effects {
             .init(callerOwnsVM: { await MainActor.run { self.owner } },
-                  exec: { command in await MainActor.run { self.commands.append(command); return self.preflight } },
+                  stillAllowed: { await MainActor.run { self.allowed } },
+                  pause: { await MainActor.run { self.pauses += 1 } },
+                  exec: { command in
+                      if let delay = await MainActor.run(body: { self.execDelay }) { try? await Task.sleep(for: delay) }
+                      return await MainActor.run { self.commands.append(command); return self.answer(command) }
+                  },
                   write: { path, data in await MainActor.run { self.writes.append((path, data)); self.onWrite?() } },
                   load: { await MainActor.run { self.cached } },
                   acquire: { try await MainActor.run { self.logins += 1; try self.onAcquire?(); return CloudCredentialTransferTests.token } },
                   store: { value in await MainActor.run { self.stores += 1; self.cached = value } })
         }
+        func answer(_ command: String) -> Int {
+            if command == CloudCredentialInstaller.preflight, preflightRefusals > 0 { preflightRefusals -= 1; return 1 }
+            return answers[command] ?? preflight
+        }
         var transfer: CloudCredentialTransfer {
-            .init(provider: .claude, machineID: "vm-one", teamID: "team", userID: "user", openTerminal: { _ in false })
+            var transfer = CloudCredentialTransfer(provider: .claude, machineID: "vm-one", teamID: "team", userID: "user", openTerminal: { _ in false })
+            if let budget { transfer.guestBudget = budget }
+            return transfer
         }
         func run(confirmed: Bool = true, refresh: Bool = false) async throws {
             try await transfer.run(currentTeamID: { self.team }, currentUserID: { self.user },
                                    confirmed: confirmed, refresh: refresh, effects: effects)
         }
+    }
+
+    /// A Release copy whose switch went off, or whose consent was taken back, during the confirm or
+    /// the sign-in: the last check before the write stops it, and nothing reaches the machine.
+    /// A Keychain that does not answer is not "no cached login": the start's record must tell them apart.
+    @Test func anUnreadableCacheIsNotAMissingOne() async {
+        #expect(await CloudCredentialTransfer.cachedLogin { Self.token } == .cached)
+        #expect(await CloudCredentialTransfer.cachedLogin { nil } == .none)
+        #expect(await CloudCredentialTransfer.cachedLogin { throw CloudCredentialTransfer.Failure.storeFailed } == .unreadable)
+        #expect(await CloudCredentialTransfer.cachedLogin(provider: .codex, teamID: "team", userID: "user") == .none)
+        // The start records which one it was.
+        #expect(CloudCredentialTransfer.CachedLogin.cached.startOutcome == nil)
+        #expect(CloudCredentialTransfer.CachedLogin.unreadable.startOutcome != CloudCredentialTransfer.CachedLogin.none.startOutcome)
+    }
+
+    @Test func aCopyTurnedOffBeforeTheWriteWritesNothing() async {
+        let r = Recorder()
+        r.cached = Self.token
+        r.allowed = false
+        await #expect(throws: CloudCredentialTransfer.Failure.copyTurnedOff) { try await r.run() }
+        #expect(r.writes.isEmpty)
     }
 
     @Test func noConsentHasNoEffects() async {
@@ -67,6 +107,55 @@ struct CloudCredentialTransferTests {
     @Test func theOwnerGuestStaysRequired() {
         #expect(CloudCredentialInstaller.preflight.contains("/etc/cmux/vm-kind"))
         #expect(CloudCredentialInstaller.script.contains("'vm-kind'"))
+    }
+
+    /// The DEV creator allowance swaps only the guest-kind line: the caller's owner answer, the launchers
+    /// check and the work-user checks stay, and the installer accepts a team guest only when asked.
+    @Test func theCreatorAllowanceAcceptsATeamGuestOnlyWhenAsked() {
+        let plain = CloudCredentialTransfer(provider: .claude, machineID: "vm", teamID: "t", userID: "u", openTerminal: { _ in false })
+        let creator = CloudCredentialTransfer(provider: .claude, machineID: "vm", teamID: "t", userID: "u", allowsCreatorTeamGuest: true,
+                                              openTerminal: { _ in false })
+        #expect(plain.preflight == CloudCredentialInstaller.preflight)
+        #expect(creator.preflight == CloudCredentialInstaller.creatorTeamPreflight)
+        #expect(CloudCredentialInstaller.creatorTeamPreflight.contains("owner|team"))
+        #expect(CloudCredentialInstaller.creatorTeamPreflight.contains("/etc/cmux/agent-auth.sh"))
+        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p").contains("'/p' owner <<"))
+        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p", creatorTeamGuest: true).contains("'/p' owner,team <<"))
+    }
+
+    /// Without the allowance, a caller-owned machine whose guest is a team one is refused before any login.
+    @Test func ownerAnswerOnATeamGuestStillNeedsTheAllowance() async {
+        let r = Recorder(); r.preflight = 1
+        await #expect(throws: CloudCredentialTransfer.Failure.sharedMachine) { try await r.run() }
+        #expect(r.commands == [CloudCredentialInstaller.preflight, CloudCredentialTransfer.kindMissing] && r.logins == 0 && r.pauses == 0)
+    }
+
+    /// A copy right after the machine is created: the guest's cmux-host writes /etc/cmux/vm-kind only once it
+    /// binds, so the first guest checks can find no kind record yet. The copy waits for it.
+    @Test func aCopyRightAfterCreateWaitsForTheGuestsBind() async throws {
+        let r = Recorder(); r.cached = Self.token; r.preflightRefusals = 2
+        try await r.run()
+        #expect(r.writes.count == 1 && r.pauses == 2)
+    }
+
+    /// A guest that never records its kind is not taken for a shared machine: the copy stops after its
+    /// budget, saying the machine is still setting up, and no login was read or acquired.
+    @Test func aGuestThatNeverBindsStopsAfterTheBudget() async {
+        let r = Recorder(); r.cached = Self.token; r.preflight = 1
+        r.answers[CloudCredentialTransfer.kindMissing] = 0
+        await #expect(throws: CloudCredentialTransfer.Failure.machineNotReady) { try await r.run() }
+        #expect(r.pauses == CloudCredentialTransfer.guestCheckTries - 1 && r.writes.isEmpty && r.logins == 0)
+    }
+
+    /// The budget holds in wall time: a guest whose every exec is slow is cut off at the budget, not after the
+    /// exec in flight finishes (two 2 s execs against 200 ms).
+    @Test func aSlowGuestIsCutOffAtTheBudget() async {
+        let r = Recorder(); r.cached = Self.token; r.preflight = 1
+        r.answers[CloudCredentialTransfer.kindMissing] = 0
+        r.execDelay = .seconds(2); r.budget = .milliseconds(200)
+        let started = ContinuousClock.now
+        await #expect(throws: CloudCredentialTransfer.Failure.machineNotReady) { try await r.run() }
+        #expect(ContinuousClock.now - started < .seconds(1) && r.logins == 0 && r.writes.isEmpty)
     }
 
     @Test func firstTransferStoresThenDeliversAndRepeatReusesScopedCache() async throws {
@@ -203,6 +292,18 @@ struct CloudCredentialTransferTests {
             arguments: ["-c", installer()], environment: environment,
             timeout: .seconds(10), clock: ContinuousClock())
         #expect(refused.status != 0)
+        // The DEV creator allowance installs it there (custom endpoints are still refused).
+        let teamHome = directory.appendingPathComponent("team-home")
+        try FileManager.default.createDirectory(at: teamHome, withIntermediateDirectories: true)
+        let creator = CloudCredentialInstaller.command(provider: provider, payloadPath: source.path, creatorTeamGuest: true)
+            .replacingOccurrences(of: "/etc/cmux/agent-auth.sh", with: policy.appendingPathComponent("agent-auth.sh").path)
+            .replacingOccurrences(of: "pathlib.Path('/etc/cmux')", with: "pathlib.Path(\(Self.pythonLiteral(policy.path)))")
+            .replacingOccurrences(of: "pwd.getpwnam('cmux')", with: "pwd.getpwuid(os.geteuid())")
+            .replacingOccurrences(of: "pathlib.Path(user.pw_dir)", with: "pathlib.Path(\(Self.pythonLiteral(teamHome.path)))")
+        let allowed = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", creator], environment: environment, timeout: .seconds(10), clock: ContinuousClock())
+        #expect((allowed.status == 0) == !custom)
+        #expect(FileManager.default.fileExists(atPath: teamHome.appendingPathComponent(".config/cmux/agent-auth/\(provider.rawValue)").path) == !custom)
         #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".config/cmux/agent-auth/\(provider.rawValue)").path))
         try (provider == .claude ? Self.token : Self.codex).write(to: source)
         try Data("owner".utf8).write(to: policy.appendingPathComponent("vm-kind"))
@@ -234,7 +335,9 @@ struct CloudCredentialTransferTests {
         try Data("team".utf8).write(to: policy.appendingPathComponent("vm-kind"))
         let shared = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", resolve],
             environment: environment, timeout: .seconds(10), clock: ContinuousClock())
-        #expect(String(decoding: shared.stdout, as: UTF8.self) == "team shared-machine")
+        // A team guest runs Claude on the creator's transferred login (agent-auth.sh
+        // cmux_agent_creator_login); Codex's stays shared.
+        #expect(String(decoding: shared.stdout, as: UTF8.self) == (provider == .claude ? "own login" : "team shared-machine"))
     }
 
     static func pythonLiteral(_ value: String) -> String { CloudCredentialInstaller.quote(value) }

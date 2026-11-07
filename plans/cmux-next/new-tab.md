@@ -213,10 +213,19 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   The thumb moves by transform on its own layer before the rows render, so it stays smooth under
   CPU load.
 - Switch removed (Leo, 2026-10-20: "no mode toggle: type and press Return", #22816): one pure
-  classifier (`omniboxAction`, webviews) picks open, ask or search, and its pick is the first row,
+  classifier (`classifyNewTabInput` in `newTabIntent.ts`, webviews) reads the input as an address or a prompt, and
+  `newtab/screenModel.ts` orders the open, ask and search rows from it; its pick is the first row,
   so Down picks the other action for a miss. Tab steps the rows and leaves the field from the
   last one; with no agent installed a question searches. The `tabs.newTabWidgets.modeSwitch`
   widget is retired (#22883).
+- Cmd-Return always asks (lens review 2026-11-05, Nielsen's user control and freedom): whatever row
+  leads (an address, a tab's exact name, a command, a row the arrows picked), Cmd-Return sends the
+  typed text to the agent on the chip. The Ask row shows `⌘↵` when it is not the selected row.
+  In shell mode (`!`) it runs the command, as Return does.
+- Pick history (lens review 2026-11-05, Slack/Firefox frecency): the Commands palette's FrecencyStore
+  is the one history. The host sends its counts for `tab:`, `workspace:` and `action:` keys
+  (`omnibar.uses`); the rows order matches of one kind by them, never above a better text match. A
+  jump from the field records a use there, as running an action already did.
 - cx-e2aa (Lawrence, 2026-10-09): the project picker and the agent's model/effort/speed chip sit on
   top of the page (the composer's `ProjectChooser` and chips, one implementation with the Start
   Agent launcher); Enter on a prompt asks the agent on the chip in the picked project. The rows

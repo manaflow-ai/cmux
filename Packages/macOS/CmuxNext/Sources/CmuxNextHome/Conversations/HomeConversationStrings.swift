@@ -9,6 +9,10 @@ enum HomeConversationStrings {
     /// The sidebar search section of teammates the user has no DM with yet.
     static var teammatesSection: String { String(localized: "home.list.teammates", defaultValue: "Teammates", bundle: .module) }
     static var newMessage: String { String(localized: "home.list.newMessage", defaultValue: "New Message…", bundle: .module) }
+    /// The list's on-filter chip (Unread ×): what a click does.
+    static var filterChipHelp: String {
+        String(localized: "home.list.filterChipHelp", defaultValue: "Turns the Unread filter off and shows every chat", bundle: .module)
+    }
     static var newChief: String { String(localized: "home.list.newChief", defaultValue: "New Chief…", bundle: .module) }
     static var invite: String { String(localized: "home.list.invite", defaultValue: "Invite to cmux-next…", bundle: .module) }
     /// Group info's Invite by Email… after a `not_reachable` refusal.
@@ -81,6 +85,8 @@ enum HomeConversationStrings {
 
     /// The main Chief's tag in the list.
     static var mainChief: String { String(localized: "home.list.chief.main", defaultValue: "Main", bundle: .module) }
+    /// The tag after a channel's name in the Home list (plans/cmux-next/chief-channels-DESIGN.md).
+    static var channelTag: String { String(localized: "home.list.channel", defaultValue: "Channel", bundle: .module) }
     /// A Chief that runs on this Mac.
     static var placeThisMac: String { String(localized: "home.list.chief.thisMac", defaultValue: "This Mac", bundle: .module) }
     /// A Chief that runs in the cloud (the Hosted Chief).

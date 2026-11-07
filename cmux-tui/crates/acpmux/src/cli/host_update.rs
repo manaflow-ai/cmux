@@ -8,9 +8,9 @@
 use super::host_auto_update::take_auto_update_off;
 use super::host_hold::{Holds, holds_path, now_ms};
 use super::{
-    DAEMON_UNIT, IN_PLACE, LockLost, MIGRATING, OLD_SYSTEMD_UNITS, REFUSED, RESTORE_PREV, Remote,
-    RemoteOut, SYSTEMD_UNIT, SshRemote, connect_peer, launchd_reload, linux_restart, lock_updates,
-    migrate, migrate_back, old_unit_check, push_update, run, ssh_host,
+    IN_PLACE, LockLost, MIGRATING, OLD_SYSTEMD_UNITS, REFUSED, RESTORE_PREV, Remote, RemoteOut,
+    SYSTEMD_UNIT, SshRemote, connect_peer, daemon_unit, launchd_reload, linux_restart,
+    lock_updates, migrate, migrate_back, old_unit_check, push_update, run, ssh_host,
 };
 use crate::cli::output::print_json;
 use crate::client::Client;
@@ -130,7 +130,7 @@ pub(crate) fn is_own_unit(text: &[u8]) -> bool {
 /// that one. It is acpmux's when the unit holds acpmux's own text (a regular
 /// file, not a link) and the daemon that answers is that unit's main process.
 /// Anything else (no unit, a unit someone wrote or edited, a daemon outside
-/// the unit, no answer) stays cmux's. It sets `$p` and `$u` as [`DAEMON_UNIT`] does.
+/// the unit, no answer) stays cmux's. It sets `$p` and `$u` as [`daemon_unit`] does.
 pub(crate) fn cloud_vm_check() -> String {
     format!(
         r#"acpmux_cloud=
@@ -141,10 +141,11 @@ if [ -z "$acpmux_ours" ] && cmp -s - "$acpmux_f" <<'ACPMUX_UNIT'
 {SYSTEMD_UNIT}ACPMUX_UNIT
 then acpmux_ours=yes; fi
 if [ -n "$acpmux_ours" ]; then
-{DAEMON_UNIT}[ "$u" != acpmux.service ] || acpmux_cloud=
+{daemon}[ "$u" != acpmux.service ] || acpmux_cloud=
 fi; fi; fi
 "#,
         old = old_unit_check(),
+        daemon = daemon_unit(),
     )
 }
 
@@ -180,8 +181,9 @@ fn probe_script(if_idle: bool) -> String {
         ":"
     };
     format!(
-        "echo \"{UNAME}$(uname -sm)\"\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{DAEMON_UNIT}{}",
+        "echo \"{UNAME}$(uname -sm)\"\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{}{}",
         cloud_vm_check(),
+        daemon_unit(),
         migrate(true)
     )
 }
@@ -277,6 +279,17 @@ fn busy_sessions(ls: &str, caller: Option<&str>) -> Option<Vec<String>> {
             }
             asks || !s.get("turn").unwrap_or(&Value::Null).is_null()
                 || matches!(s.get("status").and_then(Value::as_str), Some("running" | "waiting"))
+                // An agent start under way (`starting`): a restart now ends it. A row without the
+                // field is from an older acpmux: one it made or changed in the last two minutes
+                // may be starting.
+                || match s.get("starting") {
+                    Some(starting) => starting.as_bool() == Some(true),
+                    None => ["updatedAt", "createdAt"].iter().any(|k| {
+                        s.get(*k)
+                            .and_then(Value::as_u64)
+                            .is_some_and(|at| crate::store::now_ms().saturating_sub(at) < 120_000)
+                    }),
+                }
         })
         .map(|s| s.get("name").and_then(Value::as_str).unwrap_or("?").to_owned())
         .collect();
@@ -350,9 +363,12 @@ fn version_build(version: &str) -> Option<&str> {
 }
 
 /// The build id an acpmux binary carries, read from its bytes, so a binary
-/// for another platform is not run: clap's version text
-/// `<version> (<hash>[+dirty.<fp>] <date>)` is one string in it.
+/// for another platform is not run: its stamp `acpmux <version> (<hash>[+dirty.<fp>]
+/// <date>)` is one string in it (acpmux-build-id's `STAMP`). Without that
+/// marker (a binary from before it), the first `<version> (<build id>)`, but
+/// never rustc's own `rustc version <version> (<hash> <date>)`.
 fn embedded_build(bytes: &[u8]) -> Option<String> {
+    let mut first = None;
     let mut from = 0;
     while let Some(i) = bytes[from..].windows(2).position(|w| w == b" (") {
         let at = from + i;
@@ -363,11 +379,25 @@ fn embedded_build(bytes: &[u8]) -> Option<String> {
         let rest = &bytes[from..bytes.len().min(from + 80)];
         let Some(end) = rest.iter().position(|&b| b == b')') else { continue };
         let Ok(text) = std::str::from_utf8(&rest[..end]) else { continue };
-        if is_build_id(text) {
+        if !is_build_id(text) {
+            continue;
+        }
+        // The version before " (": back to the space (or other byte) before it.
+        let prefix = bytes.get(..at).unwrap_or_default();
+        let start = prefix
+            .iter()
+            .rposition(|&b| !(b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'+'))
+            .map_or(0, |p| p.saturating_add(1));
+        let before = prefix.get(..start).unwrap_or_default();
+        if before.ends_with(b"acpmux ") {
             return Some(text.to_owned());
         }
+        if before.ends_with(b"rustc version ") || before.ends_with(b"rustc ") {
+            continue;
+        }
+        first.get_or_insert_with(|| text.to_owned());
     }
-    None
+    first
 }
 
 /// `<7-40 hex>[+dirty.<8 hex>] <YYYY-MM-DD>`, as build.rs writes it.
@@ -706,7 +736,13 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         Ok(version) => version,
         // The install checks the pushed binary runs before it replaces
         // anything, so the installed one is still the old one.
-        Err(e) => return up.end(Outcome::Failed, lock_lost_or(&e, "pushFailed"), e.to_string()),
+        // A host that went away during the push (a GCP VM stopped while
+        // idle) is unreachable, not broken: nothing was restarted, and the
+        // app retries it quietly once it connects.
+        Err(e) => {
+            let reason = if lost_the_host(&e) { "unreachable" } else { "pushFailed" };
+            return up.end(Outcome::Failed, lock_lost_or(&e, reason), e.to_string());
+        }
     };
     let pushed = version_build(&version).map(str::to_owned);
     up.version = Some(version);
@@ -811,6 +847,32 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             up.end(Outcome::Failed, &reason, format!("{why}; the rollback failed too: {again}"))
         }
     }
+}
+
+/// Whether `e`, from a step of the push, is ssh or scp losing the host on
+/// the way there (`ssh H failed: Timeout, server H not responding.`, a
+/// connect that timed out or found no route, a dropped copy), rather than
+/// the host refusing the step. Read from ssh's own words: the script's exit
+/// status cannot tell them apart (ssh exits 255 for both).
+fn lost_the_host(e: &anyhow::Error) -> bool {
+    let text = format!("{e:#}").to_lowercase();
+    [
+        "ssh: connect to host ",
+        "ssh: could not resolve hostname",
+        "connection timed out during banner exchange",
+        "kex_exchange_identification:",
+        "timeout, server ",
+        "closed by remote host",
+        "connection closed by ",
+        "connection reset by ",
+        "client_loop: send disconnect",
+        "broken pipe",
+        "lost connection",
+        "network is unreachable",
+        "no route to host",
+    ]
+    .iter()
+    .any(|words| text.contains(words))
 }
 
 /// `lockLost` for an update whose lease went ([`LockLost`]), else `reason`.

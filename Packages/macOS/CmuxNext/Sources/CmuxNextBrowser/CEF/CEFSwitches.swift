@@ -23,7 +23,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
     /// Chromium's AsyncLiveResize (below fork API 27): off only for the Debug Settings "Synced live"
-    /// drag resize (`BrowserDragResize.synced`), which lets Chromium hold a frame for the page again.
+    /// drag resize (a Synced live drag resize, removed 2026-11-06), which lets Chromium hold a frame for the page again.
     var asyncLiveResize = true
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter

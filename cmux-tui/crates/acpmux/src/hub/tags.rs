@@ -2,6 +2,10 @@
 
 use super::*;
 
+// What ends a lane's report link, a tag change among them.
+#[path = "lane_detach.rs"]
+mod lane_detach;
+
 impl Hub {
     /// Orchestrator tags with optional expiry.
     pub fn set_tags(
@@ -41,8 +45,14 @@ impl Hub {
             }
         }
         self.child_tags.note(session);
-        let saved = self.save_meta_answered(session);
+        self.lane_tags_changed(session);
+        // The line first, then the metadata: with the event journal, a crash keeps records as a
+        // prefix in that order, so the tag is never saved without its line (R-DURABILITY S3b).
         self.append(session, "mux", "tags", json!({"tags": live_tags(&session.meta())}));
-        saved
+        self.save_meta_answered(session)
     }
 }
+
+#[cfg(test)]
+#[path = "meta_line_order_tests.rs"]
+mod meta_line_order_tests;

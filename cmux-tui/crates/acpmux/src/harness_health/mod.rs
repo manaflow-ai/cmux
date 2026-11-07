@@ -9,6 +9,7 @@
 //! since). Without either it is `unknown`, never a guess from missing
 //! credential files.
 
+mod agent_files;
 pub mod auto;
 pub mod channel;
 mod codex_provider;
@@ -144,6 +145,11 @@ pub struct Settings {
 pub struct HealthService {
     settings: Mutex<Settings>,
     rows: Mutex<Vec<HarnessHealth>>,
+    /// Successful ACP session handshakes are authentication evidence for
+    /// profiles whose provider has no safe non-interactive check, keyed by
+    /// harness id, with the program path the session ran (an id that later
+    /// names another program does not inherit it) and the detail shown.
+    acp_auth: Mutex<HashMap<String, (Option<String>, String)>>,
     inventory: inventory_feed::InventoryFeed,
     /// One check at a time.
     checking: tokio::sync::Mutex<()>,
@@ -167,6 +173,10 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         "codex" => "codex login",
         "claude" => "claude auth login",
         "gemini" => "gemini",
+        // Muse's official CLI owns browser/API-key sign-in. The ACP adapter
+        // starts that CLI, so keep the same command available to both health
+        // cards and `cmux harness login muse`.
+        "muse" => "muse login",
         "opencode" => "opencode auth login",
         "unii" => "unii login",
         "hermes" => "hermes model",
@@ -185,8 +195,8 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
 /// own credential, since `codex login status` says "Not logged in" there
 /// while Codex works. Otherwise `codex login status` answers (also behind
 /// codex-acp) when Codex keeps its login in a file. Claude's sign-in
-/// sources (`claude_auth`) only ever prove a sign-in, so none found stays
-/// unknown, never a guess from a missing file.
+/// sources (`claude_auth`) normally prove presence only. A sole, expired file login without
+/// a refresh token is Expired off macOS only with complete project context; otherwise unknown.
 ///
 /// Never the login keychain (cx-hh0vu): this check runs on its own (daemon
 /// start, every few hours), and acpmux never asks the keychain on its own.
@@ -194,7 +204,7 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
 /// here), and `codex login status` does not run when Codex keeps its login
 /// in the keychain (`cli_auth_credentials_store` `keyring` or `auto`): the
 /// sign-in stays unknown. Nothing here writes a credential or starts a login.
-fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
+fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>)> {
     // No credential read (Keychain, `codex login status`) while agent
     // launches are off (cx-9ettq): the sign-in stays unknown.
     if crate::launch_policy::agent_launch_disabled() {
@@ -205,6 +215,14 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
     match s.family.as_str() {
         "codex" if program.contains("codex") && home_named("CODEX_HOME") => {
             let env = crate::login_env::effective_for(Some("codex"), &s.env);
+            // A project config can select a provider/profile the home-level probe cannot see.
+            // Leave that target inconclusive so a stale OpenAI refusal never blocks its chat.
+            if let Some(cwd) = cwd {
+                match codex_project_config(cwd, &env) {
+                    None | Some(true) => return None,
+                    Some(false) => {}
+                }
+            }
             match codex_provider::provider_auth(&env) {
                 codex_provider::ProviderAuth::Configured(detail) => {
                     return Some((Auth::SignedIn, Some(detail)));
@@ -226,7 +244,33 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
         }
         "claude" if program.contains("claude") && home_named("CLAUDE_CONFIG_DIR") => {
             let env = crate::login_env::effective_for(Some("claude"), &s.env);
-            let found = crate::claude_auth::find(&env);
+            let found = match cwd.filter(|_| s.unresolved.is_empty()) {
+                Some(cwd) => crate::claude_auth::find_in(&env, cwd),
+                None => crate::claude_auth::find(&env),
+            };
+            if found.expired_file_login {
+                // An endpoint can authenticate independently, including without a client
+                // token. Its auth is not established by the subscription credential file.
+                if found.endpoint.is_some() {
+                    return Some((
+                        Auth::Unknown,
+                        Some(
+                            "Claude file login expired; custom endpoint credentials not verified"
+                                .into(),
+                        ),
+                    ));
+                }
+                if !found.credential_sources_complete {
+                    return Some((
+                        Auth::Unknown,
+                        Some("Claude file login expired; project credentials not verified".into()),
+                    ));
+                }
+                return Some((
+                    Auth::Expired,
+                    Some("Claude file login expired; sign in again".into()),
+                ));
+            }
             found.signed_in().then(|| (Auth::SignedIn, Some(found.sources.join(", "))))
         }
         // UniiChat (the bundled `uniichat-agent`): the token `unii login`
@@ -249,8 +293,45 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
                 Err(why) => (Auth::SignedOut, Some(why)),
             })
         }
-        _ => None,
+        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok and Muse: their login files and keys.
+        family => {
+            let env = crate::login_env::effective_for(Some(family), &s.env);
+            agent_files::file_auth(family, &program, &env)
+        }
     }
+}
+
+/// Whether a Codex launch can inherit a project configuration from `cwd` or
+/// one of its ancestors. The home-level login probe cannot account for a
+/// provider selected by any of those files.
+fn codex_project_config(cwd: &Path, env: &BTreeMap<String, String>) -> Option<bool> {
+    let cwd = std::fs::canonicalize(cwd).ok()?;
+    let home = env
+        .get("HOME")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir)
+        .and_then(|path| std::fs::canonicalize(path).ok());
+    let codex_home =
+        codex_provider::codex_home(env).and_then(|path| std::fs::canonicalize(path).ok());
+    let mut dir = Some(cwd.as_path());
+    while let Some(current) = dir {
+        // The Codex home itself is not a project directory. Its config controls
+        // the home-level probe and must not make this target inconclusive.
+        if home.as_deref() == Some(current) || codex_home.as_deref() == Some(current) {
+            return Some(false);
+        }
+        if current.join(".codex/config.toml").is_file() {
+            return Some(true);
+        }
+        // Do not inspect parent directories outside this project or the user's
+        // home. A repository root is the highest project-scoped config level.
+        if current.join(".git").exists() {
+            break;
+        }
+        dir = current.parent();
+    }
+    Some(false)
 }
 
 /// Whether Codex keeps its login in `<CODEX_HOME>/auth.json`, so `codex
@@ -269,6 +350,17 @@ fn codex_login_in_file(env: &BTreeMap<String, String>) -> bool {
         None => true,
         Some(value) => value.as_str() == Some("file"),
     }
+}
+
+/// Why the plan usage of the Codex login in `home` is not read at rest (`_acpmux/account/usage`),
+/// or None: a model provider other than the OpenAI sign-in has no plan limits (`provider`), and
+/// a login Codex may keep in the keychain is never asked for (`keychain`, cx-hh0vu).
+pub fn codex_usage_unreadable(home: &Path) -> Option<&'static str> {
+    let env = BTreeMap::from([("CODEX_HOME".to_owned(), home.display().to_string())]);
+    if codex_provider::provider_auth(&env) != codex_provider::ProviderAuth::OpenAiLogin {
+        return Some("provider");
+    }
+    (!codex_login_in_file(&env)).then_some("keychain")
 }
 
 /// Why starting harness `id` may read the login keychain, or None. A
@@ -323,6 +415,17 @@ pub(crate) fn fresh_auth(
     profile: &crate::config::HarnessProfile,
     notes: Option<&crate::config::profiles::AuthNotes>,
 ) -> Result<(Auth, String), String> {
+    fresh_auth_in(id, profile, notes, None)
+}
+
+/// A known session directory lets the file check account for project credentials. A target
+/// without a directory, or a profile supplying its own settings, remains inconclusive.
+pub(crate) fn fresh_auth_in(
+    id: &str,
+    profile: &crate::config::HarnessProfile,
+    notes: Option<&crate::config::profiles::AuthNotes>,
+    cwd: Option<&Path>,
+) -> Result<(Auth, String), String> {
     let s = Subject::of(id, profile, notes).ok_or("the harness has no command")?;
     let keychain = keychain_sign_in(id, profile);
     if !s.check.is_empty() && keychain.is_none() {
@@ -332,7 +435,21 @@ pub(crate) fn fresh_auth(
             (false, output) => Ok((auth_failure(&output), format!("`{check}` failed"))),
         };
     }
-    match builtin_auth(&s) {
+    // CLI globals can select another provider/profile or a keyring credential store.
+    // File-only evidence cannot establish that effective configuration, and a plain
+    // `codex login status` refusal must not override a working custom-provider chat.
+    if s.family == "codex" && profile.argv.iter().skip(1).any(|arg| arg.starts_with('-')) {
+        return Err(
+            "Codex launch options select credentials this file-only check cannot verify".into()
+        );
+    }
+    let custom_settings = profile.argv.iter().any(|arg| {
+        arg == "--settings"
+            || arg.starts_with("--settings=")
+            || arg == "--setting-sources"
+            || arg.starts_with("--setting-sources=")
+    });
+    match builtin_auth(&s, cwd.filter(|_| !custom_settings)) {
         Some((auth, detail)) if auth != Auth::Unknown => Ok((auth, detail.unwrap_or_default())),
         _ => Err(match keychain {
             Some(why) => format!("no check ran: {why}, which acpmux does not read"),
@@ -402,6 +519,35 @@ impl HealthService {
     /// The last check's rows (the saved copy until the first check).
     pub fn rows(&self) -> Vec<HarnessHealth> {
         self.rows.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Records the authentication proof returned by an ACP session handshake.
+    /// A successful `session/new` or `session/load` can be stronger evidence
+    /// than an unavailable provider probe (Muse has no verified status command).
+    /// It holds until a later check reads that harness signed out or expired.
+    pub fn record_acp_auth_success(&self, id: &str, detail: impl Into<String>) {
+        if self.fixed() {
+            return;
+        }
+        let detail = detail.into();
+        let cache = self.settings.lock().unwrap_or_else(PoisonError::into_inner).cache.clone();
+        self.update_rows(|rows| {
+            let row = rows.iter_mut().find(|row| row.id == id);
+            self.acp_auth
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(id.to_owned(), (row.as_ref().and_then(|r| r.path.clone()), detail.clone()));
+            let Some(row) = row else { return };
+            if row.auth == Auth::SignedIn && row.auth_detail.as_deref() == Some(detail.as_str()) {
+                return;
+            }
+            row.auth = Auth::SignedIn;
+            row.auth_detail = Some(detail);
+            row.checked_at = now_ms();
+            if let Some(path) = cache.as_deref() {
+                save(path, rows);
+            }
+        });
     }
 
     /// The first check: callers that ask before any check ended share one (the
@@ -484,12 +630,37 @@ impl HealthService {
             row.outdated =
                 matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
         }
+        self.apply_acp_auth(&mut rows);
         self.mark_auto(&mut rows, &settings);
         if let Some(path) = settings.cache.as_deref() {
             save(path, &rows);
         }
         self.replace_rows(rows.clone());
         rows
+    }
+
+    /// A check's own verdict wins over ACP evidence: signed out or expired
+    /// drops the evidence (a logout after the session started); only a row
+    /// the check could not read takes it.
+    fn apply_acp_auth(&self, rows: &mut [HarnessHealth]) {
+        let mut evidence = self.acp_auth.lock().unwrap_or_else(PoisonError::into_inner);
+        // Evidence for an id no row has any more, or one that now runs another
+        // program, says nothing about what that id runs next.
+        evidence.retain(|id, (path, _)| rows.iter().any(|row| &row.id == id && &row.path == path));
+        for row in rows {
+            match row.auth {
+                Auth::SignedOut | Auth::Expired => {
+                    evidence.remove(&row.id);
+                }
+                Auth::Unknown => {
+                    if let Some((_, detail)) = evidence.get(&row.id) {
+                        row.auth = Auth::SignedIn;
+                        row.auth_detail = Some(detail.clone());
+                    }
+                }
+                Auth::SignedIn => {}
+            }
+        }
     }
 }
 
@@ -545,7 +716,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     // Without a profile check, the agent's own answer; a sign-in it proves,
     // or a provider that `codex login` cannot fix, outranks an older probe's
     // sign-in error.
-    let builtin = (s.check.is_empty() && found.is_some()).then(|| builtin_auth(&s)).flatten();
+    let builtin = (s.check.is_empty() && found.is_some()).then(|| builtin_auth(&s, None)).flatten();
     let (auth, auth_detail) = match &s.probe_error {
         _ if !s.check.is_empty() && found.is_some() => {
             match probe::auth_check(&s.check, &s.env, &s.family) {
@@ -603,6 +774,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
 mod tests {
     use super::{
         Auth, Channel, HarnessHealth, HealthService, Subject, auth_failure, codex_login_in_file,
+        codex_project_config,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -613,6 +785,11 @@ mod tests {
     #[test]
     fn hermes_signs_in_with_hermes_model() {
         assert_eq!(super::builtin_login("hermes"), Some("hermes model"));
+    }
+
+    #[test]
+    fn muse_signs_in_with_the_official_cli() {
+        assert_eq!(super::builtin_login("muse"), Some("muse login"));
     }
 
     #[test]
@@ -717,6 +894,53 @@ mod tests {
         assert_eq!(rows[0].login.as_deref(), Some("CODEX_HOME=/tmp/codex-sr codex login"));
     }
 
+    #[test]
+    fn successful_acp_auth_updates_health_without_a_cli_probe() {
+        let service = HealthService::new();
+        service.replace_rows(vec![HarnessHealth {
+            id: "muse".into(),
+            program: "muse-acp".into(),
+            path: Some("/tmp/muse-acp".into()),
+            channel: Channel::Standalone,
+            package: None,
+            version: None,
+            latest: None,
+            latest_checked_at: None,
+            outdated: false,
+            auth: Auth::Unknown,
+            auth_detail: None,
+            login: Some("muse login".into()),
+            update: None,
+            problem: None,
+            checked_at: 1,
+            auto_update: false,
+            last_auto_update: None,
+        }]);
+        let feed = service.inventory_changes();
+        service.record_acp_auth_success("muse", "ACP session/new authenticated the harness");
+        let row = service.rows().pop().expect("muse health row");
+        assert_eq!(row.auth, Auth::SignedIn);
+        assert_eq!(row.auth_detail.as_deref(), Some("ACP session/new authenticated the harness"));
+        assert!(feed.has_changed().unwrap(), "the inventory feed sees the new sign-in");
+
+        // A later check that reads the harness signed out drops the evidence.
+        let mut checked = service.rows();
+        checked[0].auth = Auth::SignedOut;
+        service.apply_acp_auth(&mut checked);
+        assert_eq!(checked[0].auth, Auth::SignedOut);
+        checked[0].auth = Auth::Unknown;
+        service.apply_acp_auth(&mut checked);
+        assert_eq!(checked[0].auth, Auth::Unknown, "the logout's evidence is gone");
+
+        // An id that now runs another program does not inherit the evidence.
+        service.record_acp_auth_success("muse", "ACP session/new authenticated the harness");
+        let mut moved = service.rows();
+        moved[0].auth = Auth::Unknown;
+        moved[0].path = Some("/elsewhere/muse-acp".into());
+        service.apply_acp_auth(&mut moved);
+        assert_eq!(moved[0].auth, Auth::Unknown, "a repointed id is not signed in");
+    }
+
     fn home_with(n: usize, config: Option<&str>) -> (std::path::PathBuf, BTreeMap<String, String>) {
         let dir = std::env::temp_dir().join(format!("amx-codex-store-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -747,6 +971,81 @@ mod tests {
             let (dir, env) = home_with(n, config);
             assert_eq!(codex_login_in_file(&env), file, "{config:?}");
             let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
+    #[test]
+    fn codex_project_config_checks_ancestors_of_the_launch_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "amx-codex-project-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let project = root.join("project");
+        let nested = project.join("src/deep");
+        std::fs::create_dir_all(project.join(".codex")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(project.join(".codex/config.toml"), "model_provider = \"local\"\n").unwrap();
+        let env = BTreeMap::from([("HOME".to_owned(), root.display().to_string())]);
+
+        assert_eq!(codex_project_config(&nested, &env), Some(true));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_project_config_resolves_symlinked_directories_and_unknown_paths() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "amx-codex-project-symlink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let project = root.join("project");
+        let source = project.join("src/deep");
+        let alias = root.join("alias");
+        std::fs::create_dir_all(project.join(".codex")).unwrap();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(project.join(".codex/config.toml"), "model_provider = \"local\"\n").unwrap();
+        symlink(project.join("src"), &alias).unwrap();
+        let env = BTreeMap::from([("HOME".to_owned(), root.display().to_string())]);
+
+        assert_eq!(codex_project_config(&alias.join("deep"), &env), Some(true));
+        assert_eq!(codex_project_config(&root.join("missing"), &env), None);
+
+        let home_codex = root.join(".codex");
+        std::fs::create_dir_all(&home_codex).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(home_codex.join("config.toml"), "model_provider = \"local\"\n").unwrap();
+        assert_eq!(codex_project_config(&root.join("src"), &env), Some(false));
+
+        let custom_home = root.join("custom-codex");
+        let custom_cwd = custom_home.join("src/deep");
+        std::fs::create_dir_all(&custom_cwd).unwrap();
+        std::fs::write(custom_home.join("config.toml"), "model_provider = \"local\"\n").unwrap();
+        let env = BTreeMap::from([
+            ("HOME".to_owned(), root.display().to_string()),
+            ("CODEX_HOME".to_owned(), custom_home.display().to_string()),
+        ]);
+        assert_eq!(codex_project_config(&custom_cwd, &env), Some(false));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn codex_launch_overrides_do_not_produce_a_subscription_refusal() {
+        for args in [
+            vec!["-p", "local", "app-server"],
+            vec!["--profile=local", "app-server"],
+            vec!["-c", "model_provider=\"local\"", "app-server"],
+            vec!["-c", "cli_auth_credentials_store=\"keyring\"", "app-server"],
+        ] {
+            let argv: Vec<_> = std::iter::once("codex").chain(args).collect();
+            let profile = serde_json::from_value(json!({"argv": argv})).unwrap();
+            let result = super::fresh_auth("codex", &profile, None);
+            assert!(result.is_err(), "launch overrides require inconclusive evidence: {result:?}");
         }
     }
 

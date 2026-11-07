@@ -1,0 +1,23 @@
+.harness-tool-names {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 16px 24px;
+  color: var(--cv-text);
+  font-family: var(--cv-font, var(--font-ui));
+}
+.harness-tool-names__harness + .harness-tool-names__harness {
+  margin-top: 12px;
+}
+.harness-tool-names__name {
+  margin: 0 0 4px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+}
+/* The stage stacks its rows in flow; the transcript places each one itself. */
+.harness-tool-names .acpmux-row {
+  position: relative;
+  left: auto;
+  right: auto;
+  min-height: 0;
+  padding-bottom: 0;
+}

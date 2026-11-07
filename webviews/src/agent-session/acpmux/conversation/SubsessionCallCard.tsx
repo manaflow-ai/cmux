@@ -22,11 +22,13 @@ import {
 } from "../subagents/subsessions";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
 import { useFindReveal } from "./chatFind";
-import { Spinner } from "./icons";
+import { useStartedName } from "./startedNames";
+import { ToolGroup } from "./icons";
 import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
 import { CardCopy } from "./CardCopy";
+import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { RawToggle, SentMessageLine } from "./SentMessageLine";
 import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subsessionCalls";
 import "./SubsessionCallCard.css";
@@ -101,14 +103,7 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
         />
       }
       label={t("subsession.startedGroup", { n: entries.length, names: names.join(", ") })}
-      status={
-        status ? (
-          <>
-            {working && <Spinner size={12} loading />}
-            {status}
-          </>
-        ) : undefined
-      }
+      status={status || undefined}
     >
       {entries.map(({ call, tool }, index) => (
         <StartedCard key={tool.id || index} call={call} tool={tool} />
@@ -117,12 +112,12 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
   );
 }
 
-/// A call still running: one line with the working spinner.
+/// A call still running: one line, its tool glyph at rest (Leo: no spinners on tool calls).
 function RunningLine({ children }: { children: ReactNode }) {
   return (
     <div className="cv-tool cv-subsession is-live">
       <span className="cv-tool__icon">
-        <Spinner size={16} loading />
+        <ToolGroup />
       </span>
       <span className="cv-tool__text">{children}</span>
     </div>
@@ -261,9 +256,10 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
 /// Markdown cut to its first three lines, with a toggle to show the rest when there is more (a
 /// prompt's "Show prompt"). Whether there is more is measured: the pane's width decides the wrap,
 /// so a resize can bring the toggle in or take it away (one observer per cut, gone with it).
-export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
+/// Keep the reader's choice when the card closes or the transcript virtualizes this result.
+export function Cut({ text, prompt, disclosureKey }: { text: string; prompt?: boolean; disclosureKey: string }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   const [long, setLong] = useState(false);
   useFindReveal(
     useMemo((): AcpmuxActivity[] => [{ kind: "note", text }], [text]),
@@ -364,11 +360,15 @@ function deliveryText(t: Translate, delivery: SubsessionDelivery): string {
 function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send" }>; tool: Tool }) {
   const t = useT();
   const live = useSubsessionInfo(call.sessionId);
+  // Its name from the session list, else from the call that started it (a chat that left the list
+  // keeps the name its start gave it); the bare id only when neither names it. The row's tooltip
+  // and its link keep the id (SentMessageLine.tsx `targetSession`).
+  const started = useStartedName(call.sessionId);
   return (
     <SentMessageLine
       tool={tool}
       state={call.running ? "sending" : "sent"}
-      target={live?.name ?? shortId(call.sessionId)}
+      target={live?.name ?? started ?? shortId(call.sessionId)}
       text={call.text}
       detail={call.delivery && deliveryText(t, call.delivery)}
       disclosureKey={`send:${tool.id}`}
@@ -406,7 +406,9 @@ function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "w
           disclosureKey={`subsession-result:${tool.id}:${session.sessionId}`}
         >
           {session.reply && session.state !== "working" && <CardCopy text={session.reply} />}
-          {session.reply && session.state !== "working" && <Cut text={session.reply} />}
+          {session.reply && session.state !== "working" && (
+            <Cut text={session.reply} disclosureKey={`subsession-reply:${tool.id}:${session.sessionId}`} />
+          )}
         </SessionCard>
       ))}
       <Raw tool={tool} />

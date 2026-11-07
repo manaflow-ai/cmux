@@ -33,7 +33,7 @@ enum RemoteHandlers {
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        // A joined machine's menu rows (Labs `labs.machineJoin`): Check, Rotate Credential, Revoke….
+        // A joined machine's menu rows (machines joined through the hub): Check, Rotate Credential, Revoke….
         MachineSectionHostView.bindJoinedActions(into: registry, context: context)
         let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
@@ -79,7 +79,7 @@ enum RemoteHandlers {
                 }
             }
             if daemon === home && direction == nil && cwd == nil {
-                registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id)))
+                registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id)).onMachine(home.machineID))
                 return
             }
             if let failure = context.services.remoteTerminals.openTerminal(on: daemon, in: pane, home: home, cwd: cwd, splitting: direction) {

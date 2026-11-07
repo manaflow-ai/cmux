@@ -214,3 +214,205 @@ test("a mounted agent identity takes a late profile icon without a parent render
   expect(known.textContent).toBe("🦉");
   expect(unknown.querySelector("[data-agent-tone]")).toBeNull();
 });
+
+// Leo, 2026-10-28 (ask-4e32bae782): "when you hover over the button, it should be able to tell you,
+// like, a bit more metadata. Like, at the very least tell you what model did it, what effort level."
+// The name's tooltip and the mark's name the sender's harness, model and effort: a listed chat's own,
+// else the ones its message names (`fromHarness`, `fromModel`, `fromEffort`).
+test("a listed sender's hover names its harness, model and effort", async () => {
+  const listed = entry({
+    sessionId: "mux-lane",
+    name: "gcp-lane",
+    hostKind: "local",
+    harness: "codex",
+    model: "gpt-6.1-sol",
+    effort: "high",
+  });
+  const store = new SubsessionStore();
+  store.set([...sessions, listed]);
+  root = createRoot(host);
+  const text = "Rebased.";
+  await act(async () =>
+    root!.render(
+      <SubsessionContext.Provider value={{ store, open: () => undefined }}>
+        <IncomingMessageLine
+          id="row-1"
+          message={{ name: "gcp-lane", sessionId: "mux-lane", text, raw: text }}
+          onOpen={() => undefined}
+        />
+      </SubsessionContext.Provider>,
+    ),
+  );
+  const open = host.querySelector<HTMLButtonElement>("button.cv-received__from--open")!;
+  expect(open.getAttribute("title")).toBe(`${t("subagents.open", { name: "gcp-lane" })}\nCodex · gpt-6.1-sol high`);
+  expect(open.getAttribute("aria-label")).toBe(t("subagents.open", { name: "gcp-lane" }));
+  expect(host.querySelector(".cv-received__mark")?.getAttribute("title")).toBe("Codex · gpt-6.1-sol high");
+});
+
+test("an unlisted sender's hover reads the harness, model and effort its message names", async () => {
+  const parsed = incomingPrompt("Tests pass", {
+    _meta: {
+      provenance: {
+        kind: "session_message",
+        from: "peer-lane-1",
+        fromName: "peer-lane",
+        fromHarness: "codex",
+        fromModel: "gpt-6-astra",
+        fromEffort: "xhigh",
+      },
+    },
+  });
+  const message = parsed?.kind === "message" ? parsed.message : undefined;
+  expect(message).toMatchObject({ harness: "codex", model: "gpt-6-astra", effort: "xhigh" });
+  await line({ ...message!, sessionId: undefined });
+  const from = host.querySelector<HTMLElement>(".cv-received__from")!;
+  expect(from.getAttribute("title")).toBe("Codex · gpt-6-astra xhigh");
+});
+
+test("a sender nothing describes keeps no tooltip", async () => {
+  await line({ name: "gone-lane" });
+  expect(host.querySelector(".cv-received__from")?.getAttribute("title")).toBeNull();
+  expect(host.querySelector(".cv-received__mark")?.getAttribute("title")).toBeNull();
+});
+
+// Leo, 2026-11-05, on two lanes' received lines: "i can't click to go to these for some reason". A sender the page's list cannot name was
+// a plain pill a click did nothing on. Where acpmux resolves sessions (`_acpmux/resolve`, the
+// `HOST/NAME` refs' resolver, sessionRefs.ts), its chip is the session link: a click opens the
+// session acpmux names, on whatever machine, and a name acpmux has no chat for says so.
+const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
+
+async function asked(
+  name: string,
+  answers: Record<string, { sessionId: string; name: string; host: string }>,
+  lookup?: string,
+) {
+  const queries: string[] = [];
+  refs.resetSessionRefs();
+  refs.setSessionRefResolver(async (query) => {
+    queries.push(query);
+    const session = answers[query];
+    if (!session) throw new Error("not found");
+    return { session };
+  });
+  const store = new SubsessionStore();
+  store.set(sessions);
+  const opened: string[] = [];
+  const missing: string[] = [];
+  const text = "the hq#7125 lane is up";
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <SubsessionContext.Provider
+        value={{ store, open: () => undefined, senderMissing: (who) => void missing.push(who) }}
+      >
+        <IncomingMessageLine
+          id="row-1"
+          message={{ name, ...(lookup && { lookup }), text, raw: text }}
+          onOpen={(id) => void opened.push(id)}
+        />
+      </SubsessionContext.Provider>,
+    ),
+  );
+  const open = host.querySelector<HTMLButtonElement>("button.cv-received__from--open");
+  return { open, opened, missing, queries };
+}
+
+test("an unlisted sender on another machine opens the session acpmux resolves, by its id", async () => {
+  try {
+    const remote = {
+      sessionId: "mock-remote-lane",
+      name: "side-lane",
+      host: "gcp-agent-lane-1",
+    };
+    const { open, opened, queries } = await asked("gcp-agent-lane-1/side-lane", {
+      "gcp-agent-lane-1/side-lane": remote,
+    });
+    expect(open).not.toBeNull();
+    // Asked once the page is idle; answered, a click opens the session by its id.
+    await act(async () => void (await refs.resolveSessionRef("gcp-agent-lane-1/side-lane")));
+    await act(async () => open!.click());
+    expect(queries).toEqual(["gcp-agent-lane-1/side-lane"]);
+    expect(opened).toEqual([remote.sessionId]);
+    // Resolved, the chip names the session and its machine, and carries it for the right-click menu.
+    const chip = host.querySelector<HTMLButtonElement>("button.cv-received__from--open")!;
+    expect(chip.getAttribute("data-open-session")).toBe(remote.sessionId);
+    expect(chip.getAttribute("aria-label")).toBe(
+      t("subagents.openOnHost", { name: "gcp-agent-lane-1/side-lane", host: "gcp-agent-lane-1" }),
+    );
+  } finally {
+    refs.setSessionRefResolver(undefined);
+  }
+});
+
+// Leo, 2026-11-07: "I expect to see, okay, my right pane is going to either gain a new tab or, like,
+// split ... not only do I not get that, like immediate feedback after clicking, but it also just
+// fundamentally doesn't load." The click opens the tab at once, never after acpmux answers; the tab
+// finds the chat or says why it can't (direct.ts `resolveMissing`, chatUnavailable.ts).
+test("a click before acpmux answered opens the sender's tab at once, by what it is asked for", async () => {
+  try {
+    const { open, opened, queries } = await asked("gcp-agent-lane-1/side-lane", {});
+    await act(async () => open!.click());
+    expect(opened).toEqual(["gcp-agent-lane-1/side-lane"]);
+    expect(queries).toEqual([]);
+  } finally {
+    refs.setSessionRefResolver(undefined);
+  }
+});
+
+test("a sender acpmux has no chat for opens a tab that says so, never a silent no-op", async () => {
+  try {
+    const { open, opened, missing } = await asked("gone-mesh", {});
+    expect(open).not.toBeNull();
+    await act(async () => void (await refs.resolveSessionRef("gone-mesh")));
+    await act(async () => open!.click());
+    expect(opened).toEqual(["gone-mesh"]);
+    expect(missing).toEqual([]);
+  } finally {
+    refs.setSessionRefResolver(undefined);
+  }
+});
+
+// The coordinator chat showed "Can't find gcp-codex-swarm-01/ask-3f0256c58a-3 (self-declared,
+// unauthenticated)'s chat": the chip asked acpmux for its line's text, note and all.
+test("a self-declared sender is asked for and opened by the name it gave, never its line's text", async () => {
+  try {
+    const remote = { sessionId: "mock-swarm-lane", name: "ask-3f0256c58a-3", host: "gcp-codex-swarm-01" };
+    const label = "gcp-codex-swarm-01/ask-3f0256c58a-3";
+    const { open, opened, queries } = await asked(
+      `${label} (self-declared, unauthenticated)`,
+      { [label]: remote },
+      label,
+    );
+    await act(async () => open!.click());
+    expect(opened).toEqual([label]);
+    await act(async () => void (await refs.resolveSessionRef(label)));
+    expect(queries).toEqual([label]);
+    await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__from--open")!.click());
+    expect(opened).toEqual([label, remote.sessionId]);
+  } finally {
+    refs.setSessionRefResolver(undefined);
+  }
+});
+
+test("a miss is asked again once it is old: a machine that connects later opens", async () => {
+  try {
+    let answer: { sessionId: string; name: string; host: string } | undefined;
+    refs.resetSessionRefs();
+    refs.setSessionRefResolver(async () => {
+      if (!answer) throw new Error("not found");
+      return { session: answer };
+    });
+    const now = Date.now;
+    expect(await refs.resolveSessionRef("late-vm/lane")).toBeNull();
+    answer = { sessionId: "mock-late", name: "lane", host: "late-vm" };
+    expect(await refs.resolveSessionRef("late-vm/lane")).toBeNull();
+    try {
+      Date.now = () => now() + refs.MISS_KEPT_MS + 1;
+      expect((await refs.resolveSessionRef("late-vm/lane"))?.sessionId).toBe("mock-late");
+    } finally {
+      Date.now = now;
+    }
+  } finally {
+    refs.setSessionRefResolver(undefined);
+  }
+});

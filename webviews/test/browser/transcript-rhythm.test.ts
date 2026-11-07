@@ -4,7 +4,13 @@ import { mkdir } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "../support/galleryFrame";
 import { REST_GAP } from "../../src/agent-session/acpmux/model";
-import { restBand } from "../../src/agent-session/acpmux/transcriptGrid";
+import {
+  restBand,
+  TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_FOOTER_CONTROL,
+  TRANSCRIPT_FOOTER_GAP,
+  gridLength,
+} from "../../src/agent-session/acpmux/transcriptGrid";
 import { requireBrowserLane } from "../support/requireBrowserLane";
 
 await requireBrowserLane("transcript-rhythm.test.ts", async () => {
@@ -114,7 +120,9 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               toolIcon,
               chevron,
               copy,
-              gaps: [message.top - header.bottom, group.top - message.bottom, live.top - group.bottom],
+              gaps: [message.top - header.bottom, group.top - message.bottom],
+              // The live state keeps the scaled run gap below completed activity.
+              liveUnderRun: live.top - group.bottom,
               inner: paragraphs[1]!.top - paragraphs[0]!.bottom,
               composerGap: composer.top - live.bottom,
               floating: Boolean(document.querySelector(".acpmux-main[data-dock=float]")),
@@ -139,7 +147,12 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           expect(Math.abs(state.turn - 32 * scale), "turn gap").toBeLessThanOrEqual(0.5);
           if (state.actionMid !== undefined)
             expect(Math.abs(state.actionMid - 12 * scale), "action glyph center in block gap").toBeLessThanOrEqual(0.5);
-          for (const gap of state.gaps) expect(Math.abs(gap - 24 * scale), "block gap").toBeLessThanOrEqual(0.5);
+          // A run and the prose by it: the run gap (design/transcript-spacing.md rule 4).
+          for (const gap of state.gaps)
+            expect(Math.abs(gap - gridLength("gap-run") * scale), "run gap").toBeLessThanOrEqual(0.5);
+          expect(Math.abs(state.liveUnderRun - gridLength("gap-run") * scale), "live line run gap").toBeLessThanOrEqual(
+            0.5,
+          );
           expect(Math.abs(state.inner - 12 * scale), "paragraph gap").toBeLessThanOrEqual(0.5);
           // Over a floating stack the newest line rests the rest gap over it (model.ts REST_GAP, Leo
           // 2026-11-01: "more space between composer and latest messages"); docked in flow, the
@@ -220,7 +233,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           await page.close();
         }
       });
-      test(`${theme} ${width}px: a message above the composer keeps 24 and room for its action row`, async () => {
+      test(`${theme} ${width}px: a reply's footer row sits 8 under it and keeps the composer gap under the row`, async () => {
         const page = await openScene("agent-pane.transcript", "grid-settled", width, theme);
         try {
           const message = await rectOf(page, '[data-row-id="grid-message"] .cv-md');
@@ -263,15 +276,20 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             `TRANSCRIPT_SETTLED ${JSON.stringify({ width, theme, gap, glyphTop: glyph.top - message.bottom, glyphRoom: composer.top - glyph.bottom })}`,
           );
           await shot(page, `settled-${theme}-${width}`);
-          // Docked in flow, the block gap the action row lies in; over a floating stack that band
-          // (to the action row's bottom edge, restBand) and then the rest gap.
+          // The reply's footer is a row of its own, ChatGPT's 32 line 8 under the reply (#31690,
+          // design/transcript-spacing.md "Reply footer"). Docked in flow, the block gap follows it;
+          // over a floating stack the rest gap starts at its bottom edge (restBand(false) is 0).
+          const footer = TRANSCRIPT_FOOTER_GAP + TRANSCRIPT_FOOTER_CONTROL;
           expect(
-            Math.abs(gap - (floating ? restBand(true) + REST_GAP : 24)),
-            "composer gap after a message",
+            Math.abs(gap - footer - (floating ? restBand(false) + REST_GAP : TRANSCRIPT_BLOCK_GAP)),
+            "composer gap after a reply and its footer row",
           ).toBeLessThanOrEqual(0.5);
-          expect(Math.abs(glyph.top - message.bottom - 4), "action glyph top 4 under the message").toBeLessThanOrEqual(
-            0.5,
-          );
+          // Its 16 glyph is centred in the 32 line: 8 + 8 under the reply's line box.
+          const glyphTop = TRANSCRIPT_FOOTER_GAP + (TRANSCRIPT_FOOTER_CONTROL - gridLength("transcript-icon-box")) / 2;
+          expect(
+            Math.abs(glyph.top - message.bottom - glyphTop),
+            "footer glyph top 16 under the message",
+          ).toBeLessThanOrEqual(0.5);
           expect(composer.top - glyph.bottom, "room under the action row").toBeGreaterThanOrEqual(3.5);
           expect(after, "showing the action row moves nothing").toEqual(message);
         } finally {

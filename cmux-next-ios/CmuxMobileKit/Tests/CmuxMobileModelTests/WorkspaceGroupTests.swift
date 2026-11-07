@@ -124,7 +124,20 @@ import Testing
         func setUnread(_ workspace: Workspace, _ unread: Bool) async throws {}
         func setIcon(_ workspace: Workspace, _ icon: String?) async throws {}
         func clearName(_ workspace: Workspace) async throws {}
-        func place(_ workspace: Workspace, next anchor: Workspace, after: Bool) async throws {}
+        /// Sidebar moves (`place(_:next:after:)`) and copies, apart from `calls`.
+        var moves: [String] = []
+        func place(_ workspace: Workspace, next anchor: Workspace, after: Bool) async throws {
+            moves.append("\(workspace.id) \(after ? "after" : "before") \(anchor.id)")
+        }
+        func duplicate(_ workspace: Workspace, browsers: Bool) async throws -> Workspace {
+            try record(browsers ? "duplicate \(workspace.id)" : "duplicate \(workspace.id) terminals-only")
+            return Workspace(id: workspace.id + "-copy", macID: workspace.macID, title: workspace.title, directory: workspace.directory,
+                             tabs: [], lastActivityAt: Date())
+        }
+        func createGroup(named name: String, color: WorkspaceColor, on macID: String) async throws -> MacWorkspaceGroup {
+            try record("create \(name) \(color.rawValue)")
+            return MacWorkspaceGroup(id: "grp_new", name: name, color: color.rawValue)
+        }
         func close(_ workspace: Workspace) async throws { try record("close \(workspace.id)") }
         func groups(on macID: String) -> [MacWorkspaceGroup] { known }
         func place(_ workspace: Workspace, in group: MacWorkspaceGroup?) async throws {

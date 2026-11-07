@@ -133,3 +133,54 @@ test("an update with only internal work says Maintenance and fixes", async () =>
   expect(note()).toEqual(["Maintenance and fixes"]);
   expect(host.querySelector(".wn-card-more")).toBeNull();
 });
+
+// Leo 2026-11-02, on the card reading "Improved: fixes and improvements" ("why is the update thing
+// unthemed"): a build with nothing reviewed publishes the generic "Fixes and improvements" entry
+// (release-notes.py GENERIC_ENTRY) as its What's New. It is not a change; the card says the build's
+// own top change from its commits instead.
+const generic = {
+  id: "fixes-and-improvements",
+  category: "improved" as const,
+  title: { en: "Fixes and improvements" },
+  summary: { en: "This build brings fixes and improvements. The link lists every change in it." },
+  platforms: ["macos"],
+  audience: "all",
+  docs: "https://github.com/manaflow-ai/cmux/compare/a...b",
+};
+
+test("a build whose What's New is the generic entry shows its real top change, not fixes and improvements", async () => {
+  const build = {
+    ...notes("3940000000005", [
+      { title: "cmux-next sidebar: groups made by automation take a palette color, not grey", pr: 501 },
+      { title: "ci: shard the gallery capture", pr: 502 },
+    ]),
+    whatsNew: {
+      schemaVersion: 1,
+      version: "3940000000005",
+      channel: "nightly",
+      date: "2026-10-20",
+      headline: { en: "Fixes and improvements" },
+      entries: [generic],
+    },
+  } as unknown as ReleaseNotes;
+  await renderCard(
+    {
+      ...data,
+      source: "whatsNew",
+      items: [{ id: generic.id, title: "Fixes and improvements", summary: generic.summary.en, category: "improved" }],
+    },
+    [build],
+  );
+  expect(note()).toEqual(["Sidebar: groups made by automation take a palette color"]);
+  expect(host.textContent?.toLowerCase()).not.toContain("fixes and improvements");
+});
+
+test("before the span loads, the host's generic entry is not shown as a change", async () => {
+  await renderCard({
+    ...data,
+    source: "whatsNew",
+    items: [{ id: generic.id, title: "Fixes and improvements", summary: generic.summary.en, category: "improved" }],
+  });
+  expect(note()).toEqual(["What's new in this build"]);
+  expect(host.textContent?.toLowerCase()).not.toContain("fixes and improvements");
+});

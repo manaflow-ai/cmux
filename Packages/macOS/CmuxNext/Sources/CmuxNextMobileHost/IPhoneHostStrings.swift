@@ -37,6 +37,11 @@ enum IPhoneHostStrings {
     static var unavailable: String {
         String(localized: "iphone.status.unavailable", defaultValue: "iPhone connections are not available in this build.", table: "IPhone", bundle: .module)
     }
+    /// A refused Keychain read of this Mac's iPhone key: the host waits and tries again.
+    static var keychainLocked: String {
+        String(localized: "iphone.status.keychainLocked", defaultValue: "Waiting for the login keychain to unlock. iPhones connect once it does.",
+               table: "IPhone", bundle: .module)
+    }
     static var connecting: String { String(localized: "iphone.status.connecting", defaultValue: "Connecting…", table: "IPhone", bundle: .module) }
     static var online: String { String(localized: "iphone.status.online", defaultValue: "Online", table: "IPhone", bundle: .module) }
     static var reconnecting: String {
@@ -71,6 +76,13 @@ enum IPhoneHostStrings {
     static func pairBody(_ account: String) -> String {
         String(format: String(localized: "iphone.pair.body",
                               defaultValue: "It is signed in as %@. Once allowed, it can open your terminals and agent chats, and approve agent actions with Face ID.",
+                              table: "IPhone", bundle: .module), account)
+    }
+    /// The body for another of the person's computers asking (docs/multi-machine-sessions.md): it
+    /// starts with `view` only, so the prompt says that and where to widen it.
+    static func machinePairBody(_ account: String) -> String {
+        String(format: String(localized: "iphone.pair.machineBody",
+                              defaultValue: "It is your Mac, signed in as %@. Once allowed, it can see this Mac’s name and what it may do here, nothing more: it cannot see your work until you choose what it may do in Settings > Devices. Remove it there to stop it at once.",
                               table: "IPhone", bundle: .module), account)
     }
     static func pairKey(_ fingerprint: String) -> String {

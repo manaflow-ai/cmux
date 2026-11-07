@@ -1,4 +1,4 @@
-//! The seven `fs-v1` ops on the daemon's roots. Params and results are the
+//! The seven `fs-v1` ops and the two `fs-symlink-v1` ops on the daemon's roots. Params and results are the
 //! shapes of the request file `daemon-fs-for-cloud.md` ("Exact wire JSON").
 
 use std::fs::File;
@@ -12,6 +12,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use super::encoding::{Encoding, inflate};
 use super::entry::{Entry, EntryKind, Meta, StatResult, check_name, mode_display};
 use super::error::FsError;
 use super::listing::{Filter, Listings, MAX_BATCH, Sort, sort_entries};
@@ -77,6 +78,16 @@ struct WriteParams {
     /// wire); absent keeps a replaced file's bits and gives a new file 0644.
     #[serde(default)]
     permissions: Option<u32>,
+    /// `fs-write-deflate-v1`: `bytes_base64` is raw deflate that decodes to
+    /// exactly `decoded_size` bytes ([`super::encoding`]).
+    #[serde(default)]
+    encoding: Option<String>,
+    #[serde(default)]
+    decoded_size: Option<u64>,
+    /// `fs-write-nofollow-v1`: a symlink as any component of `path` is
+    /// `fs.symlink_in_path`, never followed or replaced.
+    #[serde(default)]
+    no_follow: bool,
 }
 
 #[derive(Deserialize)]
@@ -84,6 +95,15 @@ struct NameParams {
     path: String,
     name: String,
 }
+
+#[derive(Deserialize)]
+struct SymlinkParams {
+    path: String,
+    target: String,
+}
+
+/// Longest symlink text `fs.symlink` makes.
+const MAX_LINK_TARGET_BYTES: usize = 4095;
 
 #[derive(Deserialize)]
 struct DeleteParams {
@@ -131,6 +151,11 @@ impl FsService {
                 Ok(json!({ "entry": self.rename(&params.path, &params.name)? }))
             }
             "fs.delete" => self.delete(parse(params)?),
+            "fs.readlink" => self.readlink(&parse::<PathParams>(params)?.path),
+            "fs.symlink" => {
+                let params: SymlinkParams = parse(params)?;
+                Ok(json!({ "entry": self.symlink(&params.path, &params.target)? }))
+            }
             _ => Err(FsError::ParamsInvalid("unknown fs op".into())),
         }
     }
@@ -270,6 +295,10 @@ impl FsService {
                 .map_err(|_| FsError::ParamsInvalid("bytes_base64 is not base64".into()))?,
             _ => return Err(FsError::ParamsInvalid("exactly one of text and bytes_base64".into())),
         };
+        let data = match Encoding::parse(params.encoding.as_deref(), params.decoded_size)? {
+            Encoding::Identity => data,
+            Encoding::Deflate { decoded_size } => inflate(&data, decoded_size, MAX_WRITE_BYTES)?,
+        };
         if data.len() > MAX_WRITE_BYTES {
             return Err(FsError::TooLarge { total: Some(data.len() as u64) });
         }
@@ -280,11 +309,17 @@ impl FsService {
             if params.permissions.is_some() {
                 return Err(FsError::ParamsInvalid("permissions is not valid with append".into()));
             }
-            return Ok(json!({ "entry": append(&self.roots, &params.path, &expected, &data)? }));
+            return Ok(
+                json!({ "entry": append(&self.roots, &params.path, &expected, &data, params.no_follow)? }),
+            );
         }
         let mode = WriteMode::parse(&params.mode, params.expected)?;
-        let mut pending =
-            PendingWrite::begin(&self.roots, &params.path, mode, Some(data.len() as u64))?;
+        let size = Some(data.len() as u64);
+        let mut pending = if params.no_follow {
+            PendingWrite::begin_no_follow(&self.roots, &params.path, mode, size)?
+        } else {
+            PendingWrite::begin(&self.roots, &params.path, mode, size)?
+        };
         if let Some(permissions) = params.permissions {
             pending.set_permissions(permissions)?;
         }
@@ -311,6 +346,62 @@ impl FsService {
         sys::rename_no_replace(resolved.dir(), name, new_name)?;
         sys::fsync(resolved.dir())?;
         Entry::at(resolved.dir(), new_name)
+    }
+
+    /// The text of the symlink at `path` (never followed) and its revision.
+    pub fn readlink(&self, path: &str) -> Result<Value, FsError> {
+        let resolved = self.roots.resolve(path, false)?;
+        let Some(name) = &resolved.name else { return Err(FsError::NotAFile) };
+        let meta = Meta::of(&sys::lstat_at(resolved.dir(), name)?);
+        if meta.kind != EntryKind::Symlink {
+            return Err(FsError::ParamsInvalid("not a symlink".into()));
+        }
+        let target = sys::read_link_at(resolved.dir(), name)?;
+        let target = String::from_utf8(target)
+            .map_err(|_| FsError::Failure("the symlink's text is not UTF-8".into()))?;
+        Ok(json!({ "target": target, "revision": meta.revision() }))
+    }
+
+    /// Makes a symlink at `path` (nothing may be there) whose text is
+    /// `target`: relative, lexically inside the root from the folder that
+    /// holds it (that folder found with every symlink on the way followed),
+    /// and naming something that is there once every symlink on its own way
+    /// is followed inside the roots, so the link never names a place
+    /// outside them. One that fails the last check is taken away again.
+    pub fn symlink(&self, path: &str, target: &str) -> Result<Entry, FsError> {
+        if target.is_empty()
+            || target.starts_with('/')
+            || target.len() > MAX_LINK_TARGET_BYTES
+            || target.chars().any(char::is_control)
+        {
+            return Err(FsError::ParamsInvalid("invalid symlink target".into()));
+        }
+        let resolved = self.roots.resolve(path, false)?;
+        let Some(name) = &resolved.name else { return Err(FsError::PermissionDenied) };
+        check_name(name)?;
+        let mut depth = resolved.depth;
+        for part in target.split('/') {
+            match part {
+                "" | "." => {}
+                ".." => depth = depth.checked_sub(1).ok_or(FsError::PermissionDenied)?,
+                _ => depth += 1,
+            }
+        }
+        sys::symlink_at(resolved.dir(), name, target)?;
+        if let Err(error) = self.roots.resolve(path, true).and_then(|through| {
+            lstat_resolved(&through)?;
+            Ok(())
+        }) {
+            sys::unlink_at(resolved.dir(), name, false)?;
+            return Err(match error {
+                FsError::NotFound => {
+                    FsError::ParamsInvalid("the symlink's target is not there".into())
+                }
+                _ => FsError::PermissionDenied,
+            });
+        }
+        sys::fsync(resolved.dir())?;
+        Entry::at(resolved.dir(), name)
     }
 
     fn delete(&self, params: DeleteParams) -> Result<Value, FsError> {

@@ -55,6 +55,12 @@ public final class CmuxToastCenter {
         let serial = nextSerial
         nextSerial += 1
         let handle = CmuxToastHandle(serial: serial, toast: toast, center: self)
+        // A one-window toast ends its copy in every other window, and in this one too when it stays
+        // quiet below: a never-ending working toast is never left behind (``CmuxToast/oneWindow``).
+        if toast.oneWindow {
+            let quiet = isQuieted(toast)
+            for (other, entry) in entries where entry.handle.toast.id == toast.id && (quiet || entry.window !== window) { end(other, .replaced) }
+        }
         // The person closed this notice a moment ago: it does not come back yet.
         if isQuieted(toast) {
             handle.finish(.closed)
@@ -95,6 +101,7 @@ public final class CmuxToastCenter {
             end(old, .replaced, relayout: false, animated: true)
         }
         startTimer(serial)
+        host.settled(in: window)
         // A toast that appears under a still pointer holds at once.
         if view.isHovered { setHovered(true, handle) }
         if !repeats {
@@ -152,6 +159,12 @@ public final class CmuxToastCenter {
         return true
     }
 
+    /// Ends the toast with `id` in every window (a run that ended with nothing to say, after its working
+    /// toast showed in a window no longer in front). Unlike the close button it quiets nothing.
+    public func close(id: String) {
+        for (serial, entry) in entries where entry.handle.toast.id == id { end(serial, .closed) }
+    }
+
     /// The responder chain from `responder` has an undo manager that can undo.
     public static func responderCanUndo(_ responder: NSResponder?) -> Bool {
         responder?.undoManager?.canUndo == true
@@ -199,6 +212,7 @@ public final class CmuxToastCenter {
         entry.view.layoutSubtreeIfNeeded()
         entry.view.setFrameSize(entry.view.fittingSize)
         relayout(ObjectIdentifier(window))
+        host.settled(in: window)
     }
 
     // MARK: Ending
@@ -210,7 +224,10 @@ public final class CmuxToastCenter {
         if let window = entry.window {
             let key = ObjectIdentifier(window)
             stacks[key]?.remove(serial)
-            if again { relayout(key) }
+            if again {
+                relayout(key)
+                host.settled(in: window)
+            }
         }
         entry.handle.finish(reason)
     }

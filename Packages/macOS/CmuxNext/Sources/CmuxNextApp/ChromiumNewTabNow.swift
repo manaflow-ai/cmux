@@ -21,7 +21,7 @@ struct ChromiumNewTabNow {
         var configuration = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: cache.browserProfile?(key) ?? .default, initialURL: url)
         guard requests.proxiedTabs.plan(for: key, url: url, base: configuration) == .notProxied else { return nil }
         if let remote = requests.services?.remoteLocalhost {
-            guard case .profile(let navigationGuard) = RemoteLocalhostStorePlan.plan(route: remote.route(for: tab, engine: .cef), url: url) else { return nil }
+            guard case .profile(let navigationGuard) = remote.storePlan(for: tab, url: url) else { return nil }
             configuration.navigationGuard = navigationGuard
         }
         // Last: a reopened tab's closed history is claimed only by the page made here; every

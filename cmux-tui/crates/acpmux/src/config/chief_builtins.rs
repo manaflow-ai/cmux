@@ -200,6 +200,16 @@ impl Context {
     }
 }
 
+/// Claude Code's switch for auto mode's server-side safety check
+/// (2.1.319), at `0` in every Claude preset here: Claude Code's local
+/// classifier judges each tool call. With the server check, a response
+/// that carried no verdict (`server_no_result`) denied the call ("auto mode
+/// has no safety result for this call"), with no local classifier to fall
+/// back to, and a Chief ran none of its commands
+/// (https://github.com/manaflow-ai/cmux/issues/37356). optchat-chief's
+/// `session_dir::claude_session_env` sends the same to an older daemon.
+pub const AUTO_MODE_SERVER_ENV: &str = "CLAUDE_CODE_AUTO_MODE_SERVER";
+
 fn flags(env: &mut BTreeMap<String, String>, keys: &[&str], value: &str) {
     for key in keys {
         env.insert((*key).to_owned(), value.to_owned());
@@ -225,10 +235,10 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
     match b.role {
         Role::Turn => {
             flags(&mut env, &["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
-            // Only the cmux MCP server of the agent tools (cx-4a5w2): computer
+            // Keep cmux and the folded acpmux coordinator tools: computer
             // use, secrets and session offers are subagent work, and their
             // tool names and instructions came after the turn's cache mark.
-            env.insert(crate::agent_tools::SERVERS_ENV.into(), "cmux".into());
+            env.insert(crate::agent_tools::SERVERS_ENV.into(), "cmux,acpmux".into());
             // That server lists only the Chief's tools and refuses the rest,
             // `cmux_exec` scripts included (fail closed without the Chief's env).
             env.insert(
@@ -247,6 +257,7 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
                 }
             } else {
                 flags(&mut env, &["DISABLE_AUTOUPDATER", "CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1");
+                env.insert(AUTO_MODE_SERVER_ENV.into(), "0".into());
                 env.insert("SUBROUTER_SESSION_KEY".into(), key("turn"));
                 env.insert("SUBROUTER_SESSION_HEADER".into(), "1".into());
             }
@@ -277,6 +288,7 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
                     ],
                     "1",
                 );
+                env.insert(AUTO_MODE_SERVER_ENV.into(), "0".into());
                 env.insert("SUBROUTER_SESSION_KEY".into(), key("compact"));
                 env.insert("SUBROUTER_SESSION_HEADER".into(), "1".into());
             }
@@ -287,6 +299,7 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
                 env.insert("CODEX_PROMPT_CACHE_KEY".into(), key("sub"));
             } else {
                 env.insert("DISABLE_AUTOUPDATER".into(), "1".into());
+                env.insert(AUTO_MODE_SERVER_ENV.into(), "0".into());
                 env.insert("SUBROUTER_SESSION_KEY".into(), key("sub"));
             }
             env.extend(ctx.pinned.clone());

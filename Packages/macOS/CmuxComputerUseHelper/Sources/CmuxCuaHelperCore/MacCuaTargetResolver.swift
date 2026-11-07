@@ -19,6 +19,13 @@ actor MacCuaTargetResolver: CuaTargetResolving {
         return await app(forPID: pid)
     }
 
+    func isCaptureExcluded(windowID id: UInt32) async -> Bool {
+        guard let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]],
+              let window = windows.first(where: { ($0[kCGWindowNumber as String] as? UInt32) == id }),
+              let sharing = window[kCGWindowSharingState as String] as? UInt32 else { return false }
+        return sharing == CGWindowSharingType.none.rawValue
+    }
+
     func app(named name: String) async -> CuaTargetIdentity? {
         // Match the pinned driver's locate_by_name search order. Read bundles
         // on this actor, never on the main actor and never by launching an app.

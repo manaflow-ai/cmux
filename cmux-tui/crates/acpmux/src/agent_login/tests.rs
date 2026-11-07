@@ -1,4 +1,4 @@
-use super::parse::{allowed_url, device_code, offer, strip_terminal};
+use super::parse::{allowed_url, auto_url, device_code, offer, strip_terminal};
 use super::*;
 
 /// `claude auth login` with plain pipes (Claude Code 2.1.305, Linux).
@@ -264,4 +264,84 @@ fn model_plane_env_never_reaches_the_cli() {
     assert_eq!(envs.get("BROWSER"), Some(&Some("true".into())));
     assert_eq!(envs.get("CMUX_CLAUDE_AUTH"), Some(&Some("own".into())));
     assert_eq!(envs.get("CLAUDE_CONFIG_DIR"), Some(&Some("/tmp/claude-home".into())));
+}
+
+#[test]
+fn login_command_pins_the_resolved_account_homes() {
+    let mut cli = Cli { program: "/bin/true".into(), ..Cli::default() };
+    cli.env.insert("HOME".into(), "/tmp/login-user".into());
+    cli.env.insert("CODEX_HOME".into(), "/tmp/login-codex".into());
+    cli.env.insert("CLAUDE_CONFIG_DIR".into(), "/tmp/login-claude".into());
+    let cmd = cli.command(&["login"], Path::new("/tmp"));
+    let env: BTreeMap<_, _> = cmd.as_std().get_envs().collect();
+    for (agent, key) in [(Agent::Claude, "CLAUDE_CONFIG_DIR"), (Agent::Codex, "CODEX_HOME")] {
+        assert_eq!(
+            env.get(std::ffi::OsStr::new(key)).copied().flatten(),
+            Some(cli.store(agent).as_os_str())
+        );
+    }
+    // No profile home: the command still names the same imported or inherited home as lookup.
+    let cli = Cli::default();
+    let cmd = cli.command(&[], Path::new("/tmp"));
+    let env: BTreeMap<_, _> = cmd.as_std().get_envs().collect();
+    for key in ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR"] {
+        if let Some(value) = cli.var(key) {
+            assert_eq!(
+                env.get(std::ffi::OsStr::new(key)).copied().flatten(),
+                Some(std::ffi::OsStr::new(&value))
+            );
+        }
+    }
+}
+
+#[test]
+fn auto_url_is_an_allowed_link_back_to_localhost_callback() {
+    let ok = "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback&scope=user%3Ainference&state=abc";
+    assert_eq!(auto_url(&format!("{ok}\n")), Some((ok.to_owned(), 54545)));
+    // The shim saves every argument on its own line: the link is found among them.
+    assert_eq!(auto_url(&format!("--new-window\n{ok}\n")).map(|(_, p)| p), Some(54545));
+    for bad in [
+        // The manual link: its redirect shows a code to paste.
+        "https://claude.com/cai/oauth/authorize?redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback",
+        // Another host for the page, or for the redirect.
+        "https://evil.example/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback",
+        "https://claude.com/x?redirect_uri=http%3A%2F%2Fevil.example%3A54545%2Fcallback",
+        "https://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost.evil.example%3A54545%2Fcallback",
+        "https://claude.com/x?redirect_uri=http%3A%2F%2F127.0.0.1%3A54545%2Fcallback",
+        // Another path, no port, a bad port, a second redirect, a broken escape.
+        "https://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fother",
+        "https://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost%2Fcallback",
+        "https://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost%3A0%2Fcallback",
+        "https://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost%3A070%2Fcallback",
+        "https://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost%3A99999%2Fcallback",
+        "https://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcallback&redirect_uri=http%3A%2F%2Flocalhost%3A2%2Fcallback",
+        "https://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback%",
+        "https://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback%+1",
+        // Not https.
+        "http://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback",
+        "",
+    ] {
+        assert_eq!(auto_url(bad), None, "{bad}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn browser_shim_saves_the_link_owner_only_and_opens_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let folder = Folder::new(Agent::Claude).unwrap();
+    let shim = folder.browser_shim().unwrap();
+    assert_eq!(std::fs::metadata(&shim).unwrap().permissions().mode() & 0o777, 0o700);
+    let link = "https://claude.ai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A49152%2Fcallback&state=s";
+    let status = std::process::Command::new(&shim).arg(link).status().unwrap();
+    assert!(status.success());
+    let saved = folder.0.join(AUTO_URL_FILE);
+    assert_eq!(std::fs::metadata(&saved).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(folder.auto_url(), Some((link.to_owned(), 49152)));
+    // A link out of the folder in its place is never read.
+    std::fs::remove_file(&saved).unwrap();
+    let elsewhere = folder.0.join("elsewhere");
+    std::fs::write(&elsewhere, link).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &saved).unwrap();
+    assert_eq!(folder.auto_url(), None);
 }

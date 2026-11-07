@@ -34,6 +34,7 @@ extension NewTabPage {
         var page = Self.page(services, selected: source.selectedTab, pane: source, paletteActions: false)
         let cwd = page.cwd
         page.openTabs = openTabs(services, in: source.pane)
+        page.draft = services.windowController(showing: source).flatMap { services.agentTabs.unsentDrafts.leftover(inWindow: $0.state.id) }
         let opened = SplitPageKey()
         // Keys typed after the split wait for the new page's field, in order (cx-kql5h): the page
         // is made, moved to the new pane and shown before it can take them.
@@ -89,10 +90,10 @@ extension NewTabPage {
             if agent, services.agentTabs.isNewTabPage(tab.id) { return nil }
             let kind: AgentPaneTabKind = agent ? .agent : tab.kind == .browser ? .browser : .terminal
             // An untitled shell is named by its folder, a page by its address, as the bar names them.
-            let title = Self.place(tab, home: NSHomeDirectory())?.title ?? tab.displayTitle
+            let title = NewTabPlaces(home: NSHomeDirectory()).place(tab)?.title ?? tab.displayTitle
             return AgentPaneOmnibar.Tab(
                 id: tab.id, kind: kind, title: title,
-                detail: kind == .browser ? tab.url.map(Self.displayURL) : tab.cwd.map { Self.abbreviated($0) },
+                detail: kind == .browser ? tab.url.map(NewTabPlaces.displayURL) : tab.cwd.map(NewTabPlaces(home: NSHomeDirectory()).abbreviated),
                 icon: kind == .browser ? AppServices.dataURL(services.tabFavicon(tab)) : nil
             )
         }

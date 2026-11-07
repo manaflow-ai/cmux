@@ -67,6 +67,14 @@ extension AgentPaneRequest {
             return
         }
         let params = object["params"] as? [String: Any]
+        if method.hasPrefix("imessage.") {
+            self = AgentPaneIMessageAction(rawValue: String(method.dropFirst("imessage.".count))).map(Self.imessage) ?? .unsupported(method)
+            return
+        }
+        if AgentPaneCloudReservationRequest.methods.contains(method) {
+            self = AgentPaneCloudReservationRequest(method: method, params: params).map(Self.cloudReservation) ?? .unsupported(method)
+            return
+        }
         if AgentPaneCloudEnvironmentRequest.methods.contains(method) {
             self = AgentPaneCloudEnvironmentRequest(method: method, params: params).map(Self.cloudEnvironment) ?? .unsupported(method)
             return
@@ -98,6 +106,18 @@ extension AgentPaneRequest {
         case "chat.unsentDraft":
             if let text = params?["text"] as? String {
                 self = .unsentDraft(text)
+            } else {
+                self = .unsupported(method)
+            }
+        case "chat.leftover":
+            if let text = params?["text"] as? String {
+                self = .newChatLeftover(text)
+            } else {
+                self = .unsupported(method)
+            }
+        case "chat.leftoverTaken":
+            if let text = params?["text"] as? String {
+                self = .newChatLeftoverTaken(text)
             } else {
                 self = .unsupported(method)
             }
@@ -152,10 +172,24 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setComposerRing":
+            // The composer ring's Context or Plan Usage choice; the page writes only this key with it.
+            if let ring = (params?["ring"] as? String).flatMap(AgentPaneComposerRing.init(rawValue:)) {
+                self = .displaySetting(path: AgentPaneComposerSetting.composerRingPath, value: .string(ring.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setRemoteControl":
             // Session Info's Remote Control switch: one Bool, nothing else.
             if let on = params?["on"] as? Bool, Set((params ?? [:]).keys) == ["on"] {
                 self = .remoteControl(on: on)
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.noticeAction":
+            // A native notice's button (AgentPaneNotice): its id, nothing else.
+            if let id = params?["id"] as? String, Set((params ?? [:]).keys) == ["id"] {
+                self = .paneNoticeAction(id: id)
             } else {
                 self = .unsupported(method)
             }
@@ -200,7 +234,9 @@ extension AgentPaneRequest {
                 self = .openTab(AgentPaneOpenTab(kind: kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil,
                                                  search: kind == .browser && params?["search"] as? Bool == true,
                                                  run: kind != .terminal || params?["run"] as? Bool != false,
-                                                 keep: params?["keep"] as? Bool == true))
+                                                 keep: params?["keep"] as? Bool == true,
+                                                 profile: kind == .browser ? AgentPaneOpenTabProfile(params: params) : nil,
+                                                 inPlace: params?["inPlace"] as? Bool == true))
             } else {
                 self = .unsupported(method)
             }
@@ -212,6 +248,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "account.add":
+            self = AgentPaneAddAccount(params: params).map(AgentPaneRequest.addAccount) ?? .unsupported(method)
         case "harness.update":
             // A harness id (profile file name), never a command.
             if let id = params?["id"] as? String, !id.isEmpty, id.utf8.count <= 128,
@@ -313,8 +351,11 @@ extension AgentPaneRequest {
                 return
             }
             self = .cloudHandoffTurn(sessionId: session)
+        case "cloud.signInCancel": self = .cloudSignInCancel
+        case "cloud.signIn": self = AgentPaneCloudStart(params: params).map(Self.cloudSignIn) ?? .unsupported(method)
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
+        case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
             let agent = params?["agent"] as? String
@@ -331,7 +372,7 @@ extension AgentPaneRequest {
         case "chat.attach.choose": self = .chooseAttachments
         case "chat.attach.dropped":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
-               let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
+               let names = params?["names"] as? [String], !names.isEmpty,
                names.allSatisfy(AgentPaneDroppedPaths.isAskedName) {
                 self = .attachDropped(kind, names: names)
             } else {
@@ -339,7 +380,7 @@ extension AgentPaneRequest {
             }
         case "chat.attach.source":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
-               let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
+               let names = params?["names"] as? [String], !names.isEmpty,
                names.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 1024 }) {
                 // The page's `Date.now()` when it took the gesture (ms); absent from an older page.
                 let gestureAt = (params?["gestureAt"] as? NSNumber).map { $0.doubleValue / 1000 }.flatMap { $0.isFinite ? $0 : nil }
@@ -399,6 +440,8 @@ extension AgentPaneRequest {
                 let toggle = params?["mode"] as? String == "toggle"
                 if id == AgentPaneModel.diffAction, let turn = AgentPaneDiffTurn(params: params?["turn"]) {
                     self = .diffTurn(turn, cwd: cwd, toggle: toggle)
+                } else if id == AgentPaneModel.diffAction, let patch = AgentPaneDiffPatch(params: params?["patch"]) {
+                    self = .diffPatch(patch, cwd: cwd, toggle: toggle)
                 } else {
                     self = .paneAction(id, cwd: cwd, toggle: toggle)
                 }
@@ -419,9 +462,34 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.sessionInfo":
+            let info = params?["info"]
+            if info == nil || info is NSNull { self = .sessionInfo(nil) }
+            else if let model = AgentPaneSessionInfoModel.decode(info) { self = .sessionInfo(model) }
+            else { self = .unsupported(method) }
+        case "pane.sessionInfo.overlays":
+            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]) { self = .sessionInfoOverlays(rects) }
+            else { self = .unsupported(method) }
+        case "pane.glass":
+            if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
+            else { self = .unsupported(method) }
+        case "pane.copyText":
+            if let text = params?["text"] as? String { self = .copyText(text) }
+            else { self = .unsupported(method) }
         case "pane.tabRowTools.set":
             if let tools = AgentPaneTabRowTools.list(params?["tools"]) { self = .tabRowToolsSet(tools) }
             else { self = .unsupported(method) }
+        case "pane.tabRowTools.openMenu":
+            guard let id = params?["id"] as? String, id == "chat-menu",
+                  let rawMenuItemID = params?["menuItemId"], !(rawMenuItemID is NSNull) else {
+                if params?["menuItemId"] == nil || params?["menuItemId"] is NSNull,
+                   params?["id"] as? String == "chat-menu" { self = .tabRowToolsOpenMenu(id: "chat-menu", menuItemID: nil) }
+                else { self = .unsupported(method) }
+                return
+            }
+            guard let menuItemID = rawMenuItemID as? String, !menuItemID.isEmpty,
+                  menuItemID.utf8.count <= 256, menuItemID.count <= 64 else { self = .unsupported(method); return }
+            self = .tabRowToolsOpenMenu(id: id, menuItemID: menuItemID)
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }
@@ -435,21 +503,25 @@ extension AgentPaneRequest {
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String)
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String, tone: params?["tone"] as? Int)
             } else { self = .unsupported(method) }
         case "chat.subagentShown":
             let id = params?["subagent"] as? String
             if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
-                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String)
+                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int)
             }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
+        case AgentPaneTryAnotherApproach.method:
+            self = AgentPaneTryAnotherApproach(params: params).map(AgentPaneRequest.tryAnotherApproach) ?? .unsupported(method)
         case "chat.openTab":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.asks.open":
-            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .asksOpen(id) } else { self = .unsupported(method) }
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256, let place = AgentPaneAskPlace(params?["where"]) { self = .asksOpen(id, place) } else { self = .unsupported(method) }
+        case "chat.attention.open":
+            if let id = params?["tabId"] as? String, !id.isEmpty, id.utf8.count <= AgentPaneAttentionTabs.maximumTabID { self = .attentionOpen(id) } else { self = .unsupported(method) }
         case "chat.asks.answer":
             if let ask = AgentPaneAskAnswer(params) { self = .asksAnswer(ask) } else { self = .unsupported(method) }
         case "chat.offer.open":
@@ -536,6 +608,13 @@ extension AgentPaneRequest {
         case "transport.close":
             if let connection = params?["connection"] as? Int {
                 self = .transportClose(connection: connection)
+            } else {
+                self = .unsupported(method)
+            }
+        case "externalAccess.openSettings":
+            if let params, let raw = params["kind"] as? String, let kind = AgentPaneExternalAccessKind(rawValue: raw),
+               Set(params.keys) == ["kind"] {
+                self = .externalAccessOpenSettings(kind)
             } else {
                 self = .unsupported(method)
             }

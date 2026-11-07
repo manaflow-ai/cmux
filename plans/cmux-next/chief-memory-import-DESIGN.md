@@ -85,3 +85,30 @@ plan table with a Write button. Not built in the first commit (see report); the 
 3. Secrets: an item holding `ghp_…` is dropped and counted; a normal item passes.
 4. Server: `append` into a `done`/`live` memory adds notes, dedupes by key and by an existing message's hash,
    refuses with a turn running; `dry_run` writes nothing.
+
+
+## Bring your history (2026-11-02)
+
+Leo: "we should do that, and have flows for dudes coming from grokbot/muse/dot/instinct";
+then "let's do all these".
+
+The `importData` first-run step hosts `cmux.import-history`, also opened by Settings > Home
+and the "Bring your history" palette action (`chief.importMemories`). The browser importer stays
+available separately. The default is one checkbox list: it keeps local detection, explicit zip
+picks and pasted summaries in one scan without introducing a sequence. Cards and a compact list
+are gallery alternatives (`pages.import-history`), with detecting, empty, importing, done and error
+states in light and dark.
+
+Reference: private `claude/live/code-home-after-login` and
+`claude/live/home-empty-composer-import-banner` (one import action, restrained layout) and
+`cmux/live/first-run-import-codex-claude-chats` (detected sources and one decision); no private
+capture is published. Keep cmux's colors and glass. Export discovery never scans Downloads or
+Desktop from this page, even on a person's opening: zip paths come only from the file picker.
+Grok Bot, Muse, ChatGPT Dots and Instinct offer a copyable summary prompt and paste box because
+they have no memory export. New Computer's discontinued Dot appears only after picking its saved
+zip. Pasted summaries use `text:FILE --origin NAME`, deterministic note keys, the common secret
+filter and the same backup/undo path. Import plans all selected sources before writing any row;
+one batch joins their Undo. No live Chief request is inferred from imported text.
+
+Selecting a summary-only source reveals its prompt and paste editor. The default list has no
+repeated per-row paste actions; unchecking the source hides its editor without discarding its draft.

@@ -15,6 +15,16 @@ public import CmuxNextDaemon
 public struct CloudMachineWorkspace {
     public init() {}
 
+    public static func targetAnchor(_ paneID: String, in store: DaemonStore) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
+        for workspace in store.workspaces {
+            guard let key = workspace.key else { continue }
+            if let pane = workspace.screens.flatMap(\.panes).first(where: { $0.resourceID?.rawValue == paneID }) {
+                return (workspace.id, key, pane)
+            }
+        }
+        return nil
+    }
+
     /// The first workspace `store` lists that no other tree lists, nil when it has none. A daemon's
     /// connection is up before its first tree is applied (right after a resume), and the list then is
     /// the last connection's, not "none": the read waits for this connection's tree (`liveTreeEpoch`),
@@ -23,12 +33,20 @@ public struct CloudMachineWorkspace {
     /// tree that never comes within `limit` throws `notConnected`: never "none", which would make one.
     public static func existing(in store: DaemonStore, within limit: Duration = .seconds(10), notConnected: @autoclosure () -> any Error,
                                 listedElsewhere: (String) -> Bool = { _ in false }) async throws -> String? {
+        guard await live(store, within: limit) else { throw notConnected() }
+        return store.workspaces.lazy.map(\.id).first { !listedElsewhere($0) }
+    }
+
+    /// Whether `store` is connected with this connection's tree applied, waiting up to `limit` for it: what
+    /// ``existing(in:within:notConnected:listedElsewhere:)`` reads before it trusts the list. A connection that is
+    /// down and dialing again by itself is not live, though the daemon still holds it.
+    public static func live(_ store: DaemonStore, within limit: Duration) async -> Bool {
         let current = { @MainActor @Sendable in
             if case .connected = store.connectionState { return store.liveTreeEpoch == store.connectionEpoch }
             return false
         }
-        if !(await current()), await !CloudWait.holds(within: limit, until: current) { throw notConnected() }
-        return store.workspaces.lazy.map(\.id).first { !listedElsewhere($0) }
+        if current() { return true }
+        return await CloudWait.holds(within: limit, until: current)
     }
 
     /// ``existing(in:within:notConnected:listedElsewhere:)``, else a workspace `create` makes (nil:

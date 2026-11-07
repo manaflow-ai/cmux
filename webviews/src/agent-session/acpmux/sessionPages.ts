@@ -32,9 +32,11 @@ function pageOf<S extends Summary>(reply: any): SessionPage<S> {
   const sessions = (Array.isArray(reply?.sessions) ? reply.sessions : []).filter(
     (session: any): session is S => typeof session?.sessionId === "string" && session.sessionId !== "",
   );
-  const next = typeof reply?.nextCursor === "string" && sessions.length > 0 ? reply.nextCursor : undefined;
+  // A page may contain no usable rows yet still have a continuation. The cursor
+  // belongs to the daemon's page, independently of what the client can display.
+  const next = typeof reply?.nextCursor === "string" ? reply.nextCursor : undefined;
   const tab = typeof reply?.tabSessionId === "string" && reply.tabSessionId ? reply.tabSessionId : undefined;
-  return { sessions, ...(next ? { next } : {}), ...(tab ? { tab } : {}) };
+  return { sessions, ...(next !== undefined ? { next } : {}), ...(tab ? { tab } : {}) };
 }
 
 /**
@@ -139,7 +141,10 @@ export class SessionPager<S extends Summary> {
     const run = first.run;
     let next = first.next;
     const seen = new Set<string>();
-    while (next) {
+    // Keep an index of rows already held, instead of rescanning every prior page.
+    // A session_changed during paging is covered by changed/purged below.
+    const known = new Set(held().map((session) => session.sessionId));
+    while (next !== undefined) {
       if (run !== this.run) return false;
       let page: SessionPage<S>;
       if (seen.has(next) || seen.size >= MAX_PAGES) page = { sessions: await this.whole() };
@@ -153,11 +158,16 @@ export class SessionPager<S extends Summary> {
         }
       }
       if (run !== this.run) return false;
-      const known = new Set(held().map((session) => session.sessionId));
       const fresh = page.sessions.filter(
-        (session) => !known.has(session.sessionId) && !this.purged.has(session.sessionId),
+        (session) =>
+          !known.has(session.sessionId) && !this.changed.has(session.sessionId) && !this.purged.has(session.sessionId),
       );
-      if (fresh.length > 0) add(fresh);
+      if (fresh.length > 0) {
+        // Only learn IDs after filtering, preserving the previous behavior for duplicate
+        // session IDs inside one page (for example, a local and a peer copy).
+        for (const session of fresh) known.add(session.sessionId);
+        add(fresh);
+      }
       next = page.next;
     }
     return true;

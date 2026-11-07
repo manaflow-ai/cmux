@@ -5,17 +5,23 @@
 //!
 //! Every field but `at` is left out when it cannot be read: off Linux most are,
 //! and the command still prints `at` and exits 0. Reads only: it never starts a
-//! daemon, and a daemon that does not answer quickly leaves `busy` and
-//! `localTurns` out.
+//! daemon, and a daemon that does not answer within `DAEMON_WAIT` leaves `busy`,
+//! `localTurns` and `heavy` out.
+//!
+//! `heavy` is the heaviest known build or test the daemon's agents run now: the
+//! shell commands of their tool calls in flight (`hub/activity.rs`) and of their
+//! running background processes (`hub/processes.rs`), as the daemon reports them
+//! (`host_pressure.heavy`). Never a process scan (plans/cmux-next/pty-holder.md 4):
+//! the agents report what they run.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 /// How long the two `/proc/stat` reads are apart.
 #[cfg(target_os = "linux")]
 const CPU_WINDOW: Duration = Duration::from_secs(1);
 /// How long the daemon has to say whether a turn runs.
-const DAEMON_WAIT: Duration = Duration::from_millis(1500);
+const DAEMON_WAIT: Duration = crate::rpc::ANSWER_WAIT;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,7 +54,7 @@ pub struct Load {
     pub heavy: Option<Heavy>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     Build,
@@ -56,22 +62,22 @@ pub enum Kind {
 }
 
 /// What a running build or test needs on top of the agent session's own 2 GiB / 2 cores.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Need {
     pub vcpu: u32,
     #[serde(rename = "memGiB")]
     pub mem_gib: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Heavy {
     pub kind: Kind,
     pub need: Need,
 }
 
 /// The known-heavy tools: (program, subcommand it must run or `None` for any, kind,
-/// vCPU, GiB). From cmux#26617's sizing model. A program is a process's `comm`, its
-/// argv[0]'s file name, or (under node or bun) its script's file name.
+/// vCPU, GiB). From cmux#26617's sizing model. A program is a command's first word's
+/// file name, or (under node or bun) its script's file name.
 const HEAVY: &[(&str, Option<&str>, Kind, u32, u32)] = &[
     ("cargo", Some("build"), Kind::Build, 8, 15),
     ("cargo", Some("test"), Kind::Test, 8, 15),
@@ -110,7 +116,7 @@ fn program(word: &str) -> &str {
     [".mjs", ".cjs", ".js"].iter().find_map(|ext| name.strip_suffix(ext)).unwrap_or(name)
 }
 
-/// The heavy work one process does, from its `comm` and argv.
+/// The heavy work one command does, from its program's name and argv.
 pub fn classify(comm: &str, argv: &[&str]) -> Option<Heavy> {
     let arg = |i: usize| argv.get(i).copied();
     let mut asks: Vec<(&str, Option<&str>)> = vec![(comm.trim(), arg(1))];
@@ -143,14 +149,14 @@ pub fn classify(comm: &str, argv: &[&str]) -> Option<Heavy> {
 }
 
 /// The heavier of two: more memory, then more cores.
-fn heavier(a: Option<Heavy>, b: Heavy) -> Option<Heavy> {
+pub(crate) fn heavier(a: Option<Heavy>, b: Heavy) -> Option<Heavy> {
     match a {
         Some(a) if (a.need.mem_gib, a.need.vcpu) >= (b.need.mem_gib, b.need.vcpu) => Some(a),
         _ => Some(b),
     }
 }
 
-/// The heaviest work any of these (comm, argv) processes does.
+/// The heaviest work any of these (program, argv) commands does.
 pub fn heaviest<'a>(processes: impl IntoIterator<Item = (&'a str, Vec<&'a str>)>) -> Option<Heavy> {
     processes.into_iter().fold(None, |best, (comm, argv)| match classify(comm, &argv) {
         Some(h) => heavier(best, h),
@@ -158,28 +164,182 @@ pub fn heaviest<'a>(processes: impl IntoIterator<Item = (&'a str, Vec<&'a str>)>
     })
 }
 
+/// Words before a command's program that are not it: a wrapper that runs the rest.
+const WRAPPERS: &[&str] =
+    &["env", "time", "nice", "nohup", "exec", "command", "timeout", "gtimeout", "sudo"];
+
+/// Words before a command's program that only open a compound command (`if`, `{`, `!`).
+const KEYWORDS: &[&str] =
+    &["!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "fi", "done"];
+
+/// Shells whose `-c SCRIPT`, or a heredoc fed to them, is commands of their own.
+const SHELLS: &[&str] = &["sh", "bash", "zsh", "dash", "ksh"];
+
+/// How deep `sh -c`, substitutions and heredocs into a shell are read; deeper is read loosely.
+const DEPTH: usize = 8;
+
+/// A command's words from its program on, past leading `NAME=value` words, keywords, a
+/// wrapper and its options ([`WRAPPERS`]).
+fn argv_of<'a>(words: &[&'a str]) -> Vec<&'a str> {
+    let skip = |w: &&str| {
+        WRAPPERS.contains(w)
+            || KEYWORDS.contains(w)
+            || w.starts_with('-')
+            || w.bytes().all(|b| b.is_ascii_digit())
+            || w.split_once('=').is_some_and(|(name, _)| {
+                !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            })
+    };
+    words.iter().copied().skip_while(skip).collect()
+}
+
+/// A shell's `-c` script (`sh -c S`, `bash -lc S`, `bash -e -c S`): Some(Some(S)); a shell
+/// without one, which reads a file or stdin: Some(None); not a shell: None.
+fn shell_script<'a>(argv: &[&'a str]) -> Option<Option<&'a str>> {
+    if !SHELLS.contains(&program(argv.first()?)) {
+        return None;
+    }
+    let mut rest = argv.get(1..).unwrap_or_default().iter();
+    while let Some(w) = rest.next() {
+        if w.starts_with("--") {
+            continue;
+        }
+        if !w.starts_with(['-', '+']) {
+            break;
+        }
+        if w.starts_with('-') && w.contains('c') {
+            return Some(rest.next().copied());
+        }
+    }
+    Some(None)
+}
+
+/// Calls `each` with every simple command a shell script runs, each read from its program on,
+/// past leading `NAME=value` words, a wrapper and its options ([`WRAPPERS`]). The words are the
+/// shell's ([`crate::shell_words`]): a quoted argument, a heredoc's body and a comment run
+/// nothing, while `$(...)`, backticks, `sh -c SCRIPT` (and `bash`, `zsh`, `-lc`), `eval` and a
+/// heredoc fed to a shell are commands of their own. A script it cannot read (an unclosed
+/// quote) is read loosely, split at `;`, `&`, `|` and line ends, which names more, never less. It
+/// only names what a command runs (`classify_command`, the slow commands of `bg_hook.rs`).
+pub fn for_each_command(script: &str, each: &mut dyn FnMut(&[&str])) {
+    commands_at(script, each, 0);
+}
+
+fn commands_at(script: &str, each: &mut dyn FnMut(&[&str]), depth: usize) {
+    let Some(lexed) = crate::shell_words::lex(script).filter(|_| depth < DEPTH) else {
+        return loose_commands(script, each);
+    };
+    let mut bare_shells = Vec::new();
+    for command in &lexed.commands {
+        let words: Vec<&str> = command.words.iter().map(String::as_str).collect();
+        let argv = argv_of(&words);
+        match (shell_script(&argv), argv.first()) {
+            (Some(Some(inner)), _) => commands_at(inner, each, depth + 1),
+            (Some(None), _) => {
+                bare_shells.push(command.pipeline);
+                each(&argv);
+            }
+            (None, Some(&"eval")) => {
+                commands_at(&argv.get(1..).unwrap_or_default().join(" "), each, depth + 1)
+            }
+            (None, Some(_)) => each(&argv),
+            (None, None) => {}
+        }
+    }
+    // `bash <<EOF` and `cat <<EOF | sh` run the body (a shell in the heredoc's pipeline); a
+    // heredoc into anything else is data, though an unquoted one's substitutions run (`subs`).
+    for (pipeline, body) in &lexed.heredocs {
+        if bare_shells.contains(pipeline) {
+            commands_at(body, each, depth + 1);
+        }
+    }
+    for sub in &lexed.subs {
+        commands_at(sub, each, depth + 1);
+    }
+}
+
+/// The loose read for a script the lexer cannot read: split at `;`, `&`, `|` and line ends,
+/// quotes trimmed from each word.
+fn loose_commands(script: &str, each: &mut dyn FnMut(&[&str])) {
+    for segment in script.split(['\n', ';', '|', '&']) {
+        let words: Vec<&str> = segment
+            .split_whitespace()
+            .map(|w| w.trim_matches(|c| matches!(c, '"' | '\'' | '(' | ')')))
+            .filter(|w| !w.is_empty())
+            .collect();
+        let argv = argv_of(&words);
+        match (argv.first().copied().map(program), argv.get(1).copied()) {
+            (Some("sh" | "bash" | "zsh"), Some("-c" | "-lc")) => {
+                loose_commands(&argv.get(2..).unwrap_or_default().join(" "), each)
+            }
+            (Some(_), _) => each(&argv),
+            (None, _) => {}
+        }
+    }
+}
+
+/// The heavy work a shell command does: the heaviest of its simple commands
+/// ([`for_each_command`]).
+pub fn classify_command(script: &str) -> Option<Heavy> {
+    let mut best = None;
+    for_each_command(script, &mut |argv| {
+        if let Some(h) = argv.first().and_then(|zero| classify(program(zero), argv)) {
+            best = heavier(best, h);
+        }
+    });
+    best
+}
+
+/// The heavy work an ACP tool call (`tool_call` or `tool_call_update`) runs: its shell command,
+/// `rawInput.command`, a script (Claude Code's Bash) or an argv (Codex). A call of a kind other
+/// than `execute` runs none.
+pub fn heavy_of_tool(update: &serde_json::Value) -> Option<Heavy> {
+    use serde_json::Value;
+    if update.get("kind").and_then(Value::as_str).is_some_and(|k| k != "execute") {
+        return None;
+    }
+    match update.pointer("/rawInput/command")? {
+        Value::String(script) => classify_command(script),
+        // An argv is quoted word by word, so `["bash", "-lc", "swift build"]` keeps its script.
+        Value::Array(argv) => classify_command(
+            &argv
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|w| format!("'{}'", w.replace('\'', r"'\''")))
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
+        _ => None,
+    }
+}
+
 /// `busy` and `localTurns` from `daemon status`'s `host_pressure.local_turns`.
 pub fn turns_of(status: &serde_json::Value) -> Option<u64> {
     status.pointer("/host_pressure/local_turns")?.as_u64()
 }
 
+/// `heavy` from `daemon status`'s `host_pressure.heavy`.
+pub fn heavy_of(status: &serde_json::Value) -> Option<Heavy> {
+    serde_json::from_value(status.pointer("/host_pressure/heavy")?.clone()).ok()
+}
+
 /// The sample: the `/proc` reads (blocking, about [`CPU_WINDOW`]) beside the daemon's answer.
 pub async fn sample() -> Load {
     let reads = tokio::task::spawn_blocking(read_host);
-    let turns = tokio::time::timeout(DAEMON_WAIT, daemon_turns()).await.ok().flatten();
+    let status = tokio::time::timeout(DAEMON_WAIT, daemon_status()).await.ok().flatten();
     let mut load = reads.await.unwrap_or_default();
     load.at = crate::store::now_ms();
+    let turns = status.as_ref().and_then(turns_of);
     load.local_turns = turns;
     load.busy = turns.map(|n| n > 0);
+    load.heavy = status.as_ref().and_then(heavy_of);
     load
 }
 
-/// The running daemon's turn count; none when there is no daemon (never starts one).
-async fn daemon_turns() -> Option<u64> {
+/// The running daemon's status; none when there is no daemon (never starts one).
+async fn daemon_status() -> Option<serde_json::Value> {
     let client = crate::client::Client::connect(&crate::config::socket_path()).await.ok()?;
-    let status =
-        client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await.ok()?;
-    turns_of(&status)
+    client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await.ok()
 }
 
 fn read_host() -> Load {
@@ -228,30 +388,10 @@ fn linux(load: &mut Load) {
         load.swap_used_fraction = p::parse_meminfo_swap_used(&meminfo);
     }
     load.oom_kills = read("/proc/vmstat").and_then(|s| p::parse_vmstat_oom_kill(&s));
-    load.heavy = heavy_now();
     // The window is the sleep alone: the reads above stay out of it.
     let before = stat();
     std::thread::sleep(CPU_WINDOW);
     load.cpu_busy = before.zip(stat()).and_then(|(a, b)| p::cpu_busy(a, b));
-}
-
-/// One pass over `/proc/*/comm` and `cmdline`.
-#[cfg(target_os = "linux")]
-fn heavy_now() -> Option<Heavy> {
-    let mut found: Vec<(String, String)> = Vec::new();
-    for entry in std::fs::read_dir("/proc").ok()?.flatten() {
-        let name = entry.file_name();
-        if !name.to_str().is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit())) {
-            continue;
-        }
-        let dir = entry.path();
-        let Ok(comm) = std::fs::read_to_string(dir.join("comm")) else { continue };
-        let cmdline = std::fs::read(dir.join("cmdline")).unwrap_or_default();
-        found.push((comm, String::from_utf8_lossy(&cmdline).into_owned()));
-    }
-    heaviest(found.iter().map(|(comm, cmdline)| {
-        (comm.as_str(), cmdline.split('\0').filter(|w| !w.is_empty()).take(4).collect())
-    }))
 }
 
 #[cfg(test)]
@@ -333,5 +473,40 @@ mod tests {
     fn turns_come_from_daemon_status() {
         assert_eq!(turns_of(&json!({"host_pressure": {"local_turns": 3}})), Some(3));
         assert_eq!(turns_of(&json!({"host_pressure": {"ok": null}})), None);
+    }
+
+    #[test]
+    fn a_shell_command_is_known_from_its_simple_commands() {
+        assert_eq!(classify_command("cargo build -p acpmux"), need(Kind::Build, 8, 15));
+        assert_eq!(classify_command("cd /w && cargo test --locked"), need(Kind::Test, 8, 15));
+        assert_eq!(
+            classify_command("RUST_LOG=1 nice -n 10 cargo clippy"),
+            need(Kind::Build, 8, 15)
+        );
+        assert_eq!(classify_command("bash -lc 'go test ./...'"), need(Kind::Test, 8, 8));
+        assert_eq!(classify_command("bun test a.test.ts; make -j8"), need(Kind::Build, 8, 8));
+        assert_eq!(classify_command("npx vitest run | tee log"), need(Kind::Test, 6, 2));
+        assert_eq!(classify_command("git status && rg cargo"), None);
+        assert_eq!(classify_command("echo cargo build"), None, "an argument, not the program");
+        assert_eq!(classify_command(""), None);
+    }
+
+    #[test]
+    fn a_tool_call_runs_its_execute_command() {
+        let bash = json!({"kind": "execute", "rawInput": {"command": "cargo test"}});
+        assert_eq!(heavy_of_tool(&bash), need(Kind::Test, 8, 15));
+        let argv = json!({"rawInput": {"command": ["bash", "-lc", "swift build"]}});
+        assert_eq!(heavy_of_tool(&argv), need(Kind::Build, 4, 13));
+        let mcp = json!({"kind": "other", "rawInput": {"command": "cargo build"}});
+        assert_eq!(heavy_of_tool(&mcp), None, "only a shell command runs");
+        assert_eq!(heavy_of_tool(&json!({"kind": "execute"})), None);
+    }
+
+    #[test]
+    fn heavy_comes_from_daemon_status() {
+        let status =
+            json!({"host_pressure": {"heavy": {"kind": "test", "need": {"vcpu": 6, "memGiB": 2}}}});
+        assert_eq!(heavy_of(&status), need(Kind::Test, 6, 2));
+        assert_eq!(heavy_of(&json!({"host_pressure": {"local_turns": 0}})), None);
     }
 }

@@ -8,6 +8,7 @@ import { CATALOG, CWD, fleetPeers, manySessions, noChat, session } from "../../.
 import { minutesAgo } from "../../../gallery/clock";
 import { composerStatePlays } from "../composerStatePlays";
 import { paneLanguage, translateKey } from "../i18n";
+import { newTabComposerTrailingGap } from "./composerGap.experiment";
 import { createStripLabelsFit } from "./createStripFit";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
@@ -350,6 +351,15 @@ export default agentPaneEntry({
       reason: "New Tab navigation, menu selection, and local suggestion updates should settle within a quarter second.",
     },
   },
+  experiment: {
+    definition: newTabComposerTrailingGap,
+    script: [
+      {
+        name: "measure trailing controls",
+        run: (ctx) => ctx.waitFor(() => ctx.document.querySelector(".nt-pickers .acpmux-composer-actions") !== null),
+      },
+    ],
+  },
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
     "agent-session/acpmux/newtab/AmbientWidgets.tsx#AmbientWidgets",
@@ -434,9 +444,9 @@ export default agentPaneEntry({
           throw new Error("the inherited location slot moved after input");
       },
     },
-    // The model button opens its one menu (Leo 2026-10-20), whole: the card does not clip it
-    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the menu, not the page. On New
-    // Tab More models shows its models in place, under its row (newTabComposer.ts), then Add harness….
+    // The model button opens its columns menu, whole: the card does not clip it (Lawrence
+    // 2026-10-13). Points near its top and bottom edges hit the menu, not the page. The models
+    // column ends on its Legacy models; Add harness… ends the rail.
     "computer-first-setup": {
       note: "Fresh home with Labs off and only Studio Mac: the machine menu lists This Mac and Cloud (signed out, with Sign in for Cloud); Add Machine… and New Cloud Machine… are its right-click menu.",
       ready: { ...newTab(), machineName: "Studio Mac" },
@@ -459,48 +469,46 @@ export default agentPaneEntry({
       },
     },
     "model-picker-open": {
-      note: "The New Tab model button's menu, open down: the harness rail and the models, never cut by the card; More models opens in place and ends on Add harness….",
+      note: "The New Tab model button's columns, open down: the harness rail and the models, never cut by the card; Legacy models follow the top ones, and the rail ends on Add harness….",
       ready: newTab(),
       snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await ctx.click({ role: "button", name: "Model" });
         await ctx.waitFor(() => {
-          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
-          if (!menu || !menu.querySelector('[role="menuitemradio"]')) return false;
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-cols");
+          if (!menu || !menu.querySelector('[role="listbox"] [role="option"]')) return false;
           const box = menu.getBoundingClientRect();
           if (box.height < 120) return false;
           const x = box.left + box.width / 2;
           return [box.top + 6, box.bottom - 6].every((y) => menu.contains(ctx.document.elementFromPoint(x, y)));
         });
-        // The row itself, by role: the menu's hidden width probe (QuickMenuSpacer) repeats its text
-        // later in the document, and a text target takes the last match.
-        // The symbols row (the default) names it Legacy models, with its count.
-        await ctx.click({ role: "menuitem", name: /^(Legacy|More) models/ });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list"));
-        const more = ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list")!;
-        if (more.querySelector('[aria-label="Add harness…"]'))
-          throw new Error("More models must contain models only; Add harness belongs in the rail");
-        if (!ctx.document.querySelector('.acpmux-quick-rail-add[aria-label="Add harness…"]'))
+        const models = ctx.find({ selector: '.acpmux-cols [role="listbox"]' });
+        if (![...models.querySelectorAll(".acpmux-cols-caption")].some((node) => node.textContent === "Legacy models"))
+          throw new Error("the models column must list its Legacy models under their caption");
+        if (models.querySelector('[aria-label="Add harness…"]'))
+          throw new Error("the models column must contain models only; Add harness belongs in the rail");
+        const rail = ctx.find({ selector: '.acpmux-cols [role="tablist"]' });
+        if (rail.lastElementChild?.getAttribute("aria-label") !== "Add harness…")
           throw new Error("the model menu's harness rail must end on Add harness…");
       },
     },
     // The effort is part of the one model button (Leo 2026-10-20: "Opus 5.5  Medium"), and its
-    // levels are the menu's Effort submenu (P0 #8: a live pick, never a picture): acpmux starts
+    // levels are the menu's Effort column (P0 #8: a live pick, never a picture): acpmux starts
     // Claude Code on Medium, so the button names it before any chat exists.
     "reasoning-chip": {
-      note: "Before any chat: the model button names the model and the level acpmux starts Claude Code on (Medium); its menu's Effort row opens the levels. No separate Reasoning chip.",
+      note: "Before any chat: the model button names the model and the level acpmux starts Claude Code on (Medium); its menu's Effort column lists the levels. No separate Reasoning chip.",
       ready: newTab(),
       snapshot: reasoningChat(),
     },
     "catalog-fast-menu": {
-      note: "Before a session reports config options: the New Tab model menu offers the model's catalog Fast mode beside Effort, as a started chat does.",
+      note: "Before a session reports config options: the New Tab model menu offers the model's catalog Fast mode under Effort, as a started chat does.",
       ready: newTab(),
       snapshot: reasoningChat(),
       play: async (ctx: PlayContext) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-picker-button") !== null);
         await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fast") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-cols-tune [role="switch"]') !== null);
       },
     },
     "reasoning-chip-stage": {
@@ -518,6 +526,10 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        if (ctx.document.querySelector('.nt-screen[data-template="default"]'))
+          throw new Error("an unset NewTabScreen template still renders the Default stage");
+        if (!ctx.document.querySelector('.nt-screen[data-template="minimal"]'))
+          throw new Error("an unset NewTabScreen template did not render Minimal");
         const extra = ctx.document.querySelector(".nt-greeting, .nt-headline, .nt-stage, .nt-cards, .nt-create");
         if (extra) throw new Error(`the minimal page shows ${extra.className}`);
         // The three dots only (newtab/tabDots.ts, Leo 2026-10-23), not the other styles.
@@ -617,6 +629,29 @@ export default agentPaneEntry({
         if (!field || !row || row.top < field.bottom) throw new Error("the ambient row is not under the field");
         if (ctx.document.querySelectorAll(".nt-ambient-machine[data-online]").length !== 2)
           throw new Error("this Mac and the SSH peer should be online, the Cloud host offline");
+      },
+    },
+    "minimal-ambient-paused": {
+      note: "Machines on, the old Cloud host is a Cloud machine the account says is paused (`cloudMachine.list`): it keeps the quiet ring and its tooltip says Paused, never offline (Cloud machines pause on their own when idle; its first use resumes it).",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting", "machines"] }),
+      // cloud-dev is listed by acpmux too, its link lost while it sleeps.
+      snapshot: {
+        ...ambientSnapshot(),
+        peers: ["build-box", "cloud-dev"],
+        peerKinds: { "build-box": "ssh" as const, "cloud-dev": "cloud" as const },
+        peerStates: { "build-box": "connected", "cloud-dev": "reconnecting" },
+      },
+      native: {
+        "cloudMachine.list": {
+          signedIn: true,
+          loaded: true,
+          machines: [{ id: "vm-dev", name: "cloud-dev", stage: "paused" }],
+        },
+      },
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-ambient-machine[data-paused]") !== null);
+        if (ctx.document.querySelectorAll(".nt-ambient-machine[data-online]").length !== 2)
+          throw new Error("this Mac and the SSH peer should stay online");
       },
     },
     "minimal-ambient-offline": {
@@ -1234,6 +1269,26 @@ export default agentPaneEntry({
         for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
         await ctx.press("Enter");
         await waitForTabJump(ctx, "tab", "tab-1");
+      },
+    },
+    "suggestions-overflow": {
+      note: "Matching open tabs fill the capped suggestions list in a short pane, with soft scroll edges.",
+      ready: newTab({
+        suggestionOrder: "chat",
+        omnibar: {
+          ...RELEASE_OMNIBAR,
+          tabs: Array.from({ length: 20 }, (_, index) => ({
+            id: `release-${index}`,
+            kind: "terminal" as const,
+            title: `Release build ${index}`,
+            detail: "~/src/release",
+          })),
+        },
+      }),
+      snapshot: noChat([]),
+      play: async (ctx) => {
+        await typePrompt(ctx, "release");
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.nt-rows [role="option"]').length >= 6);
       },
     },
     "workspace-switch-animation-audit": {

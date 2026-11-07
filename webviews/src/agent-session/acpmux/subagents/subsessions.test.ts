@@ -3,7 +3,15 @@
 // (subsessions.ts), from acpmux's session summaries as the pane cuts them (sessionList.ts).
 import { expect, test } from "bun:test";
 import { sessionEntry } from "../sessionList";
-import { SubsessionStore, subsessionDisplayName, subsessionInfo, subsessionRows, waitingLine } from "./subsessions";
+import {
+  SubsessionStore,
+  subagentDisplayName,
+  subagentTaskLabel,
+  subsessionDisplayName,
+  subsessionInfo,
+  subsessionRows,
+  waitingLine,
+} from "./subsessions";
 import { translate } from "../i18n";
 
 /// A session summary as acpmux sends it, with the fields the sub-session rows read.
@@ -82,6 +90,21 @@ test("a sub-session's state: working, needs input, failed (or lost) or done, wit
   // Without a short name, its title (the name acpmux made for it says nothing).
   const titled = summary("g", { name: "claude-2", harness: "claude", title: "Audit the fetch helper" });
   expect(subsessionInfo(titled).name).toBe("Audit the fetch helper");
+});
+
+test("a sub-session's title is its own title, not the name the pane shows in its place (cmux#32934)", () => {
+  // sessionEntry's display title is the session's name when acpmux gave it one, so the real title
+  // must win over it; the finished task line (conversation/TaskLine.tsx) is named by this.
+  const named = summary("review", {
+    name: "lead/october-review",
+    shortName: "october-review",
+    title: "Review October engineering work",
+  });
+  expect(named.displayTitle).toBe("lead/october-review");
+  expect(subsessionInfo(named)).toMatchObject({ name: "october-review", title: "Review October engineering work" });
+  // A title that only repeats the name or the id is none.
+  expect(subsessionInfo(summary("plain", { name: "lead/plain", shortName: "plain" })).title).toBeUndefined();
+  expect(subsessionInfo(summary("same", { shortName: "same", title: "same" })).title).toBeUndefined();
 });
 
 test("the chat's sub-sessions, theirs indented under each, waiting first, then working, then ended", () => {
@@ -219,4 +242,43 @@ test("another agent's message finds its sender's chat by name, and that chat's h
   expect(store.find("coord-deputy")).toBeUndefined();
   expect(renamed).toBe(2);
   expect(notified).toBe(1);
+});
+
+test("a subagent named only by its raw session/tool call id shows as Subagent, never the id", () => {
+  const t = translate;
+  const id = "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_01H9Jk66ek2xu2m2SaOS09M1";
+  expect(subagentDisplayName(t, { id, name: id })).toBe("Subagent");
+  expect(subagentDisplayName(t, { id: "other", name: id })).toBe("Subagent");
+  expect(subagentDisplayName(t, { id, name: "Review the diff" })).toBe("Review the diff");
+  expect(subagentDisplayName(t, { id, name: "toolu docs" })).toBe("toolu docs");
+  expect(subagentDisplayName(t, { id: "Reviewer", name: "Reviewer" })).toBe("Reviewer");
+  expect(subagentDisplayName(t, { id: "s/call_7", name: "s/call_7" })).toBe("Subagent");
+  const thread = "019a3f2e-7c41-7d22-9b1e-5a6c0d4e8f13";
+  expect(subagentDisplayName(t, { id: thread, name: thread })).toBe("Subagent");
+});
+
+test("the tray line names a subagent by its task, then its name, and Subagent only when nothing names it", () => {
+  const t = translate;
+  const id = "01a19ea8-7040-7e00-879d-1e267984f2f7/toolu_01H9Jk66ek2xu2m2SaOS09M1";
+  // Leo, 2026-11-02, on a done line that read just "Subagent": its task names it.
+  expect(subagentTaskLabel(t, { id, name: id, task: "Review the subagent tray row" })).toBe(
+    "Review the subagent tray row",
+  );
+  expect(subagentTaskLabel(t, { id: "a", name: "Reviewer", task: "Review the tray motion diff" })).toBe(
+    "Review the tray motion diff",
+  );
+  expect(subagentTaskLabel(t, { id: "a", name: "Reviewer" })).toBe("Reviewer");
+  expect(subagentTaskLabel(t, { id: "a", name: "Reviewer", task: "  First line\nsecond line" })).toBe("First line");
+  // A raw id never names it; what was asked, then its kind, before "Subagent".
+  expect(subagentTaskLabel(t, { id, name: id, task: id })).toBe("Subagent");
+  expect(subagentTaskLabel(t, { id, name: id, prompt: "\nFind the regressing PR\nthen fix it" })).toBe(
+    "Find the regressing PR",
+  );
+  expect(subagentTaskLabel(t, { id, name: id, kind: "Explore" })).toBe("Explore");
+  expect(subagentTaskLabel(t, { id, name: id })).toBe("Subagent");
+  // Every other line that names it by its name still falls back to its task before "Subagent".
+  expect(subagentDisplayName(t, { id, name: id, task: "Review the subagent tray row" })).toBe(
+    "Review the subagent tray row",
+  );
+  expect(subagentDisplayName(t, { id: "a", name: "Reviewer", task: "Review the tray motion diff" })).toBe("Reviewer");
 });

@@ -10,11 +10,12 @@ public nonisolated enum GroupTint: Hashable, Sendable {
     case palette(GroupColor)
     case custom(ThemeRGB)
     /// No color (Lawrence 2026-10-22: "need to be able to remove all workspace colors"): the
-    /// header draws in the sidebar's own colors, with no dot, band, wash or members' line.
+    /// header draws in the sidebar's own colors: a neutral background (``GroupBackground``, Lawrence 2026-11-05:
+    /// groups always have a visible background) and no colored dot.
     case none
 
-    /// The wire form of ``none``. A group with no stored color is not this: it draws a picked
-    /// palette color (`GroupColor.unset(id:)`).
+    /// The wire form of ``none``. A group with no stored color draws as this too: a group shows a
+    /// color only when a person picked one (Leo 2026-10-31).
     public static let noneWire = "none"
 
     /// A token, `#RRGGBB` or `none`; nil for anything else.
@@ -69,12 +70,14 @@ public nonisolated enum GroupTint: Hashable, Sendable {
     /// green header).
     @MainActor public var headerChip: (fill: ThemeRGB, ink: ThemeRGB) {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        // No color: the bar is the sidebar itself, its ink the sidebar's text.
-        if isNone { return (tokens.sidebarBackground.withAlpha(1), tokens.textPrimary) }
+        // No color: no bar at all (clear), its ink the sidebar's text. An opaque sidebarBackground here drew the
+        // theme's own color as a solid bar over a translucent sidebar (Leo 2026-11-02: "THE GROUP COLOUR SOMEHOW
+        // BEING THE THEME COLOUR???").
+        if isNone { return (tokens.sidebarBackground.withAlpha(0), tokens.textPrimary) }
         let color = switch self {
         case let .palette(token): token.headerRGB(tokens)
         case let .custom(rgb): Self.readable(rgb)
-        case .none: tokens.sidebarBackground.withAlpha(1)
+        case .none: tokens.sidebarBackground.withAlpha(0)
         }
         return tokens.chip(color, inks: .onColor)
     }
@@ -104,14 +107,22 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         return tokens.chip(wash)
     }
 
-    /// A sidebar group's members' line under the solid band: the band's exact rest color
-    /// (`headerChip(themed:).fill`, Leo 2026-10-19), so bar and line read as one group. No color: unseen (`lineRGB`).
-    @MainActor public func lineFill(themed: Bool) -> NSColor { isNone ? lineColor(themed: themed) : headerChip(themed: themed).fill.nsColor }
+    /// A sidebar group's members' line under the solid band: the band's rest color as seen (``GroupBackground/shown``,
+    /// Leo 2026-10-19), so bar and line read as one group. No color: the band's neutral fill, as visible as the bar
+    /// (Lawrence 2026-11-05: groups always have a visible background). Under the glass band the line takes the pane's
+    /// own paint instead (the sidebar's `GroupGlassPaint`).
+    ///
+    /// - Parameter themed: Palette colors come from the theme (`sidebar.groupColors` = theme).
+    /// - Returns: The color to paint the line.
+    @MainActor public func lineFill(themed: Bool) -> NSColor {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        return GroupBackground(tint: self, strength: .band, glass: false, themed: themed, tokens: tokens).shown.nsColor
+    }
 
     /// A faint wash of the group's color over the sidebar, behind a name in primary ink.
     @MainActor public func headerWash(themed: Bool) -> ThemeRGB {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        if isNone { return tokens.sidebarBackground.withAlpha(1) }
+        if isNone { return tokens.sidebarBackground.withAlpha(0) } // no color: no wash
         return tokens.sidebarBackground.withAlpha(1).mixed(toward: lineRGB(themed: themed), tokens.isDark ? 0.14 : 0.10)
     }
 
@@ -126,6 +137,19 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         case .none:
             return .clear
         }
+    }
+
+    /// The group's color for tinted glass (Leo 2026-11-05: "We can afford to put glass here ... still keeping the
+    /// colors, it's just, like, but just make it glassier"): its line color with its chroma raised by `vividness`
+    /// (each channel pushed away from the color's grey), so a translucent wash of it reads vibrant over a busy
+    /// backdrop instead of muddy. No color: the theme's ink, untinted glass.
+    @MainActor public func glassRGB(themed: Bool, vividness: Double = 1.3) -> ThemeRGB {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        if isNone { return tokens.textPrimary.withAlpha(1) }
+        let rgb = lineRGB(themed: themed)
+        let grey = 0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue
+        func push(_ c: Double) -> Double { min(1, max(0, grey + (c - grey) * vividness)) }
+        return ThemeRGB(red: push(rgb.red), green: push(rgb.green), blue: push(rgb.blue))
     }
 
     /// The custom color as the person picked it (the color panel starts there).

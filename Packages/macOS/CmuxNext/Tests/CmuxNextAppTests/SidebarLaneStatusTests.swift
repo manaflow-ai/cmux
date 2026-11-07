@@ -54,7 +54,7 @@ import Testing
         }
 
         func sections(_ rows: SidebarMapping.RowSource? = nil,
-                      workspaceFilter: (WorkspaceModel) -> Bool = { _ in true }) -> [SidebarRowSection] {
+                      workspaceFilter: @escaping (WorkspaceModel) -> Bool = { _ in true }) -> [SidebarRowSection] {
             SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),
                                            rowSource: SidebarLaneStatus.applying(rows, lanes: lanes, turns: turns),
                                            workspaceFilter: workspaceFilter)
@@ -79,7 +79,7 @@ import Testing
         let fixture = try Fixture()
         try Self.withLaneStatus(true) {
             let model = SidebarModel(sections: [])
-            SidebarRows(model: model).show(fixture.sections())
+            SidebarRows(model: model, document: { nil }).show(fixture.sections())
             let shown = Self.activity(model.sections)
             #expect(shown["working"] == .working)
             #expect(shown["waiting"] == .waiting)
@@ -104,7 +104,7 @@ import Testing
             let pending = Pending()
             let feed = SidebarRowFeed(schedule: { pending.work.append($0) })
             let model = SidebarModel(sections: [])
-            let rows = SidebarRows(model: model)
+            let rows = SidebarRows(model: model, document: { nil })
             feed.onChange = { rows.patch($0) }
             feed.beginPass(inputs: 0)
             rows.show(feed.fill(fixture.sections(feed.rowSource)))

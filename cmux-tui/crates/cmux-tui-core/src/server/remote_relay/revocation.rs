@@ -76,7 +76,7 @@ impl Mux {
     pub fn enforce_remote_limits(self: &Arc<Self>) -> Result<Vec<String>, RelayStateError> {
         let collected = (|| {
             let revocation = lock_checked(&self.remote_relay().revocation, RelayLock::Revocation)?;
-            let peers = lock_checked(&self.remote_relay().peers, RelayLock::Peers)?;
+            let peers = self.remote_relay().peers_checked()?;
             let mut closing: Vec<String> = peers
                 .values()
                 .filter(|peer| revocation.policy(&peer.install) == StreamPolicy::Close)

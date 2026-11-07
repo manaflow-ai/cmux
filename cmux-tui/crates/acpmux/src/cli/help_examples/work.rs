@@ -1,5 +1,5 @@
 //! Help examples for the work groups: `task`, `process`, `worktree`, `briefs`, `bead`, `inbox`,
-//! `forum`, `chats`, `hand`, `router` (see `help_examples/mod.rs`).
+//! `forum`, `watch`, `chats`, `hand`, `router` (see `help_examples/mod.rs`).
 
 use super::Example;
 
@@ -117,6 +117,23 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Move only the command one Claude Code tool call started",
                 "acpmux process background coord --tool-call toolu_01HqX9mZ",
             ),
+        ],
+    ),
+    (
+        "group",
+        &[
+            ("List sidebar groups, duplicates marked", "acpmux group ls"),
+            ("Put a session in the Leads group", "acpmux group move coord Leads"),
+            ("Merge same-named groups", "acpmux group tidy --apply"),
+        ],
+    ),
+    ("group ls", &[("List sidebar groups as JSON", "acpmux group ls --json")]),
+    ("group move", &[("Put a session in the Leads group", "acpmux group move coord Leads")]),
+    (
+        "group tidy",
+        &[
+            ("See which groups a tidy would merge", "acpmux group tidy"),
+            ("Merge them", "acpmux group tidy --apply"),
         ],
     ),
     (
@@ -254,6 +271,34 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "forum ack",
         &[("From the agent session that read it, mark a rule read", "acpmux forum ack post-3f9a")],
+    ),
+    (
+        "watch",
+        &[
+            (
+                "From a coordinator session, be woken when a worker is done or blocked",
+                "acpmux watch add review-27310 fix-27311",
+            ),
+            ("List watches and the wakes they owe", "acpmux watch ls"),
+        ],
+    ),
+    (
+        "watch add",
+        &[
+            (
+                "Wake coord once when a worker on any host reports a blocker",
+                "acpmux watch add review-27310 my-linux/fix-27311 --to coord --match BLOCKER",
+            ),
+            (
+                "Wake coord only when a worker asks for permission or closes",
+                "acpmux watch add fix-27311 --to coord --until permission,closed",
+            ),
+        ],
+    ),
+    ("watch ls", &[("List watches and the wakes they still owe", "acpmux watch ls --json")]),
+    (
+        "watch rm",
+        &[("Remove a watch; wakes it already owes still arrive", "acpmux watch rm 019a3f9c")],
     ),
     (
         "chats",

@@ -24,6 +24,8 @@ const NEUTRAL_UPDATES: &[&str] = &[
     // A subagent's spawn and end belong to the subagent (`crate::subagents`).
     "subagent_spawned",
     "subagent_state_update",
+    // A predicted next prompt comes after the turn's answer (`claude_stdio/prompt_suggestions.rs`).
+    "prompt_suggestion",
 ];
 
 /// Codex (`codex-acp`) reports stream trouble as
@@ -56,6 +58,7 @@ impl Hub {
             }
         }
         let mut superseded = None;
+        let mut retrying = None;
         {
             let mut st = session.stream.lock().unwrap();
             match kind {
@@ -77,6 +80,7 @@ impl Hub {
                 "session_info_update" => {
                     if let Some((will_retry, err)) = codex_error(update) {
                         if will_retry {
+                            retrying = Some(super::turn_retry::codex_retry(&err));
                             if let Some(open) = st.open_message.clone() {
                                 let notice = err
                                     .get("message")
@@ -112,6 +116,10 @@ impl Hub {
                     st.trailing_overflow = false;
                 }
             }
+        }
+        // The model request failed and Codex tries again (`turn_retry.rs`).
+        if let Some(retry) = retrying {
+            self.turn_retrying(session, retry);
         }
         if let Some((old, new, notice)) = superseded {
             let turn_id = session.turn().map(|t| t.turn_id);

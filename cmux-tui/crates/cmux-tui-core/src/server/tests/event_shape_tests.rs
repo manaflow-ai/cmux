@@ -109,12 +109,16 @@ fn scroll_surface_emits_one_scroll_changed_event() {
             if id == surface.id && offset > 0
     ));
     assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
-    assert_eq!(
-        surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap(),
-        shared_scrollbar,
-        "a backend view scroll must not mutate the shared terminal runtime"
+    let scrolled = surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap();
+    assert!(
+        scrolled.scrolled_back() && scrolled.offset + 5 == shared_scrollbar.offset,
+        "scroll-surface moves the terminal viewport that render attaches show"
     );
-    assert_ne!(surface.view_scrollbar().unwrap(), view_scrollbar);
+    assert_eq!(
+        surface.view_scrollbar().unwrap().offset + 5,
+        view_scrollbar.offset,
+        "scroll-surface also moves the placement's in-process frontend view"
+    );
 
     handle_command(
         &mux,
@@ -145,6 +149,8 @@ fn list_agents_and_agent_changed_carry_the_hook_session_id() {
     .unwrap();
     mux.append_journal_ingress(&hook, "test", "hook-1").unwrap();
 
+    // The roster's owner folds the hook after the append answered.
+    assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
     let listed = cmd_frontend::list_agents(&mux, Some(surface.id), None).unwrap();
     let agents = listed["agents"].as_array().unwrap();
     assert_eq!(agents.len(), 1, "{listed}");

@@ -155,7 +155,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/SubsessionCallCard.tsx"],
   variants: {
     recorded: {
-      note: "Variant A (selected): a Claude-Code-style one-line disclosure with a working spinner, muted model and Open chat on hover. Expanding opens the full prompt as Markdown; Raw stays at the panel end.",
+      note: "Variant A (selected): a Claude-Code-style one-line disclosure with a working spinner and muted model; clicking the row opens its chat. Expanding opens the full prompt as Markdown; Raw stays at the panel end.",
       snapshot: withChildren(
         [
           user("Start a lane for the retry banner.", 3),
@@ -193,6 +193,54 @@ export default agentPaneEntry({
         { isWorking: true },
         [IOS_CHILD],
       ),
+    },
+    "result-reopened": {
+      note: "Expand a long result, close its card, then reopen it. The reader's Show more choice should still reveal the full report, including its final checkpoint.",
+      snapshot: withChildren([
+        user("Read the review report, then return to it.", 2),
+        activity(
+          [
+            viaCmux(
+              "wait_for_sessions",
+              { sessionIds: ["sub-review"] },
+              {
+                sessions: [
+                  {
+                    sessionId: "sub-review",
+                    shortName: "review",
+                    harness: "codex",
+                    state: "idle",
+                    lastReply: [
+                      "## Review report",
+                      "The network retry change is ready for review.",
+                      "- Verified reconnect after a dropped connection.",
+                      "- Verified the retry button stays available after a refusal.",
+                      "- Verified the message queue preserves its order.",
+                      "- Verified keyboard focus stays on the retry control.",
+                      "**Final checkpoint:** all four scenarios passed.",
+                    ].join("\n\n"),
+                  },
+                ],
+              },
+            ),
+          ],
+          1.8,
+        ),
+        assistant("The report is ready above.", 1.5),
+      ]),
+      play: async (ctx) => {
+        const toggle = ".cv-disclosure__toggle";
+        await ctx.click({ selector: toggle });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__cut button"));
+        await ctx.click({ selector: ".cv-subsession__cut button" });
+        await ctx.click({ selector: toggle });
+        await ctx.waitFor(() => !ctx.document.querySelector(".cv-subsession__cut"));
+        await ctx.click({ selector: toggle });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__cut"));
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".cv-subsession__cut button")?.getAttribute("aria-expanded") === "true",
+        );
+      },
     },
     "recorded-wait": {
       note: "A recorded wait_for_sessions through the cmux server: review done with its last reply as Markdown (cut to three lines, Show more), net-retries still working.",
@@ -235,7 +283,7 @@ export default agentPaneEntry({
       ),
     },
     started: {
-      note: "Variant B: five adjacent starts use the same one-line disclosure family, keeping Working, Waiting on you, Failed and Done visible without prompt text. A single start opens its chat on hover.",
+      note: "Variant B: five adjacent starts use the same one-line disclosure family, keeping Working, Waiting on you, Failed and Done visible without prompt text. Clicking a single start opens its chat.",
       snapshot: withChildren(
         [
           user(prompt, 6),
@@ -296,6 +344,26 @@ export default agentPaneEntry({
         ),
         assistant("Sent both.", 2.5),
         summary(2.5, { status: "completed" }),
+      ]),
+    },
+    "message-after-list": {
+      note: "A message to a sub-session whose chat has left the session list: the row names it from the call that started it (perf-audit), never its bare id; the id stays in the call's Raw.",
+      snapshot: withChildren([
+        user("Start a perf audit lane, then tell it to look at the transcript first.", 4),
+        activity([started("perf-audit", "sub-perf-audit-7f3a9c2e41d0")], 3.9),
+        assistant("Started perf-audit.", 3.85),
+        activity(
+          [
+            sent(
+              "sub-perf-audit-7f3a9c2e41d0",
+              "Start with the transcript's scroll.",
+              "Sent: it started a turn with it.",
+            ),
+          ],
+          3.5,
+        ),
+        assistant("Sent.", 3.4),
+        summary(3.4, { status: "completed" }),
       ]),
     },
     replies: {

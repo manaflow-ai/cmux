@@ -26,6 +26,13 @@ struct ChatNativeActions {
 @MainActor
 final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDelegate {
     private var layout: ChatNativeLayout?
+    /// The row's revision and disclosures this cell draws (set when configured): what its
+    /// measurements are of, as a SwiftUI row's (`ChatRowCell.shown`). Without it the layout kept
+    /// none of them, and a row laid out at its estimate went back to it on the next change above.
+    var shown: ChatRowAttributes.Shown?
+    /// The cell width its layout was made for (set when configured): a measurement at another
+    /// width (a rotation before the new layout lands) is laid out but not kept.
+    var layoutWidth: CGFloat = 0
     private var actions = ChatNativeActions()
     private var labels: [UILabel] = []
     /// The labels (by index) that show a markdown heading.
@@ -150,8 +157,10 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
                     return button
                 }()
                 button.frame = frame.offsetBy(dx: margin, dy: 0)
-                // Built when opened, not per configure.
-                button.menu = UIMenu(children: [UIDeferredMenuElement.uncached { completion in completion([more()]) }])
+                // Built when opened, not per configure. The deferred element takes the menu's
+                // own rows: handed the menu itself, it drew one untitled row that opened it
+                // as a submenu (the timestamp section and every action one tap further).
+                button.menu = UIMenu(children: [UIDeferredMenuElement.uncached { completion in completion(more().children) }])
                 button.isHidden = false
             }
             accessibilityElements = accessibilityTree(usedLabels: usedLabels, usedScrollers: usedScrollers)
@@ -196,9 +205,9 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     }
 
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
-        guard let layout, abs(layout.height - attributes.size.height) > 0.25,
-              let fitted = attributes.copy() as? UICollectionViewLayoutAttributes else { return attributes }
+        guard let layout, let fitted = attributes.copy() as? UICollectionViewLayoutAttributes else { return attributes }
         fitted.size.height = layout.height
+        if abs(layoutWidth - attributes.size.width) < 0.5 { (fitted as? ChatRowAttributes)?.shown = shown }
         return fitted
     }
 
@@ -206,6 +215,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         let label = UILabel()
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
+        label.lineBreakStrategy = ChatNativeLayout.labelLineBreakStrategy
         // Text is drawn on a background thread at commit, as the Feed's rows do.
         label.layer.drawsAsynchronously = true
         contentView.addSubview(label)
@@ -464,6 +474,7 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
         scroll.alwaysBounceVertical = false
         scroll.delegate = self
         body.numberOfLines = 0
+        body.lineBreakStrategy = ChatNativeLayout.labelLineBreakStrategy
         body.layer.drawsAsynchronously = true
         scroll.addSubview(body)
         fade.startPoint = CGPoint(x: 0, y: 0.5)
@@ -604,6 +615,7 @@ final class ChatTableView: UIScrollView, UIScrollViewDelegate {
             } else {
                 label = UILabel()
                 label.numberOfLines = 0
+                label.lineBreakStrategy = ChatNativeLayout.labelLineBreakStrategy
                 label.layer.drawsAsynchronously = true
                 addSubview(label)
                 labels.append(label)
@@ -670,6 +682,7 @@ final class ChatLineScroller: UIScrollView, UIScrollViewDelegate {
         alwaysBounceVertical = false
         delegate = self
         label.numberOfLines = 0
+        label.lineBreakStrategy = ChatNativeLayout.labelLineBreakStrategy
         label.layer.drawsAsynchronously = true
         addSubview(label)
         fade.startPoint = CGPoint(x: 0, y: 0.5)

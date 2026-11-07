@@ -87,11 +87,14 @@ extension AppActions {
                 return
             }
             let work = ActionWork {
-                guard let reason = await services.home.archiveChief(chief) else { return nil }
+                guard let reason = await services.home.directory.archiveChiefReason(chief) else { return nil }
                 return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
             registry.trackOrRefuse(work)
         })
+        // The primary Chief (texts to the cmux line reach it): Settings' Primary row and `cmux chief primary`.
+        // action-wait-allow: the account decides (the name may match no Chief); the flag lives only on the account's record
+        registry.bindEffect("home.setPrimaryChief", effect: { invocation in let chief = invocation["chief"]?.stringValue; return .waiting(.network) { await services.home.directory.setPrimaryChiefWork(chief) } })
         registry.bind("home.deleteChief", invoke: { invocation in
             guard let chief = invocation["chief"]?.stringValue, !chief.isEmpty else {
                 registry.refuse(HomeStrings.deleteFailed)

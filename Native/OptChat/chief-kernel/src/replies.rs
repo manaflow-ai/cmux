@@ -40,7 +40,7 @@ pub fn length_check(text: &str, limit: usize, refused_before: bool) -> Option<St
         format!(
             "send: refused, nothing was posted: the reply is {words} words and the limit is {limit}. \
 Cut it to the answer and its links: one line per task, no cause, steps or test details unless the user asked why. \
-Then send again; a second send this turn posts as is, for an answer the user asked to be long."
+Then send again; a second send this turn posts as is, for an answer the user asked to be long (or send it with `long: true` the first time)."
         )
     })
 }

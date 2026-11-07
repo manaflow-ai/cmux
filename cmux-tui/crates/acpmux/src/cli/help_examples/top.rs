@@ -19,6 +19,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "who-else",
+        &[
+            (
+                "List the sessions that read or edited these files, here and on peers",
+                "acpmux who-else src/lib.rs src/main.rs",
+            ),
+            ("Ask for the files this chat edited lately, as JSON", "acpmux --json who-else"),
+            (
+                "Look for sessions on a topic in the last 6 hours",
+                "acpmux who-else --topic \"crate split\" --since 6h",
+            ),
+        ],
+    ),
+    (
         "dispatch",
         &[
             (
@@ -61,6 +75,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Start an agent in its own worktree on a brief that reports to coord",
                 "acpmux new -n fix-27310 --worktree ~/Projects/cmux@origin/main \
                  --prompt-file ~/notes/brief.md --report-to coord -d",
+            ),
+            (
+                "Start a session from inside an agent that is not its child (no turn cards here)",
+                "acpmux new -n scratch --no-parent -d \"Look into the flaky test\"",
             ),
             (
                 "Run one prompt and print only the final reply",

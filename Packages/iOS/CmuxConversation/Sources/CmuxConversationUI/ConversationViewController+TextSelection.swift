@@ -11,19 +11,26 @@ import UIKit
 /// label supplies the system selection UI; the label keeps drawing the text
 /// (effects, mentions, links) underneath, so nothing visibly changes but the
 /// highlight and handles.
-final class BubbleTextSelectionView: UITextView, UITextViewDelegate {
+final class BubbleTextSelectionView: UITextView, UITextViewDelegate, @preconcurrency UIEditMenuInteractionDelegate {
     let rowID: String
+    let messageID: String
     /// The bubble's own text, for Copy (the overlay's copy is drawn clear).
     private let plainText: String
     var onEnd: (() -> Void)?
+    /// Reply with Selection, when the host takes it (`onReplyWithSelection`).
+    private let onReply: (@MainActor (ConversationSelectionReply) -> Void)?
     private var ended = false
-    /// UITextView keeps its own edit menu private; this one (no delegate)
-    /// gathers the same system actions from the responder chain: Copy,
-    /// Look Up, Translate, Share.
-    private let menuInteraction = UIEditMenuInteraction(delegate: nil)
+    /// UITextView keeps its own edit menu private; this one gathers the same
+    /// system actions from the responder chain: Copy, Look Up, Translate,
+    /// Share. Without Reply with Selection it has no delegate, so the menu
+    /// is the system's alone.
+    private lazy var menuInteraction = UIEditMenuInteraction(delegate: onReply == nil ? nil : self as any UIEditMenuInteractionDelegate)
 
-    init(rowID: String, text: NSAttributedString, tint: UIColor) {
+    init(rowID: String, messageID: String, text: NSAttributedString, tint: UIColor,
+         onReply: (@MainActor (ConversationSelectionReply) -> Void)? = nil) {
         self.rowID = rowID
+        self.messageID = messageID
+        self.onReply = onReply
         plainText = text.string
         super.init(frame: .zero, textContainer: nil)
         let clear = NSMutableAttributedString(attributedString: text)
@@ -71,6 +78,41 @@ final class BubbleTextSelectionView: UITextView, UITextViewDelegate {
         UIPasteboard.general.string = String(plainText[range])
     }
 
+    /// The selected words, as Reply with Selection hands them on; nil with
+    /// nothing but blank space selected.
+    var selectionReply: ConversationSelectionReply? {
+        ConversationSelectionReply(messageID: messageID, text: plainText, selectedRange: selectedRange)
+    }
+
+    /// Reply with Selection first, then the system's actions; none without
+    /// the host's hook or a selection worth quoting.
+    private func replyMenuElements() -> [UIMenuElement] {
+        guard onReply != nil, selectionReply != nil else { return [] }
+        let title = String(localized: "conversation.menu.replyWithSelection", defaultValue: "Reply with Selection", bundle: .module)
+        return [UIAction(title: title, image: UIImage(systemName: "arrowshape.turn.up.left")) { [weak self] _ in
+            self?.replyWithSelection()
+        }]
+    }
+
+    /// Hands the selection to the host (the menu item's action).
+    @discardableResult
+    func replyWithSelection() -> Bool {
+        guard let onReply, let reply = selectionReply else { return false }
+        onReply(reply)
+        return true
+    }
+
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
+                             suggestedActions: [UIMenuElement]) -> UIMenu? {
+        UIMenu(children: replyMenuElements() + suggestedActions)
+    }
+
+    /// The menu UIKit shows itself after the handles move.
+    func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+        let reply = replyMenuElements()
+        return reply.isEmpty ? nil : UIMenu(children: reply + suggestedActions)
+    }
+
     func textViewDidChangeSelection(_ textView: UITextView) {
         // Tapping the selection away (or any collapse) ends it, as in Messages.
         if selectedRange.length == 0 { end() }
@@ -105,8 +147,10 @@ extension ConversationViewController {
         composer.textView.resignFirstResponder()
         let selection = BubbleTextSelectionView(
             rowID: rowID,
+            messageID: model.message.id,
             text: text,
-            tint: model.isOutgoing ? .white : .systemBlue
+            tint: model.isOutgoing ? .white : .systemBlue,
+            onReply: replyWithSelectionHandler()
         )
         selection.frame = cell.textLabel.convert(cell.textLabel.bounds, to: collectionView)
         selection.onEnd = { [weak self, weak selection] in
@@ -117,6 +161,45 @@ extension ConversationViewController {
         collectionView.addSubview(selection)
         textSelection = selection
         selection.selectAllAndShowMenu()
+    }
+
+    /// The selection's Reply with Selection action: the selection ends, then
+    /// the host's hook runs. nil (no menu item) without the hook.
+    private func replyWithSelectionHandler() -> (@MainActor (ConversationSelectionReply) -> Void)? {
+        guard let handler = onReplyWithSelection else { return nil }
+        return { [weak self] reply in
+            self?.endTextSelection()
+            handler(reply)
+        }
+    }
+
+    /// Starts a reply to `messageID` in its thread, as the long-press menu's
+    /// Reply does; the keyboard rises. `prefix` (a quote of the selection,
+    /// from `onReplyWithSelection`) goes in at the start of the composer,
+    /// before anything already typed, through the field's own editing path
+    /// (the draft's formatting and mentions stay), and the caret lands after
+    /// it. Returns false when the message is not in the transcript, or while
+    /// a message is being edited.
+    @discardableResult
+    public func beginReply(toMessageID messageID: String, prefix: String? = nil) -> Bool {
+        // An open edit keeps its text; the reply waits until it is saved or cancelled.
+        guard editOverlay == nil, let message = store.message(id: messageID) else { return false }
+        endTextSelection()
+        if isSelecting { setSelecting(false) }
+        enterReplyMode(for: message)
+        if let prefix, !prefix.isEmpty {
+            let field = composer.textView
+            // The quote is plain text, whatever style the caret was in.
+            field.selectedRange = NSRange(location: 0, length: 0)
+            field.typingAttributes = field.baseTypingAttributes
+            if let start = field.textRange(from: field.beginningOfDocument, to: field.beginningOfDocument) {
+                field.replace(start, withText: prefix)
+            }
+            field.selectedRange = NSRange(location: (prefix as NSString).length, length: 0)
+            // The composer follows its field (send button, height, draft).
+            field.delegate?.textViewDidChange?(field)
+        }
+        return true
     }
 
     func endTextSelection() {

@@ -69,20 +69,40 @@ export function formatDuration(seconds: number): string | undefined {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
 }
 
-/// The host's answer per source, so a re-render or a second mention plays the same URL.
-const granted = new Map<string, string>();
+/// The URL the pane plays `source` (a path, a `file://` URL or a web link) by, as the host grants it
+/// (`media.load`): a `__media/` URL on the page's own origin that the host serves in byte
+/// ranges, so a file of any size streams and is never read whole. Nil when the host refuses it.
+/// A local path is asked on every mount, never cached across them: it names a different file in
+/// another chat (a remote one names its own machine's), and only the host knows which chat the pane
+/// shows now. The host hands the same file the same URL, so asking again costs one round trip. A web
+/// link names the same media in every chat, so its copy is kept (`webGranted`).
+export async function loadPlayableMedia(source: string): Promise<string | undefined> {
+  const web = webURL(source) !== undefined;
+  const known = web ? webGranted.get(source) : undefined;
+  if (known) return known;
+  const reply = await callChipHost("media.load", { src: source });
+  const url = (reply as { src?: unknown } | undefined)?.src;
+  // The gallery's fixture answers a data URL; the page's CSP plays only its own media URLs, on the
+  // pane's own host or the shared page host (`cmux-page://cmux.agent/__media/`).
+  if (typeof url !== "string" || !GRANTED_MEDIA.test(url)) return undefined;
+  if (web) webGranted.set(source, url);
+  return url;
+}
+
+/// A URL the host grants: a `__media/` path on one of the agent page's two origins, or the gallery's data URL.
+const GRANTED_MEDIA = /^(cmux-agent:\/\/pane\/__media\/|cmux-page:\/\/cmux\.agent\/__media\/|data:(video|audio)\/)/;
+
+/// The host's copy of each web link already fetched, so a remount plays it without Load again.
+const webGranted = new Map<string, string>();
 
 /// Asks the host for the URL `source` plays by: at once when `auto`, else on `load()`.
 function useMediaLoad(source: string, auto: boolean) {
-  const [src, setSrc] = useState(() => granted.get(source));
+  const [src, setSrc] = useState(() => (webURL(source) ? webGranted.get(source) : undefined));
   const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
   const load = useCallback(() => {
     setState("loading");
-    void callChipHost("media.load", { src: source }).then((reply) => {
-      const url = (reply as { src?: unknown } | undefined)?.src;
-      // The gallery's fixture answers a data URL; the pane's CSP plays only its own media URLs.
-      if (typeof url === "string" && /^(cmux-agent:\/\/pane\/__media\/|data:(video|audio)\/)/.test(url)) {
-        granted.set(source, url);
+    void loadPlayableMedia(source).then((url) => {
+      if (url) {
         setSrc(url);
         setState("idle");
       } else setState("failed");
@@ -92,7 +112,7 @@ function useMediaLoad(source: string, auto: boolean) {
     if (auto && !src && state === "idle") load();
   }, [auto, src, state, load]);
   const fail = useCallback(() => {
-    granted.delete(source);
+    webGranted.delete(source);
     setSrc(undefined);
     setState("failed");
   }, [source]);
@@ -115,19 +135,24 @@ export function ReplyMedia(props: { path: string; alt: string; fallback?: ReactN
 }
 
 function HostReplyMedia({ path, alt, fallback }: { path: string; alt: string; fallback?: ReactNode }) {
+  const t = useT();
   const kind = mediaKind(path) ?? "video";
   const { info, answered } = usePathInfo(path);
   const place = info?.place;
   const loadable = answered && !isDeniedPath(path) && place !== "denied" && place !== "outside" && place !== "missing";
   const [frame, setFrame] = useState<HTMLSpanElement | null>(null);
   const near = useNearViewport(frame);
-  const { src, state, fail } = useMediaLoad(path, near && loadable);
+  const { src, state, load, fail } = useMediaLoad(path, near && loadable);
   const name = alt || pathName(path);
   if (src) return <MediaPlayer src={src} source={path} kind={kind} name={name} path={path} onError={fail} />;
-  if (state === "failed" && fallback) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind}`}>
-      <span className="cv-media__name">{name}</span>
+      {state === "failed" && fallback ? fallback : <span className="cv-media__name">{name}</span>}
+      {state === "failed" && loadable && (
+        <button type="button" className="cv-image-placeholder__load" onClick={load}>
+          {kind === "audio" ? t("media.loadAudio") : t("media.loadVideo")}
+        </button>
+      )}
     </span>
   );
 }
@@ -148,18 +173,15 @@ function HostRemoteMedia({ url, alt, fallback }: { url: string; alt: string; fal
   const near = useNearViewport(frame);
   const { src, state, load, fail } = useMediaLoad(url, near && policy.remoteImages === "always");
   const name = alt || webURL(url)?.pathname.split("/").pop() || url;
+  if (policy.remoteImages === "never") return <>{fallback}</>;
   if (src) return <MediaPlayer src={src} source={url} kind={kind} name={name} onError={fail} />;
-  if (policy.remoteImages === "never" || (state === "failed" && fallback)) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind} is-remote`}>
       <span className="cv-media__host">{webURL(url)?.host}</span>
-      {state === "failed" ? (
-        <span className="cv-image-placeholder__note">{t("image.unavailable")}</span>
-      ) : (
-        <button type="button" className="cv-image-placeholder__load" disabled={state === "loading"} onClick={load}>
-          {kind === "audio" ? t("media.loadAudio") : t("media.loadVideo")}
-        </button>
-      )}
+      {state === "failed" && (fallback ?? <span className="cv-image-placeholder__note">{t("image.unavailable")}</span>)}
+      <button type="button" className="cv-image-placeholder__load" disabled={state === "loading"} onClick={load}>
+        {kind === "audio" ? t("media.loadAudio") : t("media.loadVideo")}
+      </button>
     </span>
   );
 }
@@ -170,6 +192,7 @@ export function MediaPlayer({
   kind,
   name,
   path,
+  autoPlay = false,
   onError,
 }: {
   src: string;
@@ -179,11 +202,12 @@ export function MediaPlayer({
   name: string;
   /// The file it plays: its right-click menu's Copy, Save As… and Reveal in Finder act on it.
   path?: string;
+  /// Plays at once with sound and controls, as a click on its Play would (an attachment's ▶ swapped it in).
+  autoPlay?: boolean;
   onError(): void;
 }) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
-  const close = useRef<HTMLButtonElement>(null);
   const media = useRef<HTMLSpanElement>(null);
   const inlineVideo = useRef<HTMLVideoElement | null>(null);
   const expandedVideo = useRef<HTMLVideoElement | null>(null);
@@ -235,6 +259,7 @@ export function MediaPlayer({
       <VideoThumbnail
         src={src}
         name={name}
+        autoPlay={autoPlay}
         onError={onError}
         videoRef={(element) => {
           inlineVideo.current = element;
@@ -272,55 +297,90 @@ export function MediaPlayer({
         </button>
       </span>
       {expanded && (
-        <Dialog
-          open
-          onOpenChange={(open) => {
-            if (!open) closeExpanded();
+        <VideoViewer
+          src={src}
+          name={name}
+          onError={onError}
+          onClose={closeExpanded}
+          videoRef={(element) => {
+            expandedVideo.current = element;
           }}
-          label={name || t("media.player")}
-          className="acpmux-image-viewer"
-          backdropClassName="acpmux-image-viewer-backdrop"
-          initialFocus={close}
-        >
-          <div className="acpmux-image-viewer-body">
-            <div className="acpmux-image-viewer-bar">
-              <span className="acpmux-image-viewer-title">{name}</span>
-              <button
-                type="button"
-                className="acpmux-image-viewer-action"
-                ref={close}
-                {...keyedIconProps(t("image.close"), "escape")}
-                onClick={closeExpanded}
-              >
-                <Close />
-              </button>
-            </div>
-            <div className="cv-media-stage">
-              {/* Opens paused, like the thumbnail: only Play starts it with sound (never autoplay). */}
-              <VideoThumbnail
-                src={src}
-                name={name}
-                onError={onError}
-                videoRef={(element) => {
-                  expandedVideo.current = element;
-                }}
-                onPlay={(element) => {
-                  expandedPlayed.current = true;
-                  inlineResume.current = undefined;
-                  const current = inlineVideo.current;
-                  if (!current || current === element) return undefined;
-                  const time = current.currentTime;
-                  // The expanded copy is the active player after an explicit Play. Keep the
-                  // inline copy's position, but stop it before the new copy gains sound.
-                  current.pause();
-                  return Number.isFinite(time) && time > 0 ? time : undefined;
-                }}
-              />
-            </div>
-          </div>
-        </Dialog>
+          onPlay={(element) => {
+            expandedPlayed.current = true;
+            inlineResume.current = undefined;
+            const current = inlineVideo.current;
+            if (!current || current === element) return undefined;
+            const time = current.currentTime;
+            // The expanded copy is the active player after an explicit Play. Keep the
+            // inline copy's position, but stop it before the new copy gains sound.
+            current.pause();
+            return Number.isFinite(time) && time > 0 ? time : undefined;
+          }}
+        />
       )}
     </span>
+  );
+}
+
+/// A video large over the pane (Expand, or an attachment's ▶ in the composer, whose tile is too small
+/// for a player's controls): its name, Close (Escape) and the player. It opens paused, like the
+/// thumbnail, unless `autoPlay` (the person's click on ▶ opened it to play).
+export function VideoViewer({
+  src,
+  name,
+  autoPlay = false,
+  onError,
+  onClose,
+  onPlay,
+  videoRef,
+}: {
+  src: string;
+  name: string;
+  autoPlay?: boolean;
+  onError(): void;
+  onClose(): void;
+  onPlay?(element: HTMLVideoElement): number | undefined;
+  videoRef?(element: HTMLVideoElement | null): void;
+}) {
+  const t = useT();
+  const close = useRef<HTMLButtonElement>(null);
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      label={name || t("media.player")}
+      className="acpmux-image-viewer"
+      backdropClassName="acpmux-image-viewer-backdrop"
+      initialFocus={close}
+    >
+      <div className="acpmux-image-viewer-body">
+        <div className="acpmux-image-viewer-bar">
+          <span className="acpmux-image-viewer-title">{name}</span>
+          <button
+            type="button"
+            className="acpmux-image-viewer-action"
+            ref={close}
+            {...keyedIconProps(t("image.close"), "escape")}
+            onClick={onClose}
+          >
+            <Close />
+          </button>
+        </div>
+        <div className="cv-media-stage">
+          {/* Never autoplay on its own: only Play (or the ▶ that opened it) starts it with sound. */}
+          <VideoThumbnail
+            src={src}
+            name={name}
+            autoPlay={autoPlay}
+            onError={onError}
+            videoRef={videoRef}
+            onPlay={onPlay}
+          />
+        </div>
+      </div>
+    </Dialog>
   );
 }
 
@@ -352,12 +412,15 @@ function useMediaPreviewAllowed(): boolean {
 export function VideoThumbnail({
   src,
   name,
+  autoPlay = false,
   onError,
   onPlay,
   videoRef,
 }: {
   src: string;
   name: string;
+  /// Starts playing on mount with sound and controls, as a click on its Play would.
+  autoPlay?: boolean;
   onError(): void;
   /** Called before explicit playback starts; return a position to continue from. */
   onPlay?(element: HTMLVideoElement): number | undefined;
@@ -412,8 +475,22 @@ export function VideoThumbnail({
     const handoffTime = onPlay?.(element);
     element.muted = false;
     element.currentTime = handoffTime ?? 0;
-    void element.play()?.catch(() => {});
+    void element.play()?.catch((error: unknown) => {
+      // A player that may not start with sound (the click's activation spent on the host's
+      // answer) starts muted; its controls unmute it.
+      if ((error as { name?: unknown } | undefined)?.name !== "NotAllowedError") return;
+      element.muted = true;
+      void element.play()?.catch(() => {});
+    });
   };
+  // Mount-only: the ▶ that swapped this player in was the click.
+  const autoPlayed = useRef(false);
+  useEffect(() => {
+    if (!autoPlay || autoPlayed.current) return;
+    autoPlayed.current = true;
+    play();
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- once, on mount: the ▶ that mounted it was the click
+  }, []);
   return (
     <span
       className={started ? "cv-media__frame is-playing" : "cv-media__frame"}
@@ -456,7 +533,7 @@ export function VideoThumbnail({
           }}
         >
           <span className="ui-glass cv-media__play" aria-hidden="true">
-            <PlayTriangle size={18} style={{ color: "inherit" }} />
+            <PlayTriangle size={20} style={{ color: "inherit" }} />
           </span>
           {duration && (
             <span className="cv-media__duration" aria-hidden="true">

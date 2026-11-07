@@ -22,6 +22,11 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     var favicon: NSImage? { get }
     /// Unanswered permission requests and JavaScript dialogs, oldest first.
     var pendingPrompts: [BrowserPrompt] { get }
+    /// What the page shows for the link under the pointer (Chrome's status
+    /// bubble text), observable; nil when the pointer is over no link. The
+    /// chrome draws it at the bottom left of this tab's page area. Engines
+    /// that report none keep the default, nil.
+    var linkStatus: String? { get }
 
     var delegate: (any BrowserTabDelegate)? { get set }
     var keyRouter: (any BrowserKeyRouting)? { get set }
@@ -47,6 +52,11 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// time a page leaves the screen. May trade fidelity for a cheaper
     /// capture than `snapshot()`; the default is `snapshot()`.
     func thumbnail() async throws -> CGImage
+
+    /// ``thumbnail()`` asked of the engine in the caller's turn, so a picture asked for just before the page
+    /// hides is of the shown page: Chromium cannot picture a hidden page, and refuses to. The default asks when
+    /// the request is awaited (WebKit pictures a hidden page).
+    func beginThumbnail() -> BrowserPictureRequest
 
     /// Evaluates a script and returns its completion value.
     /// - Parameters:
@@ -105,10 +115,16 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// The zoom per site this tab's chrome follows (its engine's ``BrowserSharedStores``). The
     /// default is nil: the chrome keeps the tab's own zoom.
     var siteZoomLevels: SiteZoomLevels? { get }
+
+    /// The shown page's own background, as the engine read it from the document (`pageBackdropARGB`): the ground its
+    /// pane shows when it closes (``BrowserChromeView`` as `PaneGroundReporting`). The default is nil: the chrome's.
+    var pageGround: CGColor? { get }
 }
 
 extension BrowserTab {
     public func thumbnail() async throws -> CGImage { try await snapshot() }
+
+    public func beginThumbnail() -> BrowserPictureRequest { BrowserPictureRequest { try await self.thumbnail() } }
 
     /// Engines without Chromium password autofill have nothing to withhold.
     /// The favicon at `url` as this tab fetches it: the app's cookieless fetch, unless the
@@ -120,6 +136,7 @@ extension BrowserTab {
     public func markAgentDriven() {}
     public var isAgentDriven: Bool { false }
     public var siteZoomLevels: SiteZoomLevels? { nil }
+    public var pageGround: CGColor? { nil }
     public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}
 
     public func zoomIn() { setZoom(BrowserZoom.zoomIn(from: state.zoom)) }

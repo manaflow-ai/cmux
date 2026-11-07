@@ -203,6 +203,9 @@ public final class UpdaterService {
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
+    /// The running download's speed and time left (``syncFlowPhase()`` records each byte count). Read
+    /// only when the card's phase changes, so it needs no observation of its own.
+    @ObservationIgnored var transferRate = UpdateTransferRate()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The card kind last written to the update harness's timeline.
     @ObservationIgnored var markedCardKind: String?
@@ -256,7 +259,8 @@ public final class UpdaterService {
     /// - Parameter enableSparkle: false builds no Sparkle driver even for a
     ///   release identity (tests, demos).
     /// - Parameter recordsUpdates: false neither writes nor reads the update
-    ///   record What's New shows after an update (tests, demos).
+    ///   record What's New shows after an update, nor the updater's log file
+    ///   (tests, demos).
     public init(identity: UpdateBuildIdentity = .main(),
                 policy: ManagedUpdatePolicy = .live(),
                 prober: UpdateProber = UpdateProber(),
@@ -285,8 +289,14 @@ public final class UpdaterService {
         self.lastUpdates = lastUpdates
         whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, currentBuild: identity.build, defaults: defaults,
                                   sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)
-        let log = UpdateLogBuffer()
+        // On disk too (``UpdateLogFile``): unified logging kept none of a nightly's updater lines.
+        let file = recordsUpdates ? identity.bundleIdentifier.flatMap { UpdateLogFile.app(bundleIdentifier: $0, work: work) } : nil
+        let log = UpdateLogBuffer(file: file)
         self.log = log
+        // Which build this launch runs, and whether an automatic install reopened it behind the
+        // person's app: with the lines before the quit, the file says what relaunched cmux.
+        log.append("launch \(identity.shortVersion) build \(identity.build) (\(identity.track)), pid \(ProcessInfo.processInfo.processIdentifier)"
+            + (CommandLine.arguments.contains(UpdateRelaunchFocus.reopenArgument) ? ", reopened behind by an automatic install" : ""))
         relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, log: { [log] in log.append($0) })
         releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
         // The managed policy is re-read by the driver on every start and check,

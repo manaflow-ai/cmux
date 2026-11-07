@@ -5,6 +5,7 @@ field. `model/list` answers in two pages; `thread/start` makes one thread and
 `turn/start` streams one message ("ok") and completes the turn.
 FAKE_CODEX=unauth refuses `model/list` as a signed-out Codex does;
 FAKE_CODEX=hang never answers; FAKE_DELAY waits before each answer.
+`account/rateLimits/read` answers a Pro plan's 5-hour and weekly windows and credits.
 
 Background terminals (unified exec): a prompt with "bg-codex" runs `npm run
 dev` (process 1001), whose item is still open when the turn completes, `ls`
@@ -12,6 +13,8 @@ dev` (process 1001), whose item is still open when the turn completes, `ls`
 completes while its process still runs. "bg-codex-exit" then ends 1003 with
 exit code 1. `thread/backgroundTerminals/terminate` stops a running one and
 completes its item. A prompt with "codex-die" exits the app-server.
+A prompt with "codex-limits" sends `account/rateLimits/updated` twice in its turn (a
+Pro plan's 5-hour and weekly windows and credits; then the weekly window moved).
 "bg-codex-sub" starts a subagent thread (fake-sub-1) whose `npm run watch`
 (2001) runs in the background. "bg-codex-gone": Codex forgets 1001, so its
 terminate answers `terminated: false`. "bg-codex-interrupt" leaves `sleep 60`
@@ -156,9 +159,33 @@ for line in sys.stdin:
         reply({"method": "turn/started", "params": {"threadId": thread, "turn": {"id": turn, "status": "inProgress", "items": []}}})
         if "bg-codex" in text:
             background_turn(thread, turn, os.getcwd(), text)
+        if "codex-limits" in text:
+            limits = {
+                "limitId": "codex",
+                "primary": {"usedPercent": 22, "windowDurationMins": 300, "resetsAt": 1790000000},
+                "secondary": {"usedPercent": 41, "windowDurationMins": 10080, "resetsAt": 1790500000},
+                "credits": {"hasCredits": True, "unlimited": False, "balance": "56766"},
+                "planType": "pro",
+            }
+            reply({"method": "account/rateLimits/updated", "params": {"rateLimits": limits}})
+            moved = dict(limits, secondary={"usedPercent": 90, "windowDurationMins": 10080, "resetsAt": 1790500000})
+            reply({"method": "account/rateLimits/updated", "params": {"rateLimits": moved}})
         reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m1", "delta": "ok"}})
         status = "interrupted" if "bg-codex-interrupt" in text else "completed"
         reply({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": status, "items": []}}})
+    elif method == "account/rateLimits/read":
+        # At rest (`_acpmux/account/usage`); FAKE_CODEX_HOME_SEEN=<path> gets the CODEX_HOME it ran in.
+        if os.environ.get("FAKE_CODEX_HOME_SEEN"):
+            with open(os.environ["FAKE_CODEX_HOME_SEEN"], "w") as f:
+                f.write(os.environ.get("CODEX_HOME", "") + "\n")
+        limits = {
+            "limitId": "codex",
+            "primary": {"usedPercent": 22, "windowDurationMins": 300, "resetsAt": 1790000000},
+            "secondary": {"usedPercent": 41, "windowDurationMins": 10080, "resetsAt": 1790500000},
+            "credits": {"hasCredits": True, "unlimited": False, "balance": "56766"},
+            "planType": "pro",
+        }
+        reply({"id": rid, "result": {"rateLimits": limits, "rateLimitsByLimitId": None}})
     elif method == "thread/backgroundTerminals/terminate":
         params = message.get("params", {})
         found = running.pop(params.get("processId"), None)

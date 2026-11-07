@@ -31,8 +31,8 @@ enum WorkspaceVerbHandlers {
         registry.bind("workspace.newInNewGroup", run: { invocation in
             let name = invocation["name"]?.stringValue ?? ""
             let byUser = invocation.origin == .user
-            // The group forms in one write at `workspaces.newPlacement` (first under `top`, the default; last
-            // under `bottom`), not at the row's daemon slot first (no slide, cx-f6i7); no reorder races it.
+            // The group forms in one write at `workspaces.newPlacement` (last only under `bottom`, else
+            // first), not at the row's daemon slot first (no slide, cx-f6i7); no reorder races it.
             let index = NewWorkspacePlacements.newGroupIndex(context.services)
             try create(context, invocation, anchorFree: nil) { id, bridge in
                 guard let bridge = bridge as? SidebarBridge else { return }
@@ -64,7 +64,7 @@ enum WorkspaceVerbHandlers {
                 let workspace = try context.workspace(invocation).model, ref = invocation["anchor"]?.targetValue
                 guard let anchor = ref.flatMap({ context.services.workspace(id: $0.id) }) else { throw ActionFailure.notFound(RefusalStrings.noWorkspace(ref?.id ?? "")) }
                 let bridge = try sidebar(showing: anchor, context)
-                switch WorkspaceSlot.beside(anchor.id, below: below, moving: workspace.id, in: bridge.model.sections, onDocument: SidebarDocWiring.isActive) {
+                switch WorkspaceSlot.beside(anchor.id, below: below, moving: workspace.id, in: bridge.model.sections, onDocument: context.services.sidebarDoc.isActive) {
                 case .success(let position): bridge.handle(.reorder([SidebarWorkspaceID(workspace.id)], to: position)); return .done
                 case .failure(.needsDocument): throw ActionFailure.invalidTarget(context.services.sidebarLayout.unavailableReason ?? RefusalStrings.workspaceNotInSidebar)
                 case .failure(.elsewhere): throw ActionFailure.invalidTarget(WorkspaceVerbStrings.anchorElsewhere)
@@ -120,12 +120,19 @@ enum WorkspaceVerbHandlers {
                   fromCurrent: fromCurrent, then: then)
     }
 
+    /// The window a new workspace next to `anchor` opens in: the anchor's window, else the active one. A Home anchor
+    /// is no window's place of its own: a Chief turn names the store's Home (in whichever window holds it) as its
+    /// caller workspace, and a workspace the person started from another window went there (cmux#37366). It goes to
+    /// the window the person acts in.
+    static func window(for anchor: WorkspaceModel?, _ context: AppActionContext) -> String? {
+        anchor.flatMap { $0.isAnyHome ? nil : context.services.windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
+    }
+
     private static func spawn(_ context: AppActionContext, anchor: WorkspaceModel?, cwd: String?, slot: WorkspaceSlot?,
                               newTabPage: Bool, firstChat: AgentPaneSeed? = nil, fromCurrent: Bool = true,
                               then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
         let windows = context.services.windows
-        let window = anchor.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
-        let target = windows.targetWindow(preferring: window)
+        let target = windows.targetWindow(preferring: window(for: anchor, context))
         var spawn = WorkspaceSpawn(cwd: cwd)
         spawn.slot = slot
         spawn.onListed = then
@@ -218,7 +225,7 @@ enum WorkspaceVerbHandlers {
     static func place(_ ids: [String], anchor workspace: WorkspaceModel, _ slot: WorkspaceSlot, in bridge: SidebarBridge,
                       services: AppServices) -> Bool {
         guard services.machines.daemon(forWorkspace: workspace.id) != nil,
-              let (moving, position) = slot.reorder(ids, anchor: workspace.id, in: bridge.model.sections, onDocument: SidebarDocWiring.isActive)
+              let (moving, position) = slot.reorder(ids, anchor: workspace.id, in: bridge.model.sections, onDocument: services.sidebarDoc.isActive)
         else { return false }
         bridge.handle(.reorder(moving, to: position))
         return true

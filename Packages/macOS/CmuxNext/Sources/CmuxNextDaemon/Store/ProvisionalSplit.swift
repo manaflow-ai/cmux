@@ -30,7 +30,7 @@ import Foundation
     /// reservation (`pane_id_exists` refuses one in use); every other pane it makes gets a fresh
     /// id, and a restart's panes come back in a new connection's snapshot, not as events.
     static func paneGone(_ intent: PendingIntent, in store: DaemonStore) -> Bool {
-        guard intent.daemonPaneSeen, case .splitPane(_, _, _, let provisional) = intent.kind else { return false }
+        guard intent.daemonPaneSeen, let provisional = intent.kind.provisionalPane else { return false }
         return daemonPane(provisional, in: store) == nil
     }
 
@@ -40,7 +40,7 @@ import Foundation
     static func noteDaemonPanes(in store: DaemonStore) {
         guard !store.intentLog.isEmpty else { return }
         for entry in store.intentLog.entries {
-            guard case .splitPane(_, _, _, let provisional) = entry.kind, daemonPane(provisional, in: store) != nil else { continue }
+            guard let provisional = entry.kind.provisionalPane, daemonPane(provisional, in: store) != nil else { continue }
             store.intentLog.noteDaemonPane(provisional.paneID)
         }
     }
@@ -51,13 +51,23 @@ import Foundation
     /// (``paneGone(_:in:)``) settles at once: waiting for a snapshot left it applying, and its
     /// provisional pane came back. A cancelled creation stays while the records hold what it
     /// made (``CancelledCreation``).
-    static func awaitsRecords(_ intent: PendingIntent, in store: DaemonStore) -> Bool {
+    static func awaitsRecords(_ intent: PendingIntent, snapshot: Bool = false, in store: DaemonStore) -> Bool {
         if intent.closeWhenCreated { return CancelledCreation.daemonHolds(intent, in: store) }
+        if intent.standInClosed {
+            // A closed stand-in's fresh tab stays hidden until its close commits (``CancelledCreation/closeStandIn(_:in:)``).
+            if CancelledCreation.freshTabHeld(intent, in: store) { return true }
+            // Not seen yet (its close never went out): the daemon's dock pane and layout can come before the fresh
+            // tab, so it is waited for, up to a snapshot, which holds everything the daemon made.
+            if intent.closeAttempts == 0, !snapshot { return true }
+        }
         switch intent.kind {
-        case .splitPane(_, _, _, let provisional):
+        case .splitPane(_, _, _, let provisional), .dockTab(_, _, let provisional, _, _):
             return !daemonPlaces(provisional, in: store) && !paneGone(intent, in: store)
         case .closeTabs(let surfaces):
             return TabCloseOverlay(store: store).daemonHolds(surfaces)
+        case .closeStandInPane:
+            // Stays until the records drop the daemon's pane (its close committed).
+            return CancelledCreation.closingPane(intent.kind, in: store).map { $0.handle.rawValue < ProvisionalPane.firstHandle } ?? false
         case .createWorkspace(let provisional, _):
             // Cmd-N's workspace settles only once the daemon's workspace holds a tab: before
             // that, undoing the overlay would show the window an empty workspace for a turn.
@@ -94,7 +104,8 @@ import Foundation
         guard handle.rawValue >= ProvisionalPane.firstHandle else { return nil }
         for entry in store.intentLog.entries {
             switch entry.kind {
-            case .splitPane(_, _, _, let provisional) where provisional.handle == handle: return .pane(provisional.paneID)
+            case .splitPane(_, _, _, let provisional) where provisional.handle == handle,
+                 .dockTab(_, _, let provisional, _, _) where provisional.handle == handle: return .pane(provisional.paneID)
             case .createWorkspace(let provisional, _) where provisional.pane == handle: return .workspace(provisional.key)
             default: continue
             }
@@ -107,7 +118,8 @@ import Foundation
         store.intentLog.entries.contains { entry in
             guard !entry.closeWhenCreated else { return false }
             switch (entry.kind, origin) {
-            case (.splitPane(_, _, _, let provisional), .pane(let paneID)): return provisional.paneID == paneID
+            case (.splitPane(_, _, _, let provisional), .pane(let paneID)), (.dockTab(_, _, let provisional, _, _), .pane(let paneID)):
+                return provisional.paneID == paneID
             case (.createWorkspace(let provisional, _), .workspace(let key)): return provisional.key == key
             default: return false
             }
@@ -266,7 +278,7 @@ import Foundation
     private static func model(of provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel {
         if let model = store.provisionalPanes[provisional.paneID] { return model }
         let tab = provisional.tab ?? TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.tabID),
-                                                 terminalID: TerminalID(rawValue: provisional.terminalID))
+                                                 terminalID: TerminalID(rawValue: provisional.terminalID), kind: .pty, cwd: provisional.cwd)
         let model = PaneModel(PaneSnapshot(id: provisional.handle, resourceID: ResourceID(rawValue: provisional.paneID),
                                            tabs: [tab]))
         store.provisionalPanes[provisional.paneID] = model

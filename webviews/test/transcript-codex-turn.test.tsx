@@ -63,19 +63,22 @@ test("a finished run that is one group folds to its closed line", () => {
   expect(listed).toContain('aria-expanded="true"');
 });
 
-test("a command reads as its description, the raw line only in its Shell block", () => {
+test("a command reads as its command without the setup, never its description", () => {
   const html = renderToStaticMarkup(
     <CommandRow item={shell("x", { command: 'export PATH="/a:$PATH"; bun test', description: "Run the web tests" })} />,
   );
-  expect(words(html)).toContain("Run the web tests");
+  // Codex parity: the command, as Codex draws it.
+  expect(words(html)).toContain("Ran bun test");
+  expect(words(html)).not.toContain("Run the web tests");
   expect(html).not.toContain("export PATH");
   const plain = renderToStaticMarkup(<CommandRow item={shell("y")} />);
   expect(words(plain)).toContain("Ran echo y");
 });
 
-test("a lone shell call reads as its description, and never as the bare tool name", () => {
+test("a lone shell call reads as its command, never its description or the bare tool name", () => {
   const described = renderToStaticMarkup(<ToolRow item={shell("x", { description: "List the build folder" })} />);
-  expect(words(described)).toContain("List the build folder");
+  expect(words(described)).toContain("Ran echo x");
+  expect(words(described)).not.toContain("List the build folder");
   const bare = renderToStaticMarkup(<ToolRow item={shell("y", { command: undefined })} />);
   expect(words(bare)).toContain("Ran a command");
   expect(words(bare)).not.toMatch(/\bBash\b/);
@@ -118,8 +121,9 @@ test("the check and time show only on hover or focus; the failure mark always", 
 });
 
 // Leo (2026-10-21): "let's only show the green/red checkmark + time on hover for ours". A failed
-// call that is not a shell still says so in red at rest; a running one keeps its spinner.
-test("a failed tool call keeps its red mark at rest; a running one its spinner", () => {
+// call that is not a shell still says so in red at rest. A running one shows no spinner (Leo,
+// 2026-10-31: "I FUCKING HATE THESE SPINNERS FOR TOOL CALLS AND SHIT").
+test("a failed tool call keeps its red mark at rest; a running one no spinner", () => {
   const failed = renderToStaticMarkup(
     <ToolRow item={shell("bad", { command: undefined, title: "Fetch docs", kind: "fetch", status: "failed" })} />,
   );
@@ -128,7 +132,7 @@ test("a failed tool call keeps its red mark at rest; a running one its spinner",
   const running = renderToStaticMarkup(
     <CommandRow item={shell("live", { status: "in_progress", endedAt: undefined })} />,
   );
-  expect(running).toContain("cv-spinner");
+  expect(running).not.toContain("cv-spinner");
   expect(running).not.toContain("cv-command__ok");
   expect(running).not.toContain("cv-command__time");
 });

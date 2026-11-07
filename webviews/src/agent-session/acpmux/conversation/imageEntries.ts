@@ -327,10 +327,12 @@ export function clearImageEntries(): void {
 
 // --- Image headers -----------------------------------------------------------------------------
 
-/// The pixel size a base64 data URL's image header declares (PNG, GIF, WebP, JPEG with its EXIF
-/// orientation), or undefined for any other source or a header it cannot read.
+/// The pixel size a data URL's image header declares (PNG, GIF, WebP, JPEG with its EXIF orientation,
+/// base64; SVG's root size, base64 or percent-encoded), or undefined for any other source or a header
+/// it cannot read.
 export function dataUrlImageSize(src: string): ImageSize | undefined {
   const comma = src.indexOf(",");
+  if (src.startsWith("data:image/svg+xml") && comma > 0) return svgSize(src.slice(0, comma), src.slice(comma + 1));
   if (!src.startsWith("data:image/") || comma < 0 || !/;base64$/i.test(src.slice(0, comma))) return undefined;
   const body = src.slice(comma + 1);
   const bytes = (length: number) => {
@@ -394,6 +396,32 @@ export function dataUrlImageSize(src: string): ImageSize | undefined {
       at += 2 + length;
     }
   }
+  return undefined;
+}
+
+/// An SVG's drawn size: its root's `width` and `height` in pixels, else its `viewBox`'s, from the
+/// first 4 KB of its text.
+function svgSize(meta: string, body: string): ImageSize | undefined {
+  let text: string;
+  try {
+    text = /;base64$/i.test(meta)
+      ? atob(body.slice(0, 5464))
+      : decodeURIComponent(body.slice(0, 4096).replace(/%[0-9a-f]?$/i, ""));
+  } catch {
+    return undefined;
+  }
+  const root = /<svg\b[^>]*>/i.exec(text)?.[0];
+  if (!root) return undefined;
+  const attribute = (name: string) => new RegExp(`\\s${name}\\s*=\\s*["']([^"']*)["']`, "i").exec(root)?.[1]?.trim();
+  const pixels = (value: string | undefined) =>
+    value && /^\d+(\.\d+)?(px)?$/.test(value) ? Number.parseFloat(value) : undefined;
+  const width = pixels(attribute("width"));
+  const height = pixels(attribute("height"));
+  if (width && height) return { width, height };
+  const box = attribute("viewBox")
+    ?.split(/[\s,]+/)
+    .map(Number);
+  if (box?.length === 4 && box[2]! > 0 && box[3]! > 0) return { width: box[2]!, height: box[3]! };
   return undefined;
 }
 

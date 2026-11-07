@@ -62,6 +62,11 @@ pub struct LinkTokenGrant {
     pub host: String,
     pub epoch: u64,
     pub services: Vec<Service>,
+    /// The caller's fresh Cloud VM role (`owner` or `team`), when the
+    /// backend supplies it. Keep it attached to this one-use grant; never
+    /// infer a role from cached connect_info.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_kind: Option<String>,
 }
 
 impl std::fmt::Debug for LinkTokenGrant {
@@ -119,6 +124,9 @@ pub struct ConnectInfo {
     #[serde(default)]
     pub gateway: Option<Gateway>,
     pub services: Vec<Service>,
+    /// The caller's role on this machine, when returned by the Worker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_kind: Option<String>,
     #[serde(deserialize_with = "revision")]
     pub revision: u64,
 }
@@ -182,6 +190,18 @@ impl ConnectInfoError {
             "cloud.machine.not_bound" => Self::NotBound,
             "auth.forbidden" => Self::Forbidden,
             _ => Self::Unavailable(format!("{code}: {message}")),
+        }
+    }
+
+    /// What failed, for the dial's `error_detail`: the backend's code (or
+    /// the link's own text), never a credential.
+    pub fn detail(&self) -> String {
+        match self {
+            Self::NotFound => "cloud.machine.not_found".into(),
+            Self::NotBound => "cloud.machine.not_bound: the machine is not bound yet".into(),
+            Self::Forbidden => "auth.forbidden".into(),
+            Self::Unavailable(why) => why.clone(),
+            Self::Invalid(why) => format!("the connect_info record is invalid: {why:?}"),
         }
     }
 

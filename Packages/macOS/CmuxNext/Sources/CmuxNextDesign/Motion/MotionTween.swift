@@ -13,7 +13,8 @@ public import CmuxNextDesignTokens
 public nonisolated enum MotionTween: UInt8, Sendable, CaseIterable {
     /// A new tab opening at its slot, its neighbours and the + making room (`ui.animations.newTab`).
     case tabOpen = 0
-    /// A closing tab shrinking with its left edge pinned, the others closing the gap (`ui.animations.newTab`).
+    /// A closing tab shrinking with its left edge pinned, the others closing the gap (close case A, cmux-ad m49; no
+    /// kind switch: the `tabs` category, speed and Reduce Motion gate it); also the tabs widening back when Chrome's closing mode ends (the pointer left the strip).
     case tabClose = 1
     /// A reorder, a crowding change, a dragged tab settling on release. A gesture: no kind switch.
     case tabMove = 2
@@ -45,7 +46,7 @@ nonisolated extension MotionPolicy {
     }
 
     /// Seconds of `token`; 0 applies at once: speed off, Reduce Motion (Chrome's strip is 0 ms
-    /// under it), a live resize, or tabOpen/tabClose with `ui.animations.newTab` off.
+    /// under it), a live resize, or tabOpen with `ui.animations.newTab` off.
     public func duration(_ token: MotionTween) -> TimeInterval {
         cmux_motion_tween_seconds(token.rawValue, ffi)
     }

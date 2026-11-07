@@ -24,7 +24,7 @@ import {
 } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
-import { Close, FileDoc, ImageIcon, Retry, Spinner } from "../conversation/icons";
+import { Close, FileDoc, ImageIcon, PlayTriangle, Retry } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
@@ -33,15 +33,18 @@ import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { pastesPlaced } from "./composerCopy";
 import { attachSources } from "./attachmentSources";
+import { SourceBadge, useSourceLabel, withSourceLabel } from "./SourceBadge";
 import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
-import { callChipHost } from "../chips/host";
-import { isVideoAttachment, useVideoInfo, useVideoReading } from "./videoAttachments";
-import { VideoAttachmentTile } from "./VideoAttachmentTile";
+import { isVideoAttachment, isVideoName, useVideoInfo, useVideoReading } from "./videoAttachments";
+import { useAttachedVideoPlayer, VideoAttachmentTile } from "./VideoAttachmentTile";
 import { FileAttachment } from "../FileAttachment";
-import { TextAttachmentCard } from "./TextAttachmentCard";
+import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
+import { RemoveGlyph } from "./RemoveGlyph";
+import { PasteLoadingMark } from "./pasteLoading";
+import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 
 const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -71,7 +74,8 @@ function intakeErrorText(error: IntakeError, t: Translate): string {
 }
 
 export type AttachmentIntakeOptions = {
-  place?(chips: readonly PendingAttachment[]): void;
+  /// `kind`: how they came (a paste takes the selection's place; a drop or a pick replaces nothing).
+  place?(chips: readonly PendingAttachment[], kind?: DroppedKind): void;
   /// The agent takes images (`promptCapabilities.image`); false refuses an image with a note.
   allowImages: boolean;
   /// Whether a paste on `target` is this composer's: undefined is not; `uploads` false keeps its
@@ -145,6 +149,9 @@ export type PendingAttachment = {
   id: string;
   name: string;
   image: boolean;
+  /// A movie (videoAttachments.ts isVideoName): its tile is the square the video's poster will
+  /// fill, loading or failed, never a long strip with its name.
+  video?: boolean;
   scope?: string;
   failed?: string;
   /// Streaming to the session's machine (a file of any size). A send waits for it, as for every
@@ -214,6 +221,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [pending, setPending] = useState<PendingAttachment[]>([]);
+  const pendingRef = useRef<PendingAttachment[]>([]);
+  pendingRef.current = pending;
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   /// The drop overlay's state (composer/DropOverlay.tsx). Kept in a ref too: a refused drag's
@@ -316,6 +325,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       id: again ?? crypto.randomUUID(),
       name: file.name,
       image: isImageFile(file),
+      ...(isVideoName(file.name) ? { video: true } : {}),
       scope: batch.scope,
     }));
     // This read's own source for each chip: a chip cancelled and brought back (undo, `revive`) or
@@ -344,7 +354,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       );
     else {
       setPending((chips) => [...chips, ...shown]);
-      current.place?.(shown);
+      current.place?.(shown, dropped);
     }
     const paths = current.localPaths;
     /// The chip each file became, by index, for its original's path arriving later.
@@ -450,7 +460,20 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         const stop = retryUploadLater(
           tries,
           () => {
-            if (still()) retryRef.current(id);
+            if (!still()) return;
+            // A delayed retry must use the chat that owns these bytes. The user may have
+            // switched chats since this failure (including via the key/click that queued
+            // this callback). Retrying through live.options would upload this old File to
+            // the *new* chat's machine. Keep the old scoped chip with a manual Retry.
+            // `batch` is removed when its first intake settles, but a carried chip can still
+            // change scope afterward. Read the chip's current scope so an intentional carry
+            // retries through its destination chat while a plain switch still fails closed.
+            const chip = pendingRef.current.find((candidate) => candidate.id === id);
+            if (!chip || chip.scope !== live.current.options.scope) {
+              giveUp();
+              return;
+            }
+            retryRef.current(id);
           },
           giveUp,
         );
@@ -790,28 +813,39 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
 /// `unsettled` (default `pending`) is what a held send waits for once it holds. The composer counts
 /// files streaming to the session's machine and failed uploads in both, so a send waits for every
 /// file the person added (or its x lets it go without it). While one waits, a later send replaces it.
-export function useSendWhenAttached(
+///
+/// `bind`: binds the person's key press or click to the send the moment it is held, and the held
+/// send gets that gesture (`send(gesture)`). The host keeps one grant per key press or click, and
+/// a pasted file's upload begins only after the host answered where the paste's files are, so its
+/// `chat.upload.begin` spent the Enter that a send bound only once the chip was ready (Leo,
+/// 2026-11-06, "Not sent: it needs your own key press or click."). `hold(send, kept)`: a send that
+/// already has its gesture (one an earlier hold bound) keeps it and binds none. A later hold keeps
+/// the gesture the held one bound: one send, one gesture.
+export function useSendWhenAttached<G = unknown>(
   pending: number,
   scope?: string,
   unsettled: number = pending,
-): ((send: () => void) => boolean) & { cancel(): void } {
-  const held = useRef<(() => void) | undefined>(undefined);
+  bind?: () => G | undefined,
+): ((send: (gesture?: G) => void, kept?: G) => boolean) & { cancel(): void } {
+  const held = useRef<{ send: (gesture?: G) => void; gesture: G | undefined } | undefined>(undefined);
   const count = useRef(pending);
   count.current = pending;
+  const binder = useRef(bind);
+  binder.current = bind;
   useEffect(() => {
     held.current = undefined;
   }, [scope]);
   useEffect(() => {
-    const send = held.current;
-    if (unsettled > 0 || !send) return;
+    const waiting = held.current;
+    if (unsettled > 0 || !waiting) return;
     held.current = undefined;
-    send();
+    waiting.send(waiting.gesture);
   }, [unsettled]);
   const [hold] = useState(() =>
     Object.assign(
-      (send: () => void) => {
+      (send: (gesture?: G) => void, kept?: G) => {
         if (count.current === 0 && !held.current) return false;
-        held.current = send;
+        held.current = { send, gesture: kept ?? held.current?.gesture ?? binder.current?.() };
         return true;
       },
       {
@@ -826,16 +860,18 @@ export function useSendWhenAttached(
 
 /// A send too large for one acpmux message waits for the originals of its images still uploading
 /// (`uploading` of them), then goes once, with them as links (promptBudget.ts `awaitsOriginals`).
-/// `hold(awaits, send)`: when `awaits`, holds `send` (true; a later hold replaces it); otherwise the
-/// send goes now (false) and any held one is dropped, so it never goes later on its own with
-/// whatever draft the composer has then. A new `scope` drops it too.
-export function useSendWhenOriginals(
+/// `hold(awaits, send, kept)`: when `awaits`, holds `send` (true; a later hold replaces it);
+/// otherwise the send goes now (false) and any held one is dropped, so it never goes later on its
+/// own with whatever draft the composer has then. A new `scope` drops it too. `bind` and `kept`: the
+/// held send's gesture, as useSendWhenAttached binds it.
+export function useSendWhenOriginals<G = unknown>(
   uploading: number,
   scope?: string,
-): (awaits: boolean, send: () => void) => boolean {
-  const wait = useSendWhenAttached(uploading, scope);
-  const [hold] = useState(() => (awaits: boolean, send: () => void) => {
-    if (awaits && wait(send)) return true;
+  bind?: () => G | undefined,
+): (awaits: boolean, send: (gesture?: G) => void, kept?: G) => boolean {
+  const wait = useSendWhenAttached<G>(uploading, scope, uploading, bind);
+  const [hold] = useState(() => (awaits: boolean, send: (gesture?: G) => void, kept?: G) => {
+    if (awaits && wait(send, kept)) return true;
     wait.cancel();
     return false;
   });
@@ -1009,6 +1045,7 @@ function PendingChip({
   onRetry?(id: string): void;
 }) {
   const t = useT();
+  const look = usePasteLoadingLook();
   const name = chip.image ? imageLabel(t, { name: chip.name }) : chip.name;
   const remove = onCancel && (
     <button
@@ -1017,12 +1054,14 @@ function PendingChip({
       aria-label={t(chip.failed ? ATTACHMENT_LABELS.removeAttachment : ATTACHMENT_LABELS.cancelAttachment, { name })}
       onClick={() => onCancel(chip.id)}
     >
-      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
-        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      </svg>
+      <RemoveGlyph />
     </button>
   );
-  const kind = chip.image ? "acpmux-attachment-image" : "acpmux-attachment-file";
+  // A video (a screen recording) is the square its poster will fill, like an image's tile; only
+  // another file shows its name (Leo, 2026-10-26: "not for screen recordings. ... We know it's a
+  // video. ... Just do the square.").
+  const square = chip.image || chip.video;
+  const kind = square ? "acpmux-attachment-image" : "acpmux-attachment-file";
   // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name),
   // one small retry button, and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
   // (big attachments?) still sucks", over a strip of empty tiles with only an underlined Retry).
@@ -1035,6 +1074,8 @@ function PendingChip({
       >
         {chip.image ? (
           <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
+        ) : chip.video ? (
+          <PlayTriangle size={16} className="acpmux-attachment-failed-icon" />
         ) : (
           <>
             <FileDoc size={14} className="acpmux-attachment-failed-icon" />
@@ -1046,13 +1087,19 @@ function PendingChip({
       </div>
     );
   return (
-    <div className={`acpmux-attachment ${kind} acpmux-attachment-pending`} aria-busy="true" aria-label={name}>
-      {chip.progress === undefined ? (
-        <Spinner loading size={16} className="acpmux-attachment-spinner" />
-      ) : (
-        <UploadProgress value={chip.progress} name={name} />
-      )}
-      {!chip.image && <span>{chip.name}</span>}
+    <div
+      className={`acpmux-attachment ${kind} acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}
+      data-paste-look={look}
+      aria-busy="true"
+      aria-label={name}
+    >
+      <PasteLoadingMark
+        look={look}
+        size={16}
+        className="acpmux-attachment-spinner"
+        upload={chip.progress === undefined ? undefined : <UploadProgress value={chip.progress} name={name} />}
+      />
+      {!square && <span>{chip.name}</span>}
       {remove}
     </div>
   );
@@ -1090,14 +1137,17 @@ export function RetryButton({
   );
 }
 
-/// How much of a file streaming to the chat's machine is there: a ring that fills, on its tile.
+/// How much of a file streaming to the chat's machine is there: a ring that fills, on its tile. The
+/// `<progress>` is for assistive technology only, hidden by the strip's own class: the agent pane
+/// does not load the pages' global `.visually-hidden`, so with it the native bar drew beside the
+/// ring, a lone progress bar at the composer's top left (Leo, 2026-11-06, a picture sent under load).
 export function UploadProgress({ value, name, size = 16 }: { value: number; name: string; size?: number }) {
   const percent = Math.round(value * 100);
   const radius = 6;
   const circumference = 2 * Math.PI * radius;
   return (
     <>
-      <progress className="visually-hidden" aria-label={name} max={100} value={percent} />
+      <progress className="acpmux-attachment-voiceover-only" aria-label={name} max={100} value={percent} />
       <svg className="acpmux-attachment-progress" width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
         <circle className="acpmux-attachment-progress-track" cx="8" cy="8" r={radius} />
         <circle
@@ -1146,6 +1196,7 @@ export function AttachmentChip({
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
   const videoReading = useVideoReading(attachment.id);
+  const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name);
   const isImage = attachment.kind === "image" && Boolean(attachment.data);
   const image = isImage && !broken;
   const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
@@ -1166,17 +1217,24 @@ export function AttachmentChip({
       live = false;
     };
   }, [attachment.data, attachment.id, attachment.mimeType, image]);
-  const remove = (
+  // The app it came from, at the tile's top-right corner (composer/SourceBadge.tsx); the × takes
+  // that corner while the pointer is on the tile, and the tooltip names the source.
+  const from = useSourceLabel(attachment.source);
+  const removeButton = (
     <button
       type="button"
       className="acpmux-attachment-remove"
       aria-label={t(ATTACHMENT_LABELS.removeAttachment, { name })}
       onClick={() => onRemove(attachment.id)}
     >
-      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
-        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      </svg>
+      <RemoveGlyph />
     </button>
+  );
+  const remove = (
+    <>
+      <SourceBadge source={attachment.source} />
+      {removeButton}
+    </>
   );
   // Its right-click menu: Open (or what a click does) where a click opens it, and Remove (cx-2lm4).
   const menu = (open: (() => void) | undefined, chip: React.ReactNode, openLabel = t("image.open")) => (
@@ -1215,7 +1273,7 @@ export function AttachmentChip({
       openImage ? () => openImage(source, name) : undefined,
       <div
         className="acpmux-attachment acpmux-attachment-image"
-        /* tooltip-allow: an image thumbnail shows no name */ title={name}
+        /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(name, from)}
       >
         {openImage ? (
           <button
@@ -1247,12 +1305,10 @@ export function AttachmentChip({
   // A huge paste (pastedText.ts): its first words and line count; a click puts it back in the prompt.
   if (pasted) {
     const text = attachment.text ?? "";
-    const lines = pasteLines(text);
-    const count = new Intl.NumberFormat(language).format(lines);
     const expand = onExpand ? () => onExpand(attachment.id) : undefined;
-    const label = `${name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lines, count })}`;
+    const label = `${name} · ${pastedSize(t, language, text)}`;
     const accessible = `${attachment.name || pasteName(text)}, ${label}`;
-    const body = <TextAttachmentCard text={text} label={label} />;
+    const body = <TextAttachmentCard text={text} label={label} wrap />;
     return menu(
       expand,
       <div className="acpmux-attachment acpmux-attachment-pasted acpmux-text-card">
@@ -1305,13 +1361,28 @@ export function AttachmentChip({
       />,
     );
   }
-  // A video goes as its path too, with its poster and length once the host read them; a click plays it.
-  if (isVideoAttachment(attachment) && (attachment.video || videoReading)) {
-    const play = () => void callChipHost("video.quickLook", { src: attachment.path });
-    return menu(
-      attachment.video ? play : undefined,
-      <VideoAttachmentTile name={attachment.name} video={attachment.video} remove={remove} onPlay={play} />,
-      t("media.play"),
+  // A video goes as its path too, with its poster and length once the host read them; a click plays it
+  // in the pane, streamed from its path (VideoAttachmentTile.tsx useAttachedVideoPlayer). One the host
+  // could not read (or never asked: a chat on another machine) keeps the square with its play glyph
+  // and no poster; Quick Look still plays it from its path when the pane may not.
+  if (isVideoAttachment(attachment)) {
+    const play = videoPlayer.play;
+    return (
+      <>
+        {menu(
+          videoReading ? undefined : play,
+          <VideoAttachmentTile
+            name={attachment.name}
+            title={withSourceLabel(attachment.name, from)}
+            video={attachment.video}
+            reading={!attachment.video && videoReading}
+            remove={remove}
+            onPlay={play}
+          />,
+          t("media.play"),
+        )}
+        {videoPlayer.viewer}
+      </>
     );
   }
   return menu(
@@ -1320,7 +1391,7 @@ export function AttachmentChip({
       className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link"
       data-saved={attachment.saved || undefined}
       /* tooltip-allow: the full path is secondary detail for the file chip */
-      title={attachment.path}
+      title={withSourceLabel(attachment.path, from)}
     >
       <FileAttachment
         file={{
@@ -1328,7 +1399,7 @@ export function AttachmentChip({
           // Native path-only choices have no byte count; do not invent a zero-byte file.
           size: attachment.mimeType || attachment.size > 0 ? attachment.size : undefined,
         }}
-        remove={remove}
+        remove={removeButton}
       />
     </div>,
   );

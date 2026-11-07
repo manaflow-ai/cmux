@@ -488,20 +488,11 @@ export const OVERLAY_ALLOWED = new Map<string, string>([
     "pages/chief-views/styles.css .cv-card",
     "a Chief view's in-page content card, on its own page, not floating (Chief area: its owners' call)",
   ],
-  [
-    "agent-session/acpmux/conversation/conversation.css .acpmux-image-viewer",
-    "the full-pane image viewer: a blurred lightbox that sets the image apart from the chat, not a floating card",
-  ],
-  [
-    "agent-session/acpmux/summary/summary.css .acpmux-chat-gallery",
-    "the chat's full-pane image gallery: the image viewer's blurred lightbox, not a floating card",
-  ],
 ]);
 // Overlays that are solid today and are being made glass, keyed `file selector`, with what fixes it.
 // Each fails as stale once its fill is glass, so the entry goes with the fix.
 export const OVERLAY_PENDING = new Map<string, string>([
   ["pages/settings/styles.css .menus-move-picker", "Settings' Menus move picker paints the solid popup surface"],
-  ["pages/shared/pageBase.css .page-menu", "the shared page menu paints the solid popup surface, not .ui-glass"],
   ["pages/cloud/styles.css .cloud-create-sheet", "Cloud's create sheet paints the elevated surface"],
   ["pages/home-channels/ledger.css .lg-sheet", "the ledger's side sheet paints its solid surface"],
   [

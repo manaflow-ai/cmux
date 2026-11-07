@@ -17,6 +17,13 @@ final class SidebarPriorityRowView: NSView {
     /// Where the press went down (window points), and whether it has moved far enough to drag.
     private var pressStart: NSPoint?
     private var dragging = false
+    private var pressCancelled = false
+    /// The pointer's last window point in this press: an edge autoscroll frame reads it while the row is held.
+    private var lastWindowPoint: NSPoint?
+    enum MoveDirection { case earlier, later }
+    /// Control-Option-Up or -Down while the row has focus, or VoiceOver's Move Earlier or Move Later:
+    /// the row moves one place and keeps it, as a drag there would.
+    var onMove: ((MoveDirection) -> Void)?
 
     private let title = ChromeLabel(labelWithString: "")
     private let agentIcon = DecorativeImageView()
@@ -61,6 +68,7 @@ final class SidebarPriorityRowView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     /// Route row presses to this view so dragging works when the pointer starts over the title,
@@ -161,6 +169,7 @@ final class SidebarPriorityRowView: NSView {
 
     override func layout() {
         super.layout()
+        indicator.dotDiameter = SidebarStyle.statusDotSize // the unread dot's diameter (Lawrence msg 19696)
         let b = bounds, inset = SidebarStyle.horizontalInset, pad = Metrics.space2
         title.font = SidebarStyle.titleFont
         placeLabel.font = SidebarStyle.titleFont
@@ -194,7 +203,7 @@ final class SidebarPriorityRowView: NSView {
                 indicator.frame = NSRect(x: trailing - mark, y: pad + (lineHeight - mark) / 2, width: mark, height: mark)
                 trailing = indicator.frame.minX - Metrics.space1
             }
-            let dot = SidebarStyle.unreadDotSize
+            let dot = SidebarStyle.statusDotSize
             unreadDot.frame = CGRect(x: trailing - dot, y: pad + (lineHeight - dot) / 2, width: dot, height: dot)
             unreadDot.cornerRadius = dot / 2
             if entry.unread { trailing = unreadDot.frame.minX - Metrics.space1 }
@@ -226,15 +235,18 @@ final class SidebarPriorityRowView: NSView {
         }
     }
 
-    /// A machine's tag takes a stable color of the group palette, so one machine reads the same in every row.
+    /// A machine's tag takes its identity color (MachineColor: the person's pick, else a stable
+    /// theme accent), so it matches the machine's sidebar rows, tabs and chips; as text, raised to
+    /// read on the row in every state (MachineColor.rowTextColor).
     static func machineColor(_ machine: String) -> NSColor {
-        let colors = GroupColor.allCases.filter { $0 != .grey }
-        let sum = machine.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
-        return SidebarStyle.color(colors[sum % colors.count])
+        MachineColor(name: machine).rowTextColor
     }
 
     override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        pressCancelled = false
         pressStart = event.locationInWindow
+        lastWindowPoint = event.locationInWindow
         dragging = false
     }
 
@@ -242,6 +254,7 @@ final class SidebarPriorityRowView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard let start = pressStart else { return }
         let point = event.locationInWindow
+        lastWindowPoint = event.locationInWindow
         if !dragging { dragging = SidebarPress.movedPastThreshold(from: start, to: point) }
         if dragging { onDrag?(self, start.y - point.y, false) }
     }
@@ -254,6 +267,13 @@ final class SidebarPriorityRowView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        lastWindowPoint = event.locationInWindow
+        if pressCancelled {
+            pressCancelled = false
+            pressStart = nil
+            dragging = false
+            return
+        }
         let start = pressStart, dragged = dragging
         pressStart = nil
         dragging = false
@@ -263,6 +283,31 @@ final class SidebarPriorityRowView: NSView {
         }
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         onAction?(.open(entry.id))
+    }
+
+    var heldWindowPoint: NSPoint? { lastWindowPoint }
+
+    func cancelPress() {
+        pressCancelled = true
+        pressStart = nil
+        dragging = false
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        guard flags == [.control, .option] else { return super.keyDown(with: event) }
+        switch event.specialKey {
+        case .upArrow?: onMove?(.earlier)
+        case .downArrow?: onMove?(.later)
+        default: super.keyDown(with: event)
+        }
+    }
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        var actions = super.accessibilityCustomActions() ?? []
+        actions.append(NSAccessibilityCustomAction(name: Strings.priorityMoveEarlier) { [weak self] in self?.onMove?(.earlier); return self != nil })
+        actions.append(NSAccessibilityCustomAction(name: Strings.priorityMoveLater) { [weak self] in self?.onMove?(.later); return self != nil })
+        return actions
     }
 
     override func accessibilityPerformPress() -> Bool {
