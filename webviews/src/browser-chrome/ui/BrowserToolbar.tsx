@@ -17,6 +17,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import type { Strings } from "../../pages/shared/i18n";
 import { toolbarStrings } from "./strings";
 import { glyphRule, ToolbarGlyph, type GlyphLook, type GlyphRule, type GlyphScale } from "./toolbarGlyph";
