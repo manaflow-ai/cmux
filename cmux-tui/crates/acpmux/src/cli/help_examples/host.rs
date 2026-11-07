@@ -325,9 +325,15 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "machine agents",
         &[
-            ("See whether Claude Code and Codex are ready on mini-3", "acpmux machine agents mini-3"),
+            (
+                "See whether Claude Code and Codex are ready on mini-3",
+                "acpmux machine agents mini-3",
+            ),
             ("Install Claude Code there", "acpmux machine agents mini-3 --install claude"),
-            ("Sign Codex in there from this terminal", "acpmux machine agents mini-3 --login codex"),
+            (
+                "Sign Codex in there from this terminal",
+                "acpmux machine agents mini-3 --login codex",
+            ),
         ],
     ),
     (
