@@ -14,7 +14,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
-use acpmux::server::{Origin, serve_connection_with};
+use acpmux::server::{ConnAuth, Origin, serve_connection_authed, serve_connection_with};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -47,6 +47,13 @@ impl Client {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
+        Client(in_tx, out_rx, 0)
+    }
+
+    fn authed(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));
         Client(in_tx, out_rx, 0)
     }
 
@@ -416,6 +423,35 @@ async fn folder_browsing_is_for_the_owner_and_a_peer_sees_only_its_roots() {
     // Only this machine's own client may name a peer, one hop.
     let r = peer.call("_acpmux/browse", json!({"peer": "x", "path": base})).await;
     assert_eq!(r["error"]["data"]["reason"], "peer.forward_refused", "{r}");
+    // A paired `client` machine (served as a peer, pairing.rs `origin_of`) is the owner's own
+    // machine: held to the same roots, and it names no peer either.
+    let mut device = Client::authed(&hub, Origin::Peer, ConnAuth::Device);
+    let r = device.call("_acpmux/browse", p.clone()).await;
+    assert!(r["result"]["entries"].is_array(), "a paired client: {r}");
+    let r = device.call("_acpmux/browse", json!({"path": "/"})).await;
+    assert_eq!(r["error"]["data"]["reason"], "browse.outside_roots", "{r}");
+    let r = device.call("_acpmux/browse", json!({"peer": "x", "path": base})).await;
+    assert_eq!(r["error"]["data"]["reason"], "peer.forward_refused", "{r}");
+    // A read-only device and a phone are served as Web, and a peer forwarding for its own Web
+    // client says so (`via: web`): none of them lists a folder.
+    for (origin, auth, params) in [
+        (Origin::Web, ConnAuth::ReadOnlyDevice, p.clone()),
+        (Origin::Web, ConnAuth::Device, p.clone()),
+        (
+            Origin::Peer,
+            ConnAuth::PeerToken,
+            json!({"path": base, "_meta": {"acpmux": {"via": "web"}}}),
+        ),
+        (
+            Origin::Peer,
+            ConnAuth::Device,
+            json!({"path": base, "_meta": {"acpmux": {"via": "web"}}}),
+        ),
+    ] {
+        let mut c = Client::authed(&hub, origin, auth);
+        let r = c.call("_acpmux/browse", params).await;
+        assert_eq!(r["error"]["code"], json!(-32601), "{origin:?} {auth:?}: {r}");
+    }
     let mut local = Client::new(&hub, Origin::LocalApp);
     let r = local.call("_acpmux/browse", json!({"peer": "nopeer"})).await;
     assert!(err(&r).contains("no peer"), "{r}");

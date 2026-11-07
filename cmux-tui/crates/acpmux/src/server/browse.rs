@@ -2,8 +2,10 @@
 //! folder browser (HQ#7442 row 4). Part of the request handler (`requests.rs`).
 //!
 //! - Names and kinds only (a file's size at most), never a file's contents.
-//! - Served to this machine's own clients (the unix socket, the app) and to a proven peer of
-//!   the owner's (`Control::Peer`); a Web connection gets Method not found, as for
+//! - Served to this machine's own clients (the unix socket, the app) and under `Control::Peer`:
+//!   a peer daemon with this launch's peer token, or a paired `client` machine (both the
+//!   owner's; `pairing.rs` `origin_of`). A Web connection, a read-only device, a phone and a
+//!   peer forwarding for its own Web client (`via: web`) get Method not found, as for
 //!   `_acpmux/directories`. Only this machine's own client may name a `peer`, one hop.
 //! - A peer lists only inside the folders it may start a chat in (`web_roots`), so every
 //!   folder it shows can be picked; with no `path` it lists those roots.
