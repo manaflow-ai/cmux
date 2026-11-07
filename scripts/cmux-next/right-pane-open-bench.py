@@ -618,15 +618,23 @@ def drag_layout(run, chat):
         raise SystemExit("right-pane-open: drag: the header's Terminal opened no pane")
     time.sleep(1.0)  # test script: the open's motion lands
     if opts.drag_right == "browser":
-        clicked = run.rpc("debug.agent_pane", {"action": "click", "selector": '[data-quick-action="terminal"]', "pane": chat.pane}) or {}
-        if clicked.get("error"):
-            raise SystemExit(f"right-pane-open: drag: the header's Terminal: {clicked['error']}")
+        run.rpc("debug.agent_pane", {"action": "click", "selector": '[data-quick-action="terminal"]', "pane": chat.pane})
+        # The header's Terminal splits below the browser where it can; else (a tab of its own) split it down here.
+        if not STRESS.wait(lambda: len(chat.stress.panes(chat.stress.workspace(chat.workspace))) >= 3, 5, step=0.1):
+            chat.stress.action("splitDown", target=f"pane:{right}", focus=False)
     else:
         chat.stress.action("splitDown", target=f"pane:{right}", focus=False)
     if not STRESS.wait(lambda: len(chat.stress.panes(chat.stress.workspace(chat.workspace))) >= 3, 15, step=0.1):
         raise SystemExit("right-pane-open: drag: the terminal did not split down")
     time.sleep(1.5)  # test script: the split's motion lands and the page lays out at its size
     return right
+
+
+def catchers(run):
+    """The divider catcher panels shown now (window rects) and the panel updates since launch (debug.layers)."""
+    window = window_layers(run)
+    return {"panels": window.get("divider_catchers_in_window"), "updates": window.get("divider_catcher_updates"),
+            "pages": len(window.get("page_windows") or window.get("child_windows") or [])}
 
 
 def drag_round(run, label, refresh_s, modifiers=(), stream=None):
@@ -642,10 +650,13 @@ def drag_round(run, label, refresh_s, modifiers=(), stream=None):
     time.sleep(0.15)  # test script: frames at rest before the press
     keys = {"modifiers": list(modifiers)} if modifiers else {}
     streaming = stream() if stream else None
+    seen = {"before": catchers(run)}
     run.rpc("debug.mouse", {"action": "down", "x": x0, "y": y0, **keys})
     x, trips = x0, []
     next_at = time.monotonic()
-    for delta in path:
+    for index, delta in enumerate(path):
+        if index == moves:
+            seen["mid"] = catchers(run)  # the pointer at the far left, the drag still pressed
         sent = time.monotonic()
         run.rpc("debug.mouse", {"action": "drag", "x": x, "y": y0, "to_x": x + delta, "to_y": y0, "steps": 1,
                                 "press": False, "release": False, **keys})
@@ -655,8 +666,10 @@ def drag_round(run, label, refresh_s, modifiers=(), stream=None):
         pause = next_at - time.monotonic()
         if pause > 0:
             time.sleep(pause)  # bench script: one pointer move per display frame
+    seen["pressed_end"] = catchers(run)
     run.rpc("debug.mouse", {"action": "up", "x": x, "y": y0, **keys})
     time.sleep(0.8)  # test script: the release's spring lands
+    seen["after"] = catchers(run)
     if streaming:
         streaming.wait(timeout=120)
     frames = run.rpc("debug.frames", {"action": "stop"}) or {}
@@ -693,7 +706,7 @@ def drag_round(run, label, refresh_s, modifiers=(), stream=None):
         "mouse_rpc_ms": {"p50": pct(trips, 0.5), "p95": pct(trips, 0.95), "max": pct(trips, 1.0)},
         "frames": {k: frames.get(k) for k in ("frames", "refresh_ms", "p50_ms", "p95_ms", "max_ms", "missed", "main_p50_ms",
                                               "main_p95_ms", "main_max_ms", "view_layouts", "view_layouts_max") if k in frames},
-        "trace": [[round(t, 1), round(v, 1)] for t, v in samples], "hangs": hangs[:8],
+        "trace": [[round(t, 1), round(v, 1)] for t, v in samples], "hangs": hangs[:8], "catchers": seen,
     }
     return record
 
@@ -704,6 +717,7 @@ def run_drags(run, chat, condition, results):
         drag_layout(run, chat)
     except (SystemExit, STRESS.StressShapeError) as error:
         records.append({"error": f"layout: {str(error)[:400]}"})
+        say(f"right-pane-open: {condition} drag layout failed: {str(error)[:400]}")
         return
     refresh_s = (float((run.rpc("debug.frames", {"action": "stop"}) or {}).get("refresh_ms") or 8.33)) / 1000
     sets = [tuple(m for m in group.split("+") if m) for group in opts.drag_modifiers.split(",")] if opts.drag_modifiers else [()]
@@ -712,11 +726,12 @@ def run_drags(run, chat, condition, results):
         env = bm.FakeChats(run.app, APP, AGENT).env
         stream = lambda: subprocess.Popen([run.app.cli_path, "acp", "send", chat.session, "bloat: 6 120 6"],  # noqa: E731
                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, start_new_session=True)
+    say(f"right-pane-open: {condition} drag layout: {json.dumps([(p.get('id'), [t.get('kind') for t in p.get('tabs') or []]) for p in chat.stress.panes(chat.stress.workspace(chat.workspace))])}")
     for index in range(opts.runs):
         record = drag_round(run, f"{condition}-drag-{index}", refresh_s, sets[index % len(sets)], stream)
         records.append(record)
         say(f"right-pane-open: {condition} drag {index} mods={'+'.join(record.get('modifiers') or []) or 'none'}"
-            f" stream={record.get('streaming')}: reach {record.get('reach_left')}/{record.get('reach_right')} "
+            f" stream={record.get('streaming')} catchers={json.dumps(record.get('catchers'))}: reach {record.get('reach_left')}/{record.get('reach_right')} "
             f"gap {record.get('gap_pt')} pt stalls {record.get('stall_frames')} (longest {record.get('longest_stall_ms')} ms) "
             f"frames {json.dumps(record.get('frames'))} mouse rpc {json.dumps(record.get('mouse_rpc_ms'))}"
             + (f" error={record['error']}" if record.get("error") else ""))
