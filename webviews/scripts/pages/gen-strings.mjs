@@ -250,6 +250,16 @@ export const PAGES = {
     out: "webviews/src/pages/stats/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stats/Localizable.xcstrings" }],
   },
+  "browser-chrome-ui": {
+    out: "webviews/src/browser-chrome/ui/generated/strings.json",
+    catalogs: [
+      { file: "webviews/src/browser-chrome/ui/Localizable.xcstrings" },
+      {
+        file: "webviews/src/browser-chrome/page-info/Localizable.xcstrings",
+        keys: (all) => all.filter((key) => key.startsWith("pageInfo.chip.")),
+      },
+    ],
+  },
   // The GitHub page (cmux-page://cmux.github/); its table lives next to it.
   github: {
     out: "webviews/src/pages/github/generated/strings.json",
