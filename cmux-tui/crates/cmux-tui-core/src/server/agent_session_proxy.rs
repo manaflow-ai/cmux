@@ -17,7 +17,8 @@ const TEAMMATE_VERBS: [&str; 6] = [
     "agent-session-cancel",
     "agent-session-detach",
 ];
-/// A link guest's verbs: watch and write (every prompt held for the owner), its typing and view.
+/// A guest invited with `talk` (a signed-in account): watch and write (every prompt held for the
+/// owner), its typing and view. A guest who joined by the link alone gets `VIEWER_VERBS`.
 /// Never cancel, permission, children or media. An attach is the guest's writable observe.
 const GUEST_VERBS: [&str; 7] = [
     "agent-session-attach",
