@@ -1519,15 +1519,15 @@ fn a_late_answer_of_any_step_is_its_phases_timeout() {
         assert_eq!(fake.ran.len(), steps, "{case}: {:?}", fake.ran);
     }
 
-    // The upload's first piece errs late: no send; only the run's own prompt file is removed.
-    let mut fake = Fake::new(vec![signed_in(), started(), refused("app.failed"), exec_out("")]);
+    // The upload's first piece errs late: no send, and no cleanup past the deadline (the run's own 0600 file
+    // stays; see a_cleanup_never_holds_the_command_past_its_deadline).
+    let mut fake = Fake::new(vec![signed_in(), started(), refused("app.failed")]);
     fake.slow.push((2, secs(30)));
     let asked =
         request(&["--prompt", &big, "--target", "machine:vm-1", "--wait", "--timeout", "30"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75), "{error}");
-    assert!(fake.ran[3][5].contains("rm -f"), "{:?}", fake.ran[3]);
-    assert_eq!(fake.ran.len(), 4);
+    assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
 
     // A relay that may have reached the machine says so, and the command to ask again leaves the prompt out.
     let mut fake = Fake::new(vec![signed_in(), refused("app.failed")]);
@@ -1539,6 +1539,104 @@ fn a_late_answer_of_any_step_is_its_phases_timeout() {
     assert!(message.contains("may have reached"), "{message}");
     assert!(message.contains("acp ls"), "{message}");
     assert!(!error.to_string().contains("secret"), "{error}");
+}
+
+/// A machine id the steps learn goes into the command to ask again, late or not, so asking again never makes a
+/// second machine: a new-machine that answered pending with its id (the fourth review of #37159).
+#[test]
+fn a_pending_new_machine_with_an_id_is_asked_again_by_that_id() {
+    let secs = Duration::from_secs;
+    let pending = || ok(json!({"pending": true, "machine_id": "vm-7", "status": "creating"}));
+    let cases: [(&str, &[&str], u64); 3] = [
+        (
+            "--environment's create, late",
+            &["--environment", "env_1", "--wait", "--timeout", "30"],
+            30,
+        ),
+        ("the relay's create, late", &["--wait", "--timeout", "60"], 60),
+        ("--environment's create, in time, no --wait", &["--environment", "env_1"], 5),
+    ];
+    for (case, words, cost) in cases {
+        let mut all = vec!["--prompt", "x"];
+        all.extend_from_slice(words);
+        let mut fake = Fake::new(vec![signed_in(), pending()]);
+        fake.slow.push((1, secs(cost)));
+        let Outcome::Failed { error, exit } = run(&mut fake, &request(&all)) else {
+            panic!("{case}: {:?}", fake.ran)
+        };
+        assert_eq!(
+            (error["code"].as_str(), exit),
+            (Some("cloud.start_pending"), 75),
+            "{case}: {error}"
+        );
+        let again = error["details"]["again"].as_str().unwrap_or_default();
+        assert!(again.contains("--target machine:vm-7"), "{case}: {error}");
+        assert!(
+            !again.contains("--environment"),
+            "{case}: the machine has its environment: {again}"
+        );
+        assert_eq!(error["details"]["machine_id"], "vm-7", "{case}: {error}");
+        assert_eq!(fake.ran.len(), 2, "{case}: {:?}", fake.ran);
+    }
+}
+
+/// The removal of the run's own prompt file after a failed upload or send is never a step past `--timeout`: with a
+/// deadline it is left (mode 0600, in ~/.cmux/prompts on the person's own machine), however slow `cloud exec`
+/// would be; without one it runs as before.
+#[test]
+fn a_cleanup_never_holds_the_command_past_its_deadline() {
+    let secs = Duration::from_secs;
+    let refused = |code: &str| Ran {
+        code: 1,
+        stderr: json!({"code": code, "message": "no"}).to_string(),
+        ..Ran::default()
+    };
+    let big = "a".repeat(400 * 1024);
+    let on_vm_1 = |words: &[&str]| {
+        let mut all = vec!["--prompt", big.as_str(), "--target", "machine:vm-1"];
+        all.extend_from_slice(words);
+        request(&all)
+    };
+
+    // The upload fails in time with 45 s left; the cleanup would take 120 s.
+    let mut fake = Fake::new(vec![signed_in(), started(), refused("app.failed"), exec_out("")]);
+    fake.slow.push((3, secs(120)));
+    let began = fake.clock;
+    let Outcome::Failed { error, .. } = run(&mut fake, &on_vm_1(&["--wait", "--timeout", "60"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "chat.send_failed", "{error}");
+    assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+    assert!(fake.clock <= began + secs(60), "ran {:?} past the deadline", fake.clock - began);
+
+    // The send was refused before it started, after the upload; the cleanup would take 120 s.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@size 393216\n"),
+        exec_out("@@size 409600\n"),
+        refused("vm_busy"),
+        exec_out(""),
+    ]);
+    fake.slow.push((5, secs(120)));
+    let began = fake.clock;
+    let Outcome::Failed { error, .. } = run(&mut fake, &on_vm_1(&["--wait", "--timeout", "60"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "chat.send_failed", "{error}");
+    assert_eq!(fake.ran.len(), 5, "{:?}", fake.ran);
+    assert!(fake.clock <= began + secs(60), "ran {:?} past the deadline", fake.clock - began);
+
+    // No --wait, so no deadline: the failed upload's file is removed as before.
+    let mut fake = Fake::new(vec![signed_in(), started(), refused("app.failed"), exec_out("")]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &on_vm_1(&[])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "chat.send_failed", "{error}");
+    assert!(fake.ran[3][5].contains("rm -f"), "{:?}", fake.ran[3]);
+    assert_eq!(fake.ran.len(), 4);
 }
 
 #[test]
