@@ -371,10 +371,10 @@ fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
     let dump = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../plans/cmux-next/action-catalog.json");
     let Ok(text) = std::fs::read_to_string(&dump) else { return };
-    let catalog: serde_json::Value = serde_json::from_str(&text).expect("the catalog dump is JSON");
+    let catalog: Value = serde_json::from_str(&text).expect("the catalog dump is JSON");
     let mut checked = 0;
     for action in catalog["actions"].as_array().into_iter().flatten() {
-        if action["waitsForPerson"] != serde_json::Value::Bool(true) {
+        if action["waitsForPerson"] != Value::Bool(true) {
             continue;
         }
         for key in ["id", "cliName"] {
