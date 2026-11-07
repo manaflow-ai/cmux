@@ -52,7 +52,7 @@ The suggestion card hangs from the bar. Page Info is a popup anchored at the chi
 | --- | --- | --- |
 | bar height, suggestion row height | 28 | `OmnibarMetrics.barHeight` |
 | toolbar button | 28 square, glyph box 20, hover radius 8 | `buttonSize`, `toolbarIconSize`, `buttonCornerRadius` |
-| every glyph in the row | 12.5 ink, 1.5625 lines, centered on its box (see Icons) | 5/8 and 1/16 of `toolbarIconSize` |
+| every glyph in the row | 12 ink, 1.5 lines, centered on its box (see Icons) | 0.6 of `toolbarIconSize`, the pack's fit |
 | between buttons | 3 | `basePadding` |
 | Reload to bar, bar to extensions | 6 | `barMargin` |
 | toolbar side inset | 2 | `paneChromeInset` (pill top) |
@@ -81,13 +81,14 @@ Extensions puzzle, the trailing buttons and More all draw Chrome's icons (More: 
 vertical ellipsis) at one ink size and one line weight, each centered on its box
 (`ui/toolbarGlyph.tsx`). The boxes only place the glyphs; they never size them.
 
-- Ink: the glyph's longer side is 5/8 of the density's toolbar icon size (12.5 at Standard, 13.75
-  at Comfortable). Lines: 1/16 of it (1.5625, the app's own icons at 20). A filled drawing is
-  scaled to the ink, then outlined until its lines reach the weight.
-- Optical trims: the puzzle, the crashed-extension disc and the side panel draw 6% smaller (their
-  bodies fill the box); the star 6% larger (its points are thin). Stop and the small Downloads
-  square keep the weight and stay smaller, as they are drawn.
-- The profile monogram is a disc 1.2 times the ink (15 at Standard), on the same center line.
+- Ink: the glyph's longer side is 0.6 of the density's toolbar icon size (12 at Standard, 13.2 at
+  Comfortable), the icon pack's own fit (the back arrow's 14.4 of 24 in
+  `design/icons/chromium/manifest.json`), so the row draws what the window's other top icons draw.
+  The puzzle and the star are the arrows' size, with no trim of their own. Lines: 1.5 (Chrome's
+  1.5 dp at that scale). A filled drawing is scaled to the ink, then outlined until its lines reach
+  the weight. Stop and the small Downloads square keep the weight and stay smaller, as they are
+  drawn.
+- The profile monogram is a disc 1.25 times the ink (15 at Standard), on the same center line.
 - Why: drawn at one size, Chrome's drawings come out as different sizes, because each is drawn on
   its own part of the canvas. The arrows were 12 px of ink, the chip 13, the star 14.4 and the
   puzzle 16, sitting a pixel above the row's center.

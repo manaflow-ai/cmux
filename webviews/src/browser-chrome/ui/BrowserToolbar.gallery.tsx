@@ -92,7 +92,7 @@ export default componentEntry<Props>({
       label: "Glyphs",
       kind: "choice",
       choices: [
-        { value: "family", label: "One family (12.5)" },
+        { value: "family", label: "One family (12)" },
         { value: "text", label: "Smaller omnibar (11.5)" },
         { value: "bold", label: "Bold (14)" },
       ],
@@ -114,7 +114,7 @@ export default componentEntry<Props>({
     },
     "glyphs-family": {
       props: flaggedRow,
-      note: "Recommended glyph rule: every glyph, the buttons and the omnibar's chip and star, at 12.5 px of ink with 1.5625 px lines (the app's icons at 20 px), centered on its box; the puzzle trimmed 6% for its filled body, the star grown 6% for its thin points; the monogram a 15 px disc. Before it the arrows drew 12 px, the chip 13, the star 14.4 and the puzzle 16, a pixel above the line.",
+      note: "Recommended glyph rule: every glyph, the buttons and the omnibar's chip and star, at 12 px of ink with 1.5 px lines, centered on its box: the icon pack's own fit, so the row matches the window's other top icons and the puzzle and star are the arrows' size; the monogram a 15 px disc. Before it the arrows drew 12 px, the chip 13, the star 14.4 and the puzzle 16, a pixel above the line.",
     },
     "glyphs-text": {
       props: { ...flaggedRow, glyphs: "text" },

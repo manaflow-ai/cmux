@@ -330,7 +330,7 @@
   }
 }
 /* The monogram disc is the glyphs' size, not the star's box: a filled disc reads larger than an
-   outline, so it is 1.2 times their ink (15 pt at Standard), on the same center line. */
+   outline, so it is 1.25 times their ink (15 pt at Standard), on the same center line. */
 .bc-badge-profile {
   width: var(--bc-badge-size, var(--bc-trailing-box));
   height: var(--bc-badge-size, var(--bc-trailing-box));

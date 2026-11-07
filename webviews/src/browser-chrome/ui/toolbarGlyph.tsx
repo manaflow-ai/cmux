@@ -1,10 +1,9 @@
 // One glyph family for the browser toolbar row: Back, Forward, Reload, the omnibar's chip icon and
 // star, the Extensions puzzle, the trailing buttons and More all draw at one ink size and one line
-// weight, centered on their box. The Chromium drawings come on different canvases (the arrows span
-// 12 of Chrome's 20 dp, the puzzle 16 and a pixel high, the star 16 by 15), so drawn at one `size`
-// they read as three sizes and two center lines. Here each glyph's own ink box is measured, scaled
-// so its longer side is `ink` px, and its outline thickened (a stroke on the filled shape) until its
-// lines are `weight` px. A glyph that would need thinning instead (the Stop cross, the small Downloads
+// weight, centered on their box. The pack fits Chrome's toolbar drawings to the back arrow's ink box
+// (#37608); the row's other glyphs (the chip, More, line icons) are not fit there. Here each glyph's
+// own ink box is measured, scaled so its longer side is `ink` px, and its outline thickened (a stroke
+// on the filled shape) until its lines are `weight` px. A glyph that would need thinning instead (the Stop cross, the small Downloads
 // square inside its ring) keeps the weight and draws smaller, as those two are drawn to.
 import { useId } from "react";
 import { MISSING_ICON, resolveIcon } from "../../agent-session/acpmux/icons/iconPack";
@@ -23,22 +22,11 @@ export type GlyphScale = { ink: number; weight: number };
 export const FILLED_LINE_WEIGHT = 1.8;
 
 /**
- * Optical corrections (the icon spec's coverage trim): shapes that fill most of their box read
- * larger than open ones at the same extent (the puzzle's square body, the crashed-extension disc,
- * the side panel), and a star's thin points read smaller.
- */
-export const OPTICAL_TRIM: Readonly<Record<string, number>> = {
-  "browser.toolbar.extensions": 0.94,
-  "browser.toolbar.extensions.crashed": 0.94,
-  "browser.toolbar.bookmarks": 0.94,
-  "browser.omnibox.star": 1.06,
-  "browser.omnibox.star.active": 1.06,
-};
-
-/**
  * The row's glyph rule (the gallery compares them):
- * - `family`: every glyph, buttons and the omnibar's chip and star, at 5/8 of the toolbar icon size
- *   (12.5 px at Standard) with lines of 1/16 of it (1.5625 px): the app's own icons at 20 px.
+ * - `family`: every glyph, buttons and the omnibar's chip and star, at 0.6 of the toolbar icon size
+ *   (12 px at Standard) with 1.5 px lines: the icon pack's own fit (the back arrow's 14.4 of 24,
+ *   `design/icons/chromium/manifest.json`), so the row draws what the window's other top icons do,
+ *   the puzzle and the star at the arrows' size with no trim of their own.
  * - `text`: the buttons as `family`, the omnibar's chip and star a step smaller (11.5 px at 1.5 px).
  * - `bold`: every glyph at 0.7 of the icon size (14 px) with 1.75 px lines.
  */
@@ -50,7 +38,7 @@ export type GlyphRule = { button: GlyphScale; omnibar: GlyphScale; badge: number
 /** The rule at a density: the host's toolbar icon size (20 at Standard) sets every number. */
 export function glyphRule(toolbarIcon: number, look: GlyphLook = "family"): GlyphRule {
   const unit = toolbarIcon / 20;
-  const family = { ink: 12.5 * unit, weight: 1.5625 * unit };
+  const family = { ink: 12 * unit, weight: 1.5 * unit };
   switch (look) {
     case "family":
       return { button: family, omnibar: family, badge: 15 * unit };
@@ -136,7 +124,7 @@ export function ToolbarGlyph({ name, scale, box }: { name: string; scale: GlyphS
   const id = useId().replace(/[^\w-]/g, "");
   const layers = resolveIcon(pack, name, "line", accent) ?? resolveIcon(pack, MISSING_ICON, "line", accent);
   if (!layers) return null;
-  const fit = cachedFit(layers, scale, box, OPTICAL_TRIM[name] ?? 1);
+  const fit = cachedFit(layers, scale, box, 1);
   return (
     <svg
       className="bc-glyph"
