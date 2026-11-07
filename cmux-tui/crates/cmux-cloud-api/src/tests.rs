@@ -1207,3 +1207,80 @@ fn a_local_stack_that_is_not_running_is_no_backend_for_a_worker_machine_io() {
     call.local_only = false;
     assert!(matches!(go(&call), Err(Failure::Transport(_))));
 }
+
+// MARK: review follow-ups (#37350)
+
+#[test]
+fn a_preview_call_ends_at_its_own_30_second_deadline() {
+    assert_eq!(super::previews::PREVIEW_TIMEOUT, Duration::from_secs(30));
+    // A server that takes each request and never answers.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming().flatten() {
+            held.push(stream);
+        }
+    });
+    for (call, args) in [
+        ("previews.refresh", json!({ "machine": "vm_abc" })),
+        ("previews.create_link", json!({ "machine": "vm_abc", "port": 3000 })),
+        ("previews.revoke_link", json!({ "machine": "vm_abc", "port": 3000, "linkId": "l1" })),
+    ] {
+        // Paused time: the runtime moves its clock to the next deadline while it waits.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .start_paused(true)
+            .build()
+            .unwrap();
+        let call = request(&origin, Auth::Worker, call, args);
+        let (failure, waited) = runtime.block_on(async {
+            let started = tokio::time::Instant::now();
+            let failure = perform(&call, Zeroizing::new(Vec::new())).await.unwrap_err();
+            (failure, started.elapsed())
+        });
+        assert!(matches!(failure, Failure::TimedOut(_)), "{}: {failure:?}", call.call);
+        assert!(
+            waited >= Duration::from_secs(30) && waited < Duration::from_secs(60),
+            "{}: {waited:?}",
+            call.call
+        );
+    }
+}
+
+#[test]
+fn owner_handoffs_reads_at_most_50_pages() {
+    let (origin, seen) = fake(|_| ok(r#"{"handoffs":[{"id":"h"}],"nextCursor":"next"}"#));
+    let answer =
+        go(&request(&origin, Auth::Owner, "owner.handoffs", json!({ "pages": 100_000 }))).unwrap();
+    assert_eq!(answer.as_array().map(Vec::len), Some(50));
+    assert_eq!(seen.lock().unwrap().len(), 50);
+}
+
+#[test]
+fn owner_handoffs_stops_at_the_answer_limit() {
+    let page = format!(
+        r#"{{"handoffs":[{{"id":"h","note":"{}"}}],"nextCursor":"next"}}"#,
+        "x".repeat(MAX_ANSWER_BYTES / 3)
+    );
+    let (origin, seen) = fake(move |_| ok(&page));
+    let failure = go(&request(&origin, Auth::Owner, "owner.handoffs", json!({}))).unwrap_err();
+    assert!(
+        matches!(&failure, Failure::Transport(message) if message.contains("larger than")),
+        "{failure:?}"
+    );
+    assert_eq!(seen.lock().unwrap().len(), 3, "refused at the page that passed the limit");
+}
+
+#[test]
+fn a_run_start_that_is_not_one_is_refused_as_it_is_and_sends_nothing() {
+    let (origin, seen) = fake(|_| ok(r#"{"id":"run_1"}"#));
+    for args in [json!({ "idempotencyKey": "k" }), json!({ "task": "hi" })] {
+        let failure = go(&request(&origin, Auth::Stack, "runs.start", args)).unwrap_err();
+        assert!(
+            matches!(&failure, Failure::Transport(message) if message.starts_with("the call needs")),
+            "{failure:?}"
+        );
+    }
+    assert!(seen.lock().unwrap().is_empty());
+}

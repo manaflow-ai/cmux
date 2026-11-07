@@ -51,6 +51,10 @@ pub(crate) async fn create(http: &Http, args: &Map<String, Value>) -> Result<Val
 /// made the Run: whatever the retry says, the outcome stays uncertain (`timed_out`, never a
 /// refusal the caller could take as "nothing runs"). Answers the created Run, which has an id.
 pub(crate) async fn start(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
+    // A request that is not one is refused as it is, before anything is sent: only an answer
+    // lost on the way makes the outcome uncertain.
+    text(args, "task")?;
+    text(args, "idempotencyKey")?;
     let created = match create(http, args).await {
         Err(Failure::Transport(_) | Failure::TimedOut(_)) => {
             create(http, args).await.map_err(|_| Failure::TimedOut("/api/runs".into()))?

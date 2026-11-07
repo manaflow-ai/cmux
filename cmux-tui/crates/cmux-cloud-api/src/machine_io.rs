@@ -94,6 +94,10 @@ pub struct Request {
     /// The cmux API is a local stack: a connection it refuses answers code `no_backend`.
     #[serde(default)]
     pub local_only: bool,
+    /// The most bytes a read or a listing may come to: past it the direct route stops reading
+    /// and answers code `too_large` (the daemon's `cloud.machine.io` sets it; the CLI does not).
+    #[serde(default)]
+    pub max_bytes: Option<u64>,
 }
 
 impl Request {
@@ -171,6 +175,11 @@ impl Answer {
     }
 
     /// A refusal in the cmux API's shape: `{ok: false, error: {code, message}}` with the code in the header.
+    /// The refusal of a read or listing past `limit` bytes.
+    pub(crate) fn too_large(limit: u64) -> Self {
+        Answer::error(0, "too_large", &format!("the answer is larger than {limit} bytes"))
+    }
+
     pub fn error(status: u16, code: &str, message: &str) -> Self {
         let body = json!({ "ok": false, "error": { "code": code, "message": message } });
         Answer { status, body, code: Some(code.to_owned()), file: None }

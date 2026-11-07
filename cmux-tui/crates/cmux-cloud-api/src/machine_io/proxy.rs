@@ -86,8 +86,20 @@ pub(super) async fn run(client: &reqwest::Client, request: &Request) -> Answer {
                 &format!("the cmux API's answer is larger than {limit} bytes"),
             );
         }
+        // A 2xx is an answer only when it arrived whole and reads as JSON (or is empty);
+        // a refusal's body is kept as it reads, since its status already says what happened.
+        Err(crate::http::BodyError::Read(_)) if (200..300).contains(&status) => {
+            return Answer::error(0, "transport", "the cmux API's answer was cut off");
+        }
         Err(crate::http::BodyError::Read(_)) => Value::Null,
-        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        Ok(bytes) if bytes.iter().all(u8::is_ascii_whitespace) => Value::Null,
+        Ok(bytes) => match serde_json::from_slice(&bytes) {
+            Ok(body) => body,
+            Err(_) if (200..300).contains(&status) => {
+                return Answer::error(0, "decoding", "the cmux API's answer is not JSON");
+            }
+            Err(_) => Value::Null,
+        },
     };
     // The route's answer as it gave it: the app reads a refusal (a plan's upgrade fields
     // included) exactly as it reads that route's.

@@ -254,12 +254,16 @@ pub(crate) fn fork_children(value: Value) -> Option<Value> {
     list.iter().map(child).collect::<Option<Vec<_>>>().map(Value::Array)
 }
 
+/// The most pages `owner.handoffs` reads (100 hand-offs each).
+const MAX_HANDOFF_PAGES: i64 = 50;
+
 /// `GET /v1/handoffs?limit=100&cursor=`: the person's hand-offs, newest first, page after page
 /// (at most `pages`). Answers the list.
 async fn handoffs(http: &Http, pages: i64) -> Result<Value, Failure> {
     let mut all_handoffs = Vec::new();
+    let mut bytes = 0_usize;
     let mut cursor: Option<String> = None;
-    for _ in 0..pages.max(1) {
+    for _ in 0..pages.clamp(1, MAX_HANDOFF_PAGES) {
         let mut query = vec![("limit", "100".to_owned())];
         if let Some(cursor) = &cursor {
             if !all(cursor, 512, id_byte) {
@@ -271,6 +275,13 @@ async fn handoffs(http: &Http, pages: i64) -> Result<Value, Failure> {
         let Some(list) = page.get("handoffs").and_then(Value::as_array) else {
             return Err(Failure::Decoding("/v1/handoffs: no handoffs".into()));
         };
+        bytes = bytes.saturating_add(Value::Array(list.clone()).to_string().len());
+        if bytes > crate::MAX_ANSWER_BYTES {
+            return Err(Failure::Transport(format!(
+                "/v1/handoffs: the list is larger than {} bytes",
+                crate::MAX_ANSWER_BYTES
+            )));
+        }
         all_handoffs.extend(list.iter().cloned());
         match page.get("nextCursor").and_then(Value::as_str) {
             Some(next) if !next.is_empty() => cursor = Some(next.to_owned()),
