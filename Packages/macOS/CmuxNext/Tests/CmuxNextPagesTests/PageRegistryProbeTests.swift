@@ -1,3 +1,4 @@
+import CmuxNextDesign
 @testable import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -22,5 +23,22 @@ struct PageRegistryProbeTests {
         #expect(PageRegistry.probeTarget(id: descriptor.id, instance: PageRegistry.instance(of: view)) == nil)
         #expect(PageRegistry.pages(id: descriptor.id, probing: true).isEmpty)
         #expect(PageRegistry.pages(id: descriptor.id).contains { $0 === view })
+    }
+
+    /// Review 22 of #37296: a probe picked a pooled dialog page before a password dialog claimed it, and
+    /// the page refused probes only from then on, so the probe's read went on. A dialog pool's view refuses
+    /// probes from the turn it is made, spare or claimed.
+    @Test func aDialogPoolsPageRefusesProbesFromTheStart() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("overlay-probe-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Dialog</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let pool = OverlayDialogDrawing(drawing: CmuxDialogCenter()).pool
+        pool.testRoot = root
+        let (view, _) = try #require(pool.claim())
+        defer { view.close() }
+        #expect(view.refusesProbes)
+        #expect(PageRegistry.probeTarget(id: PageDescriptor.overlay.id, instance: PageRegistry.instance(of: view)) == nil)
+        #expect(!PageRegistry.pages(id: PageDescriptor.overlay.id, probing: true).contains { $0 === view })
     }
 }

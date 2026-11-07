@@ -9,7 +9,8 @@ import CmuxNextWakeups
 /// keys and clicks with the same rules as before (`CmuxDialogKeys`).
 @MainActor
 public final class OverlayDialogDrawing: CmuxDialogDrawing {
-    let pool = OverlayPagePool(route: "/dialog") { OverlayDialogProvider() }
+    // A dialog's page refuses page probes whatever it shows: a typed password, or a consent only the person answers.
+    let pool = OverlayPagePool(route: "/dialog", refusesProbes: true) { OverlayDialogProvider() }
     private var views: [ObjectIdentifier: (container: OverlayDialogView, page: PageWebView)] = [:]
 
     /// Draws `center`'s dialogs from now on: its host becomes an overlay host with this drawing.
@@ -25,8 +26,6 @@ public final class OverlayDialogDrawing: CmuxDialogDrawing {
     public func attach(_ dialog: CmuxDialogPresentation, in window: NSWindow?) -> NSView? {
         if let shown = views[ObjectIdentifier(dialog)] { return shown.container }
         guard let (page, provider) = pool.claim() else { return nil }
-        // A page that shows a secret (a private dialog, a password field) refuses page probes while it shows it.
-        page.refusesProbes = dialog.holdsSecret
         let container = OverlayDialogView(page: page, activeLook: dialog.activeLook)
         container.setAccessibilityIdentifier(dialog.spec.identifier ?? "cmux.dialog")
         views[ObjectIdentifier(dialog)] = (container, page)
