@@ -1,7 +1,9 @@
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextLayout
+import CmuxNextWindowRules
 
 /// Dock Column, Dock Column Left/Right/Top/Bottom, Float Column and Undock
 /// Column (plans/cmux-next/layout-model.md). With no arguments a dock uses
@@ -58,35 +60,37 @@ enum DockColumnHandlers {
         case .pin(_, let dock, let width):
             // Width and pin in one transaction: one undo step.
             let transaction = LayoutTransactionID.make()
-            if dock.edge.isBand, !content.daemon.supports(DaemonCapability.edgeDocks.rawValue) {
-                throw ActionFailure(message: content.daemon.missingCapabilityMessage(DaemonCapability.edgeDocks.rawValue))
+            let daemon = content.daemon
+            if let needs = WindowRules().dockNeeds(band: dock.edge.isBand, dockColumns: true,
+                                                   edgeDocks: daemon.supports(DaemonCapability.edgeDocks.rawValue)) {
+                throw ActionFailure(message: daemon.missingCapabilityMessage(needs))
             }
             if abs(column.width - width) > 0.001 {
                 content.layoutModel.setColumnWidth(column.id, width: width, transaction: transaction, phase: .ended)
             }
             try ColumnDocking.apply(dock, to: column, in: content, transaction: transaction)
         case .moveTab(let pane, let dock, let width):
-            let docks = DaemonCapability.edgeDocks.rawValue
-            guard content.daemon.supports(docks) else { throw ActionFailure(message: content.daemon.missingCapabilityMessage(docks)) }
-            guard let controller = content.panes[pane], let tab = controller.selectedTab else {
+            // The column keeps a tab to scroll: the pane keeps another tab, the column keeps another
+            // pane, or a fresh tab stays behind; the anchor places the new column (`chat::dock_move`).
+            let daemon = content.daemon, controller = content.panes[pane], tab = controller?.selectedTab
+            let facts = WindowRules.DockMoveFacts(
+                pane: pane.rawValue, paneTabs: controller?.pane.tabs.count ?? 0, columnPanes: column.root.panes.map(\.rawValue),
+                shownOthers: column.root.panes.filter { content.panes[$0] != nil }.map(\.rawValue), hasTab: tab != nil,
+                edgeDocks: daemon.supports(DaemonCapability.edgeDocks.rawValue),
+                tabColumnRespawn: daemon.supports(DaemonCapability.tabColumnRespawn.rawValue))
+            guard let move = WindowRules().dockMove(facts) else { return }
+            if case .refuse(let needs) = move {
+                throw ActionFailure(message: daemon.missingCapabilityMessage(needs))
+            }
+            guard case .move(let respawns, let anchorID) = move, let controller, let tab else {
                 throw ActionFailure.noTarget(RefusalStrings.focusedPaneHasNoTab)
             }
-            // The column keeps a tab to scroll: the pane keeps another tab,
-            // the column keeps another pane, or a fresh tab stays behind.
             var respawn: SplitRespawn?
-            if controller.pane.tabs.count == 1, column.root.panes.count == 1 {
-                let capability = DaemonCapability.tabColumnRespawn.rawValue
-                guard content.daemon.supports(capability) else {
-                    throw ActionFailure(message: content.daemon.missingCapabilityMessage(capability))
-                }
+            if respawns {
                 respawn = TabMoves.respawn(for: tab, in: controller.pane, services: ctx.services)
                 guard respawn != nil else { throw ActionFailure.invalidTarget(RefusalStrings.openSecondTabToDock) }
             }
-            // The anchor only places the new column on the screen. A pane's
-            // only tab cannot leave through its own pane (the daemon refuses
-            // that as a split), so another pane of the column anchors it.
-            let anchor = respawn != nil || controller.pane.tabs.count > 1 ? controller.pane
-                : column.root.panes.lazy.filter { $0 != pane }.compactMap { content.panes[$0]?.pane }.first ?? controller.pane
+            let anchor = content.panes[LayoutPaneID(rawValue: anchorID)]?.pane ?? controller.pane
             let reveal = TabHandlers.revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
             TabMoves.toNewDockColumn(tab, anchor: anchor, edge: dock.edge, mode: dock.mode, width: width,
                                        respawn: respawn, services: ctx.services, completion: reveal)

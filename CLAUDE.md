@@ -328,6 +328,8 @@ nightly-only labels). This applies to humans, Leo and every agent:
   add `risk:human-ok` or `risk:waived`.
 - Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
   the mistakes our review history keeps catching.
+- Before designing a change or fixing a bug, read [design-lessons.md](docs/cmux-next/design-lessons.md):
+  the causes our fix history keeps repeating, each with its rule and cost.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
   first. A small change (a removal, a copy, CSS or token tweak, a fix confined to one
   component) needs only that. A behavior change into `feat-cmux-next` that is not small gets

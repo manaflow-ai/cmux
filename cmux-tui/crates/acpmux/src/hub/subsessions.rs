@@ -684,6 +684,7 @@ impl Hub {
             // person's default start mode only under a full-access parent.
             keep_harness_mode: true,
             subsession: Some(link),
+            created_by: Some(super::created_by::agent(&parent.id, pm)),
             lineage: Some(lineage),
             ..Default::default()
         };

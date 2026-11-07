@@ -414,6 +414,9 @@ export function MenuPopup({
           ref={attachPopup}
           id={id}
           aria-label={label}
+          // The App's menu glass under the page (glass/hostGlass.ts).
+          data-host-glass="menu"
+          data-host-glass-cover=""
           className={cx(
             "ui-popup ui-glass ui-menu ui-scroll-edge-fade",
             matchTrigger && "ui-menu-match-trigger",
