@@ -117,3 +117,22 @@ describe("trayLinger", () => {
     expect(shown[1]!.kind === "command" && shown[1]!.command.endedAt).toBe(50);
   });
 });
+
+describe("trayLinger review follow-ups", () => {
+  test("F2: a completion delivered late while the hat was held all along does not expire at once", () => {
+    const linger = createLinger();
+    // Seen running, the hat held from the start; the end (stamped at 0) arrives after a 3-minute
+    // reconnect.
+    stepLinger(linger, { live: ["agent:a"], ended: [], hold: true, now: 0, grace: GRACE });
+    const ended = [{ key: "agent:a", endedAt: 0 }];
+    const late = stepLinger(linger, { live: [], ended, hold: true, now: 180_000, grace: GRACE });
+    expect(late.kept.has("agent:a")).toBe(true);
+    // It keeps its end for its order and time.
+    expect(late.kept.get("agent:a")).toBe(0);
+    // Folded: the whole grace is left, from when the hold ended.
+    const folded = stepLinger(linger, { live: [], ended, hold: false, now: 200_000, grace: GRACE });
+    expect(folded.kept.has("agent:a")).toBe(true);
+    expect(folded.next).toBe(200_000 + GRACE);
+    expect(stepLinger(linger, { live: [], ended, hold: false, now: 200_000 + GRACE, grace: GRACE }).kept.size).toBe(0);
+  });
+});

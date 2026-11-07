@@ -80,6 +80,8 @@ const { createRoot } = await import("react-dom/client");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { rememberTrayOpen, resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
+const { useTrayLinger } = await import("../src/agent-session/acpmux/subagents/trayLinger");
+const { ComposerHatLingerStage } = await import("../src/gallery/fixtures/ComposerHatLingerStage");
 type TrayItem = import("../src/agent-session/acpmux/subagents/runningTray").TrayItem;
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 
@@ -256,6 +258,52 @@ describe("composer hat: lines enter and leave", () => {
       expect(view.rows().length).toBe(1);
     } finally {
       await view.done();
+    }
+  });
+});
+
+describe("composer hat: review follow-ups", () => {
+  test("F1: the linger reads the session's clock, so a peer's end stays while the hat is held", async () => {
+    // The peer's clock runs 3 minutes behind this computer's (`clockOffsetMs`: this computer minus
+    // the session). Its subagent ended just now on its own clock.
+    const offset = 180_000;
+    const local = 1_000_000_000;
+    const ended = [{ key: "agent:peer", endedAt: local - offset }];
+    let kept: ReadonlyMap<string, number> = new Map();
+    function Probe() {
+      kept = useTrayLinger("chat-peer", [], ended, true, { offsetMs: offset, clock: () => local });
+      return null;
+    }
+    const host = dom.window.document.getElementById("root")!;
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(Probe)));
+      expect(kept.has("agent:peer")).toBe(true);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  test("F3: the gallery stage stamps a command's end when it finishes, not when the stage mounted", async () => {
+    motion(false);
+    const realNow = Date.now;
+    let clock = realNow();
+    Date.now = () => clock;
+    const host = dom.window.document.getElementById("root")!;
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(ComposerHatLingerStage, { grace: 600_000 })));
+      // Five minutes after the stage mounted, the command finishes: it ran 64 s before mount plus 5 m.
+      clock += 300_000;
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-stage="finish"]')!.click());
+      const head = host.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      await act(async () => head.click());
+      const done = host.querySelector<HTMLElement>('.acpmux-agent-line[data-status="done"]');
+      expect(done).not.toBeNull();
+      expect(done!.textContent).toContain("6m 4s");
+    } finally {
+      await act(async () => root.unmount());
+      Date.now = realNow;
     }
   });
 });
