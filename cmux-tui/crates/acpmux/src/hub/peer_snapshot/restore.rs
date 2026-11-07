@@ -24,8 +24,13 @@
 //! holds its own session the same way. Then, with nothing held, the deliveries the peer
 //! accepted and may have lost with its disk are delivered again under their own prompt ids
 //! (`server/outbox.rs` `redeliver_open`); with anything held, none is.
+//!
+//! A restore gives back, with the copy, the records the open deliveries hold as proof of their
+//! prompts (`open_delivery.rs` `proofs_past`): a bound, a queue that overflowed or the disk's
+//! eviction may have cut them from the copy, never from the delivery.
 
 use super::*;
+use crate::hub::open_delivery as od;
 use crate::rpc::RpcError;
 use tokio::sync::Notify;
 
@@ -142,7 +147,7 @@ impl PeerSnapshots {
     /// The copies of `peer`'s chats that hold records past where `rows` say its journals end;
     /// None when it could not be read (the queue full, the store's thread gone, no answer within
     /// [`ANSWER_WITHIN`]): that is "maybe ahead", never "none".
-    fn ahead(&self, peer: &str, rows: Vec<Row>) -> Option<Vec<Ahead>> {
+    fn ahead(&self, peer: &str, rows: Vec<Row>) -> Option<(Vec<Ahead>, od::Since)> {
         #[cfg(debug_assertions)]
         if test_unknown(peer) {
             return None;
@@ -150,7 +155,7 @@ impl PeerSnapshots {
         // No copies kept (no directory for them), or no journal of the peer to compare: none
         // can be ahead, and that is known.
         if self.dir.is_none() || rows.is_empty() {
-            return Some(Vec::new());
+            return Some(Default::default());
         }
         let (tx, rx) = mpsc::sync_channel(1);
         let sent = {
@@ -158,30 +163,6 @@ impl PeerSnapshots {
             self.send_unsent(&mut dropped)
                 && self.reserve(OP_BYTES)
                 && self.enqueue(OP_BYTES, Op::Ahead { peer: peer.to_owned(), rows, reply: tx })
-        };
-        if !sent {
-            return None;
-        }
-        blocking(|| rx.recv_timeout(ANSWER_WITHIN)).ok()
-    }
-
-    /// Whether the copy of `pin`'s session and generation holds prompt `prompt_id`'s journal
-    /// record on disk; None when it could not be read (then the delivery stays open).
-    pub(crate) fn holds(&self, pin: &crate::hub::outbox::Pin, prompt_id: &str) -> Option<bool> {
-        if self.dir.is_none() {
-            return Some(false);
-        }
-        let (tx, rx) = mpsc::sync_channel(1);
-        let key = (pin.peer.clone(), pin.session.clone());
-        let op = Op::Holds {
-            key,
-            generation: pin.generation,
-            prompt_id: prompt_id.to_owned(),
-            reply: tx,
-        };
-        let sent = {
-            let mut dropped = self.dropped();
-            self.send_unsent(&mut dropped) && self.reserve(OP_BYTES) && self.enqueue(OP_BYTES, op)
         };
         if !sent {
             return None;
@@ -218,26 +199,15 @@ impl Store {
         seen.is_some_and(|s| s < c.head.last_seq)
     }
 
-    /// Whether the copy of `key`, of generation `generation` and with nothing left to write,
-    /// holds the journal record of prompt `prompt_id`.
-    pub(super) fn holds(&mut self, key: &Key, generation: u64, prompt_id: &str) -> bool {
-        let written = self.copies.get(key).is_some_and(|c| {
-            c.head.generation == Some(generation) && c.due.is_none() && c.disk > 0
-        });
-        if !written || !self.load(key) {
-            return false;
-        }
-        let names = |r: &Value| crate::hub::open_delivery::names_prompt(r, prompt_id);
-        self.copies
-            .get(key)
-            .and_then(|c| c.records.as_ref())
-            .is_some_and(|records| records.values().any(names))
-    }
-
-    pub(super) fn ahead(&mut self, peer: &str, rows: Vec<Row>) -> Vec<Ahead> {
+    pub(super) fn ahead(&mut self, peer: &str, rows: Vec<Row>) -> (Vec<Ahead>, od::Since) {
         let mut out = Vec::new();
+        let mut since = od::Since::new();
         for (mux, generation, last) in rows {
             let key = (peer.to_owned(), mux);
+            if let Some(c) = self.copies.get(&key).filter(|c| c.head.generation == Some(generation))
+            {
+                since.insert(key.1.clone(), (generation, c.head.since));
+            }
             // Past where the peer's journal ends, with a gap or not (`keeps_ahead`).
             let ahead = |c: &Kept| c.head.generation == Some(generation) && last < c.head.last_seq;
             if !self.copies.get(&key).is_some_and(ahead) || !self.load(&key) {
@@ -251,7 +221,7 @@ impl Store {
                 out.push((key.1, generation, last, past));
             }
         }
-        out
+        (out, since)
     }
 
     /// The peer's answer to a restore of `key`: it ends at `last` now (its pages join again), or
@@ -315,11 +285,17 @@ impl Hub {
                     "could not read whether a copy is ahead of the peer; trying again"
                 );
             }
-            let Some(ahead) = ahead else {
+            let Some((ahead, since)) = ahead else {
                 tracing::warn!(peer, "prompts to this peer are held until it reconnects");
                 hub.peer_snapshots.restoring.decide(&peer, Decision { link, held: None });
                 return;
             };
+            // What the open deliveries hold as proof goes back with the copy.
+            let proofs = od::proofs_past(&hub.outbox, &peer, &rows, &since);
+            let ahead = with_proofs(ahead, proofs, &rows);
+            // Where each journal ends once this link's restores ran (`redeliver_open`).
+            let mut ends: HashMap<String, (u64, u64)> =
+                rows.iter().map(|(s, g, l)| (s.clone(), (*g, *l))).collect();
             // Whether a copy is still ahead of the peer's journal: then nothing is delivered again,
             // since a resend could take the seqs its records need.
             let mut held = HashSet::new();
@@ -345,6 +321,9 @@ impl Hub {
                             let last = answer.get("lastSeq").and_then(Value::as_u64);
                             tracing::info!(peer, session = %mux, after, ?last, "journal restored");
                             hub.peer_snapshots.restored((&peer, &mux), (link, created_at), last);
+                            if let Some(last) = last {
+                                ends.insert(mux.clone(), (created_at, last));
+                            }
                             done = true;
                             break;
                         }
@@ -377,10 +356,39 @@ impl Hub {
             let clear = held.is_empty();
             hub.peer_snapshots.restoring.decide(&peer, Decision { link, held: Some(held) });
             if clear {
-                crate::server::outbox::redeliver_open(&hub, &peer);
+                crate::server::outbox::redeliver_open(&hub, &peer, link, ends);
             }
         });
     }
+}
+
+/// `ahead` with the proofs' records (`od::proofs_past`) of each session merged in, by seq: a
+/// session whose copy is not ahead (or went) restores from them alone, after its row's
+/// `lastSeq`.
+pub(crate) fn with_proofs(
+    mut ahead: Vec<Ahead>,
+    proofs: HashMap<String, Vec<Value>>,
+    rows: &[Row],
+) -> Vec<Ahead> {
+    for (session, records) in proofs {
+        if records.is_empty() {
+            continue;
+        }
+        if let Some((_, _, _, held)) = ahead.iter_mut().find(|(s, ..)| *s == session) {
+            let mut by_seq: BTreeMap<u64, Value> =
+                held.drain(..).filter_map(|r| Some((seq_of(&r)?, r))).collect();
+            for r in records {
+                if let Some(s) = seq_of(&r) {
+                    by_seq.entry(s).or_insert(r);
+                }
+            }
+            held.extend(by_seq.into_values());
+        } else if let Some((_, generation, last)) = rows.iter().find(|(s, ..)| *s == session) {
+            ahead.push((session, *generation, *last, records));
+        }
+    }
+    ahead.retain(|(.., records)| records.len() <= crate::hub::journal_restore::MAX_RECORDS);
+    ahead
 }
 
 /// Debug builds only: every read of whether a copy of `peer` is ahead fails, `n` times.

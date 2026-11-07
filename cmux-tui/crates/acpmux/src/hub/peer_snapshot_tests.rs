@@ -507,7 +507,7 @@ fn a_page_continues_a_copy_only_where_it_joins_it() {
     // record past where the peer is, and goes back to it (`restore.rs`).
     put(&mut store, "m1", attach(7, 2, true, recs(8..=9)));
     assert_eq!(seqs(&mut store, "m1"), (5..=12).collect::<Vec<_>>());
-    let ahead = store.ahead(PEER, vec![("m1".into(), 7, 9)]);
+    let (ahead, _) = store.ahead(PEER, vec![("m1".into(), 7, 9)]);
     let back: Vec<u64> = ahead[0].3.iter().filter_map(seq_of).collect();
     assert_eq!((ahead.len(), ahead[0].2, back), (1, 9, vec![10, 11, 12]));
     // The peer refused them (another history): the copy goes, and its next page starts one.
@@ -616,7 +616,7 @@ fn an_empty_page_from_a_peer_gone_back_keeps_the_copy_until_the_peer_takes_it_ba
     empty.host_last_seq = Some(0);
     put(&mut store, "m1", empty);
     assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3]);
-    assert_eq!(store.ahead(PEER, vec![("m1".into(), 7, 0)])[0].3.len(), 3);
+    assert_eq!(store.ahead(PEER, vec![("m1".into(), 7, 0)]).0[0].3.len(), 3);
     // Taken back, the peer's journal ends where the copy does, and its pages join it.
     store.take(Op::Restored { key: key("m1"), link: (1, 2), generation: 7, last: Some(3) });
     put(&mut store, "m1", attach(7, 2, true, recs(4..=5)));

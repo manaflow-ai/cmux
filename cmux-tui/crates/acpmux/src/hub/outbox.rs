@@ -111,6 +111,11 @@ pub struct Delivery {
     /// closes it (`open_delivery.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pin: Option<Pin>,
+    /// The journal records of its prompt the owner's copy of the pinned session wrote to disk
+    /// (`open_delivery.rs`): held here, past every bound of the copies, until the machine is seen
+    /// holding them on a later link, so no eviction loses them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proof: Option<Proof>,
     #[serde(default)]
     pub error: Option<String>,
     /// The target's `_acpmux/prompt_accepted` (or its reply) once delivered.
@@ -130,6 +135,17 @@ pub struct Pin {
     /// Its `createdAt`.
     pub generation: u64,
     /// The peer's instance and link epoch then.
+    pub link: (u64, u64),
+}
+
+/// What the owner's copy wrote of a delivery's prompt (`open_delivery.rs`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Proof {
+    /// Each journal record of the prompt's life the copy wrote (it waits, runs, ends, or is
+    /// taken off the queue), in seq order.
+    pub records: Vec<Value>,
+    /// The peer's link when the first of them was written: only a later link releases it.
     pub link: (u64, u64),
 }
 
@@ -218,6 +234,10 @@ pub struct Outbox {
     /// Fired when a peer's link is ready again (`hub/peers.rs`): a message waiting out a retry
     /// delay tries again at once instead of minutes later.
     pub peer_ready: Notify,
+    /// For each peer, the open delivery its last link's redelivery reached last
+    /// (`server/outbox.rs` `redeliver_open`): the next link goes on after it, so none waits
+    /// behind the others for good.
+    pub(crate) redelivered_to: StdMutex<HashMap<String, (u64, String)>>,
 }
 
 /// The deliveries and the number of changes made to them.
@@ -350,6 +370,7 @@ impl Outbox {
             relay_post: None,
             open_on_peer: false,
             pin: None,
+            proof: None,
             error: None,
             accepted: None,
             created_at: now,
@@ -392,6 +413,22 @@ impl Outbox {
 
     /// Deliveries a peer accepted and its journal was not seen to hold yet (`open_on_peer`), of
     /// every peer, oldest first.
+    /// Deliveries pinned to peer `peer`'s session `session` of generation `generation` and not
+    /// failed: the ones its copy's records may prove (`open_delivery.rs`).
+    pub(crate) fn pinned_to(
+        &self,
+        (peer, session, generation): (&str, &str, u64),
+    ) -> Vec<Delivery> {
+        let pinned = |d: &&Delivery| {
+            d.state != State::Failed
+                && d.pin.as_ref().is_some_and(|p| {
+                    (p.peer.as_str(), p.session.as_str(), p.generation)
+                        == (peer, session, generation)
+                })
+        };
+        self.book().deliveries.values().filter(pinned).cloned().collect()
+    }
+
     pub fn open_on_peers(&self) -> Vec<Delivery> {
         let book = self.book();
         let mut out: Vec<Delivery> =
@@ -600,6 +637,7 @@ mod tests {
             relay_post: None,
             open_on_peer: false,
             pin: None,
+            proof: None,
             error: None,
             accepted: None,
             created_at: now,
@@ -855,6 +893,7 @@ mod tests {
             relay_post: None,
             open_on_peer: false,
             pin: None,
+            proof: None,
             error: None,
             accepted: None,
             created_at: 0,

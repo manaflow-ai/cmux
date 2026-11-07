@@ -27,6 +27,7 @@
 //! to the mesh hub when the relay is on, and its status is the hub's receipt (`mesh_send.rs`).
 
 use crate::no_panic::JsonExt;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use super::*;
@@ -144,6 +145,7 @@ pub(super) async fn handle(
         relay_post: None,
         open_on_peer: false,
         pin: None,
+        proof: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -241,6 +243,7 @@ pub(super) async fn remember_forward(
         relay_post: None,
         open_on_peer: false,
         pin: None,
+        proof: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -544,6 +547,17 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         if delivery.settled() {
             return;
         }
+        // The owner's copy wrote its prompt's records: the peer took it, and it is never sent
+        // again (a resend could run it twice); it stays open on them (`hub/open_delivery.rs`).
+        if delivery.proof.is_some() && delivery.pin.is_some() {
+            hub.outbox.update(id, |d| {
+                if !d.settled() {
+                    let (pin, answer) = (d.pin.clone(), json!({"proven": true}));
+                    crate::hub::open_delivery::accepted(d, pin, answer);
+                }
+            });
+            return;
+        }
         // Past its day (a restart resumes old ones too): failed, never sent this late.
         if expired(&delivery, crate::store::now_ms()) {
             hub.outbox.update(id, |d| {
@@ -717,58 +731,114 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
     }
 }
 
-/// Peer `peer`'s link is ready again, and its journals took back what this daemon kept of them
-/// (`hub/peer_snapshot/restore.rs`): every delivery to it that is still open (`hub/open_delivery.rs`)
-/// is, in the order it was sent, closed when the owner's copy of its pinned session holds its
-/// record, else sent again as a resend of its own prompt id to its pinned generation. A machine
-/// that kept it answers with its first outcome (it stays open until the copy shows it); one that
-/// lost it with its disk runs it now, once; a stale or refused one fails it, saying why. Open past
-/// its bound, it fails, saying so. At most [`REDELIVER_PER_LINK`] go on one link, oldest first;
-/// one task per call; each resend waits at most [`ATTEMPT_WAIT`].
-pub(crate) fn redeliver_open(hub: &Arc<Hub>, peer: &str) {
-    let now = crate::store::now_ms();
-    let mut open: Vec<Delivery> = hub
+/// Peer `peer`'s link `link` is ready, and its journals took back what this daemon kept of them
+/// (`hub/peer_snapshot/restore.rs`; `ends`: where each journal ends now, session: generation and
+/// `lastSeq`). Every delivery to it that is still open (`hub/open_delivery.rs` `step`) is, oldest
+/// first: failed when it lapsed or its session is another generation there; closed when its
+/// proof is held there; left open when proven and not seen held yet (never sent again); else
+/// sent again as a resend of its own prompt id to its pinned generation (a machine that kept it
+/// answers with its first outcome; one that lost it with its disk runs it now, once; a refused
+/// one fails it, saying why). All of them go on this link, in batches of [`REDELIVER_BATCH`],
+/// while it is up; the next link goes on after the last one reached, so none waits behind the
+/// others for good. One task per call; each resend waits at most [`ATTEMPT_WAIT`].
+pub(crate) fn redeliver_open(
+    hub: &Arc<Hub>,
+    peer: &str,
+    link: (u64, u64),
+    ends: HashMap<String, (u64, u64)>,
+) {
+    let open: Vec<Delivery> = hub
         .outbox
         .open_on_peers()
         .into_iter()
         .filter(|d| d.pin.as_ref().is_some_and(|p| p.peer == peer))
         .collect();
-    open.truncate(REDELIVER_PER_LINK);
     if open.is_empty() {
         return;
     }
-    let hub = hub.clone();
+    let (hub, peer) = (hub.clone(), peer.to_owned());
     tokio::spawn(async move {
-        use crate::hub::open_delivery::{self as od, Again};
-        for d in open {
-            let Some(pin) = d.pin.clone() else { continue };
-            if d.open_lapsed(now) {
-                let lapsed = crate::hub::outbox::OPEN_LAPSED.to_owned();
-                close_open(&hub, &d, |d| d.fail_open(lapsed)).await;
-                continue;
+        let on_link = || hub.peer(&peer).is_some_and(|p| (p.generation, p.link_epoch()) == link);
+        let from = cursor(&hub).get(&peer).cloned();
+        let one = |d: Delivery| {
+            let (hub, peer, ends) = (hub.clone(), peer.clone(), &ends);
+            async move {
+                redeliver_one(&hub, &d, link, ends).await;
+                cursor(&hub).insert(peer, (d.created_at, d.id.clone()));
             }
-            // The copy is the only proof that nothing loses it.
-            let held = {
-                let (h, pin, prompt) = (hub.clone(), pin.clone(), d.prompt_id().to_owned());
-                tokio::task::spawn_blocking(move || h.peer_snapshots.holds(&pin, &prompt))
-                    .await
-                    .ok()
-                    .flatten()
-            };
-            if held == Some(true) {
-                close_open(&hub, &d, |d| {
-                    od::close_if_held(d, true);
-                })
-                .await;
-                continue;
+        };
+        redeliver_all(open, from, on_link, one).await;
+    });
+}
+
+fn cursor(hub: &Hub) -> std::sync::MutexGuard<'_, HashMap<String, (u64, String)>> {
+    hub.outbox.redelivered_to.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The open deliveries of one link go in batches of this many; between batches the link is read
+/// again and the runtime gets the thread.
+const REDELIVER_BATCH: usize = 256;
+
+/// Runs `one` on each of `open` (oldest first), starting after `from` (the one a link before
+/// reached last, by sent time and id) and coming round to it, in batches of
+/// [`REDELIVER_BATCH`], while `on_link` holds. Answers how many it ran.
+async fn redeliver_all<F, Fut>(
+    mut open: Vec<Delivery>,
+    from: Option<(u64, String)>,
+    on_link: impl Fn() -> bool,
+    mut one: F,
+) -> usize
+where
+    F: FnMut(Delivery) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    open.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
+    let after = from.map_or(0, |(at, id)| {
+        open.iter().position(|d| (d.created_at, d.id.as_str()) > (at, id.as_str())).unwrap_or(0)
+    });
+    open.rotate_left(after);
+    let mut ran = 0;
+    for batch in open.chunks(REDELIVER_BATCH) {
+        for d in batch {
+            if !on_link() {
+                return ran;
             }
+            one(d.clone()).await;
+            ran += 1;
+        }
+        tokio::task::yield_now().await;
+    }
+    ran
+}
+
+/// One open delivery of a link's redelivery (`redeliver_open`).
+async fn redeliver_one(
+    hub: &Arc<Hub>,
+    d: &Delivery,
+    link: (u64, u64),
+    ends: &HashMap<String, (u64, u64)>,
+) {
+    use crate::hub::open_delivery::{self as od, Again, Step};
+    let now = crate::store::now_ms();
+    let Some(pin) = d.pin.clone() else { return };
+    match od::step(d, now, link, ends) {
+        Step::Lapse => {
+            let lapsed = crate::hub::outbox::OPEN_LAPSED.to_owned();
+            close_open(hub, d, |d| d.fail_open(lapsed)).await;
+        }
+        Step::Stale => {
+            tracing::warn!(delivery = %d.id, "a proven delivery's session is another generation now");
+            close_open(hub, d, |d| d.fail_open(od::STALE.to_owned())).await;
+        }
+        Step::Release => close_open(hub, d, od::release).await,
+        Step::Wait => {}
+        Step::Again => {
             let mut request = d.request.clone();
             if let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
                 mux.insert("resend".into(), json!(true));
             }
             od::name_generation(&mut request, Some(&pin));
-            let again = match attempt_once(&hub, d.caller.as_deref(), request, Origin::Local).await
-            {
+            let again = match attempt_once(hub, d.caller.as_deref(), request, Origin::Local).await {
                 Ok(answer) => Again::Taken(answer),
                 Err((error, Next::Fail | Next::NoSession | Next::Stale)) => Again::Refused(error),
                 Err(_) => Again::Unknown,
@@ -779,15 +849,11 @@ pub(crate) fn redeliver_open(hub: &Arc<Hub>, peer: &str) {
             let mut settled = false;
             hub.outbox.update(&d.id, |d| settled = od::after_again(d, again));
             if settled {
-                close_open(&hub, &d, |_| {}).await;
+                close_open(hub, d, |_| {}).await;
             }
         }
-    });
+    }
 }
-
-/// The most open deliveries one link of a peer sends again (`redeliver_open`): the rest go on
-/// the next link, so a link's cost is bounded however many are open.
-const REDELIVER_PER_LINK: usize = 256;
 
 /// Closes open delivery `d` with `f`: settled now, its record keeps no attachment bytes, and
 /// the ones kept beside the outbox go.
@@ -1037,6 +1103,7 @@ mod retry_delay_tests {
             relay_post: None,
             open_on_peer: false,
             pin: None,
+            proof: None,
             error: None,
             accepted: None,
             created_at,

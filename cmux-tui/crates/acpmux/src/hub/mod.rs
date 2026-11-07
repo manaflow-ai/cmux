@@ -1088,12 +1088,13 @@ impl Hub {
             hub.refresh_web_modes(&c);
         }
         hub.recover_staged_replacements();
-        // A copy's write tells the prompts it now holds: their open deliveries close.
+        // A copy's write tells the records of prompts it put on disk: their deliveries keep
+        // them as proof (`open_delivery.rs`).
         {
             let weak = Arc::downgrade(&hub);
-            let written: peer_snapshot::Written = Arc::new(move |key, generation, prompts| {
+            let written: peer_snapshot::Written = Arc::new(move |key, generation, records| {
                 if let Some(hub) = weak.upgrade() {
-                    hub.close_captured(&key.0, &key.1, generation, &prompts);
+                    hub.proof_written(&key.0, &key.1, generation, &records);
                 }
             });
             *hub.peer_snapshots.written.lock().unwrap_or_else(|e| e.into_inner()) = Some(written);

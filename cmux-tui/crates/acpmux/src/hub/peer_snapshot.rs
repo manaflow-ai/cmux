@@ -51,7 +51,7 @@
 //! tokens, none of which is here.
 
 use super::*;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, mpsc};
 use std::time::{Duration, Instant};
@@ -201,11 +201,12 @@ enum Op {
         peer: Option<String>,
         done: Option<mpsc::SyncSender<()>>,
     },
-    /// The records past each row's `lastSeq` its copy holds (`restore.rs`).
+    /// The records past each row's `lastSeq` its copy holds, and from which seq each copy saw
+    /// every record (`restore.rs`).
     Ahead {
         peer: String,
         rows: Vec<restore::Row>,
-        reply: mpsc::SyncSender<Vec<restore::Ahead>>,
+        reply: mpsc::SyncSender<(Vec<restore::Ahead>, crate::hub::open_delivery::Since)>,
     },
     /// The peer's answer to a restore of generation `generation`, on link `link`: taken (its
     /// journal ends at `last`) or refused (None, and the copy goes), only while `link` is the
@@ -216,19 +217,12 @@ enum Op {
         generation: u64,
         last: Option<u64>,
     },
-    /// Whether the copy of `key`, of generation `generation`, holds the journal record of prompt
-    /// `prompt_id` on disk (`open_delivery.rs`).
-    Holds {
-        key: Key,
-        generation: u64,
-        prompt_id: String,
-        reply: mpsc::SyncSender<bool>,
-    },
 }
 
-/// Told, after a copy's write, the prompts whose journal records it now holds on disk: the
-/// copy's key, its generation and their prompt ids (`open_delivery.rs` closes their deliveries).
-pub(crate) type Written = Arc<dyn Fn(&(String, String), u64, Vec<String>) + Send + Sync>;
+/// Told, after a copy's write, the records of prompts' lives that came since its last write and
+/// the write put on disk (never one a bound cut before it): the copy's key, its generation and
+/// the records (`open_delivery.rs`: their deliveries keep them as proof).
+pub(crate) type Written = Arc<dyn Fn(&(String, String), u64, Vec<Value>) + Send + Sync>;
 
 /// The peers whose ops did not fit the queue (with whether a removal of the peer was among
 /// them), and the flushes sent: each is sent once until the thread takes it, so they are bounded
@@ -542,15 +536,16 @@ struct Kept {
     failures: u64,
     /// When it was last captured or read (ms), for eviction; a restart keeps its `capturedAt`.
     used: u64,
-    /// Prompts whose journal records came since its last write: told once written ([`Written`]).
-    fresh_prompts: Vec<String>,
+    /// The seqs of records of prompts' lives that came since its last write: the ones still held
+    /// are told once written ([`Written`]).
+    fresh: BTreeSet<u64>,
 }
 
 impl Kept {
     fn new(head: Head, disk: u64) -> Self {
         let used = head.captured_at;
         let (memory, epoch, joined, due, retry, failures, own) = (0, None, None, None, None, 0, 0);
-        let fresh_prompts = Vec::new();
+        let fresh = BTreeSet::new();
         Self {
             head,
             records: None,
@@ -563,7 +558,7 @@ impl Kept {
             retry,
             failures,
             used,
-            fresh_prompts,
+            fresh,
         }
     }
 }
@@ -770,9 +765,6 @@ impl Store {
             Op::Ahead { peer, rows, reply } => {
                 let _ = reply.send(self.ahead(&peer, rows));
             }
-            Op::Holds { key, generation, prompt_id, reply } => {
-                let _ = reply.send(self.holds(&key, generation, &prompt_id));
-            }
             Op::Restored { key, link, generation, last } => {
                 let same =
                     self.copies.get(&key).is_some_and(|c| c.head.generation == Some(generation));
@@ -806,7 +798,7 @@ impl Store {
             }
             Op::Flush { .. } => return,
             // Its reader is answered at once that there is nothing (its reply went with it).
-            Op::Read { .. } | Op::Covers { .. } | Op::Ahead { .. } | Op::Holds { .. } => return,
+            Op::Read { .. } | Op::Covers { .. } | Op::Ahead { .. } => return,
             Op::LostPeer(_) => return self.take(op),
             Op::Clear(_) => {
                 self.clear();
@@ -1034,30 +1026,12 @@ impl Store {
             return;
         };
         self.load(key);
-        let mut carried = Vec::new();
         match self.fate(key, &page, (from, to), generation) {
             Fate::Ignore => return,
             Fate::Join => {}
             Fate::Restart => {
-                // A copy of this generation replaced (a page past a gap) keeps its prompts'
-                // records: a message it holds may be on no disk of the peer's any more, and
-                // its delivery closed on it (`open_delivery.rs`, the move simulation).
-                if let Some(c) =
-                    self.copies.get(key).filter(|c| c.head.generation == Some(generation))
-                {
-                    let names = |r: &&Value| {
-                        r.pointer("/msg/promptId")
-                            .and_then(Value::as_str)
-                            .is_some_and(|p| crate::hub::open_delivery::names_prompt(r, p))
-                    };
-                    carried = c
-                        .records
-                        .iter()
-                        .flat_map(|r| r.range(..from).map(|(_, r)| r))
-                        .filter(names)
-                        .cloned()
-                        .collect();
-                }
+                // What a replaced copy held of a message's life its delivery holds itself
+                // (`open_delivery.rs`): no record is carried over a gap.
                 self.remove(key);
                 // Only a page that names its generation itself starts a copy.
                 if page.generation != Some(generation) {
@@ -1069,6 +1043,7 @@ impl Store {
                     generation: Some(generation),
                     first_seq: from,
                     last_seq: to,
+                    since: from,
                     ..Head::default()
                 };
                 let mut copy = Kept::new(head, 0);
@@ -1089,8 +1064,7 @@ impl Store {
             h.summary = row;
             self.charge(key);
         }
-        carried.extend(page.records);
-        self.add(key, carried);
+        self.add(key, page.records);
     }
 
     /// A live record continues only a copy a page joined on the link it came on, and only next to
@@ -1128,10 +1102,8 @@ impl Store {
         let Some(held) = c.records.as_mut() else { return };
         for r in records {
             let Some(seq) = seq_of(&r) else { continue };
-            if let Some(prompt) = r.pointer("/msg/promptId").and_then(Value::as_str)
-                && crate::hub::open_delivery::names_prompt(&r, prompt)
-            {
-                c.fresh_prompts.push(prompt.to_owned());
+            if crate::hub::open_delivery::of_a_prompt(&r) {
+                c.fresh.insert(seq);
             }
             let bytes = record_bytes(&r);
             if let Some(old) = held.insert(seq, r) {
@@ -1510,15 +1482,21 @@ impl Store {
         if let Some(c) = self.copies.get_mut(key) {
             c.disk = written;
             (c.due, c.retry, c.failures) = (None, None, 0);
-            let prompts = std::mem::take(&mut c.fresh_prompts);
-            if let Some(generation) = c.head.generation.filter(|_| !prompts.is_empty()) {
-                told = Some((generation, prompts));
+            // Only what this write held: a record a bound cut before it is on no disk here.
+            let fresh = std::mem::take(&mut c.fresh);
+            let records: Vec<Value> = c
+                .records
+                .as_ref()
+                .map(|held| fresh.iter().filter_map(|s| held.get(s)).cloned().collect())
+                .unwrap_or_default();
+            if let Some(generation) = c.head.generation.filter(|_| !records.is_empty()) {
+                told = Some((generation, records));
             }
         }
-        if let Some((generation, prompts)) = told {
+        if let Some((generation, records)) = told {
             let hook = self.written.lock().unwrap_or_else(|e| e.into_inner()).clone();
             if let Some(hook) = hook {
-                hook(key, generation, prompts);
+                hook(key, generation, records);
             }
         }
         self.trim_memory(None);
