@@ -77,6 +77,7 @@ import Testing
             ("options", { _ = list.options(includeGap: true) }),
             ("make", { _ = SidebarLayout.make(sections: list.listSections, metrics: list.metrics, options: list.options(includeGap: false)) }),
             ("displayLayout", { _ = list.displayLayout() }),
+            ("groupLines", { _ = list.groupLines(list.displayed) }),
             ("showDragLayout", { list.showDragLayout() }),
         ]
         for (name, part) in parts {

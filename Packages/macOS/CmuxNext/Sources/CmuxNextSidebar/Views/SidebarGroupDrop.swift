@@ -9,7 +9,7 @@ import AppKit
     /// the band's sticky edges; otherwise `resolved` (nil keeps the last).
     static func gate(_ list: SidebarListView, _ drag: SidebarListDrag, card: CGRect, resolved: DropTarget??) -> DropTarget?? {
         guard case let .workspaces(ids) = drag.payload else { return resolved }
-        let hit = SidebarGroupBand.hit(y: card.midY, rows: list.displayed.rows, hidden: drag.hiddenKeys, dragged: ids,
+        let hit = SidebarGroupBand.hit(y: card.midY, layout: list.displayed, hidden: drag.hiddenKeys, dragged: ids,
                                        sections: list.model.sections)
         if let anchor = drag.band.update(hit) { return .some(.ontoWorkspace(anchor)) }
         return resolved
