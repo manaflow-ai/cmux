@@ -61,6 +61,12 @@ const cases = [
     1,
   ],
   [
+    "a write-only loop, then a read",
+    "export function size(rows: HTMLElement[], list: HTMLElement) { for (const row of rows) row.style.height = '10px'; return list.offsetHeight; }",
+    0,
+    1,
+  ],
+  [
     "one read before a write",
     "export function show(card: HTMLElement) { const r = card.getBoundingClientRect(); card.style.top = `${r.top}px`; }",
     0,

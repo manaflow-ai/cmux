@@ -158,8 +158,9 @@ export const layoutReadAfterWrite = layoutRule(
   },
   (events, inThrashingLoop) => {
     if (events[0]?.loop !== false) return undefined;
+    // Only reads the loop rule owns drop out: a write in a write-only loop still counts.
     const sorted = [...events]
-      .filter((event) => !inThrashingLoop.has(event.node))
+      .filter((event) => event.kind === "write" || !inThrashingLoop.has(event.node))
       .sort((a, b) => a.node.range[0] - b.node.range[0]);
     const write = sorted.find((event) => event.kind === "write");
     return write && sorted.find((event) => event.kind === "read" && event.node.range[0] > write.node.range[1])?.node;
