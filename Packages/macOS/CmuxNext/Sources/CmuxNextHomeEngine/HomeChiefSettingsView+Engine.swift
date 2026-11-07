@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextHome
+import CmuxNextHomeModel
 import Foundation
 
 /// The card's engine rows (`HomeChiefSettingsView`): reading the brain's engine, writing a pick,

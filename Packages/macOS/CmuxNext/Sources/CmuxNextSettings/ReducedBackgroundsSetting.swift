@@ -7,8 +7,6 @@ public import CmuxNextDesign
 /// changes the `appearance.*` values, so turning it off restores them.
 public nonisolated struct ReducedBackgroundsSetting {
     public nonisolated init() {}
-    public static let configPath = ["ui", "reducedBackgrounds"]
-    public static let fallback = false
 
     /// The window background drawn while it is on: opaque, no blur, whatever cmux.json or the
     /// Ghostty config ask for.
@@ -31,16 +29,5 @@ public nonisolated struct ReducedBackgroundsSetting {
                                                  message: "expected true or false"))
         }
         return (enabled, nil)
-    }
-
-    static func descriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(configPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.ui.reducedBackgrounds", "Plain Backgrounds"),
-                          help: SettingsText.keyed("settings.ui.reducedBackgrounds.help",
-                                                   "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off."),
-                          kind: .toggle,
-                          default: .bool(fallback),
-                          keywords: ["background", "plain", "reduce", "reduced", "painting", "wallpaper", "glass", "transparency",
-                                     "backdrop", "art", "simple", "performance"])
     }
 }

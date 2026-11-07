@@ -6,6 +6,7 @@ import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -609,9 +610,8 @@ struct AgentChatJumpButton: View {
                         .frame(width: metrics.glassButton, height: metrics.glassButton)
                         .overlay(alignment: .topTrailing) {
                             if store.isRunning {
-                                ProgressView()
+                                CmuxSpinner(tint: .primary)
                                     .controlSize(.mini)
-                                    .tint(.primary)
                                     .frame(width: metrics.workingIndicatorBadge, height: metrics.workingIndicatorBadge)
                                     .background(Color.cmuxMobileBackground, in: .circle)
                                     .allowsHitTesting(false)
