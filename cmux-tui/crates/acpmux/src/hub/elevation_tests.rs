@@ -313,15 +313,21 @@ fn an_answer_to_a_card_lost_in_a_restart_closes_it() {
     .unwrap();
     hub.store.save(&meta).unwrap();
     let session = hub.make_session(meta);
-    hub.append(
-        &session,
-        "mux",
-        "elevation_request",
-        json!({
-            "secretId": "card-1", "argv": ["id"], "reason": "r", "host": "h",
+    let request = |seq: u64, id: &str, at: u64| crate::store::EventRecord {
+        seq,
+        at,
+        dir: "mux".into(),
+        kind: "elevation_request".into(),
+        msg: json!({
+            "secretId": id, "argv": ["id"], "reason": "r", "host": "h",
             "decisionNonce": "n", "personInstance": "i",
         }),
-    );
+        host_seq: None,
+    };
+    // Asked by an earlier run of the daemon, and by this one (its ask settles it).
+    hub.store.append(&session.id, &request(1, "card-1", hub.started_at - 1)).unwrap();
+    hub.store.append(&session.id, &request(2, "card-2", hub.started_at)).unwrap();
+    assert!(hub.submit_secret(&session, "card-2", None).is_err());
     assert!(hub.submit_secret(&session, "card-1", None).is_err());
     let mut decisions = Vec::new();
     hub.store
@@ -344,4 +350,12 @@ fn an_answer_to_a_card_lost_in_a_restart_closes_it() {
         })
         .unwrap();
     assert_eq!(again, 1);
+}
+
+/// A NOPASSWD rule for a directory allows every command in it.
+#[test]
+fn a_passwordless_directory_rule_counts() {
+    let rules =
+        "User leo may run the following commands on mac:\n    (root) NOPASSWD: /usr/local/bin/\n";
+    assert!(listing_may_skip_password(rules, "fs_usage"));
 }

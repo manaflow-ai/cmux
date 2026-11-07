@@ -586,6 +586,7 @@ fn listing_may_skip_password(listing: &str, command: &str) -> bool {
             if path == "ALL"
                 || !path.starts_with('/')
                 || path.contains(['*', '?', '['])
+                || path.ends_with('/')
                 || Path::new(path).file_name() == wanted
             {
                 return true;
