@@ -1,7 +1,7 @@
 // Session Info's Connectors, drawn by the App (ConnectorsSection.tsx): one row per MCP server the
 // chat's harness loaded with its state; a failed one has Reconnect where acpmux reconnects one.
 import { connectorStateKey } from "../ConnectorsSection";
-import { workingConnectors, type ConnectorServer } from "../connectorServers";
+import { connectorsCount, type ConnectorServer } from "../connectorServers";
 import type { Translate } from "../../i18n";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 import { imessageError, type IMessageView } from "../imessage";
@@ -36,6 +36,7 @@ export function connectorsSection(
   const { servers, onReconnect } = input;
   if (servers.length === 0 && !input.imessage) return undefined;
   const reconnect = servers.filter((server) => server.status === "failed").length;
+  const count = connectorsCount(servers);
   const rows = servers.map((server): NativeInfoRow => {
     const row: NativeInfoRow = {
       id: server.name,
@@ -164,10 +165,13 @@ export function connectorsSection(
         ? t("sessionInfo.connectors.reconnect", { count: reconnect })
         : servers.length === 0 && imessage && imessage.data.status !== "connected"
           ? t("imessage.connect")
-          : t("rail.connected", {
-              count:
-                workingConnectors(servers) + (servers.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
-            }),
+          : "on" in count && !imessage
+            ? String(count.on)
+            : t("rail.connected", {
+                count:
+                  ("connected" in count ? count.connected : 0) +
+                  (servers.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
+              }),
     open: input.open,
     foldable: true,
     reorderable: true,

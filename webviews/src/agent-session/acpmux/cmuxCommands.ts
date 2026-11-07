@@ -353,8 +353,8 @@ export function mcpCommandPlan(
     tools?: readonly ChatTool[];
     /// acpmux reconnects this chat's servers (`_acpmux/mcp/reconnect`: a Claude Code chat).
     reconnects: boolean;
-    /// `_acpmux/set_tools` can change this chat's tools from this page.
-    setsTools: boolean;
+    /// Why `_acpmux/set_tools` cannot change this chat's tools from this page; unset: it can.
+    toolsRefusal?: StringKey;
   },
 ): McpCommandPlan {
   const typed = args?.trim() ?? "";
@@ -377,7 +377,7 @@ export function mcpCommandPlan(
     return { kind: "reconnect", server };
   }
   const tool = chat.tools?.find((row) => row.id === `mcp:${server}`);
-  if (!chat.setsTools) return { kind: "refuse", key: "summary.tools.immutable" };
+  if (chat.toolsRefusal) return { kind: "refuse", key: chat.toolsRefusal };
   if (!tool?.canToggle) return { kind: "refuse", key: "summary.tools.fixed" };
   return { kind: "set", id: tool.id, server, enabled: verb === "enable" };
 }

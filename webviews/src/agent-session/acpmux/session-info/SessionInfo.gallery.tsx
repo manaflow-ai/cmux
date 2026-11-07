@@ -1764,6 +1764,55 @@ export default componentEntry<Props>({
         sections: { ...DEFAULT_SECTIONS, changes: false, subagents: false, tasks: false, servers: false },
       },
     },
+    "connectors-codex": {
+      note: "What /mcp opens in a Codex chat: Codex reports no MCP server state, so Connectors lists the servers the chat started with (acpmux's mcp:<server> tool rows) as On or Off, never Connected. Before, the section read None.",
+      props: {
+        summary: {
+          ...summary,
+          harness: "codex",
+          mcpServers: undefined,
+          tools: [
+            { id: "mcp:cmux", name: "cmux", kind: "cmux" as const, source: "cmux", enabled: true, canToggle: false },
+            { id: "mcp:forum", name: "forum", kind: "cmux" as const, source: "cmux", enabled: true, canToggle: false },
+            {
+              id: "mcp:linear",
+              name: "linear",
+              kind: "mcp" as const,
+              source: "codex",
+              enabled: false,
+              canToggle: false,
+            },
+          ],
+        },
+        machineName: "Studio",
+        repository: "manaflow-ai/cmux",
+        sections: { ...DEFAULT_SECTIONS, connectors: true },
+        closable: true,
+      },
+    },
+    "connectors-claude-off": {
+      note: "What /mcp opens in a Claude Code chat: its servers with Claude Code's state, Reconnect on the failed one, and a server the chat turned off with /mcp disable listed as Off (Claude Code does not report it).",
+      props: {
+        summary: {
+          ...summary,
+          tools: [
+            {
+              id: "mcp:notion",
+              name: "notion",
+              kind: "mcp" as const,
+              source: "claude",
+              enabled: false,
+              canToggle: true,
+            },
+          ],
+        },
+        machineName: "Studio",
+        repository: "manaflow-ai/cmux",
+        onReconnectMcp: () => Promise.resolve(),
+        sections: { ...DEFAULT_SECTIONS, connectors: true },
+        closable: true,
+      },
+    },
     "fits-content": {
       note: "A chat with little to show, over a 900px pane: Environment and Context only. The card ends right after Context, with the body's 10px under it and no fixed or minimum height: the ceiling (the room under the header) is only a maximum (Leo, 2026-10-22: \"the card should just end when there's no more content to show\").",
       props: {

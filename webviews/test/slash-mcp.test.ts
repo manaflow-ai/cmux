@@ -69,7 +69,6 @@ test("/mcp subcommands reconnect, enable and disable a server the chat has", () 
     ],
     tools: [tool("github"), tool("linear"), tool("pinned", { canToggle: false })],
     reconnects: true,
-    setsTools: true,
   };
   expect(mcpCommandPlan("", claude)).toEqual({ kind: "show" });
   expect(mcpCommandPlan(undefined, claude)).toEqual({ kind: "show" });
@@ -90,9 +89,18 @@ test("/mcp subcommands reconnect, enable and disable a server the chat has", () 
   expect(mcpCommandPlan("list", claude)).toEqual({ kind: "refuse", key: "composer.cmuxMcpUsage" });
   expect(mcpCommandPlan("reconnect", claude)).toEqual({ kind: "refuse", key: "composer.cmuxMcpUsage" });
   // A Codex chat: no reconnect, and its servers are fixed at start.
-  const codex = { servers: [{ name: "cmux", status: "on" as const }], reconnects: false, setsTools: false };
+  const codex = {
+    servers: [{ name: "cmux", status: "on" as const }],
+    reconnects: false,
+    toolsRefusal: "summary.tools.immutable" as const,
+  };
   expect(mcpCommandPlan("reconnect cmux", codex)).toEqual({ kind: "refuse", key: "composer.cmuxMcpNoReconnect" });
   expect(mcpCommandPlan("disable cmux", codex)).toEqual({ kind: "refuse", key: "summary.tools.immutable" });
+  // A browser over the web relay cannot change a chat's tools, and says so.
+  expect(mcpCommandPlan("disable linear", { ...claude, toolsRefusal: "summary.tools.remote" })).toEqual({
+    kind: "refuse",
+    key: "summary.tools.remote",
+  });
 });
 
 test("Connectors lists a Codex chat's servers as on or off, and a Claude chat's turned-off ones", () => {
@@ -113,7 +121,8 @@ test("Connectors lists a Codex chat's servers as on or off, and a Claude chat's 
     ["cmux", t("sessionInfo.connectors.on")],
     ["forum", t("sessionInfo.connectors.off")],
   ]);
-  expect(section.meta).toBe(t("rail.connected", { count: 1 }));
+  // Nobody said Codex's servers connected: the summary is only how many are on.
+  expect(section.meta).toBe("1");
   // Claude reports its loaded servers; one the chat turned off is still listed, as off.
   expect(
     connectorServers({

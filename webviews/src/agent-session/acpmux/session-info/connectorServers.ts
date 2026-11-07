@@ -29,6 +29,12 @@ export function connectorServers(
   return [...reported, ...started];
 }
 
-/// Servers Connectors counts as working: connected, or on where the harness reports no state.
-export const workingConnectors = (servers: readonly ConnectorServer[]): number =>
-  servers.filter((server) => server.status === "connected" || server.status === "on").length;
+/// Connectors' summary beside its title for the servers alone: "{count} connected" from the harness's
+/// report, or, where it reported no state (every server on or off), only how many are on: nobody said
+/// they connected.
+export function connectorsCount(servers: readonly ConnectorServer[]): { connected: number } | { on: number } {
+  const unreported = servers.length > 0 && servers.every((server) => server.status === "on" || server.status === "off");
+  return unreported
+    ? { on: servers.filter((server) => server.status === "on").length }
+    : { connected: servers.filter((server) => server.status === "connected").length };
+}

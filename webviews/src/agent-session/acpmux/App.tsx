@@ -4489,7 +4489,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // header state. Its open-in-pane row enables that same panel before revealing the requested list.
   const revealSessionInfo = sessionInfo.reveal;
   const openSummarySection = useCallback(
-    (section: "subagents" | "tasks") => {
+    (section: "subagents" | "tasks" | "connectors") => {
       if (revealSessionInfo) {
         revealSessionInfo(section);
         return;
@@ -7740,33 +7740,52 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const plan = mcpCommandPlan(args, {
         servers: connectorServers(summary),
         tools: summary?.tools,
-        reconnects: !!snapshot.reconnectsMcp,
-        setsTools: !!summary?.toolsMutable && snapshot.origin !== "remote" && !readOnlySubagent,
+        // acpmux lists `_acpmux/mcp/reconnect` for every chat but runs it only for Claude Code's.
+        reconnects: !!snapshot.reconnectsMcp && agentKey(summary?.family ?? summary?.harness) === "claude",
+        // Why this page cannot turn a server on or off, as Use tools' rows say it (SourcesAddMenu.tsx).
+        toolsRefusal:
+          snapshot.origin === "remote"
+            ? "summary.tools.remote"
+            : !summary?.toolsMutable || readOnlySubagent
+              ? "summary.tools.immutable"
+              : undefined,
       });
-      const show = () => sessionInfo.reveal?.("connectors");
+      // Session Info on Connectors; with the panel turned off in the header, it turns it on first.
+      const show = () => openSummarySection("connectors");
       if (plan.kind === "refuse") return t(plan.key, plan.values);
       if (plan.kind === "show") {
-        if (!sessionInfo.reveal) return t("composer.cmuxMcpUnavailable");
         show();
         return true;
       }
       const client = directClient.current;
       if (!client) return t("composer.cmuxUnavailable");
-      const work = plan.kind === "reconnect" ? client.reconnectMcp(plan.server) : client.setTool(plan.id, plan.enabled);
+      const { server } = plan;
+      const work =
+        plan.kind === "reconnect"
+          ? client.reconnectMcp(server).then(() => "now" as const)
+          : client.setTool(plan.id, plan.enabled);
       // acpmux's refusal of a set says why, as Use tools' row does (SourcesAddMenu.tsx); anything
-      // else (Claude Code could not reconnect it) names the server.
-      return work.then(show, (error: unknown) => {
-        const reason = (error as { reason?: unknown } | null)?.reason;
-        throw new CmuxCommandRefused(
-          reason === "tools.fixed"
-            ? t("summary.tools.fixed")
-            : reason === "tools.immutable"
-              ? t("summary.tools.immutable")
-              : reason === "tools.remote"
-                ? t("summary.tools.remote")
-                : t("composer.cmuxMcpFailed", { server: plan.server }),
-        );
-      });
+      // else (Claude Code could not reconnect it) names the server. A change that waits for the turn
+      // or the chat's next start says so: until then Connectors still shows it as it was.
+      return work.then(
+        (applied) => {
+          show();
+          if (applied === "afterTurn") client.notice(t("composer.cmuxMcpAfterTurn", { server }));
+          else if (applied === "nextStart") client.notice(t("composer.cmuxMcpNextStart", { server }));
+        },
+        (error: unknown) => {
+          const reason = (error as { reason?: unknown } | null)?.reason;
+          throw new CmuxCommandRefused(
+            reason === "tools.fixed"
+              ? t("summary.tools.fixed")
+              : reason === "tools.immutable"
+                ? t("summary.tools.immutable")
+                : reason === "tools.remote"
+                  ? t("summary.tools.remote")
+                  : t("composer.cmuxMcpFailed", { server }),
+          );
+        },
+      );
     }
     if (command.action === "login") {
       // New Tab picks its own harness and machine, which this pane's sign-in answer is not about;
