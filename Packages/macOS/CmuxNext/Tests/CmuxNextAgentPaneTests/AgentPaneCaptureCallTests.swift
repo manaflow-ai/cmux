@@ -132,6 +132,22 @@ struct AgentPaneCaptureCallTests {
         #expect(FileManager.default.fileExists(atPath: again.path))
     }
 
+    /// Record (and a shot of the cmux window or the pane) needs the person's own fresh click: a
+    /// credit left by their typing never starts one, so a click another process posts on Record
+    /// while the person types does nothing; the click is spent once and goes stale.
+    @MainActor @Test func recordNeedsThePersonsOwnFreshClick() {
+        var clock: TimeInterval = 100
+        let gestures = AgentPaneUserGestures(now: { clock })
+        gestures.record()
+        #expect(!AgentPaneCapture.personClicked(gestures))
+        gestures.record(click: true)
+        #expect(AgentPaneCapture.personClicked(gestures))
+        #expect(!AgentPaneCapture.personClicked(gestures))
+        gestures.record(click: true)
+        clock += AgentPaneUserGestures.answerWindow + 1
+        #expect(!AgentPaneCapture.personClicked(gestures))
+    }
+
     /// A moved window is filmed where it is now: its part of the display, from the display's corner.
     @Test func theStreamFollowsTheWindowOnItsDisplay() {
         let display = CGRect(x: 1440, y: 0, width: 1920, height: 1080)

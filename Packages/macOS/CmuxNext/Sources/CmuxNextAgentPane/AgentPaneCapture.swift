@@ -31,8 +31,11 @@ enum AgentPaneCapture {
 
     @MainActor static func reply(to mode: String?, in model: AgentPaneModel) async -> [String: Any] {
         guard let mode, modes.contains(mode) else { return AgentPaneModel.unsupported("composer.capture") }
-        // The screen goes to the agent: only a click in the pane starts a capture.
-        guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+        // The screen goes to the agent: only a click in the pane starts a capture. The cmux window
+        // and the pane are taken with no system pick to answer, so they need the person's own
+        // fresh click (``personClicked(_:)``), never a credit left by typing.
+        let allowed = mode == "app" || mode == "pane" ? personClicked(model.transport.gestures) : model.transport.gestures.consume()
+        guard allowed else { return AgentPaneModel.transportFailure(.gestureRequired) }
         if mode == "app" || mode == "pane" { return await own(pane: mode == "pane", in: model) }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
         if case .failed(let reason) = await capture(window: mode == "window", to: file) {
@@ -46,6 +49,14 @@ enum AgentPaneCapture {
             return Self.answer((try? Data(contentsOf: file)) ?? Data(), taken: taken)
         }.value
         return AgentPaneReply.success(value)
+    }
+
+    /// Whether the person's own click in the pane (or the native shortcut) came just now: what a
+    /// capture with no system pick of its own (Record, the cmux window, the pane) spends. A credit
+    /// left by the person's typing does not count, so a click another process posts on Record while
+    /// the person types can never start one (``AgentPaneUserGestures/hasFreshAnswerGesture``).
+    @MainActor static func personClicked(_ gestures: AgentPaneUserGestures) -> Bool {
+        gestures.consumeAnswerClick()
     }
 
     /// The page's answer for the bytes `screencapture` wrote: the image named for when it was

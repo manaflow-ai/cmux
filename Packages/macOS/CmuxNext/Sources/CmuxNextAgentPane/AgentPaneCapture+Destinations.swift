@@ -5,8 +5,9 @@ import CmuxNextWakeups
 import UniformTypeIdentifiers
 
 /// The capture bar's calls (``AgentPaneCaptureCall``): its screenshots and recording, and Copy and
-/// Save of what they made. A screenshot and a recording's start spend the person's own click or
-/// key in the pane (`gestures.consume()`), so a page or an agent can never take one by itself;
+/// Save of what they made. A screenshot spends the person's own click or key in the pane
+/// (`gestures.consume()`); a recording's start and a shot of the cmux window or the pane spend the
+/// person's fresh click (``AgentPaneCapture/personClicked(_:)``), so a page or an agent can never take one by itself;
 /// Copy and Save take only the screenshot this bridge just handed the pane, or a file it wrote
 /// (``AgentPaneRecorder/owned(_:)``).
 extension AgentPaneCapture {
@@ -17,7 +18,7 @@ extension AgentPaneCapture {
             if let text = (reply["value"] as? [String: Any])?["data"] as? String { await AgentPaneRecorder.shared.handed(text, to: model) }
             return reply
         case .recordStart(let cursor, let clicks):
-            guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+            guard personClicked(model.transport.gestures) else { return AgentPaneModel.transportFailure(.gestureRequired) }
             guard let window = hostWindow(for: model) else {
                 return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage)
             }
