@@ -10,6 +10,7 @@ import {
   approve,
   locate,
   modeOf,
+  replaceList,
   rollback,
   rolledImage,
   settle,
@@ -104,6 +105,17 @@ describe("auto-roll rollback", () => {
     const gone = rollback(second.text, entry("300").id);
     expect(gone.rolledBack).toBe(false);
     expect(gone.reason).toMatch(/in neither list/);
+  });
+
+  test("rolls back an auto image only staging lists while production's list is empty, and production keeps its pin", () => {
+    const empty = replaceList(wrangler, "production", []);
+    const text = replaceList(empty, "staging", [...locate(empty, "staging").images, entry("400")]);
+    const result = rollback(text, entry("400").id);
+    expect(result.rolledBack).toBe(true);
+    expect(result.nowFirst).toBe("");
+    expect(result.reason).toMatch(/boots its pin/);
+    expect(locate(result.text, "staging").images.map((i) => i.id)).not.toContain(entry("400").id);
+    expect(locate(result.text, "production").images).toEqual([]);
   });
 
   test("never rolls back a hand-approved image", () => {
@@ -347,6 +359,11 @@ describe("auto-roll scripts", () => {
       const cut = await plan(shallow, tip);
       expect(cut.status).not.toBe(0);
       expect(cut.stderr).toMatch(/shallow/);
+      // A build outside the shallow history: the branch check would answer "not on the branch" (roll: false) from
+      // the cut alone, so the shallow refusal has to come first (review of #37409, F1).
+      const beyond = await plan(shallow, older);
+      expect(beyond.status).not.toBe(0);
+      expect(beyond.stderr).toMatch(/shallow/);
 
       // Full history without the pinned commit (a pin off the branch that was never fetched).
       writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: "f".repeat(40) }] }));
