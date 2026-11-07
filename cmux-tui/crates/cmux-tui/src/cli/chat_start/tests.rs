@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use super::super::cloud_start_chat::Machine;
 use super::{
     Parsed, Reads, Route, Start, TAKES_VALUE, cloud_words, global_words, here_words, parse,
-    parse_with, pick_target, route, start_words,
+    parse_with, pick_target, route, setting_stream, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -412,4 +412,20 @@ fn a_vm_target_signed_out_says_to_sign_in() {
 #[test]
 fn the_on_alias_is_the_chat_target_setting() {
     assert_eq!(super::super::command::resolve_alias("on"), super::TARGET_SETTING);
+}
+
+/// `cmux chat --socket <daemon socket>` reads `chat.on` from the app that owns that daemon, the
+/// app the chat itself reaches, not nowhere: `--socket` naming a daemon is `socket.wrong_kind` to
+/// the app connection (#37485's review at ca9748e1, F1; #37663).
+#[test]
+fn a_daemon_socket_reads_the_setting_from_its_owning_app() {
+    let wrong_kind = || Err(json!({ "code": "socket.wrong_kind", "message": "a daemon socket" }));
+    let (owner, _app) = std::os::unix::net::UnixStream::pair().unwrap();
+    assert!(setting_stream(wrong_kind, || Ok(owner)).is_some());
+    // Another failure (no app, an unreachable socket) reads nothing; the owner is not asked.
+    let unreachable = || Err(json!({ "code": "socket.unreachable", "message": "gone" }));
+    assert!(setting_stream(unreachable, || -> Result<_, String> { panic!("asked the owner") }).is_none());
+    // A socket that is the app's is read as named.
+    let (named, _app) = std::os::unix::net::UnixStream::pair().unwrap();
+    assert!(setting_stream(|| Ok(named), || -> Result<_, String> { panic!("asked the owner") }).is_some());
 }

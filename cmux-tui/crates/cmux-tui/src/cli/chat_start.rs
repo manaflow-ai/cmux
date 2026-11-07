@@ -29,6 +29,7 @@
 //! `here`, `vm` and `vm:…` are selectors, never device names: a device called "cloud" is reached
 //! by its id.
 
+use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use cmux::{CallKind, ChatTarget, ChatTargetRefusal};
@@ -283,7 +284,10 @@ pub(super) fn pick_target(
 /// no app, an app that does not answer within [`SETTING_TIMEOUT`], an unset key or a value that
 /// is not a string.
 fn setting_target(global: &GlobalArgs) -> Option<String> {
-    let mut stream = super::app::connect_command(global).ok()?;
+    let mut stream = setting_stream(
+        || super::app::connect_command(global),
+        || super::app::socket_path(global).and_then(|path| super::app::connect(&path)),
+    )?;
     stream.set_write_timeout(Some(SETTING_TIMEOUT)).ok()?;
     let answer = super::app::exchange_within(
         &mut stream,
@@ -294,6 +298,15 @@ fn setting_target(global: &GlobalArgs) -> Option<String> {
     .ok()?
     .ok()?;
     answer.get("value").and_then(Value::as_str).map(str::to_owned)
+}
+
+/// The app to read `chat.on` from: the one `--app-socket`, `--socket` or the environment names
+/// (`named`, [`super::app::connect_command`]).
+fn setting_stream(
+    named: impl FnOnce() -> Result<UnixStream, Value>,
+    _owner: impl FnOnce() -> Result<UnixStream, String>,
+) -> Option<UnixStream> {
+    named().ok()
 }
 
 fn set_prompt(slot: &mut Option<String>, text: String) -> Result<(), UsageError> {
