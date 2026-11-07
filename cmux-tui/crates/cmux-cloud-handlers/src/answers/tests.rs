@@ -147,13 +147,22 @@ fn previews_list_each_port_and_the_unavailable_ones() {
 
 #[test]
 fn a_machine_link_without_a_port_is_its_address() {
-    let bare = machine_link("vm-1", Some("10.0.0.7"), None);
+    let bare = machine_link("vm-1", Some("10.0.0.7"), None, None);
     assert_eq!(bare.text.as_deref(), Some("10.0.0.7"));
     assert_eq!(bare.fields["address"], json!("10.0.0.7"));
-    assert_eq!(machine_link("vm-1", None, None).text.as_deref(), Some("machine:vm-1"));
-    let ported = machine_link("vm-1", Some("10.0.0.7"), Some(3000));
+    assert_eq!(machine_link("vm-1", None, None, None).text.as_deref(), Some("machine:vm-1"));
+    let ported = machine_link("vm-1", Some("10.0.0.7"), Some(3000), None);
     assert_eq!(ported.text, None);
     assert_eq!(ported.fields["private_url"], json!("http://10.0.0.7:3000"));
+    let link =
+        ShareLink { url: "https://share.cmux.dev/l/1".into(), link_id: "l1".into(), expires_at: 9 };
+    let linked = machine_link("vm-1", Some("10.0.0.7"), Some(3000), Some(&link));
+    assert_eq!(linked.text.as_deref(), Some("https://share.cmux.dev/l/1"));
+    assert_eq!(
+        Value::Object(linked.fields),
+        json!({"machine_id": "vm-1", "target": "machine:vm-1", "port": 3000, "private_url": "http://10.0.0.7:3000",
+               "url": "https://share.cmux.dev/l/1", "linkId": "l1", "expiresAt": 9})
+    );
 }
 
 #[test]

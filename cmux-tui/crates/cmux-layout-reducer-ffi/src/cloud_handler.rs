@@ -177,6 +177,7 @@ struct Facts {
     record: Option<Value>,
     ipv4: Option<String>,
     port: Option<u16>,
+    link: Option<answers::ShareLink>,
     #[serde(default)]
     url: String,
     action: Option<String>,
@@ -322,7 +323,7 @@ fn facts(operation: &[u8], f: Facts) -> Result<Value, i32> {
             Err(refusal) => json!({ "refusal": value(refusal)? }),
         },
         b"cloud_handler_machine_link" => {
-            value(answers::machine_link(&f.machine_id, f.ipv4.as_deref(), f.port))?
+            value(answers::machine_link(&f.machine_id, f.ipv4.as_deref(), f.port, f.link.as_ref()))?
         }
         b"cloud_handler_share_link" => json!({ "ok": answers::share_link_ok(&f.url) }),
         b"cloud_handler_confirmation" => {

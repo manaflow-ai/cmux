@@ -68,10 +68,10 @@ pub fn file_path(args: &Args) -> Checked<String> {
 
 /// `--port`: 1 through 65535.
 pub fn port(args: &Args) -> Checked<u16> {
-    match int(args, "port") {
-        Some(port @ 1..=65_535) => Ok(port as u16),
-        _ => Err(Said::key("invalidPort")),
-    }
+    int(args, "port")
+        .and_then(|port| u16::try_from(port).ok())
+        .filter(|&port| port >= 1)
+        .ok_or_else(|| Said::key("invalidPort"))
 }
 
 /// `--port` of the port verbs, refused with the machine named and the command to run.
@@ -189,9 +189,14 @@ pub fn firewall_rule(args: &Args) -> Checked<FirewallRule> {
     let rule: Value =
         text(args, "path").and_then(|json| serde_json::from_str(json).ok()).ok_or_else(refused)?;
     let rule = rule.as_object().ok_or_else(refused)?;
-    let side = |name: &str| rule.get(name).cloned().unwrap_or_else(|| Value::Object(Map::new()));
+    // An endpoint is an object (its fields are the API model's, which the app decodes); `{}` when absent.
+    let side = |name: &str| match rule.get(name) {
+        None => Ok(Value::Object(Map::new())),
+        Some(endpoint @ Value::Object(_)) => Ok(endpoint.clone()),
+        Some(_) => Err(refused()),
+    };
     let description = rule.get("description").and_then(Value::as_str).map(str::to_owned);
-    Ok(FirewallRule { source: side("source"), destination: side("destination"), description })
+    Ok(FirewallRule { source: side("source")?, destination: side("destination")?, description })
 }
 
 /// `cloud new-machine --size` -> (vCPUs, MiB) as the server's size ladder makes them from the

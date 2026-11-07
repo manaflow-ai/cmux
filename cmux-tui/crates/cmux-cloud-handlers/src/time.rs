@@ -3,6 +3,11 @@
 //! description in answer text (`2026-11-06 12:00:00 +0000`).
 
 /// `(year, month, day, hour, minute, second)` of `unix` seconds, in UTC.
+#[allow(
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    reason = "days of an i64 of seconds stay far inside i64, and each part is in range of u32 by construction"
+)]
 fn civil(unix: i64) -> (i64, u32, u32, u32, u32, u32) {
     let days = unix.div_euclid(86_400);
     let seconds = unix.rem_euclid(86_400);
@@ -22,6 +27,10 @@ fn civil(unix: i64) -> (i64, u32, u32, u32, u32, u32) {
 }
 
 /// `unix` seconds (fractions dropped) as ISO 8601 in UTC: `2026-11-06T12:00:00Z`.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "a date's seconds; an out-of-range value saturates, as a date can't be that far"
+)]
 pub fn iso8601(unix: f64) -> String {
     let (y, mo, d, h, mi, s) = civil(unix.floor() as i64);
     format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z")

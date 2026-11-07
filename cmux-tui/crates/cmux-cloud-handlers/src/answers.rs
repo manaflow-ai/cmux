@@ -268,6 +268,10 @@ fn rule_line(rule: &Value) -> String {
 }
 
 /// A forward record of `cloud.port.list` / `cloud.port.forward` as result fields.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "ports arrive as JSON numbers; a whole port number converts exactly"
+)]
 pub fn forward_fields(record: &Value) -> Fields {
     let mut fields = Fields::new();
     if let Some(machine) = get(record, "machine") {
@@ -338,9 +342,24 @@ pub fn previews(inventory: &Value) -> Answer {
     }
 }
 
-/// `cloud machine-link` before any link: the machine's target and address, and with a port its
-/// private URL. Without a port the answer is done (its text: the address, else the target).
-pub fn machine_link(machine_id: &str, ipv4: Option<&str>, port: Option<u16>) -> Answer {
+/// The platform's share link of a port (`url`, `linkId`, `expiresAt`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShareLink {
+    pub url: String,
+    pub link_id: String,
+    pub expires_at: i64,
+}
+
+/// `cloud machine-link`: the machine's target and address (its text: the address, else the
+/// target); with a port, its private URL and, once the app made it, the share `link`, whose URL
+/// is the text. A port with no link yet has no text.
+pub fn machine_link(
+    machine_id: &str,
+    ipv4: Option<&str>,
+    port: Option<u16>,
+    link: Option<&ShareLink>,
+) -> Answer {
     let mut fields =
         object(json!({"machine_id": machine_id, "target": format!("machine:{machine_id}")}));
     let Some(port) = port else {
@@ -354,7 +373,11 @@ pub fn machine_link(machine_id: &str, ipv4: Option<&str>, port: Option<u16>) -> 
     if let Some(address) = ipv4 {
         fields.insert("private_url".into(), json!(format!("http://{address}:{port}")));
     }
-    Answer { text: None, copyable: true, fields }
+    let Some(link) = link else { return Answer { text: None, copyable: true, fields } };
+    fields.insert("url".into(), json!(link.url));
+    fields.insert("linkId".into(), json!(link.link_id));
+    fields.insert("expiresAt".into(), json!(link.expires_at));
+    Answer { text: Some(link.url.clone()), copyable: true, fields }
 }
 
 /// Whether a platform share link may be handed out: `https`, with no user or password.

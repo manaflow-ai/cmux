@@ -269,7 +269,13 @@ fn a_firewall_rule_is_a_json_object() {
     assert_eq!(rule.source, json!({"cidr": "10.0.0.0/8"}));
     assert_eq!(rule.destination, json!({}));
     assert_eq!(rule.description.as_deref(), Some("lan"));
-    for bad in [json!("[1]"), json!("not json"), json!(true)] {
+    for bad in [
+        json!("[1]"),
+        json!("not json"),
+        json!(true),
+        json!(r#"{"source":"bad"}"#),
+        json!(r#"{"destination":[1]}"#),
+    ] {
         assert_eq!(firewall_rule(&args(json!({"path": bad}))), Err(Said::key("ruleJSONRequired")));
     }
 }
