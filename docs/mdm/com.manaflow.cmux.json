@@ -1873,6 +1873,12 @@
       "title" : "Open Links in cmux Browser",
       "type" : "boolean"
     },
+    "browser.openPullRequestsInGitHubPage" : {
+      "default" : true,
+      "description" : "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
+      "title" : "Open Pull Requests in cmux GitHub Page",
+      "type" : "boolean"
+    },
     "browser.openSignInPagesInCmux" : {
       "default" : true,
       "description" : "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win.",
