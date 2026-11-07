@@ -29,7 +29,9 @@ script writes the copies the app's Swift modules compile in. Sources so far:
 
 A section source is {"$comment", "lists": [list]}. A list is one `static var` of the schema type:
 {name, section, group: text, note?, rows: [row]}; SettingsSchema.all concatenates the lists, so a
-group whose rows are not contiguous in the export is two lists with the same group text. A text is
+group whose rows are not contiguous in the export is two lists with the same group text. A section
+whose rows span several groups may name a `joined` var in SECTIONS: the generator writes it as the
+concatenation of every list in source order, so its readers keep one var (`descriptors`). A text is
 {key, text}: key is the string catalog key, or null for text that is not translated (a product
 name, a syntax example). A row:
 
@@ -333,6 +335,42 @@ SECTIONS = [
                   "attention": ("attentionDescriptors", "AttentionSettings"),
                   "mutedWorkspaces": ("mutedWorkspacesDescriptors", "NotificationPreferences"),
                   "sounds": ("soundDescriptors", "NotificationSoundPreferences")},
+    },
+    {
+        "source": "schemas/settings/source/diff-viewer.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+DiffViewer.generated.swift",
+        "type": "DiffViewerSettingsSchema",
+        "lists": {"diffViewer": ("descriptors", "DiffViewerSettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/markdown-viewer.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+MarkdownViewer.generated.swift",
+        "type": "MarkdownViewerSettingsSchema",
+        "lists": {"markdownViewer": ("descriptors", "MarkdownViewerSettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/agent-pane-display.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentPaneDisplay.generated.swift",
+        "type": "AgentPaneDisplaySettingsSchema",
+        "lists": {"agentPaneDisplay": ("descriptors", "AgentPaneDisplaySettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/terminal.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Terminal.generated.swift",
+        "type": "TerminalSettingsSchema",
+        "lists": {"terminalFont": ("fontRows", None), "openingLinks": ("linkRows", None),
+                  "terminalCompatibility": ("compatibilityRows", None)},
+        "joined": "descriptors",
+    },
+    {
+        "source": "schemas/settings/source/editor.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Editor.generated.swift",
+        "type": "EditorSettingsSchema",
+        "lists": {"editorFont": ("fontRows", "EditorSettingsSchema"), "editorText": ("textRows", "EditorSettingsSchema"),
+                  "editorDisplay": ("displayRows", "EditorSettingsSchema"), "editorCursor": ("cursorRows", "EditorSettingsSchema"),
+                  "editorEditing": ("editingRows", "EditorSettingsSchema"), "editorSaving": ("savingRows", "EditorSettingsSchema"),
+                  "editorDefaults": ("defaultsRows", "EditorSettingsSchema")},
+        "joined": "descriptors",
     },
     {
         "source": "schemas/settings/source/browser.json",
@@ -663,6 +701,9 @@ def check_section(section, data, seen_keys, section_ids, src):
     names = [entry["name"] for entry in data["lists"]]
     if sorted(names) != sorted(section["lists"]):
         fail(src, "lists %s do not match the generator's SECTIONS %s" % (names, sorted(section["lists"])))
+    list_vars = [var for var, _ in section["lists"].values()]
+    if len(set(list_vars)) != len(list_vars) or section.get("joined") in list_vars:
+        fail(src, "each list has its own var in SECTIONS, and the joined var is none of them")
     for entry in data["lists"]:
         if entry["section"] not in section_ids:
             fail(src, "unknown section %r" % entry["section"])

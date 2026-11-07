@@ -153,7 +153,8 @@ public struct WindowTitlebar {
         }
         // Floating panes keep the one even gap at the top too.
         guard !Metrics.floatingPanes else { return gutter }
-        let centerFromTop = root.bounds.maxY - local.midY
+        // The top row's shared line (`TopRowLine`): the lights' center unless Debug picks another variant.
+        let centerFromTop = topRowLine(in: window)?.centerY ?? root.bounds.maxY - local.midY
         return Metrics.windowEdgeInset(min(gutter, PaneChromeMetrics.current.cardTop(centeringPillOn: centerFromTop, scale: window.backingScaleFactor)), in: window)
     }
 
@@ -162,8 +163,13 @@ public struct WindowTitlebar {
     /// points below the window's top edge).
     public static func isInTopRow(_ view: NSView) -> Bool {
         guard let window = view.window else { return false }
+        return isInTopRow(view.convert(view.bounds, to: nil), in: window)
+    }
+
+    /// Whether `frame` (window coordinates) lies in `window`'s titlebar band: a view's frame where
+    /// its pane will rest, for chrome that lays out once for its final place.
+    public static func isInTopRow(_ frame: CGRect, in window: NSWindow) -> Bool {
         let band = TitlebarDragPolicy.bandRect(in: window)
-        let frame = view.convert(view.bounds, to: nil)
         return band.height > 0 && frame.maxY > band.minY && frame.minY < band.maxY
     }
 }
