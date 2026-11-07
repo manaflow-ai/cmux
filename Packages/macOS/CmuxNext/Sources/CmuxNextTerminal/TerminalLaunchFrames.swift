@@ -475,12 +475,22 @@ public final class TerminalLaunchFrames {
         let names = Set(((try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? [])
             .filter { owner(of: $0) != nil }.sorted().prefix(maximumFiles))
         var frames: [String: Frame] = [:]
-        for (scale, ext) in [2, 1, 3].flatMap({ scale in fileExtensions.map { (scale, $0) } }) {
-            let suffix = "@\(scale)x.\(ext)"
-            for name in names where name.hasSuffix(suffix) {
-                let key = String(name.dropLast(suffix.count))
+        for scale in [2, 1, 3] {
+            // A key has one file per scale, except when a keeper write that lost the race to a quit's save landed at the
+            // other extension: the newer file is the one written last, as one name would have kept it.
+            var newest: [String: (name: String, date: Date)] = [:]
+            for ext in fileExtensions {
+                let suffix = "@\(scale)x.\(ext)"
+                for name in names where name.hasSuffix(suffix) {
+                    let key = String(name.dropLast(suffix.count))
+                    let date = (try? FileManager.checked.attributesOfItem(atPath: directory.appending(path: name).path))?[.modificationDate] as? Date ?? .distantPast
+                    if let held = newest[key], held.date >= date { continue }
+                    newest[key] = (name, date)
+                }
+            }
+            for (key, file) in newest {
                 guard frames[key] == nil, isFileSafe(key),
-                      let frame = reader.image(at: directory.appending(path: name), maximumBytes: maximumBytes) else { continue }
+                      let frame = reader.image(at: directory.appending(path: file.name), maximumBytes: maximumBytes) else { continue }
                 frames[key] = Frame(image: frame, size: NSSize(width: CGFloat(frame.width) / CGFloat(scale), height: CGFloat(frame.height) / CGFloat(scale)), scale: scale)
             }
         }
@@ -539,7 +549,7 @@ public final class TerminalLaunchFrames {
         }
     }
 
-    /// A saved frame's file extensions, the one a read takes first first: a key has one file at a time.
+    /// A saved frame's file extensions (a key has one file at a time, else the read takes the newer).
     nonisolated static let fileExtensions = ["png", "jpg"]
     /// The quality of a frame saved as a JPEG (an opaque frame).
     nonisolated static let jpegQuality = 0.9
