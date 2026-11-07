@@ -189,20 +189,24 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
     // MARK: Asking the page
 
     /// Calls the page op `op`, waiting for the page to load and answer (``answerDeadline``); nil
-    /// when it never answers (a closed page, an older bundle).
+    /// when it never answers (a closed page, an older bundle) or refuses. Every try carries one
+    /// request id, so a try that timed out but ran is not run again (``HomePageAskAttempt``).
     @discardableResult
     func ask(_ op: String, _ params: [String: JSONValue] = [:]) async -> JSONValue? {
-        let router = page.router
-        let clock = ContinuousClock()
+        let (router, clock, call) = (page.router, ContinuousClock(), JSONValue.object(params.merging(["request": .string(UUID().uuidString)]) { $1 }))
         let end = clock.now.advanced(by: Self.answerDeadline)
         var backoff = Backoff(initial: .milliseconds(100), maximum: .seconds(1))
         // A page still loading (or reconnecting) has no handler yet: ask again, spaced by a backoff,
-        // until it answers. Stops at the first answer, at the deadline, or when the task ends.
+        // until it answers. Stops at the first answer or refusal, at the deadline, or when the task ends.
         while clock.now < end, !Task.isCancelled {
-            if let answer = await PageAnswerDeadline(.seconds(1)).answer({ try await router.callPage(op, params: .object(params)) }) {
-                return answer
+            switch await PageAnswerDeadline(.seconds(1)).answer({ () async -> HomePageAskAttempt in
+                do { return .answered(try await router.callPage(op, params: call)) } catch { return HomePageAskAttempt(error) }
+            }) {
+            case .answered(let answer)?: return answer
+            case .refused?: return nil
+            case .notReady?, nil: break
             }
-            // concurrency-allow: Backoff.wait suspends the task (no thread blocks); it spaces the retries of a refused call
+            // concurrency-allow: Backoff.wait suspends the task (no thread blocks); it spaces the retries of a call the page could not take yet
             do { try await backoff.wait(owner: "home.messages.ask") } catch { return nil }
         }
         return nil

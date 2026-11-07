@@ -12,10 +12,15 @@
 // - the `hidden` stream `{hidden: {[conversation]: seq}}`: the conversations deleted from the list
 //   (this Mac's per-account list, HomeSidebarSource), each listed again by a message after `seq`;
 // - `drafts.load {}` -> `{drafts: {[conversation]: text}}` and `drafts.save {conversation, text}`:
-//   the composer drafts, kept in HomeStore's draft cache across launches (nav.ts `DraftKeeper`).
+//   the composer drafts, kept in HomeStore's draft cache across launches (nav.ts `DraftKeeper`);
+// - `attachments.load {}` -> `{attachments: {[conversation]: [part]}, legacy: {[conversation]:
+//   [{hash, name, mimeType, data}]}}` and `attachments.save {conversation, parts, migrated}`: the
+//   staged files, kept the same way (attachmentDrafts.ts `AttachmentKeeper`).
 // In a browser (no host) there are no host items and no lights.
 import type { PageClient } from "../shared/pageClient";
+import type { HomeAttachment } from "../home-channels/types";
 import type { DraftKeeper } from "./nav";
+import type { AttachmentKeeper, KeptAttachments, LegacyAttachment } from "./transcript/attachmentDrafts";
 import type { HiddenConversations, HostMenuItem, MessagesChrome, MessagesHost } from "./types";
 
 export const MessagesOps = {
@@ -25,7 +30,68 @@ export const MessagesOps = {
   hidden: "cmux.home.messages.hidden",
   loadDrafts: "cmux.home.messages.drafts.load",
   saveDraft: "cmux.home.messages.drafts.save",
+  loadAttachments: "cmux.home.messages.attachments.load",
+  saveAttachments: "cmux.home.messages.attachments.save",
 } as const;
+
+/** The staged files kept by the app across launches. */
+export function pageAttachmentKeeper(client: PageClient): AttachmentKeeper {
+  return {
+    async load() {
+      const answer = await client.call<unknown>(MessagesOps.loadAttachments, {}).catch(() => undefined);
+      return parseKeptAttachments(answer);
+    },
+    save(conversation, parts, migrated) {
+      // An older host without the op keeps nothing; the page's own trays still hold them.
+      void client.call(MessagesOps.saveAttachments, { conversation, parts, migrated }).catch(() => undefined);
+    },
+  };
+}
+
+/** The kept files the host sent; anything malformed reads as none. */
+export function parseKeptAttachments(value: unknown): KeptAttachments {
+  const answer = (value ?? {}) as { attachments?: unknown; legacy?: unknown };
+  return {
+    attachments: byConversation(answer.attachments, isAttachmentPart),
+    legacy: byConversation(answer.legacy, isLegacyAttachment),
+  };
+}
+
+function byConversation<T>(value: unknown, valid: (item: unknown) => item is T): Record<string, T[]> {
+  const out: Record<string, T[]> = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const [conversation, items] of Object.entries(value as Record<string, unknown>)) {
+    if (!Array.isArray(items)) continue;
+    const kept = items.filter(valid);
+    if (kept.length) out[conversation] = kept;
+  }
+  return out;
+}
+
+function isAttachmentPart(item: unknown): item is HomeAttachment {
+  const part = item as Partial<HomeAttachment> | null;
+  return (
+    !!part &&
+    typeof part === "object" &&
+    part.type === "attachment" &&
+    typeof part.hash === "string" &&
+    typeof part.name === "string" &&
+    typeof part.mimeType === "string" &&
+    typeof part.byteCount === "number"
+  );
+}
+
+function isLegacyAttachment(item: unknown): item is LegacyAttachment {
+  const file = item as Partial<LegacyAttachment> | null;
+  return (
+    !!file &&
+    typeof file === "object" &&
+    typeof file.hash === "string" &&
+    typeof file.name === "string" &&
+    typeof file.mimeType === "string" &&
+    typeof file.data === "string"
+  );
+}
 
 /** The composer drafts kept by the app across launches. */
 export function pageDraftKeeper(client: PageClient): DraftKeeper {

@@ -274,3 +274,156 @@ test("round 2 F1: a host that accepts the dictation stream shows the mic", async
   expect(seen[0]).toBe(false);
   expect(seen.at(-1)).toBe(true);
 });
+
+// Review round 3 (BLOCK at 814ee903).
+const { once, reportedConversation } = await import("../src/pages/home-messages/pageCommands");
+const { parseKeptAttachments } = await import("../src/pages/home-messages/host");
+type HomeAttachment = import("../src/pages/home-channels/types").HomeAttachment;
+type RecipientDraft = import("../src/pages/home-messages/sheets/recipients").RecipientDraft;
+
+const ada: RecipientDraft = {
+  tokens: [{ text: "Ada", recipient: { kind: "contact", contact: { id: "ada", name: "Ada", source: "team" } } }],
+  query: "",
+};
+
+test("round 3 F1: Escape ends only an empty New Message", () => {
+  const nav = new MessagesNav();
+  nav.openCompose();
+  expect(nav.composeIsEmpty()).toBe(true);
+  nav.composeText = "a message with no one yet";
+  expect(nav.composeIsEmpty()).toBe(false);
+  nav.composeText = "";
+  nav.setComposeDraft(ada);
+  expect(nav.composeIsEmpty()).toBe(false);
+});
+
+test("round 3 F2: the typed text follows the message box to the chosen people's conversation and back", () => {
+  const nav = new MessagesNav();
+  nav.openCompose();
+  nav.composeText = "hello there";
+  nav.composeShows("dm_ada");
+  expect(nav.draft("dm_ada")).toBe("hello there");
+  expect(nav.draftVersion("dm_ada")).toBe(1);
+  expect(nav.composeMessage()).toBe("hello there");
+  expect(nav.composeIsEmpty()).toBe(false);
+  // Ada removed again: the blank page has the text, and her conversation gives it up.
+  nav.composeShows(undefined);
+  expect(nav.composeText).toBe("hello there");
+  expect(nav.draft("dm_ada")).toBe("");
+  // A conversation with a draft of its own keeps it; the typed text waits on the blank page.
+  nav.keepDraft("dm_bo", "bo's own");
+  nav.composeShows("dm_bo");
+  expect(nav.draft("dm_bo")).toBe("bo's own");
+});
+
+function part(hash: string, name = `${hash}.txt`): HomeAttachment {
+  return { type: "attachment", hash, name, mimeType: "text/plain", byteCount: 5 };
+}
+
+test("round 3 F3: finished files are kept by the app and come back in their trays on a new page", async () => {
+  const kept: Record<string, HomeAttachment[]> = {};
+  const saves: { conversation: string; migrated: readonly string[] }[] = [];
+  const keeper = {
+    load: async () => ({ attachments: structuredClone(kept), legacy: {} }),
+    save: (conversation: string, parts: readonly HomeAttachment[], migrated: readonly string[]) => {
+      saves.push({ conversation, migrated });
+      if (parts.length) kept[conversation] = [...parts];
+      else delete kept[conversation];
+    },
+  };
+  const drafts = new AttachmentDrafts(keeper);
+  await drafts.load();
+  let finish: ((part: HomeAttachment) => void) | undefined;
+  const upload = () => new Promise<HomeAttachment>((resolve) => (finish = resolve));
+  drafts.add("a", new File(["notes"], "notes.txt"), upload, "failed");
+  expect(drafts.holdReason()).toBe("home.uploading");
+  expect(kept).toEqual({});
+  finish!(part("h1", "notes.txt"));
+  await settle();
+  expect(kept).toEqual({ a: [part("h1", "notes.txt")] });
+  // Kept by the app: a reload no longer has to wait for it.
+  expect(drafts.holdReason()).toBeNull();
+  const progressSaves = saves.length;
+  drafts.patch("a", drafts.files("a")[0]!.id, { thumb: "data:," });
+  expect(saves.length).toBe(progressSaves);
+
+  // A relaunch: the new page's tray has the finished file, ready to send.
+  const next = new AttachmentDrafts(keeper);
+  await next.load();
+  expect(next.files("a").map((item) => [item.file.name, item.part?.hash])).toEqual([["notes.txt", "h1"]]);
+  next.remove("a", next.files("a")[0]!.id);
+  expect(kept).toEqual({});
+  expect(
+    parseKeptAttachments({ attachments: { a: [part("h1"), { type: "text" }] }, legacy: { b: [{ hash: 1 }] } }),
+  ).toEqual({
+    attachments: { a: [part("h1")] },
+    legacy: {},
+  });
+});
+
+test("round 3 F3: the native composer's files are uploaded into their trays, and the app lets go of each taken", async () => {
+  const saves: { conversation: string; parts: string[]; migrated: readonly string[] }[] = [];
+  const keeper = {
+    load: async () => ({
+      attachments: {},
+      legacy: { b: [{ hash: "legacy1", name: "old.txt", mimeType: "text/plain", data: btoa("notes") }] },
+    }),
+    save: (conversation: string, parts: readonly HomeAttachment[], migrated: readonly string[]) =>
+      void saves.push({ conversation, parts: parts.map((p) => p.hash), migrated }),
+  };
+  const drafts = new AttachmentDrafts(keeper);
+  await drafts.load();
+  // Nothing uploads before the store can.
+  expect(drafts.files("b")).toHaveLength(0);
+  const uploaded: { conversation: string; name: string; text: string }[] = [];
+  drafts.uploadLegacy(async (conversation, file) => {
+    uploaded.push({ conversation, name: file.name, text: await file.text() });
+    return part("h2", file.name);
+  }, "failed");
+  await settle();
+  expect(uploaded).toEqual([{ conversation: "b", name: "old.txt", text: "notes" }]);
+  expect(drafts.files("b").map((item) => item.part?.hash)).toEqual(["h2"]);
+  expect(saves.at(-1)).toEqual({ conversation: "b", parts: ["h2"], migrated: ["legacy1"] });
+  // A second store's service uploads nothing again.
+  drafts.uploadLegacy(async () => part("h3"), "failed");
+  await settle();
+  expect(uploaded).toHaveLength(1);
+});
+
+test("round 3 F4: a conversation that left the list is not reported as open", () => {
+  const listed = new Map([["a", {}]]);
+  expect(reportedConversation("a", listed, false)).toBe("a");
+  expect(reportedConversation("gone", listed, false)).toBeUndefined();
+  expect(reportedConversation("a", listed, true)).toBeUndefined();
+});
+
+test("round 3 F5: a request the host asks again runs once", async () => {
+  let runs = 0;
+  const serve = once(() => ++runs, new Map());
+  expect(await serve({ conversation: "a", offset: 1, request: "r1" })).toBe(1);
+  expect(await serve({ conversation: "a", offset: 1, request: "r1" })).toBe(1);
+  expect(runs).toBe(1);
+  expect(await serve({ conversation: "a", offset: 1, request: "r2" })).toBe(2);
+  expect(await serve({ conversation: "a", offset: 1 })).toBe(3);
+  expect(await serve({ conversation: "a", offset: 1 })).toBe(4);
+});
+
+test("round 3 F6: a tapback goes to its part, with its kind", async () => {
+  const calls: { op: string; params: Record<string, unknown> }[] = [];
+  const client = {
+    call: async (op: string, params: Record<string, unknown>) => {
+      calls.push({ op, params });
+      return op === HomeOps.inbox
+        ? { me: { id: "me", kind: "human", name: "Me", chief: false }, conversations: [], rev: 1 }
+        : {};
+    },
+    subscribe: async () => () => {},
+    handle: () => () => {},
+  };
+  const store = new HomeChannelsStore(client as never);
+  await store.reloadInbox();
+  const message = { id: "m1", conversation: "a", reactions: [] } as never;
+  await store.react(message, "❤️", { partIndex: 2, tapback: "love" });
+  const react = calls.find((call) => call.op === HomeOps.react)!;
+  expect(react.params).toMatchObject({ partIndex: 2, tapback: "love", value: "❤️", remove: false });
+});

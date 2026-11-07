@@ -6,12 +6,13 @@
 //
 // The page makes one for its whole life (main.tsx), so a daemon reconnect, which mounts a new store
 // and a new shell, keeps what the person typed, the files they attached and what they had open.
-// The composer drafts are also kept durably by the app (`keeper`: HomeStore's draft cache, as the
-// native composer kept them), so a relaunch finds them too.
+// The composer drafts and the finished files are also kept durably by the app (`keeper`,
+// `attachmentKeeper`: HomeStore's draft cache, as the native composer kept them), so a relaunch
+// finds them too.
 import type { HomeConversation } from "../home-channels/types";
 import type { MessageRequest } from "./sheets/model";
 import { EMPTY_DRAFT, isDraftEmpty, type RecipientDraft } from "./sheets/recipients";
-import { AttachmentDrafts } from "./transcript/attachmentDrafts";
+import { AttachmentDrafts, type AttachmentKeeper } from "./transcript/attachmentDrafts";
 
 /** Where the composer drafts are kept across launches (the app's HomeStore, host.ts). */
 export interface DraftKeeper {
@@ -64,15 +65,23 @@ export class MessagesNav {
   private readonly unsaved = new Set<string>();
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
   /** The files attached per conversation (they outlive the composer that shows them). */
-  readonly attachments = new AttachmentDrafts();
+  readonly attachments: AttachmentDrafts;
   /** The conversation the page last showed: a reconnect's new store opens it again. */
   lastShown: string | undefined;
   /** The New Message page's message box text (it ends with the draft). */
   composeText = "";
+  /** The conversation New Message shows under To: (the chosen people already have it), if one:
+   * its message box is that conversation's composer, with that conversation's draft. */
+  private composeExisting: string | undefined;
   /** What takes the keyboard now (the detail registers it): true when something took it. */
   private focuser: (() => boolean) | undefined;
 
-  constructor(private readonly keeper?: DraftKeeper) {}
+  constructor(
+    private readonly keeper?: DraftKeeper,
+    attachmentKeeper?: AttachmentKeeper,
+  ) {
+    this.attachments = new AttachmentDrafts(attachmentKeeper);
+  }
 
   getSnapshot = (): NavState => this.state;
 
@@ -100,8 +109,37 @@ export class MessagesNav {
   leaveCompose(): void {
     const compose = this.state.compose;
     if (!compose?.shown) return;
-    if (isDraftEmpty(compose.draft) && !this.composeText.trim()) this.closeCompose();
+    if (this.composeIsEmpty()) this.closeCompose();
     else this.set({ compose: { ...compose, shown: false } });
+  }
+
+  /** New Message's message box text: the blank page's, or the shown conversation's draft. */
+  composeMessage(): string {
+    return this.composeExisting ? this.draft(this.composeExisting) : this.composeText;
+  }
+
+  /** Nothing chosen and nothing typed (HomeNewMessageView.isEmpty): Escape and leaving end it. */
+  composeIsEmpty(): boolean {
+    const compose = this.state.compose;
+    return !compose || (isDraftEmpty(compose.draft) && !this.composeMessage().trim());
+  }
+
+  /** The chosen people changed what New Message shows under To: (`existing`: their conversation,
+   * else the blank page). The typed text moves with the message box, as HomeNewMessageView's
+   * `recipientsChanged`: the conversation left gives its draft up, and the one shown takes the text
+   * unless it has a draft of its own. */
+  composeShows(existing: string | undefined): void {
+    const previous = this.composeExisting;
+    if (existing === previous) return;
+    const text = this.composeMessage();
+    if (previous) this.keepDraft(previous, "");
+    this.composeExisting = existing;
+    if (existing) {
+      this.composeText = "";
+      if (text && !this.draft(existing)) this.replaceDraft(existing, text);
+    } else {
+      this.composeText = text;
+    }
   }
 
   /** The draft, its page and its row go, whatever was typed (the row's x, `closeNewMessage`).
@@ -109,6 +147,7 @@ export class MessagesNav {
   closeCompose(): boolean {
     if (!this.state.compose) return false;
     this.composeText = "";
+    this.composeExisting = undefined;
     this.set({ compose: undefined });
     return true;
   }

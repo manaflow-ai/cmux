@@ -5,6 +5,8 @@ import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHostedChief
 import CmuxNextPages
+import CmuxNextSettings
+import Foundation
 import Testing
 
 /// What the React Messages page's host decides (review of cmux#37736 at c3dd70eb): New Message
@@ -94,6 +96,45 @@ struct HomeMessagesPageRulesTests {
                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 2, pressure: 1))
         strip.mouseDown(with: press)
         #expect(window.frame == before, "a double-click on the strip itself zooms nothing: the window's path runs it once")
+    }
+
+    /// Round 3 F5: a host-to-page call is asked again only while the page cannot take it (no handler
+    /// yet, or no link); a page that took it and refused is not asked again, so one Ctrl-Tab moves once.
+    @Test func onlyAPageThatIsNotReadyIsAskedAgain() {
+        #expect(HomePageAskAttempt(PageError.unknownOp("cmux.home.moveConversation")) == .notReady)
+        #expect(HomePageAskAttempt(PageError.closed) == .notReady)
+        #expect(HomePageAskAttempt(PageError.invalidParams("no such conversation")) == .refused)
+        #expect(HomePageAskAttempt(CancellationError()) == .refused)
+    }
+
+    /// Round 3 F3: the page's staged attachments go to HomeStore's draft cache and come back; the
+    /// native composer's go to the page with their bytes once, and leave HomeStore only when the
+    /// page names them as taken.
+    @Test func stagedAttachmentsAreKeptAndTheNativeOnesHandedOver() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-messages-attachments-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root)
+        store.start()
+        defer { store.stop() }
+        let id = HomeChiefRosterTests.ada
+        let native = try await store.prepareAttachment(data: Data("notes".utf8), typeIdentifier: "public.plain-text")
+        store.setDraftAttachments([native], for: id)
+        let drafts = HomeMessagesAttachmentDrafts(store: store)
+        let part = JSONValue.object(["type": .string("attachment"), "hash": .string("h1"), "name": .string("a.png"),
+                                     "mimeType": .string("image/png"), "byteCount": .number(3)])
+        drafts.save([part], migrated: [], for: id)
+        let loaded = await drafts.load()
+        #expect(loaded.value(at: ["attachments", id.rawValue]) == .array([part]))
+        let legacy = try #require(loaded.value(at: ["legacy", id.rawValue])?.arrayValue?.first)
+        #expect(legacy.value(at: ["hash"])?.stringValue == native.ref.hash)
+        #expect(legacy.value(at: ["data"])?.stringValue == Data("notes".utf8).base64EncodedString())
+        // A save that names another hash lets go of nothing; naming it lets go of it.
+        drafts.save([part], migrated: ["other"], for: id)
+        #expect(store.draftAttachments(for: id) == [native])
+        drafts.save([part], migrated: [native.ref.hash], for: id)
+        #expect(store.draftAttachments(for: id).isEmpty)
+        drafts.save([], migrated: [], for: id)
+        #expect(store.uploadedDraftAttachments(for: id) == nil)
     }
 
     /// The suite's services: `HomeService` holds its services unowned, so they live for the run.

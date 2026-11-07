@@ -110,6 +110,27 @@ import UniformTypeIdentifiers
         #expect(next.draftAttachments(for: Self.austin) == pasted)
     }
 
+    /// The Messages page's staged attachments (already uploaded: their parts' JSON) survive a
+    /// relaunch beside the text, and clearing them takes them out (review of cmux#37736, round 3 F3).
+    @Test func aWebComposersUploadedAttachmentsComeBackAfterARelaunch() async throws {
+        let root = Self.root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let parts = #"[{"type":"attachment","hash":"h1","name":"notes.txt","mimeType":"text/plain","byteCount":5}]"#
+        let store = Self.store(root)
+        store.start()
+        store.setUploadedDraftAttachments(parts, for: Self.austin)
+        store.stop()
+        await store.flushCache()
+        let next = Self.store(root)
+        next.start()
+        #expect(next.uploadedDraftAttachments(for: Self.austin) == parts)
+        #expect(next.uploadedDraftAttachmentConversations == [Self.austin])
+        next.setUploadedDraftAttachments(nil, for: Self.austin)
+        next.stop()
+        await next.flushCache()
+        #expect(try #require(HomeCache(url: root.appendingPathComponent("home.json")).load()).uploadedDraftAttachments == nil)
+    }
+
     /// A cache written before drafts kept attachments still decodes, with its text draft.
     @Test func aCacheWithoutDraftAttachmentsStillLoads() throws {
         let root = Self.root()

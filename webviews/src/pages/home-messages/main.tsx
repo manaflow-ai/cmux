@@ -22,7 +22,7 @@ import { DaemonGate, type DaemonSource, type HostCredential } from "../home-chan
 import { DaemonHomeClient } from "../home-channels/daemonHome";
 import { MessagesApp } from "./App";
 import { MessagesDetail as MessagesDetailView } from "./detail/MessagesDetail";
-import { noMessagesHost, pageDraftKeeper, pageMessagesHost } from "./host";
+import { noMessagesHost, pageAttachmentKeeper, pageDraftKeeper, pageMessagesHost } from "./host";
 import { MessagesNav } from "./nav";
 import type { MessagesDetail, MessagesHost } from "./types";
 import table from "./generated/strings.json";
@@ -66,8 +66,12 @@ export function mountMessagesPage(
   // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
   const carry = new PendingCarry();
   // One per mount too: a reconnect keeps the drafts, the files, New Message and what showed.
-  const nav = new MessagesNav(client ? pageDraftKeeper(client) : undefined);
+  const nav = new MessagesNav(
+    client ? pageDraftKeeper(client) : undefined,
+    client ? pageAttachmentKeeper(client) : undefined,
+  );
   void nav.loadDrafts();
+  void nav.attachments.load();
   // The page's whole life: what was typed in the last pause is kept before the document ends.
   window.addEventListener("pagehide", () => nav.flushDrafts());
   const messages = client ? pageMessagesHost(client) : noMessagesHost;

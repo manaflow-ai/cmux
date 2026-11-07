@@ -407,7 +407,8 @@ function TrayItem({ item, strings, onRemove }: { item: PendingAttachment; string
   const fraction = item.progress.total > 0 ? item.progress.sent / item.progress.total : 0;
   const percent = `${Math.round(fraction * 100)}%`;
   const state = item.error ? "failed" : item.part ? "done" : "uploading";
-  const status = item.error ?? (item.part ? formatBytes(item.file.size) : strings.format("attach.uploading", percent));
+  const status =
+    item.error ?? (item.part ? formatBytes(item.part.byteCount) : strings.format("attach.uploading", percent));
   const kind = useMemo(() => attachmentClass(item.file.type), [item.file.type]);
   return (
     <li className={`hc-tray-item ${state}`}>

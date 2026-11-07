@@ -134,19 +134,64 @@ export async function selectNumber(context: PageCommandContext, params: unknown)
   return { selected: true };
 }
 
+/** The requests a page remembers (a host retries within seconds; a few dozen cover any burst). */
+const REMEMBERED_REQUESTS = 64;
+
+/** The requests the page ran, by id, with their answers: one map for the page's life, so a request
+ * retried across a reconnect's remount runs once too. */
+const ranRequests = new Map<string, Promise<unknown>>();
+
+/** Runs each host request once: the host asks again, with the same `request` id, when its try
+ * timed out (HomeMessagesPage.ask), and a try that timed out may have run (a move that waited on
+ * the transcript). A repeat gets the first run's answer. A call without an id always runs. */
+export function once<T>(run: (params: unknown) => T | Promise<T>, ran: Map<string, Promise<unknown>> = ranRequests) {
+  return (params: unknown): Promise<T> => {
+    const request = record(params).request;
+    if (typeof request !== "string" || !request) return Promise.resolve(run(params));
+    const known = ran.get(request);
+    if (known) return known as Promise<T>;
+    const answer = Promise.resolve().then(() => run(params));
+    ran.set(request, answer);
+    if (ran.size > REMEMBERED_REQUESTS) ran.delete(ran.keys().next().value as string);
+    return answer;
+  };
+}
+
 /** Serves every command on `host` with the context `latest` returns at call time. Returns the stop. */
 export function servePageCommands(host: PageClient, latest: () => PageCommandContext): () => void {
   const stops = [
     host.handle(MessagesPageOps.currentSelection, () => currentSelection(latest())),
-    host.handle(MessagesPageOps.show, (params) => show(latest(), params)),
-    host.handle(MessagesPageOps.present, (params) => present(latest(), params)),
+    host.handle(
+      MessagesPageOps.show,
+      once((params) => show(latest(), params)),
+    ),
+    host.handle(
+      MessagesPageOps.present,
+      once((params) => present(latest(), params)),
+    ),
     host.handle(MessagesPageOps.focusComposer, () => ({ focused: latest().nav.focus() })),
-    host.handle(MessagesPageOps.moveConversation, (params) => moveConversation(latest(), params)),
-    host.handle(MessagesPageOps.selectNumber, (params) => selectNumber(latest(), params)),
+    host.handle(
+      MessagesPageOps.moveConversation,
+      once((params) => moveConversation(latest(), params)),
+    ),
+    host.handle(
+      MessagesPageOps.selectNumber,
+      once((params) => selectNumber(latest(), params)),
+    ),
   ];
   return () => {
     for (const stop of stops) stop();
   };
+}
+
+/** The conversation the page reports as open: the store's selection while it is still listed (a
+ * conversation that left the list, by Leave or Delete, is not), and none while New Message shows. */
+export function reportedConversation(
+  selected: string | undefined,
+  listed: ReadonlyMap<string, unknown>,
+  composing: boolean,
+): string | undefined {
+  return !composing && selected && listed.has(selected) ? selected : undefined;
 }
 
 /** What the page tells the host of what it shows (``SELECTED_OP``). */

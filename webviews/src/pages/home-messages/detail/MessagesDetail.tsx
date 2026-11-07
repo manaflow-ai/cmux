@@ -22,7 +22,7 @@ import { InviteSheet, TeamInviteSheet } from "../sheets/InviteSheets";
 import type { GroupInfo } from "../sheets/model";
 import { NewChiefSheet } from "../sheets/NewChiefSheet";
 import { NewMessage } from "../sheets/NewMessage";
-import type { HomeContact } from "../sheets/recipients";
+import { existingConversation, type HomeContact } from "../sheets/recipients";
 import { RequestsSheet } from "../sheets/RequestsSheet";
 import sheetsTable from "../sheets/generated/strings.json";
 import { MessagesDataOps, parseContactsAnswer, parseGroupInfoAnswer, parseRequests } from "../sheets/wire";
@@ -106,6 +106,17 @@ export function MessagesDetail(props: MessagesDetailProps) {
   const listed = snapshot.conversations.size;
   useEffect(() => readRequests.current(), [host, listed]);
 
+  // The files the native composer staged go up into their trays once this store can upload
+  // (attachmentDrafts.ts `uploadLegacy`; the first store's service, once for the page's life).
+  const uploads = store.attachments;
+  useEffect(() => {
+    if (!uploads) return;
+    nav.attachments.uploadLegacy(
+      (conversation, file, signal, progress) => uploads.upload(conversation, file, progress, signal),
+      words.transcript.t("home.composer.attach.failed"),
+    );
+  }, [uploads, nav, words.transcript]);
+
   // The people New Message, Invite and Team Invite offer: read when one of them opens.
   const [contacts, setContacts] = useState<Contacts>(NO_CONTACTS);
   const wantsContacts =
@@ -168,6 +179,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
     transcript,
   };
 
+  const rows = useMemo(() => [...snapshot.conversations.values()], [snapshot.conversations]);
   let main: ReactNode = null;
   if (composing && view.compose) {
     main = (
@@ -175,9 +187,13 @@ export function MessagesDetail(props: MessagesDetailProps) {
         <NewMessage
           strings={words.sheets}
           draft={view.compose.draft}
-          onDraft={(draft) => nav.setComposeDraft(draft)}
+          onDraft={(draft) => {
+            // The typed text follows the message box to the chosen people's conversation, or back.
+            nav.composeShows(existingConversation(draft, rows, me?.id) ?? undefined);
+            nav.setComposeDraft(draft);
+          }}
           contacts={contacts.contacts}
-          rows={[...snapshot.conversations.values()]}
+          rows={rows}
           {...(me ? { me: me.id } : {})}
           actions={actions.compose}
           inviteTeam={contacts.inviteTeam}
@@ -185,7 +201,10 @@ export function MessagesDetail(props: MessagesDetailProps) {
             nav.closeCompose();
             void openMade(id);
           }}
-          onEscape={() => nav.closeCompose()}
+          onEscape={() => {
+            // Escape ends only an empty New Message (HomeNewMessageView's isEmpty guard).
+            if (nav.composeIsEmpty()) nav.closeCompose();
+          }}
           onFocusMessage={() => {
             if (!composeBox.current && !transcript.current?.focusComposer()) return;
             composeBox.current?.focus();
@@ -332,7 +351,7 @@ function ConversationView(
         onLoadOlder={() => void store.loadOlder()}
         onRetry={(key) => store.retry(key)}
         onDiscard={(key) => store.discard(key)}
-        onReact={(message, _part, value) => void store.react(message, value)}
+        onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
         links={props.links}
         {...(firstRunShown

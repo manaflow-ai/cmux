@@ -24,6 +24,21 @@ extension HomeStore {
         viewCache.setDraftAttachments(attachments.map(HomeCachedDraftAttachment.init), for: id)
     }
 
+    /// The conversations with attachments a web composer staged after uploading them.
+    public var uploadedDraftAttachmentConversations: [ConversationID] { Array(viewCache.uploadedDraftAttachments.keys) }
+
+    /// A web composer's uploaded attachments in `id`'s compose field, as its JSON text.
+    public func uploadedDraftAttachments(for id: ConversationID) -> String? { viewCache.uploadedDraftAttachments[id] }
+
+    /// Keeps a web composer's uploaded attachments (its JSON text: the blobs are the owner's
+    /// already, so no file here); nil or empty clears them.
+    public func setUploadedDraftAttachments(_ json: String?, for id: ConversationID) {
+        viewCache.setUploadedDraftAttachments(json, for: id)
+    }
+
+    /// The conversations whose compose field kept attachments (prepared here, their files in the blob cache).
+    public var draftAttachmentConversations: [ConversationID] { Array(viewCache.draftAttachments.keys) }
+
     public func scrollAnchor(for id: ConversationID) -> HomeScrollAnchor? { viewCache.scrollAnchors[id] }
 
     /// Where the reader is; nil when at the bottom.

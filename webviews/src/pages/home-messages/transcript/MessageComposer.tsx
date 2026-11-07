@@ -96,8 +96,9 @@ export function MessageComposer({
   const ready = files.filter((item) => item.part).map((item) => item.part as HomeAttachment);
   const uploading = files.some((item) => !item.part && !item.error);
   const empty = !value.trim() && ready.length === 0;
-  // WEB-SWAP: staged files live only in this page (in any conversation's tray), so a web update's
-  // reload waits for them to be sent or removed (pages/shared/webSwap.ts).
+  // WEB-SWAP: a staged file the app does not keep yet (uploading, failed, or any in a composer
+  // with no keeper) lives only in this page, so a web update's reload waits for it to finish, be
+  // sent or be removed (pages/shared/webSwap.ts, attachmentDrafts.ts `holdReason`).
   useWebSwapHold(hold);
   const canSend = sendEnabled && !empty && !uploading;
 

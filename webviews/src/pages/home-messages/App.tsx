@@ -28,7 +28,7 @@ import { ConversationList, DRAFT_ROW } from "./list/ConversationList";
 import { clampWidth, COMPACT_BELOW, HEADER, WIDTH } from "./list/layout";
 import { holdsOneConversation, listModel, visibleConversations } from "./list/model";
 import { MessagesNav } from "./nav";
-import { followPageFocus, usePageCommands } from "./pageCommands";
+import { followPageFocus, reportedConversation, usePageCommands } from "./pageCommands";
 import type { HiddenConversations, HostMenuItem, MessagesChrome, MessagesDetail, MessagesHost } from "./types";
 
 export interface MessagesAppProps {
@@ -173,7 +173,9 @@ export function MessagesApp({
     nav.requestFocus();
   };
   // The host's commands (show, present, focus, move) and the shown conversation it keeps.
-  const shown = !composing && snapshot.selected ? snapshot.selected : undefined;
+  // Only a conversation still listed shows: one that left the list (Leave, Delete) is not reported
+  // as open, so the app moves the page on (its neighbor, else the default conversation).
+  const shown = reportedConversation(snapshot.selected, listed, composing);
   const selection = useMemo(
     () => (shown ? { conversation: shown, ...(snapshot.highlight ? { message: snapshot.highlight } : {}) } : null),
     [shown, snapshot.highlight],

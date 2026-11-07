@@ -4,7 +4,13 @@
 // The composer is keyed by its conversation and remounts on every switch, so the files live here,
 // with the page's view state (nav.ts), not in the component.
 //
-// Cost: one tray per conversation that has files; a change copies only that tray.
+// The finished files are also kept by the app (`keeper`: HomeStore's draft cache, beside the text
+// drafts, host.ts), so a relaunch or a web update's reload finds them in their trays again. The
+// files the native composer staged come over once (`legacy`): the page uploads them into their
+// trays and then tells the keeper which it took, so the app lets go of only those.
+//
+// Cost: one tray per conversation that has files; a change copies only that tray, and the keeper
+// hears only when a tray's finished files change (not on upload progress).
 import type { PendingAttachment } from "../../home-channels/AttachmentViews";
 import type { UploadProgress } from "../../home-channels/attachmentService";
 import type { HomeAttachment } from "../../home-channels/types";
@@ -17,12 +23,121 @@ export type AttachmentHold = "home.uploading" | "home.attachments" | null;
 /** One upload: the bytes go, with progress, until the signal aborts it. */
 export type Upload = (signal: AbortSignal, progress: (progress: UploadProgress) => void) => Promise<HomeAttachment>;
 
+/** A file the native composer staged, with its bytes (base64), for the page to upload. */
+export interface LegacyAttachment {
+  hash: string;
+  name: string;
+  mimeType: string;
+  data: string;
+}
+
+/** What the app kept: the page's finished files and the native composer's, by conversation. */
+export interface KeptAttachments {
+  attachments: Record<string, HomeAttachment[]>;
+  legacy: Record<string, LegacyAttachment[]>;
+}
+
+/** Where the staged files are kept across launches (the app's HomeStore, host.ts). */
+export interface AttachmentKeeper {
+  load(): Promise<KeptAttachments>;
+  /** Keeps `parts` as `conversation`'s finished files (none clears them) and lets go of the
+   * native composer's files the page took (`migrated`: their hashes). */
+  save(conversation: string, parts: readonly HomeAttachment[], migrated: readonly string[]): void;
+}
+
+/** One upload to a conversation (the owner's service), for the native composer's files. */
+export type ConversationUpload = (
+  conversation: string,
+  file: File,
+  signal: AbortSignal,
+  progress: (progress: UploadProgress) => void,
+) => Promise<HomeAttachment>;
+
 export class AttachmentDrafts {
   private readonly trays = new Map<string, readonly PendingAttachment[]>();
   private readonly uploads = new Map<string, AbortController>();
   private readonly listeners = new Set<() => void>();
   private next = 1;
   private hold: AttachmentHold = null;
+  /** Nothing is saved until the kept files are read (a save then would drop them). */
+  private loaded: boolean;
+  /** What the keeper last heard per conversation (hashes and migrated), to skip a same save. */
+  private readonly saved = new Map<string, string>();
+  /** The native composer's files, until they are uploaded (`migrate`). */
+  private legacy: Record<string, LegacyAttachment[]> | undefined;
+  private upload: { run: ConversationUpload; failed: string } | undefined;
+  /** A tray item that came from the native composer: its hash there. */
+  private readonly legacyOf = new Map<string, string>();
+  /** The native composer's files the page took (finished or removed), by conversation. */
+  private readonly released = new Map<string, Set<string>>();
+
+  constructor(private readonly keeper?: AttachmentKeeper) {
+    this.loaded = !keeper;
+  }
+
+  /** Reads the kept files (once, as the page starts): each goes back to its tray, ahead of any
+   * attached meanwhile. */
+  async load(): Promise<void> {
+    if (!this.keeper || this.loaded) return;
+    const kept = await this.keeper.load().catch((): KeptAttachments => ({ attachments: {}, legacy: {} }));
+    this.loaded = true;
+    for (const [conversation, parts] of Object.entries(kept.attachments)) {
+      const tray = this.files(conversation);
+      const back = parts
+        .filter((part) => !tray.some((item) => item.part?.hash === part.hash))
+        .map((part) => this.restored(part));
+      this.trays.set(conversation, [...back, ...tray]);
+    }
+    this.legacy = kept.legacy;
+    this.write(undefined);
+    this.migrate();
+  }
+
+  /** The upload the native composer's files take; they go once both it and the kept files are here. */
+  uploadLegacy(run: ConversationUpload, failed: string): void {
+    this.upload ??= { run, failed };
+    this.migrate();
+  }
+
+  private migrate(): void {
+    const legacy = this.legacy;
+    const upload = this.upload;
+    if (!legacy || !upload) return;
+    this.legacy = undefined;
+    for (const [conversation, files] of Object.entries(legacy)) {
+      for (const kept of files) {
+        if (this.files(conversation).some((item) => item.part?.hash === kept.hash)) {
+          this.release(conversation, kept.hash);
+          continue;
+        }
+        const file = legacyFile(kept);
+        if (!file) continue;
+        const id = this.add(
+          conversation,
+          file,
+          (signal, progress) => upload.run(conversation, file, signal, progress),
+          upload.failed,
+        );
+        this.legacyOf.set(id, kept.hash);
+      }
+    }
+    this.write(undefined);
+  }
+
+  private restored(part: HomeAttachment): PendingAttachment {
+    return {
+      id: `f${this.next++}`,
+      file: new File([], part.name, { type: part.mimeType }),
+      progress: { sent: part.byteCount, total: part.byteCount },
+      part,
+    };
+  }
+
+  private release(conversation: string, hash: string): void {
+    const set = this.released.get(conversation) ?? new Set<string>();
+    set.add(hash);
+    this.released.set(conversation, set);
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -67,6 +182,8 @@ export class AttachmentDrafts {
 
   /** The person removed a file: its upload stops. */
   remove(conversation: string, id: string): void {
+    const hash = this.legacyOf.get(id);
+    if (hash) this.release(conversation, hash);
     this.uploads.get(id)?.abort();
     this.uploads.delete(id);
     this.write(
@@ -100,12 +217,51 @@ export class AttachmentDrafts {
     this.uploads.clear();
   }
 
-  private write(conversation: string, tray: readonly PendingAttachment[]): void {
-    if (tray.length) this.trays.set(conversation, tray);
-    else this.trays.delete(conversation);
+  /** Writes `conversation`'s tray (undefined: every tray as it is), tells the keeper what
+   * finished there, and the listeners. */
+  private write(conversation: string | undefined, tray: readonly PendingAttachment[] = NONE): void {
+    if (conversation !== undefined) {
+      if (tray.length) this.trays.set(conversation, tray);
+      else this.trays.delete(conversation);
+    }
     let uploading = false;
-    for (const items of this.trays.values()) if (items.some((item) => !item.part && !item.error)) uploading = true;
-    this.hold = uploading ? "home.uploading" : this.trays.size ? "home.attachments" : null;
+    let unkept = false;
+    for (const items of this.trays.values()) {
+      if (items.some((item) => !item.part && !item.error)) uploading = true;
+      if (!this.keeper || items.some((item) => !item.part)) unkept = true;
+    }
+    this.hold = uploading ? "home.uploading" : unkept && this.trays.size ? "home.attachments" : null;
+    if (this.loaded && this.keeper) {
+      const changed =
+        conversation !== undefined ? [conversation] : [...new Set([...this.trays.keys(), ...this.released.keys()])];
+      for (const id of changed) this.save(id);
+    }
     for (const listener of this.listeners) listener();
+  }
+
+  private save(conversation: string): void {
+    const tray = this.files(conversation);
+    for (const item of tray) {
+      const hash = this.legacyOf.get(item.id);
+      if (hash && item.part) this.release(conversation, hash);
+    }
+    const parts = tray.flatMap((item) => (item.part ? [item.part] : []));
+    const migrated = [...(this.released.get(conversation) ?? [])];
+    const key = JSON.stringify([parts.map((part) => part.hash), migrated]);
+    if ((this.saved.get(conversation) ?? JSON.stringify([[], []])) === key) return;
+    this.saved.set(conversation, key);
+    this.keeper?.save(conversation, parts, migrated);
+  }
+}
+
+/** The native composer's file as a File; undefined when its bytes do not decode. */
+function legacyFile(kept: LegacyAttachment): File | undefined {
+  try {
+    const text = atob(kept.data);
+    const bytes = new Uint8Array(text.length);
+    for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
+    return new File([bytes], kept.name, { type: kept.mimeType });
+  } catch {
+    return undefined;
   }
 }

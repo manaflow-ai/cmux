@@ -1,3 +1,4 @@
+import AppKit
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextHomeModel
@@ -118,6 +119,34 @@ extension HomeBubbleColors {
         var fields: [String: JSONValue] = [:]
         for (role, color) in [("sent", sent), ("sentText", sentText), ("received", received), ("receivedText", receivedText)] {
             if let color { fields[role] = .string(String(color.hex.prefix(7))) }
+        }
+        return .object(fields)
+    }
+}
+
+extension HomeRequestAnswer {
+    /// The page's answer to a request (`requests.answer`): accept, decline or block.
+    public init?(pageText text: String) {
+        switch text {
+        case "accept": self = .accept
+        case "decline": self = .decline
+        case "block": self = .block
+        default: return nil
+        }
+    }
+}
+
+extension HomeLinkPreview {
+    /// As the Messages page reads it (cards/links/linkPreview.ts); at most `maxLines` lines.
+    public func pageJSON(maxLines: Int) -> JSONValue {
+        var fields: [String: JSONValue] = ["kind": .string(kind.rawValue), "title": .string(title)]
+        if let place { fields["place"] = .string(place) }
+        if let status { fields["status"] = .string(status) }
+        fields["statusTone"] = .string(statusTone == .success ? "success" : statusTone == .danger ? "danger" : "secondary")
+        if !lines.isEmpty { fields["lines"] = .array(lines.prefix(maxLines).map(JSONValue.string)) }
+        if monospaced { fields["monospaced"] = .bool(true) }
+        if let thumbnail, let png = NSBitmapImageRep(cgImage: thumbnail).representation(using: .png, properties: [:]) {
+            fields["thumbnail"] = .string("data:image/png;base64," + png.base64EncodedString())
         }
         return .object(fields)
     }

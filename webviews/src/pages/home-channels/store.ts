@@ -732,16 +732,21 @@ export class HomeChannelsStore {
   }
 
   /** Adds my reaction, or takes it back when I already reacted with it. */
-  async react(message: HomeMessage, value: string): Promise<void> {
+  /** Adds my reaction `value`, or takes it back when I already gave it. `on` names the part and the
+   * tapback (the Messages tapback menu): only my reaction on that part counts, and a new one goes
+   * there. Without it (Channels), my reaction on any part counts and a new one goes on part 0. */
+  async react(message: HomeMessage, value: string, on?: { partIndex: number; tapback?: string }): Promise<void> {
     if (!this.client) return;
-    const mine = message.reactions.find((r) => r.value === value && r.author === this.snapshot.me?.id);
+    const mine = message.reactions.find(
+      (r) => r.value === value && r.author === this.snapshot.me?.id && (!on || r.partIndex === on.partIndex),
+    );
     try {
       await this.client.call(HomeOps.react, {
         conversation: message.conversation,
         message: message.id,
-        partIndex: mine?.partIndex ?? 0,
+        partIndex: mine?.partIndex ?? on?.partIndex ?? 0,
         value,
-        tapback: mine?.tapback,
+        tapback: mine?.tapback ?? on?.tapback,
         remove: mine !== undefined,
         idempotencyKey: this.key("react"),
       });

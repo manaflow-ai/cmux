@@ -24,6 +24,8 @@ import MessagesLabHome
 ///   actions read it); `composing`: New Message shows, which the default selection leaves alone.
 /// - `drafts.load {}` -> `{drafts}`; `drafts.save {conversation, text}`: the composer drafts, kept in
 ///   HomeStore's draft cache (as the native composer kept them) across reconnects and launches.
+/// - `attachments.load {}` -> `{attachments, legacy}`; `attachments.save {conversation, parts, migrated}`:
+///   the staged attachments, kept the same way (``HomeMessagesAttachmentDrafts``).
 /// - `requests.list {}` -> `{requests}`; `requests.answer {conversation, answer}` -> `{ok}`.
 /// - `group.info {conversation}` -> `{info, addable}`; `group.rename|add|remove|mute|chiefReplies` -> `{outcome}`.
 /// - `contacts {}` -> `{contacts, inviteTeam}`.
@@ -38,7 +40,7 @@ import MessagesLabHome
 final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
-    static let prefixes = ["selected", "drafts.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
+    static let prefixes = ["selected", "drafts.", "attachments.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
                            "linkPreview", "openLink", "headerPanels", "appearance"].map { HomeMessagesPageRoute.prefix + $0 }
 
     private weak var services: AppServices?
@@ -92,12 +94,20 @@ final class HomeMessagesHostProvider: PageProvider {
             guard text.count <= Self.maxDraftLength else { throw PageError.invalidParams("text is longer than a draft keeps") }
             home.homeStore.setDraft(text, for: id)
             return .null
+        case "attachments.load":
+            return await HomeMessagesAttachmentDrafts(store: home.homeStore).load()
+        case "attachments.save":
+            let id = try conversation(fields)
+            let parts = fields["parts"]?.arrayValue ?? []
+            let migrated = Set((fields["migrated"]?.arrayValue ?? []).compactMap(\.stringValue))
+            HomeMessagesAttachmentDrafts(store: home.homeStore).save(parts, migrated: migrated, for: id)
+            return .null
         case "requests.list":
             await home.requests.reload()
             return .object(["requests": .array(home.requests.items.map(\.pageJSON))])
         case "requests.answer":
             let id = try conversation(fields)
-            guard let answer = fields["answer"]?.stringValue.flatMap(Self.answer) else { throw PageError.invalidParams("answer must be accept, decline or block") }
+            guard let answer = fields["answer"]?.stringValue.flatMap(HomeRequestAnswer.init(pageText:)) else { throw PageError.invalidParams("answer must be accept, decline or block") }
             let ok = await home.requests.answer(id, answer)
             if ok, answer == .accept { home.pendingSelection = id }
             return .object(["ok": .bool(ok)])
@@ -161,7 +171,7 @@ final class HomeMessagesHostProvider: PageProvider {
             let previews = previewProvider ?? HomeLinkPreviewProvider(services: services)
             previewProvider = previews
             let quick = previews.preview(for: url, kind: kind)
-            return Self.json(fields["details"]?.boolValue == true ? await previews.details(for: url, preview: quick) : quick)
+            return (fields["details"]?.boolValue == true ? await previews.details(for: url, preview: quick) : quick).pageJSON(maxLines: HomeLinkPreviewProvider.maxLines)
         case "openLink":
             // A chip's app link or path: the Home workspace's right side opens it, as a click in Channels does.
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
@@ -323,15 +333,6 @@ final class HomeMessagesHostProvider: PageProvider {
 
     static func isID(_ text: String) -> Bool { !text.isEmpty && text.count <= 256 }
 
-    static func answer(_ text: String) -> HomeRequestAnswer? {
-        switch text {
-        case "accept": .accept
-        case "decline": .decline
-        case "block": .block
-        default: nil
-        }
-    }
-
     static func kind(_ answer: CloudTeamInviteAnswer) -> String {
         switch answer {
         case .sent: "sent"
@@ -340,22 +341,5 @@ final class HomeMessagesHostProvider: PageProvider {
         case .notAllowed: "notAllowed"
         case .unreachable: "unreachable"
         }
-    }
-
-    static func json(_ preview: HomeLinkPreview) -> JSONValue {
-        var fields: [String: JSONValue] = ["kind": .string(preview.kind.rawValue), "title": .string(preview.title)]
-        if let place = preview.place { fields["place"] = .string(place) }
-        if let status = preview.status { fields["status"] = .string(status) }
-        switch preview.statusTone {
-        case .success: fields["statusTone"] = .string("success")
-        case .danger: fields["statusTone"] = .string("danger")
-        default: fields["statusTone"] = .string("secondary")
-        }
-        if !preview.lines.isEmpty { fields["lines"] = .array(preview.lines.prefix(HomeLinkPreviewProvider.maxLines).map(JSONValue.string)) }
-        if preview.monospaced { fields["monospaced"] = .bool(true) }
-        if let image = preview.thumbnail, let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
-            fields["thumbnail"] = .string("data:image/png;base64," + png.base64EncodedString())
-        }
-        return .object(fields)
     }
 }

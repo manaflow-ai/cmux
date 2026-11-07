@@ -19,6 +19,10 @@ public struct HomeCacheSnapshot: Hashable, Sendable, Codable {
     /// The attachments in each compose field, in order. Optional: a cache
     /// written before drafts kept them still decodes.
     public var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]]?
+    /// The attachments a web composer staged in each compose field after uploading them, as its
+    /// own JSON text (the Messages page's parts, in order): already the owner's blobs, so no
+    /// local file. Optional: a cache written before them still decodes.
+    public var uploadedDraftAttachments: [ConversationID: String]?
     /// On disk only: the conversations whose window is in its own file beside the index
     /// (``HomeCache``), so a write touches only the windows that changed. Nil in a file written
     /// whole (an older build), whose `windows` are inline; nil in every loaded snapshot.
