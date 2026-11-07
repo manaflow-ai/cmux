@@ -33,6 +33,10 @@
 // asks the host to write it (`pane.setComposerRing {ring}`). Anything else reads as "context".
 // `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
 // new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
+// `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
+// AgentPaneTunables.cloudEnvironmentsEnabled, read from the bundle's LSEnvironment or the launch
+// environment as CMUX_NEXT_CLOUD_NATIVE_LINK is; no cmux.json key): on, picking Cloud in a new
+// chat's strip adds the Environment chip (CloudEnvironmentChip.tsx). Off unless the host says true.
 import { useSyncExternalStore } from "react";
 
 // `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
@@ -58,6 +62,7 @@ export type ComposerSettings = {
   showMachineLoadWarnings: boolean;
   newChatsIn: NewChatPlace;
   composerRing: ComposerRing;
+  cloudEnvironments: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -74,6 +79,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   showMachineLoadWarnings: true,
   newChatsIn: "local",
   composerRing: "context",
+  cloudEnvironments: false,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -84,7 +90,8 @@ type ComposerFlag =
   | "plainFooter"
   | "harnessSwitch"
   | "scrollToBottomOnSend"
-  | "showMachineLoadWarnings";
+  | "showMachineLoadWarnings"
+  | "cloudEnvironments";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -110,6 +117,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
     newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
     composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
+    cloudEnvironments: flag("cloudEnvironments"),
   };
 }
 

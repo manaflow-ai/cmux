@@ -5,6 +5,7 @@ import Foundation
 public nonisolated struct AgentPaneCloudEnvironmentRequest: Equatable, Sendable {
     public static let methods: Set<String> = [
         "cloud.environment.list", "cloud.environment.get", "cloud.environment.update", "cloud.environment.derive",
+        "cloud.environment.create",
     ]
     public let action: String
     public let params: JSONValue

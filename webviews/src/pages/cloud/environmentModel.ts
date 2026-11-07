@@ -18,7 +18,16 @@ export type EnvironmentPatch = Partial<Pick<CloudEnvironment, "name" | "setup_sc
   remove_secrets?: string[];
 };
 export type EnvironmentSection = "overview" | "network" | "secrets" | "script" | "variables";
-export type EnvironmentOpen = { environmentId?: string; repo?: string; ref?: string; section?: EnvironmentSection };
+/** `create`: make a new environment by that name first (the composer's New environment…), then edit
+ *  it; `onCreated` hears it once it exists. */
+export type EnvironmentOpen = {
+  environmentId?: string;
+  repo?: string;
+  ref?: string;
+  section?: EnvironmentSection;
+  create?: { name: string };
+  onCreated?(environment: CloudEnvironment): void;
+};
 export type EnvironmentDraft = {
   name: string;
   script: string | null;
@@ -72,4 +81,6 @@ export interface EnvironmentClient {
   get(id: string): Promise<CloudEnvironment>;
   update(id: string, patch: EnvironmentPatch): Promise<CloudEnvironment>;
   derive(options: { repo: string; ref?: string; environment: string }): Promise<{ setup: { script: string } }>;
+  /** A new environment (`POST /v1/cloud-environments`); its setup is derived until one is written. */
+  create?(environment: { name: string; setup_script: null }): Promise<CloudEnvironment>;
 }

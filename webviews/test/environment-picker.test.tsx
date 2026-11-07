@@ -1267,7 +1267,7 @@ test("Labs: with Sandboxed picked the control names it, no machine is checked, a
 // Codex desktop's strip: "imo claude has kinda shit ass ways to deal with remote stuff. chatgpt's is
 // better." / "yeah chatgpt codex has nicer ways to deal with stuff" / "and you can also just start
 // with nothing". A new chat's strip is three single-purpose chips: Project | Where (This Mac, Cloud,
-// Another machine; one line each, no headers) | Machine, only while the pick is another machine. The
+// Remote; one line each, no headers) | Machine, only while the pick is another machine. The
 // setup actions live on the Where control's right-click menu.
 const labels = () => rows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent ?? "");
 const alone = { sessions: [], peers: [], peerKinds: {}, peerConnected: {} };
@@ -1289,11 +1289,11 @@ const whereLabels = [t("composer.thisMac"), t("composer.cloud"), t("composer.ano
 async function pickAnother() {
   await openPicker();
   const another = popoverRows("where").find((row) => row.querySelector('[data-action="another"]'));
-  expect(another, "no Another machine row").toBeTruthy();
+  expect(another, "no Remote row").toBeTruthy();
   await act(async () => another!.click());
 }
 
-test("Leo's menu: Where is This Mac, Cloud and Another machine, however many machines there are", async () => {
+test("Leo's menu: Where is This Mac, Cloud and Remote, however many machines there are", async () => {
   await mount(true, { ...shipped, ...alone });
   await openPicker();
   expect(labels()).toEqual(whereLabels);
@@ -1330,7 +1330,7 @@ test("Leo's menu: Cloud picks a new machine for the new chat, never one of the l
   expect(connects).toEqual([["connect", "cloud"]]);
 });
 
-test("Leo's menu: Another machine picks the first ready machine and opens the machine chip on it", async () => {
+test("Leo's menu: Remote picks the first ready machine and opens the machine chip on it", async () => {
   const calls = await mount(true, shipped);
   expect(machineButton()).toBeUndefined();
   await pickAnother();
@@ -1344,7 +1344,7 @@ test("Leo's menu: Another machine picks the first ready machine and opens the ma
   );
   expect(popoverRows("machines")[0]!.querySelector(".acpmux-env-row")!.hasAttribute("data-current")).toBe(true);
   expect(doc().querySelectorAll(".acpmux-env-popover.acpmux-env-rows-machines [data-section]")).toHaveLength(0);
-  // The Where chip says Another machine, and checks it.
+  // The Where chip says Remote, and checks it.
   expect(computerButton()?.getAttribute("aria-label")).toBe(
     `${t("composer.environment")}: ${t("composer.anotherMachine")} · gpu-box`,
   );
@@ -1492,7 +1492,7 @@ test("three chips: nothing is required to start, and the machine chip shows only
   // "Choose project" is dimmed while empty, and a chat starts with it empty on This Mac (Leo: "and
   // you can also just start with nothing").
   expect(strip.querySelector(".acpmux-location-label[data-dim]")?.textContent).toBe(t("composer.chooseFolder"));
-  // With no other machine, Another machine is Add Machine….
+  // With no other machine, Remote is Add Machine….
   await pickAnother();
   expect(calls).toEqual([["connect", "addMachine"]]);
   expect(machineButton()).toBeUndefined();
