@@ -44,6 +44,7 @@ import { useAttachedVideoPlayer, VideoAttachmentTile } from "./VideoAttachmentTi
 import { FileAttachment } from "../FileAttachment";
 import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { chipRef } from "../conversation/sendMorph";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 
@@ -1067,6 +1068,8 @@ export function AttachmentStrip({
           key={attachment.id}
           className="acpmux-attachment-slot"
           data-attachment-index={index}
+          // Where its chip is when the prompt goes: the sent preview moves from it (sendMorph.ts).
+          ref={chipRef(attachment.id)}
           data-dragging={reorder.dragging === attachment.id || undefined}
         >
           <AttachmentChip

@@ -479,6 +479,29 @@ export function swiftRawString(source: string, name: string): string {
 /** The model stub --model stub runs on the machine. */
 /** The shared model stub (tests/fixtures/model-stub, #35332): Anthropic Messages and OpenAI Responses, scripted. */
 export const MODEL_STUB_PY = fileURLToPath(new URL("../../tests/fixtures/model-stub/model_stub.py", import.meta.url));
+/** The model plane every Cloud machine's agents read (web/services/coderouter/vmGuestEnv.ts). */
+const VM_MODEL_PLANE_ENV = "/etc/cmux/model-plane.env";
+/** Calls timed each way by the gateway hop cost. */
+const HOP_SAMPLES = 20;
+
+/**
+ * Curl's `hop-t <status> <starttransfer> <total> <exit>` lines (seconds) after the warm-up, as ms percentiles. Every
+ * timed call must answer 200 and curl must exit 0 (a transfer cut short can still report 200). Pure, for the tests. (The marker must not start with `@`: curl reads such a `-w` value as a file.)
+ */
+export const hopTimes = (out: string, n: number): { ttfb_p50: number; ttfb_p90: number; total_p50: number; total_p90: number } => {
+  const rows = out.split("\n").filter((l) => l.startsWith("hop-t ")).map((l) => l.split(" "));
+  const timed = rows.slice(1);
+  if (timed.length !== n) throw new Error(`${timed.length} of ${n} timed calls answered: ${out.slice(-300)}`);
+  const bad = timed.filter((r) => r[1] !== "200" || r[4] !== "0");
+  if (bad.length) throw new Error(`${bad.length} of ${n} calls did not answer 200 whole (${bad.map((r) => `${r[1]} exit ${r[4] ?? "?"}`).join(", ")})`);
+  const pct = (xs: number[], q: number) => {
+    const s = [...xs].sort((x, y) => x - y);
+    return Math.round(s[Math.min(s.length - 1, Math.ceil(q * s.length) - 1)]! * 1000);
+  };
+  const ttfb = timed.map((r) => Number(r[2]));
+  const total = timed.map((r) => Number(r[3]));
+  return { ttfb_p50: pct(ttfb, 0.5), ttfb_p90: pct(ttfb, 0.9), total_p50: pct(total, 0.5), total_p90: pct(total, 0.9) };
+};
 /**
  * The journey's stub script: one Bash call whose output (printf joins it, so neither the command nor an error that
  * quotes it carries it) the reply then repeats, so the reply shows the tool round trip.
@@ -1074,6 +1097,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const gwLog = "/home/cmux/.cache/cmux/inference-gateway.log";
     const gwStubLog = "/home/cmux/.cmux/gateway-proxy-stub.log";
     let gwExec: Exec | null = null;
+    // The stub's URL on the gateway machine (--gateway with the stub), for the hop cost.
+    let gwStubUrl: string | null = null;
     if (gatewayCmux) {
       const g = await J.step("gateway machine", async () => {
         const v = await api.op("cloud.machine.create", { name: `cloud journey ${tag} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-gw-create`);
@@ -1103,6 +1128,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (!port) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)}`);
           return { value: `http://127.0.0.1:${port}`, detail: `the model stub at 127.0.0.1:${port} on the gateway machine, nonce ${nonce}` };
         });
+        gwStubUrl = upstream;
       }
       await J.step("cmux inference setup (gateway machine)", async () => {
         const dir = mkdtempSync(path.join(tmpdir(), "cmux-gw-"));
@@ -1323,7 +1349,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           throw new Error(`${e.message} (the chat machine: ${(d?.stdout ?? "unread").replace(/\n/g, "; ").slice(0, 1500)})`);
         });
         // The stub repeats the Bash output in its reply, so this also proves the tool ran and its output came back.
-        if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) throw new Error(`the reply does not carry the stub's nonce ${nonce} and the tool output: ${last.slice(-200)}`);
+        if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) {
+          // Through the gateway, what the stub was sent: each request's path, whether it streamed, the tools it
+          // offered and whether its body could be read (a side reply means no tools, or a body it could not parse).
+          const rows = gatewayStub && gwExec ? (await gwExec(`cat ${shq(gwStubLog)} 2>/dev/null`).catch(() => null))?.stdout ?? "" : "";
+          const seen = rows.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean)
+            .map((x: any) => `${x.method} ${x.path} stream=${x.stream} tools=${(x.tools ?? []).length}${x.side ? " side" : ""}${x.unread_body !== undefined ? ` unread_body=${x.unread_body} encoding=${x.encoding || "none"}` : ""}`);
+          throw new Error(`the reply does not carry the stub's nonce ${nonce} and the tool output: ${last.slice(-200)}${seen.length ? ` (the stub saw: ${seen.slice(-8).join("; ")})` : ""}`);
+        }
         return { value: last, detail: last.slice(0, 280) };
       });
       if (modelStub && provider) {
@@ -1359,13 +1392,37 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const r = await exec(
             `H=/home/cmux; for f in "$H/.codex/auth.json" "$H/.claude/.credentials.json"; do [ -e "$f" ] && echo "has $f"; done; ` +
               `grep -qs CLAUDE_CODE_OAUTH_TOKEN "$H/.claude/settings.json" && echo "has CLAUDE_CODE_OAUTH_TOKEN"; ` +
-              `grep -rlsE '"refresh_token"|sk-ant-oat' "$H/.codex" "$H/.claude" "$H/.config/cmux" 2>/dev/null | sed 's/^/has /'; echo "@@done"`,
+              // Credential files only (JSON, TOML, env): Codex's bundled plugin docs under ~/.codex/.tmp mention
+              // refresh tokens in prose (gateway-e2e run 42388544286).
+              `grep -rlsE --include='*.json' --include='*.toml' --include='*.env' --exclude-dir=.tmp '"refresh_token"|sk-ant-oat' "$H/.codex" "$H/.claude" "$H/.config/cmux" 2>/dev/null | sed 's/^/has /'; echo "@@done"`,
           );
           if (!r.stdout.includes("@@done")) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
           const found = r.stdout.split("\n").filter((l) => l.startsWith("has "));
           if (found.length) throw new Error(`the chat machine holds a login: ${found.join(", ")}`);
           return { value: null, detail: "no ~/.codex/auth.json, no ~/.claude/.credentials.json, no OAuth or refresh token in the harness folders" };
         });
+        if (gwExec && gwStubUrl) {
+          const stubUrl: string = gwStubUrl;
+          // What the gateway route costs a call (cmuxterm-hq#7415 F1): GET /v1/models, which the stub answers without
+          // moving its script, from the chat machine through edge -> Worker -> team object -> gateway socket -> stub,
+          // and from the gateway machine straight to the stub. One warm-up call each is not counted.
+          await J.step("gateway: hop cost", async () => {
+            const n = HOP_SAMPLES;
+            const loop = (auth: string, url: string) =>
+              `for i in $(seq 0 ${n}); do curl -sS -o /dev/null -m 30 ${auth} -w 'hop-t %{http_code} %{time_starttransfer} %{time_total}' ${url}; echo " $?"; done`;
+            const via = await exec(`. ${VM_MODEL_PLANE_ENV} && ${loop(`-H "Authorization: Bearer $OPENAI_API_KEY"`, `"$OPENAI_BASE_URL/models"`)}`, 300_000);
+            const direct = await gwExec!(loop("", shq(`${stubUrl}/v1/models`)), 300_000);
+            const a = hopTimes(via.stdout, n);
+            const b = hopTimes(direct.stdout, n);
+            const result = { samples: n, gateway_path: a, direct: b, added_ms: { ttfb_p50: a.ttfb_p50 - b.ttfb_p50, total_p50: a.total_p50 - b.total_p50 } };
+            if (outDir) writeFileSync(path.join(outDir, "gateway-hop.json"), `${JSON.stringify(result, null, 2)}\n`);
+            return {
+              value: null,
+              // The whole result, so the run's summary keeps it (the job uploads no artifact).
+              detail: `the route adds ${result.added_ms.ttfb_p50} ms TTFB at p50; ${JSON.stringify(result)}`,
+            };
+          });
+        }
       }
       if (!lifecycle) {
         J.skip("turn 2 (same session)", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
