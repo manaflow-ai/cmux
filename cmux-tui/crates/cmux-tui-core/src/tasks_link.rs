@@ -8,6 +8,9 @@
 //!   idempotency key and origin `user`, and answers `{result, seq}`: `seq`
 //!   is the owner's committed sequence after the request, so a client keeps
 //!   its optimistic copy until its mirror reaches it.
+//!   `tasks.delegate` names its agent session `agent_session`: the router
+//!   takes a page's `session` as its host selector, so the field is the
+//!   owner's `session` only on this side of the router.
 //! - Every committed owner event reaches subscribers as
 //!   `tasks-changed {change: Event}`; `tasks-changed {lost: true}` says the
 //!   owner link ended (the page shows it and reads the snapshot again).
@@ -104,7 +107,27 @@ pub(crate) fn call(
             ));
         }
     };
-    mutate(&socket, operation, &format!("task.{verb}"), Value::Object(params), key)
+    mutate(
+        &socket,
+        operation,
+        &format!("task.{verb}"),
+        Value::Object(owner_params(verb, params)),
+        key,
+    )
+}
+
+/// The owner's params for `verb`: a delegate's `agent_session` is the
+/// owner's `session` (the page cannot send `session`, the router's selector).
+fn owner_params(
+    verb: &str,
+    mut params: serde_json::Map<String, Value>,
+) -> serde_json::Map<String, Value> {
+    if verb == "delegate"
+        && let Some(session) = params.remove("agent_session")
+    {
+        params.insert("session".to_owned(), session);
+    }
+    params
 }
 
 #[cfg(unix)]

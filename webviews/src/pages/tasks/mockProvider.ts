@@ -56,6 +56,12 @@ export class MockTasksProvider implements PageClient {
         extra: { code: OWNER_UNREACHABLE },
       });
     }
+    // As the daemon's page router: `machine` and `session` are host selectors, never an op's field.
+    for (const selector of ["machine", "session"]) {
+      const value = params[selector];
+      if (value !== undefined && value !== "current" && value !== "local")
+        throw pageError("validation.invalid", "a routed operation runs on this daemon: the selector must be current");
+    }
     if (op === TasksOps.snapshot) return structuredClone(this.state) as R;
     const key = String(params.idempotency_key ?? "");
     if (!key) throw pageError("cmux.validation.invalid", "a Tasks mutation needs an idempotency_key");
@@ -182,7 +188,13 @@ export class MockTasksProvider implements PageClient {
         const harness = String(params.harness);
         const me = this.state.me.id ?? "";
         const agent: AgentRef = { principal: `agt_${harness}-${me.replace(/^usr_/, "")}`, harness, on_behalf_of: me };
-        const session: Session = { id: String(params.session), task: target.id, agent, status: "pending", plan: [] };
+        const session: Session = {
+          id: String(params.agent_session),
+          task: target.id,
+          agent,
+          status: "pending",
+          plan: [],
+        };
         this.state.sessions.push(session);
         target.delegate = agent;
         target.assignee ??= { kind: "user", id: me };

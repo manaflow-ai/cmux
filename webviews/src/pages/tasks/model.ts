@@ -242,7 +242,8 @@ export function intentWire(kind: IntentKind): { verb: string; params: Record<str
         params: kind.person ? { task: kind.task, assignee: kind.person } : { task: kind.task, unassign: true },
       };
     case "delegate":
-      return { verb: "delegate", params: { task: kind.task, session: kind.session, harness: kind.harness } };
+      // `agent_session`, not `session`: the page router takes `session` as the host selector.
+      return { verb: "delegate", params: { task: kind.task, agent_session: kind.session, harness: kind.harness } };
   }
 }
 

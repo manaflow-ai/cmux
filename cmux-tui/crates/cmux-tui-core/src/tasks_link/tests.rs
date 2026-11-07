@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
-use super::call;
+use super::{call, owner_params};
 use crate::{Mux, MuxEvent, SurfaceOptions};
 
 struct Owner {
@@ -116,4 +116,18 @@ fn a_missing_owner_is_unreachable() {
     mux.control_clients.tasks.set_socket(std::path::PathBuf::from("/tmp/ctl-no-such-owner.sock"));
     let error = call(&mux, "tasks.snapshot", Map::new()).unwrap_err();
     assert_eq!(error.details["extra"]["code"], "tasks.owner_unreachable", "{error:?}");
+}
+
+#[test]
+fn a_delegate_sends_its_agent_session_as_the_owner_session() {
+    let delegate = owner_params(
+        "delegate",
+        params(json!({"task": "task_1", "agent_session": "asess_1", "harness": "codex"})),
+    );
+    assert_eq!(
+        Value::Object(delegate),
+        json!({"task": "task_1", "session": "asess_1", "harness": "codex"})
+    );
+    let update = owner_params("update", params(json!({"task": "task_1", "agent_session": "x"})));
+    assert_eq!(Value::Object(update), json!({"task": "task_1", "agent_session": "x"}));
 }
