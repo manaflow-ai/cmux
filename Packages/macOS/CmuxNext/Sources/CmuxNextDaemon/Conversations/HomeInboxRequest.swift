@@ -71,7 +71,8 @@ public struct CloudInboxOpRequest: DaemonRequest {
 /// `conversation-inbox-op` (`conversation-inbox-state-v1`): sets the caller's own pin (with its position)
 /// or "marked unread" flag of one conversation. Values are absolute, so a retry writes the same state.
 public struct ConversationInboxOpRequest: DaemonRequest {
-    public struct Op: Encodable, Sendable, Equatable {
+    /// An op's absolute value, from the SDK's `inbox_op` rule (``ConversationRules``).
+    public struct Op: Codable, Sendable, Equatable {
         public var kind: String
         public var pinned: Bool?
         public var position: UInt64?
@@ -80,17 +81,18 @@ public struct ConversationInboxOpRequest: DaemonRequest {
         /// Unix ms the mute ends; nil mutes until unmuted.
         public var until: UInt64?
 
-        /// `inbox.pin`; a pin without `position` goes after the caller's last pin.
-        public static func pin(_ pinned: Bool, position: UInt64? = nil) -> Op {
-            Op(kind: "inbox.pin", pinned: pinned, position: pinned ? position : nil, unread: nil)
-        }
+        /// `inbox.pin`; a pin without `position` goes after the caller's last pin, an unpin has none.
+        public static func pin(_ pinned: Bool, position: UInt64? = nil) -> Op { rule("pin", on: pinned, position: position) }
 
         /// `inbox.mark_unread`.
-        public static func markUnread(_ unread: Bool) -> Op { Op(kind: "inbox.mark_unread", pinned: nil, position: nil, unread: unread) }
+        public static func markUnread(_ unread: Bool) -> Op { rule("mark_unread", on: unread) }
 
         /// `inbox.mute` (Cloud rows only: `cloud-inbox-op`): Hide Alerts, until `until` when set.
-        public static func mute(_ muted: Bool, until: UInt64? = nil) -> Op {
-            Op(kind: "inbox.mute", pinned: nil, position: nil, unread: nil, muted: muted, until: muted ? until : nil)
+        public static func mute(_ muted: Bool, until: UInt64? = nil) -> Op { rule("mute", on: muted, until: until) }
+
+        /// Unanswered (the rule panicked), the bare kind, which the owner refuses.
+        private static func rule(_ kind: String, on: Bool, position: UInt64? = nil, until: UInt64? = nil) -> Op {
+            (try? ConversationRules().inboxOp(kind, on: on, position: position, until: until)) ?? Op(kind: "inbox.\(kind)")
         }
     }
     public struct Response: Decodable, Sendable, Equatable {

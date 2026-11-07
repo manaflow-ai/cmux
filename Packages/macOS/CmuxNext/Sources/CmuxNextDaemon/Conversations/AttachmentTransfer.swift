@@ -12,6 +12,8 @@ struct AttachmentTransfer<Upload: AttachmentUploadStep, Read: AttachmentReadStep
     var chunkTimeout: Duration
     var commitTimeout: Duration
     var readTimeout: Duration
+    /// The upload plan, its chunks and the read cursor are the SDK's rules.
+    private var rules: ConversationRules { ConversationRules() }
 
     /// Uploads `attachment`'s bytes from `file` (and its poster or preview
     /// from `posterFile` / `previewFile`) to `conversation`. A hash the
@@ -32,36 +34,35 @@ struct AttachmentTransfer<Upload: AttachmentUploadStep, Read: AttachmentReadStep
             return stored
         }
         do {
-            let needs = begun.needs ?? [.original]
-            var pieces: [(variant: ConversationAttachmentVariant, url: URL, size: Int)] = []
-            for variant in needs {
-                switch variant {
-                case .original: pieces.append((variant, file, attachment.byteCount))
-                case .poster:
-                    guard let posterFile, let poster = attachment.poster else { throw DaemonError.malformedResponse("attachment begin: poster needed") }
-                    pieces.append((variant, posterFile, poster.byteCount))
-                case .preview:
-                    guard let previewFile, let preview = attachment.preview else { throw DaemonError.malformedResponse("attachment begin: preview needed") }
-                    pieces.append((variant, previewFile, preview.byteCount))
-                }
+            let plan: ConversationRules.UploadPlan
+            do {
+                plan = try rules.uploadPlan(attachment: attachment, needs: begun.needs,
+                                            hasPosterFile: posterFile != nil, hasPreviewFile: previewFile != nil)
+            } catch ConversationRules.Failure.refused(_, let code) {
+                throw DaemonError.malformedResponse("attachment begin: \(code.replacingOccurrences(of: "_", with: " "))")
             }
-            let total = max(1, pieces.reduce(0) { $0 + $1.size })
-            var sent = 0
-            for piece in pieces {
-                let handle = try FileHandle(forReadingFrom: piece.url)
+            for piece in plan.pieces {
+                let url: URL? = switch piece.variant {
+                case .original: file
+                case .poster: posterFile
+                case .preview: previewFile
+                }
+                guard let url else { throw DaemonError.malformedResponse("attachment begin: \(piece.variant.rawValue) needed") }
+                let handle = try FileHandle(forReadingFrom: url)
                 defer { try? handle.close() }
-                var offset = 0
-                // Ends at the declared size; a file shorter than declared ends at its EOF
+                // Up to the declared size; a file shorter than declared ends at its EOF
                 // and the commit refuses it (`incomplete`).
-                while offset < piece.size {
+                for index in 0..<piece.chunkCount {
                     try Task.checkCancellation()
-                    let bytes = try handle.read(upToCount: min(ConversationClient.attachmentChunkBytes, piece.size - offset)) ?? Data()
+                    let chunk = try rules.uploadChunk(piece, total: plan.total, index: index)
+                    guard let offset = Int(exactly: chunk.offset), let length = Int(exactly: chunk.length) else {
+                        throw DaemonError.malformedResponse("attachment upload: chunk does not fit in Int")
+                    }
+                    let bytes = try handle.read(upToCount: length) ?? Data()
                     guard !bytes.isEmpty else { break }
                     _ = try await connection.request(Upload(step: .chunk(upload: upload, piece: piece.variant, offset: offset, bytes: bytes)),
                                                      timeout: chunkTimeout)
-                    offset += bytes.count
-                    sent += bytes.count
-                    progress(min(0.99, Double(sent) / Double(total)))
+                    progress(chunk.progress)
                 }
             }
             let committed = try await connection.request(Upload(step: .commit(upload: upload)), timeout: commitTimeout)
@@ -86,24 +87,27 @@ struct AttachmentTransfer<Upload: AttachmentUploadStep, Read: AttachmentReadStep
         var moved = false
         defer { if !moved { try? FileManager.default.removeItem(at: temporary) } }
         let handle = try FileHandle(forWritingTo: temporary)
-        var offset = 0
         var mimeType = "application/octet-stream"
         do {
             defer { try? handle.close() }
-            var eof = false
-            // Ends at the owner's eof; a read that moves no bytes before it is an error.
-            while !eof {
+            let length = try rules.attachmentChunkBytes()
+            var next: UInt64? = 0
+            // Ends at the owner's eof; a read that moves no bytes before it is an error (`read_next`).
+            while let offset = next {
                 try Task.checkCancellation()
+                guard let start = Int(exactly: offset) else { throw DaemonError.malformedResponse("attachment read: offset does not fit in Int") }
                 let reply = try await connection.request(
-                    Read(read: ConversationAttachmentReadRequest(conversation: conversation, hash: hash, variant: variant, offset: offset,
-                                                                 length: ConversationClient.attachmentChunkBytes)),
+                    Read(read: ConversationAttachmentReadRequest(conversation: conversation, hash: hash, variant: variant, offset: start,
+                                                                 length: length)),
                     timeout: readTimeout)
                 guard let bytes = Data(base64Encoded: reply.data) else { throw DaemonError.malformedResponse("attachment read: data is not base64") }
                 try handle.write(contentsOf: bytes)
-                offset += bytes.count
                 mimeType = reply.mimeType
-                eof = reply.eof
-                guard eof || !bytes.isEmpty else { throw DaemonError.malformedResponse("attachment read: no progress before eof") }
+                do {
+                    next = try rules.readNext(offset: offset, received: bytes.count, eof: reply.eof)
+                } catch ConversationRules.Failure.refused(_, let code) {
+                    throw DaemonError.malformedResponse("attachment read: \(code.replacingOccurrences(of: "_", with: " "))")
+                }
             }
             try handle.synchronize()
         }

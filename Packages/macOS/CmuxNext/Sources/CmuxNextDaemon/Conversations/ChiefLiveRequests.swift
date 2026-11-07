@@ -98,14 +98,16 @@ public struct CloudConversationRunRequest: DaemonRequest {
 }
 
 extension ConversationClient {
-    /// Every step of `run` (pages read on while `has_more`, stopping on cancellation or a non-advancing cursor); nil from a daemon without `conversation-runs-v1`.
+    /// Every step of `run` (pages read on while `has_more`, stopping on cancellation or a non-advancing cursor: the SDK's
+    /// `run_steps_next`); nil from a daemon without `conversation-runs-v1`.
     public func runRows(_ conversation: String, run: String) async throws -> ConversationRunRows? {
         guard await connection.identity?.supports(DaemonCapability.conversationRuns.rawValue) == true else { return nil }
         var all = try await connection.request(ConversationRunRequest(conversation: conversation, run: run))
         var cursor: UInt64 = 0
-        while all.hasMore == true, !Task.isCancelled, let last = all.steps.compactMap(\.rev).max(), last > cursor {
-            cursor = last
-            let next = try await connection.request(ConversationRunRequest(conversation: conversation, run: run, afterRev: last))
+        while all.hasMore == true, !Task.isCancelled,
+              let after = try ConversationRules().runStepsNext(hasMore: all.hasMore == true, cursor: cursor, keys: all.steps.compactMap(\.rev)) {
+            cursor = after
+            let next = try await connection.request(ConversationRunRequest(conversation: conversation, run: run, afterRev: after))
             all.steps += next.steps
             all.hasMore = next.hasMore
         }

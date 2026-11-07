@@ -190,7 +190,7 @@ public nonisolated final class DaemonHomeSource: HomeSource {
 
     public func snapshot(of conversation: ConversationID, tail: Int) async throws -> ConversationPage {
         let page = try await Self.mapped {
-            try await ConversationClient(self.requireConnection()).snapshot(conversation.rawValue, tail: min(max(tail, 1), 500))
+            try await ConversationClient(self.requireConnection()).snapshot(conversation.rawValue, tail: tail)
         }
         return ConversationPage(conversation: HomeCoreMapping.summary(page.conversation),
                                 messages: page.messages.map(HomeCoreMapping.message),

@@ -4,9 +4,6 @@ public import Foundation
 /// chunked uploads by SHA-256 and chunked reads into a local file
 /// (``AttachmentTransfer`` with the local owner's commands).
 extension ConversationClient {
-    /// Decoded bytes per chunk and per read: the daemon's limit (4 MiB, about
-    /// 5.6 MiB of base64 inside a 16 MiB request line).
-    public static let attachmentChunkBytes = 4 << 20
     /// A chunk's deadline: 4 MiB over a local socket takes milliseconds;
     /// this bounds a stalled daemon, not a slow disk.
     static let attachmentChunkTimeout: Duration = .seconds(30)

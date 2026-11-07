@@ -53,16 +53,6 @@ public struct CloudConversationClient: CloudConversationCommands {
     /// unknown outcome and is resent with its key.
     public static let networkTimeout: Duration = .seconds(30)
 
-    /// Returns the strict timestamp cursor for the next summary page. Cloud
-    /// pagination has no composite cursor yet, so a non-advancing or invalid
-    /// boundary must terminate rather than spin or repeat a page.
-    @usableFromInline
-    internal static func nextRunsCursor(hasMore: Bool, startedAt: [Double], before: UInt64?) -> UInt64? {
-        guard hasMore, let oldest = startedAt.min(), oldest.isFinite, oldest < Double(UInt64.max),
-              let next = UInt64(exactly: oldest), before.map({ next < $0 }) ?? true else { return nil }
-        return next
-    }
-
     public init(_ connection: DaemonConnection) {
         self.connection = connection
     }
@@ -183,27 +173,24 @@ public struct CloudConversationClient: CloudConversationCommands {
     public func runs(_ conversation: String, agent: String, oldestStartedAt: Double,
                      expectedTurns: Set<String>) async throws -> [ConversationRunSummary] {
         guard await connection.identity?.supports(DaemonCapability.cloudConversationRuns.rawValue) == true else { return [] }
+        let rules = ConversationRules()
         var result: [ConversationRunSummary] = []
         var before: UInt64?
-        var unresolved = expectedTurns
+        var unresolved = expectedTurns.sorted()
         // A run can start before the visible transcript window and still answer a loaded
-        // question. Scan the endpoint's finite history instead of stopping at the oldest
-        // message timestamp, then HomeAgentRunWindow filters to loaded anchors. This keeps
-        // step hydration bounded to matching runs; the endpoint's documented equal-timestamp
-        // limit remains its owner's responsibility.
+        // question, so the read goes on past the window until every loaded reply key found its
+        // run (a manual message with no run reads the endpoint's finite history); then
+        // HomeAgentRunWindow filters to loaded anchors. The cursor is the SDK's rule
+        // (``ConversationRules/runsNext``): a non-advancing or invalid boundary ends the read.
         // wakeup-allow: every iteration awaits a network request; EOF, a nonadvancing cursor, or cancellation ends pagination.
         while !Task.isCancelled {
             let page = try await network(CloudConversationRunsRequest(conversation: conversation, agent: agent, beforeStartedAt: before))
             result += page.runs
-            unresolved.subtract(page.runs.compactMap(\.turn))
-            // Once all loaded reply keys are found, the time window bounds the
-            // remaining scan. A manual message with no run leaves `unresolved`
-            // nonempty and therefore scans the endpoint's finite history.
-            let oldest = page.runs.compactMap(\.startedAt).min()
-            if unresolved.isEmpty, let oldest, oldest <= oldestStartedAt { break }
-            guard let next = Self.nextRunsCursor(hasMore: page.hasMore == true,
-                                                 startedAt: page.runs.compactMap(\.startedAt), before: before) else { break }
-            before = next
+            let next = try rules.runsNext(cloud: true, runs: page.runs, hasMore: page.hasMore == true, before: before,
+                                          oldestStartedAt: oldestStartedAt, unresolved: unresolved)
+            unresolved = next.unresolved
+            guard let cursor = next.before else { break }
+            before = cursor
         }
         return result
     }
@@ -212,9 +199,10 @@ public struct CloudConversationClient: CloudConversationCommands {
         guard await connection.identity?.supports(DaemonCapability.cloudConversationRuns.rawValue) == true else { return nil }
         var all = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run))
         var cursor: UInt64 = 0
-        while all.hasMore == true, !Task.isCancelled, let last = all.steps.compactMap(\.seq).max(), last > cursor {
-            cursor = last
-            let next = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run, afterSeq: last))
+        while all.hasMore == true, !Task.isCancelled,
+              let after = try ConversationRules().runStepsNext(hasMore: all.hasMore == true, cursor: cursor, keys: all.steps.compactMap(\.seq)) {
+            cursor = after
+            let next = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run, afterSeq: after))
             all.steps += next.steps
             all.hasMore = next.hasMore
         }

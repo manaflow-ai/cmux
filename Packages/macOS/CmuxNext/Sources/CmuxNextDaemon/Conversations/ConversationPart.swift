@@ -80,17 +80,11 @@ public enum ConversationPart: Codable, Sendable, Hashable {
         }
     }
 
-    /// Plain text for previews and fallbacks.
+    /// Plain text for previews and fallbacks: the SDK's `plain_text` rule (a text's text, a work
+    /// part's preview, an attachment's name, a link's title, an unknown part's `url` or type).
+    /// Unanswered (the part does not encode), empty.
     public var plainText: String {
-        switch self {
-        case .text(let text, _): text
-        case .work(let session, _, let status, let preview): preview ?? "\(session) \(status)"
-        case .attachment(let attachment): attachment.name
-        case .linkPreview(let link): link.title ?? link.url
-        // A part type this build does not know: its link when it carries one
-        // (a newer part with a `url`, like `link_preview` before it), else its type.
-        case .unknown(let type, let payload):
-            if case .object(let fields) = payload, case .string(let url)? = fields["url"], !url.isEmpty { url } else { type }
-        }
+        struct Reply: Decodable { var text: String }
+        return (try? ConversationRules().call("plain_text", ["part": self], as: Reply.self).text) ?? ""
     }
 }

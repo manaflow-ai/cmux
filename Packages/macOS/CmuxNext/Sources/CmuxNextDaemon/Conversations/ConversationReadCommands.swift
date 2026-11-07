@@ -19,7 +19,7 @@ public struct ConversationSnapshotRequest: DaemonRequest {
     public var tail: Int
     public init(conversation: String, tail: Int) {
         self.conversation = conversation
-        self.tail = min(max(tail, 1), 500)
+        self.tail = ConversationRules().clampPage(tail)
     }
 }
 
@@ -34,7 +34,7 @@ public struct ConversationHistoryRequest: DaemonRequest {
     public init(conversation: String, beforeSeq: UInt64, limit: Int) {
         self.conversation = conversation
         self.beforeSeq = beforeSeq
-        self.limit = min(max(limit, 1), 500)
+        self.limit = ConversationRules().clampPage(limit)
     }
     enum CodingKeys: String, CodingKey {
         case conversation, limit

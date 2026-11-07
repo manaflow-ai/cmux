@@ -1,6 +1,8 @@
 import Foundation
 
-/// Only the fields needed for Chief messages. Other tools accept arbitrary JSON inputs;
+/// Only the fields needed for Chief messages, normalized by the SDK's `run_tool` rule
+/// (``ConversationRules``): `name` (or `tool`), `input` (or `arguments`), and an optchat `tell`
+/// or `spawn` inside a Codex `mcp_tool_call` envelope. Other tools accept arbitrary JSON inputs;
 /// unfamiliar shapes must not prevent the rest of a run (including reports) from decoding.
 public struct ConversationRunTool: Decodable, Sendable, Hashable {
     public struct Input: Decodable, Sendable, Hashable {
@@ -14,35 +16,21 @@ public struct ConversationRunTool: Decodable, Sendable, Hashable {
         /// The prompt's `_meta.cmux.sender` (`human:<participant>`, `chief:<id>`); nil when it has none.
         public var sender: String?
 
-        private enum CodingKeys: String, CodingKey { case id, message, tasks, arguments, server, tool, meta = "_meta" }
-        private enum MetaKeys: String, CodingKey { case cmux }
-        private enum CmuxKeys: String, CodingKey { case sender }
-
-        public init(from decoder: any Decoder) throws {
-            guard let fields = try? decoder.container(keyedBy: CodingKeys.self) else { return }
-            if fields.contains(.arguments) {
-                guard let arguments = try? fields.nestedContainer(keyedBy: CodingKeys.self, forKey: .arguments) else { return }
-                id = try? arguments.decode(String.self, forKey: .id)
-                message = try? arguments.decode(String.self, forKey: .message)
-                let server = try? fields.decode(String.self, forKey: .server)
-                let tool = try? fields.decode(String.self, forKey: .tool)
-                isTellEnvelope = server == "optchat" && tool == "tell"
-                isSpawnEnvelope = server == "optchat" && tool == "spawn"
-                tasks = try? arguments.decode([String].self, forKey: .tasks)
-                sender = Self.sender(in: arguments) ?? Self.sender(in: fields)
-            } else {
-                id = try? fields.decode(String.self, forKey: .id)
-                message = try? fields.decode(String.self, forKey: .message)
-                tasks = try? fields.decode([String].self, forKey: .tasks)
-                sender = Self.sender(in: fields)
-            }
+        private enum CodingKeys: String, CodingKey {
+            case id, message, tasks, sender
+            case isTellEnvelope = "is_tell_envelope"
+            case isSpawnEnvelope = "is_spawn_envelope"
         }
 
-        /// `_meta.cmux.sender` when it is a string; nil otherwise.
-        private static func sender(in fields: KeyedDecodingContainer<CodingKeys>) -> String? {
-            guard let meta = try? fields.nestedContainer(keyedBy: MetaKeys.self, forKey: .meta),
-                  let cmux = try? meta.nestedContainer(keyedBy: CmuxKeys.self, forKey: .cmux) else { return nil }
-            return try? cmux.decode(String.self, forKey: .sender)
+        /// The rule's normalized input.
+        public init(from decoder: any Decoder) throws {
+            let fields = try decoder.container(keyedBy: CodingKeys.self)
+            id = try fields.decodeIfPresent(String.self, forKey: .id)
+            message = try fields.decodeIfPresent(String.self, forKey: .message)
+            tasks = try fields.decodeIfPresent([String].self, forKey: .tasks)
+            sender = try fields.decodeIfPresent(String.self, forKey: .sender)
+            isTellEnvelope = try fields.decodeIfPresent(Bool.self, forKey: .isTellEnvelope) ?? false
+            isSpawnEnvelope = try fields.decodeIfPresent(Bool.self, forKey: .isSpawnEnvelope) ?? false
         }
     }
     public var name = ""
@@ -51,18 +39,25 @@ public struct ConversationRunTool: Decodable, Sendable, Hashable {
     public var output: String?
     public var startedAt: Double?
 
-    private enum CodingKeys: String, CodingKey { case name, tool, input, arguments, status, output, startedAt = "started_at" }
+    /// The rule's reply.
+    private struct Normalized: Decodable {
+        var name: String
+        var input: Input?
+        var status: String?
+        var output: String?
+        var startedAt: Double?
+        enum CodingKeys: String, CodingKey { case name, input, status, output, startedAt = "started_at" }
+    }
 
+    /// Any JSON decodes: the step's raw `tool` goes to the rule as it came, and a shape the rule
+    /// cannot read (it reads every JSON value) leaves an empty tool.
     public init(from decoder: any Decoder) throws {
-        guard let fields = try? decoder.container(keyedBy: CodingKeys.self) else { return }
-        let directName = try? fields.decode(String.self, forKey: .name)
-        let toolName = try? fields.decode(String.self, forKey: .tool)
-        name = directName ?? toolName ?? ""
-        let directInput = try? fields.decode(Input.self, forKey: .input)
-        let argumentInput = try? fields.decode(Input.self, forKey: .arguments)
-        input = directInput ?? argumentInput
-        status = try? fields.decode(String.self, forKey: .status)
-        output = try? fields.decode(String.self, forKey: .output)
-        startedAt = try? fields.decode(Double.self, forKey: .startedAt)
+        let raw = (try? JSONValue(from: decoder)) ?? .null
+        guard let tool = try? ConversationRules().call("run_tool", ["tool": raw], as: Normalized.self) else { return }
+        name = tool.name
+        input = tool.input
+        status = tool.status
+        output = tool.output
+        startedAt = tool.startedAt
     }
 }
