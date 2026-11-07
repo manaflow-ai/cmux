@@ -1,0 +1,347 @@
+{
+  "version": 1,
+  "build": "4238263024001",
+  "notes": "notes/4238263024001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37390,
+      "title": "cmux NEXT: the smaller window handlers' rules move to cmux-window-rules (notifications, history, remote, browser, files, appearance)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37854,
+      "title": "gateway-e2e: show acpmux's login-env read on the chat machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37775,
+      "title": "Relay owner context inventory and overrides through native sessions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37817,
+      "title": "Agent pane toasts: a gathered deck's hidden cards stay out of Tab and VoiceOver",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37698,
+      "title": "Agent pane: answer the agent's questions from the composer hat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37643,
+      "title": "Spinners: the phone and the shared native spinners turn once per 2 s too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37844,
+      "title": "ci: generated catch-up fetches the merge's blobs first and fails loudly on a non-conflict merge failure",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37792,
+      "title": "cloud journey: a carrier dial before and after pause/resume (the staging carrier smoke)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37697,
+      "title": "Subagent pane: its own transcript and state, never its chat's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36074,
+      "title": "Screen stream (WebRTC): viewer demand, capture no larger than the iPhone shows (Petal)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37656,
+      "title": "New Tab: machine menu rows centered, permission button clicks, no Sign in for Cloud flash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37819,
+      "title": "cmux daemon: a busy view link forgets the guests that left",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37850,
+      "title": "test: the strip-divider-under-dock hover test ignores the dock edge's own line (#37655)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34186,
+      "title": "Agent pane: a recap's dismiss acts only on its own chat, and read-only transcripts drop it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37660,
+      "title": "cmux NEXT: a setting opens chat pull request links on github.com instead of the cmux GitHub page; the link menu offers the other",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37433,
+      "title": "cmux-sdk: upload plans compute chunks on demand; FFI refuses a non-UTF-8 idempotency key",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37847,
+      "title": "Composer hat: a narrow tray wraps an open command's actions instead of cutting them off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37571,
+      "title": "Agent chat: a pull request's hover card shows its state in colour, checks in words, a file-kind bar, one Open button, label colours and the author's picture, with fewer GitHub calls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37801,
+      "title": "cmux-wg: bench desktop streams over TCP, WireGuard TCP and datagrams",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37670,
+      "title": "cmux-tui: the session host survives a failed carrier relay ticket; the relay retries in the background",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37423,
+      "title": "Cloud sign-in: waiting state, already signed in, one at a time, a timeout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34566,
+      "title": "feat(next): show Open app cards for Cloud dev servers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37332,
+      "title": "cmux-daemon-conn-core: the app's control connection rules in Rust, over the app FFI (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37611,
+      "title": "settings: the sidebar and workspace row rows move to schemas/settings/source",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37829,
+      "title": "fix(classic import): a loose classic workspace is always cleared of its create's group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37831,
+      "title": "bench_memory: refuse a multi-count purge run before the launch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37517,
+      "title": "Machines: Remove a hub-joined machine (record kept in cmux-tui)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37828,
+      "title": "Session Info: Background tasks' row glyphs draw at the row text's icon size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37652,
+      "title": "acpmux: a relayed message names its sender verified, with plain names and previews in the transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37797,
+      "title": "wheel-tick-scaling: count failed and stalled single ticks; profile only the measured input",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37826,
+      "title": "base red: request_stack has a row for _acpmux/who_else",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37830,
+      "title": "Composer hat: an open command's time, state and Open in terminal sit on one line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37795,
+      "title": "acpmux: approve-reads reads a command substitution by its inner command",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37824,
+      "title": "cu arena: install Codex's code-mode host, make cmux-cua's state directory private",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37793,
+      "title": "measure: bench_memory --purge-hidden, what Chromium memory purge of hidden agent chats gives back without a reload",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37265,
+      "title": "cmux NEXT Home: the Home models move out of the view target",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37613,
+      "title": "Palette: every setting row reads On or Off, flips in place, and is named by its setting",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37629,
+      "title": "Agent chat: click feedback is a stacked, draggable toast by the composer, never a transcript line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37714,
+      "title": "cmux NEXT agent chat: share.op bridges the Share dialog to the daemon's share ops",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37595,
+      "title": "check-app-ffi-pin.sh: read the pin only through the canonical match",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37806,
+      "title": "cmux-vm: an image roll or rollback commit skips the production migrate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37671,
+      "title": "Composer hat: one item expands in place, steps slide over, counts roll, a finished item ends in a check",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37813,
+      "title": "gateway-e2e: run again (run 42373564870 hit infrastructure errors)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37369,
+      "title": "cmux NEXT browser: the Page Info bubble is a React page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37810,
+      "title": "cmux NEXT: a terminal's program gets its new grid at the next refresh while its pane moves (RESIZE P0 6, cause T)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37649,
+      "title": "Find and selection: highlights fit the surface under them; the find bar stays on top",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37712,
+      "title": "cmux NEXT Chief pet: animated characters look left, right, up and down while thinking, and lean toward a drag",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37807,
+      "title": "cmux NEXT: agent chats share one Chromium renderer (cmux-page process-per-site)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37783,
+      "title": "cmux-next: MainFrameBudgetTests counts shown frames in a Box, so the release build compiles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37574,
+      "title": "cmux-next: GitHub page shows the description, conversation, condensed checks, inline diffs and Merge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37791,
+      "title": "Every row of a tab's right-click menu works or says why",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37780,
+      "title": "acpmux: a Claude sign-in fix names `claude auth login`, not `claude /login`",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37758,
+      "title": "Agent chat: a clock time anywhere in a reply hovers, with its date and how far away it is",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37569,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-2d7a228cbd4e454d173e300a7fb90bc51a32514f",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37754,
+      "title": "Closing a pane beside a Chromium page grows the page in one motion",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37485,
+      "title": "cmux config set on TARGET: a saved default target for cmux chat",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
