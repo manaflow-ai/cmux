@@ -72,7 +72,7 @@ extension CloudService {
             creation?.markRequestSent(team: team)
             await onSent()
         }
-        let flow = appServerFlow(team: team, run: Self.pinnedRun(team: team, currentTeam: currentTeam, sent: sent, ops: appOps))
+        let flow = appServerFlow(team: team, run: Self.pinnedRun(team: team, currentTeam: currentTeam, sent: sent, ops: appOps), creation: creation)
         // A Worker machine runs once its bind registers the VM install in the creator's user record, which each Worker
         // deployment refuses for a user it has none of: the machine would stay provisioning. `user.ensure` is idempotent.
         // Every attempt asks with its own key: a same-key retry would replay a failed ensure.
@@ -124,12 +124,18 @@ extension CloudService {
     }
 
     /// The approval-aware flow every person-confirmed app-server op runs through; `run` sends each
-    /// call, and `team` is the team its approvals are answered for.
-    private func appServerFlow(team: String, run: @escaping CloudAppOp) -> CloudMachineCreateFlow {
+    /// call, and `team` is the team its approvals are answered for. A create's `creation` shown on its
+    /// window's progress page asks there; anything else asks in a sheet or the sidebar's card.
+    private func appServerFlow(team: String, run: @escaping CloudAppOp, creation: CloudMachineCreation? = nil) -> CloudMachineCreateFlow {
         let approvals = CloudApprovalAnswer(call: sessionCall()) { [approvalHolds] in await approvalHolds.isAnswered($0, team: $1) }
         return CloudMachineCreateFlow(
             run: run,
-            confirm: { [weak self] prompt in await self?.confirmCreate?(prompt) ?? false },
+            confirm: { [weak self, weak creation] prompt in
+                if let page = creation?.progressHost, page.window != nil {
+                    return await page.provider.ask(CloudPresenter.createAsk(prompt))
+                }
+                return await self?.confirmCreate?(prompt) ?? false
+            },
             approve: { request, op, params in
                 try await approvals.approve(request: request, op: op, params: try JSONEncoder().encode(params), team: team)
             },
@@ -189,16 +195,32 @@ extension CloudPresenter {
     /// `chatOpen` says whether an agent chat is still open: a card its asking chat had goes, a no, when the chat closes.
     @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?,
                                          chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }, stopAsking: (@MainActor () async -> Void)? = nil) async -> Bool {
+        let (intro, lines) = createLines(prompt)
+        if case .agentRequest(let machine) = prompt, let asks {
+            return window != nil ? await CloudCreateRequestAsk.ask(asks, intro: intro, lines: lines, asker: machine.askedBy, present: chatOpen, stopAsking: stopAsking) : false
+        }
+        // A cancelled wait (the hold answered elsewhere) dismisses the sheet (CmuxDialogCenter.present).
+        guard let window else { return false }
+        return await CmuxDialogCenter.shared.present(confirmSpec(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"),
+                                                                 button: CloudStrings.createConfirmButton, identifier: createConfirmIdentifier), in: .window(window)).button == "confirm"
+    }
+
+    /// A create confirmation's first line (who asks) and its machine lines (name, size).
+    private static func createLines(_ prompt: CloudMachineCreateFlow.Prompt) -> (intro: String, lines: [String]) {
         let intro: String, machine: CloudMachineCreateFlow.Machine
         switch prompt {
         case .agentRequest(let asked): (intro, machine) = (CloudStrings.createRequestDetail, asked)
         case .approval(_, let held): (intro, machine) = (CloudStrings.createConfirmApproval, held)
         }
-        let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
-        if case .agentRequest = prompt, let asks { return window != nil ? await CloudCreateRequestAsk.ask(asks, intro: intro, lines: lines, asker: machine.askedBy, present: chatOpen, stopAsking: stopAsking) : false }
-        // A cancelled wait (the hold answered elsewhere) dismisses the sheet (CmuxDialogCenter.present).
-        guard let window else { return false }
-        return await CmuxDialogCenter.shared.present(confirmSpec(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"),
-                                                                 button: CloudStrings.createConfirmButton, identifier: createConfirmIdentifier), in: .window(window)).button == "confirm"
+        let size = CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)
+        return (intro, (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [size] : []))
+    }
+
+    /// The same confirmation as a question on the creation's progress page: Create or Cancel, as the sheet asks.
+    static func createAsk(_ prompt: CloudMachineCreateFlow.Prompt) -> CloudProgressAsk {
+        let (intro, lines) = createLines(prompt)
+        let kind: CloudProgressAsk.Kind = if case .agentRequest = prompt { .createRequest } else { .approval }
+        return CloudProgressAsk(kind: kind, title: CloudStrings.createConfirmTitle, body: ([intro] + lines).joined(separator: "\n"),
+                                button: CloudStrings.createConfirmButton, cancel: CloudStrings.cancel)
     }
 }

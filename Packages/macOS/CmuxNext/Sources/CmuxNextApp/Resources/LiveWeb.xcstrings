@@ -1102,8 +1102,8 @@
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Modifica dal vivo"
+            "state" : "translated",
+            "value" : "Modifica in tempo reale"
           }
         },
         "km" : {
@@ -1465,20 +1465,20 @@
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Live Web Reload: %@"
+            "state" : "translated",
+            "value" : "Ponovno učitavanje weba uživo: %@"
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Live Web Reload: %@"
+            "state" : "translated",
+            "value" : "Live-genindlæsning af web: %@"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Live Web Reload: %@"
+            "state" : "translated",
+            "value" : "Live-Web-Neuladen: %@"
           }
         },
         "es" : {
@@ -1495,14 +1495,14 @@
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ricarica web dal vivo: %@"
+            "state" : "translated",
+            "value" : "Ricarica web in tempo reale: %@"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Live Web Reload: %@"
+            "state" : "translated",
+            "value" : "ការផ្ទុកវេបឡើងវិញផ្ទាល់៖ %@"
           }
         },
         "ko" : {
@@ -1513,8 +1513,8 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Live Web Reload: %@"
+            "state" : "translated",
+            "value" : "Live-omlasting av web: %@"
           }
         },
         "pl" : {
@@ -1537,8 +1537,8 @@
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Live Web Reload: %@"
+            "state" : "translated",
+            "value" : "การรีโหลดเว็บแบบสด: %@"
           }
         },
         "tr" : {
