@@ -34,6 +34,14 @@ pub(crate) struct SkewMessages {
     pub remote_build: &'static str,
     /// The same without a recorded SSH route: `{daemon}`, `{own}`.
     pub remote_build_no_ssh: &'static str,
+    /// A daemon of an older build refused an operation it does not know
+    /// (cli/older_daemon.rs): `{daemon}` its release, `{build}` its commit,
+    /// `{own}` this release, `{operation}`, `{fix}` the restart command.
+    pub older_daemon: &'static str,
+    /// The same when the daemon did not say its build: `{own}`, `{operation}`, `{fix}`.
+    pub older_daemon_unknown: &'static str,
+    /// `{build}` of a daemon that has no build stamp.
+    pub unknown_build: &'static str,
 }
 
 pub(super) const ENGLISH: SkewMessages = SkewMessages {
@@ -55,6 +63,9 @@ pub(super) const ENGLISH: SkewMessages = SkewMessages {
     journal_unsupported: "resident session does not support journal subscriptions; restart it with this cmux-tui binary",
     remote_build: "cmux: this socket reaches a daemon on another machine that runs build {daemon} (this CLI is build {own}); a remote daemon's CLI is never run from here; fix: {fix}",
     remote_build_no_ssh: "cmux: this socket reaches a daemon on another machine that runs build {daemon} (this CLI is build {own}); a remote daemon's CLI is never run from here; install build {own} of cmux-tui on that machine",
+    older_daemon: "daemon {daemon} ({build}) is older than this cmux {own} and does not know {operation}; run `{fix}` to upgrade it, terminals are kept",
+    older_daemon_unknown: "the daemon is older than this cmux {own} and does not know {operation}; run `{fix}` to upgrade it, terminals are kept",
+    unknown_build: "unknown build",
 };
 
 pub(super) const JAPANESE: SkewMessages = SkewMessages {
@@ -76,4 +87,7 @@ pub(super) const JAPANESE: SkewMessages = SkewMessages {
     journal_unsupported: "常駐セッションはジャーナルの購読に対応していません。この cmux-tui バイナリで再起動してください",
     remote_build: "cmux: このソケットの先は別のマシンのデーモンで、ビルド {daemon} で動いています (この CLI はビルド {own})。リモートのデーモンの CLI はここからは実行しません。修正: {fix}",
     remote_build_no_ssh: "cmux: このソケットの先は別のマシンのデーモンで、ビルド {daemon} で動いています (この CLI はビルド {own})。リモートのデーモンの CLI はここからは実行しません。そのマシンに cmux-tui のビルド {own} をインストールしてください",
+    older_daemon: "デーモン {daemon} ({build}) はこの cmux {own} より古く、{operation} を知りません。`{fix}` を実行してアップグレードしてください。ターミナルは保持されます",
+    older_daemon_unknown: "デーモンはこの cmux {own} より古く、{operation} を知りません。`{fix}` を実行してアップグレードしてください。ターミナルは保持されます",
+    unknown_build: "不明なビルド",
 };

@@ -134,6 +134,7 @@ use machine_server::ServerRoute;
 pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
 mod mcp;
+mod older_daemon;
 mod raw;
 #[cfg(unix)]
 mod remote_host;
