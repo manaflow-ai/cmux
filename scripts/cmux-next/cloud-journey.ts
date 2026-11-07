@@ -799,17 +799,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       rmSync(localGatewayDir, { recursive: true, force: true });
       localGatewayDir = null;
     }
-    if (cleaned || keep || !api.bearer) return;
-    cleaned = true;
+    // The team's gateway mode comes back even with --keep: the gateway this run used is gone (or about to be).
     if (gatewayModeBefore && gatewayApi) {
       const before = gatewayModeBefore;
       const beforeMachine = gatewayMachineBefore;
+      gatewayModeBefore = null;
       await J.step("team gateway mode restored (cleanup)", async () => {
         const r = await gatewayApi!.raw("PUT", "/v1/cloud/inference-gateway", { mode: before, machine: beforeMachine });
         if (r.status !== 200) throw new Error(`HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
         return { value: null, detail: before };
       }).catch(() => undefined);
     }
+    if (cleaned || keep || !api.bearer) return;
+    cleaned = true;
     if (gatewayMachine) {
       const g: string = gatewayMachine;
       await J.step("delete gateway machine (cleanup)", async () => {

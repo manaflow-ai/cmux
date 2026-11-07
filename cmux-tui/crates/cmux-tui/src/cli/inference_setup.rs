@@ -479,9 +479,10 @@ fn login_present() -> &'static str {
 
 /// The device path: the machine runs Codex's own device sign-in; the person approves on their computer.
 async fn device(machine: &Machine<'_>) -> Result<(), String> {
-    // The image's own-login rule: an owner machine only (a team machine's Unix user is every member's).
+    // The image's own-login rule: an owner machine only (a team machine's Unix user is every member's). A machine
+    // that does not say which it is counts as a team machine, as the image's own rule does.
     let (code, kind) =
-        machine.exec("cat /etc/cmux/vm-kind 2>/dev/null || echo owner", 30_000).await?;
+        machine.exec("cat /etc/cmux/vm-kind 2>/dev/null || echo team", 30_000).await?;
     if code != 0 || kind.trim() != "owner" {
         return Err("a device login goes only on your own machine, not a team machine".into());
     }
