@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { nativeProofSkip, oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { machineIds, newMachineIds } from "./cloud-journey";
 
@@ -85,6 +85,18 @@ describe("cloud journey", () => {
     expect(ok).toEqual({ probe: "cloud-chat-replies-production", at: "2026-11-04T11:00:00Z", runner: "github-actions", run: "https://x/runs/1", outcome: "ok", ms: 5000 });
     const bad = probeRow("p", [{ step: "create machine", status: "fail", ms: 5, detail: "HTTP 503" }], undefined, at);
     expect(bad).toMatchObject({ outcome: "fail", error: "create machine: HTTP 503" });
+  });
+  test("create machine to agent running is the sum of its steps, only when each passed", () => {
+    const at = new Date("2026-11-04T11:00:00Z");
+    const st = (step: string, ms: number, status: "pass" | "fail" | "skip" = "pass") => ({ step, status, ms, detail: "" });
+    const steps = [st("health", 9), st("create machine", 16500), st("running (status)", 2700), st("first exec", 3000), st("pass Claude login", 10900), st("start agent (claude)", 3700), st("send chat", 800), st("reply", 4200)];
+    expect(readyMs(steps)).toBe(36800);
+    expect(probeRow("p", steps, undefined, at)).toMatchObject({ outcome: "ok", ms: 5000, ready_ms: 36800 });
+    expect(summaryMarkdown(resolveBackend("staging"), steps).split("\n")[0]).toContain("; create machine to agent running 36.8 s");
+    // A skipped login copy (no login given) or a failed step is not a comparable total.
+    expect(readyMs(steps.map((s) => (s.step === "pass Claude login" ? { ...s, status: "skip" as const } : s)))).toBeNull();
+    expect(readyMs(steps.filter((s) => s.step !== "first exec"))).toBeNull();
+    expect(probeRow("p", [st("create machine", 5, "fail")], undefined, at)).not.toHaveProperty("ready_ms");
   });
   test("the journey's stub script is valid for the shared model stub and its reply repeats the tool output", () => {
     expect(readFileSync(MODEL_STUB_PY, "utf8")).toContain("--ready-file");

@@ -173,9 +173,9 @@ export function EnvironmentPicker({
   current: string;
   onPick(id: string): void;
   onConnect?(kind: ConnectKind): void;
-  /// The app's Cloud account state; only an explicit signed-in reply hides the sign-in action.
-  /// A fresh home can have no Cloud section or no reply from the host yet, and is still signed out
-  /// for the purpose of offering the existing sign-in entry point.
+  /// The app's Cloud account state (`cloudMachine.list` signedIn). Only an explicit signed-out reply
+  /// (false) offers Sign in for Cloud, in place of the Cloud row: the list has one Cloud row, and
+  /// before the app's reply (undefined) it is Cloud, never a claim that the person is signed out.
   cloudSignedIn?: boolean;
   saved?: SavedEnvironmentRows;
   /// The list opened, and every few seconds while it stays open: the host reads the machines
@@ -362,15 +362,11 @@ export function EnvironmentPicker({
   // Cloud: where a chat runs off this Mac. A new chat with `runMode` picks it as where the chat runs
   // (cloudRun.ts: the app picks and sizes a machine, CLOUD_RUN); elsewhere a pick opens the host's
   // New Cloud Machine flow, which stays in the right-click menu either way.
-  const cloud: Action | undefined =
-    onConnect && runMode === undefined
-      ? { value: ACTION + "cloud", text: t("composer.cloud"), kind: "cloud", run: () => onConnect("cloud") }
-      : undefined;
-  const cloudRow = runMode !== undefined ? CLOUD_RUN : cloud?.value;
-  // Signed out (or before the app's Cloud reply), Sign in for Cloud follows Cloud: it signs in only,
-  // where Cloud's New Cloud Machine flow would sign in and then make a machine (#27973).
+  // One Cloud row. The app said signed out: it is Sign in for Cloud, which signs in only, where
+  // Cloud's New Cloud Machine flow would sign in and then make a machine (#27973). Signed in, or
+  // before the app's Cloud reply: it is Cloud (never a sign-in row the account may not need).
   const signIn: Action | undefined =
-    onConnect && cloudSignedIn !== true
+    onConnect && cloudSignedIn === false
       ? {
           value: ACTION + "cloudSignIn",
           text: t("composer.cloudSignIn"),
@@ -378,6 +374,11 @@ export function EnvironmentPicker({
           run: () => onConnect("cloudSignIn"),
         }
       : undefined;
+  const cloud: Action | undefined =
+    onConnect && runMode === undefined && !signIn
+      ? { value: ACTION + "cloud", text: t("composer.cloud"), kind: "cloud", run: () => onConnect("cloud") }
+      : undefined;
+  const cloudRow = signIn ? signIn.value : runMode !== undefined ? CLOUD_RUN : cloud?.value;
   // Where: Another machine, whose pick is the machine control's. Which machine: Add Machine… last.
   const another: Action | undefined =
     listRows === "where" && onAnother
@@ -415,7 +416,7 @@ export function EnvironmentPicker({
         },
       });
     if (onConnect) {
-      if (cloudSignedIn !== true)
+      if (cloudSignedIn === false)
         items.push({ id: "cloudSignIn", label: t("composer.cloudSignIn"), onSelect: () => onConnect("cloudSignIn") });
       for (const [kind, key] of [
         ["cloud", "composer.newCloudMachine"],
@@ -435,8 +436,8 @@ export function EnvironmentPicker({
     return items;
   })();
   // The main list: This Mac, the picked machine or saved environment when it is neither This Mac nor
-  // a new Cloud machine (one checked row, so the pick is never hidden), a started chat's move,
-  // Cloud, and Sign in for Cloud while signed out.
+  // a new Cloud machine (one checked row, so the pick is never hidden), a started chat's move, and
+  // Cloud (Sign in for Cloud in its place while signed out).
   const pickedOther =
     checkedRow !== undefined && !isLocalId(checkedRow) && (positions.has(checkedRow) || checkedRow.startsWith(SAVED))
       ? checkedRow
@@ -446,7 +447,6 @@ export function EnvironmentPicker({
     ...(pickedOther ? [pickedOther] : []),
     ...(move ? [move.value] : []),
     ...(cloudRow ? [cloudRow] : []),
-    ...(signIn ? [signIn.value] : []),
   ];
   // Machines…: every machine, This Mac first, and New Tab's saved environments, as the search keeps them.
   const machines = [
@@ -468,7 +468,6 @@ export function EnvironmentPicker({
   const where = [
     ...ordered.filter(isLocal).map((environment) => environment.id),
     ...(cloudRow ? [cloudRow] : []),
-    ...(signIn ? [signIn.value] : []),
     ...(another ? [another.value] : []),
   ];
   // Which machine: the machines a chat can start on first, whatever their kind, then the rest

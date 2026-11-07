@@ -1,8 +1,9 @@
 // Fresh-home discovery uses the real New Tab and chat composer, with Labs left off: the composer's
 // environment picker is not behind Labs (Leo, 2026-10-30), and with only this Mac listed it offers
-// Cloud (New Cloud Machine) in its list and Add Machine… and New Cloud Machine… in the control's
-// right-click menu, from a started chat too (#27083). The list is This Mac and Cloud, one line each,
-// with the setup actions on the right-click menu (#28999).
+// Cloud in its list and Add Machine… and New Cloud Machine… in the control's right-click menu, from
+// a started chat too (#27083). The list is This Mac and one Cloud row, one line each, with the setup
+// actions on the right-click menu (#28999). This fresh home is signed out, so its one Cloud row is
+// Sign in for Cloud, in Cloud's place, and it signs in (#36050).
 // The host-call assertions prove the menu dispatch; native card/sign-in integration is separate.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync } from "node:fs";
@@ -78,27 +79,30 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
               window as unknown as { cmuxGalleryLog: { method: string; params?: { id?: string } }[] }
             ).cmuxGalleryLog.some((call) => call.method === "action.run" && call.params?.id === "device.add"),
           );
-          // The list's Cloud row opens New Cloud Machine.
+          // Signed out, the list's one Cloud row is Sign in for Cloud, and it signs in.
           if (!(await computer.getAttribute("aria-expanded"))?.includes("true")) await computer.click();
           const menu = page.locator(".acpmux-env-popover");
-          const cloud = menu.getByRole("option", { name: /^Cloud/ });
-          await cloud.waitFor();
+          const signIn = menu.getByRole("option", { name: /^Sign in for Cloud/ });
+          await signIn.waitFor();
           const names = await menu.getByRole("option").allTextContents();
-          expect(await cloud.count(), names.join(" | ")).toBe(1);
-          expect(await cloud.isVisible(), names.join(" | ")).toBe(true);
+          expect(await signIn.count(), names.join(" | ")).toBe(1);
+          expect(await signIn.isVisible(), names.join(" | ")).toBe(true);
+          expect(await menu.getByRole("option", { name: /^Cloud/ }).count(), names.join(" | ")).toBe(0);
           if (artifacts) await page.screenshot({ path: path.join(artifacts, `${entry}-${colorScheme}.png`) });
-          await cloud.click();
+          await signIn.click();
           await page
             .waitForFunction(
               () =>
                 (
                   window as unknown as { cmuxGalleryLog: { method: string; params?: { id?: string } }[] }
-                ).cmuxGalleryLog.some((call) => call.method === "action.run" && call.params?.id === "newCloudMachine"),
+                ).cmuxGalleryLog.some(
+                  (call) => call.method === "action.run" && call.params?.id === "palette.auth.signIn",
+                ),
               null,
               { timeout: 10_000 },
             )
             .catch(async () => {
-              throw new Error(`Cloud ran no newCloudMachine; actions: ${JSON.stringify(await log())}`);
+              throw new Error(`Sign in for Cloud ran no palette.auth.signIn; actions: ${JSON.stringify(await log())}`);
             });
         } finally {
           await page.close();

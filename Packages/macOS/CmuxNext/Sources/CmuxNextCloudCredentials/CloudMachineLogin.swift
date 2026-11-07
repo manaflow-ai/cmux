@@ -44,6 +44,20 @@ public nonisolated enum CloudMachineLogin: String, Sendable, Equatable, CaseIter
         return (CloudHarnessLoginDecision.MachineProbe(exitCode: result.exitCode, stdout: result.stdout), cached != nil)
     }
 
+    /// Whether a person's own recovery click (the turn card's "Set up Claude") mints a new login with
+    /// `setup-token` instead of installing the one cmux holds: only when the machine already runs that
+    /// cached token (so it is the token the provider refused) or the probe gave no answer
+    /// (cmux-cloud-start-core `machine_login::recovery_refreshes`). With nothing cached the transfer
+    /// signs in either way. `api` is pinned to the machine's team.
+    public static func recoveryRefreshes(on api: CloudAPIClient, machineID: String, teamID: String?, userID: String,
+                                         otherTeams: [String?] = []) async -> Bool {
+        let read = await read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)
+        guard read.cached else { return false }
+        struct Request: Encodable { var probe: CloudHarnessLoginDecision.MachineProbe? }
+        struct Reply: Decodable { var refresh: Bool }
+        return CloudStartCore().call("cloud_recovery_refreshes", Request(probe: read.probe), as: Reply.self)?.refresh ?? true
+    }
+
     /// The SHA-256 of a token, hex (cmux-cloud-start-core `machine_login::fingerprint`): what the probe
     /// compares on the machine, so no token is sent there to compare. Nil when the FFI does not answer;
     /// the probe then compares nothing, and a machine with cmux's own token reads as a login that stays.

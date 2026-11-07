@@ -17,6 +17,11 @@ pub(super) enum Why {
     EnvFile,
     /// A private key or certificate store (`id_rsa*`, `*.pem`, `*.key`, ...).
     KeyFile,
+    /// A folder of keys and logins ([`credential`]: `.ssh`, `.aws`, `.config/gh`, ...).
+    CredentialFolder,
+    /// A file of tokens or passwords ([`credential`]: `.netrc`,
+    /// `.cargo/credentials.toml`, ...; [`secret_at`]: a registry file with a token).
+    CredentialFile,
     SymlinkInside,
     SymlinkOutside,
     /// A symlink to nothing.
@@ -44,7 +49,9 @@ impl Why {
     /// The category, a stable code the App may group by.
     pub(super) fn kind(self) -> &'static str {
         match self {
-            Self::EnvFile | Self::KeyFile => "secret",
+            Self::EnvFile | Self::KeyFile | Self::CredentialFolder | Self::CredentialFile => {
+                "secret"
+            }
             Self::SymlinkInside
             | Self::SymlinkOutside
             | Self::SymlinkBroken
@@ -63,6 +70,8 @@ impl Why {
         match self {
             Self::EnvFile => "secret: .env files are shared only on purpose",
             Self::KeyFile => "secret: key files are shared only on purpose",
+            Self::CredentialFolder => "secret: credential folders are shared only on purpose",
+            Self::CredentialFile => "secret: credential files are shared only on purpose",
             Self::SymlinkInside => "a symlink (to a place inside the folder)",
             Self::SymlinkOutside => "a symlink (to a place outside the folder)",
             Self::SymlinkBroken => "a symlink (to nothing)",
@@ -172,6 +181,77 @@ pub(super) fn secret(name: &str) -> Option<Why> {
     key.then_some(Why::KeyFile)
 }
 
+/// Why the untracked file at `relative` (under `top`) stays on this Mac
+/// because it may hold a secret: [`secret`]'s names, plus everything the git
+/// seed leaves out (`git_seed::secrets::reason`: `.netrc`, a registry file
+/// with a token). One rule for a chat's copy and its seed, so a folder never
+/// sends a secret on one path that the other keeps here.
+pub(super) fn secret_at(top: &Path, relative: &str) -> Option<Why> {
+    let name = relative.rsplit('/').next().unwrap_or(relative);
+    if let Some(why) = secret(name) {
+        return Some(why);
+    }
+    cmux_tui_core::git_seed::secrets::reason(top, relative.as_bytes()).map(|_| Why::CredentialFile)
+}
+
+/// Folders of keys and logins, as paths of one or more names, left out at
+/// any depth (by case too). The same list, in the same order, as the App's
+/// `AgentPaneCloudFolderRefusal.secretFolders`, which refuses home's as a
+/// selected folder (a test reads that list and compares): one list for both.
+/// A project's own `.cargo/` and `.docker/` stay here too.
+const CREDENTIAL_FOLDERS: &[&str] = &[
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".config/gcloud",
+    ".config/gh",
+    ".kube",
+    ".docker",
+    ".secrets",
+    ".azure",
+    ".cargo",
+    ".gem",
+    ".terraform.d",
+    ".password-store",
+    "Library/Keychains",
+];
+
+/// Files of tokens or passwords by name, anywhere. Home's own sit in home,
+/// which the App refuses as a whole, so only a copy needs them by name.
+const CREDENTIAL_NAMES: &[&str] =
+    &[".netrc", "_netrc", ".npmrc", ".pypirc", ".git-credentials", ".pgpass"];
+
+/// Files of tokens by path (`.config/hub`: hub's GitHub token).
+const CREDENTIAL_FILES: &[&str] = &[".config/hub"];
+
+/// Whether the names of `names` that end at `end` (exclusive) are `path`.
+fn ends_with(names: &[String], end: usize, path: &str) -> bool {
+    let parts: Vec<String> = path.split('/').map(str::to_ascii_lowercase).collect();
+    end.checked_sub(parts.len())
+        .and_then(|start| names.get(start..end))
+        .is_some_and(|tail| tail == parts.as_slice())
+}
+
+/// Whether `relative` (a folder when `folder`) is, or is in, a folder of
+/// keys and logins, or is a file of tokens or passwords: never copied
+/// (gh's `hosts.yml`, Cargo's `credentials.toml`, `.netrc`, ...).
+pub(super) fn credential(relative: &str, folder: bool) -> Option<Why> {
+    let names: Vec<String> = relative.split('/').map(str::to_ascii_lowercase).collect();
+    let folders = if folder { names.len() } else { names.len().saturating_sub(1) };
+    for end in 1..=folders {
+        if CREDENTIAL_FOLDERS.iter().any(|path| ends_with(&names, end, path)) {
+            return Some(Why::CredentialFolder);
+        }
+    }
+    if folder {
+        return None;
+    }
+    let last = names.last().map_or("", String::as_str);
+    (CREDENTIAL_NAMES.contains(&last)
+        || CREDENTIAL_FILES.iter().any(|path| ends_with(&names, names.len(), path)))
+    .then_some(Why::CredentialFile)
+}
+
 /// Whether the folder `name` in `dir` is a dependency or build folder its
 /// project rebuilds on the machine. The ambiguous names (`target`, `build`,
 /// `dist`, `venv`, `Pods`) count only beside the file that makes them one.
@@ -201,6 +281,25 @@ pub(super) fn heavy(dir: &Path, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{LISTED, Skips, Why, heavy, secret};
+
+    /// The credential folders a copy leaves out at any depth are exactly the
+    /// ones the App refuses as a selected folder
+    /// (`AgentPaneCloudFolderRefusal.secretFolders`), read from its source.
+    #[test]
+    fn credential_folders_are_the_apps_secret_folders() {
+        let swift = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift",
+        );
+        let source = std::fs::read_to_string(&swift).unwrap();
+        let list = source
+            .split("public static let secretFolders = [")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .expect("secretFolders in AgentPaneCloudFolder.swift");
+        let apps: Vec<&str> = list.split('"').skip(1).step_by(2).collect();
+        assert!(!apps.is_empty());
+        assert_eq!(super::CREDENTIAL_FOLDERS, apps.as_slice());
+    }
 
     #[test]
     fn secrets_are_env_files_and_keys() {
