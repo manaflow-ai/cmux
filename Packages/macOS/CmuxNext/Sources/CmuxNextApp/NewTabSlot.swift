@@ -116,14 +116,14 @@ enum NewTabSlot {
         let placement: ActionWork = Task { @MainActor in
             _ = await earlier?.value // the press before: its answer and list wait, then its move's reply
             let listed = Task { @MainActor () -> (TabModel, PaneModel)? in
-                guard let made = await answers.first(where: { _ in true }) else { return nil }
+                var answered: Answer?; for await made in answers { answered = made }
+                guard let made = answered else { return nil }
                 let locate = { pane().flatMap { pane in find(pane, made).map { ($0, pane) } } }
                 for await found in ObservationStream({ locate() != nil }) where found { return locate() }
                 return nil
             }
             let bound = DemandTimer(owner: "NewTabSlot.listed") // the answer and the listing
-            bound.schedule(after: listLimit) { @MainActor in listed.cancel() }
-            defer { bound.cancel() }
+            bound.schedule(after: listLimit) { @MainActor in listed.cancel() }; defer { bound.cancel() }
             let located = await listed.value
             guard let located, case let (tab, pane) = located, let final = index(pane.tabs.filter { $0 !== tab }),
                   pane.tabs.firstIndex(where: { $0 === tab }) != final else { return nil }
