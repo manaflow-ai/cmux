@@ -1,5 +1,6 @@
-//! `cmux cloud api` end to end: the CLI's frame through a real daemon socket to a fake Cloud API
-//! on a local port, one call of each family, and the answer read back.
+//! `cmux cloud api` end to end: the CLI's `cmux.protocol/2` request (`call_as`) through a real
+//! daemon socket to a fake Cloud API on a local port, one call of each family, and the answer
+//! read back.
 
 use std::io::{Read as _, Write as _};
 use std::net::TcpListener;
@@ -105,7 +106,7 @@ fn request(origin: &str, auth: Auth, call: &str, args: Value) -> Request {
 }
 
 fn go(request: &Request, key: &[u8]) -> Result<Value, Failure> {
-    call_socket(daemon(), false, request, key)
+    call_socket(daemon(), false, None, request, key)
 }
 
 #[test]
@@ -191,26 +192,27 @@ fn a_refusal_comes_back_as_the_same_failure_with_no_credential() {
 fn a_daemon_that_is_not_running_is_a_transport_failure() {
     let missing = std::env::temp_dir().join(format!("cloud-api-none-{}.sock", std::process::id()));
     let call = request("https://cmux.com", Auth::Stack, "vm.domains", json!({}));
-    assert!(matches!(call_socket(&missing, false, &call, &[]), Err(Failure::Transport(_))));
+    assert!(matches!(call_socket(&missing, false, None, &call, &[]), Err(Failure::Transport(_))));
 }
 
 #[test]
-fn the_frame_is_one_json_line_with_the_key_as_base64() {
+fn the_params_carry_the_route_the_fields_and_the_key_as_base64() {
     let call = request("https://cmux.com", Auth::Owner, "owner.acpmux_keyed_start", json!({}));
-    let bytes = frame(&call, b"k\n");
-    assert_eq!(bytes.last(), Some(&b'\n'));
-    let value: Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(value["cmd"], "cloud.owner.acpmux_keyed_start");
-    assert_eq!(value["access_token"], "secret-access");
-    assert_eq!(value["refresh_token"], "secret-refresh");
-    assert_eq!(value["auth"], "owner");
-    assert_eq!(value["key_base64"], "aw==");
-    let plain: Value = serde_json::from_slice(&frame(&call, &[])).unwrap();
+    let params = Value::Object(params(&call, b"k\n", Some("work")));
+    assert_eq!(params["machine"], "current");
+    assert_eq!(params["session"], "work");
+    assert_eq!(params["access_token"], "secret-access");
+    assert_eq!(params["refresh_token"], "secret-refresh");
+    assert_eq!(params["auth"], "owner");
+    assert_eq!(params["args"], json!({}));
+    assert_eq!(params["key_base64"], "aw==");
+    let plain = super::params(&call, &[], None);
     assert!(plain.get("key_base64").is_none());
+    assert_eq!(plain["session"], "current");
 }
 
 #[test]
-fn a_reply_reads_back_every_failure_kind() {
+fn a_resource_error_reads_back_every_failure_kind() {
     for failure in [
         Failure::TimedOut("/api/runs".into()),
         Failure::Transport("t".into()),
@@ -225,15 +227,12 @@ fn a_reply_reads_back_every_failure_kind() {
         Failure::PlanRequired { message: None, upgrade_url: None, plan: "max".into() },
         Failure::Decoding("d".into()),
     ] {
-        let line = format!(
-            "{}\n",
-            json!({"id": REQUEST_ID, "ok": false, "error_code": "x", "error": "x",
-                "failure": failure.json()})
-        );
-        assert_eq!(read_reply(&line), Err(failure));
+        let error = json!({"code": "operation.failed", "message": "x", "retryable": false,
+            "details": {"operation": "cloud.vm.domains", "reason": failure.kind(),
+                "extra": {"failure": failure.json()}}});
+        assert_eq!(from_error(&error), failure);
     }
-    let other = format!("{}\n", json!({"id": "other", "ok": true, "data": 1}));
-    assert!(matches!(read_reply(&other), Err(Failure::Transport(_))));
-    let ok = format!("{}\n", json!({"id": REQUEST_ID, "ok": true, "data": [1]}));
-    assert_eq!(read_reply(&ok), Ok(json!([1])));
+    let invalid = json!({"code": "validation.invalid", "message": "auth is stack, owner or worker",
+        "retryable": false, "details": {}});
+    assert_eq!(from_error(&invalid), Failure::Transport("auth is stack, owner or worker".into()));
 }

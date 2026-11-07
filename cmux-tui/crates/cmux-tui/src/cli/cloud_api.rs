@@ -1,7 +1,7 @@
 //! `cmux cloud api`: one Cloud API call (`cmux_cloud_api`'s calls: machines, tunnel, firewall,
 //! domains, publications, sandboxed Runs, the person's hand-offs and acpmux routes, previews,
-//! machine files and exec), sent to the daemon's `cloud.<call>` op (cmux-tui-core
-//! `server/cloud_api.rs`), which runs it.
+//! machine files and exec), sent as the daemon's `cmux.protocol/2` operation `cloud.<call>`
+//! (cmux-tui-core `server/cloud_api.rs`), which runs it.
 //!
 //! Request: one JSON object on stdin (credentials never go in argv, which other processes can
 //! read), `cmux_cloud_api::Request`'s fields:
@@ -19,22 +19,20 @@
 //! (`cmux_cloud_api::answer_line`). Exit 0 for `ok`, 1 for a refusal or a daemon that could not
 //! be reached, 2 for a request that is not one.
 
-use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+use std::io::{BufReader, Read as _, Write as _};
 use std::path::Path;
 use std::time::Duration;
 
 use base64::Engine as _;
 use cmux_cloud_api::{Failure, Request, answer_line, parse, scrub};
-use serde_json::{Value, json};
+use cmux_tui_core::resource::ResourceOperation;
+use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
 
 use super::GlobalArgs;
 
-/// The largest reply read (the daemon's own reply limit, and room for its frame).
-const MAX_REPLY: u64 = 33 * 1024 * 1024;
 /// Added to the call's own longest time while waiting on the daemon.
 const REPLY_MARGIN: Duration = Duration::from_secs(30);
-const REQUEST_ID: &str = "cloud-api";
 
 /// `Some(exit code)` when `args` is `cloud api`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -72,40 +70,31 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(if result.is_ok() { 0 } else { 1 })
 }
 
-/// The daemon frame for `request` (module docs of cmux-tui-core `server/cloud_api.rs`).
-pub(super) fn frame(request: &Request, key: &[u8]) -> Zeroizing<Vec<u8>> {
-    let mut frame = serde_json::Map::new();
-    let fields = json!({
-        "id": REQUEST_ID,
-        "cmd": format!("cloud.{}", request.call),
-        "api": request.api,
-        "auth": request.auth,
-        "access_token": request.credential,
-        "local_only": request.local_only,
-        "args": request.args,
-    });
-    if let Value::Object(fields) = fields {
-        frame = fields;
-    }
+/// The operation's params for `request`: the route, then the call's fields (module docs of
+/// cmux-tui-core `server/cloud_api.rs`).
+pub(super) fn params(request: &Request, key: &[u8], session: Option<&str>) -> Map<String, Value> {
+    let mut params = Map::new();
+    params.insert("machine".into(), json!("current"));
+    params.insert("session".into(), json!(session.unwrap_or("current")));
+    params.insert("api".into(), json!(request.api));
+    params.insert("auth".into(), json!(request.auth));
+    params.insert("access_token".into(), json!(request.credential));
+    params.insert("local_only".into(), json!(request.local_only));
+    params.insert("args".into(), Value::Object(request.args.clone()));
     for (name, value) in [
         ("refresh_token", &request.refresh),
         ("team", &request.team),
         ("app_version", &request.app_version),
     ] {
         if let Some(value) = value {
-            frame.insert(name.to_owned(), json!(value));
+            params.insert(name.to_owned(), json!(value));
         }
     }
-    let mut bytes = Zeroizing::new(serde_json::to_vec(&frame).unwrap_or_default());
-    if !key.is_empty() && bytes.pop() == Some(b'}') {
-        // Spliced in, so the key's text is only ever in buffers that are wiped.
+    if !key.is_empty() {
         let encoded = Zeroizing::new(base64::engine::general_purpose::STANDARD.encode(key));
-        bytes.extend_from_slice(b",\"key_base64\":\"");
-        bytes.extend_from_slice(encoded.as_bytes());
-        bytes.extend_from_slice(b"\"}");
+        params.insert("key_base64".into(), json!(encoded.as_str()));
     }
-    bytes.push(b'\n');
-    bytes
+    params
 }
 
 /// Sends `request` to the daemon of `global`'s session and reads its answer.
@@ -117,68 +106,71 @@ fn call(global: &GlobalArgs, request: &Request, key: &[u8]) -> Result<Value, Fai
     }
     let (socket, derived) = super::wire::resolve_socket_with_origin(global)
         .map_err(|e| Failure::Transport(super::wire::resolve_failure_message(&e)))?;
-    call_socket(&socket, derived, request, key)
+    call_socket(&socket, derived, global.session.as_deref(), request, key)
 }
 
-/// [`call`] on the daemon at `socket`.
+/// [`call`] on the daemon at `socket`, as the `cloud.<call>` operation.
 pub(super) fn call_socket(
     socket: &Path,
     derived: bool,
+    session: Option<&str>,
     request: &Request,
     key: &[u8],
 ) -> Result<Value, Failure> {
-    let unreachable = |e: std::io::Error| {
-        Failure::Transport(format!("the cmux daemon could not be reached: {e}"))
-    };
-    let stream =
-        cmux_tui_core::server::connect_session_socket(socket, derived).map_err(unreachable)?;
+    let wire = format!("cloud.{}", request.call);
+    let operation: ResourceOperation = serde_json::from_value(json!(wire))
+        .map_err(|_| Failure::Transport(format!("no cloud api call {:?}", request.call)))?;
+    let stream = cmux_tui_core::server::connect_session_socket(socket, derived)
+        .map_err(|e| Failure::Transport(format!("the cmux daemon could not be reached: {e}")))?;
     let wait = cmux_cloud_api::longest(request).saturating_add(REPLY_MARGIN);
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
     let _ = stream.set_read_timeout(Some(wait));
     let mut reader = BufReader::new(stream);
-    let mut launch = Value::Object(serde_json::Map::new());
-    super::launch_credential::attach(&mut reader, socket, &mut launch);
-    let mut bytes = frame(request, key);
-    if let Some(credential) = launch.get("credential").and_then(Value::as_str) {
-        // `{"credential": …,` before the frame's other fields.
-        let mut with =
-            Zeroizing::new(format!("{{\"credential\":{},", json!(credential)).into_bytes());
-        with.extend(bytes.iter().skip(1));
-        bytes = with;
+    let credential = super::launch_credential::for_connection(&mut reader, socket);
+    let idempotency_key = if operation.is_mutation() {
+        Some(
+            super::wire::random_idempotency_key()
+                .map_err(|e| Failure::Transport(format!("cmux: {e}")))?,
+        )
+    } else {
+        None
+    };
+    let answer = super::resolve::call_as(
+        &mut reader,
+        operation,
+        params(request, key, session),
+        idempotency_key.as_deref(),
+        credential.as_deref(),
+    );
+    match answer {
+        Ok(mut result) if operation.is_mutation() => {
+            Ok(result.get_mut("value").map(Value::take).unwrap_or(Value::Null))
+        }
+        Ok(result) => Ok(result),
+        Err(super::resolve::Failure::Resource(error)) => Err(from_error(&error)),
+        Err(super::resolve::Failure::Transport(message)) => Err(Failure::Transport(message)),
+        Err(super::resolve::Failure::Refused) => {
+            Err(Failure::Transport("the cmux daemon refused the connection".into()))
+        }
+        Err(super::resolve::Failure::Local { error, .. }) => Err(from_error(&error)),
+        Err(super::resolve::Failure::AppAction { action, .. }) => {
+            Err(Failure::Transport(format!("cloud.{} is the app's ({action})", request.call)))
+        }
     }
-    reader.get_mut().write_all(&bytes).map_err(unreachable)?;
-    drop(bytes);
-    let mut line = String::new();
-    reader.take(MAX_REPLY).read_line(&mut line).map_err(|e| {
-        // The call may have run (a create); the answer is what is lost.
-        Failure::TimedOut(format!("cloud.{} ({e})", request.call))
-    })?;
-    read_reply(&line)
 }
 
-/// The daemon's reply as the call's answer.
-pub(super) fn read_reply(line: &str) -> Result<Value, Failure> {
-    let lost = || Failure::Transport("the cmux daemon's answer could not be read".into());
-    if !line.ends_with('\n') {
-        return Err(lost());
-    }
-    let mut reply: Value = serde_json::from_str(line).map_err(|_| lost())?;
-    if reply.get("id").and_then(Value::as_str) != Some(REQUEST_ID) {
-        return Err(lost());
-    }
-    if reply.get("ok") == Some(&Value::Bool(true)) {
-        return Ok(reply.get_mut("data").map(Value::take).unwrap_or(Value::Null));
-    }
-    match reply.get("failure").cloned().map(failure) {
-        Some(Some(failure)) => Err(failure),
-        _ => Err(Failure::Transport(
-            reply
-                .get("error")
+/// A daemon resource error as the call's failure: the library's own failure when the daemon
+/// ran the call (`details.extra.failure`), else a transport failure with its message.
+pub(super) fn from_error(error: &Value) -> Failure {
+    error.pointer("/details/extra/failure").cloned().and_then(failure).unwrap_or_else(|| {
+        Failure::Transport(
+            error
+                .get("message")
                 .and_then(Value::as_str)
                 .unwrap_or("the cmux daemon refused the call")
                 .to_owned(),
-        )),
-    }
+        )
+    })
 }
 
 /// A `Failure::json` object read back.

@@ -1,16 +1,18 @@
-//! `cloud.<call>` frames end to end on a test mux: each call family against a fake Cloud API on
-//! a local port, the reply shapes, the scrub of a refusal, and who may call.
+//! The `cloud.*` Cloud API operations end to end: a test daemon on a real socket, the SDK's raw
+//! client (`cmux::raw::Client::request_raw`), and each call family against a fake Cloud API on a
+//! local port. Covers the result shapes, the scrub of a refusal and refused fields.
 
 use std::io::{Read as _, Write as _};
 use std::net::TcpListener;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use base64::Engine as _;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::*;
-use crate::server::{BoundedOutbound, QueuedSink};
 
 const VM: &str = "vm_abcdefghij0123456789";
 
@@ -79,67 +81,98 @@ fn fake(
     (origin, seen)
 }
 
-fn client(mux: &Mux, transport: ClientTransport) -> (u64, MessageWriter, Arc<BoundedOutbound>) {
-    let outbound = Arc::new(BoundedOutbound::default());
-    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
-    (mux.control_clients.register(transport, writer.clone()), writer, outbound)
+/// A test daemon serving its own socket; the socket is removed on drop.
+struct Daemon {
+    socket: PathBuf,
 }
 
-/// The next reply on `outbound` (a call answers from its worker thread).
-fn next_reply(outbound: &BoundedOutbound) -> Value {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    loop {
-        if let Some(text) = outbound.try_pop() {
-            return serde_json::from_str(&text).unwrap();
+impl Daemon {
+    fn start(name: &str) -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let session = format!(
+            "cloud-api-{name}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        let mux = Mux::new_for_test(session, crate::SurfaceOptions::default());
+        let socket = crate::server::serve(mux, None).unwrap();
+        Self { socket }
+    }
+
+    fn client(&self) -> cmux::raw::Client {
+        let config = cmux::raw::ClientConfig::from_socket_path(&self.socket)
+            .with_timeout(Duration::from_secs(30));
+        cmux::raw::Client::connect(config).unwrap()
+    }
+
+    /// One `cmux.protocol/2` request for `operation`: the response's `result`, or the protocol
+    /// error's code, message and details.
+    fn send(
+        &self,
+        operation: &str,
+        mut params: Value,
+        key: Option<&str>,
+    ) -> Result<Value, (String, String, Value)> {
+        params["machine"] = json!("current");
+        params["session"] = json!("current");
+        let mut request = Map::new();
+        request.insert("protocol".into(), json!("cmux.protocol/2"));
+        request.insert("type".into(), json!("request"));
+        request.insert("id".into(), json!("cloud-api-test"));
+        request.insert("operation".into(), json!(operation));
+        request.insert("params".into(), params);
+        if let Some(key) = key {
+            request.insert("idempotency_key".into(), json!(key));
         }
-        assert!(Instant::now() < deadline, "no reply");
-        std::thread::sleep(Duration::from_millis(5));
+        match self.client().request_raw(request) {
+            Ok(response) => Ok(response["result"].clone()),
+            Err(cmux::raw::Error::Protocol { code, message, details, .. }) => {
+                Err((code, message, details))
+            }
+            Err(other) => panic!("{operation}: {other}"),
+        }
     }
 }
 
-/// Sends `frame` as a local client and answers its reply.
-fn call(mux: &Arc<Mux>, frame: Value) -> Value {
-    let (client, writer, outbound) = client(mux, ClientTransport::Unix);
-    assert_eq!(try_handle(mux, client, &frame.to_string(), &writer), Some(true));
-    next_reply(&outbound)
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        crate::server::cleanup(&self.socket);
+    }
 }
 
-fn frame(cmd: &str, origin: &str, auth: &str, args: Value) -> Value {
-    json!({"id": 7, "cmd": cmd, "api": origin, "auth": auth, "access_token": "secret-access",
+fn params(origin: &str, auth: &str, args: Value) -> Value {
+    json!({"api": origin, "auth": auth, "access_token": "secret-access",
         "refresh_token": "secret-refresh", "team": "team_1", "app_version": "cmux-next",
         "args": args})
 }
 
-fn mux(name: &str) -> Arc<Mux> {
-    Mux::new_for_test(name, crate::SurfaceOptions::default())
+#[test]
+fn every_call_of_the_library_is_one_of_this_modules_operations() {
+    for name in cmux_cloud_api::CALLS {
+        let wire = format!("cloud.{name}");
+        let operation: ResourceOperation = serde_json::from_value(json!(wire))
+            .unwrap_or_else(|_| panic!("{wire} is no operation"));
+        assert!(handles(operation), "{wire}");
+        assert_eq!(operation.wire_name(), wire);
+    }
+    let catalog: Value =
+        serde_json::from_str(include_str!("../../../../spec/resource-operations-v2.json")).unwrap();
+    let ours = catalog["operations"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter_map(|name| serde_json::from_value::<ResourceOperation>(json!(name)).ok())
+        .filter(|operation| handles(*operation))
+        .count();
+    assert_eq!(ours, cmux_cloud_api::CALLS.len());
 }
 
 #[test]
-fn only_cloud_calls_of_the_library_are_this_modules() {
-    assert_eq!(call_of(r#"{"cmd":"cloud.vm.resize"}"#).map(|c| c.0), Some("vm.resize"));
-    assert_eq!(call_of(r#"{"cmd":"cloud.machine.io"}"#).map(|c| c.0), Some("machine.io"));
-    for line in [
-        r#"{"cmd":"cloud.repo.add"}"#,
-        r#"{"cmd":"cloud.vm.nope"}"#,
-        r#"{"cmd":"cloud.machine.link_token"}"#,
-        r#"{"cmd":"vm.resize"}"#,
-        r#"{"cmd":"cloud.vm.resize","protocol":"cmux.protocol/2"}"#,
-        r#"{"cmd":"ping","note":"cloud.vm.resize"}"#,
-        "not json \"cloud.",
-    ] {
-        assert!(call_of(line).is_none(), "{line}");
-    }
-    for name in CALLS {
-        assert!(call_of(&json!({ "cmd": format!("cloud.{name}") }).to_string()).is_some());
-    }
-}
-
-#[test]
-fn a_classic_call_sends_the_stack_session_and_answers_its_body() {
+fn a_classic_read_sends_the_stack_session_and_answers_its_body() {
     let (origin, seen) = fake(|_| (200, r#"{"domains":[{"id":"d1"}]}"#.into()));
-    let mux = mux("cloud-api-vm");
-    let reply = call(&mux, frame("cloud.vm.domains", &origin, "stack", json!({})));
-    assert_eq!(reply, json!({"id": 7, "ok": true, "data": [{"id": "d1"}]}));
+    let daemon = Daemon::start("vm");
+    let result = daemon.send("cloud.vm.domains", params(&origin, "stack", json!({})), None);
+    assert_eq!(result, Ok(json!([{"id": "d1"}])));
     let seen = seen.lock().unwrap();
     assert!(seen[0].line.starts_with("GET /api/vm/domains "));
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer secret-access"));
@@ -148,23 +181,44 @@ fn a_classic_call_sends_the_stack_session_and_answers_its_body() {
 }
 
 #[test]
+fn a_classic_mutation_answers_a_mutation_result_that_is_never_replayed() {
+    let (origin, seen) = fake(|_| (200, r#"{"ok":true,"cpu":4}"#.into()));
+    let daemon = Daemon::start("vm-mutation");
+    let result = daemon
+        .send(
+            "cloud.vm.resize",
+            params(&origin, "stack", json!({"id": VM, "cpu": 4})),
+            Some("resize-1"),
+        )
+        .unwrap();
+    assert_eq!(result["replayed"], false);
+    assert_eq!(result["revision"], "0");
+    assert!(result["value"].is_object(), "{result}");
+    assert!(seen.lock().unwrap()[0].line.starts_with(&format!("POST /api/vm/{VM}/resize ")));
+}
+
+#[test]
 fn a_run_wait_is_capped_at_the_servers_bound() {
     let (origin, seen) =
         fake(|_| (200, r#"{"run":{"id":"r1","state":"running"},"receipt":null}"#.into()));
-    let mux = mux("cloud-api-runs");
-    let reply =
-        call(&mux, frame("cloud.runs.wait", &origin, "stack", json!({"id": "r1", "timeoutMs": 1})));
-    assert_eq!(reply["ok"], true);
-    assert_eq!(reply["data"]["run"]["id"], "r1");
+    let daemon = Daemon::start("runs");
+    let result = daemon
+        .send(
+            "cloud.runs.wait",
+            params(&origin, "stack", json!({"id": "r1", "timeoutMs": 1})),
+            None,
+        )
+        .unwrap();
+    assert_eq!(result["run"]["id"], "r1");
     assert!(seen.lock().unwrap()[0].line.starts_with("GET /api/runs/r1/wait?timeoutMs=1 "));
 }
 
 #[test]
-fn an_owner_call_sends_only_authorization_and_the_team() {
+fn an_owner_read_sends_only_authorization_and_the_team() {
     let (origin, seen) = fake(|_| (200, r#"{"handoffs":[{"id":"h"}],"nextCursor":null}"#.into()));
-    let mux = mux("cloud-api-owner");
-    let reply = call(&mux, frame("cloud.owner.handoffs", &origin, "owner", json!({})));
-    assert_eq!(reply["data"], json!([{"id": "h"}]));
+    let daemon = Daemon::start("owner");
+    let result = daemon.send("cloud.owner.handoffs", params(&origin, "owner", json!({})), None);
+    assert_eq!(result, Ok(json!([{"id": "h"}])));
     let seen = seen.lock().unwrap();
     assert!(seen[0].line.starts_with("GET /v1/handoffs?limit=100 "));
     assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team_1"));
@@ -175,17 +229,12 @@ fn an_owner_call_sends_only_authorization_and_the_team() {
 fn a_keyed_start_sends_the_decoded_key_as_the_body_only() {
     let (origin, seen) =
         fake(|_| (200, r#"{"ok":true,"value":{"personInstance":"run-2"}}"#.into()));
-    let mux = mux("cloud-api-keyed");
+    let daemon = Daemon::start("keyed");
     let key = b"person-key-line\n";
-    let mut request = frame(
-        "cloud.owner.acpmux_keyed_start",
-        &origin,
-        "owner",
-        json!({"machine": VM, "key_length": key.len()}),
-    );
+    let mut request = params(&origin, "owner", json!({"machine": VM, "key_length": key.len()}));
     request["key_base64"] = json!(base64::engine::general_purpose::STANDARD.encode(key));
-    let reply = call(&mux, request);
-    assert_eq!(reply["data"], json!({"personInstance": "run-2"}));
+    let result = daemon.send("cloud.owner.acpmux_keyed_start", request, Some("keyed-1")).unwrap();
+    assert_eq!(result["value"], json!({"personInstance": "run-2"}));
     let seen = seen.lock().unwrap();
     assert_eq!(seen[0].body, key);
     assert!(!seen[0].line.contains("person-key"));
@@ -195,12 +244,15 @@ fn a_keyed_start_sends_the_decoded_key_as_the_body_only() {
 fn a_preview_refresh_goes_through_the_platform_client() {
     let catalog = r#"{"machine":"vm_abc","listening":[3000],"previews":[],"unavailable":[]}"#;
     let (origin, seen) = fake(move |_| (200, catalog.into()));
-    let mux = mux("cloud-api-previews");
-    let reply = call(
-        &mux,
-        frame("cloud.previews.refresh", &origin, "worker", json!({"machine": "vm_abc"})),
-    );
-    assert_eq!(reply["data"]["listening"], json!([3000]));
+    let daemon = Daemon::start("previews");
+    let result = daemon
+        .send(
+            "cloud.previews.refresh",
+            params(&origin, "worker", json!({"machine": "vm_abc"})),
+            Some("refresh-1"),
+        )
+        .unwrap();
+    assert_eq!(result["value"]["listening"], json!([3000]));
     assert!(
         seen.lock().unwrap()[0]
             .line
@@ -211,17 +263,19 @@ fn a_preview_refresh_goes_through_the_platform_client() {
 #[test]
 fn a_machine_exec_runs_on_its_route() {
     let (origin, seen) = fake(|_| (200, r#"{"exitCode":0,"stdout":"ok","stderr":""}"#.into()));
-    let mux = mux("cloud-api-machine");
-    let reply = call(
-        &mux,
-        frame(
+    let daemon = Daemon::start("machine");
+    let result = daemon
+        .send(
             "cloud.machine.io",
-            &origin,
-            "stack",
-            json!({"op": "exec", "machine": "m1", "command": "true", "timeout_ms": 1000}),
-        ),
-    );
-    assert_eq!(reply["data"]["stdout"], "ok");
+            params(
+                &origin,
+                "stack",
+                json!({"op": "exec", "machine": "m1", "command": "true", "timeout_ms": 1000}),
+            ),
+            Some("exec-1"),
+        )
+        .unwrap();
+    assert_eq!(result["value"]["stdout"], "ok");
     assert!(seen.lock().unwrap()[0].line.starts_with("POST /api/vm/m1/exec "));
 }
 
@@ -230,51 +284,45 @@ fn a_refusal_names_its_kind_and_never_carries_a_credential_back() {
     let (origin, _seen) = fake(|_| {
         (409, r#"{"error":"vm_busy","message":"echo secret-access and secret-refresh"}"#.into())
     });
-    let mux = mux("cloud-api-refusal");
-    let reply = call(&mux, frame("cloud.vm.networks", &origin, "stack", json!({})));
-    assert_eq!(reply["ok"], false);
-    assert_eq!(reply["id"], 7);
-    assert_eq!(reply["error_code"], "cloud.http");
-    assert_eq!(reply["failure"]["kind"], "http");
-    assert_eq!(reply["failure"]["status"], 409);
-    assert_eq!(reply["failure"]["code"], "vm_busy");
-    let text = reply.to_string();
+    let daemon = Daemon::start("refusal");
+    let (code, message, details) =
+        daemon.send("cloud.vm.networks", params(&origin, "stack", json!({})), None).unwrap_err();
+    assert_eq!(code, "operation.failed");
+    assert_eq!(details["operation"], "cloud.vm.networks");
+    assert_eq!(details["reason"], "http");
+    let failure = &details["extra"]["failure"];
+    assert_eq!(failure["kind"], "http");
+    assert_eq!(failure["status"], 409);
+    assert_eq!(failure["code"], "vm_busy");
+    let text = format!("{message} {details}");
     assert!(!text.contains("secret-access") && !text.contains("secret-refresh"), "{text}");
-    assert!(text.contains("[redacted]"));
+    assert!(text.contains("[redacted]"), "{text}");
 }
 
 #[test]
-fn a_frame_that_is_not_a_call_runs_nothing_and_echoes_nothing() {
-    let mux = mux("cloud-api-invalid");
-    let (client, writer, outbound) = client(&mux, ClientTransport::Unix);
-    let line = json!({"id": 1, "cmd": "cloud.vm.domains", "access_token": "secret-access",
-        "extra": 1})
-    .to_string();
-    assert_eq!(try_handle(&mux, client, &line, &writer), Some(true));
-    let reply = next_reply(&outbound);
-    assert_eq!(reply["error_code"], "invalid_request");
-    assert!(!reply.to_string().contains("secret-access"));
-    let bad_key = json!({"id": 2, "cmd": "cloud.owner.acpmux_keyed_start", "api": "https://x",
-        "auth": "owner", "access_token": "a", "key_base64": "%%%"})
-    .to_string();
-    assert_eq!(try_handle(&mux, client, &bad_key, &writer), Some(true));
-    assert_eq!(next_reply(&outbound)["error_code"], "invalid_request");
-}
-
-#[test]
-fn only_a_local_socket_client_may_call() {
+fn a_request_that_is_not_a_call_runs_nothing_and_echoes_nothing() {
     let (origin, seen) = fake(|_| (200, "{}".into()));
-    let mux = mux("cloud-api-transport");
-    for transport in [ClientTransport::Remote, ClientTransport::WebSocket] {
-        let (client, writer, outbound) = client(&mux, transport);
-        let line = frame("cloud.vm.domains", &origin, "stack", json!({})).to_string();
-        assert_eq!(try_handle(&mux, client, &line, &writer), Some(true));
-        assert_eq!(next_reply(&outbound)["error_code"], "remote_denied");
-    }
-    let (client, writer, outbound) = client(&mux, ClientTransport::Unix);
-    let mut forged = frame("cloud.vm.domains", &origin, "stack", json!({}));
-    forged["credential"] = json!("forged");
-    assert_eq!(try_handle(&mux, client, &forged.to_string(), &writer), Some(true));
-    assert_eq!(next_reply(&outbound)["error_code"], "remote_denied");
+    let daemon = Daemon::start("invalid");
+    let mut unknown = params(&origin, "stack", json!({}));
+    unknown["extra_field"] = json!("secret-extra");
+    let (code, message, details) = daemon.send("cloud.vm.domains", unknown, None).unwrap_err();
+    assert_eq!(code, "validation.invalid");
+    assert!(!format!("{message} {details}").contains("secret-access"));
+
+    let mut no_token = params(&origin, "stack", json!({}));
+    no_token["access_token"] = json!("   ");
+    let (code, _, _) = daemon.send("cloud.vm.domains", no_token, None).unwrap_err();
+    assert_eq!(code, "validation.invalid");
+
+    let mut bad_key = params(&origin, "owner", json!({}));
+    bad_key["key_base64"] = json!("%%%%");
+    let (code, message, details) =
+        daemon.send("cloud.owner.acpmux_keyed_start", bad_key, Some("bad-key")).unwrap_err();
+    assert_eq!(code, "validation.invalid");
+    assert!(!format!("{message} {details}").contains("%%%%"));
+
+    let (code, _, _) =
+        daemon.send("cloud.vm.resize", params(&origin, "stack", json!({})), None).unwrap_err();
+    assert_eq!(code, "validation.invalid", "a mutation needs its idempotency key");
     assert!(seen.lock().unwrap().is_empty());
 }

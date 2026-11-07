@@ -93,6 +93,10 @@ tokio.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
 
+[target.'cfg(unix)'.dev-dependencies]
+# The SDK's raw client drives the cloud.* operations in server/cloud_api_tests.rs.
+cmux-sdk = { path = "../../bindings/rust", default-features = false }
+
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),
 # shared with the SDK's clients; the SDK's client code is not built.
