@@ -254,59 +254,58 @@ impl Adapter {
 
     /// A holder started again while the app runs (the last one ended): the app replays what the
     /// last one knew, `scopes` it served and the `live` machines of the last list, under the
-    /// scope that one held as current. Every machine the current scope's delivery record holds is
-    /// a candidate too, so one delivered after that list is not missed; each is asked whether it
-    /// runs (never woken) and taken back first (renewal goes on, and the next sign-out, switch or
-    /// off switch erases it). Every other scope is registered so its end erases what its record
-    /// holds, and every scope but the current one ends (as a switch ends it). While Cloud is off,
-    /// every one of them ends instead.
-    /// Bounded by `CLEANUP_BOUND`; a pass still running then is cancelled and its machines stay
-    /// recorded.
+    /// scope it now holds as current. The current scope's live machines, and every one its
+    /// delivery record names (one delivered after that list), are taken back: renewal goes on,
+    /// and its next end erases them. Every other scope, or every scope while Cloud is off, ended
+    /// while no holder ran: it ends now, and what its record holds on the live machines is
+    /// erased. Each step is bounded by `CLEANUP_BOUND`; what it did not reach stays recorded and
+    /// marked.
     pub async fn restore(self: &Arc<Self>, scopes: Vec<Scope>, mut live: HashSet<String>) {
         let current = (self.current_scope)();
-        let fenced: Vec<Scope> = {
+        if let Some(scope) = &current {
+            live.extend(Record::new(&self.home(scope)).entries().into_keys());
+        }
+        let fenced = {
             let mut state = self.st();
             if state.observed.is_none() {
                 state.observed = current.clone();
             }
-            state.scopes.extend(scopes.into_iter().filter(|s| Some(s) != current.as_ref()));
-            if state.unavailable {
-                // Cloud is off: nothing is taken back or renewed. Every scope ends as the off
-                // switch ends it, so what each record holds is marked for erasure, and the next
-                // pass after Cloud is on again erases it.
-                state.scopes.extend(current.clone());
-                state.scopes.drain().collect()
-            } else {
-                Vec::new()
-            }
+            state.scopes.extend(scopes);
+            state.unavailable
         };
-        if !fenced.is_empty() {
-            for scope in &fenced {
-                self.begin_retirement(scope);
-            }
-            for scope in &fenced {
-                let teardown = self.st().teardowns.get(scope).cloned();
-                if let Some(teardown) = teardown {
-                    teardown.await;
-                }
-            }
-            return;
-        }
-        if let Some(scope) = current {
-            live.extend(Record::new(&self.home(&scope)).entries().into_keys());
+        if !fenced && let Some(scope) = current.clone() {
             let cx = Cx::new();
-            let (this, pass_cx) = (self.clone(), cx.clone());
+            let (this, pass_cx, pass_live) = (self.clone(), cx.clone(), live.clone());
             let pass = tokio::spawn(async move {
-                this.resume(&pass_cx, &scope, &live).await;
+                this.resume(&pass_cx, &scope, &pass_live).await;
             });
             if tokio::time::timeout(CLEANUP_BOUND, pass).await.is_err() {
                 cx.cancel();
             }
         }
-        // Every scope the last holder served that is not the current one ended while no holder
-        // ran (a switch or sign-out the last one never read): it ends now, which erases what its
-        // record holds on every machine that runs.
-        self.scope_did_change().await;
+        // A scope that ended while no holder ran (a switch or sign-out the last one never read,
+        // or Cloud turned off) ends now; no holder of its own took its machines back, so what
+        // its record holds on the live ones is erased here.
+        let ending: Vec<Scope> = {
+            let mut state = self.st();
+            state.observed = current.clone();
+            if fenced {
+                state.scopes.extend(current.clone());
+            }
+            state
+                .scopes
+                .iter()
+                .filter(|scope| fenced || Some(*scope) != current.as_ref())
+                .cloned()
+                .collect()
+        };
+        for scope in ending {
+            self.retire(&scope).await;
+            let (this, live) = (self.clone(), live.clone());
+            // The wait is bounded, never the erase.
+            let erase = tokio::spawn(async move { this.erase_recorded(&scope, &live).await });
+            let _ = tokio::time::timeout(CLEANUP_BOUND, erase).await;
+        }
     }
 
     /// After a relaunch and each machine list: takes back the machines in `live` an earlier run
@@ -595,15 +594,9 @@ impl Adapter {
             if let Some(this) = weak.upgrade() {
                 this.st().cleanup_by_scope.insert(owned.clone(), failed);
             }
-            // What is still recorded (a paused machine, one no holder of this run owned) is marked,
-            // so no later pass renews it (cmux#33877), and erased now on each machine that runs.
+            // What is still recorded (a paused machine, one this run never reached) is erased by
+            // the next pass that reaches it, never renewed (cmux#33877).
             record.mark_all_for_erasure();
-            if let Some(this) = weak.upgrade() {
-                // The wait is bounded, never the erase.
-                let scope = owned.clone();
-                let erase = tokio::spawn(async move { this.erase_recorded(&scope).await });
-                let _ = tokio::time::timeout(CLEANUP_BOUND, erase).await;
-            }
             if let Some(this) = weak.upgrade() {
                 this.st().teardowns.remove(&owned);
             }
@@ -616,12 +609,13 @@ impl Adapter {
         state.teardowns.insert(scope.clone(), teardown);
     }
 
-    /// Erases this scope's access on every machine its delivery record names that runs now,
+    /// Erases this scope's access on every machine in `live` its delivery record names,
     /// through a holder of its own (no sign-in: an erase only removes this holder's own file).
     /// What it cannot reach stays marked for erasure.
-    async fn erase_recorded(self: &Arc<Self>, scope: &Scope) {
+    async fn erase_recorded(self: &Arc<Self>, scope: &Scope, live: &HashSet<String>) {
         let home = self.home(scope);
-        let mut recorded: Vec<String> = Record::new(&home).entries().into_keys().collect();
+        let mut recorded: Vec<String> =
+            Record::new(&home).entries().into_keys().filter(|id| live.contains(id)).collect();
         if recorded.is_empty() {
             return;
         }
