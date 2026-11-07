@@ -160,6 +160,8 @@ fn a_link_works_once_and_a_retried_redeem_gets_the_same_guest() {
     assert_eq!(redeem(&mut owner, &many, &"é".repeat(64), "n")["ok"], true);
 }
 
+/// An account invited with `talk` (signed in at the room) may send: its prompts reach acpmux
+/// held for the owner, and nothing outside its verbs does.
 #[test]
 fn a_guest_reaches_only_its_verbs_and_its_prompts_wait_for_the_owner() {
     let fake = FakeAcpmux::start("share-guest");
@@ -167,13 +169,17 @@ fn a_guest_reaches_only_its_verbs_and_its_prompts_wait_for_the_owner() {
     let surface = agent_tab(&mux, Some(SESSION));
     let mut owner = Client::connect(&mux, "share-guest-owner");
     let share = create(&mut owner, surface, json!({}));
-    let guest = redeem(&mut owner, &share, "Theo", "a1");
+    assert_eq!(invite(&mut owner, &share, "theo@example.com", Some("talk"))["ok"], true);
+    let guest = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":share["share_id"], "account":"theo@example.com", "name":"Theo",
+        "attempt_id":"a1"}));
+    assert_eq!(guest["data"]["role"], "talk", "{guest}");
     let (mut client, bound) = bind(&mux, &share, &guest, "share-guest-link");
     assert_eq!(bound["ok"], true, "{bound}");
     let (share_id, guest_id) =
         (share["share_id"].as_str().unwrap(), guest["data"]["guest_id"].as_str().unwrap());
     let author = json!({"id": format!("guest:{share_id}.{guest_id}"), "name":"Theo",
-        "approval":"owner"});
+        "approval":"owner", "role":"talk"});
     // Whatever surface the frame names, it reaches the shared chat's.
     let attach = client.request(json!({"cmd":"agent-session-attach", "surface":9999}));
     assert_eq!(attach["ok"], true, "{attach}");
@@ -680,8 +686,8 @@ fn invitees_survive_a_restart_and_an_old_file_without_them_loads() {
     let author = author_of(&shares[0], &shares[0].guests[0]);
     assert_eq!(
         author,
-        json!({"id":"guest:s1.g1", "name":"Theo", "approval":"owner"}),
-        "a link guest's author is unchanged"
+        json!({"id":"guest:s1.g1", "name":"Theo", "approval":"owner", "role":"view"}),
+        "a link guest from an old file watches only"
     );
     let directory = std::env::temp_dir().join(format!("cmux-invites-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
@@ -1094,19 +1100,19 @@ fn an_ended_share_answers_how_it_ended_to_any_account() {
     assert_code(&redeem_as(&mut owner, &closed, "eve@example.com", "e3"), "share.closed");
 }
 
-/// A link share made with `role: "view"`: every guest who joins by its link watches only. The
-/// role shows in create, in the redeem's answer (the room drops the page's composer) and in
-/// `-list`; the guest's author carries it, so its prompt, typing and cancel never reach acpmux.
-/// A share made without a role keeps today's link guest (no role: talk, held for the owner).
+/// A guest who joins by a link alone (no signed-in account) watches only, on a `view` link and on
+/// a link made with no role or `talk` alike: its redeem answers `role: "view"` (the room's page
+/// draws no composer), its author carries it, and its prompt, typing and cancel never reach
+/// acpmux. The share's own role shows in create and `-list`.
 #[test]
 fn a_view_link_guest_watches_but_its_prompt_is_refused() {
     let fake = FakeAcpmux::start("share-link-view");
     let mux = mux_with(&fake, "share-link-view");
     let surface = agent_tab(&mux, Some(SESSION));
     let mut owner = Client::connect(&mux, "share-link-view-owner");
-    let talk = create(&mut owner, surface, json!({}));
+    let talk = create(&mut owner, surface, json!({"uses":2}));
     assert_eq!(talk["role"], Value::Null, "no role by default");
-    let share = create(&mut owner, surface, json!({"role":"view"}));
+    let share = create(&mut owner, surface, json!({"role":"view", "uses":2}));
     assert_eq!(share["role"], "view");
     let shown = list(&mut owner);
     let shown_role = |id: &Value| {
@@ -1119,28 +1125,66 @@ fn a_view_link_guest_watches_but_its_prompt_is_refused() {
             "role":"owner"})),
         "share.bad_request",
     );
-    let talker = redeem(&mut owner, &talk, "Bob", "b1");
-    assert!(talker["data"].get("role").is_none(), "a default link guest has no role: {talker}");
-    let guest = redeem(&mut owner, &share, "Ann", "a1");
-    assert_eq!(guest["data"]["role"], "view", "{guest}");
-    let (mut client, bound) = bind(&mux, &share, &guest, "share-link-view-ann");
-    assert_eq!(bound["ok"], true, "{bound}");
-    for frame in [
-        json!({"cmd":"agent-session-attach", "surface":surface}),
-        json!({"cmd":"agent-session-view", "surface":surface, "visible":true}),
-    ] {
-        let reply = client.request(frame.clone());
-        assert_eq!(reply["ok"], true, "{frame}: {reply}");
-        assert_eq!(fake.frame()["params"]["_meta"]["acpmux"]["author"]["role"], "view", "{frame}");
+    let talk_link = create(&mut owner, surface, json!({"role":"talk", "uses":2}));
+    for (index, (link, name)) in
+        [(&share, "Ann"), (&talk, "Bob"), (&talk_link, "Cy")].into_iter().enumerate()
+    {
+        let guest = redeem(&mut owner, link, name, &format!("a{index}"));
+        assert_eq!(guest["data"]["role"], "view", "a link guest watches only: {guest}");
+        let (mut client, bound) = bind(&mux, link, &guest, &format!("share-link-view-{index}"));
+        assert_eq!(bound["ok"], true, "{bound}");
+        for frame in [
+            json!({"cmd":"agent-session-attach", "surface":surface}),
+            json!({"cmd":"agent-session-view", "surface":surface, "visible":true}),
+        ] {
+            let reply = client.request(frame.clone());
+            assert_eq!(reply["ok"], true, "{frame}: {reply}");
+            let author = &fake.frame()["params"]["_meta"]["acpmux"]["author"];
+            assert_eq!(author["role"], "view", "{name} {frame}");
+        }
+        for frame in [
+            json!({"cmd":"agent-session-prompt", "surface":surface, "client_id":"c1", "text":"hi"}),
+            json!({"cmd":"agent-session-typing", "surface":surface, "on":true}),
+            json!({"cmd":"agent-session-cancel", "surface":surface}),
+        ] {
+            assert_code(&client.request(frame), "agent_session.scope_not_granted");
+        }
+        fake.no_frame();
+        // An account holding the link's secret but not invited joins by the link: view too.
+        let secret_account = owner.request(json!({"cmd":"agent-session-share-redeem",
+            "share_id":link["share_id"], "secret":link["secret"], "account":"eve@example.com",
+            "name":"Eve", "attempt_id":format!("e{index}")}));
+        assert_eq!(secret_account["data"]["role"], "view", "{secret_account}");
     }
-    for frame in [
-        json!({"cmd":"agent-session-prompt", "surface":surface, "client_id":"c1", "text":"hi"}),
-        json!({"cmd":"agent-session-typing", "surface":surface, "on":true}),
-        json!({"cmd":"agent-session-cancel", "surface":surface}),
-    ] {
-        assert_code(&client.request(frame), "agent_session.scope_not_granted");
-    }
+}
+
+/// On a link made with no role, the anonymous link guest's prompt is refused while an account
+/// invited with `talk` still sends, its prompt held for the owner.
+#[test]
+fn a_default_link_guest_is_refused_and_an_invited_talker_is_held() {
+    let fake = FakeAcpmux::start("share-link-default");
+    let mux = mux_with(&fake, "share-link-default");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-link-default-owner");
+    let share = create(&mut owner, surface, json!({"uses":2}));
+    let anon = redeem(&mut owner, &share, "Anon", "a1");
+    let (mut link, _) = bind(&mux, &share, &anon, "share-link-default-anon");
+    let prompt =
+        json!({"cmd":"agent-session-prompt", "surface":surface, "client_id":"c1", "text":"hi"});
+    assert_code(&link.request(prompt.clone()), "agent_session.scope_not_granted");
     fake.no_frame();
+    assert_eq!(invite(&mut owner, &share, "tom@example.com", Some("talk"))["ok"], true);
+    let tom = redeem_as(&mut owner, &share, "tom@example.com", "t1");
+    let (mut talker, bound) = bind(&mux, &share, &tom, "share-link-default-tom");
+    assert_eq!(bound["ok"], true, "{bound}");
+    assert_eq!(talker.request(prompt)["ok"], true);
+    let sent = fake.frame();
+    assert_eq!(sent["method"], "session/prompt");
+    let author = &sent["params"]["_meta"]["acpmux"]["author"];
+    assert_eq!(
+        (author["role"].clone(), author["approval"].clone()),
+        (json!("talk"), json!("owner"))
+    );
 }
 
 /// A view-only link may admit up to 1000 guests (the Share dialog's "Anyone with the link"); a
@@ -1197,7 +1241,7 @@ fn revoke_closes_live_view_guest() {
 }
 
 /// A link share's role is written with it and read back after a restart; a file from before the
-/// role (no `role` field) reads as a share whose link guests talk.
+/// role (no `role` field on the share or its guests) still has its link guests watch only.
 #[test]
 fn a_link_shares_role_survives_a_restart_and_old_files_have_none() {
     let directory = scratch("link-role");
@@ -1234,7 +1278,8 @@ fn a_link_shares_role_survives_a_restart_and_old_files_have_none() {
     std::fs::write(directory.join(FILE), old.to_string()).unwrap();
     let third = LinkShares::default();
     let (_, _, author) = third.guest(dir, &share_id, guest_id).unwrap();
-    assert!(author.get("role").is_none(), "{author}");
-    assert!(!view_only(&author));
+    assert_eq!(author["role"], "view", "{author}");
+    assert!(view_only(&author));
+    assert!(view_only(&json!({"id":"guest:s.g", "name":"x", "approval":"owner"})), "no role");
     let _ = std::fs::remove_dir_all(&directory);
 }
