@@ -403,17 +403,9 @@ nonisolated enum CatalogArgument {
     }
 
     /// How Open Desktop shows a Cloud machine's screen (`cloudOpenDesktop`): `rd`, the remote view
-    /// pane on the machine's `cmux-rd` host over its Native link (the default for a machine that
-    /// declares `desktop`); `web`, its noVNC page in a Chromium tab (the default otherwise); or, in
-    /// development builds, `native`, the pane straight to the machine's VNC server over the app's
-    /// Cloud tunnel.
+    /// pane on the machine's `cmux-rd` host over the carrier, its only viewer.
     static var desktopViewerChoice: ActionArgument {
-        var cases = [ActionEnumCase(value: "rd", title: String(localized: "argument.value.viewerRd", defaultValue: "Video Stream", bundle: .module)),
-                     ActionEnumCase(value: "web", title: String(localized: "argument.value.viewerWeb", defaultValue: "Browser", bundle: .module))]
-        #if DEBUG
-        // The pane's VNC client is development-only (RemoteViewAvailability).
-        cases.append(ActionEnumCase(value: "native", title: String(localized: "argument.value.viewerNative", defaultValue: "Native", bundle: .module)))
-        #endif
+        let cases = [ActionEnumCase(value: "rd", title: String(localized: "argument.value.viewerRd", defaultValue: "Video Stream", bundle: .module))]
         return ActionArgument(name: "viewer", title: String(localized: "argument.viewer", defaultValue: "Viewer", bundle: .module),
                               kind: .enumeration(cases), isRequired: false)
     }

@@ -60,7 +60,7 @@ public final class RemoteLocalhostService {
     /// The route of `tab` for `engine`. A page cannot influence it: it
     /// depends only on which daemon holds the tab, the settings and the
     /// daemon's capabilities.
-    /// An Open Desktop page (`url` names its Cloud machine, ``cloudDesktopURL(machine:)``) in a
+    /// An old Open Desktop page (`url` names its Cloud machine, ``desktopMachine(url:)``) in a
     /// tab of this Mac's daemon routes to that machine, never to this Mac. In a remote tree's tab
     /// the same address is that machine's own loopback: a remote tree never reaches another
     /// machine through this Mac's tunnel.
@@ -226,15 +226,6 @@ public final class RemoteLocalhostService {
     /// under `.localhost` (loopback by the remote-localhost rule) that carries its machine, so the
     /// route follows the page's own URL through relaunches, moves and hibernation.
     static let desktopHostSuffix = BrowserNavigationGuard.cloudDesktopHostSuffix
-
-    /// Cloud machine `machine`'s desktop: its noVNC (6901 on the machine's loopback) at a host
-    /// that names the machine; it connects at once, scales to the tab and reconnects by itself.
-    /// Nil for an id that is not one DNS label.
-    public static func cloudDesktopURL(machine: String) -> URL? {
-        let label = machine.lowercased()
-        guard isLabel(label) else { return nil }
-        return URL(string: "http://\(label)\(desktopHostSuffix):6901/vnc.html?autoconnect=1&resize=scale&reconnect=1")
-    }
 
     /// The Cloud machine an Open Desktop page of a tab names: only for a tab of this Mac's daemon.
     static func desktopMachine(url: URL?, tabIsLocal: Bool) -> String? {
