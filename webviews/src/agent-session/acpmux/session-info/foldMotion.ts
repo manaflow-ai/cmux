@@ -8,6 +8,13 @@
 // last frame is the closed layout: no jump and nothing popping in or out. A section's own fold is
 // Base UI's (sessionInfo.css `.ui-disclosure-panel`), on the same duration and curve.
 //
+// A box drawn only while open (a list under its row, a page's details) also fades as it moves: its rows
+// fade in as it opens from nothing and out as it closes to nothing, on the same frames, so no row is
+// drawn whole at the edge of an empty box. A Show more's box keeps the rows it had, so it only moves.
+// The box clips what it opens onto or closes over while it moves (`data-folding`, and its own overflow,
+// so a page with no Session Info CSS clips too). Other pages use it: the New Tab and Home folds, Settings'
+// details (agent-session/shared/FoldDetails.tsx).
+//
 // Cost: one height read before the change and one after, per toggle; one Web Animation on the box,
 // which ends by itself (265 ms, the motion scale's settle). No observer, no frame loop. Under
 // Reduce Motion, the pane's animations off, or a hidden page (ui/motion/motionMode.ts), it is instant.
@@ -23,6 +30,12 @@ export const FOLD_MS = MOTION_SETTLE_MS;
 /// to change it (and a gallery comparison can swap it), else the generated copy.
 const foldEase = (box: HTMLElement) =>
   box.ownerDocument.defaultView?.getComputedStyle(box).getPropertyValue("--cmux-ease-settle").trim() || MOTION_SETTLE;
+
+/// The box is at rest: it no longer clips.
+function settled(box: HTMLElement) {
+  delete box.dataset.folding;
+  box.style.removeProperty("overflow");
+}
 
 export interface FoldMotion<E extends HTMLElement> {
   /// The box that holds the rows: its height moves.
@@ -52,6 +65,8 @@ export function useFoldMotion<E extends HTMLElement>(
   const ownRef = useRef<E>(null);
   const ref = boxRef ?? ownRef;
   const from = useRef<number | undefined>(undefined);
+  /// Its drawn opacity then: a fade cut short goes back from where it is.
+  const fromOpacity = useRef(1);
   const run = useRef<Animation | undefined>(undefined);
   const [held, setHeld] = useState(false);
   const measureClosed = useRef(closedHeight);
@@ -63,6 +78,9 @@ export function useFoldMotion<E extends HTMLElement>(
     if ((box || next) && next !== open && motionMode() === "full") {
       // Where it is drawn now, a fold still running included.
       from.current = box ? box.offsetHeight : 0;
+      fromOpacity.current = box
+        ? Number.parseFloat(box.ownerDocument.defaultView?.getComputedStyle(box).opacity ?? "1")
+        : 0;
       setHeld(!next);
     } else {
       setHeld(false);
@@ -84,18 +102,29 @@ export function useFoldMotion<E extends HTMLElement>(
       return;
     }
     box.dataset.folding = "";
-    const fold = box.animate([{ height: `${start}px` }, { height: `${end}px` }], {
-      duration: FOLD_MS,
-      easing: foldEase(box),
-      // Closing holds the end height until the rows that go have left (the effect below).
-      fill: open ? "none" : "forwards",
-    });
+    box.style.overflow = "clip";
+    // From or to nothing, its rows fade with it (from the opacity a cut-short fade drew); between two
+    // heights they stay as they are.
+    const opacity = Number.isFinite(fromOpacity.current) ? fromOpacity.current : 1;
+    const fades = start < 1 || end < 1 || opacity < 1;
+    const fold = box.animate(
+      [
+        { height: `${start}px`, ...(fades ? { opacity: start < 1 ? 0 : opacity } : {}) },
+        { height: `${end}px`, ...(fades ? { opacity: end < 1 ? 0 : 1 } : {}) },
+      ],
+      {
+        duration: FOLD_MS,
+        easing: foldEase(box),
+        // Closing holds the end height until the rows that go have left (the effect below).
+        fill: open ? "none" : "forwards",
+      },
+    );
     run.current = fold;
     fold.onfinish = () => {
       if (run.current !== fold) return;
       if (open) {
         run.current = undefined;
-        delete box.dataset.folding;
+        settled(box);
       } else {
         setHeld(false);
       }
@@ -110,7 +139,7 @@ export function useFoldMotion<E extends HTMLElement>(
     run.current = undefined;
     fold?.cancel();
     const box = ref.current;
-    if (box) delete box.dataset.folding;
+    if (box) settled(box);
   }, [held, open, ref]);
 
   useEffect(
