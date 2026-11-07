@@ -152,10 +152,23 @@ test("a listed inbox notice is no queue row, with or without its record", () => 
   expect(ownQueue(mine).length).toBe(1);
 });
 
-test("a paused queue that holds only an inbox notice draws nothing", async () => {
+test("a failed turn's hold of only an inbox notice draws nothing", async () => {
+  // acpmux reads such a hold as not paused (`queuePaused` false): the notice goes in again by itself.
   const [notice] = mergeQueue([], [{ promptId: "n1", prompt: NOTICE_TEXT, client: "acpmux", held: true }]);
-  await draw(true, "agent process closed", [notice]);
+  await draw(false, undefined, [notice]);
   expect(host.querySelector(".acpmux-queue-paused")).toBeNull();
   expect(host.querySelector(".acpmux-composer-queue")).toBeNull();
   expect(host.textContent).not.toContain("[inbox]");
+});
+
+// Review of #36821 (F1): after the person's Stop, other agents' messages wait for their next turn or
+// Resume (acpmux `cancel.rs`), so acpmux reads the queue as paused, and the note keeps its Resume
+// though none of the held prompts is the person's.
+test("a Stop's hold of only agent messages keeps the paused note and its Resume", async () => {
+  const held = mergeQueue([], [{ promptId: "m1", prompt: "Merged #1", client: "acpmux", held: true, fromAgent: "lane-a" }]);
+  expect(ownQueue(held)).toEqual([]);
+  await draw(true, undefined, held);
+  expect(host.querySelector(".acpmux-queue-paused")).not.toBeNull();
+  expect(host.querySelectorAll(".acpmux-queue-resume").length).toBe(1);
+  expect(host.querySelectorAll(".acpmux-queued").length).toBe(0);
 });
