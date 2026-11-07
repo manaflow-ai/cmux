@@ -105,3 +105,13 @@ test("with the app's motion off, a data change replaces rows at once", () => {
   expect(changed.rows).toEqual(["mac", "gpu"]);
   expect(changed.motion).toEqual({ mac: undefined, gpu: undefined });
 });
+
+for (const gate of ["off", "reduced"])
+  test(`with the app's motion gate ${gate}, a data change replaces rows at once`, () => {
+    dom.window.document.documentElement.dataset.cmuxMotion = gate;
+    const seen: Seen[] = [];
+    render({ rows: ["mac", "box"], open: true, seen });
+    const changed = render({ rows: ["mac", "gpu"], open: true, seen });
+    expect(changed.rows).toEqual(["mac", "gpu"]);
+    expect(changed.motion).toEqual({ mac: undefined, gpu: undefined });
+  });

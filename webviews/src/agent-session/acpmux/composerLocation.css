@@ -1727,11 +1727,11 @@
 }
 .acpmux-env-popover .acpmux-menu-item:has(> [data-row-motion="leave"]) { pointer-events: none; }
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-agent-motion="off"]) .acpmux-env-popover .acpmux-menu-item:has(> [data-row-motion]) { overflow: hidden; }
-  :root:not([data-agent-motion="off"]) .acpmux-env-popover .acpmux-menu-item:has(> [data-row-motion="enter"]) {
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-env-popover .acpmux-menu-item:has(> [data-row-motion]) { overflow: hidden; }
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-env-popover .acpmux-menu-item:has(> [data-row-motion="enter"]) {
     animation: acpmux-env-row-in var(--agent-motion-move) var(--agent-ease-out, ease-out) both;
   }
-  :root:not([data-agent-motion="off"]) .acpmux-env-popover .acpmux-menu-item:has(> [data-row-motion="leave"]) {
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-env-popover .acpmux-menu-item:has(> [data-row-motion="leave"]) {
     animation: acpmux-env-row-out var(--agent-motion-move) var(--agent-ease-out, ease-out) both;
   }
 }
@@ -1742,7 +1742,7 @@
   to { opacity: 1; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-agent-motion="off"]) .acpmux-env-popover [data-row-motion="swap"] .acpmux-menu-label {
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-env-popover [data-row-motion="swap"] .acpmux-menu-label {
     animation: acpmux-env-row-swap var(--agent-motion-move) var(--agent-ease-out, ease-out) both;
   }
 }

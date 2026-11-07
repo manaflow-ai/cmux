@@ -31,6 +31,9 @@ const SEPARATOR = "\u0001";
 
 function reducedMotion(): boolean {
   if (isAgentMotionOff()) return true;
+  // The app's motion gate (WebTheme `data-cmux-motion`): off or reduced moves no rows.
+  const gate = typeof document === "undefined" ? undefined : document.documentElement.dataset.cmuxMotion;
+  if (gate === "off" || gate === "reduced") return true;
   try {
     return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
   } catch {
