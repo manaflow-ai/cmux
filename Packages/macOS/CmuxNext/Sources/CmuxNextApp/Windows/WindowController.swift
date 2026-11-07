@@ -480,6 +480,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     /// A pane policy that may hold cursor-rect invalidations (ShellWindow+Events.swift).
     weak var cursorRectHold: (any CursorRectHoldPolicy)?
+    let presses = WindowPressRouter() // what a press does before AppKit gets it (ShellWindow+Events.swift)
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
     var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
