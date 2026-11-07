@@ -65,7 +65,7 @@ final class KeyboardToggleInterruptUITests: XCTestCase {
         let taps = (values["kt"] ?? "-").split(separator: ",").map(String.init).filter { $0 != "-" }
         XCTAssertFalse(taps.isEmpty, "the demo probed taps on the moving key (\(line))")
         let misses = taps.filter { !$0.contains(":hit") }
-        XCTAssertTrue(misses.isEmpty, "a tap on the keyboard key where it is drawn mid-animation misses it: \(misses.joined(separator: " ")) of \(taps.count)")
+        XCTAssertTrue(misses.isEmpty, "a tap on the keyboard key where it is drawn mid-animation misses it: \(misses.joined(separator: " ")) of \(taps.count) (app \(values["app"] ?? "?"), router \(values["router"] ?? "?"))")
         let jumps = values["fj"].flatMap { Int($0) }
         XCTAssertNotNil(jumps, "the probe counts jumps (\(line))")
         XCTAssertEqual(jumps, 0, "the composer jumped instead of riding the keyboard: largest \(values["fjmax"] ?? "?") pt at \(values["fjlog"] ?? "?"); keyboard events \(values["evlog"] ?? "?")")
