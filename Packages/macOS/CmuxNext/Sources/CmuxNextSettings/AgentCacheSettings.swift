@@ -18,4 +18,11 @@ public nonisolated struct AgentCacheSettings: Sendable, Equatable {
         diagnostics += reader.diagnostics
         return settings
     }
+
+    /// `agents.autoRetry.*` and `agents.cacheCompact.*`, the settings the acpmux daemon runs, read into the
+    /// snapshot (here, not in CmuxConfigSnapshot, which is at its god-type cap).
+    static func parseDaemonSettings(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {
+        snapshot.agentRetry = AgentRetrySettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.agentCache = parse(root, diagnostics: &snapshot.diagnostics)
+    }
 }
