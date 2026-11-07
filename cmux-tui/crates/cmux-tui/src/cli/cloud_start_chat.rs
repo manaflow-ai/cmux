@@ -299,7 +299,8 @@ pub(super) trait Runner {
     fn cmux(&mut self, args: &[String]) -> Ran;
     fn pause(&mut self, duration: Duration);
     fn now(&mut self) -> Instant;
-    /// A new machine's name (unique enough that no other machine has it).
+    /// A new machine's name: the run's prefix and 16 hex characters from the OS's random source, so it is another
+    /// machine's only by a negligible chance ([`unused_name`] still refuses one that is).
     fn fresh_name(&mut self) -> String;
     /// A new prompt id: acpmux runs a prompt id once.
     fn prompt_id(&mut self) -> String;
@@ -337,7 +338,7 @@ impl Runner for SelfRunner {
 
     fn fresh_name(&mut self) -> String {
         let id = uuid::Uuid::new_v4().simple().to_string();
-        format!("chat-{}", id.chars().take(8).collect::<String>())
+        format!("chat-{}", id.chars().take(16).collect::<String>())
     }
 
     fn prompt_id(&mut self) -> String {
@@ -812,12 +813,15 @@ fn steps(
             Relayed::Fallback(None) => {}
         }
     }
-    // The fresh name a new machine gets, when no listed machine has it: a start-session machine of that name is this run's.
+    // The fresh name a new machine gets (no listed machine or create has it): a start-session machine of that name is this run's.
     let mut fresh = None;
     let machine = match &wanted {
         Machine::New => {
-            let (name, unused) = unused_name(runner, &listed);
-            fresh = unused.then(|| name.clone());
+            let name = match unused_name(runner, &listed) {
+                Ok(name) => name,
+                Err(outcome) => return outcome,
+            };
+            fresh = Some(name.clone());
             Machine::Named(name)
         }
         other => other.clone(),
@@ -1405,7 +1409,10 @@ fn new_machine(
     environment: Option<&str>,
     progress: &mut Progress,
 ) -> Result<String, Outcome> {
-    let name = name.map_or_else(|| unused_name(runner, listed).0, str::to_owned);
+    let name = match name {
+        Some(name) => name.to_owned(),
+        None => unused_name(runner, listed)?,
+    };
     let mut args = words(&["cloud", "new-machine", "--name"]);
     args.push(name.clone());
     if let Some(environment) = environment {
@@ -1441,28 +1448,40 @@ fn new_machine(
     ))
 }
 
-/// A machine name for this run: a fresh one no listed machine or create on its way has, and whether it found one.
-fn unused_name(runner: &mut dyn Runner, listed: &Value) -> (String, bool) {
-    let rows = |key: &str, field: &'static str| {
+/// A machine name for this run: a fresh one no listed machine or create on its way has. It is never one that is:
+/// a fresh name that is taken anyway, or a list the app has not loaded (`loaded: false` lists no machines, which
+/// says nothing), is a typed error before any `start-session --name` (which would attach to that machine) or
+/// `new-machine --name`.
+fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcome> {
+    if at(listed, "loaded").as_bool() == Some(false) {
+        return Err(failed(
+            "cloud.list_unread",
+            "the app has not loaded its Cloud machines yet, so no machine was made or started: run this \
+             command again in a moment",
+            json!({"list": "cmux cloud list-machines --json"}),
+            75,
+        ));
+    }
+    let name = runner.fresh_name();
+    let has = |key: &str, field: &str| {
         at(listed, key)
             .as_array()
             .into_iter()
             .flatten()
-            .filter_map(move |row| at(row, field).as_str())
-            .map(str::to_owned)
-            .collect::<Vec<_>>()
+            .any(|row| at(row, field).as_str() == Some(name.as_str()))
     };
-    let mut used = rows("machines", "title");
-    used.extend(rows("creating", "name"));
-    let mut name = runner.fresh_name();
-    for _ in 0..3 {
-        if !used.contains(&name) {
-            break;
-        }
-        name = runner.fresh_name();
+    if has("machines", "title") || has("creating", "name") {
+        return Err(failed(
+            "cloud.name_taken",
+            format!(
+                "the new machine's fresh name {name} is taken already, so no machine was made or started: \
+                 run this command again"
+            ),
+            json!({"machine_name": name, "list": "cmux cloud list-machines --json"}),
+            75,
+        ));
     }
-    let unused = !used.contains(&name);
-    (name, unused)
+    Ok(name)
 }
 
 /// The relay answer's stage times the CLI answer passes on: link and login, then the relay's own events, then the platform's.
