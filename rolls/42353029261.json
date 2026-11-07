@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42353029261",
+  "recorded_at": "2026-11-07T07:58:37Z",
+  "reason": "cmux-tui c0713f56f6e9 changes the image's cmux-tui (pinned 3ad6aa8d2ab4)",
+  "dry_run": false,
+  "cmux_tui": "c0713f56f6e91aaa8f1c8c589ba39c497afd8315",
+  "fixes": [
+    {
+      "sha": "c0713f56f6e91aaa8f1c8c589ba39c497afd8315",
+      "mergedAt": "2026-11-06T23:37:23-08:00",
+      "subject": "Cloud: one preview deadline, and a listing's max_bytes counts every byte (#37562)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T07:58:37Z",
+    "snapshot_id": "sh-5237b95ae9f54757ba1437d0ee16b172",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42353029261): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f5f2f738f096ac7245907d11980528ca675eb305",
+    "image": "cloud-native-auto-c0713f56-42353029261-1",
+    "revision": "ci-42353029261-1",
+    "at": "2026-11-07T07:58:37Z"
+  },
+  "rolled_back": false
+}
