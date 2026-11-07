@@ -66,6 +66,8 @@ mod permission_groups;
 mod presence;
 #[path = "hub_integration/prompt_approval.rs"]
 mod prompt_approval;
+#[path = "hub_integration/prompt_attribution.rs"]
+mod prompt_attribution;
 #[path = "hub_integration/prompt_class.rs"]
 mod prompt_class;
 #[path = "hub_integration/prompt_context.rs"]

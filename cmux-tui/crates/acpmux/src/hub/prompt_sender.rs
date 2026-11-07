@@ -16,10 +16,16 @@ pub(super) fn add_steer_sender(
     add_sender(params, sender, class.map(crate::prompt_class::PromptClass::as_str), provenance);
 }
 
-/// [`prompt_params`] for queued prompt `run`.
-pub(super) fn run_params(agent_sid: &str, prompt: Value, run: &super::queue::PromptRun) -> Value {
+/// [`prompt_params`] for queued prompt `run`, under its turn's effective `provenance` (a fan-in
+/// turn's is its digest's, `turns.rs`, not `run`'s own).
+pub(super) fn run_params(
+    agent_sid: &str,
+    prompt: Value,
+    run: &super::queue::PromptRun,
+    provenance: Option<&Value>,
+) -> Value {
     let class = run.class.map(crate::prompt_class::PromptClass::as_str);
-    prompt_params(agent_sid, prompt, run.agent.as_deref(), class, run.provenance.as_ref())
+    prompt_params(agent_sid, prompt, run.agent.as_deref(), class, provenance)
 }
 
 /// The `session/prompt` params for `prompt` to `agent_sid`, with the sender of
@@ -37,13 +43,15 @@ pub(super) fn prompt_params(
 }
 
 /// Adds `_meta.acpmux.sender` to `params` (a turn's prompt or a steer) when
-/// `agent` sent it.
+/// `agent` sent it, and the marks of who wrote it to its blocks.
 pub(super) fn add_sender(
     params: &mut Value,
     agent: Option<&str>,
     class: Option<&str>,
     provenance: Option<&Value>,
 ) {
+    // The agent reads who wrote it in the prompt too (`prompt_attribution.rs`).
+    super::prompt_attribution::mark(params, agent, provenance);
     let Some(name) = agent.filter(|n| !n.is_empty()) else { return };
     let mut sender = Map::new();
     sender.insert("name".into(), json!(name));
