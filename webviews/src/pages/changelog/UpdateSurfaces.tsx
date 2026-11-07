@@ -220,7 +220,7 @@ export function UpdatedCard({
     preview.close();
     actions.openChangelog();
   };
-  const rest = useRef<HTMLDivElement | null>(null);
+  const rest = useRef<HTMLElement | null>(null);
   useCardDrag(preview.cardRef, rest, drag, dragFeel, preview.closeForDrag);
   const whatsNew = (
     <button type="button" className="wn-card-primary" onClick={openChangelog}>
@@ -268,8 +268,16 @@ export function UpdatedCard({
           className="wn-card"
           aria-labelledby={titleId}
           data-decoration="doodle"
+          data-anchor={anchor}
+          data-drags={drag ? "" : undefined}
           data-glass={glass ? "" : undefined}
           data-composer-material=""
+          // The doodle card has no preview: it is its own rest box, and drags as the plain card does
+          // (review F4 of #37790).
+          ref={(element) => {
+            preview.cardRef.current = element;
+            rest.current = element;
+          }}
         >
           <DoodleHeadline version={cardVersion(data.version)} strings={strings} />
           {title}
@@ -302,7 +310,12 @@ export function UpdatedCard({
           onOpen={openChangelog}
         />
       )}
-      <div className="wn-card-rest" ref={rest}>
+      <div
+        className="wn-card-rest"
+        ref={(element) => {
+          rest.current = element;
+        }}
+      >
         <div className="wn-card-head">
           {title}
           {placement !== "button" && (

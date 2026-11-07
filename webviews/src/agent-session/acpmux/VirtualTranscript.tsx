@@ -66,6 +66,7 @@ import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
+import { rowsWithLiveOutput, useLiveToolRow } from "./liveToolOutput";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
@@ -125,7 +126,7 @@ import {
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { ACTIVITY_LINE, THINKING, WORKED, turnFooterFrom, WORKING, retryTargetIn } from "./conversation/turns";
+import { THINKING, WORKED, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { ArrowDown } from "./conversation/icons";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -142,6 +143,7 @@ import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
+import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
@@ -150,12 +152,17 @@ import { callNative } from "./callNative";
 import { type NativeRegistry, type OpenDiff, type RowProps } from "./rows/rowProps";
 import { NoticeRow } from "./rows/NoticeRow";
 import { defaultRegistry, readOnlyRegistry } from "./rows/registry";
-import { workEnds } from "./conversation/waterfallSpans";
+import {
+  NO_ROWS,
+  sameReferenceScope,
+  sameRowFrame,
+  rowKind,
+  FOLLOW_BOTTOM_DEADBAND_PX,
+  SCROLL_ANCHOR_SETTLE_MS,
+} from "./virtualTranscriptModel";
 
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
-
-export const NO_ROWS: readonly AcpmuxRow[] = [];
 
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
 /// `actions`: whether a reply kept its action row's room then (model.ts `keepsReplyRoom`); a drawn
@@ -243,84 +250,10 @@ function changesDrawn(current: DrawnHeights, updates: Map<string, DrawnHeight>):
   return false;
 }
 
-/// RowFrame redraws only when a prop it or its row's renderer reads changed. `children` is left out:
-/// it is a new element every render, built from `row` and the content props passed beside it
-/// (`contentType` and the rest), so comparing every other prop is enough. The callbacks are stable
-/// across snapshots (VirtualTranscript and the pane hold them), so a streaming snapshot that changes
-/// only the latest row leaves every other mounted row alone.
-function sameReferenceScope(previous: ReferenceScope | undefined, next: ReferenceScope | undefined): boolean {
-  if (previous === next) return true;
-  if (!previous || !next || previous.at !== next.at) return false;
-  if (previous.evidence.linked.length !== next.evidence.linked.length) return false;
-  if (!previous.evidence.linked.every((repo, index) => repo === next.evidence.linked[index])) return false;
-  const sameMap = <K, V>(a: ReadonlyMap<K, V>, b: ReadonlyMap<K, V>, valueEqual: (left: V, right: V) => boolean) => {
-    if (a.size !== b.size) return false;
-    for (const [key, value] of a) {
-      const other = b.get(key);
-      if (other === undefined || !valueEqual(value, other)) return false;
-    }
-    return true;
-  };
-  const sameMentions = (
-    left: readonly { at: number; repo: string }[],
-    right: readonly { at: number; repo: string }[],
-  ) =>
-    left.length === right.length &&
-    left.every((mention, index) => mention.at === right[index]?.at && mention.repo === right[index]?.repo);
-  return (
-    sameMap(previous.evidence.mentions, next.evidence.mentions, sameMentions) &&
-    sameMap(previous.turn, next.turn, (left, right) => left === right)
-  );
-}
-
-/// Whether two rows hold the same value in every own field (one level deep).
-function sameFields(previous: AcpmuxRow, next: AcpmuxRow): boolean {
-  if (previous === next) return true;
-  const before = previous as unknown as Record<string, unknown>;
-  const after = next as unknown as Record<string, unknown>;
-  const keys = Object.keys(after);
-  return keys.length === Object.keys(before).length && keys.every((key) => Object.is(before[key], after[key]));
-}
-
-/// Whether a row draws the same: renderers use id and version as their draw identity, so a clone of
-/// an unchanged row (snapshot rebuilding clones them when a prompt is sent) draws the same. The
-/// frame's own flags (`below`, `ended`) are compared too, as they are read outside the renderer.
-function sameRowDraw(before: AcpmuxRow, after: AcpmuxRow): boolean {
-  // The running turn's live, working and activity lines are drawn by turns.ts on every snapshot
-  // with a version that does not cover all they say (the call in flight, who a send goes to, its
-  // time, the clock offset): those are in their fields, so they redraw whenever a field changes.
-  if (after.kind === THINKING || after.kind === WORKING || after.kind === ACTIVITY_LINE)
-    return sameFields(before, after);
-  return (
-    before.id === after.id &&
-    before.version === after.version &&
-    before.below === after.below &&
-    before.ended === after.ended &&
-    // A turn footer's Timeline also redraws when a background shell ends after the turn, which
-    // leaves its version as it was (conversation/waterfallSpans.ts workEnds, cached per array).
-    (after.kind !== "turnSummary" || workEnds(before.turnWork) === workEnds(after.turnWork))
-  );
-}
-
-export function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
-  const keys = Object.keys(next);
-  if (keys.length !== Object.keys(previous).length) return false;
-  return keys.every((key) => {
-    if (key === "children") return true;
-    // Snapshot rebuilding can clone unchanged rows when a prompt is sent; comparing the object here
-    // made every mounted frame repaint on that send even though its content had not changed.
-    if (key === "row") return sameRowDraw(previous.row as AcpmuxRow, next.row as AcpmuxRow);
-    if (key === "referenceScope")
-      return sameReferenceScope(
-        previous.referenceScope as ReferenceScope | undefined,
-        next.referenceScope as ReferenceScope | undefined,
-      );
-    return Object.is(previous[key], next[key]);
-  });
-}
-
 /// What a row's content draws from (the registry component's props, and the component).
-type RowContentProps = { Component: React.ComponentType<RowProps> } & RowProps;
+/// `liveTools`: the pane's live transcript, whose rows draw a running command's newer output ahead
+/// of the pane's snapshot (liveToolOutput.ts).
+type RowContentProps = { Component: React.ComponentType<RowProps>; liveTools?: boolean } & RowProps;
 
 /// A row's content, drawn again only when what it draws from changes: never for its frame's place
 /// (`top`, `index`, `gapBelow`), focus (`tabStop`, `active`, `selected`) or entrance flags. A scroll
@@ -334,12 +267,14 @@ type RowContentProps = { Component: React.ComponentType<RowProps> } & RowProps;
 /// which. A new row object reaches the renderer, whose memo decides; a history row keeps its object
 /// across snapshots, so a scroll still draws none of them again.
 export const RowContent = React.memo(
-  function RowContent({ Component, ...props }: RowContentProps) {
+  function RowContent({ Component, liveTools = false, ...props }: RowContentProps) {
     // Counted when committed: a render React set aside (an interrupted concurrent pass) drew nothing.
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
-    return <Component {...props} />;
+    // A running command's output that moved on without the pane: this row alone draws it.
+    const row = useLiveToolRow(props.row, liveTools);
+    return <Component {...props} row={row} />;
   },
   (previous, next) => {
     const keys = Object.keys(next) as (keyof RowContentProps)[];
@@ -570,8 +505,6 @@ const RowFrame = React.memo(function RowFrame({
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 
-export const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
-
 /// A row drawn as tool rows: tool calls and thoughts, a background task's or a subagent's end, a
 /// compaction, a failover, a policy the harness cannot keep, and the one-line
 /// rows drawn on the tool rows' line (model.ts `isLineRow`: another agent's message, a notice, an
@@ -615,18 +548,16 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
 /// (each row's `top` adds it), so the transcript ends this far past their total height.
 const THREAD_TOP = 16;
 
-/// Small layout changes arrive constantly while a reply streams. Treat the bottom as a short
-/// resting zone so every token does not write a new fractional scroll offset (and make the thumb
-/// visibly twitch at the same cadence). A meaningful displacement still corrects immediately.
-/// Four CSS pixels is below the visual rhythm of a transcript line, so the reader gets a little
-/// give while a burst is measured and one correction when that burst is meaningful.
-export const FOLLOW_BOTTOM_DEADBAND_PX = 4;
-
 /// Where a scroller sits, read while its content still matches `totalHeight`.
 const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
   top: node.scrollTop,
   atLatest: layoutScrollTop(node) >= totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX,
 });
+
+/// End or Cmd-Down, without Shift (Shift-End extends a row range): the keys that go to the end.
+function toLatestKey(event: Pick<KeyboardEvent, "key" | "metaKey" | "shiftKey">): boolean {
+  return !event.shiftKey && (event.key === "End" || (event.metaKey && event.key === "ArrowDown"));
+}
 
 /// Whether reader input moves the transcript toward its latest row: a wheel down or a key that
 /// scrolls down. Such input never leaves the latest row, so follow-bottom need not wait for it.
@@ -865,9 +796,6 @@ function findMatchOffset(scroller: HTMLElement): number | undefined {
   if (!range) return undefined;
   return range.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
 }
-
-/// A scroll that rests this long is where the chat reopens (cx-6bgzj), reported once, not per frame.
-export const SCROLL_ANCHOR_SETTLE_MS = 400;
 
 /// Where a chat's transcript rests: the row at the top of the view and how far into it; null is the
 /// latest message, which a reopened chat follows anyway.
@@ -1323,7 +1251,9 @@ function TranscriptView({
   /// movement, so the anchor pass keeps it. Once the event is processed, a later live change is
   /// layout work (#26718) and the stored offset is the base again.
   const [followResume, resumeDeferredFollow] = useReducer((count: number) => count + 1, 0);
-  const follow = (next: boolean) => {
+  /// `path` names what turned following on, for the trace (followTrace.ts `arms`).
+  const follow = (next: boolean, path = "other") => {
+    if (next && !followingRef.current) followTrace.armed(path);
     followingRef.current = next;
     onFollowingChange?.(next);
     setFollowing(next);
@@ -1352,7 +1282,7 @@ function TranscriptView({
       // Route recovery through the authoritative setter so the parent callback and synchronous
       // intent ref agree; a stale queued `atLatest` must not retake a parked reader.
       flushSync(() => {
-        followRef.current(atLatest);
+        followRef.current(atLatest, "pacer");
         setScroll(scrollRef.current);
       });
       return;
@@ -1366,7 +1296,14 @@ function TranscriptView({
       });
     });
   });
-  const queueScroll = (top: number, atLatest: boolean, immediate = false) => {
+  const queueScroll = (
+    top: number,
+    atLatest: boolean,
+    immediate = false,
+    path = "scroll",
+    input: string | null = null,
+  ) => {
+    if (atLatest && !followingRef.current) followTrace.armed(path, input, top);
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
     // reader's latest state; React work itself is coalesced by scrollPacer.
     followingRef.current = atLatest;
@@ -2216,7 +2153,7 @@ function TranscriptView({
       // The gallery's shift gate reads this: the text above this row rises or falls on purpose.
       row.setAttribute("data-bottom-stack-fold", "");
       // The explicit toggle reacquires follow even a few pixels from the end. Streaming never does.
-      followRef.current(true);
+      followRef.current(true, "fold-close");
       stack.cleanupTimer = setTimeout(
         () => {
           if (bottomStackFold.current === stack) stopBottomStackFold();
@@ -2314,6 +2251,13 @@ function TranscriptView({
   /// The last upward input has not yet been acknowledged by the native scroll event. A tiny real
   /// wheel at the old end must not be mistaken for the browser's clamp window during a layout correction.
   const readerUpPending = useRef(false);
+  /// The reader's last downward scroll input, until an upward one: a wheel down that scrolls the
+  /// transcript itself, a key that scrolls down (End, Page Down, the down arrow, Cmd-Down), or a
+  /// scrollbar or touch drag down. Only a scroll that follows it within READER_SCROLL_MS and reaches
+  /// the end brings following back. A press, a sideways wheel, a wheel an inner scroller takes, an
+  /// up key or a stray pointer move after a lost release is no such input, and a layout change that
+  /// lands at the end during their input hold leaves the reader where they are (Leo, 2026-11-07).
+  const readerDown = useRef<{ at: number; input: string } | undefined>(undefined);
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -2726,22 +2670,43 @@ function TranscriptView({
       (row) => row.dataset.rowId === id,
     );
     if (target) {
-      target.focus();
+      // focusRow already put the row in view; End's last row is in view at the end of its ride.
+      target.focus({ preventScroll: true });
       pendingFocus.current = undefined;
     }
   }, [range, effectiveActiveRowId]);
   const copyRows = useCallback(
     async (rowIds: string[]) => {
-      const text = transcriptRangeText(rows, rowIds);
+      // A running command's output since the pane last drew is in liveToolOutput.ts, not `rows`.
+      const text = transcriptRangeText(rowsWithLiveOutput(rows), rowIds);
       if (text && !(await copyTextResult(text))) throw new Error("copy.failed");
     },
     [rows],
   );
+  /// Jump to latest (below), for the keys that go to the end.
+  const jumpToLatestRef = useRef<(focused: boolean, path?: string) => void>(() => {});
   const rowKeyDown = useCallback(
     (index: number, event: React.KeyboardEvent<HTMLElement>) => {
       // Buttons and links own their keyboard behavior. A focused row itself owns only the
       // navigation and copy keys below, so selecting prose never toggles a disclosure by accident.
       if (event.target !== event.currentTarget) return;
+      // End and Cmd-Down go to the latest message, as Jump to latest does, and the last row takes
+      // the keys: the reader asked for the end, and the reply streaming there is followed again.
+      if (toLatestKey(event)) {
+        event.preventDefault();
+        setTranscriptRange(undefined);
+        const lastId = rows.at(-1)?.id;
+        if (lastId) {
+          setActiveRowId(lastId);
+          const mounted = [...(ref.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? [])].find(
+            (row) => row.dataset.rowId === lastId,
+          );
+          if (mounted) mounted.focus({ preventScroll: true });
+          else pendingFocus.current = lastId;
+        }
+        jumpToLatestRef.current(false, "end-key");
+        return;
+      }
       const move = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
       const jump = event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : undefined;
       if (move || jump !== undefined) {
@@ -2820,6 +2785,7 @@ function TranscriptView({
       // scroll anchor from the old session before the placement pass chooses the new session's
       // openAt position or latest row.
       readerUpPending.current = false;
+      readerDown.current = undefined;
       previousSession.current = sessionId;
       followDeferred.current = false;
       followRequest.current = undefined;
@@ -2837,7 +2803,7 @@ function TranscriptView({
       stopJump();
       stopBottomStackFold();
       setScrollAt(0, 0);
-      follow(true);
+      follow(true, "session");
     }
     const old = switched ? null : previousLayout.current;
     const oldRows = previousRows.current;
@@ -3085,7 +3051,7 @@ function TranscriptView({
         // rows a frame up before the hold brought them back, or, past the hold, moved the whole
         // thread up under the line just clicked (#27650, an edit's diff opened in a short chat).
         followTrace.set(node.scrollTop);
-        follow(node.scrollTop >= latest - 1);
+        follow(node.scrollTop >= latest - 1, "open");
         didOpenAtLatest.current = true;
       } else {
         const top = at < 0 ? latest : Math.min(latest, layout.geometry.topAt(at) + openAt!.offset);
@@ -3103,7 +3069,7 @@ function TranscriptView({
         followTrace.set(node.scrollTop);
         scrollPacer.current?.cancel();
         setScrollAt(node.scrollTop, 0);
-        follow(top >= latest - 1);
+        follow(top >= latest - 1, "open");
         didOpenAtLatest.current = true;
       }
     }
@@ -3577,7 +3543,7 @@ function TranscriptView({
     if (!fromLatest && !reduce) {
       rideToLatest(node, latest, false, false);
       followRequest.current = userScrollIntent(node).request();
-      follow(true);
+      follow(true, "send");
     } else {
       const before = node.scrollTop;
       node.scrollTop = latest;
@@ -3590,7 +3556,7 @@ function TranscriptView({
       // The commit this asks for places the rows with the stack's room and settles at that end, even
       // inside the hold that follows the reader's last input.
       followRequest.current = userScrollIntent(node).request();
-      follow(true);
+      follow(true, "send");
       // Rows this commit added that the placement pass left unfollowed (a held follow): they rise on
       // the send's glide too.
       if (fromLatest && top - before > 0.5) followGlide.current?.sent(thread.current, top - before);
@@ -3725,7 +3691,12 @@ function TranscriptView({
     // deadband absorbs layout rounding, but must not turn a real trackpad step into bottom follow.
     const movedUp = next < was.top - 0.5;
     const recentUp = !programmatic && movedUp;
-    const readerReachedBottom = !programmatic && next > was.top + 0.5 && measured.atLatest;
+    // Only the reader's own downward scroll input brings following back at the end; the input hold
+    // alone (`programmatic`) is any input of the last second, a press or a hover after a lost
+    // release too, and a layout change landing at the end inside it is not the reader's.
+    const down = readerDown.current;
+    const readerMovedDown = down !== undefined && performance.now() - down.at <= READER_SCROLL_MS;
+    const readerReachedBottom = !programmatic && readerMovedDown && next > was.top + 0.5 && measured.atLatest;
     scrolledTo.current = {
       top: next,
       atLatest: recentUp || (movedUp && !measured.atLatest) ? false : followingRef.current || readerReachedBottom,
@@ -3741,7 +3712,7 @@ function TranscriptView({
       });
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     seenAnchor.current = restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
-    queueScroll(next, scrolledTo.current.atLatest, immediate);
+    queueScroll(next, scrolledTo.current.atLatest, immediate, "reader-scroll", down?.input ?? null);
     if (onAnchor) {
       clearTimeout(anchorTimer.current);
       anchorTimer.current = setTimeout(reportAnchor, SCROLL_ANCHOR_SETTLE_MS);
@@ -3761,7 +3732,7 @@ function TranscriptView({
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => handleScroll(event.currentTarget);
   // Jump to latest (the button, ChatGPT and Codex style): a smooth scroll to the latest message, then a
   // landing on it, so a reply that grew meanwhile is followed again.
-  const jumpToLatest = (focused: boolean) => {
+  const jumpToLatest = (focused: boolean, path = "jump") => {
     const node = ref.current;
     if (!node) return;
     // Jump to latest is the reader leaving the Find match: end its hold, or the next tick pulls the
@@ -3775,7 +3746,7 @@ function TranscriptView({
     foldAnchor.current = undefined;
     dropFoldRoom(true);
     clearScrollOrigin(node);
-    follow(true);
+    follow(true, path);
     if (focused) focusComposer?.();
     // cmux's animations off (ui.animations) or the system's Reduce Motion: it lands in one frame, and
     // with no glide in flight nothing aims one again at a moved end.
@@ -3785,6 +3756,7 @@ function TranscriptView({
     stopJump();
     rideToLatest(node, target, reduce, true);
   };
+  jumpToLatestRef.current = jumpToLatest;
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
@@ -3815,6 +3787,28 @@ function TranscriptView({
     };
     let pointerY: number | undefined;
     let touchY: number | undefined;
+    /// The input behind a downward scroll of the transcript itself, or undefined for any other.
+    const readerDownInput = (event: Event | undefined, pointer?: PointerEvent, touch?: Touch) => {
+      if (event?.type === "wheel") {
+        const wheel = event as WheelEvent;
+        return wheel.deltaY > 0 && wheelScrollsDown(wheel, node) ? `wheel ${Math.round(wheel.deltaY)}` : undefined;
+      }
+      if (event?.type === "keydown") {
+        const key = event as KeyboardEvent;
+        return !key.shiftKey && !editableTarget(key.target) && movingDown(key)
+          ? `keydown ${key.metaKey ? "Meta+" : ""}${key.key}`
+          : undefined;
+      }
+      // A drag: the scrollbar's thumb moving down, or a finger moving up the page.
+      if (
+        pointer &&
+        pointerY !== undefined &&
+        (pointer.pointerType === "touch" ? pointer.clientY < pointerY : pointer.clientY > pointerY)
+      )
+        return `pointermove ${pointer.pointerType}`;
+      if (touch && touchY !== undefined && touch.clientY < touchY) return "touchmove";
+      return undefined;
+    };
     const reader = (event?: Event) => {
       // The wheel over a rail that scrolls itself scrolls the rail, not the transcript: the reader is
       // not moving the transcript, so follow and a jump in flight stay as they are (railWheel.ts).
@@ -3829,6 +3823,9 @@ function TranscriptView({
             pointerY !== undefined &&
             (pointer.pointerType === "touch" ? pointer.clientY > pointerY : pointer.clientY < pointerY)) ||
           (touch !== undefined && touchY !== undefined && touch.clientY > touchY));
+      const downInput = readerDownInput(event, pointer, touch);
+      if (movingUp) readerDown.current = undefined;
+      else if (downInput) readerDown.current = { at: performance.now(), input: downInput };
       if (event?.type === "pointerdown") {
         pointerY = (event as PointerEvent).clientY;
       } else if (pointer) pointerY = pointer.clientY;
@@ -3855,6 +3852,17 @@ function TranscriptView({
       return Boolean(movingUp);
     };
     const unsubscribeIntent = intent.subscribe(cancelProgrammatic);
+    // End or Cmd-Down with the page focused, where the browser scrolls nothing: to the latest
+    // message, as a row's own End does (rowKeyDown). A field keeps its keys (Find's search moves
+    // its caret), and the transcript itself focused scrolls natively, a downward scroll of the
+    // reader's own (`readerDown`).
+    const endKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !toLatestKey(event) || event.target !== node.ownerDocument.body) return;
+      if (editableTarget(event.target)) return;
+      event.preventDefault();
+      jumpToLatestRef.current(false, "end-key");
+    };
+    node.ownerDocument.addEventListener("keydown", endKey);
     const unsubscribeQuiet = intent.subscribeQuiet(() => {
       if (!followDeferred.current) return;
       followDeferred.current = false;
@@ -4018,6 +4026,7 @@ function TranscriptView({
       wheelGlide.current = undefined;
       stopJump();
       unsubscribeIntent();
+      node.ownerDocument.removeEventListener("keydown", endKey);
       unsubscribeQuiet();
       detachIntent();
       if (findFrame.current !== undefined) cancelAnimationFrame(findFrame.current);
@@ -4344,6 +4353,7 @@ function TranscriptView({
                       >
                         <RowContent
                           Component={Component}
+                          liveTools={streams}
                           row={row}
                           replyActions={actions}
                           sessionId={sessionId}
