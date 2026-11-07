@@ -179,7 +179,8 @@ fn the_open_follows_no_symlink_at_any_part_and_never_waits_on_a_fifo() {
     let plans = f.plan.parent().unwrap();
     let read = |parts: &[&str]| {
         let parts: Vec<&OsStr> = parts.iter().map(OsStr::new).collect();
-        read_capped(&tmp, &parts, MAX_PLAN_BYTES)
+        let file = open_at(&open_folder(&tmp)?, &parts, false)?;
+        read_capped(file, MAX_PLAN_BYTES)
     };
     assert_eq!(read(&["app", "plans", "dark-mode.md"]).as_deref(), Some(PLAN));
     // The file swapped for a symlink.
