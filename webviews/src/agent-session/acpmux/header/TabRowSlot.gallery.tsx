@@ -12,7 +12,7 @@ type Tab = { id: string; title: string };
 type Step = { label: string; tabs: Tab[]; selected: string; chatShown: boolean; pointerOnClose?: boolean };
 
 const GITHUB = { id: "github", title: "GitHub" };
-const CHAT = { id: "chat", title: "huge-blue/menubar-chats-menu" };
+const CHAT = { id: "chat", title: "studio-mac/menubar-chats-menu" };
 const NEW = { id: "new", title: "New Tab" };
 const STEPS: Step[] = [
   { label: "New Tab selected", tabs: [GITHUB, CHAT, NEW], selected: "new", chatShown: false },

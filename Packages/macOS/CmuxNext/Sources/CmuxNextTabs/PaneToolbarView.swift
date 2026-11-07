@@ -62,6 +62,8 @@ public final class PaneToolbarView: NSView {
     public private(set) var nativeItems: [PaneTabRowTool] = []
     public private(set) var nativeButtons: [TitlebarBandButton] = []
     private var nativeMoreTool: PaneTabRowTool?
+    /// Each tab's room at the row's trailing end, so its pane's strip ends in one place whichever tab is selected.
+    public private(set) var trailingSlots = PaneTrailingSlots()
 #if DEBUG
     /// Test-only presenter hook. The production wrapper (the button's onMenuOpenChange HoverReveal hold) remains
     /// installed; this replaces only the blocking AppKit popup at its center.
@@ -388,6 +390,28 @@ public final class PaneToolbarView: NSView {
         let moreWidth = more ? TitlebarBandButton.side : 0
         let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
         return buttonWidth + moreWidth + gaps + Self.trailingGap
+    }
+
+    /// The bar's width in a pane `width` wide, which gives it at most half: `sharing`, beside a chat's tools in the row
+    /// (``tabRowWidth(fitting:)``, only the buttons that still show), else what the strip keeps for it.
+    public func paneWidth(in width: CGFloat, sharing: Bool) -> CGFloat {
+        sharing ? tabRowWidth(fitting: width / 2) : min(intrinsicContentSize.width, width / 2)
+    }
+
+    /// The bar's width beside a parked chat in a pane `width` wide (#37548): its width the last time a chat of the pane
+    /// was selected, else the bar now without "…" (a chat shows none), not the bar beside the terminal selected now.
+    public func paneWidthBesideChat(in width: CGFloat) -> CGFloat { min(trailingSlots.parkedChatToolbar ?? tabRowWidth(more: false), width / 2) }
+
+    /// Points the strip of a pane `width` wide gives up at the row's trailing end (``PaneTrailingSlots``): what the
+    /// selected tab of `model` takes now (`tools`: this bar and its page's tools in the row), or more where another of its
+    /// tabs takes more. `recording`: the selected tab's own content shows (no outgoing page a paint hold keeps, no key
+    /// resize's hold), so its need is kept: this bar as it is now, and `sharer`'s tools.
+    public func stripSlot(_ tools: CGFloat, in width: CGFloat, of model: TabStripModel, recording: Bool, sharer: PaneTabRowSharing?) -> CGFloat {
+        if recording, let selected = model.selectedID {
+            trailingSlots.record(.init(intrinsic: intrinsicContentSize.width, shared: sharer == nil ? nil : tabRowWidth,
+                                       tools: sharer?.tabRowToolsNeed), for: selected, live: model.tabs)
+        }
+        return max(tools, trailingSlots.reserve(in: width, besides: model.selectedID))
     }
 
     /// ``tabRowWidth`` in a pane that gives the bar at most `limit` points: up to the leading edge of the last button

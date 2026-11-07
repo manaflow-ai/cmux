@@ -1,4 +1,3 @@
-@testable import CmuxNextApp
 @testable import CmuxNextTabs
 import Testing
 

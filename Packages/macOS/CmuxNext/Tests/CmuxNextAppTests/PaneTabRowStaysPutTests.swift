@@ -122,7 +122,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let items = [TabItem(id: TabID("github"), title: "GitHub"), TabItem(id: TabID("chat"), title: "huge-blue/menubar-chats-menu"),
+        let items = [TabItem(id: TabID("github"), title: "GitHub"), TabItem(id: TabID("chat"), title: "studio-mac/menubar-chats-menu"),
                      TabItem(id: TabID("new"), title: "New Tab")]
         let view = PaneContentView(stripModel: TabStripModel(tabs: items, selectedID: TabID("chat")), reveal: LaunchReveal(deadline: .zero))
         let registry = ActionRegistry.standard()
