@@ -135,4 +135,17 @@ public extension RightColumnPlacement.Kind {
     }
 }
 
+public extension TabModel {
+    /// Whether this tab is a page (GitHub, a file, a diff, What's New) or a browser tab, not a
+    /// terminal or a chat: a page beside another pane opens what it links in its own pane
+    /// (``LinkOpenPlacement``), while a terminal or a chat keeps its split, so the place someone
+    /// types never goes behind a tab.
+    var showsPage: Bool {
+        switch kind {
+        case .browser, .other: true
+        case .pty, .remoteTerminal, .conversation: false
+        }
+    }
+}
+
 extension RightColumnPlacement.Decision: Sendable where Pane: Sendable {}
