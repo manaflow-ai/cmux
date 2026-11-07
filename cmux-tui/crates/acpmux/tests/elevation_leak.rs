@@ -472,6 +472,11 @@ async fn a_phone_approves_a_sudo_card_with_its_signature_once() {
     let wrong =
         phone.call("_acpmux/secret_submit", answer("card_provide", Some(SENTINEL), "0000")).await;
     assert!(wrong.get("error").is_some(), "{wrong}");
+    // A validly signed value the card refuses (two lines) leaves the signature unspent, so the
+    // phone's corrected retry below still approves (review F2 of 9357a53).
+    let bad =
+        phone.call("_acpmux/secret_submit", answer("card_provide", Some("a\nb"), &nonce)).await;
+    assert!(bad.get("error").is_some(), "a two-line password was taken: {bad}");
     let ok =
         phone.call("_acpmux/secret_submit", answer("card_provide", Some(SENTINEL), &nonce)).await;
     assert!(ok.get("error").is_none(), "{ok}");

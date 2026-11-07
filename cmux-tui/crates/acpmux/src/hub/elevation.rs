@@ -239,7 +239,7 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
     let cap = MAX_OUTPUT_BYTES + password.len() + marker.len();
     let (stdin, stdout, stderr) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
     let answer = password.clone();
-    let reads = tokio::spawn(async move {
+    let mut reads = tokio::spawn(async move {
         tokio::join!(
             read_capped(stdout, cap),
             answer_prompt(stderr, stdin, marker.into_bytes(), answer, cap)
@@ -250,20 +250,28 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
         Ok(status) => Some(status),
         Err(_) => {
             // SIGTERM to the group: sudo relays it to the command, which runs as root.
-            signal_group(pid, libc::SIGTERM);
+            signal_group(pid, SIG_TERM);
             let _ = tokio::time::timeout(TERM_GRACE, child.wait()).await;
             // Then SIGKILL to the whole group: sudo and every process of the group this daemon
             // may signal. A root process that ignored SIGTERM is past what a user's daemon can
             // kill; the agent is told so.
-            signal_group(pid, libc::SIGKILL);
+            signal_group(pid, SIG_KILL);
             let _ = child.kill().await;
             left_running = group_left_after(pid, KILL_SETTLE).await;
             None
         }
     };
-    let (out, err) = match tokio::time::timeout(TERM_GRACE, reads).await {
+    let (out, err) = match tokio::time::timeout(TERM_GRACE, &mut reads).await {
         Ok(Ok(read)) => read,
-        _ => ((Vec::new(), false), (Vec::new(), false)),
+        timed_out => {
+            // A process left holding the pipes keeps the reads open: end them here, so neither
+            // the pipes nor the task's copy of the password outlive this run.
+            if timed_out.is_err() {
+                reads.abort();
+                let _ = reads.await;
+            }
+            ((Vec::new(), false), (Vec::new(), false))
+        }
     };
     forget_timestamp(sudo).await;
     let exit = match &status {
@@ -360,6 +368,16 @@ async fn answer_prompt(
     clean.extend_from_slice(rest);
     (clean, cut)
 }
+
+#[cfg(unix)]
+const SIG_TERM: i32 = libc::SIGTERM;
+#[cfg(unix)]
+const SIG_KILL: i32 = libc::SIGKILL;
+// No process groups off unix: `signal_group` is a no-op there and `kill_on_drop` ends sudo.
+#[cfg(not(unix))]
+const SIG_TERM: i32 = 15;
+#[cfg(not(unix))]
+const SIG_KILL: i32 = 9;
 
 /// Sends `sig` to the process group sudo leads (its pid, `process_group(0)`).
 #[cfg(unix)]

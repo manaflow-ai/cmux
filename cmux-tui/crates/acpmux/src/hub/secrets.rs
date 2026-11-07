@@ -343,31 +343,43 @@ impl Hub {
     }
 
     /// The person's answer to a card: `value` None declines it.
+    /// Whether `value` fits the open card `secret_id`: 1 byte to 64 KiB, and one line of at most
+    /// the card's bound for a sudo card. Checked before an approver signature is spent, so a value
+    /// the card refuses leaves both the card and the phone's retry open.
+    pub fn check_card_value(
+        &self,
+        session: &Session,
+        secret_id: &str,
+        value: Option<&str>,
+    ) -> Result<(), RpcError> {
+        let Some(v) = value else { return Ok(()) };
+        if v.is_empty() || v.len() > MAX_VALUE_BYTES {
+            return Err(RpcError::invalid_params("the secret must be 1 byte to 64 KiB"));
+        }
+        let map = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(Pending { session: owner, one_line: Some(max), .. }) = map.get(secret_id)
+            && *owner == session.id
+            && (v.len() > *max || v.contains(['\n', '\r', '\0']))
+        {
+            return Err(RpcError::invalid_params(format!(
+                "the password must be one line of at most {max} bytes"
+            )));
+        }
+        Ok(())
+    }
+
     pub fn submit_secret(
         &self,
         session: &Session,
         secret_id: &str,
         value: Option<Zeroizing<String>>,
     ) -> Result<(), RpcError> {
-        if let Some(v) = &value
-            && (v.is_empty() || v.len() > MAX_VALUE_BYTES)
-        {
-            return Err(RpcError::invalid_params("the secret must be 1 byte to 64 KiB"));
-        }
+        // A value the card cannot use leaves it open for another try.
+        self.check_card_value(session, secret_id, value.as_deref().map(String::as_str))?;
         let pending = {
             let mut map = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
             match map.get(secret_id) {
-                Some(p) if p.session == session.id => {
-                    // A value the card cannot use leaves it open for another try.
-                    if let (Some(max), Some(v)) = (p.one_line, &value)
-                        && (v.len() > max || v.contains(['\n', '\r', '\0']))
-                    {
-                        return Err(RpcError::invalid_params(format!(
-                            "the password must be one line of at most {max} bytes"
-                        )));
-                    }
-                    map.remove(secret_id)
-                }
+                Some(p) if p.session == session.id => map.remove(secret_id),
                 _ => None,
             }
         };

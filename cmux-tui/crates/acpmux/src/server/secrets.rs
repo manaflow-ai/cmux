@@ -79,6 +79,8 @@ async fn handle(
             let value = str_param(params, "value").map(|v| Zeroizing::new(v.to_owned()));
             // The card is the person's: never the agent that asked. A phone answers a sudo card
             // with its approver signature (`Hub::card_answer_signed`).
+            // The value is checked first: a refused one must not spend the phone's signature.
+            hub.check_card_value(&session, id, value.as_deref().map(String::as_str))?;
             if !conn.is_person() && !hub.card_answer_signed(&session, id, value.is_some(), params) {
                 return Err(crate::hub::person::person_required("filling a secret card"));
             }
