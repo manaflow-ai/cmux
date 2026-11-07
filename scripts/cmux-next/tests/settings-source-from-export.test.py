@@ -43,8 +43,9 @@ class SettingsSourceFromExportTests(unittest.TestCase):
             self.assertLessEqual(text.count("\n"), 400, path)
         swift = "".join(files.values())
         # The joined var concatenates every list, in order, even when the section splits into files.
-        self.assertIn("static var all: [SettingDescriptor] { %s }" % " + ".join(
+        self.assertIn("        [%s].flatMap { $0 }" % ", ".join(
             "descriptors%d" % index for index in range(len(drafted["lists"]))), swift)
+        self.assertIn("    static var all: [SettingDescriptor] {", swift)
         self.assertEqual(swift.count("            SettingDescriptor("), len(self.rows))
         for kind in ("choiceOrNumber", "choiceOrURL", "numberList", "orderedChoices", "choiceSet", "timeRange", "soundRules"):
             self.assertIn("." + kind, swift)

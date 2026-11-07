@@ -28,6 +28,8 @@ extension EditorSettingsSchema {
 }
 
 extension EditorSettingsSchema {
-    /// Every row of the section's lists, in order.
-    static var descriptors: [SettingDescriptor] { fontRows + textRows + displayRows + cursorRows + editingRows + savingRows + defaultsRows }
+    /// Every list of schemas/settings/source/editor.json, in order.
+    static var descriptors: [SettingDescriptor] {
+        [fontRows, textRows, displayRows, cursorRows, editingRows, savingRows, defaultsRows].flatMap { $0 }
+    }
 }

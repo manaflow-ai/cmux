@@ -294,6 +294,8 @@ nonisolated enum HomeSettingsSchema {
         ]
     }
 
-    /// Every row of the section's lists, in order.
-    static var descriptors: [SettingDescriptor] { serverRows + chiefChatRows + attachmentRows + sidebarRows + chiefPetRows + chiefDockRows + engineRows }
+    /// Every list of schemas/settings/source/home.json, in order.
+    static var descriptors: [SettingDescriptor] {
+        [serverRows, chiefChatRows, attachmentRows, sidebarRows, chiefPetRows, chiefDockRows, engineRows].flatMap { $0 }
+    }
 }
