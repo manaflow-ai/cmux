@@ -185,6 +185,9 @@ test("a row that changes while an answer is on its way runs its current action",
   await act(async () => {
     field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
   });
+  // The new rows are being ranked: Enter waits for that answer, then runs the row's current action.
+  expect(ran).toEqual([]);
+  await act(async () => ranker.asked[1]!.answer(reply(0, 1)));
   expect(ran).toEqual(["new:c0"]);
 });
 
@@ -272,6 +275,36 @@ test("an edit after an early Enter cancels it: the new query's answer runs nothi
   await act(async () => ranker.asked[1]!.answer(reply(1)));
   await act(async () => ranker.asked[2]!.answer(reply(2)));
   expect(ran).toEqual([]);
+});
+
+test("Enter after typing away and back waits for the newest answer, not the older one for the same text", async () => {
+  const ranker = heldRanker();
+  const ran: string[] = [];
+  const list = items.map((item) => ({ ...item, run: () => void ran.push(item.id) }));
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      createElement(Palette, {
+        items: list,
+        rank: ranker.rank,
+        strings,
+        onClose() {},
+      }),
+    ),
+  );
+  await act(async () => ranker.asked[0]!.answer(reply(0, 1, 2)));
+  await type("release");
+  await act(async () => ranker.asked[1]!.answer(reply(0)));
+  await type("ran");
+  await type("release");
+  // On screen: the answer to the first "release" request; a newer one is on its way.
+  const field = host.ownerDocument.querySelector<HTMLInputElement>(".lg-palette input")!;
+  await act(async () => {
+    field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  expect(ran).toEqual([]);
+  await act(async () => ranker.asked[3]!.answer(reply(1)));
+  expect(ran).toEqual(["c1"]);
 });
 
 test("the request is clipped to the daemon's byte caps on a character boundary", () => {
