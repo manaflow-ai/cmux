@@ -364,7 +364,7 @@ test("a control that is both revealed and hover-filled keeps both fades", () => 
   };
   // The fill names its fade; the reveal's in and out durations ride one property the shown state sets.
   expect(body(".ui-hover-fill")).toContain("--ui-fill-transition:");
-  expect(body(".ui-reveal")).toMatch(/transition: opacity var\(--ui-reveal-ms\)/);
+  expect(body(".ui-reveal")).toMatch(/transition: opacity var\(--ui-reveal-ms\) var\(--ui-reveal-ease\)/);
   const both = body(".ui-reveal.ui-hover-fill");
   expect(both).toMatch(/opacity var\(--ui-reveal-ms\)/);
   expect(both).toContain("var(--ui-fill-transition)");

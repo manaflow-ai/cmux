@@ -13,6 +13,7 @@ import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
 import { isAgentMotionOff } from "../shared/motion";
+import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed } from "../shared/pageReveal";
 import {
   layoutConversation,
@@ -66,13 +67,14 @@ import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
+import { rowsWithLiveOutput, useLiveToolRow } from "./liveToolOutput";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { noteTranscriptMount } from "./flickerLog";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
-import { TRAY_GHOST } from "./subagents/trayMotion";
+import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll } from "./summary/heldWhileScrolling";
 import { FisheyeFilters } from "../../ui/glass/Fisheye";
 import {
@@ -250,7 +252,9 @@ function changesDrawn(current: DrawnHeights, updates: Map<string, DrawnHeight>):
 }
 
 /// What a row's content draws from (the registry component's props, and the component).
-type RowContentProps = { Component: React.ComponentType<RowProps> } & RowProps;
+/// `liveTools`: the pane's live transcript, whose rows draw a running command's newer output ahead
+/// of the pane's snapshot (liveToolOutput.ts).
+type RowContentProps = { Component: React.ComponentType<RowProps>; liveTools?: boolean } & RowProps;
 
 /// A row's content, drawn again only when what it draws from changes: never for its frame's place
 /// (`top`, `index`, `gapBelow`), focus (`tabStop`, `active`, `selected`) or entrance flags. A scroll
@@ -264,12 +268,14 @@ type RowContentProps = { Component: React.ComponentType<RowProps> } & RowProps;
 /// which. A new row object reaches the renderer, whose memo decides; a history row keeps its object
 /// across snapshots, so a scroll still draws none of them again.
 export const RowContent = React.memo(
-  function RowContent({ Component, ...props }: RowContentProps) {
+  function RowContent({ Component, liveTools = false, ...props }: RowContentProps) {
     // Counted when committed: a render React set aside (an interrupted concurrent pass) drew nothing.
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
-    return <Component {...props} />;
+    // A running command's output that moved on without the pane: this row alone draws it.
+    const row = useLiveToolRow(props.row, liveTools);
+    return <Component {...props} row={row} />;
   },
   (previous, next) => {
     const keys = Object.keys(next) as (keyof RowContentProps)[];
@@ -303,6 +309,8 @@ const RowFrame = React.memo(function RowFrame({
   queueDrawn,
   enter,
   onEntered,
+  loadFade,
+  onLoadFaded,
   older,
   onOlderShown,
   active,
@@ -354,6 +362,9 @@ const RowFrame = React.memo(function RowFrame({
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
+  /// The row arrived while the chat loaded and mounts now, its first time: it fades in once.
+  loadFade: boolean;
+  onLoadFaded: (id: string) => void;
   /// The row came in on a late page of older history and has never mounted: its first copy fades once.
   older: OlderRowFade | undefined;
   onOlderShown: (id: string) => void;
@@ -387,6 +398,7 @@ const RowFrame = React.memo(function RowFrame({
     (row.kind === "assistant" ||
       (row.kind === "user" && row.incoming?.kind !== "hidden" && row.incoming?.kind !== "notice"));
   const [olderFade] = useState(older);
+  const [loadFading] = useState(loadFade);
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
     [index, onRowKeyDown],
@@ -407,6 +419,11 @@ const RowFrame = React.memo(function RowFrame({
     return () => acpmuxPerf.rowUnmounted(id);
     // The id the frame mounted with: a message run's line can take over its first row's frame
     // (model.ts `rowFrameKey`), so the count is closed under the id it opened with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useLayoutEffect(() => {
+    if (loadFading) onLoadFaded(row.id);
+    // Only the first mount fades.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useLayoutEffect(() => {
@@ -457,7 +474,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -1030,6 +1047,7 @@ function TranscriptView({
   onJumpShownChange,
   coldOpen,
   onColdOpenShown,
+  loading = false,
   afterLatest,
   showMinimap = true,
   endReserve = 0,
@@ -1118,6 +1136,11 @@ function TranscriptView({
   /// ("instant if cached"), for the first chat a page shows, which the host reveals
   /// (pane.painted), and once the open's rows have shown.
   coldOpen?: number;
+  /// The chat's rows are still being read (the pane's `chatRead` is not in yet). Rows that arrive
+  /// while it is, or just after it lands, after a first paint that was blank or partly blank, fade in
+  /// once on their first mount (shared/loadFade.ts) instead of popping in. Rows drawn at the first
+  /// paint, rows a scroll mounts and rows already on screen never fade.
+  loading?: boolean;
   /// The rows of open `coldOpen` have shown. The pane keeps that, not this transcript, so a
   /// transcript mounted again (back from New Tab or a replay) does not fade the same open twice.
   onColdOpenShown?: (open: number) => void;
@@ -1643,6 +1666,12 @@ function TranscriptView({
   if (sessionChanged) olderRows.current.clear();
   /// The room above the rows for history not loaded yet, and the row it is held against.
   const olderRoom = useRef<OlderReserve | undefined>(undefined);
+  /// Rows that arrived while the chat loaded (blank or partly blank, then text): their first mount
+  /// fades in once (Leo, 2026-11-07, ask-69299b9711: "blank to fast fade in to text").
+  const loadFade = useRef<LoadFadeWindow | undefined>(undefined);
+  loadFade.current ??= new LoadFadeWindow();
+  if (sessionChanged) loadFade.current.clear();
+  loadFade.current.phase(loading);
   // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
   // Keyed by frame (model.ts `rowFrameKey`): a row drawn in a frame already on screen is not new.
   if (knownRows.current === null || sessionChanged) knownRows.current = new Set(rows.map(rowFrameKey));
@@ -1661,6 +1690,10 @@ function TranscriptView({
     const oldFirst = rows.findIndex((row) => knownRows.current!.has(rowFrameKey(row)));
     const arrived: AcpmuxRow[] = [];
     let olderLate: boolean | undefined;
+    // The chat still loads (or its read just landed): what arrives fills a blank or partly blank
+    // view, so it fades in rather than popping. A cold open's first rows fade with the whole
+    // transcript instead (fadeInOpenedChat), so they take no row fade on top of it.
+    const loadArrival = loadFade.current.open && coldOpen === undefined;
     for (let index = from; index < rows.length; index += 1) {
       const row = rows[index]!;
       const key = rowFrameKey(row);
@@ -1668,7 +1701,9 @@ function TranscriptView({
       if (index < oldFirst) {
         olderLate ??= readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
         if (olderLate) olderRows.current.add(row.id);
-      } else arrived.push(row);
+        else if (loadArrival) loadFade.current.arrive(row.id);
+      } else if (loadArrival) loadFade.current.arrive(row.id);
+      else arrived.push(row);
       knownRows.current.add(key);
     }
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
@@ -1680,6 +1715,7 @@ function TranscriptView({
   }
   knownFor.current = rows;
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
+  const onLoadFaded = useCallback((id: string) => loadFade.current?.shown(id), []);
   const onOlderShown = useCallback((id: string) => olderRows.current?.shown(id), []);
   useEffect(() => () => olderRows.current?.disconnect(), []);
   const reportDrawn = useCallback<ReportDrawn>(
@@ -2672,7 +2708,8 @@ function TranscriptView({
   }, [range, effectiveActiveRowId]);
   const copyRows = useCallback(
     async (rowIds: string[]) => {
-      const text = transcriptRangeText(rows, rowIds);
+      // A running command's output since the pane last drew is in liveToolOutput.ts, not `rows`.
+      const text = transcriptRangeText(rowsWithLiveOutput(rows), rowIds);
       if (text && !(await copyTextResult(text))) throw new Error("copy.failed");
     },
     [rows],
@@ -4331,6 +4368,8 @@ function TranscriptView({
                         // this render, so gate it here as well to avoid a reused row id animating once.
                         enter={!sessionChanged && enteringRows.current.has(rowFrameKey(row))}
                         onEntered={onEntered}
+                        loadFade={!sessionChanged && loadFade.current!.fades(row.id)}
+                        onLoadFaded={onLoadFaded}
                         older={olderRows.current!.has(row.id) ? olderRows.current : undefined}
                         onOlderShown={onOlderShown}
                         active={effectiveActiveRowId === row.id}
@@ -4347,6 +4386,7 @@ function TranscriptView({
                       >
                         <RowContent
                           Component={Component}
+                          liveTools={streams}
                           row={row}
                           replyActions={actions}
                           sessionId={sessionId}

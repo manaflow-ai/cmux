@@ -123,7 +123,7 @@ import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { isMuseTodoCall, isPlanToolCall, isPlumbingCall, showsNothing } from "./hiddenTools";
+import { isCompletedPlumbingTool, isMuseTodoCall, isPlanToolCall, isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptContext } from "./composer/videoTranscript";
@@ -150,6 +150,7 @@ import {
   markTranscriptSummaryVersion,
   pullRequestRowKey,
 } from "./summary/transcriptPullRequests";
+import { markOneRowChange } from "./rowChanges";
 import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
@@ -573,6 +574,11 @@ function rememberCommands(sessionId: string, commands: SlashCommand[]) {
 /// The longest a chat switch keeps the chat before on screen while the new one attaches. Match the
 /// cold-open hold: a busy daemon must not expose a blank transcript between the old and new chats.
 const SWITCH_HOLD_MS = 1_500;
+/// The longest a chat drawn from its own rows (a copy kept while its machine was down) keeps that
+/// frame while its machine's page and the records between them are read (`reattachPeerCopy`): the
+/// copy, marked offline, is a whole transcript, where the page alone has a hole in it. The hold
+/// ends as soon as both are in or either fails; this limit is only for a read that never answers.
+const GAP_HOLD_MS = 30_000;
 /// Reading ahead (``AcpmuxDirectClient.readAhead``): the user, 2026-10-21, "switching between
 /// different chiefs and messages/conversations needs instant loading of messages". A chat the page
 /// never read waited on its attach behind the hold above; the recent ones are read while the pane is
@@ -595,6 +601,9 @@ const OPEN_HOLD_MS = 1500;
 let connectFailedAfterEarlyTail: string | undefined;
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
+/// A sudo card and its answer (acpmux hub/elevation.rs): only this machine's own chats ask, so only
+/// a local attach asks for them (a peer's attach stays at 8 kinds).
+const ELEVATION_KINDS = ["elevation_request", "elevation_decision"];
 /// The promptId acpmux gives a task result's prompt: `offer-result-<offerId>` (hub/offers.rs).
 const OFFER_RESULT_PROMPT = "offer-result-";
 /// A queued prompt sent now (`queue_order` `next`) or edited (`queue_updated`): not transcript in
@@ -1298,6 +1307,15 @@ export function mergeToolItem(
   at?: number,
 ): AcpmuxActivity {
   const before = previous?.tool;
+  const provenance =
+    typeof update._meta?.claude?.tool === "string" || typeof update._meta?.claudeCode?.toolName === "string"
+      ? {
+          ...(typeof update._meta?.claude?.tool === "string" ? { claudeTool: update._meta.claude.tool } : {}),
+          ...(typeof update._meta?.claudeCode?.toolName === "string"
+            ? { claudeCodeToolName: update._meta.claudeCode.toolName }
+            : {}),
+        }
+      : before?.provenance;
   const title = update.title ?? update.name;
   const status = String(update.status ?? before?.status ?? "in_progress");
   const ended = status === "completed" || status === "failed";
@@ -1354,6 +1372,7 @@ export function mergeToolItem(
       ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs,
+      ...(provenance ? { provenance } : {}),
     },
   };
 }
@@ -1578,6 +1597,9 @@ function promptImages(value: unknown): PromptImage[] {
   );
 }
 
+/// More than one slot of the kept order changed, or it was rebuilt (`OrderedRows.changedSlot`).
+const MANY_SLOTS = Symbol("many");
+
 /// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
 /// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
 /// A row made without an event (a prompt sending or failed, a notice, the typing row) orders after
@@ -1598,6 +1620,12 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// The array handed to snapshots. Metadata updates can emit without changing a transcript row;
   /// reuse this reference so the pane's derived rows stay memoized.
   private snapshot: AcpmuxRow[] | undefined;
+  /// The one slot of `ordered` written in place since `snapshot` was made, when that is all that
+  /// changed (MANY_SLOTS for any other change): the next snapshot says so (rowChanges.ts
+  /// `markOneRowChange`), so the pane reads that row alone, not every row.
+  private changedSlot: number | typeof MANY_SLOTS | undefined;
+  /// The last snapshot handed out, which the next one's change is from.
+  private published: AcpmuxRow[] | undefined;
   private pullRequestActivityVersion = Symbol();
   private pullRequestCommandVersion = Symbol();
   private transcriptSummaryVersion = {};
@@ -1642,6 +1670,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       const at = this.orderedIndex.get(rowId);
       if (this.ordered && at !== undefined) this.ordered[at] = tagged;
       this.snapshot = undefined;
+      this.changedSlot = MANY_SLOTS;
       this.transcriptSummaryVersion = {};
     }
     return { ended: ended?.turn, hasRows };
@@ -1697,7 +1726,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (this.ordered && at !== undefined) this.ordered[at] = old;
       changed = true;
     }
-    if (changed) this.snapshot = undefined;
+    if (changed) {
+      this.snapshot = undefined;
+      this.changedSlot = MANY_SLOTS;
+    }
   }
 
   // Producers identify stream progress from the event, even when its row retains settled tools.
@@ -1741,8 +1773,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const index = this.orderedIndex.get(id);
     if (known && index !== undefined && (ordered[index]!.at === row.at || this.ownsSlot(index))) {
       ordered[index] = row;
+      this.changedSlot = this.changedSlot === undefined || this.changedSlot === index ? index : MANY_SLOTS;
       return;
     }
+    this.changedSlot = MANY_SLOTS;
     const last = ordered.at(-1);
     const order = this.order.get(id) ?? 0;
     const lastOrder = last ? (this.order.get(last.id) ?? 0) : -Infinity;
@@ -1855,13 +1889,19 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// The rows in event order (wall-clock time breaks a tie).
   sorted(): AcpmuxRow[] {
     if (!this.ordered) {
+      this.changedSlot = MANY_SLOTS;
       this.ordered = [...this.values()].sort(
         (a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at,
       );
       this.orderedIndex = new Map(this.ordered.map((row, index) => [row.id, index]));
     }
     if (!this.snapshot) {
+      const from = this.published;
       this.snapshot = this.ordered.slice();
+      if (typeof this.changedSlot === "number" && from && from.length === this.snapshot.length)
+        markOneRowChange(this.snapshot, from, this.changedSlot);
+      this.published = this.snapshot;
+      this.changedSlot = undefined;
       this.artifactUpdates.publish(this.snapshot);
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
       markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
@@ -3592,7 +3632,7 @@ export class AcpmuxDirectClient {
     // records between them and the page are read (`fetchMissedEvents`), never dropped. The frame
     // drawn stays until both are in, or, when either fails, until the copy is offline again: no
     // transcript with a hole in it between them.
-    const hold = copy.own ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
+    const hold = copy.own ? this.holdSnapshots(GAP_HOLD_MS) : undefined;
     try {
       const page = await this.attach(sessionId, generation, copy.own ? 0 : copy.lastSeq);
       const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
@@ -4374,6 +4414,13 @@ export class AcpmuxDirectClient {
     const generation = ++this.selectionGeneration;
     this.fallback = from ? { from, generation } : undefined;
     const hold = this.selectedSessionId || brief ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
+    // The tail is for a relist during the hold only: when the hold ends (the chat stayed gone, or
+    // another chat's attach drew), its rows go, not kept for as long as the client lives.
+    const left = this.leftTail;
+    if (left && hold !== undefined)
+      void this.snapshotHold?.released.then(() => {
+        if (this.leftTail === left) this.leftTail = undefined;
+      });
     this.resetSessionState(reason);
     this.emit(reason);
     // The tab's chat went away while shown: why (chatUnavailable.ts) reads the machines as they are now.
@@ -4598,11 +4645,29 @@ export class AcpmuxDirectClient {
   /// Ctrl-B: moves the selected Claude Code chat's foreground work to the background, only the
   /// call `toolCallId` started or all of it (Claude Code's `background_tasks`). acpmux answers
   /// `{backgrounded}` and refuses another harness's chat; a Claude that never answers fails it
-  /// after 10 s.
+  /// after 10 s. The request's own deadline only marks it waiting (#35206), so the 10 s is this
+  /// call's: the notice says the work still runs, and a late answer settles the request alone.
   backgroundWork(toolCallId?: string): Promise<unknown> {
     if (!this.selectedSessionId) return Promise.reject(new Error());
     const params = { sessionId: this.selectedSessionId, ...(toolCallId ? { toolCallId } : {}) };
-    return this.request("_acpmux/process/background", params, 10_000);
+    const request = this.request("_acpmux/process/background", params, 10_000);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(Object.assign(new Error(translate("error.timedOut")), { code: "native.timed_out", origin: "native" })),
+        10_000,
+      );
+      request.then(
+        (answer) => {
+          clearTimeout(timer);
+          resolve(answer);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
   }
 
   /// Reads every listed chat's usage now and lays it over the list and the chat's own summary
@@ -5123,7 +5188,7 @@ export class AcpmuxDirectClient {
         ...SECRET_KINDS,
         // The chat's sub-session records: its running limit's `limits` changes (the eighth kind).
         SUBSESSION_KIND,
-        ...(this.localOrigin ? QUEUE_KINDS : []),
+        ...(this.localOrigin ? [...QUEUE_KINDS, ...ELEVATION_KINDS] : []),
       ],
       eventStream: true,
       visible,
@@ -6315,7 +6380,18 @@ export class AcpmuxDirectClient {
         name: String(msg.name ?? ""),
         reason: String(msg.reason ?? ""),
       };
-    else if (event.kind === "secret_decision") {
+    else if (event.kind === "elevation_request")
+      this.pendingSecret = {
+        secretId: String(msg.secretId ?? ""),
+        name: "sudo",
+        reason: String(msg.reason ?? ""),
+        elevation: {
+          argv: Array.isArray(msg.argv) ? msg.argv.map(String) : [],
+          host: String(msg.host ?? ""),
+          ...(typeof msg.timeoutSecs === "number" ? { timeoutSecs: msg.timeoutSecs } : {}),
+        },
+      };
+    else if (event.kind === "secret_decision" || event.kind === "elevation_decision") {
       if (this.pendingSecret?.secretId === msg.secretId) this.pendingSecret = undefined;
     } else if (event.kind === "permission_group" || event.kind === "permission_chat_allowance")
       void this.permissions.refresh().catch(() => {});
@@ -6715,7 +6791,7 @@ export class AcpmuxDirectClient {
         ...row,
         version: row.version + 1,
         items,
-        toolCount: items.filter((entry) => entry.kind === "tool").length,
+        toolCount: items.filter((entry) => entry.kind === "tool" && !isCompletedPlumbingTool(entry.tool)).length,
       });
   }
 
@@ -7462,15 +7538,15 @@ export class AcpmuxDirectClient {
         if (update.status === "failed") this.planCalls.delete(callId);
         else if (event.kind === "tool_call") this.planCalls.add(callId);
       }
-      // Plumbing (Claude Code's ToolSearch) draws no row and leaves the text segment open.
-      if (isPlumbingCall(update)) this.planCalls.add(callId);
       if (this.planCalls.has(callId)) return;
-      // An update to a call already shown stays in its fold; a new call ends the text segment.
+      // An update to a call already shown stays in its fold; a new user-visible call ends the text
+      // segment. Discovery plumbing gets an activity row for pending/failed states, but a
+      // completed one is filtered from presentation and must not split one assistant message.
       const known = this.toolRows.get(callId);
       const knownRow = known && this.rows.has(known) ? known : undefined;
       // The result of a call this page never saw, naming nothing (a hidden call's, hiddenTools.ts).
       if (!knownRow && event.kind === "tool_call_update" && showsNothing(update)) return;
-      if (!knownRow) this.endAssistantSegment();
+      if (!knownRow && !isPlumbingCall(update)) this.endAssistantSegment();
       const id = knownRow ?? this.streamingActivity ?? `activity-${event.seq}`;
       const existing = this.rows.get(id);
       const items = [...(existing?.items ?? [])];
@@ -7491,7 +7567,7 @@ export class AcpmuxDirectClient {
         version: (existing?.version ?? 0) + 1,
         at: existing?.at ?? event.at,
         kind: "activity",
-        toolCount: items.filter((entry) => entry.kind === "tool").length,
+        toolCount: items.filter((entry) => entry.kind === "tool" && !isCompletedPlumbingTool(entry.tool)).length,
         items,
         streaming: item.tool?.status !== "completed" && item.tool?.status !== "failed",
       };

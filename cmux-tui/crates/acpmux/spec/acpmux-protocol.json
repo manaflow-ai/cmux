@@ -1274,6 +1274,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/elevation_request",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mcp_connect_request",
       "params": true,
       "result": true

@@ -159,7 +159,7 @@ button.cv-agentmsg__name:focus-visible {
 /* It fades as a tool row's does (conversation.css, #23769); from the keyboard it comes in at once. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-agentmsg__line:focus-within .cv-command__ok {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+    transition: none;
   }
 }
 /* The opened message: a compact glass card at the row's text indent (the icon's 16px, less its
@@ -382,14 +382,26 @@ button.cv-agentmsg__name:focus-visible {
   box-shadow: none;
   padding-block: 0;
 }
-/* Raw on hover: the link shows while the pointer or focus is in the card, or while Raw is open. */
+/* Raw on hover: the link shows while the pointer or focus is in the card, or while Raw is open. It
+   follows the pointer's dwell as a message's hover row does (conversation.css --cv-actions-*): in
+   for as long as the pointer stays, out a little faster; keyboard focus shows it at once. */
 .cv-sent-msg.look-hover .cv-sent__raw > .cv-received__more[aria-expanded="false"] {
   opacity: 0;
-  transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
 }
 .cv-sent-msg.look-hover .cv-disclosure__panel:hover .cv-sent__raw > .cv-received__more,
 .cv-sent-msg.look-hover .cv-disclosure__panel:has([data-popup-open]) .cv-sent__raw > .cv-received__more,
 .cv-sent-msg.look-hover .cv-disclosure__panel:focus-within .cv-sent__raw > .cv-received__more {
   opacity: 1;
-  transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-sent-msg.look-hover .cv-sent__raw > .cv-received__more {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
+  }
+  .cv-sent-msg.look-hover .cv-disclosure__panel:hover .cv-sent__raw > .cv-received__more,
+  .cv-sent-msg.look-hover .cv-disclosure__panel:has([data-popup-open]) .cv-sent__raw > .cv-received__more {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
+  .cv-sent-msg.look-hover .cv-disclosure__panel:focus-within .cv-sent__raw > .cv-received__more {
+    transition: none;
+  }
 }
