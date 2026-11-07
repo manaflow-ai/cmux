@@ -124,6 +124,25 @@ fn skills_install_globally_and_uninstall_leaves_the_persons_own() {
     assert_eq!(row(&status, "claude")["state"], "installed", "{status}");
     assert_eq!(row(&status, "agents")["state"], "installed", "{status}");
 
+    // A cmux skill the person edited is theirs now: reported, never replaced or removed.
+    let edited = home.join(".claude/skills/acpmux/SKILL.md");
+    fs::write(&edited, "---\nname: acpmux\ndescription: my notes\n---\n").unwrap();
+    let (_, status) = cli(home, &["agent", "skills", "status", "claude"]);
+    assert_eq!(row(&status, "claude")["state"], "conflict", "{status}");
+    let (ok, again) = cli(home, &["agent", "skills", "install", "claude"]);
+    assert!(!ok, "an install over an edited skill must fail: {again}");
+    assert!(fs::read_to_string(&edited).unwrap().contains("my notes"));
+    let (_, removed) = cli(home, &["agent", "skills", "uninstall", "claude"]);
+    assert!(fs::read_to_string(&edited).unwrap().contains("my notes"), "{removed}");
+    assert!(!home.join(".claude/skills/cmux").exists(), "{removed}");
+    fs::remove_dir_all(home.join(".claude/skills/acpmux")).unwrap();
+    // A temporary folder a dead install left is cleaned by the next one.
+    let stale = home.join(".claude/skills/.cmux-skill-tmp-1-cmux");
+    fs::create_dir_all(&stale).unwrap();
+    let (ok, again) = cli(home, &["agent", "skills", "install", "claude"]);
+    assert!(ok, "{again}");
+    assert!(!stale.exists(), "a stale temporary folder stayed");
+
     // A person's own skill beside cmux's survives uninstall.
     let mine = home.join(".agents/skills/deploy");
     fs::create_dir_all(&mine).unwrap();

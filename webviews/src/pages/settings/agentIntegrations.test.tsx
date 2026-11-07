@@ -123,7 +123,7 @@ test("cmux skills are opt-in per global folder and install only on a click", asy
   page.unmount();
 });
 
-test("a folder cmux did not write offers no Install, only the command to copy", async () => {
+test("a folder cmux did not write offers no Install: Remove (cmux's own only) and the command", async () => {
   const page = await renderPage({ path: "/settings/agents?focus=agents.integrations" });
   page.provider.integrations = {
     ...page.provider.integrations,
@@ -148,6 +148,7 @@ test("a folder cmux did not write offers no Install, only the command to copy", 
   await settle();
   const row = card(page.container).querySelector<HTMLElement>('[data-skills-target="agents"]')!;
   expect([...row.querySelectorAll<HTMLElement>("[data-skills-action]")].map((b) => b.dataset.skillsAction)).toEqual([
+    "remove",
     "copy",
   ]);
   expect(row.querySelector("[data-skills-reason]")!.textContent).toContain("cmux leaves it alone");

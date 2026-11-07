@@ -112,21 +112,55 @@ pub fn files() -> Vec<(&'static str, &'static str)> {
     out
 }
 
-/// One skill's files (paths relative to its folder) and their content hash.
+/// One skill's files (paths relative to its folder, in path order) and their content hash.
 fn skill_files(skill: &str) -> (Vec<(&'static str, &'static str)>, String) {
     let prefix = format!("{skill}/");
-    let mine: Vec<(&str, &str)> = files()
+    let mut mine: Vec<(&str, &str)> = files()
         .into_iter()
         .filter_map(|(p, t)| p.strip_prefix(prefix.as_str()).map(|rel| (rel, t)))
         .collect();
+    mine.sort_by_key(|(p, _)| *p);
+    let hash = content_hash(mine.iter().map(|(p, t)| (*p, t.as_bytes())));
+    (mine, hash)
+}
+
+/// The hash of `(relative path, bytes)` pairs in path order: what a folder holds.
+fn content_hash<'a>(entries: impl Iterator<Item = (&'a str, &'a [u8])>) -> String {
     let mut all = Vec::new();
-    for (path, text) in &mine {
+    for (path, bytes) in entries {
         all.extend_from_slice(path.as_bytes());
         all.push(0);
-        all.extend_from_slice(text.as_bytes());
+        all.extend_from_slice(bytes);
         all.push(0);
     }
-    (mine, crate::sha256::sha256_hex(&all)[..16].to_owned())
+    crate::sha256::sha256_hex(&all)[..16].to_owned()
+}
+
+/// Every regular file under `dir` but the marker, as `(relative path, bytes)` in path order;
+/// `None` when the folder holds anything else (a symlink, a special file) or cannot be read.
+fn disk_files(dir: &Path) -> Option<Vec<(String, Vec<u8>)>> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> Option<()> {
+        for entry in std::fs::read_dir(dir).ok()? {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            let kind = entry.file_type().ok()?;
+            if kind.is_dir() {
+                walk(root, &path, out)?;
+            } else if kind.is_file() {
+                let rel = path.strip_prefix(root).ok()?.to_str()?.replace('\\', "/");
+                if rel != MARKER {
+                    out.push((rel, std::fs::read(&path).ok()?));
+                }
+            } else {
+                return None;
+            }
+        }
+        Some(())
+    }
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out)?;
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Some(out)
 }
 
 /// One skill folder's state in a target.
@@ -153,11 +187,16 @@ fn skill_state(dir: &Path, hash: &str) -> SkillState {
         .ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
         .filter(|v| v.get("owner").and_then(Value::as_str) == Some("cmux"));
-    match marker {
-        None => SkillState::NotOwned,
-        Some(v) if v.get("hash").and_then(Value::as_str) == Some(hash) => SkillState::Current,
-        Some(_) => SkillState::Outdated,
+    let Some(written) = marker.as_ref().and_then(|v| v.get("hash")).and_then(Value::as_str) else {
+        return SkillState::NotOwned;
+    };
+    // A folder the person changed since cmux wrote it is theirs now: never replaced or removed.
+    let on_disk = disk_files(dir)
+        .map(|files| content_hash(files.iter().map(|(p, b)| (p.as_str(), b.as_slice()))));
+    if on_disk.as_deref() != Some(written) {
+        return SkillState::NotOwned;
     }
+    if written == hash { SkillState::Current } else { SkillState::Outdated }
 }
 
 fn conflict_reason(state: SkillState) -> Option<&'static str> {
@@ -173,10 +212,39 @@ fn conflict_reason(state: SkillState) -> Option<&'static str> {
 fn install_skill(root: &Path, skill: &str) -> anyhow::Result<()> {
     let (files, hash) = skill_files(skill);
     std::fs::create_dir_all(root)?;
-    let tmp = root.join(format!(".cmux-skill-tmp-{}-{skill}", std::process::id()));
+    let tmp = root.join(format!("{TMP_PREFIX}{}-{skill}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
-    let written = (|| -> anyhow::Result<()> {
-        for (rel, text) in &files {
+    let written = write_skill(root, skill, &tmp, &files, &hash);
+    if written.is_err() {
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+    written
+}
+
+/// The folder an install writes before renaming it into place; one left by a run that died is
+/// removed by the next install.
+const TMP_PREFIX: &str = ".cmux-skill-tmp-";
+
+/// Removes temporary folders an earlier install left in `root`.
+fn remove_stale_tmp(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
+        if is_dir && entry.file_name().to_string_lossy().starts_with(TMP_PREFIX) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+fn write_skill(
+    root: &Path,
+    skill: &str,
+    tmp: &Path,
+    files: &[(&str, &str)],
+    hash: &str,
+) -> anyhow::Result<()> {
+    {
+        for (rel, text) in files {
             let file = tmp.join(rel);
             if let Some(parent) = file.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -196,18 +264,14 @@ fn install_skill(root: &Path, skill: &str) -> anyhow::Result<()> {
         });
         std::fs::write(tmp.join(MARKER), serde_json::to_vec_pretty(&marker)?)?;
         let dest = root.join(skill);
-        match skill_state(&dest, &hash) {
+        match skill_state(&dest, hash) {
             SkillState::Absent => {}
             SkillState::Current | SkillState::Outdated => std::fs::remove_dir_all(&dest)?,
             _ => anyhow::bail!("{} is not cmux's", dest.display()),
         }
-        std::fs::rename(&tmp, &dest)?;
+        std::fs::rename(tmp, &dest)?;
         Ok(())
-    })();
-    if written.is_err() {
-        let _ = std::fs::remove_dir_all(&tmp);
     }
-    written
 }
 
 /// Runs `plan` against the person's real folders.
@@ -256,6 +320,9 @@ pub fn run_with(plan: &Plan, env: &Env<'_>) -> RunResult {
     let mut rows = Vec::new();
     let mut errors = Vec::new();
     for target in &selected {
+        if plan.action == Action::Install {
+            remove_stale_tmp(&target.dir);
+        }
         let mut changed = false;
         let mut skills = Vec::new();
         for skill in SKILLS {

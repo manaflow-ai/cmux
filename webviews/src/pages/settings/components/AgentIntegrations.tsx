@@ -112,6 +112,12 @@ function Row({
   );
 }
 
+/** A skills folder's gestures: as the hooks', plus Remove on a conflict, which takes out only the
+ * skills cmux wrote there and leaves the person's own folder. */
+function skillGestures(row: IntegrationRow): Gesture[] {
+  return row.state === "conflict" ? ["remove"] : gestures(row);
+}
+
 /** One global skills folder (`claude`, `agents`): what it holds and the gestures its state allows.
  * Its own data attributes, so the hook rows' (`data-integration`) stay one agent each. */
 function SkillsRow({
@@ -158,7 +164,7 @@ function SkillsRow({
           <span className={blocked || row.state === "partial" ? "badge badge-warning" : "badge"}>
             {t(`settingsWindow.agentIntegrations.state.${row.state}`)}
           </span>
-          {gestures(row).map((gesture) => (
+          {skillGestures(row).map((gesture) => (
             <Button
               key={gesture}
               type="button"
