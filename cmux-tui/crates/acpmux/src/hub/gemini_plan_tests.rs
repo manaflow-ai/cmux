@@ -154,6 +154,34 @@ fn a_plan_file_past_the_size_cap_is_not_read() {
 }
 
 #[test]
+fn input_gemini_sent_keeps_its_fields_and_gains_the_plan() {
+    let f = fixture(false);
+    let mut tool = gemini_call(&f.plan, "pending");
+    tool["rawInput"] = json!({"reason": "ready"});
+    assert!(with_plan(&mut tool, &f.project, std::slice::from_ref(&f.home)));
+    assert_eq!(tool["rawInput"]["reason"], "ready");
+    assert_eq!(tool["rawInput"]["plan"], PLAN.trim());
+}
+
+/// The file is opened without following a symlink put in its place after the path was judged,
+/// and a FIFO never waits for a writer.
+#[cfg(unix)]
+#[test]
+fn the_open_follows_no_symlink_and_never_waits_on_a_fifo() {
+    let f = fixture(false);
+    let plans = f.plan.parent().unwrap();
+    let swapped = plans.join("swapped.md");
+    std::os::unix::fs::symlink(&f.plan, &swapped).unwrap();
+    assert_eq!(read_capped(&swapped, MAX_PLAN_BYTES), None);
+    let fifo = plans.join("pipe.md");
+    let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+    // SAFETY: a valid NUL-terminated path; mkfifo only creates the node.
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    assert_eq!(read_capped(&fifo, MAX_PLAN_BYTES), None);
+    assert_eq!(read_capped(&f.plan, MAX_PLAN_BYTES).as_deref(), Some(PLAN));
+}
+
+#[test]
 fn other_tool_calls_and_relative_paths_are_left_alone() {
     let f = fixture(false);
     let mut shell = json!({"sessionUpdate": "tool_call", "title": "ls -la", "kind": "execute"});
