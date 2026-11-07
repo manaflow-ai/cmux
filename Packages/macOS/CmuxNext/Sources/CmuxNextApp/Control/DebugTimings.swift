@@ -36,7 +36,7 @@ enum DebugTimings {
     private static var omnibarClicks: [(engine: String, input: Double, keyToFrame: Double)] = []
     private static let capacity = 256
 
-    private static func milliseconds(_ duration: Duration) -> Double { duration.inMilliseconds }
+    private static func milliseconds(_ duration: Duration) -> Double { Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15 }
 
     private nonisolated static let processStart: Date = {
         var info = kinfo_proc()

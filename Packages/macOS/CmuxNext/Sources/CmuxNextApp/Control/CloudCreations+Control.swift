@@ -18,5 +18,5 @@ extension CloudCreations {
         }
     }
 
-    private static func milliseconds(_ duration: Duration) -> Double { duration.inMilliseconds.rounded() }
+    private static func milliseconds(_ duration: Duration) -> Double { (Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15).rounded() }
 }
