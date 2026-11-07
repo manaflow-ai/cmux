@@ -140,6 +140,20 @@ fn a_missing_file_a_folder_or_another_kind_leaves_the_call() {
 }
 
 #[test]
+fn a_plan_file_past_the_size_cap_is_not_read() {
+    let f = fixture(false);
+    let big = f.plan.parent().unwrap().join("huge.md");
+    std::fs::write(&big, "x".repeat(MAX_PLAN_BYTES as usize + 1)).unwrap();
+    let mut tool = gemini_call(&big, "pending");
+    let before = tool.clone();
+    assert!(!with_plan(&mut tool, &f.project, std::slice::from_ref(&f.home)));
+    assert_eq!(tool, before);
+    // A plan right at the cap is still read.
+    std::fs::write(&big, "y".repeat(MAX_PLAN_BYTES as usize)).unwrap();
+    assert!(with_plan(&mut tool, &f.project, std::slice::from_ref(&f.home)));
+}
+
+#[test]
 fn other_tool_calls_and_relative_paths_are_left_alone() {
     let f = fixture(false);
     let mut shell = json!({"sessionUpdate": "tool_call", "title": "ls -la", "kind": "execute"});

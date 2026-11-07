@@ -26,6 +26,10 @@ const TITLE: &str = "Requesting plan approval for: ";
 /// The marker Gemini writes in each project's temp folder: the project's root path.
 const PROJECT_ROOT_FILE: &str = ".project_root";
 
+/// The most of a plan file acpmux reads. A plan is a page or two of Markdown; a larger file is
+/// left unread, so the hook never pulls a big file into every client's log.
+const MAX_PLAN_BYTES: u64 = 256 * 1024;
+
 /// The plan file an `exit_plan_mode` tool call names, from its title.
 fn named_plan(tool: &Value) -> Option<&str> {
     let path = tool["title"].as_str()?.strip_prefix(TITLE)?.trim();
