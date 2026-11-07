@@ -277,7 +277,7 @@ extension ScreenContentView {
             clips.append((host, scrolls && pane != zoomMotion.pane))
         }
         // The panes a close took out, each with its own ground on what its neighbours have not covered (FRAME OWNER S3c).
-        let closing = presentClosingPanes(strip: strip, scale: scale)
+        let closing = presentClosingPanes(strip: strip, restStrip: restStrip, scale: scale)
         clips += closing.hosts
         if closing.changed { changed = true }
         // A zoom that landed gives its pane back its place in the stacking order (`rank`).

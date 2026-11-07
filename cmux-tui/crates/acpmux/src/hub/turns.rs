@@ -1452,6 +1452,11 @@ impl Hub {
         if let Some(e) = stalled {
             result = Err(e);
         }
+        // acpmux ended a turn whose model API refused the agent's sign-in (`turn_retry.rs`).
+        let refused = result.as_ref().ok().and_then(Self::sign_in_refused_error);
+        if let Some(e) = refused {
+            result = Err(e);
+        }
         // Apply queued stderr before classifying a dead process (a limit never resumes).
         Self::drain_inbound(session).await;
         // Before the message gains the stderr line: `recovery::annotate_as` below types it.
