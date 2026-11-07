@@ -3149,12 +3149,12 @@ fn transport_of(conn: &Conn) -> &'static str {
 }
 
 /// Whether a prompt naming no sender is the person's, by a proof and never by a label: the
-/// connection proved the person (`hub/person.rs`: the app's own pane), an authenticated paired
-/// client sent it (a Web or app connection that passed the device check), or a peer link
+/// connection proved the person (`hub/person.rs`: the app's own pane), a paired phone sent it (a
+/// Web connection with the device's `client` credential, `pairing.rs` `origin_of`), or a peer link
 /// forwarded one its own daemon's connection proved (`remote_guard::PERSON_PROVEN`, that peer's
 /// word, recorded as come over `peer`). A local process of the user (a shell, a script, an agent
-/// outside acpmux, the Cloud mobile carrier's unix connection) proves nothing: socket access and
-/// environment tags are not the person.
+/// outside acpmux, the Cloud mobile carrier's unix connection) proves nothing: socket access,
+/// the listener token and environment tags are not the person.
 pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
     if conn.is_person() {
         return true;
@@ -3163,7 +3163,9 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
         return false;
     }
     match conn.origin {
-        super::Origin::Web => true,
+        // The listener token a dashboard or browser socket holds proves no person; a paired
+        // read-only device sends no prompt.
+        super::Origin::Web => conn.auth == ConnAuth::Device,
         // Only the forwarding daemon's own proof (`remote_guard::attest_person`, by this same
         // rule there), on a peer daemon's own link (`PeerToken`). A paired machine's `client`
         // credential is served as Peer too (`pairing.rs` `origin_of`, `Device`): it is a client,
