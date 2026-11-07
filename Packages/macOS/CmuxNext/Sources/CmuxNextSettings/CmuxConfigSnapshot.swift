@@ -48,7 +48,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `browser.import.enabled`; on when unset or invalid.
     public var browserImportEnabled: Bool = BrowserImportSetting.fallback
     /// `browser.import.cookieBanner`; on when unset or invalid (``BrowserCookieBannerSetting``).
-    public var browserImportCookieBanner = BrowserCookieBannerSetting().fallback
+    public var browserImportCookieBanner = BrowserCookieBannerSetting.fallback
     /// `home.chiefBubbleStyle`: the Chief chat's bubbles, `imessage` (Messages' blue and grey) when unset or `theme`.
     public var homeChiefBubbleStyle = HomeChiefBubbleStyleSetting.defaultStyle
     /// `home.bubbleColors.*`: the bubble colours every Home chat starts with, `#RRGGBB` by role (`sent`,
@@ -57,12 +57,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `chief.reactionsCanWake`, `chief.reactionClassifier.*`: whether a tapback can wake the Chief, and the classifier (Claude Haiku) that decides.
     public var chiefReactions = ChiefReactionSettings.fallback
     /// `browser.builtInAdBlocker`; on when unset.
-    public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting().fallback
+    public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting.fallback
     /// `browser.showAgentCursor`; on when unset.
-    public var browserShowAgentCursor = AgentCursorSetting().fallback
+    public var browserShowAgentCursor = AgentCursorSetting.fallback
     /// `browser.agentMouse.*`: how an agent's pointer moves; human motion,
     /// 350 ms cap when unset.
-    public var browserAgentMouse = AgentMouseSetting().fallback
+    public var browserAgentMouse = AgentMouseSetting.fallback
     /// `home.attachments.keepLocation` (off: strip location) and `home.channelsEnabled`; off when unset.
     public var homeKeepLocation = false, homeChannelsEnabled = false, homeChiefPetEnabled = false, homeChiefPetMascot = HomeChiefPetSetting.defaultMascot
     /// `home.feedInChief`: the main Chief's conversation shows the Feed's notices; on when unset.
@@ -344,11 +344,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(BrowserImportSetting.parse(root), \.browserImportEnabled)
-        snapshot.take(BrowserCookieBannerSetting().parse(root), \.browserImportCookieBanner)
+        snapshot.take(BrowserCookieBannerSetting.parse(root), \.browserImportCookieBanner)
         snapshot.take(HomeChiefBubbleStyleSetting.parse(root), \.homeChiefBubbleStyle)
-        snapshot.take(BuiltInAdBlockerSetting().parse(root), \.browserBuiltInAdBlocker)
-        snapshot.take(AgentCursorSetting().parse(root), \.browserShowAgentCursor)
-        snapshot.take(AgentMouseSetting().parse(root), \.browserAgentMouse)
+        snapshot.take(BuiltInAdBlockerSetting.parse(root), \.browserBuiltInAdBlocker)
+        snapshot.take(AgentCursorSetting.parse(root), \.browserShowAgentCursor)
+        snapshot.take(AgentMouseSetting.parse(root), \.browserAgentMouse)
         snapshot.takeHome(root)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         snapshot.take(Self.parseLabsToggle(root, path: voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
