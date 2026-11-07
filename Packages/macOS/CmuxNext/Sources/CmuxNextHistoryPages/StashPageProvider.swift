@@ -64,21 +64,23 @@ public final class StashPageProvider: PageProvider {
         switch op {
         case "cmux.stash.restore":
             let id = try Self.stashID(params)
-            let members = Self.members(params), newWorkspace = params["new_workspace"]?.boolValue == true
+            let members = try Self.members(params), newWorkspace = try Self.newWorkspace(params)
+            try await requireKnown(id, members, context: context)
             try await run { try await self.restore(id, members, newWorkspace) }
             return ["restored": true]
         case "cmux.stash.delete":
             let id = try Self.stashID(params)
+            let members = try Self.members(params)
             guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
             }
             spentGesture = event
-            let members = Self.members(params)
+            try await requireKnown(id, members, context: context)
             guard await undoToast(id: id, members: members), !Task.isCancelled else { return ["deleted": false] }
             try await run { try await self.commitDelete(id, members) }
             return ["deleted": true]
         case "cmux.stash.import":
-            var members = params.objectValue ?? [:]
+            guard var members = params.objectValue else { throw PageError.invalidParams("import takes an object") }
             members["engine"] = .string(importEngine())
             return try await relay.call(op, params: .object(members), context: context)
         default:
@@ -124,12 +126,42 @@ public final class StashPageProvider: PageProvider {
     }
 
     private static func stashID(_ params: CmuxNextSettings.JSONValue) throws -> String {
-        guard let id = params["stash"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("stash is required") }
+        guard case .string(let id)? = params["stash"], !id.isEmpty else { throw PageError.invalidParams("stash is required") }
         return id
     }
 
-    private static func members(_ params: CmuxNextSettings.JSONValue) -> [String]? {
-        params["members"]?.arrayValue?.compactMap(\.stringValue)
+    /// The members a restore or delete names. An absent `members` is every member; a present one
+    /// must be a non-empty array of distinct non-empty ids. Anything else (null, a string, an
+    /// empty or mixed array) is refused, never read as every member.
+    static func members(_ params: CmuxNextSettings.JSONValue) throws -> [String]? {
+        guard let value = params["members"] else { return nil }
+        let refused = PageError.invalidParams("members must be a non-empty array of member ids")
+        guard case .array(let items) = value, !items.isEmpty else { throw refused }
+        let ids = try items.map { item -> String in
+            guard case .string(let id) = item, !id.isEmpty else { throw refused }
+            return id
+        }
+        guard Set(ids).count == ids.count else { throw refused }
+        return ids
+    }
+
+    /// `new_workspace`: absent is false; present must be a boolean.
+    static func newWorkspace(_ params: CmuxNextSettings.JSONValue) throws -> Bool {
+        guard let value = params["new_workspace"] else { return false }
+        guard case .bool(let flag) = value else { throw PageError.invalidParams("new_workspace must be a boolean") }
+        return flag
+    }
+
+    /// Refuses a stash the daemon does not list, or a member id that stash does not have, before
+    /// anything is touched.
+    private func requireKnown(_ id: String, _ members: [String]?, context: PageCallContext) async throws {
+        let listed = try await relay.call("cmux.stash.list", params: .object([:]), context: context)
+        guard let record = listed.arrayValue?.first(where: { $0["id"]?.stringValue == id }) else {
+            throw PageError.invalidParams("no stash \(id)")
+        }
+        guard let members else { return }
+        let known = Set(record["members"]?.arrayValue?.compactMap { $0["id"]?.stringValue } ?? [])
+        guard members.allSatisfy(known.contains) else { throw PageError.invalidParams("members names an id stash \(id) does not have") }
     }
 }
 

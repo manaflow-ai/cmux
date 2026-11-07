@@ -31,8 +31,12 @@ struct StashPageUndoTests {
         }
     }
 
+    /// The daemon's side: lists stash `s1` with members `m1` and `m2`.
     final class Relay: PageProvider {
-        func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue { .object([:]) }
+        func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+            guard op == "cmux.stash.list" else { return .object([:]) }
+            return [["id": "s1", "members": [["id": "m1"], ["id": "m2"]]]]
+        }
     }
 
     struct World {
@@ -41,12 +45,20 @@ struct StashPageUndoTests {
         let deleted: Box
     }
 
-    @MainActor final class Box { var calls: [String] = [] }
+    @MainActor final class Box {
+        var calls: [String] = []
+        var restored: [(String, [String]?)] = []
+        var deletedMembers: [[String]?] = []
+    }
 
     static func world() -> World {
         let toasts = Toasts()
         let deleted = Box()
-        let provider = StashPageProvider(restore: { _, _, _ in }, delete: { id, _ in deleted.calls.append(id) },
+        let provider = StashPageProvider(restore: { id, members, _ in deleted.restored.append((id, members)) },
+                                         delete: { id, members in
+                                             deleted.calls.append(id)
+                                             deleted.deletedMembers.append(members)
+                                         },
                                          importEngine: { "webkit" }, relay: Relay())
         provider.presentUndo = { toast, ended in toasts.present(toast, ended) }
         return World(provider: provider, toasts: toasts, deleted: deleted)
@@ -141,5 +153,62 @@ struct StashPageUndoTests {
         world.toasts.shown[0].end(.closed)
         #expect(try await call.value == ["deleted": false])
         #expect(world.deleted.calls.isEmpty)
+    }
+
+    /// Malformed `members` values: never read as every member.
+    nonisolated static let malformed: [JSONValue] = [.null, "m1", ["m1", 2], [], ["m1", "m1"], [""]]
+
+    static func refused(_ world: World, _ op: String, _ params: JSONValue, gesture: TimeInterval) async -> Bool {
+        do {
+            _ = try await world.provider.call(op, params: params, context: click(gesture))
+            return false
+        } catch let error as PageError {
+            return error.code == "cmux.protocol.invalid_params"
+        } catch {
+            return false
+        }
+    }
+
+    @Test(arguments: 0..<6)
+    func aDeleteWithMalformedMembersTouchesNothing(_ index: Int) async throws {
+        let world = Self.world()
+        let params: JSONValue = ["stash": "s1", "members": Self.malformed[index]]
+        #expect(await Self.refused(world, "cmux.stash.delete", params, gesture: 10), "\(Self.malformed[index]) was not refused")
+        #expect(world.toasts.shown.isEmpty, "a malformed delete showed its Undo toast")
+        #expect(world.deleted.calls.isEmpty)
+    }
+
+    @Test(arguments: 0..<6)
+    func aRestoreWithMalformedMembersTouchesNothing(_ index: Int) async throws {
+        let world = Self.world()
+        let params: JSONValue = ["stash": "s1", "members": Self.malformed[index]]
+        #expect(await Self.refused(world, "cmux.stash.restore", params, gesture: 10), "\(Self.malformed[index]) was not refused")
+        #expect(world.deleted.restored.isEmpty)
+    }
+
+    /// A member id the stash does not have, or a stash the daemon does not list, is refused.
+    @Test func unknownIdsAreRefused() async throws {
+        let world = Self.world()
+        #expect(await Self.refused(world, "cmux.stash.delete", ["stash": "s1", "members": ["m9"]], gesture: 10))
+        #expect(await Self.refused(world, "cmux.stash.delete", ["stash": "s9"], gesture: 11))
+        #expect(await Self.refused(world, "cmux.stash.restore", ["stash": "s1", "members": ["m1", "m9"]], gesture: 12))
+        #expect(await Self.refused(world, "cmux.stash.restore", ["stash": "s1", "new_workspace": "yes"], gesture: 13))
+        #expect(world.toasts.shown.isEmpty)
+        #expect(world.deleted.calls.isEmpty && world.deleted.restored.isEmpty)
+    }
+
+    /// Absent `members` is every member; a valid list is that list.
+    @Test func absentMembersIsEveryMemberAndAListIsThatList() async throws {
+        let world = Self.world()
+        _ = try await world.provider.call("cmux.stash.restore", params: ["stash": "s1", "members": ["m2"]], context: Self.click(10))
+        _ = try await world.provider.call("cmux.stash.restore", params: ["stash": "s1"], context: Self.click(11))
+        #expect(world.deleted.restored.map(\.1) == [["m2"], nil])
+        let call = Task { @MainActor in
+            try await world.provider.call("cmux.stash.delete", params: ["stash": "s1", "members": ["m1"]], context: Self.click(12))
+        }
+        try await Self.shown(world, 1)
+        world.toasts.shown[0].end(.timeout)
+        #expect(try await call.value == ["deleted": true])
+        #expect(world.deleted.deletedMembers == [["m1"]])
     }
 }

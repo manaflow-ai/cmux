@@ -38,9 +38,7 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
         case Self.prefix + "list":
             return ["backups": .array(await list().map(Self.json))]
         case Self.prefix + "delete":
-            guard let ids = params["ids"]?.arrayValue?.compactMap(\.stringValue), !ids.isEmpty else {
-                throw PageError.invalidParams("ids must be a non-empty array of backup ids")
-            }
+            let ids = try Self.ids(params)
             // One click, one question: a second delete off the same gesture is refused, so a page
             // script cannot stack confirmation dialogs on one click.
             guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
@@ -78,6 +76,19 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
         ]
         if let site = summary.site { object["site"] = .string(site) }
         return .object(object)
+    }
+
+    /// `ids`: a non-empty array of distinct non-empty backup ids; anything else is refused (a
+    /// mixed array is not read as its string part).
+    static func ids(_ params: CmuxNextSettings.JSONValue) throws -> [String] {
+        let refused = PageError.invalidParams("ids must be a non-empty array of backup ids")
+        guard case .array(let items)? = params["ids"], !items.isEmpty else { throw refused }
+        let ids = try items.map { item -> String in
+            guard case .string(let id) = item, !id.isEmpty else { throw refused }
+            return id
+        }
+        guard Set(ids).count == ids.count else { throw refused }
+        return ids
     }
 
     static var question: CmuxDialogSpec {
