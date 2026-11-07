@@ -57,6 +57,16 @@
 //! the attempt asks as usual; later attempts always ask. A line that is
 //! not such an answer (or no line) is `bad_request`, exit 64.
 //!
+//! `cmux carrier key --public` prints this device's carrier Noise static
+//! public key on stdout as one line of unpadded base64url (32 bytes, 43
+//! characters), the `carrier.noise_key` a create request carries, and exits
+//! 0. The key is the one dial and serve use: on a Mac the login Keychain
+//! item `com.cmuxterm.app.next.carrier-noise-key` (account `device`), made
+//! the same way when it does not exist yet. Nothing private is printed.
+//! Elsewhere no key lasts past one dial, so it prints nothing on stdout and
+//! writes dial's failure line (`handshake`, exit 5), as it does when the
+//! Keychain refuses. Any other arguments are `bad_request`, exit 64.
+//!
 //! `cmux carrier serve --machine <vm_id> --socket <path>` takes the same
 //! flags and environment and serves the same stream on a Unix socket, one
 //! dial per accepted connection ([`serve`]).
@@ -278,10 +288,40 @@ fn read_answer(fd: i32) -> Result<answer::CarrierAnswer, &'static str> {
     contract::answer_line(line.strip_suffix(b"\n").unwrap_or(&line[..]))
 }
 
+/// `key --public`, exactly.
+pub(crate) fn parse_key(args: &[String]) -> bool {
+    matches!(args, [verb, flag] if verb == "key" && flag == "--public")
+}
+
+/// The line `cmux carrier key --public` prints for `key`: unpadded
+/// base64url and a newline.
+pub(crate) fn public_key_line(key: &[u8; 32]) -> String {
+    format!("{}\n", answer::key_text(key))
+}
+
+/// `cmux carrier key --public`: the device's public key on stdout.
+fn key(args: &[String]) -> i32 {
+    if !parse_key(args) {
+        return usage("usage: cmux carrier key --public");
+    }
+    match noise_key::lasting_identity() {
+        Ok(identity) => {
+            let mut stdout = std::io::stdout().lock();
+            let _ = stdout.write_all(public_key_line(&identity.public_key()).as_bytes());
+            let _ = stdout.flush();
+            0
+        }
+        Err(why) => fail(&Failure::fatal(contract::Step::Handshake, why)),
+    }
+}
+
 /// `cmux carrier …` from `main`: the exit code.
 pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().is_some_and(|verb| verb == "serve") {
         return serve::run(args);
+    }
+    if args.first().is_some_and(|verb| verb == "key") {
+        return key(args);
     }
     let Some(args) = parse(args) else {
         return usage(

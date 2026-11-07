@@ -13,7 +13,7 @@ use super::contract::{
     connected_line, failure_line, parse_deadline, route_line, served_line, serving_line,
     stdin_line,
 };
-use super::{DialArgs, ServeArgs, parse, parse_serve, with_team_env};
+use super::{DialArgs, ServeArgs, parse, parse_key, parse_serve, public_key_line, with_team_env};
 
 fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(str::to_owned).collect()
@@ -444,4 +444,20 @@ fn a_handed_over_answer_is_taken_once_and_only_while_fresh() {
     grantless.as_object_mut().unwrap().remove("grant");
     held.put(parse_answer(&grantless).unwrap());
     assert!(held.take(expires - 300).is_none(), "an answer without a grant is not used");
+}
+
+#[test]
+fn key_prints_only_the_public_key_as_one_base64url_line() {
+    assert!(parse_key(&words("key --public")));
+    for bad in ["key", "key --private", "key --public --public", "key --public x", "dial --public"]
+    {
+        assert!(!parse_key(&words(bad)), "{bad}");
+    }
+    let identity = cmux_remote::crypto::StaticIdentity::generate().unwrap();
+    let line = public_key_line(&identity.public_key());
+    let text = line.strip_suffix('\n').unwrap();
+    assert_eq!(text.len(), 43);
+    assert!(text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "{line}");
+    assert_eq!(text, key_text(&identity.public_key()), "the platform's noise_key spelling");
+    assert_ne!(text, key_text(identity.private_key()), "never the private key");
 }

@@ -220,3 +220,32 @@ fn an_answer_line_that_is_not_an_answer_is_bad_usage() {
         assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(64), "{bad:?}");
     }
 }
+
+#[test]
+fn key_public_prints_no_key_where_none_lasts_past_one_dial() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        Command::new(BIN)
+            .arg("carrier")
+            .args(args)
+            .env_clear()
+            .env("HOME", dir.path())
+            .output()
+            .unwrap()
+    };
+    // Off a Mac each dial makes its own key, so no key printed here could
+    // be the one a later dial presents: nothing on stdout, dial's line.
+    let out = run(&["key", "--public"]);
+    assert!(out.stdout.is_empty(), "{:?}", String::from_utf8_lossy(&out.stdout));
+    let reply: Value = serde_json::from_slice(&out.stderr).unwrap();
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error_code"], "handshake", "{reply}");
+    assert_eq!(out.status.code(), Some(5));
+    for bad in [&["key"][..], &["key", "--private"], &["key", "--public", "x"]] {
+        let out = run(bad);
+        assert!(out.stdout.is_empty());
+        let reply: Value = serde_json::from_slice(&out.stderr).unwrap();
+        assert_eq!(reply["error_code"], "bad_request", "{bad:?}: {reply}");
+        assert_eq!(out.status.code(), Some(64), "{bad:?}");
+    }
+}
