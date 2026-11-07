@@ -79,6 +79,7 @@ export function playTrayExit(card: HTMLElement): void {
   const copies = ghost.querySelectorAll<HTMLElement>(moving);
   live.forEach((node, index) => {
     const copy = copies[index];
+    // oxlint-disable-next-line cmux-perf/layout-thrash-in-loop -- the writes go to a detached copy, which lays out nothing
     const style = view?.getComputedStyle(node);
     if (!copy || !style) return;
     copy.style.opacity = style.opacity;
