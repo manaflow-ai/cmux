@@ -15,8 +15,8 @@ import Testing
 
     static func ref(_ id: String) -> SidebarDocWorkspaceRef { SidebarDocWorkspaceRef(sessionID: session, workspaceID: id) }
 
-    /// Machine section: loose `ws-1`, group `g` (members `members` in order), loose `ws-3`, `ws-4`.
-    static func projection(members: [String]) -> SidebarDocProjection {
+    /// Machine section: loose `ws-1`, group `g` (members `members` in order), loose `ws-3`, the loose `after3`, `ws-4`.
+    static func projection(members: [String], after3: [String] = []) -> SidebarDocProjection {
         var items: [String: SidebarDocItem] = [
             "itm_1": SidebarDocItem(id: "itm_1", section: machine, body: .workspace(ref("ws-1"))),
             "itm_g": SidebarDocItem(id: "itm_g", section: machine, body: .group(name: "Leads", color: nil, icon: nil, collapsed: true)),
@@ -31,10 +31,12 @@ import Testing
             items["itm_" + member] = SidebarDocItem(id: "itm_" + member, section: machine, parent: "itm_g", body: .workspace(ref(member)))
             rows.append(SidebarDocRow(key: "itm_" + member, kind: "item", section: machine, parent: "itm_g", depth: 1, item: "itm_" + member, ref: ref(member)))
         }
-        rows += [
-            SidebarDocRow(key: "itm_3", kind: "item", section: machine, item: "itm_3", ref: ref("ws-3")),
-            SidebarDocRow(key: "itm_4", kind: "item", section: machine, item: "itm_4", ref: ref("ws-4")),
-        ]
+        rows.append(SidebarDocRow(key: "itm_3", kind: "item", section: machine, item: "itm_3", ref: ref("ws-3")))
+        for id in after3 {
+            items["itm_" + id] = SidebarDocItem(id: "itm_" + id, section: machine, body: .workspace(ref(id)))
+            rows.append(SidebarDocRow(key: "itm_" + id, kind: "item", section: machine, item: "itm_" + id, ref: ref(id)))
+        }
+        rows.append(SidebarDocRow(key: "itm_4", kind: "item", section: machine, item: "itm_4", ref: ref("ws-4")))
         let records = SidebarDocRecords(sections: [machine: SidebarDocSection(id: machine, kind: .machine(session: session))], items: items)
         return SidebarDocProjection(rows: rows, records: records, revision: 1)
     }
@@ -101,5 +103,24 @@ import Testing
         let during = Self.layout(docSections.sections(Self.projection(members: placing), session: Self.session, workspaces: grown.workspaces))
         #expect(during.dropLast() == before.dropLast(), "the held member left its group: \(during), was \(before)")
         #expect(during.last == "ws-3,ws-new,ws-4", "the new row does not list below ws-3: \(during)")
+    }
+
+    /// Rapid Cmd-N below ws-3 (each new row selected): when the first one's item arrives before the second's, the
+    /// second stays under it, never jumping above it until its own item comes.
+    @Test func aChainOfCreatesKeepsItsOrderAsItemsArriveOneByOne() {
+        let store = Self.store(["ws-1"] + Self.members + ["ws-3", "ws-4", "ws-a", "ws-b"])
+        let docSections = SidebarDocSections(document: { nil })
+        let full = Self.projection(members: Self.members)
+        let without = { (ids: Set<String>) in store.workspaces.filter { !ids.contains($0.resourceID?.rawValue ?? "") } }
+        docSections.newRowsPlace = { .below(Self.id("ws-3", in: store)) }
+        _ = docSections.sections(full, session: Self.session, workspaces: without(["ws-a", "ws-b"]))
+        docSections.newRowsPlace = { .below(Self.id("ws-a", in: store)) }
+        _ = docSections.sections(full, session: Self.session, workspaces: without(["ws-b"]))
+        docSections.newRowsPlace = { .below(Self.id("ws-b", in: store)) }
+        let both = Self.layout(docSections.sections(full, session: Self.session, workspaces: store.workspaces))
+        #expect(both.last == "ws-3,ws-a,ws-b,ws-4", "both new rows: \(both)")
+        let aPlaced = Self.layout(docSections.sections(Self.projection(members: Self.members, after3: ["ws-a"]), session: Self.session,
+                                                       workspaces: store.workspaces))
+        #expect(aPlaced.last == "ws-3,ws-a,ws-b,ws-4", "ws-a's item came first: \(aPlaced)")
     }
 }
