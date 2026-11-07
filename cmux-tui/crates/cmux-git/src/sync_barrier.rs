@@ -4,6 +4,12 @@
 //! destination. Never unlink it: replacing its inode would split the lock. A
 //! failed or interrupted sync leaves a non-ready byte, including after restart.
 //! This is coordination between cooperating processes, not a security sandbox.
+//!
+//! The marker's byte: `0` syncing or failed, `h` the head is in place while the
+//! rest still arrives, `1` ready. Only a harness start whose every tool call is
+//! gated on [`wait_ready`] may go ahead at `h` ([`Probe::HeadReady`]): its first
+//! prompt then waits on the repository's head (its root and instruction files),
+//! not on the whole checkout, while its tools still wait for all of it.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -24,6 +30,8 @@ pub struct Ready(Vec<File>);
 
 pub enum Probe {
     Ready(Ready),
+    /// Still syncing, and its producer said the head is in place ([`Sync::head_ready`]).
+    HeadReady,
     Syncing,
     Incomplete,
 }
@@ -45,7 +53,7 @@ pub fn wait_ready(path: &Path, timeout: Duration) -> io::Result<()> {
             Probe::Incomplete => {
                 return Err(io::Error::other("repository synchronization failed; retry the sync"));
             }
-            Probe::Syncing => {
+            Probe::HeadReady | Probe::Syncing => {
                 if Instant::now() >= deadline {
                     return Err(io::Error::new(
                         io::ErrorKind::TimedOut,
@@ -133,6 +141,19 @@ impl Sync {
         Ok(Self(file))
     }
 
+    /// The head is in place and the rest of the checkout still arrives: a reader
+    /// that may start before the whole checkout sees [`Probe::HeadReady`]. The
+    /// lock stays held, so every [`wait_ready`] still waits. A producer that dies
+    /// after this leaves the barrier incomplete, as before it. Mark it only when the
+    /// head holds no harness setting that runs a command as the harness starts (a
+    /// `.claude/settings*.json` with hooks): that start would run it on a partial
+    /// checkout.
+    pub fn head_ready(&mut self) -> io::Result<()> {
+        self.0.seek(SeekFrom::Start(0))?;
+        self.0.write_all(b"h")?;
+        self.0.sync_data()
+    }
+
     /// A failed durability step leaves the barrier incomplete.
     pub fn complete(mut self) -> io::Result<()> {
         self.0.seek(SeekFrom::Start(0))?;
@@ -176,6 +197,7 @@ fn resolved(path: &Path) -> io::Result<PathBuf> {
 pub fn probe(path: &Path) -> io::Result<Probe> {
     let path = resolved(path)?;
     let mut held = Vec::new();
+    let mut head_only = false;
     for folder in path.ancestors().filter(|folder| folder.parent().is_some()) {
         let creating = creation_lock(folder)?;
         wait_lock(&creating, libc::LOCK_SH)?;
@@ -186,6 +208,13 @@ pub fn probe(path: &Path) -> io::Result<Probe> {
             Err(error) => return Err(error),
         };
         if !lock(&file, libc::LOCK_SH)? {
+            // Read under the producer's lock: one byte, so a read sees `0` or `h`
+            // whole, and an outer folder still syncing past its head wins below.
+            let mut state = [0];
+            if file.read(&mut state)? == 1 && state[0] == b'h' {
+                head_only = true;
+                continue;
+            }
             return Ok(Probe::Syncing);
         }
         let mut ready = [0];
@@ -193,6 +222,9 @@ pub fn probe(path: &Path) -> io::Result<Probe> {
             return Ok(Probe::Incomplete);
         }
         held.push(file);
+    }
+    if head_only {
+        return Ok(Probe::HeadReady);
     }
     Ok(Probe::Ready(Ready(held)))
 }

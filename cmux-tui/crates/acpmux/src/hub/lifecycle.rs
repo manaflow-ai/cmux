@@ -604,8 +604,11 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
-        // Harness startup can itself run repository hooks and write files.
-        let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+        // Harness startup can itself run repository hooks and write files. A harness that gates
+        // every tool on the sync itself starts at the repository's head (repo_sync.rs).
+        let head_ok = super::repo_sync::gates_its_tools(profile.kind);
+        let cwd = session.meta().cwd;
+        let _repo_ready = super::repo_sync::wait_for_start(session, cwd, head_ok, || {
             session.stops.load(Ordering::SeqCst) != stops
         })
         .await?;
@@ -1851,8 +1854,16 @@ impl Hub {
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // A live full-access harness may execute tools without permission RPCs.
-        // Wait before handing it a new prompt, including the already-live path.
-        let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+        // Wait before handing it a new prompt, including the already-live path; one that gates
+        // every tool on the sync itself gets its prompt at the repository's head (repo_sync.rs).
+        let head_ok = {
+            let meta = session.meta();
+            let cfg = self.config.read().await;
+            super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                .is_ok_and(|p| super::repo_sync::gates_its_tools(p.kind))
+        };
+        let cwd = session.meta().cwd;
+        let _repo_ready = super::repo_sync::wait_for_start(session, cwd, head_ok, || {
             session.stops.load(Ordering::SeqCst) != stops
         })
         .await?;

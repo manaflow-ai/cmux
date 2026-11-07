@@ -90,3 +90,34 @@ async fn repo_sync_failed_checkout_refuses_moves_and_unclassified_tools() {
         assert_eq!(answer["outcome"]["outcome"], "cancelled", "{kind:?}");
     }
 }
+
+#[tokio::test]
+async fn repo_sync_head_lets_only_a_self_gating_start_through() {
+    let (_dir, hub, session) = fixture();
+    let cwd = session.meta().cwd;
+    let mut sync = Sync::begin(&cwd).unwrap();
+    sync.head_ready().unwrap();
+    let never = || false;
+    let start = super::super::repo_sync::wait_for_start(&session, cwd.clone(), true, never);
+    let ready = tokio::time::timeout(Duration::from_secs(2), start).await.unwrap().unwrap();
+    assert!(ready.is_none(), "a start at the head holds no lease: the seed runs on");
+    let other = super::super::repo_sync::wait_for_start(&session, cwd.clone(), false, never);
+    tokio::pin!(other);
+    assert!(tokio::time::timeout(Duration::from_millis(150), &mut other).await.is_err());
+    let epoch = session.permission_epoch.load(Ordering::SeqCst);
+    let write = hub.handle_fs_write(
+        &session,
+        json!({"path":"source", "content":"agent edit"}),
+        epoch,
+        None,
+    );
+    tokio::pin!(write);
+    let pending = tokio::time::timeout(Duration::from_millis(150), &mut write).await;
+    assert!(pending.is_err(), "a write waits for the fill");
+    sync.complete().unwrap();
+    let after = tokio::time::timeout(Duration::from_secs(2), &mut other).await.unwrap().unwrap();
+    assert!(after.is_some());
+    tokio::time::timeout(Duration::from_secs(2), &mut write).await.unwrap().unwrap();
+    assert!(super::super::repo_sync::gates_its_tools(crate::config::HarnessKind::ClaudeStdio));
+    assert!(!super::super::repo_sync::gates_its_tools(crate::config::HarnessKind::Acp));
+}

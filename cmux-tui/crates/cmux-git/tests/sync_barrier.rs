@@ -99,6 +99,53 @@ fn a_reader_never_blocks_a_sibling_repository_sync() {
 }
 
 #[test]
+fn a_head_ready_sync_lets_a_start_through_while_tools_still_wait() {
+    let scratch = Scratch::new();
+    let repo = scratch.repo();
+    let mut sync = Sync::begin(&repo).unwrap();
+    std::fs::create_dir(&repo).unwrap();
+    std::fs::write(repo.join("AGENTS.md"), "head").unwrap();
+    sync.head_ready().unwrap();
+    assert!(matches!(probe(&repo.join("src/main.rs")).unwrap(), Probe::HeadReady));
+    let waited = wait_ready(&repo, std::time::Duration::from_millis(50)).unwrap_err();
+    assert_eq!(
+        waited.kind(),
+        std::io::ErrorKind::TimedOut,
+        "a tool still waits for the whole checkout"
+    );
+    assert!(Sync::begin(&repo).is_err(), "no second sync starts while the fill runs");
+    sync.complete().unwrap();
+    assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
+}
+
+#[test]
+fn a_producer_that_dies_after_the_head_leaves_the_barrier_incomplete() {
+    let scratch = Scratch::new();
+    let repo = scratch.repo();
+    let mut sync = Sync::begin(&repo).unwrap();
+    sync.head_ready().unwrap();
+    drop(sync);
+    assert!(matches!(probe(&repo).unwrap(), Probe::Incomplete));
+    assert!(wait_ready(&repo, std::time::Duration::from_millis(50)).is_err());
+}
+
+#[test]
+fn an_outer_sync_past_no_head_outranks_an_inner_head() {
+    let scratch = Scratch::new();
+    let outer = scratch.repo();
+    let inner = outer.join("vendor/lib");
+    let outer_sync = Sync::begin(&outer).unwrap();
+    std::fs::create_dir_all(&inner).unwrap();
+    let mut inner_sync = Sync::begin(&inner).unwrap();
+    inner_sync.head_ready().unwrap();
+    assert!(matches!(probe(&inner).unwrap(), Probe::Syncing));
+    outer_sync.complete().unwrap();
+    assert!(matches!(probe(&inner).unwrap(), Probe::HeadReady));
+    inner_sync.complete().unwrap();
+    assert!(matches!(probe(&inner).unwrap(), Probe::Ready(_)));
+}
+
+#[test]
 fn pre_tool_wait_releases_only_after_sync_completes() {
     let scratch = Scratch::new();
     let repo = scratch.repo();
