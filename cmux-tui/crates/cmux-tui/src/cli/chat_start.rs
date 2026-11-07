@@ -301,12 +301,20 @@ fn setting_target(global: &GlobalArgs) -> Option<String> {
 }
 
 /// The app to read `chat.on` from: the one `--app-socket`, `--socket` or the environment names
-/// (`named`, [`super::app::connect_command`]).
+/// (`named`, [`super::app::connect_command`]), or, when `--socket` names a daemon
+/// (`socket.wrong_kind`), the app that owns it (`owner`, [`super::app::socket_path`]), which is
+/// the app the chat itself reaches. Any other failure reads nothing.
 fn setting_stream(
     named: impl FnOnce() -> Result<UnixStream, Value>,
-    _owner: impl FnOnce() -> Result<UnixStream, String>,
+    owner: impl FnOnce() -> Result<UnixStream, String>,
 ) -> Option<UnixStream> {
-    named().ok()
+    match named() {
+        Ok(stream) => Some(stream),
+        Err(error) if error.get("code").and_then(Value::as_str) == Some("socket.wrong_kind") => {
+            owner().ok()
+        }
+        Err(_) => None,
+    }
 }
 
 fn set_prompt(slot: &mut Option<String>, text: String) -> Result<(), UsageError> {
