@@ -1493,6 +1493,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ),
     [clientSnapshot, switchView, catalog],
   );
+  // The dialog belongs to the chat it opened on: switching chats closes it.
+  const [shareChat, setShareChat] = useState(snapshot.sessionId);
+  if (shareChat !== snapshot.sessionId) {
+    setShareChat(snapshot.sessionId);
+    setShareOpen(false);
+  }
   // Updated by the client before React renders, so a late Trust save cannot replay into a new
   // route during that interval. The catalog generation changes only when the client changes.
   const trustRouteSnapshot = useRef(snapshot);
@@ -10713,6 +10719,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         is here. */}
                     {snapshot.sessionId && !showNewTab && hasNativeHost() && (
                       <ShareDialogHost
+                        key={snapshot.sessionId}
                         sessionId={snapshot.sessionId}
                         chat={chatName}
                         open={shareOpen}

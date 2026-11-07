@@ -75,7 +75,9 @@ export function shareView(shares: readonly ChatShare[]): ShareView {
       else people.set(invitee.account, { account: invitee.account, role: invitee.role, joined });
     }
   }
-  const links = open.filter((share) => share.role === "view" && share.invitees.length === 0);
+  // Every live view-role share is a bearer link, whatever invite records it also holds: Restricted
+  // must end each one, or a link would keep working while the dialog says Restricted.
+  const links = open.filter((share) => share.role === "view");
   const inviteShare = [...open]
     .filter((share) => share.invitees.some((invitee) => invitee.state === "invited"))
     .sort((a, b) => b.createdAt - a.createdAt)[0];

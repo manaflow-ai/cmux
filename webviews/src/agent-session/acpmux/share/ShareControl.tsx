@@ -8,6 +8,7 @@
 // observer: the dialog reads on open and after a step; the toast queue arms its one timeout only
 // while a toast shows (NoticeStack.tsx).
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Dialog } from "../../../ui/Dialog";
 import { NoticeStack, createNoticeQueue } from "../../../ui/NoticeStack";
 import { useT, translate } from "../i18n";
@@ -61,6 +62,9 @@ export function ShareDialogHost({
   const [view, setView] = useState<ShareView>(initial ?? EMPTY);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /// The chat's shares have been read since this host mounted: until then every step waits, so a
+  /// step never acts on another chat's view (App keys this host by the chat's session).
+  const [loaded, setLoaded] = useState(initial !== undefined);
 
   const reload = async () => {
     try {
@@ -85,7 +89,11 @@ export function ShareDialogHost({
     let current = true;
     setStatus(null);
     client.state().then(
-      (next) => current && setView(next),
+      (next) => {
+        if (!current) return;
+        setView(next);
+        setLoaded(true);
+      },
       (error: unknown) => current && setStatus(failure(error)),
     );
     return () => {
@@ -112,12 +120,17 @@ export function ShareDialogHost({
     });
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange} label={t("share.title", { chat })} className="share-dialog-popup">
+      <Dialog
+        open={open}
+        onOpenChange={onOpenChange}
+        label={t("share.title", { chat })}
+        className="ui-glass share-dialog-popup"
+      >
         <ShareDialogBody
           chat={chat}
           view={view}
           status={status}
-          busy={busy}
+          busy={busy || !loaded}
           onInvite={(account: string, role: ShareRole) => void step(() => client.invite(account, role))}
           onRole={(account: string, role: ShareRole) => void step(() => client.setRole(account, role))}
           onRemove={(account: string) => void step(() => client.remove(account))}
@@ -126,7 +139,9 @@ export function ShareDialogHost({
           onDone={() => onOpenChange(false)}
         />
       </Dialog>
-      <NoticeStack queue={shareToasts} dismissLabel={t("share.dismiss")} />
+      {/* Over the page, not the header: the header is a positioned row, so the stack's bottom
+          would resolve against it and clip. */}
+      {createPortal(<NoticeStack queue={shareToasts} dismissLabel={t("share.dismiss")} />, document.body)}
     </>
   );
 }

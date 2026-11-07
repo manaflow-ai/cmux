@@ -101,3 +101,17 @@ test("accounts are an email or an @handle", () => {
   expect(isAccount("sam")).toBe(false);
   expect(isAccount("@")).toBe(false);
 });
+
+test("a viewer link that also holds invite records is still Anyone, and Restricted revokes it", async () => {
+  const mixed: ChatShare = {
+    ...base,
+    shareId: "v",
+    role: "view",
+    invitees: [{ account: "@gone", role: "view", state: "removed", joined: false }],
+  };
+  const view = shareView([mixed]);
+  expect(view.general).toBe("anyone");
+  const revoked: unknown[] = [];
+  await shareClient("chat", async (op, params) => void (op === "revoke" && revoked.push(params))).restrict(view);
+  expect(revoked).toEqual([{ shareId: "v" }]);
+});
