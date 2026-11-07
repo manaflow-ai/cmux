@@ -140,7 +140,7 @@ public final class DebugFrameProbe {
             intervals.append((tick.timestamp - last) * 1_000)
             busy.append(awake * 1_000)
         }
-        layouts.frame(records: records)
+        layouts.frame(records: records, mainMs: awake * 1_000)
         awake = 0
         last = tick.timestamp
     }

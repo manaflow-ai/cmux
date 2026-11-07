@@ -21,6 +21,7 @@ public struct FrameLayoutCounts {
         mark = (LayoutPassGuard.shared.viewLayoutCalls, LayoutPassGuard.shared.windowLayoutPasses)
         #if DEBUG || CMUX_BENCH_HOOKS
         windows.reset()
+        _ = LayoutPassGuard.shared.startMarkDiag()
         #endif
     }
 
@@ -28,11 +29,12 @@ public struct FrameLayoutCounts {
     public mutating func stop() {
         #if DEBUG || CMUX_BENCH_HOOKS
         windows.stop()
+        LayoutPassGuard.shared.markDiag?.stop()
         #endif
     }
 
     /// One display frame: its counts since the last frame (kept when `records`; the marks always move).
-    public mutating func frame(records: Bool) {
+    public mutating func frame(records: Bool, mainMs: Double = 0) {
         let guardian = LayoutPassGuard.shared
         let passes = guardian.windowLayoutPasses &- mark.window
         if records {
@@ -41,6 +43,10 @@ public struct FrameLayoutCounts {
         }
         #if DEBUG || CMUX_BENCH_HOOKS
         windows.frame(windowPasses: passes, records: records)
+        if records {
+            LayoutPassGuard.shared.markDiag?.frame(index: viewLayouts.count - 1, mainMs: mainMs, viewLayouts: viewLayouts.last ?? 0,
+                                                   passes: passes)
+        }
         #endif
         mark = (guardian.viewLayoutCalls, guardian.windowLayoutPasses)
     }
@@ -54,6 +60,7 @@ public struct FrameLayoutCounts {
         report["window_passes"] = windows.roles.mapValues { ["passes": $0.passes, "frames": $0.frames, "frames_2_plus": $0.framesTwoOrMore, "max": $0.max] }
         report["window_passes_no_slot"] = LayoutPassGuard.shared.passesInNoSlot
         if raw { report["window_passes_per_frame"] = windows.perFrame }
+        if raw, let diag = LayoutPassGuard.shared.markDiag { report["diag_frames"] = diag.report() }
         #endif
         if raw { (report["view_layouts_per_frame"], report["window_layouts_per_frame"]) = (viewLayouts, windowLayouts) }
         return report

@@ -116,6 +116,23 @@ public final class LayoutPassGuard {
     }
 
     private var windowLayouts: [ObjectIdentifier: WindowLayout] = [:]
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// RESIZE P0 7 diagnostic (no merge): per-frame marks, layouts and window-pass stacks while `debug.frames` runs.
+    public private(set) var markDiag: LayoutMarkDiag?
+    private var markHooksInstalled = false
+
+    /// The diagnostic's recorder from now (made and its hooks installed once).
+    public func startMarkDiag() -> LayoutMarkDiag {
+        if !markHooksInstalled {
+            markHooksInstalled = true
+            LayoutMarkHooks.install()
+        }
+        let diag = markDiag ?? LayoutMarkDiag()
+        markDiag = diag
+        diag.start()
+        return diag
+    }
+    #endif
     private var classCounts: [ObjectIdentifier: (type: AnyClass, count: Int)] = [:]
     private var reportedClasses: Set<ObjectIdentifier> = []
     private var observer: CFRunLoopObserver?
@@ -187,12 +204,18 @@ public final class LayoutPassGuard {
 
     fileprivate func windowLayoutWillBegin(_ window: NSWindow) {
         let id = ObjectIdentifier(window)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        markDiag?.passWillBegin()
+        #endif
         windowLayouts[id, default: WindowLayout()].depth += 1
         if windowLayouts[id]?.depth == 1 { windowLayouts[id]?.viewCallsAtStart = viewLayoutCalls }
     }
 
     fileprivate func windowLayoutDidEnd(_ window: NSWindow) {
         let id = ObjectIdentifier(window)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        markDiag?.passDidEnd()
+        #endif
         guard var layout = windowLayouts[id] else { return }
         layout.depth -= 1
         if layout.depth == 0, viewLayoutCalls != layout.viewCallsAtStart {
@@ -229,6 +252,9 @@ public final class LayoutPassGuard {
 
     fileprivate func record(_ view: NSView) {
         viewLayoutCalls &+= 1
+        #if DEBUG || CMUX_BENCH_HOOKS
+        markDiag?.laidOut(view)
+        #endif
         let type: AnyClass = Swift.type(of: view)
         let typeID = ObjectIdentifier(type)
         if let entry = classCounts[typeID] {
