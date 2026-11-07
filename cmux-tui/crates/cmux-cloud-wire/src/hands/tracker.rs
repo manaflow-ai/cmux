@@ -89,11 +89,13 @@ impl Tracker {
     /// The rows of a read that failed part way: each is added (unless it ended), and
     /// nothing is taken away, since the read did not see every hand.
     pub fn partly_read(&mut self, listed: Vec<HandApproval>, now: u64) -> Vec<Change> {
-        listed
-            .into_iter()
-            .filter(|approval| !self.ended.contains_key(&approval.key))
-            .filter_map(|approval| self.add(approval, now))
-            .collect()
+        let mut changes = Vec::new();
+        for approval in listed {
+            if !self.ended.contains_key(&approval.key) {
+                changes.extend(self.add(approval, now));
+            }
+        }
+        changes
     }
 
     /// A list read that began at `began` listed `listed`.
