@@ -1838,15 +1838,11 @@ async fn dispatch_request_with_identity(
                 steer_now: steer && flag("steerNow") == Some(true),
                 interrupt_turn: None,
                 provenance,
+                // The peer's word only on a peer daemon's own link (`person_admitted`): a paired
+                // machine's client connection is served as Peer too, and its flag proves nothing.
                 human_authenticated: person_message
                     && (conn.is_person()
-                        || (conn.origin == super::Origin::Peer
-                            && mux_meta(&params)
-                                .and_then(|meta| {
-                                    meta.get(crate::prompt_provenance::PERSON_VERIFIED)
-                                })
-                                .and_then(Value::as_bool)
-                                == Some(true))),
+                        || (conn.origin == super::Origin::Peer && person_admitted(conn, &params))),
                 agent,
                 class,
                 after_turn: None,
@@ -3114,13 +3110,17 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
     match conn.origin {
         super::Origin::Web => true,
         // Only the forwarding daemon's own proof (`remote_guard::attest_person`, by this same
-        // rule there). Its `via` is no proof: it labels any client but the owner's, a unix one too.
+        // rule there), on a peer daemon's own link (`PeerToken`). A paired machine's `client`
+        // credential is served as Peer too (`pairing.rs` `origin_of`, `Device`): it is a client,
+        // and its own `personVerified` proves nothing. Its `via` is no proof either: it labels
+        // any client but the owner's, a unix one too.
         super::Origin::Peer => {
-            params
-                .pointer("/_meta/acpmux")
-                .and_then(|m| m.get(super::remote_guard::PERSON_PROVEN))
-                .and_then(Value::as_bool)
-                == Some(true)
+            conn.auth == ConnAuth::PeerToken
+                && params
+                    .pointer("/_meta/acpmux")
+                    .and_then(|m| m.get(super::remote_guard::PERSON_PROVEN))
+                    .and_then(Value::as_bool)
+                    == Some(true)
         }
         super::Origin::Local | super::Origin::LocalApp => false,
     }

@@ -15,7 +15,7 @@
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
-use acpmux::server::{Origin, serve_connection_with};
+use acpmux::server::{ConnAuth, Origin, serve_connection_authed, serve_connection_with};
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
@@ -88,6 +88,14 @@ impl Client {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
+        Self(in_tx, out_rx, 0)
+    }
+
+    /// A connection with the proof its transport checked (`serve_connection_authed`).
+    fn open_authed(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));
         Self(in_tx, out_rx, 0)
     }
 
@@ -1239,4 +1247,33 @@ async fn a_malformed_notice_is_refused_naming_its_field() {
     let value = c.reply("session/prompt", both).await;
     assert_eq!(reason(&value), "notice.value_refused", "{value}");
     assert!(c.records(&session, "user_message").await.is_empty(), "a refused notice ran");
+}
+
+/// Review of #37497 (P1): a paired machine's `client` credential is served as Peer
+/// (`pairing.rs` `origin_of`, `ConnAuth::Device`), but it is a client, not a peer daemon: its own
+/// `personVerified` proves nothing, so its prompt is unverified. Only a peer daemon's own link
+/// (`ConnAuth::PeerToken`) says of its connection that it proved the person.
+#[tokio::test]
+async fn only_a_peer_daemons_link_says_the_person_proved_a_prompt() {
+    let hub = hub();
+    let mut local = Client::open(&hub);
+    let session = local.new_session(json!({"harness": "fake"})).await;
+    for (auth, id) in [(ConnAuth::Device, "p-device"), (ConnAuth::PeerToken, "p-daemon")] {
+        let mut c = Client::open_authed(&hub, Origin::Peer, auth);
+        let mut params = prompt(&session, id, "hi", None);
+        params["_meta"]["acpmux"]["personVerified"] = json!(true);
+        c.call("session/prompt", params).await;
+        let message = local.user_message(&session, id).await;
+        match auth {
+            ConnAuth::Device => assert_eq!(
+                message.pointer("/_meta/provenance/kind"),
+                Some(&json!("unverified")),
+                "a paired client's own claim: {message}"
+            ),
+            _ => assert!(
+                message.pointer("/_meta/provenance").is_none(),
+                "a peer daemon's word is the person's: {message}"
+            ),
+        }
+    }
 }
