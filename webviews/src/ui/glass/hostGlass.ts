@@ -180,9 +180,10 @@ export function reportHostGlass(
     if (text === sent) return;
     sent = text;
     post(surfaces).then(() => {
-      // An answer to an older report, or one that comes after host glass stopped applying (Reduce
-      // Transparency, a live background), draws nothing: the latest report's answer does.
-      if (!live || text !== sent || !hostGlassApplies(doc)) return;
+      // An answer that comes after host glass stopped applying (Reduce Transparency, a live
+      // background) draws nothing. An answer to an earlier report still draws: a surface whose box
+      // changes every frame (a scroll, a fade) is never answered for its latest report in time.
+      if (!live || !hostGlassApplies(doc)) return;
       // A surface that already fell back keeps the page's glass: a late answer never swaps it.
       for (const element of elements)
         if (ids.has(element) && element.isConnected && !fellBack(element)) mark(element, "1");

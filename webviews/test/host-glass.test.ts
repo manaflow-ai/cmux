@@ -295,3 +295,21 @@ test("an answer that comes after host glass stopped applying never marks the sur
   await frames();
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
 });
+
+test("a surface whose report changes every frame is drawn on an answer to an earlier report", async () => {
+  const doc = page();
+  const answers: (() => void)[] = [];
+  stop = reportHostGlass(doc, () => new Promise<void>((resolve) => answers.push(resolve)));
+  const element = surface(doc);
+  await frames(1);
+  // The surface moves (a scroll, a fade) and a new report goes out before the first is answered.
+  const window = dom!.window as unknown as Window & typeof globalThis;
+  window.Element.prototype.getBoundingClientRect = function (this: Element) {
+    return { left: 40, top: 70, right: 240, bottom: 190, width: 200, height: 120, x: 40, y: 70 } as DOMRect;
+  };
+  await frames(1);
+  expect(answers.length).toBeGreaterThan(1);
+  answers[0]!();
+  await settled();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
