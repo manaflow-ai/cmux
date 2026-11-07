@@ -68,14 +68,19 @@ struct NewTabSuccession {
     }
 
     private mutating func found(_ surface: SurfaceID, claiming: Bool = false) {
-        if claiming, surface != self.surface { claimed = nil } // the open's word wins over a guess
+        if claiming, surface != self.surface, !(claimed.map { ProvisionalTab.isProvisional($0.rawValue) } ?? true) { claimed = nil } // its word beats a guess; a stand-in resolves
         self.surface = surface
         deadline = ContinuousClock.now.advanced(by: Self.orderLimit)
         expire(after: Self.orderLimit)
     }
 
-    /// Where `open`'s new tab goes among `others` (the pane's tabs but it) once its anchor closed: after `order`'s re-anchor; nil once the open ended.
-    static func rebasedSlot(in pane: PaneModel, by open: DemandTimer?, among others: [TabModel]) -> Int? { active[ObjectIdentifier(pane)]?.first { $0.expiry === open }.map { open in open.before.map { open.resolved($0, in: pane) }.flatMap { id in others.first { $0.id == id.rawValue } }.flatMap { NewTabSlot.slot(after: $0, in: others) } ?? others.prefix { $0.pinned }.count } }
+    /// Where `open`'s new tab goes among `others` (the pane's tabs but it): after the tab the strip shows it after (re-anchored when its anchor
+    /// closed, the daemon's tab for a stand-in); nil once the open ended or that tab is not listed.
+    static func rebasedSlot(in pane: PaneModel, by open: DemandTimer?, among others: [TabModel]) -> Int? {
+        guard let open = active[ObjectIdentifier(pane)]?.first(where: { $0.expiry === open }) else { return nil }
+        guard let before = open.before.map({ open.resolved($0, in: pane) }) else { return others.prefix { $0.pinned }.count }
+        return others.first { $0.id == before.rawValue }.flatMap { others.newTabSlot(after: $0) }
+    }
 
     /// `id`, or the daemon's tab stand-in `id` became; `resolving` does it for the open's tab and anchor.
     private func resolved(_ id: StripTabID, in pane: PaneModel) -> StripTabID { services?.daemon(for: pane).store.creations.replacement(ofStandIn: id.rawValue, in: pane).map { StripTabID($0.id) } ?? id }
@@ -107,13 +112,16 @@ struct NewTabSuccession {
             if pane.stripModel.selectedID == provisional, let handed { pane.pendingSelect.surface = handed }
         }
         let key = ObjectIdentifier(pane.pane), now = ContinuousClock.now
-        // A stand-in the store replaced: the open that showed it, and one going after it, now name the daemon's tab.
-        let opens = (active[key] ?? []).filter { now < $0.deadline }.map { $0.resolving(pane.pane) }
+        let opens = (active[key] ?? []).filter { now < $0.deadline }.map { $0.resolving(pane.pane) } // stand-ins the store replaced: the daemon's tabs
         var snapshot = snapshot, items = snapshot.items, kept: [NewTabSuccession] = [], claimed = Set(opens.compactMap(\.claimed))
+        var unpaired = arrived.map(\.id).filter { !claimed.contains($0) } // stand-ins swapped in one snapshot (no answer named them yet): in order
+        var became: [StripTabID: StripTabID] = [:] // each stand-in's tab in this pass, for an open placed after it
         for (index, var open) in opens.enumerated() {
+            if let leader = open.before.flatMap({ became[$0] }) { open.before = leader }
             // Its own tab, else its surface; the newest also by the store's tab after a provisional one or the tab being selected.
             let newest = index == opens.count - 1, known = Set(open.known), tabs = pane.pane.tabs.filter { !known.contains($0.id) }
-            let mine = open.claimed.flatMap { id in tabs.first { $0.id == id.rawValue } }
+            let mine = open.claimed.flatMap { id in tabs.first { $0.id == id.rawValue } ?? (left.contains(id) ? unpaired.first.flatMap { next in tabs.first { $0.id == next.rawValue } } : nil) }
+            if let mine, unpaired.first?.rawValue == mine.id { unpaired.removeFirst() }
             let guessed = [newest ? handed : nil, open.surface, newest ? pane.pendingSelect.surface : nil].lazy.compactMap { $0 }.compactMap { surface in tabs.first { $0.surface == surface && !claimed.contains(StripTabID($0.id)) } }.first
             guard let tab = mine ?? guessed, let item = items.first(where: { $0.id.rawValue == tab.id }) else {
                 // Not answered yet: a new daemon tab of this pane waits for the answer naming this one (a reopened tab being selected never
@@ -123,20 +131,14 @@ struct NewTabSuccession {
                 kept.append(open)
                 continue
             }
+            if let shown = open.claimed { became[shown] = item.id } // a stand-in swapped before the store names it (`resolving`)
             (open.claimed, _) = (item.id, claimed.insert(item.id))
             if open.surface != tab.surface { open.found(tab.surface) }
             var others = items.filter { $0.id != item.id && $0.id != open.page }
             if let before = open.before, !others.contains(where: { $0.id == before }) { open.before = pane.stripModel.anchor(replacing: before, newTab: left.union([item.id]), staying: Set(others.map(\.id)), opened: open.known.map { StripTabID($0) }) }
-            // `NewTabSlot`'s slot: the page's, else right after the anchor's group (re-anchored above when it closed), never among the pinned tabs.
-            var slot = others.prefix { $0.isPinned }.count
-            if let before = open.before, var index = others.firstIndex(where: { $0.id == before }) {
-                while open.page == nil, let group = others[index].groupID, index + 1 < others.count, others[index + 1].groupID == group { index += 1 }
-                slot = open.page == nil ? max(index + 1, slot) : index + 1
-            }
-            others.insert(item, at: slot)
+            others.insert(item, at: others.newTabSlot(after: open.before, replacing: open.page != nil)) // `NewTabSlot`'s: the page's, else after the anchor's group
             if let page = open.page, listed.contains(page) { pane.stripModel.successors[item.id] = page }
-            // Done once the daemon's order agrees (the page closed, the move landed).
-            if items == others { open.expiry.cancel() } else { kept.append(open) }
+            if items == others { open.expiry.cancel() } else { kept.append(open) } // done once the daemon's order agrees (the page closed, the move landed)
             items = others
         }
         active[key] = kept.isEmpty ? nil : kept

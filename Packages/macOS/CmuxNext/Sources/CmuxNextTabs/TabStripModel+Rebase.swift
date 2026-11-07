@@ -14,3 +14,14 @@ extension TabStripModel {
         return opened[..<index].last { staying.contains($0) }
     }
 }
+
+extension Array where Element == TabItem {
+    /// Where a new tab the strip shows goes right after `anchor` (nil: the first unpinned slot): after the anchor's tab group,
+    /// which it does not join, never among the pinned tabs; `replacing` a New Tab page, right after `anchor` (the page's cell).
+    public func newTabSlot(after anchor: TabID?, replacing: Bool) -> Int {
+        let pinned = prefix { $0.isPinned }.count
+        guard let anchor, let start = firstIndex(where: { $0.id == anchor }) else { return pinned }
+        guard !replacing, let group = dropFirst(start).first?.groupID else { return replacing ? start + 1 : Swift.max(start + 1, pinned) }
+        return Swift.max(dropFirst(start + 1).firstIndex { $0.groupID != group } ?? count, pinned)
+    }
+}
