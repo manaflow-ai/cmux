@@ -160,14 +160,19 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
 }
 
 pub(crate) fn which(bin: &str) -> Option<String> {
-    let path = crate::login_env::path().unwrap_or_default();
-    for dir in std::env::split_paths(&path) {
+    which_in(&crate::login_env::path().unwrap_or_default(), bin).or_else(|| native_install(bin))
+}
+
+/// `bin` in the directories of `path`, in order.
+fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
+    for dir in std::env::split_paths(path) {
         let candidate = dir.join(bin);
-        if candidate.is_file() {
+        // As a shell's lookup: a file it could not run does not hide a runnable one later on PATH.
+        if crate::harness_install::is_executable(&candidate) {
             return Some(candidate.to_string_lossy().into_owned());
         }
     }
-    native_install(bin)
+    None
 }
 
 /// Claude Code's native installer puts `claude` in `~/.local/bin`, which a login PATH may not list
@@ -181,4 +186,25 @@ fn native_install(bin: &str) -> Option<String> {
     // A stale or non-executable file there is no installed CLI (as `harness install` checks).
     crate::harness_install::is_executable(&candidate)
         .then(|| candidate.to_string_lossy().into_owned())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::which_in;
+    use std::os::unix::fs::PermissionsExt as _;
+
+    /// A `claude` the shell could not run (no execute bit) earlier on PATH does not hide the one it
+    /// would run.
+    #[test]
+    fn which_skips_a_file_it_could_not_run() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        std::fs::write(first.path().join("claude"), "").unwrap();
+        let runnable = second.path().join("claude");
+        std::fs::write(&runnable, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&runnable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = std::env::join_paths([first.path(), second.path()]).unwrap();
+        assert_eq!(which_in(&path, "claude"), Some(runnable.to_string_lossy().into_owned()));
+        assert_eq!(which_in(&path, "codex"), None);
+    }
 }

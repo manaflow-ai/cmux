@@ -58,7 +58,9 @@ public final class OnboardingWindowPresenter {
         guard !defaults.bool(forKey: key) else { return }
         // An upgrade is no first run; a first run marks it only once the step showed.
         guard isFirstRun else { return defaults.set(true, forKey: key) }
-        guard let source, !(await source.agentSignIns(recheck: false)).isEmpty, controller == nil else { return }
+        // Installed agents only: the step's Install for a missing one is drawn by the onboarding page, not
+        // AgentsStepView, so a Mac with none would get an empty step until that page shows it.
+        guard let source, (await source.agentSignIns(recheck: false)).contains(where: \.installed), controller == nil else { return }
         show(step: .agents)
         defaults.set(true, forKey: key)
     }

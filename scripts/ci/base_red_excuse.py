@@ -496,15 +496,36 @@ def _needs(jobs: dict, job_id: str, where: str) -> list[str]:
     return needs
 
 
+# PyYAML 6.0.3's pure-Python lib/yaml, unmodified (sdist sha256 d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f,
+# MIT, its LICENSE beside it): the YAML reader where the interpreter has no PyYAML. merge_hold runs this script as
+# `python3 -I` under Homebrew's Python on the Mac that lands PRs, which has none, and every cmuxterm-hq rollup red
+# was refused there with "no YAML parser" (2026-11-07, hq#7398).
+VENDORED_YAML = Path(__file__).resolve().with_name("_vendor")
+
+
+def yaml_module():
+    """PyYAML: the interpreter's own, else the vendored copy (VENDORED_YAML). Refused when neither imports."""
+    try:
+        import yaml  # noqa: PLC0415 - only deriving reads YAML; judging this repo reads ROLLUPS_FILE
+        return yaml
+    except ImportError:
+        pass
+    if (VENDORED_YAML / "yaml" / "__init__.py").is_file():
+        if str(VENDORED_YAML) not in sys.path:
+            sys.path.append(str(VENDORED_YAML))
+        try:
+            import yaml  # noqa: PLC0415
+            return yaml
+        except ImportError:
+            pass
+    raise Refused("no YAML parser to read the workflows' rollups; no rollup red is excused")
+
+
 def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTED_ROLLUPS, read=None) -> dict:
     """The rollups contract (ROLLUPS_FILE) derived from the workflow files; refuses any shape it does not know.
     RUN and ROUTED name the rollups (another repo's, OTHER_REPO_ROLLUPS); READ(file) gives a workflow's text when it
     is not under WORKFLOWS (another repo's, at its base)."""
-    try:
-        import yaml  # noqa: PLC0415 - only deriving reads YAML; judging this repo reads ROLLUPS_FILE
-    except ImportError:
-        raise Refused("no YAML parser to read the workflows' rollups; no rollup red is excused") from None
-
+    yaml = yaml_module()
     if read is None:
         def read(file: str) -> str:
             return (workflows / file).read_text()
