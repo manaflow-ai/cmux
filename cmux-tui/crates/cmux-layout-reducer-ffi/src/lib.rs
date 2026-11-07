@@ -51,6 +51,7 @@ pub mod close_focus;
 pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
+mod cloud_move;
 mod cloud_task;
 pub mod drag_handle;
 pub mod focus;
@@ -400,6 +401,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
             }
+            operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
             operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
             operation if cloud_bootstrap::handles(operation) => {
                 cloud_bootstrap::respond(operation, request)?

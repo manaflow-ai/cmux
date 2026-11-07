@@ -4710,11 +4710,19 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
 
-      # Building the package's reducer FFI can recreate the isolated crate's
-      # workspace lockfile. Remove generated state immediately before
-      # pin-cmux-tui validates the checkout.
+      # Building the package's reducer FFI can rewrite the isolated crate's
+      # workspace lockfile. Put the checkout back immediately before
+      # pin-cmux-tui validates it: the committed lockfile (#37324 tracks it)
+      # is restored, and an untracked one is removed. Deleting a tracked
+      # lockfile leaves the tree dirty, and pin-cmux-tui refuses that.
       - name: Clean generated layout-reducer FFI lockfile
-        run: rm -f cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+        run: |
+          lock=cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+          if git ls-files --error-unmatch "$lock" >/dev/null 2>&1; then
+            git checkout -- "$lock"
+          else
+            rm -f "$lock"
+          fi
 
       - name: Fetch the same-tree cmux-tui
         timeout-minutes: 50
