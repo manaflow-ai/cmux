@@ -3,6 +3,8 @@ use std::collections::VecDeque;
 use cmux_remote_protocol::{CircuitId, RelaySocketAttachment};
 use serde::{Deserialize, Serialize};
 
+use crate::park::ParkedConnect;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum SlotPhase {
@@ -18,6 +20,9 @@ pub(crate) struct SlotAttachment {
     pub generation: u64,
     pub expires_at: u64,
     pub idle_deadline_ms: u64,
+    /// A client Connect waiting for the daemon to register (`crate::park`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parked: Option<ParkedConnect>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,6 +128,7 @@ mod tests {
             generation: 9,
             expires_at: 1_000,
             idle_deadline_ms: 2_000,
+            parked: None,
         };
 
         let encoded = serde_json::to_vec(&attachment).unwrap();

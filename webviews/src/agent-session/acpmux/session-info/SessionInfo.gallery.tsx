@@ -22,7 +22,7 @@ import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
 import { createWorkflowAdapter } from "../summary/foldWorkflows";
 import { sessionSummary, type SummarySource, type SummaryWakeup } from "../summary/sessionSummary";
-import { workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
+import { parallelWorkflowProcesses, workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
 import { SessionInfo, SessionInfoPanel, type SessionInfoPlacement } from "./SessionInfo";
 import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
 import { subagentSummary, type SubagentScope } from "./subagentScope";
@@ -47,11 +47,26 @@ type Props = ComponentProps<typeof SessionInfo> & {
   ceiling?: string;
   /// Gallery-only: a different edge look, for comparison with the shipped hairline (sessionInfo.css).
   edge?: string;
+  /// Gallery-only: a compared section grip (GRIP_LOOKS), for comparison with the shipped right-gutter one.
+  grip?: keyof typeof GRIP_LOOKS;
   /// Gallery-only: panel width used by narrow workflow layout states.
   panelWidth?: number;
   /// Gallery-only: the old always-drawn thin thumb, for comparison with the shipped no-scrollbar body.
   scroller?: "thumb";
 };
+
+/// Compared section grips (sessionInfo.css `__handle`), as style overrides on the shipped one.
+const GRIP_LOOKS = {
+  /// Faint at rest, as the reference panel draws it, and full on the grip.
+  rest: ".acpmux-session-info-section__handle{opacity:0.45}",
+  /// In the left gutter, beside the title, at the reference's size; only on head hover.
+  left:
+    ".acpmux-session-info__body[data-layout]{padding-right:var(--grid-sidebar-highlight-inset)}" +
+    ".acpmux-session-info-section__handle{right:auto;left:calc(-1 * (var(--grid-sidebar-highlight-inset) + var(--acpmux-session-info-grip-gutter)));" +
+    "width:calc(var(--grid-sidebar-highlight-inset) + var(--acpmux-session-info-grip-gutter) - var(--grid-base) / 2)}",
+  /// No grip until the head is hovered, and the whole head takes the grab cursor.
+  head: ".acpmux-session-info-section:has(> .acpmux-session-info-section__handle) > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger{cursor:grab}",
+} as const;
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
   tool(`Edit ${path}`, "edit", "completed", { diffs: [{ path: `${CWD}/${path}`, oldText, newText }] });
@@ -107,6 +122,7 @@ function GallerySessionInfo({
   tones,
   ceiling,
   edge,
+  grip,
   panelWidth = 320,
   scroller,
   more: moreAtFirst,
@@ -118,6 +134,7 @@ function GallerySessionInfo({
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-session-info[data-placement]{max-height:${ceiling}}`}</style> : null}
       {edge ? <style>{`.acpmux-session-info[data-placement]{${edge}}`}</style> : null}
+      {grip ? <style>{GRIP_LOOKS[grip]}</style> : null}
       {scroller === "thumb" ? <style>{".acpmux-session-info__body{scrollbar-width:thin}"}</style> : null}
       {transcript ? <Transcript /> : null}
       <SessionInfoPanel
@@ -382,9 +399,9 @@ const chevronOnHoverAfterTitle: Play = async (ctx) => {
 };
 
 /// As native #32674: the six-dot grip draws nothing at rest, nor for a pointer over a section's other
-/// rows; it shows while its section's head is hovered, left of the title (Leo, 2026-11-03: "why dont
-/// we have the drag grabber to the left of the title"), overlapping neither the title nor the head's
-/// icon, and the title does not move when it shows.
+/// rows; it shows, faint, while its section's head is hovered, in the panel's right gutter past the
+/// head's count (Leo, 2026-11-06: "if you look at the spacing of claude code, they have theirs at the
+/// right"), at the reference's size, and neither the title nor the count moves when it shows.
 const gripOnHeadHoverOnly: Play = async (ctx) => {
   const handles = () => [...ctx.document.querySelectorAll(".acpmux-session-info-section__handle")];
   await ctx.waitFor(() => handles().length > 0);
@@ -401,22 +418,31 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
     if (style(ctx, handle).opacity !== "0") throw new Error("A body row's hover showed its section's grip");
   }
   const title = head.querySelector(".acpmux-session-info-section__title")!;
+  const meta = head.querySelector(".acpmux-session-info-section__meta");
   const before = title.getBoundingClientRect();
+  const metaBefore = meta?.getBoundingClientRect();
   await ctx.hover({
     selector: `[data-section="${section.dataset.section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`,
   });
-  await ctx.waitFor(() => style(ctx, handle).opacity === "1");
+  await ctx.waitFor(() => Number.parseFloat(style(ctx, handle).opacity) > 0);
+  const opacity = Number.parseFloat(style(ctx, handle).opacity);
+  if (!(opacity < 1)) throw new Error(`The grip shows at ${opacity}, not faint`);
   const after = title.getBoundingClientRect();
   if (after.left !== before.left || after.width !== before.width)
     throw new Error("The title moved when the grip showed");
-  // Lucas, 2026-11-05, Session Info lab: the grip inside the pill "looks strange and poorly positioned".
-  // Two dots across and three down, in the panel's left gutter beside the head, outside its pill, on the
-  // head's middle line.
+  const metaAfter = meta?.getBoundingClientRect();
+  if (metaBefore && metaAfter && metaAfter.right !== metaBefore.right)
+    throw new Error("The count moved when the grip showed");
+  // Two dots across and three down, about 6x10, past the head's pill on the right, on its middle line,
+  // inside the panel.
   const dots = handle.querySelector("svg")!.getBoundingClientRect();
   const pill = head.getBoundingClientRect();
-  if (dots.right > after.left + 0.5) throw new Error("The grip is not left of the title");
+  const panel = ctx.find({ selector: ".acpmux-session-info__body" }).getBoundingClientRect();
   if (!(dots.height > dots.width)) throw new Error(`The grip is ${dots.width}x${dots.height}, not taller than wide`);
-  if (dots.right > pill.left + 0.5) throw new Error("The grip is not in the gutter left of its head's pill");
+  if (dots.width > 6 || dots.height > 10)
+    throw new Error(`The grip is ${dots.width}x${dots.height}, past the reference's size`);
+  if (dots.left < pill.right - 0.5) throw new Error("The grip is not in the gutter right of its head's pill");
+  if (dots.right > panel.right - 4) throw new Error("The grip crowds the panel's right edge");
   if (Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) > 0.5)
     throw new Error("The grip is not on its head's middle line");
 };
@@ -427,31 +453,20 @@ const hoverFirstHead: Play = async (ctx) => {
   await ctx.hover({ selector: FOLDABLE_HEAD });
 };
 
-/// Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title". Every section's grip,
-/// icon heads (Context, Usage, Connectors) and the bare Environment rows included, ends at or before its
-/// head's first glyph (its icon, else its title) and sits far from the panel's right edge, where the
-/// scrollbar's thumb runs.
-const gripLeftOfEveryTitle: Play = async (ctx) => {
+/// Leo, 2026-11-06: "they have theirs at the right". Every section's grip, icon heads (Context, Usage,
+/// Connectors) and the bare Environment rows included, sits past its section's own pill on the right and
+/// inside the panel, so it overlaps no title, count or trailing control.
+const gripRightOfEveryHead: Play = async (ctx) => {
   const sections = () => [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-section")];
   await ctx.waitFor(() => sections().some((s) => s.querySelector(":scope > .acpmux-session-info-section__handle")));
   const body = ctx.find({ selector: ".acpmux-session-info__body" }).getBoundingClientRect();
   for (const section of sections()) {
     const handle = section.querySelector(":scope > .acpmux-session-info-section__handle");
     if (!handle || handle.getClientRects().length === 0) continue;
-    // The dots: the handle's hit box reaches over the icon box's empty margin.
     const grip = handle.querySelector("svg")!.getBoundingClientRect();
-    const first = section.querySelector(
-      ":scope > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger, :scope > .acpmux-session-info-section__head",
-    );
-    // A bare section (the Environment rows) has no head: its first row's leading icon stands in.
-    const glyph = first
-      ? first.querySelector(":scope > .acpmux-session-info-section__icon, :scope > .acpmux-session-info-section__title")
-      : section.querySelector(":scope > :not(.acpmux-session-info-section__handle) svg");
-    if (glyph && grip.right > glyph.getBoundingClientRect().left + 0.5)
-      throw new Error(`${section.dataset.section}'s grip is not left of its title`);
-    if (grip.left < body.left - 0.5) throw new Error(`${section.dataset.section}'s grip spills out of the panel`);
-    if (grip.right > body.left + body.width / 2)
-      throw new Error(`${section.dataset.section}'s grip is on the right, by the scrollbar's thumb`);
+    if (grip.left < section.getBoundingClientRect().right - 0.5)
+      throw new Error(`${section.dataset.section}'s grip is not right of its head`);
+    if (grip.right > body.right - 0.5) throw new Error(`${section.dataset.section}'s grip spills out of the panel`);
   }
 };
 
@@ -811,7 +826,9 @@ const workflowProps = (
       ? {
           ...workflow,
           agents: workflow.agents.map((agent) =>
-            agent.index === 4 ? { ...agent, model: modelOverride, startedAt: Date.now() - 204_000 } : agent,
+            // A finished agent: listed under "N finished" without a click, so the check measures the
+            // row as it first renders.
+            agent.index === 1 ? { ...agent, model: modelOverride } : agent,
           ),
         }
       : workflow,
@@ -854,25 +871,38 @@ const workflowFailureProps = (): Props => {
   return { ...workflowProps("finished", "detail", 260), workflows: createWorkflowAdapter()(nodes, "gallery-chat") };
 };
 
-const assertNarrowWorkflowLayout: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-agent__button") !== null);
-  const panel = ctx.find({ selector: ".acpmux-session-info" }).getBoundingClientRect();
-  if (Math.abs(panel.width - 260) > 1) throw new Error(`expected a 260px panel, got ${panel.width}px`);
-  const name = ctx.find({ selector: ".acpmux-workflow-agent__name" }).getBoundingClientRect();
-  const model = ctx.find({ selector: ".acpmux-workflow-agent__model" }).getBoundingClientRect();
-  const state = ctx.find({ selector: ".acpmux-workflow-agent__state" }).getBoundingClientRect();
-  const time = ctx.find({ selector: ".acpmux-workflow-agent .acpmux-session-info-task__time" }).getBoundingClientRect();
-  if (name.width < 24) throw new Error(`workflow agent name collapsed at ${name.width}px`);
-  if (model.right > state.left + 0.5) throw new Error("workflow model overlaps the state column");
-  if (state.right > time.left + 0.5) throw new Error("workflow state overlaps the elapsed-time column");
-};
-/// Opens the workflow's `n`th phase (from 1).
-const openPhase =
-  (n: number): Play =>
+/// At 260px the row's name keeps its width and its model, state and elapsed time keep their columns.
+/// Measured on the row that names a model (an agent whose model differs from the workflow's), when
+/// `withModel`; otherwise on the first agent row.
+const narrowWorkflowLayout =
+  (withModel: boolean): Play =>
   async (ctx) => {
-    await ctx.click({ selector: `.acpmux-workflow-phase:nth-child(${n}) .acpmux-workflow-phase__head` });
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-phase__agents") !== null);
+    const rowSelector = withModel
+      ? ".acpmux-workflow-agent:has(.acpmux-workflow-agent__model)"
+      : ".acpmux-workflow-agent";
+    await ctx.waitFor(() => ctx.document.querySelector(`${rowSelector} .acpmux-workflow-agent__button`) !== null);
+    const panel = ctx.find({ selector: ".acpmux-session-info" }).getBoundingClientRect();
+    if (Math.abs(panel.width - 260) > 1) throw new Error(`expected a 260px panel, got ${panel.width}px`);
+    const row = ctx.find({ selector: rowSelector });
+    const box = (selector: string) => {
+      const element = row.querySelector(selector);
+      if (!element) throw new Error(`no element for ${selector}`);
+      return element.getBoundingClientRect();
+    };
+    const name = box(".acpmux-workflow-agent__name");
+    const state = box(".acpmux-workflow-agent__state");
+    const time = box(".acpmux-session-info-task__time");
+    if (name.width < 24) throw new Error(`workflow agent name collapsed at ${name.width}px`);
+    if (withModel && box(".acpmux-workflow-agent__model").right > state.left + 0.5)
+      throw new Error("workflow model overlaps the state column");
+    if (state.right > time.left + 0.5) throw new Error("workflow state overlaps the elapsed-time column");
   };
+/// A finished workflow's agents: every one under its open "N finished", its phases one row each.
+const finishedAgents: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-workflow-finished__agents > li").length >= 7);
+  if (ctx.document.querySelector(".acpmux-workflow-phase__head:not(:disabled)"))
+    throw new Error("a finished workflow's phase opens though no agent of it is left running");
+};
 
 /// A chat in a lane checkout of cmux that worked across several folders: Environment lists only its
 /// project (chatFolders.ts).
@@ -1113,22 +1143,52 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
       },
     },
+    "workflow-parallel": {
+      note: "Two phases run at once, 25 minutes in (Leo's 2026-11-05 screenshot): each phase is one row with its count and dots, closed until opened, except Latency, open on its own while the shell tasks its agents started run; Latency plan and Swarm synthesis, which no agent reached, are plain pending rows with no label; the workflow names its model once; the two agents that ended are under 2 finished, out of the running lists, the latest first.",
+      props: { ...workflowProps("parallel"), processes: parallelWorkflowProcesses() },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-parallel-open": {
+      note: "The same run with Swarm research opened too: each running agent says in words what it does (never its last shell command), swarm:ours names Sonnet 5.5 since it differs from the workflow's model, the shell tasks its agents started sit under them, and both finished agents are opened to their output at the row's size, cut to three lines with Show more, rendered from their JSON results (swarm:history's cut short at Claude's 240-character preview).",
+      props: { ...workflowProps("parallel"), processes: parallelWorkflowProcesses() },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+        // The rows sit below a short frame: each target is brought into view before its trusted click.
+        const open = async (selector: string, opened: string, count: number) => {
+          await ctx.waitFor(() => ctx.document.querySelector(selector));
+          ctx.document.querySelector(selector)?.scrollIntoView({ block: "center" });
+          await ctx.click({ selector });
+          await ctx.waitFor(() => ctx.document.querySelectorAll(opened).length >= count);
+        };
+        const finished = ".acpmux-workflow-finished li";
+        await open(
+          ".acpmux-workflow-phase:nth-child(3) .acpmux-workflow-phase__head",
+          ".acpmux-workflow-phase__agents",
+          2,
+        );
+        await open(`${finished}:nth-child(1) .acpmux-workflow-agent__disclosure`, ".acpmux-workflow-agent__output", 1);
+        await open(`${finished}:nth-child(2) .acpmux-workflow-agent__disclosure`, ".acpmux-workflow-agent__output", 2);
+        ctx.document.querySelector(".acpmux-workflow-task")?.scrollIntoView({ block: "start" });
+      },
+    },
     "workflow-finished": {
-      note: "Labs: the same workflow finished. 1 finished; Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop. Critique opened: its agents with a check and how long each took.",
+      note: "Labs: the same workflow finished. 1 finished; Finished · 7 agents · 432k tokens; each phase one row, N/N with its dots, nothing to open, no Stop; its seven agents under 7 finished, the latest first, each with a check and how long it took.",
       props: workflowProps("finished"),
-      play: openPhase(2),
+      play: finishedAgents,
     },
     "workflow-agent-failed": {
       note: "A failed workflow agent shows the provider's failure reason in the existing message line instead of stale progress. At 260px the reason truncates and its full text remains in the tooltip and accessible name.",
       props: workflowFailureProps(),
       play: async (ctx) => {
-        await openPhase(2)(ctx);
+        await finishedAgents(ctx);
         const message = ctx.find({
           selector: '.acpmux-workflow-agent[data-state="failed"] .acpmux-workflow-agent__doing',
         });
         if (message.textContent !== "503: No provider capacity available")
           throw new Error("missing workflow failure reason");
-        await assertNarrowWorkflowLayout(ctx);
+        await narrowWorkflowLayout(false)(ctx);
       },
     },
     "workflow-agent-row-compact": {
@@ -1153,9 +1213,9 @@ export default componentEntry<Props>({
       },
     },
     "workflow-agent-row-narrow": {
-      note: "Narrow-width check: at 260px the longest supported model label truncates while the running agent name stays visible and state plus elapsed time keep separate columns.",
+      note: "Narrow-width check: at 260px the longest supported model label (a finished agent's, which differs from the workflow's) truncates while the agent name stays visible and state plus elapsed time keep separate columns.",
       props: workflowProps("running", "detail", 260, "anthropic/claude-sonnet-5-5"),
-      play: assertNarrowWorkflowLayout,
+      play: narrowWorkflowLayout(true),
     },
     usage: {
       note: "Chosen: Usage's own metric rows reserve the shared leading slot, so their labels start on the same text column as Context and peer-session rows without repeating a generic icon. The section keeps this chat's last 24 hours (cost, tokens, the context each call carries with Compact beside it, its autocompact cap, compactions, subagents with Show, the launcher), then every session acpmux lists on this Mac and its peers, highest 24h cost first; five show, then View all. Folded, it is one row after Context: this chat's 24h cost.",
@@ -1751,29 +1811,28 @@ export default componentEntry<Props>({
       play: chevronOnHoverAfterTitle,
     },
     "header-grip-hover": {
-      note: "A section head under the pointer: the six-dot grip, two across and three down, shows in the panel's left gutter beside the head's pill, on its middle line (Lucas, 2026-11-05, Session Info lab: inside the pill it \"looks strange and poorly positioned\"). The title does not move. At rest no grip draws, and a pointer over the section's other rows shows none.",
+      note: "Chosen. A section head under the pointer: a small, faint six-dot grip (two across and three down, 1.5px dots 4px apart, the reference's size) shows in the panel's right gutter past the head's count, on its middle line (Leo, 2026-11-06: \"if you look at the spacing of claude code, they have theirs at the right\"). Nothing in the head moves; the gutter is always kept. At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
     },
-    "header-grip-edge": {
-      note: 'Before, for comparison: the grip centred on the head\'s left edge, half on and half off its pill, as cmux#34269 drew it (Leo, 2026-11-04: "this is off").',
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:0px" },
+    "header-grip-rest": {
+      note: 'Compared, not chosen: the grip faint at rest as the reference panel draws it, right of the count. Six faint dots on every section head at rest read as clutter in a panel with eight heads (Leo, 2026-11-02, on an always-on grip: "THESE ARE JUST SO INSANELY STUPID LOOKING").',
+      props: { ...full, placement: "push", grip: "rest" },
+    },
+    "header-grip-left-small": {
+      note: 'Compared, not chosen: the grip on head hover in the left gutter beside the title, at the reference\'s size. It still crowds the title (Leo, 2026-11-06: "I do not like the layout and proportion of the dragger").',
+      props: { ...full, placement: "push", grip: "left" },
       play: hoverFirstHead,
     },
-    "header-grip-gutter": {
-      note: "Compared, not chosen: the wide grip wholly in the gutter left of the pill. It reads as detached from its row and runs into the panel's resize edge.",
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:calc(-1 * var(--grid-base))" },
+    "header-grip-whole-head": {
+      note: "Compared, not chosen: no grip at rest, the whole head takes the grab cursor, and the grip shows on hover. A press on a head already folds the section, so a whole-head drag would need a move threshold before every fold click; the grip alone keeps the fold click instant.",
+      props: { ...full, placement: "push", grip: "head" },
       play: hoverFirstHead,
     },
-    "header-grip-tall": {
-      note: "Before, for comparison: the grip turned upright (two across, three down), as cmux#32930 drew it.",
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-turn:rotate(90deg)" },
-      play: hoverFirstHead,
-    },
-    "header-grip-left": {
-      note: "Every section's grip, icon heads and the bare Environment rows included, sits left of its head's icon or title, away from the scrollbar's thumb on the right.",
+    "header-grip-right": {
+      note: "Every section's grip, icon heads and the bare Environment rows included, sits in the right gutter past its own head, inside the panel.",
       props: { ...full, placement: "push" },
-      play: gripLeftOfEveryTitle,
+      play: gripRightOfEveryHead,
     },
     "edge-hairline": {
       note: "Chosen. The panel in the gutter with no fill of its own and a hairline edge in the pane's border color (--agent-border, 0.5px) on its rounded corners (Leo, 2026-11-03: \"maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better\").",
