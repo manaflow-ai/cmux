@@ -826,9 +826,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       const other = pasted.length ? undefined : pastedImageFiles(event.clipboardData);
       const files = other ? other.files : pasted;
       if (!other) event.preventDefault();
-      // Keep every file from one paste event, including screenshots with identical bytes. A
-      // repeated one-file paste is still content-deduped against the existing chip.
-      if (files.length) void attach(files, owned.uploads, "paste", files.length === 1);
+      // Keep separate file-only pastes distinct. Clipboard HTML represents the same copied
+      // screenshot twice (file and image markup), so those representations are content-deduped.
+      const dedupePaste = files.length === 1 || other !== undefined || event.clipboardData.types.includes("text/html");
+      if (files.length) void attach(files, owned.uploads, "paste", dedupePaste);
       if (other?.text !== undefined) pasteTextInto(event, other.text);
     };
     const removeFileDropLifecycle = installFileDropLifecycle(
