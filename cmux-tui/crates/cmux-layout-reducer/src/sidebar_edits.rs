@@ -18,6 +18,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 
+#[cfg(test)]
+mod creator_tests;
 mod names;
 mod order;
 mod placement;
