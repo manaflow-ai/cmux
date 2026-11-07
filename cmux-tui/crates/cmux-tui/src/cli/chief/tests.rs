@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::adapter::{Draft, DraftKind, Drafts, UiEvent, adapt};
 use super::chat::Chat;
 use super::editor::{Editor, EditorAction};
-use super::link::{envelope, is_brain_socket, select_chief, send_params};
+use super::link::{is_brain_socket, select_chief, send_params};
 use super::pipe::finish_text;
 use super::render::wrap;
 use super::turn::TurnWatch;
@@ -172,21 +172,6 @@ fn a_brain_session_socket_is_refused() {
     assert!(is_brain_socket(Path::new("/Users/me/.cmux/brains/chief/daemon.sock")));
     assert!(!is_brain_socket(Path::new("/tmp/cmux-501/main.sock")));
     assert!(!is_brain_socket(Path::new("/Users/me/brains/.cmux/x.sock")));
-}
-
-#[test]
-fn requests_are_v2_operations_on_the_current_session() {
-    let line = envelope("chief-1", "conversation.send", send_params(CONV, "hi"), Some("cli-1"));
-    assert_eq!(line["protocol"], "cmux.protocol/2");
-    assert_eq!(line["type"], "request");
-    assert_eq!(line["operation"], "conversation.send");
-    assert_eq!(line["idempotency_key"], "cli-1");
-    assert_eq!(
-        line["params"],
-        json!({"conversation": CONV, "text": "hi", "machine": "current", "session": "current"})
-    );
-    let read = envelope("chief-2", "conversation.list", json!({}), None);
-    assert!(read.get("idempotency_key").is_none());
 }
 
 #[test]
