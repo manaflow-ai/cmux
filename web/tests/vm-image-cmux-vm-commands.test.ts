@@ -233,8 +233,8 @@ describe("cmux VM image snapshot-ready check", () => {
         writeFileSync(path.join(root, file), "{}");
       }
       const result = await ready(root);
-      expect(result.status, files.join(" ")).not.toBe(0);
-      expect(result.stderr, files.join(" ")).toContain(message);
+      expect({ files, status: result.status === 0 ? "passed" : "refused" }).toEqual({ files, status: "refused" });
+      expect(result.stderr).toContain(message);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -258,7 +258,7 @@ describe("cmux VM image snapshot-ready check", () => {
   });
 
   test("runs right before the snapshot, after the page cache warm and before the machine-health arm", () => {
-    const source = readFileSync(path.join(import.meta.dir, "../scripts/cmux-vm-image/bake.ts"), "utf8");
+    const source = readFileSync(new URL("../scripts/cmux-vm-image/bake.ts", import.meta.url), "utf8");
     const at = source.indexOf('L.step(vm, "snapshot-ready", snapshotReadyCommand())');
     expect(at).toBeGreaterThan(source.indexOf('"drop-cache-warm-bind-path"'));
     expect(at).toBeLessThan(source.indexOf('L.step(vm, "machine-health-arm"'));
