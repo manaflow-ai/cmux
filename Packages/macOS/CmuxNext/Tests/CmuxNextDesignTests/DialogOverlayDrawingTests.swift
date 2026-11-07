@@ -58,4 +58,24 @@ import Testing
         center.dismiss(id)
         #expect(drawing.detached == 1)
     }
+
+    /// Review 5 of #37296 (F1): an app-scope dialog's region was a fixed 520 x 420 points, so a card the
+    /// interface scale made 570 points wide (380 px at 1.5) or a long dialog was clipped by the panel.
+    @Test func anAppDialogsRegionGrowsToHoldItsCard() {
+        let drawing = Drawing()
+        let center = CmuxDialogCenter(host: CmuxDialogOverlayHost(drawing: drawing, activate: {}, isAppActive: { true }))
+        let id = center.present(CmuxDialogSpec(title: "Quit cmux?", buttons: [.cancel(), .ok()]), in: .app) { _ in }
+        defer { center.dismiss(id) }
+        guard let dialog = center.dialog(id), let view = dialog.view else {
+            Issue.record("the app dialog has no view")
+            return
+        }
+        #expect(view.frame.size == CmuxDialogOverlayHost.appRegion)
+        dialog.cardRect = CGRect(x: 0, y: 0, width: 570, height: 600)
+        #expect(view.frame.width >= 570 + CmuxDialogOverlayHost.appMargin * 2)
+        #expect(view.frame.height >= 600 + CmuxDialogOverlayHost.appMargin * 2)
+        // A card that fits leaves the least region.
+        #expect(CmuxDialogOverlayHost.appRegion(holding: CGRect(x: 0, y: 0, width: 380, height: 200))
+            == CmuxDialogOverlayHost.appRegion)
+    }
 }

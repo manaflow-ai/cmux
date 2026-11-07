@@ -49,8 +49,18 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
 
     /// What draws the dialogs (the overlay page); nil draws none (a host made before launch wired it).
     private let drawing: (any CmuxDialogDrawing)?
-    /// The size of an app-scope dialog's region (no window to fill): room for the widest card.
+    /// The least size of an app-scope dialog's region (no window to fill); it grows to hold the card.
     static let appRegion = NSSize(width: 520, height: 420)
+    /// Room around an app-scope card for its shadow.
+    static let appMargin: CGFloat = 64
+
+    /// The app-scope region for a card of `card` points: never smaller than ``appRegion``, so a card the
+    /// interface scale makes wider or a long dialog makes taller is never clipped by the panel.
+    static func appRegion(holding card: CGRect?) -> NSSize {
+        guard let card else { return appRegion }
+        return NSSize(width: max(appRegion.width, ceil(card.width) + appMargin * 2),
+                      height: max(appRegion.height, ceil(card.height) + appMargin * 2))
+    }
 
     private var shown: [ObjectIdentifier: Shown] = [:]
     /// Brings the app forward for an app-scope dialog: the app host hides
@@ -130,11 +140,21 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         // A tab's dialog shown again after a tab switch keeps its view: only its end gives the view back.
         guard let view = entry.dialog.view ?? drawing?.attach(entry.dialog, in: scope.window) else { return }
         let options = Self.options(for: scope)
-        view.frame = NSRect(origin: .zero, size: options.anchor?.size ?? Self.appRegion)
+        view.frame = NSRect(origin: .zero, size: options.anchor?.size ?? Self.appRegion(holding: entry.dialog.cardRect))
         entry.dialog.view = view
         let handle = host.present(view, options: options)
         // The window closed (its host dismissed every overlay): the dialog ends.
         handle.onDismiss = entry.scopeGone
+        if case .app = scope {
+            // The panel holds the card the page lays out: the region grows to it, and the panel follows.
+            entry.dialog.onCardRect = { [weak handle, weak view, weak dialog = entry.dialog] in
+                guard let handle, let view, let dialog else { return }
+                let size = Self.appRegion(holding: dialog.cardRect)
+                guard view.frame.size != size else { return }
+                view.setFrameSize(size)
+                handle.host?.layout(handle)
+            }
+        }
         if case .window = scope {
             // The page fills the window: it follows the window's size.
             handle.onWindowGeometryChange = { [weak handle, weak view] in

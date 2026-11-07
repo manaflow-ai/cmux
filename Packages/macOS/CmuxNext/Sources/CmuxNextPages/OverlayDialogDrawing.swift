@@ -98,6 +98,9 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
 
     func dialogMoveFocus(_ dialog: CmuxDialogPresentation, backward: Bool) {
         guard dialog === self.dialog else { return }
+        // A key the window answered for the dialog (its panel lost key): the page takes the keyboard
+        // back, so what the person types next reaches the field the focus moves to.
+        container?.page.focusPage()
         focusSerial += 1
         focusBackward = backward
         publish()

@@ -22,8 +22,14 @@ public final class CmuxDialogPresentation {
     public internal(set) weak var view: NSView?
     /// The card's rect in ``view``'s coordinates, as the page last laid it out; nil before.
     public var cardRect: CGRect? {
-        didSet { if cardRect != nil { resumeCardWaiters() } }
+        didSet {
+            guard cardRect != nil else { return }
+            resumeCardWaiters()
+            onCardRect?()
+        }
     }
+    /// The host follows the card (an app-scope dialog's region grows to hold it).
+    var onCardRect: (() -> Void)?
     /// Who waits for the card's first rect (`debug.dialog_strip`): resumed when it arrives.
     var cardWaiters: [CheckedContinuation<Void, Never>] = []
 
