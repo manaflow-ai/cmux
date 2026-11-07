@@ -229,9 +229,9 @@ def seed(root, repo):
             sent = peer.acpmux("send", session, text, timeout=180)
             if sent.returncode != 0:
                 raise SystemExit(f"right-pane-open: send {text!r}: {(sent.stdout + sent.stderr).strip()[-2000:]}")
-        template = icl.read_chat(peer.home, session)
     finally:
         peer.stop()
+    template = icl.read_chat(peer.home, session)  # after the stop: its shutdown checkpoint writes session.json
     home = os.path.join(root, "acpmux")
     icl.private_dir(home)
     icl.private_dir(os.path.join(home, "sessions"))
