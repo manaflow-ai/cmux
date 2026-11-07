@@ -669,3 +669,44 @@ test("plan and blocked-read asks reserve the parts their cards draw", () => {
   // Its macOS detail line shows, and no scope line under the buttons.
   expect(external).toBeGreaterThan(plain + 8);
 });
+
+// A prompt drawn in its parts' order (conversation/InlinePromptContent.tsx) is estimated from what
+// its bubble draws, not its recorded text: a text file is its chip, never the body behind it, and a
+// placed paste joins its typed words as the draft had them, not on lines of its own.
+test("a sent text file is estimated as its chip, not its long body", () => {
+  const { lineHeight } = currentChatMetrics();
+  const padding = BUBBLE.oneLine - lineHeight;
+  const typed = "Read this file";
+  const fileRow = (body: string) => ({
+    id: "u",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: `${typed}\n${body}`,
+    inlineParts: [
+      { kind: "text", text: typed },
+      { kind: "file", name: "notes.txt", mimeType: "text/plain", text: body, placed: true },
+    ],
+  });
+  const long = Array.from({ length: 400 }, (_, index) => `note ${index}`).join("\n");
+  const [height] = heightsOf([fileRow(long)]);
+  // Its one typed line and the chip's row: the chip keeps its room.
+  expect(height).toBeCloseTo(padding + lineHeight + 36, 5);
+  expect(heightsOf([fileRow("one line")])[0]).toBe(height!);
+});
+
+test("a placed paste is estimated as the one body its bubble draws", () => {
+  const { lineHeight } = currentChatMetrics();
+  const padding = BUBBLE.oneLine - lineHeight;
+  // Ten short pastes between typed words: the draft reads as one run of words; the record keeps
+  // acpmux's join, a line each.
+  const parts = Array.from({ length: 10 }, (_, index) => [
+    { kind: "text", text: ` w${index} ` },
+    { kind: "pasted", name: `paste ${index}`, text: `p${index}`, placed: true },
+  ]).flat();
+  const text = parts.map((part) => part.text).join("\n");
+  const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, inlineParts: parts }]);
+  const drawn = parts.map((part) => part.text).join("");
+  expect(heightsOf([{ id: "drawn", version: 1, at: 0, kind: "user", text: drawn }])[0]).toBe(height!);
+  expect(height!).toBeLessThan(padding + 4 * lineHeight);
+});

@@ -3,12 +3,13 @@ import type { PromptContentPart, PromptImage } from "../model";
 import { attachmentPath, FileAttachment } from "../FileAttachment";
 import { PastedText, PromptText, PromptTyped } from "./PromptText";
 import {
-  agentPaste,
+  blockText,
+  drawnBody,
   drawnPromptText,
   HUGE_PROMPT_HEAD_CHARS,
   hasHugeTypedPart,
   headParts,
-  oneBody,
+  isStripMedia,
 } from "./promptCollapse";
 import { experimentArm } from "../../../experiments/experiment";
 import { sentPasteJoin } from "./sentPasteJoin.experiment";
@@ -34,7 +35,7 @@ export const InlinePromptContent = memo(function InlinePromptContent({
 }) {
   const join = experimentArm(sentPasteJoin);
   // The words between two pastes are the draft's own runs, so as typed the runs join with nothing.
-  const body = useMemo(() => oneBody(parts, bodyText, join, ""), [parts, join]);
+  const body = useMemo(() => drawnBody(parts, join), [parts, join]);
   return (
     <PromptText
       rowId={rowId}
@@ -108,28 +109,7 @@ export function readsAsText(part: PromptContentPart): boolean {
   return part.kind === "text" ? part.text.trim() !== "" : part.kind === "pasted" || Boolean(blockText(part));
 }
 
-/** The text block a part went to the agent as (typed text, a pasted block, a text file's body), or
- * none for an attachment. */
-function blockText(part: PromptContentPart): string | undefined {
-  if (part.kind === "text") return part.text;
-  if (part.kind === "pasted" || (part.kind === "file" && !part.uri)) return part.text;
-  return undefined;
-}
-
-/** A part's text when it is part of the message's one body: typed text, or a paste of the
- * person's (not one another agent wrote, which stands apart with its "Pasted from" line). */
-function bodyText(part: PromptContentPart): string | undefined {
-  if (part.kind === "text") return part.text;
-  if (part.kind === "pasted" && part.text !== undefined && !agentPaste(part.text)) return part.text;
-  return undefined;
-}
+export { isStripMedia };
 
 /** A body's text: what a collapsed huge prompt's head counts. */
 const typedText = (part: PromptContentPart) => (part.kind === "text" ? part.text : undefined);
-
-/** The parts the strip setting moves to the band above the bubble: attachments, not what reads as
- * the prompt's text (typed text, pasted blocks and a text file's body stay in the bubble, as a
- * legacy prompt's do), so the bubble keeps the recorded text whole. */
-export function isStripMedia(part: PromptContentPart): part is Exclude<PromptContentPart, { kind: "text" }> {
-  return blockText(part) === undefined;
-}

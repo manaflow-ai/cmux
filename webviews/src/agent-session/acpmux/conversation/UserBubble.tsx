@@ -37,6 +37,7 @@ import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
 import { recordedPromptParts } from "../inlinePrompt";
+import { inlineBubbleParts } from "./promptCollapse";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -151,13 +152,9 @@ export function UserBubble({
   // keeps it; inlinePrompt.ts), or text follows an attachment, which the old shape never has.
   // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
   // to read beside its attachments, keep the legacy bands above the bubble.
-  const firstMedia = orderedParts?.findIndex((part) => part.kind !== "text") ?? -1;
   const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
-  const hasInterleaved =
-    firstMedia >= 0 &&
-    (placed
-      ? orderedParts!.some((part) => !isStripMedia(part))
-      : orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text"));
+  // The row's height estimate reads the same rule (promptCollapse.ts `inlineBubbleParts`).
+  const hasInterleaved = orderedParts !== undefined && inlineBubbleParts(orderedParts) !== undefined;
   const strip = useComposerSettings().attachmentView === "strip" && hasInterleaved;
   // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
   const banded = (part: PromptContentPart) =>

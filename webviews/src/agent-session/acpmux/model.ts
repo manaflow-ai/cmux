@@ -62,7 +62,9 @@ import {
   type PasteRange,
   HUGE_PROMPT_HEAD_CHARS,
   collapsedPromptHeight,
+  drawnBody,
   hasHugeTypedPart,
+  inlineBubbleParts,
   isHugePrompt,
   promptHead,
   recordedBody,
@@ -2439,8 +2441,16 @@ function measuredRowHeight(
       collapsedPromptHeight(Number.POSITIVE_INFINITY, metrics().lineHeight);
     return finish(beforeFooter ? height : Math.max(34, height));
   }
+  // A prompt drawn in its parts' order (conversation/InlinePromptContent.tsx) measures what its
+  // bubble draws, never its recorded text: a text file's body is behind its chip, and the runs of
+  // a placed prompt join as the draft had them.
+  const inline =
+    row.kind === "user" && row.inlineParts && row.from !== "chief" && !chiefEnvelope(row.text)
+      ? inlineBubbleParts(row.inlineParts)
+      : undefined;
   const plainUser =
     row.kind === "user" &&
+    !inline &&
     !pasted &&
     !row.images?.length &&
     !row.retryAttachments?.length &&
@@ -2461,10 +2471,12 @@ function measuredRowHeight(
       entry.plainHeight = { key: plainKey, height: contentHeight };
     }
   } else {
-    if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
+    if (!inline && !pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
       lexIncrementally(entry, row.text);
     }
-    if (pasted) {
+    if (inline) {
+      contentHeight = inlinePromptHeight(inline, contentWidth, entry.prepared, usedPrepared);
+    } else if (pasted) {
       // A prompt with pasted blocks: one body of its typed text and the person's pastes, and a paste
       // another agent wrote apart under its "Pasted from" line (conversation/PromptText.tsx). A huge
       // part draws collapsed to its head, so its head is all there is to measure; the fold caps it.
@@ -2500,6 +2512,60 @@ function measuredRowHeight(
     contentHeight = collapsedPromptHeight(contentHeight, metrics().lineHeight);
   const height = messageBelow(beforeFooter) + chromeHeight(row, actions) + contentHeight;
   return finish(height);
+}
+
+/// A sent file's chip in a bubble's text (`.cv-user__inline-file`: a 32px chip, 2px above and below)
+/// and a sent image's or video's 120px tile (`.cv-user__inline-image`, the same margins), 4px apart.
+const INLINE_FILE_CHIP = 36;
+const INLINE_FILE_WIDTH = 348;
+const INLINE_IMAGE_TILE = 124;
+const INLINE_IMAGE_WIDTH = 128;
+
+/// A prompt drawn in its parts' order, as InlinePromptContent.tsx draws it: its one body (a huge
+/// part only to its head), a paste another agent wrote under its "Pasted from" line, and each run of
+/// attachments as rows of chips and tiles. A text file is its chip alone: its body is not drawn.
+function inlinePromptHeight(
+  parts: readonly PromptContentPart[],
+  width: number,
+  prepared: PreparedRow["prepared"],
+  used: Set<string>,
+): number {
+  const { lineHeight } = metrics();
+  const measure = (text: string) =>
+    Math.max(
+      lineHeight,
+      textHeight(isHugePrompt(text) ? promptHead(text, HUGE_PROMPT_HEAD_CHARS) : text, width, prepared, used),
+    );
+  let height = 0;
+  let chips: { width: number; height: number }[] = [];
+  const flush = () => {
+    let rowWidth = 0;
+    let rowHeight = 0;
+    for (const chip of chips) {
+      if (rowWidth > 0 && rowWidth + chip.width > width) {
+        height += rowHeight;
+        rowWidth = 0;
+        rowHeight = 0;
+      }
+      rowWidth += chip.width;
+      rowHeight = Math.max(rowHeight, chip.height);
+    }
+    height += rowHeight;
+    chips = [];
+  };
+  for (const part of drawnBody(parts, experimentArm(sentPasteJoin))) {
+    if (part.kind === "text") {
+      flush();
+      height += measure(part.text);
+    } else if (part.kind === "pasted" && "text" in part && part.text) {
+      flush();
+      height += PASTE_FROM_HEIGHT + measure(promptHead(part.text, HUGE_PROMPT_HEAD_CHARS));
+    } else if (part.kind === "image" || ("video" in part && part.video))
+      chips.push({ width: INLINE_IMAGE_WIDTH, height: INLINE_IMAGE_TILE });
+    else chips.push({ width: INLINE_FILE_WIDTH, height: INLINE_FILE_CHIP });
+  }
+  flush();
+  return height;
 }
 
 /// A row's estimated height at a width, kept by the row object: rows are immutable (a change is a

@@ -228,3 +228,47 @@ export const recordedBody = (text: string, pasted: readonly PasteRange[], join: 
 export function drawnPromptText(parts: readonly PromptContentPart[]): string {
   return parts.flatMap((part) => (part.kind === "text" || part.kind === "pasted" ? (part.text ?? []) : [])).join("\n");
 }
+
+/** The text block a part went to the agent as (typed text, a pasted block, a text file's body), or
+ * none for an attachment. */
+export function blockText(part: PromptContentPart): string | undefined {
+  if (part.kind === "text") return part.text;
+  if (part.kind === "pasted" || (part.kind === "file" && !part.uri)) return part.text;
+  return undefined;
+}
+
+/** The parts the strip setting moves to the band above the bubble: attachments, not what reads as
+ * the prompt's text (typed text, pasted blocks and a text file's body stay in the bubble, as a
+ * legacy prompt's do), so the bubble keeps the recorded text whole. */
+export function isStripMedia(part: PromptContentPart): part is Exclude<PromptContentPart, { kind: "text" }> {
+  return blockText(part) === undefined;
+}
+
+/** A part's text when it is part of the message's one body: typed text, or a paste of the
+ * person's (not one another agent wrote, which stands apart with its "Pasted from" line). */
+function bodyText(part: PromptContentPart): string | undefined {
+  if (part.kind === "text") return part.text;
+  if (part.kind === "pasted" && part.text !== undefined && !agentPaste(part.text)) return part.text;
+  return undefined;
+}
+
+/// A placed prompt's parts as its bubble draws them (InlinePromptContent.tsx): one text body of its
+/// typed words and the person's pastes between two attachments, as the draft read; a paste another
+/// agent wrote apart; each attachment (a text file too) its chip, its body undrawn. What the bubble
+/// draws and the row's height estimate measures (model.ts), so the two never disagree.
+export const drawnBody = (parts: readonly PromptContentPart[], join: PasteJoin) => oneBody(parts, bodyText, join, "");
+
+/// The parts a recorded prompt draws in its bubble in their order (UserBubble.tsx `hasInterleaved`),
+/// or undefined when it keeps the legacy bands above a bubble of its recorded text. Placed: the pane
+/// marked an attachment so, or text follows an attachment, which the old shape never has. A placed
+/// prompt's attachment the composer left in the strip (unmarked) draws in the band, not the bubble.
+export function inlineBubbleParts(parts: readonly PromptContentPart[]): PromptContentPart[] | undefined {
+  const firstMedia = parts.findIndex((part) => part.kind !== "text");
+  if (firstMedia < 0) return undefined;
+  const placed = parts.some((part) => part.kind !== "text" && part.placed === true);
+  const interleaved = placed
+    ? parts.some((part) => !isStripMedia(part))
+    : parts.slice(firstMedia + 1).some((part) => part.kind === "text");
+  if (!interleaved) return undefined;
+  return placed ? parts.filter((part) => !isStripMedia(part) || part.placed === true) : [...parts];
+}
