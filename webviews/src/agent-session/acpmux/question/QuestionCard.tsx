@@ -832,7 +832,8 @@ function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answe
 }
 
 /// An ask that ended unanswered: the same card, its questions, and in the answer's place how it
-/// ended when the record says (Skipped, or the turn stopped before an answer), else Not answered.
+/// ended when the record says (Skipped, the turn stopped before an answer, or Answered in chat when
+/// the person replied in their own words instead), else Not answered.
 function CancelledQuestion({ question }: { question: AgentQuestion }) {
   const t = useT();
   const reason = question.state.kind === "cancelled" ? question.state.reason : undefined;
@@ -841,7 +842,9 @@ function CancelledQuestion({ question }: { question: AgentQuestion }) {
       ? "question.outcome.skipped"
       : reason === "stopped"
         ? "question.outcome.stopped"
-        : "question.outcome.none";
+        : reason === "answeredInChat"
+          ? "question.outcome.answeredInChat"
+          : "question.outcome.none";
   return (
     <div className="acpmux-question-cancelled" data-reason={reason}>
       {question.items.map((item) => (

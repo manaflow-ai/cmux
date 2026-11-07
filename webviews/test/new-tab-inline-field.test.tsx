@@ -270,3 +270,20 @@ test("a pasted chip in the strip expands back into the prompt when opened", asyn
   expect(editor.textContent).toContain("before");
   expect(editor.textContent).toContain("line 130 of the build log");
 });
+
+// Review of #37674 (F1): only a paste takes the selection's place (inlineAttachments.tsx `place`). The
+// New Tab page told the field every attachment was a paste, so a file dropped while the prompt was
+// selected deleted it.
+test("a file dropped on New Tab while its prompt is selected keeps the prompt", async () => {
+  const field = await render([]);
+  await type(field, "keep every word of this");
+  await act(async () => field.acpmuxMarkdownField!.selectAll());
+  const file = new File(["notes for the agent"], "notes.txt", { type: "text/plain" });
+  const drop = new dom.window.Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, "dataTransfer", {
+    value: { files: [file], types: ["Files"], items: [], getData: () => "" },
+  });
+  await act(async () => dom.window.document.dispatchEvent(drop));
+  await until(() => !!host.querySelector(".nt-input .acpmux-md-inline-chip"));
+  expect(field.acpmuxMarkdownField!.value()).toContain("keep every word of this");
+});

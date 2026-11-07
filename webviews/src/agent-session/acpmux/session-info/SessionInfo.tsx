@@ -1712,6 +1712,9 @@ export function SessionInfoPanel({
       }}
       inert={presence?.leaving}
       className={glass ? "ui-glass ui-glass-floats acpmux-session-info" : "acpmux-session-info"}
+      // Its glass is the App's own popover glass, drawn under the page (ui/glass/hostGlass.ts; Leo,
+      // 2026-11-06: "the f***ing session info. Like, wait, why the f*** is this not glass?").
+      data-host-glass={glass ? "popover" : undefined}
       data-placement={placement}
       data-chrome={title ? "title" : onClose ? chrome : "none"}
       data-over-chat={foot !== undefined ? "" : undefined}

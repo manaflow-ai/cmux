@@ -21,6 +21,7 @@ mod owner_lock;
 mod per_lane;
 pub mod provider;
 pub mod secret_file;
+pub mod secrets;
 pub mod secure_directory;
 pub mod service;
 pub mod services;

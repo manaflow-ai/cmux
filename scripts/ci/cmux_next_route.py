@@ -146,6 +146,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-cloud-handlers/",
     "cmux-tui/crates/cmux-cloud-machine/",
     "cmux-tui/crates/cmux-cloud-tasks/",
+    "cmux-tui/crates/cmux-daemon-conn-core/",
     "cmux-tui/crates/cmux-daemon-launch-core/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
@@ -154,6 +155,9 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-rd-core/",
     "cmux-tui/crates/cmux-rd-proto/",
     "cmux-tui/crates/cmux-rd-ffi/",
+    # The SDK's C ABI (the app's daemon client). The SDK it wraps (cmux-tui/bindings/rust/)
+    # reaches the app only through the pinned FFI release, whose repin routes the Swift jobs.
+    "cmux-tui/crates/cmux-sdk-ffi/",
     "cmux-tui/rust-toolchain.toml",
     "scripts/cmux-next/build-app-ffi.sh",
 )

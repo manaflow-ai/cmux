@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextTabs
+import CmuxNextWindowRules
 
 /// Tab group actions (architecture.md section 7): create,
 /// membership, rename, nine colors, collapse, ungroup, close, reorder, move
@@ -15,11 +16,11 @@ enum TabGroupHandlers {
 
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         let gate = ctx.needs(DaemonCapability.tabGroups.rawValue)
-        func bind(_ id: ActionID, _ invoke: @escaping @MainActor (ActionInvocation) -> Void) {
-            registry.bind(id, unavailable: gate, invoke: invoke)
-        }
+        func bind(_ id: ActionID, _ invoke: @escaping @MainActor (ActionInvocation) -> Void) { registry.bind(id, unavailable: gate, invoke: invoke) }
         bindMembership(bind, ctx)
         ActionTargetVisibility.hide("tabGroup.removeTab", in: registry) { run in run.target.flatMap { $0.kind == .tab ? ctx.targetTab($0.id, run) : nil }.map { $0.0.tabGroup == nil } ?? false }
+        // Add Tab to Group… asks for a group: with no other group to join it says why, never an empty list to pick from.
+        ctx.setTargetReason("tabGroup.addTab") { run in run["group"] != nil ? nil : ctx.daemonTab(run).flatMap { TabGroupWrites.joinRefusal(for: $0.tab, in: ctx.services.daemon(for: $0.pane).store) } }
         bindAppearance(bind, ctx)
         bindLifecycle(bind, ctx)
         TabGroupHandlers.bindMoves(bind, ctx)
@@ -157,8 +158,8 @@ enum TabGroupHandlers {
     private static func setCollapsed(_ value: Bool?, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let (group, pane) = group(invocation, ctx) else { return }
         let current = pane.tabGroups.first { $0.id == group }?.collapsed ?? false
-        let collapsed = value ?? !current
-        guard collapsed != current else { return }
+        // Nil: no change (Rust's `tabs::group_collapse`).
+        guard let collapsed = WindowRules().groupCollapse(value, current: current) else { return }
         if collapsed, let controller = ctx.services.paneController(for: pane) {
             // The collapse rule (`TabGroupOrdering`), shared with screen groups.
             let strip = controller.stripModel
