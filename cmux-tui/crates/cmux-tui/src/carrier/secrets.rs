@@ -252,10 +252,7 @@ async fn exchange(
 
 /// `answer`'s line, or `timeout` (retryable) once `deadline` passes: a
 /// daemon that holds the session open without answering never outlasts it.
-async fn within(
-    deadline: tokio::time::Instant,
-    answer: impl Future<Output = Value>,
-) -> Value {
+async fn within(deadline: tokio::time::Instant, answer: impl Future<Output = Value>) -> Value {
     tokio::time::timeout_at(deadline, answer)
         .await
         .unwrap_or_else(|_| failure("timeout", None, true))
