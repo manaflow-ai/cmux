@@ -148,6 +148,7 @@ pub(super) fn forget_other_lease(inner: &Inner, cloud: &CloudConversations) {
         if state.reports.clear() {
             events.push(FeedEvent::Reports { revision: state.reports.revision() });
         }
+        state.reports_epoch = state.reports_epoch.wrapping_add(1);
         state.reports_generation = state.reports_generation.wrapping_add(1);
         events.extend(state.mirror.set_connection(Connection::Connecting).map(view_event));
         events
@@ -183,6 +184,7 @@ pub(super) fn change_account(state: &mut State, user: Option<String>, now: i64) 
     }
     state.owner.set_user(user.as_deref().unwrap_or_default());
     state.account = user;
+    state.reports_epoch = state.reports_epoch.wrapping_add(1);
     state.reports_generation = state.reports_generation.wrapping_add(1);
     events
 }

@@ -413,10 +413,21 @@ fn reports_read_the_users_mailbox_and_page_by_cursor() {
             .iter()
             .any(|event| matches!(event, FeedEvent::Reports { revision: 1 }))
     );
-    // Another account empties the basket.
-    let events =
-        super::driver::change_account(&mut h.feed.inner.lock(), Some("u2".to_owned()), NOW);
-    assert_eq!(events, vec![FeedEvent::Reports { revision: 2 }]);
+    // Signed out and in again as the same person: the basket was emptied, so
+    // the mailbox is read from the start, not from the old cursor.
+    let events = super::driver::change_account(&mut h.feed.inner.lock(), None, NOW);
+    assert!(events.contains(&FeedEvent::Reports { revision: 2 }), "{events:?}");
+    super::driver::change_account(&mut h.feed.inner.lock(), Some("u1".to_owned()), NOW);
+    h.feed.inner.wake.notify_all();
+    wait_until("the read from the start", || {
+        h.mailbox
+            .asked
+            .lock()
+            .unwrap()
+            .iter()
+            .skip(2)
+            .any(|asked| asked == &("reports:u1".to_owned(), 0))
+    });
 }
 
 #[test]

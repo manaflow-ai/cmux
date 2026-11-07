@@ -3,9 +3,11 @@
 //! `<person>` is the lease's Stack user id (the JWT `sub`, the address the
 //! app read before), else the feed owner's user id (a self-hosted lease). Each pass
 //! is one `_acpmux/mail/wait` long wait (acpmux answers on a new message or
-//! its timeout); failures back off 250 ms doubling for ten tries, then the
-//! reader waits for a wakeup (the app turns active, the account changes).
-//! It stops at `FeedClient::shutdown`.
+//! its timeout); failures back off 250 ms doubling up to 30 s and keep
+//! trying at that pace while acpmux is down (one failed local connect per
+//! 30 s), so a started or restarted acpmux is read within 30 s; a wakeup
+//! (the app turns active, the account changes) ends a wait at once. It stops
+//! at `FeedClient::shutdown`.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,7 +23,6 @@ const MAIL_WAIT: Duration = Duration::from_secs(25);
 const MAIL_LIMIT: usize = 500;
 const FIRST_BACKOFF: Duration = Duration::from_millis(250);
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
-const RETRIES: u32 = 10;
 /// A wait for a wakeup ends at least this often.
 const IDLE_WAIT: Duration = Duration::from_secs(600);
 
@@ -86,18 +87,21 @@ fn backoff(failures: u32) -> Duration {
 fn run(inner: &Inner) {
     let mut cursor = 0_u64;
     let mut reading: Option<String> = None;
+    let mut read_epoch = 0_u64;
     let mut failures = 0_u32;
     while !inner.stopped() {
-        let (account, generation) = {
+        let (account, generation, epoch) = {
             let state = inner.lock();
-            (state.account.clone(), state.reports_generation)
+            (state.account.clone(), state.reports_generation, state.reports_epoch)
         };
         let user = person(inner, account.as_deref());
-        if user != reading {
-            // Another account reads its own mailbox from the start.
+        if user != reading || epoch != read_epoch {
+            // Another account, or the basket was emptied (a sign-out and in
+            // again): the mailbox is read from the start.
             cursor = 0;
             failures = 0;
             reading.clone_from(&user);
+            read_epoch = epoch;
         }
         let Some(user) = user else {
             wait_change(inner, generation, IDLE_WAIT);
@@ -113,10 +117,9 @@ fn run(inner: &Inner) {
                 let page = MailPage::from_value(&result);
                 let event = {
                     let mut state = inner.lock();
-                    // Another person since the wait began: the page is not theirs.
-                    if state.reports_generation != generation
-                        && person(inner, state.account.as_deref()).as_deref() != Some(user.as_str())
-                    {
+                    // The basket was emptied since the wait began: the page
+                    // is the old one's, and the next pass starts over.
+                    if state.reports_epoch != epoch {
                         continue;
                     }
                     cursor = page.cursor_after(cursor);
@@ -128,12 +131,8 @@ fn run(inner: &Inner) {
                 inner.emit(event.into_iter().collect());
             }
             Err(_) => {
-                failures += 1;
-                let wait = if failures <= RETRIES { backoff(failures) } else { IDLE_WAIT };
-                wait_change(inner, generation, wait);
-                if failures > RETRIES {
-                    failures = 0;
-                }
+                failures = failures.saturating_add(1);
+                wait_change(inner, generation, backoff(failures));
             }
         }
     }

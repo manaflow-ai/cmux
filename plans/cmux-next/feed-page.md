@@ -114,8 +114,9 @@ and on each `feed.view.changed`, a newer read supersedes an older reply; no poll
   daemon's `feed_client` (cmux-tui-core) runs three threads, each ending at `Mux::shutdown`: the
   cloud driver (waits on the socket, a backoff of 1 s doubling to 30 s, or a new lease; a queued
   frame interrupts the receive through `CloudWire::interrupter`), the GitHub poller (only while on;
-  waits the interval or a wakeup) and the Reports reader (one `_acpmux/mail/wait` per pass; ten
-  backed-off retries, then it waits for a wakeup).
+  waits the interval or a wakeup) and the Reports reader (one `_acpmux/mail/wait` per pass on
+  `reports:<the lease's Stack user>`; while acpmux is down it retries with a backoff of 250 ms
+  doubling to 30 s and stays at 30 s, one failed local connect each; a wakeup ends a wait).
 - The socket is opened through the cloud link's backend with the lease's bearer
   (`CloudConversations::open_owner_wire`), so the token stays in that crate. Not
   `cmux_cloud_wire::StreamMirror`: the feed owner's events carry the changed items, not the op log.

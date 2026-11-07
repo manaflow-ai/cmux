@@ -120,6 +120,9 @@ pub(crate) struct State {
     pub(crate) reports: Reports,
     /// Bumped on every account change and wakeup: the reader's wait ends.
     pub(crate) reports_generation: u64,
+    /// Bumped whenever the basket is emptied for an account or lease change:
+    /// the reader starts over from cursor 0 and drops a page read before.
+    pub(crate) reports_epoch: u64,
     pub(crate) presence: bool,
     waiters: HashMap<String, Vec<SyncSender<Result<(), Reject>>>>,
     recent: VecDeque<(String, Result<(), Reject>)>,
@@ -266,6 +269,7 @@ impl FeedClient {
             github_error: None,
             reports: Reports::default(),
             reports_generation: 0,
+            reports_epoch: 0,
             presence: false,
             waiters: HashMap::new(),
             recent: VecDeque::new(),
