@@ -212,10 +212,7 @@ fn the_step_resets_every_other_helper_and_writes_no_token() {
     }
     assert!(step.contains(r#"checkout --quiet --detach "$commit" --"#));
     // Only the code: the comments may say what it guards against.
-    let code: Vec<&str> = step
-        .lines()
-        .filter(|l| !l.trim_start().starts_with('#'))
-        .collect();
+    let code: Vec<&str> = step.lines().filter(|l| !l.trim_start().starts_with('#')).collect();
     let code = code.join("\n");
     for leak in ["token", "GH_TOKEN", "password", "credential.helper=store", "hosts.yml", "gh auth"]
     {
