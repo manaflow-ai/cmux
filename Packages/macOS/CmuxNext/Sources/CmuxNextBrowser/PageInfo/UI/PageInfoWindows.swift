@@ -177,6 +177,8 @@ private final class SiteSettingsSource {
         switch command {
         case .setPermission(let kind, let setting):
             guard provider.supportedSitePermissions.contains(kind) else { return }
+            // The engine takes the choice too: its own decision for the kind is this one now.
+            live[kind] = setting
             if isCurrentOrigin { return send(.setPermission(kind, setting)) }
             store.set(setting, kind, for: origin)
             Task { [provider, origin] in await provider.pageInfoDidChange(kind, to: setting, origin: origin) }
