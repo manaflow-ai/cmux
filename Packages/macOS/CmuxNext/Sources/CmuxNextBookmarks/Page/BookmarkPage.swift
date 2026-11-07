@@ -85,6 +85,7 @@ public final class BookmarkPageHostProvider: PageProvider {
         case Self.prefix + "icons":
             return icons(params["ids"]?.arrayValue?.compactMap(\.stringValue) ?? [])
         case Self.prefix + "open":
+            try Self.requireGesture(context)
             // The page shows the daemon's rows: the app's tree serves only when it has the same row.
             let id = params["bookmark"]?.stringValue ?? ""
             let shown = params["url"]?.stringValue
@@ -101,6 +102,7 @@ public final class BookmarkPageHostProvider: PageProvider {
             host.openBookmark(node, profile: profile, disposition: disposition, fromTab: tabKey)
             return .object([:])
         case Self.prefix + "openAll":
+            try Self.requireGesture(context)
             // Open All reads the folder's children from the daemon, never a lagging copy.
             let tree = try await ownerTree(host)
             guard let id = params["folder"]?.stringValue, let folder = tree.node(id), folder.isFolder else {
@@ -139,6 +141,14 @@ public final class BookmarkPageHostProvider: PageProvider {
     public func pageShown() {
         guard let servedProfile, servedProfile != profile else { return }
         post("state")
+    }
+
+    /// Opening a bookmark (a saved privileged URL, its last-used time) is the person's own act: a
+    /// real click or key in the page view, or a native sheet they approved; page script alone never.
+    private static func requireGesture(_ context: PageCallContext) throws {
+        guard context.userGesture || context.isConfirmedUser else {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: BookmarkStrings.personOnlyFromPage)
+        }
     }
 
     private func ownerTree(_ host: any BookmarkPageHost) async throws -> BookmarkTree {
