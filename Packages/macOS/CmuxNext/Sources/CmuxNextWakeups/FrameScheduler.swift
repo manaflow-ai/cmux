@@ -99,7 +99,11 @@ public final class FrameScheduler: NSObject {
     private var budgetedOrder: [ObjectIdentifier] = []
     private var link: (any FrameLink)? {
         didSet {
-            Self.app.keptLinks[ObjectIdentifier(self)] = link.map { KeptLink(scheduler: self, link: $0) }
+            // This scheduler may have the address of a freed one whose entry no sweep has reached yet: end
+            // that link before the entry is replaced.
+            let id = ObjectIdentifier(self)
+            if let old = Self.app.keptLinks[id], old.scheduler == nil { old.link.invalidate() }
+            Self.app.keptLinks[id] = link.map { KeptLink(scheduler: self, link: $0) }
             noteRunning()
         }
     }
