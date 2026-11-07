@@ -140,10 +140,13 @@ public extension TabModel {
     /// terminal or a chat: a page beside another pane opens what it links in its own pane
     /// (``LinkOpenPlacement``), while a terminal or a chat keeps its split, so the place someone
     /// types never goes behind a tab.
+    /// Internal pages are conversation tabs with a page source (`page-tabs-v1`), so a conversation
+    /// tab counts only by its ``page`` (review of #37573 at bf2ce583).
     var showsPage: Bool {
         switch kind {
         case .browser, .other: true
-        case .pty, .remoteTerminal, .conversation: false
+        case .conversation: page != nil && agentSession == nil
+        case .pty, .remoteTerminal: false
         }
     }
 }

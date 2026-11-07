@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+@testable import CmuxNextDaemon
 import CmuxNextSettings
 import CoreGraphics
 import Testing
@@ -32,6 +33,22 @@ struct LinkOpenPlacementTests {
         #expect(rule.target(source: "dock", takesTabs: false, right: nil, left: "chat") == .besideDock("dock"))
         #expect(Rule(setting: .newColumn).target(source: "github", takesTabs: true, right: nil, left: "chat")
                 == .newColumn(rightOf: "github"))
+    }
+
+    /// Review of #37573 at bf2ce583: the GitHub page, a file, a diff and What's New are conversation
+    /// tabs with a page source, so they count as pages; an agent chat and a terminal do not.
+    @Test func internalPagesAndBrowserTabsArePagesButChatsAndTerminalsAreNot() {
+        func tab(_ kind: TabKind, _ conversation: ConversationTabRef? = nil) -> TabModel {
+            var snapshot = TabSnapshot(surface: 1, kind: kind, cwd: nil)
+            snapshot.conversation = conversation
+            return TabModel(snapshot)
+        }
+        #expect(tab(.conversation, ConversationTabRef(page: "github", route: "https://github.com/o/r/pull/1")).showsPage)
+        #expect(tab(.conversation, ConversationTabRef(page: "files", route: "/tmp/a.swift")).showsPage)
+        #expect(tab(.browser).showsPage)
+        #expect(!tab(.conversation, ConversationTabRef(agentSession: AgentSessionRef(host: "h", session: "s", harness: "claude"))).showsPage)
+        #expect(!tab(.pty).showsPage)
+        #expect(!tab(.remoteTerminal).showsPage)
     }
 
     /// With the right column not measured, the pane on the right gets the tab.
