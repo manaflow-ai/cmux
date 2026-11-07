@@ -44,7 +44,7 @@ spec = importlib.util.spec_from_file_location("app_ffi_pin", sys.argv[1])
 pin = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pin)
 package, sha = sys.argv[2], sys.argv[3]
-open(f"{package}/Package.swift", "w").write("import Foundation\nimport PackageDescription\n\n" + pin.LOADER)
+open(f"{package}/Package.swift", "w").write("import Foundation\nimport PackageDescription\n\n" + pin.loader("0" * 64))
 open(f"{package}/app-ffi-pin.json", "w").write(pin.render(sha, "0" * 64))
 PY
 git -C "$repo" add -A
@@ -86,6 +86,19 @@ if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
 fi
 [[ "$out" == *"no canonical cmux-app-ffi pin"* ]] || fail "the pin file report does not say so: $out"
 mv "$pin_json.bak" "$pin_json"
+manifest="$repo/Packages/macOS/CmuxNext/Package.swift"
+# A pin file whose checksum Package.swift's checksum line does not repeat: a
+# re-pin that left the manifest text (SwiftPM's manifest cache key) alone.
+cp "$manifest" "$manifest.bak"
+sed -i.tmp "s/^\/\/ app-ffi-pin-checksum: 0\{64\}$/\/\/ app-ffi-pin-checksum: $(printf '1%.0s' {1..64})/" "$manifest"
+rm -f "$manifest.tmp"
+grep -q "^// app-ffi-pin-checksum: 1\{64\}$" "$manifest" || fail "the test did not move the checksum line"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+  fail "a checksum line off the pin file's checksum passed: $out"
+fi
+[[ "$out" == *"is not Packages/macOS/CmuxNext/app-ffi-pin.json's checksum"* ]] \
+  || fail "the checksum line report does not say so: $out"
+mv "$manifest.bak" "$manifest"
 echo '// url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-x"' \
   >> "$repo/Packages/macOS/CmuxNext/Package.swift"
 if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then

@@ -23,7 +23,7 @@ SOURCE = "cmux-tui/crates/cmux-rd-core/src/lib.rs"
 CHECKSUM = "c" * 64
 
 
-MANIFEST = "import Foundation\nimport PackageDescription\n\n" + app_ffi_pin.LOADER
+MANIFEST = "import Foundation\nimport PackageDescription\n\n" + app_ffi_pin.loader(CHECKSUM)
 
 
 class PullRequestScope(unittest.TestCase):

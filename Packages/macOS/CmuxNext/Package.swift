@@ -177,10 +177,13 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// (scripts/cmux-next/check-app-personalities.sh fails the app build above
 /// three). The pin lives in app-ffi-pin.json next to this file: the release
 /// url (its tag names the source sha) and checksum, read below by one
-/// fixed loader block (scripts/ci/app_ffi_pin.py LOADER, which every gate
-/// checks); a re-pin rewrites that file alone, never this one.
+/// fixed loader block (scripts/ci/app_ffi_pin.py loader(), which every gate
+/// checks). Its first line repeats the checksum: SwiftPM caches an evaluated
+/// manifest by this file's text, so a re-pin rewrites that file and this one
+/// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
+// app-ffi-pin-checksum: f6f8c21811e00ca1de153462a7f0931c982b2419aca932b3cbda925afff0588f
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String

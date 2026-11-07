@@ -76,13 +76,14 @@ if [[ "$list_inputs" -eq 1 ]]; then
 fi
 
 # The pin is read only through scripts/ci/app_ffi_pin.py: the pin file strictly,
-# and Package.swift only for its one fixed loader block and no pin of its own
-# (the classifier, the repin picker and the repin script read it the same way).
+# and Package.swift only for its one fixed loader block, whose checksum line
+# must equal the pin file's, and no pin of its own (the classifier, the repin
+# picker and the repin script read it the same way).
 if ! pinned="$(python3 "$pin_reader" read "$pin_file" 2>&1)"; then
   echo "error: no canonical cmux-app-ffi pin in $pin_file: ${pinned#error: }" >&2
   exit 1
 fi
-if ! loader="$(python3 "$pin_reader" check-manifest "$manifest" 2>&1)"; then
+if ! loader="$(python3 "$pin_reader" check-manifest "$manifest" "$pin_file" 2>&1)"; then
   echo "error: $manifest does not read the pin through its one loader block: ${loader#error: }" >&2
   exit 1
 fi

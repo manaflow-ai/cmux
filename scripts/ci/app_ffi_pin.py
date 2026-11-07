@@ -2,8 +2,8 @@
 """The app FFI pin: Packages/macOS/CmuxNext/app-ffi-pin.json, read and written strictly; no Swift is parsed.
 
     python3 scripts/ci/app_ffi_pin.py read [app-ffi-pin.json]                 # prints "SOURCE_SHA CHECKSUM"
-    python3 scripts/ci/app_ffi_pin.py rewrite SHA CHECKSUM [app-ffi-pin.json]
-    python3 scripts/ci/app_ffi_pin.py check-manifest [Package.swift]
+    python3 scripts/ci/app_ffi_pin.py rewrite SHA CHECKSUM [app-ffi-pin.json [Package.swift]]
+    python3 scripts/ci/app_ffi_pin.py check-manifest [Package.swift [app-ffi-pin.json]]
     python3 scripts/ci/app_ffi_pin.py check-dump DUMP.json [app-ffi-pin.json]  # `swift package dump-package` output
 
 Leo, 2026-11-07, on the Swift-reading pin match it replaces: "why were you writing a Swift parser in regex in the
@@ -14,14 +14,19 @@ reads the JSON and never Swift:
 - app-ffi-pin.json is exactly {"url": URL, "checksum": CHECKSUM} in render()'s format, byte for byte: no other key,
   no other spacing, one trailing newline. The url is this repository's own cmux-app-ffi-<40 hex> release download of
   CCmuxAppFFI.xcframework.zip, the checksum 64 hex;
-- Package.swift holds LOADER exactly once and no pin of its own: `binaryTarget` occurs once (in LOADER), no
-  `releases/download/`, `xcframework.zip` or `cmux-app-ffi-` anywhere, and none of the constructs that can hide a
-  line or carry one over several (`/*`, `*/`, three quotes, `#"`, `#/`, `#if`). Every other line that names a LOADER
-  symbol has one fixed, anchored shape (OTHER_LINES), none of which can declare or extend one.
+- Package.swift holds loader(CHECKSUM) exactly once, CHECKSUM being the pin file's: LOADER after one fixed comment
+  line, CHECKSUM_LINE + CHECKSUM. SwiftPM caches an evaluated manifest by Package.swift's own text, not by the files
+  it reads, so a re-pin that changed only the pin file would leave a reused package path on the old pin; the comment
+  makes every re-pin change Package.swift's text too, and is its only change there. It holds no other pin:
+  `binaryTarget` occurs once (in LOADER), no `releases/download/`, `xcframework.zip` or `cmux-app-ffi-` anywhere,
+  and none of the constructs that can hide a line or carry one over several (`/*`, `*/`, three quotes, `#"`, `#/`,
+  `#if`). Every other line that names a LOADER symbol has one fixed, anchored shape (OTHER_LINES), none of which can
+  declare or extend one.
 
 Anything else refuses, naming the first thing that does not match. base_red_excuse.py's published-base-pin rule,
 scripts/cmux-next/check-app-ffi-pin.sh, the repin picker (scripts/cmux-next/newest_app_ffi_release.py) and the repin
-script (scripts/cmux-next/repin-app-ffi.sh) all read and rewrite the pin through this file alone.
+script (scripts/cmux-next/repin-app-ffi.sh) all read and rewrite the pin through this file alone; a rewrite writes the
+pin file and the comment line together.
 """
 from __future__ import annotations
 
@@ -61,10 +66,20 @@ let appFFI: Target = .binaryTarget(
     checksum: appFFIPin.checksum
 )
 '''
+# The loader block's first line: the pinned checksum again, so the manifest text changes with every pin (above).
+CHECKSUM_LINE = "// app-ffi-pin-checksum: "
+CHECKSUM_LINE_RE = re.compile(r"^// app-ffi-pin-checksum: ([0-9a-f]{64})$", re.M)
+
+
+def loader(checksum: str) -> str:
+    """The one loader block Package.swift holds for CHECKSUM: its checksum comment line, then LOADER."""
+    return f"{CHECKSUM_LINE}{checksum}\n{LOADER}"
+
+
 IMPORT = "import Foundation"
 FORBIDDEN = ("/*", "*/", '"""', '#"', "#/", "#if")
 ABSENT = ("releases/download/", "xcframework.zip", "cmux-app-ffi-")
-ONCE = ("binaryTarget", "JSONDecoder", "app-ffi-pin.json\")", "#filePath")
+ONCE = ("binaryTarget", "JSONDecoder", "app-ffi-pin.json\")", "#filePath", "app-ffi-pin-checksum")
 # A line outside LOADER that names one of these must be one of OTHER_LINES.
 WATCHED = re.compile(r"CCmuxAppFFI|appFFI|AppFFIPin|\bFoundation\b|JSONDecoder")
 NAME = r"[A-Za-z0-9_]+"
@@ -123,19 +138,25 @@ def read(text: str, repo: str = REPO) -> tuple[str, str]:
     return match.group(1), checksum
 
 
-def rewrite(text: str, sha: str, checksum: str, repo: str = REPO) -> str:
-    """The pin file for SHA and CHECKSUM, after TEXT (the current one) reads as canonical; NotCanonical otherwise."""
+def rewrite(text: str, manifest: str, sha: str, checksum: str, repo: str = REPO) -> tuple[str, str]:
+    """(pin file, Package.swift) for SHA and CHECKSUM, after TEXT (the current pin file) reads as canonical and MANIFEST
+    (the current Package.swift) holds its loader; only the checksum comment line of the manifest changes. NotCanonical
+    otherwise."""
     if not re.fullmatch(r"[0-9a-f]{40}", sha) or not re.fullmatch(r"[0-9a-f]{64}", checksum):
         raise NotCanonical(f"bad pin {sha!r} {checksum!r}")
-    read(text, repo)
+    _, old = read(text, repo)
+    check_manifest(manifest, old)
     out = render(sha, checksum, repo)
+    new_manifest = manifest.replace(f"{CHECKSUM_LINE}{old}\n", f"{CHECKSUM_LINE}{checksum}\n", 1)
     if read(out, repo) != (sha, checksum):
         raise NotCanonical("the rewritten pin does not read back")
-    return out
+    check_manifest(new_manifest, checksum)
+    return out, new_manifest
 
 
-def check_manifest(text: str) -> None:
-    """NotCanonical unless TEXT (Package.swift's whole text) holds LOADER once and no pin of its own (above)."""
+def check_manifest(text: str, checksum: str) -> None:
+    """NotCanonical unless TEXT (Package.swift's whole text) holds loader(CHECKSUM) once, CHECKSUM being the pin file's,
+    and no pin of its own (above)."""
     for token in FORBIDDEN:
         if token in text:
             line = text[:text.index(token)].count("\n") + 1
@@ -144,17 +165,25 @@ def check_manifest(text: str) -> None:
         if token in text:
             line = text[:text.index(token)].count("\n") + 1
             raise NotCanonical(f"Package.swift line {line} has {token!r}: the pin lives in {PIN_FILE} only")
-    if text.count(LOADER) != 1:
+    found = CHECKSUM_LINE_RE.findall(text)
+    if len(found) != 1:
+        raise NotCanonical(f"Package.swift has {len(found)} {CHECKSUM_LINE.strip()!r} <64 hex> lines, not one "
+                           "(the loader block's first line)")
+    if found[0] != checksum:
+        raise NotCanonical(f"Package.swift's {CHECKSUM_LINE.strip()} {found[0]} is not {PIN_FILE}'s checksum "
+                           f"{checksum}: a re-pin rewrites both (scripts/cmux-next/repin-app-ffi.sh)")
+    block = loader(checksum)
+    if text.count(block) != 1:
         raise NotCanonical(f"Package.swift does not hold the one fixed {PIN_FILE} loader block exactly once "
-                           f"({text.count(LOADER)} copies; scripts/ci/app_ffi_pin.py LOADER)")
+                           f"({text.count(block)} copies; scripts/ci/app_ffi_pin.py loader())")
     for token in ONCE:
         if text.count(token) != 1:
             raise NotCanonical(f"Package.swift has {text.count(token)} {token!r}, not one (the loader's)")
     lines = text.split("\n")
     if IMPORT not in lines:
         raise NotCanonical(f"Package.swift has no {IMPORT!r} line for the loader")
-    start = text[:text.index(LOADER)].count("\n")
-    end = start + LOADER.count("\n")
+    start = text[:text.index(block)].count("\n")
+    end = start + block.count("\n")
     for index, line in enumerate(lines):
         if start <= index < end or not WATCHED.search(line):
             continue
@@ -187,17 +216,22 @@ def main(argv: list[str]) -> int:
             path = Path(argv[1]) if len(argv) == 2 else PACKAGE / "app-ffi-pin.json"
             print(*read(path.read_text(encoding="utf-8")))
             return 0
-        if argv[:1] == ["rewrite"] and len(argv) in (3, 4):
-            path = Path(argv[3]) if len(argv) == 4 else PACKAGE / "app-ffi-pin.json"
-            path.write_text(rewrite(path.read_text(encoding="utf-8"), argv[1], argv[2]), encoding="utf-8")
+        if argv[:1] == ["rewrite"] and len(argv) in (3, 4, 5):
+            path = Path(argv[3]) if len(argv) >= 4 else PACKAGE / "app-ffi-pin.json"
+            manifest = Path(argv[4]) if len(argv) == 5 else path.with_name("Package.swift")
+            pin_text, manifest_text = rewrite(path.read_text(encoding="utf-8"), manifest.read_text(encoding="utf-8"),
+                                              argv[1], argv[2])
+            path.write_text(pin_text, encoding="utf-8")
+            manifest.write_text(manifest_text, encoding="utf-8")
             return 0
         if argv[:1] == ["check-dump"] and len(argv) in (2, 3):
             path = Path(argv[2]) if len(argv) == 3 else PACKAGE / "app-ffi-pin.json"
             print(*check_dump(Path(argv[1]).read_text(encoding="utf-8"), path.read_text(encoding="utf-8")))
             return 0
-        if argv[:1] == ["check-manifest"] and len(argv) <= 2:
-            path = Path(argv[1]) if len(argv) == 2 else PACKAGE / "Package.swift"
-            check_manifest(path.read_text(encoding="utf-8"))
+        if argv[:1] == ["check-manifest"] and len(argv) <= 3:
+            path = Path(argv[1]) if len(argv) >= 2 else PACKAGE / "Package.swift"
+            pin = Path(argv[2]) if len(argv) == 3 else path.with_name("app-ffi-pin.json")
+            check_manifest(path.read_text(encoding="utf-8"), read(pin.read_text(encoding="utf-8"))[1])
             return 0
     except NotCanonical as why:
         print(f"error: {why}", file=sys.stderr)

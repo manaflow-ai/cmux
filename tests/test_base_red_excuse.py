@@ -4044,9 +4044,10 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         return json.dumps({"url": f"https://{host}/{repo}/releases/download/cmux-app-ffi-{sha}/"
                                   "CCmuxAppFFI.xcframework.zip", "checksum": checksum}) + "\n"
 
-    # Package.swift as the head has it: the one fixed loader block (app_ffi_pin.LOADER) and the fixed reference shapes.
+    # Package.swift as the head has it: the one fixed loader block (app_ffi_pin.loader, its checksum line the pin
+    # file's) and the fixed reference shapes.
     MANIFEST = ("// swift-tools-version: 6.2\n\nimport Foundation\nimport PackageDescription\n\n"
-                "// CmuxNextCloud -> CCmuxAppFFI (Stack auth)\n" + excuse.app_ffi_pin.LOADER
+                "// CmuxNextCloud -> CCmuxAppFFI (Stack auth)\n" + excuse.app_ffi_pin.loader(CHECKSUM)
                 + '        .target(\n            dependencies: ["CmuxNextDesign", .product(name: "A", package: '
                 '"B"), "CCmuxAppFFI"],\n            dependencies: [\n                "CCmuxAppFFI",\n'
                 "            ]\n    targets: [\n        appFFI,\n    ] + [appFFI]\n"
@@ -4308,7 +4309,34 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             with self.subTest(changed=changed[:40]):
                 self.refused_unread("does not hold the one fixed .* loader block exactly once",
                                     manifest=self.MANIFEST.replace(loader, changed))
-        self.refused_unread("does not hold the one fixed", manifest=self.MANIFEST + loader)
+        self.refused_unread("has 2 'binaryTarget'", manifest=self.MANIFEST + loader)
+        self.refused_unread("lines, not one", manifest=self.MANIFEST + excuse.app_ffi_pin.loader(self.CHECKSUM))
+
+    def test_a_checksum_line_that_is_not_the_pin_files_is_refused(self):
+        # SwiftPM caches an evaluated manifest by Package.swift's text: a pin file moved without the manifest's
+        # checksum line would leave a reused package path on the old pin, so the two must agree.
+        line = f"// app-ffi-pin-checksum: {self.CHECKSUM}\n"
+        self.refused_unread("is not Packages/macOS/CmuxNext/app-ffi-pin.json's checksum",
+                            manifest=self.MANIFEST.replace(line, f"// app-ffi-pin-checksum: {'4' * 64}\n"))
+        self.refused_unread("is not Packages/macOS/CmuxNext/app-ffi-pin.json's checksum",
+                            pin_file=self.pin_json(self.STEP_B_PIN, checksum="4" * 64), manifest=self.MANIFEST)
+        for changed in ("", f"    // app-ffi-pin-checksum: {self.CHECKSUM}\n", f"// app-ffi-pin-checksum: {self.CHECKSUM} \n",
+                        f"// app-ffi-pin-checksum: {self.CHECKSUM[:63]}\n"):
+            with self.subTest(changed=changed):
+                self.refused_unread("app-ffi-pin-checksum", pin_file=self.pin_json(self.STEP_B_PIN),
+                                    manifest=self.MANIFEST.replace(line, changed))
+        self.refused_unread("has 2 'app-ffi-pin-checksum'", pin_file=self.pin_json(self.STEP_B_PIN),
+                            manifest=self.MANIFEST + "// see app-ffi-pin-checksum above\n")
+
+    def test_the_rewrite_moves_the_pin_file_and_only_the_checksum_line(self):
+        pin, manifest = excuse.app_ffi_pin.rewrite(self.pin_json(self.STEP_B_PIN), self.MANIFEST, "5" * 40, "6" * 64)
+        self.assertEqual(pin, self.pin_json("5" * 40, checksum="6" * 64))
+        changed = [(a, b) for a, b in zip(self.MANIFEST.split("\n"), manifest.split("\n")) if a != b]
+        self.assertEqual(changed, [(f"// app-ffi-pin-checksum: {self.CHECKSUM}", f"// app-ffi-pin-checksum: {'6' * 64}")])
+        self.assertEqual(excuse.ffi_binary_target(pin, manifest, REPO), ("5" * 40, "6" * 64, ""))
+        with self.assertRaisesRegex(excuse.app_ffi_pin.NotCanonical, "is not .*app-ffi-pin.json's checksum"):
+            excuse.app_ffi_pin.rewrite(self.pin_json(self.STEP_B_PIN, checksum="7" * 64), self.MANIFEST, "5" * 40,
+                                       "6" * 64)
         self.refused_unread("no 'import Foundation' line", manifest=self.MANIFEST.replace("import Foundation\n", ""))
 
     def test_hiding_constructs_and_a_second_target_are_refused(self):

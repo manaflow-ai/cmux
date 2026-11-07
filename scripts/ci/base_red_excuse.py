@@ -1042,7 +1042,7 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # Swift, or a re-pin) could never pin a release built from its own sources. Any other PR with that error has it excused
 # when both hold: (a) the release its head pins (app-ffi-pin.json, read strictly by app_ffi_pin.py: this repository's
 # own cmux-app-ffi-<sha> release download and its checksum, with Package.swift holding the one fixed loader block that
-# reads that file and no pin of its own; any other shape refuses) is
+# reads that file, its checksum comment line equal to that checksum, and no pin of its own; any other shape refuses) is
 # published, its SOURCE_SHA names that sha, its SHA256SUMS carries that checksum for the archive, and that sha is on
 # the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
 # PR's exact head (compile_pass_at). The pin file at the head is the pin that compile built with: the loader hands its
@@ -1077,7 +1077,7 @@ def ffi_binary_target(pin_file: str | None, manifest: str | None, repo: str) -> 
         return None, None, f"{FFI_PIN_MANIFEST} is missing"
     try:
         sha, checksum = app_ffi_pin.read(pin_file, repo)
-        app_ffi_pin.check_manifest(manifest)
+        app_ffi_pin.check_manifest(manifest, checksum)
     except app_ffi_pin.NotCanonical as why:
         return None, None, str(why)
     return sha, checksum, ""

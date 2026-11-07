@@ -228,6 +228,15 @@ class PublishToken(unittest.TestCase):
 
 
 REPIN = ROOT / "scripts/cmux-next/repin-app-ffi.sh"
+_pin_spec = importlib.util.spec_from_file_location("app_ffi_pin", ROOT / "scripts/ci/app_ffi_pin.py")
+app_ffi_pin = importlib.util.module_from_spec(_pin_spec)
+_pin_spec.loader.exec_module(app_ffi_pin)
+
+
+def manifest(checksum):
+    """A Package.swift holding the loader for CHECKSUM, with text before and after it."""
+    return ("// swift-tools-version: 6.2\n\nimport Foundation\nimport PackageDescription\n\n"
+            + app_ffi_pin.loader(checksum) + "\nlet package = Package(\n    name: \"x\",\n    targets: [\n        appFFI,\n    ]\n)\n")
 
 
 class RePin(unittest.TestCase):
@@ -238,20 +247,43 @@ class RePin(unittest.TestCase):
                                   "CCmuxAppFFI.xcframework.zip", "checksum": checksum}) + "\n"
 
     def test_repin_rewrites_only_the_url_sha_and_checksum(self):
+        # The pin file's two values and Package.swift's one checksum line, nothing else (SwiftPM caches the evaluated
+        # manifest by Package.swift's text, so a re-pin must change that text).
         with tempfile.TemporaryDirectory() as temp:
             pin_file = Path(temp) / "app-ffi-pin.json"
+            package = Path(temp) / "Package.swift"
             pin_file.write_text(self.canonical(SHA, "a" * 64))
+            package.write_text(manifest("a" * 64))
             new_sha, new_sum = "d" * 40, "e" * 64
             subprocess.run(["bash", str(REPIN), new_sha, new_sum, str(pin_file)], check=True, capture_output=True)
             self.assertEqual(pin_file.read_text(), self.canonical(new_sha, new_sum))
+            self.assertEqual(package.read_text(), manifest(new_sum))
+            changed = [(a, b) for a, b in zip(manifest("a" * 64).split("\n"), package.read_text().split("\n")) if a != b]
+            self.assertEqual(changed, [(f"// app-ffi-pin-checksum: {'a' * 64}", f"// app-ffi-pin-checksum: {new_sum}")])
             for bad in (("x", new_sum), (new_sha, "y")):
                 result = subprocess.run(["bash", str(REPIN), *bad, str(pin_file)], capture_output=True)
                 self.assertNotEqual(result.returncode, 0, bad)
             self.assertEqual(pin_file.read_text(), self.canonical(new_sha, new_sum))
+            self.assertEqual(package.read_text(), manifest(new_sum))
+
+    def test_repin_refuses_a_manifest_whose_checksum_line_is_not_the_pin_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            pin_file = Path(temp) / "app-ffi-pin.json"
+            package = Path(temp) / "Package.swift"
+            pin_file.write_text(self.canonical(SHA, "a" * 64))
+            for text in (manifest("b" * 64), manifest("a" * 64).replace(f"// app-ffi-pin-checksum: {'a' * 64}\n", "")):
+                package.write_text(text)
+                result = subprocess.run(["bash", str(REPIN), "d" * 40, "e" * 64, str(pin_file)], capture_output=True,
+                                        text=True)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("app-ffi-pin-checksum", result.stderr)
+                self.assertEqual(pin_file.read_text(), self.canonical(SHA, "a" * 64))
+                self.assertEqual(package.read_text(), text)
 
     def test_repin_refuses_a_pin_file_that_is_not_canonical(self):
         with tempfile.TemporaryDirectory() as temp:
             pin_file = Path(temp) / "app-ffi-pin.json"
+            (Path(temp) / "Package.swift").write_text(manifest("a" * 64))
             good = self.canonical(SHA, "a" * 64)
             for text in (good.replace('", "checksum"', '", "extra": 1, "checksum"'),
                          json.dumps(json.loads(good), indent=2) + "\n",
@@ -264,9 +296,10 @@ class RePin(unittest.TestCase):
                 self.assertIn("error: Packages/macOS/CmuxNext/app-ffi-pin.json", result.stderr)
                 self.assertEqual(pin_file.read_text(), text)
 
-    def test_the_repin_never_writes_package_swift(self):
-        for script in (REPIN, ROOT / "scripts/cmux-next/publish-app-ffi-repin.sh"):
-            self.assertNotIn("Package.swift", script.read_text().split("set -euo pipefail", 1)[1], script)
+    def test_the_repin_writes_package_swift_only_through_the_pin_reader(self):
+        body = REPIN.read_text().split("set -euo pipefail", 1)[1]
+        self.assertEqual([line for line in body.splitlines() if "$manifest" in line and "app_ffi_pin.py" not in line
+                          and not line.startswith("manifest=")], [])
 
     def test_repin_job_opens_or_updates_a_pull_request(self):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
@@ -362,6 +395,7 @@ class RePinPublication(unittest.TestCase):
             pin_file = work / "Packages/macOS/CmuxNext/app-ffi-pin.json"
             pin_file.parent.mkdir(parents=True)
             pin_file.write_text("pin\n")
+            (pin_file.parent / "Package.swift").write_text("manifest\n")
             bin_dir = work / "bin"
             bin_dir.mkdir()
             for command in ("git", "gh"):
@@ -392,6 +426,8 @@ class RePinPublication(unittest.TestCase):
         result, state = self.run_repin()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(state["published"], ["b" * 40])
+        # One signed commit per pin path: the pin file, then Package.swift's checksum line.
+        self.assertEqual(state["writes"], 2)
         self.assertEqual(state["prs"]["1"], "open")
         self.assertEqual(list(state["refs"]), ["app-ffi-repin"])
 
@@ -410,7 +446,7 @@ class RePinPublication(unittest.TestCase):
     def test_lost_write_response_reuses_the_signed_commit(self):
         result, state = self.run_repin(write_mode="lost")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(state["writes"], 1)
+        self.assertEqual(state["writes"], 2)  # each file once, never repeated after a lost response
         self.assertEqual(state["published"], ["b" * 40])
 
     def test_concurrent_stable_ref_change_is_preserved(self):
