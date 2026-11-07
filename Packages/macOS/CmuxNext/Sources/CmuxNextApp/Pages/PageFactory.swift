@@ -26,12 +26,12 @@ import CmuxNextWebUpdates
 struct PageFactory {
     unowned let services: AppServices
 
-    /// The History page (react-pages.md 2): `cmux.history.` goes to the daemon's history module,
-    /// but for the app's own cookie backups (``HistoryCookieBackupsPageProvider``). Nil only when
-    /// the page resources are missing.
+    /// The History page (react-pages.md 2): ``HistoryCookieBackupsPageProvider`` takes `cmux.history.` (the app's
+    /// cookie backups, a remove or clear only on a click) and relays the rest. Nil only when the resources are missing.
     func historyWebPage() -> PageWebView? {
         let backups = HistoryCookieBackupsPageProvider { [weak services] in services?.browserHost?.driver.cookieBackups }
-        let routes = [PageRoute(prefix: HistoryCookieBackupsPageProvider.prefix, provider: backups)] + pageRoutes(for: .history)
+        backups.relay = DaemonPageRelay(services: services)
+        let routes = [PageRoute(prefix: "cmux.history.", provider: backups)] + pageRoutes(for: .history)
         guard let page = services.pageHostPool.claim(.history, routes: routes,
                                                       window: services.windows.active?.window, focus: false)
             ?? PageWebView(descriptor: .history, routes: routes) else { return nil }

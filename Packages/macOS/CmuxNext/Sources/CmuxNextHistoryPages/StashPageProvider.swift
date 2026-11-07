@@ -9,7 +9,8 @@ import Foundation
 
 /// The Stashed Tabs page's `cmux.stash.*` (webviews/src/pages/stash). The daemon owns the stashes:
 /// `stash.list`, `stash.import` (with the app's browser engine added) and the `stash-changed`
-/// stream go through the page relay. Two ops stay in the app, as native glue:
+/// stream go through the page relay; an import goes only on the person's click, each click once.
+/// Two ops stay in the app, as native glue:
 ///
 /// - `cmux.stash.restore {stash, members?, new_workspace?}`: only the app knows the pane a page
 ///   reopens in and shows what came back. It runs only on the person's click, one per click.
@@ -28,7 +29,7 @@ public final class StashPageProvider: PageProvider {
     private let commitDelete: @MainActor (String, [String]?) async throws -> Void
     private let importEngine: @MainActor () -> String
     private let relay: any PageProvider
-    /// The gesture (its event's uptime) the last restore or delete spent.
+    /// The gesture (its event's uptime) the last restore, delete or import spent.
     private var spentGesture: TimeInterval?
     /// The Undo toasts up now; the page's close keeps every one's stash.
     private var pending: [ObjectIdentifier: PendingUndo] = [:]
@@ -80,6 +81,8 @@ public final class StashPageProvider: PageProvider {
             return ["deleted": true]
         case "cmux.stash.import":
             guard var members = params.objectValue else { throw PageError.invalidParams("import takes an object") }
+            // Only on the person's own click, whatever the daemon checks (cmux#37302).
+            try spendGesture(context)
             members["engine"] = .string(importEngine())
             return try await relay.call(op, params: .object(members), context: context)
         default:
@@ -87,8 +90,8 @@ public final class StashPageProvider: PageProvider {
         }
     }
 
-    /// A restore or delete runs only on the person's own click, and each click runs one: page
-    /// script cannot restore or delete on its own, and a second call off the same gesture is refused.
+    /// A restore, delete or import runs only on the person's own click, and each click runs one: page
+    /// script cannot change stashes on its own, and a second call off the same gesture is refused.
     private func spendGesture(_ context: PageCallContext) throws {
         guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
             throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)

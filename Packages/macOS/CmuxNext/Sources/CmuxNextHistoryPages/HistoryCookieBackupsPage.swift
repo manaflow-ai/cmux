@@ -16,11 +16,19 @@ import os
 /// - `cmux.history.cookie_backups.delete {ids}` -> `{confirmed, deleted}`: only on the person's own
 ///   click in the page (each click once), and only after they confirm in the app's dialog (page
 ///   script cannot answer it): an agent can no longer undo those clears.
+///
+/// Every other `cmux.history.` call and stream goes to `relay` (the daemon). A remove or clear
+/// (``gestureOperations``) goes only on the person's own click, each click once, whatever the
+/// daemon checks (an older daemon has no page allow list; cmux#37302).
 @MainActor
 public final class HistoryCookieBackupsPageProvider: PageProvider {
     public static let prefix = "cmux.history.cookie_backups."
+    /// The History page's mutations that need the person's gesture (cmux-tui/spec/page-router.json `history.gesture`).
+    public static let gestureOperations: Set<String> = ["cmux.history.entries.remove", "cmux.history.site.remove", "cmux.history.clear"]
     private let backups: () -> CookieBackups?
-    /// The gesture (its event's uptime) the last delete spent.
+    /// The daemon relay for the rest of `cmux.history.`; none answers `unknown_op`.
+    public var relay: (any PageProvider)?
+    /// The gesture (its event's uptime) the last delete, remove or clear spent.
     private var spentGesture: TimeInterval?
     /// The page view the dialog attaches to.
     public var anchor: () -> NSView? = { nil }
@@ -41,15 +49,28 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
             let ids = try Self.ids(params)
             // One click, one question: a second delete off the same gesture is refused, so a page
             // script cannot stack confirmation dialogs on one click.
-            guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
-                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-            }
-            spentGesture = event
+            try spendGesture(context)
             guard await confirm(Self.question, anchor()?.window) else { return ["confirmed": false] }
             return ["confirmed": true, "deleted": CmuxNextSettings.JSONValue(await delete(ids))]
         default:
-            throw PageError.unknownOp(op)
+            guard let relay, op.hasPrefix("cmux.history.") else { throw PageError.unknownOp(op) }
+            if Self.gestureOperations.contains(op) { try spendGesture(context) }
+            return try await relay.call(op, params: params, context: context)
         }
+    }
+
+    public func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
+                          onEvent: @escaping @MainActor (CmuxNextSettings.JSONValue) -> Void) async throws -> PageSubscription {
+        guard let relay else { throw PageError.unknownOp(stream) }
+        return try await relay.subscribe(stream, filter: filter, context: context, onEvent: onEvent)
+    }
+
+    /// A mutation runs only on the person's own key or pointer event, one per event.
+    private func spendGesture(_ context: PageCallContext) throws {
+        guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+        }
+        spentGesture = event
     }
 
     /// The backups, newest first, read off the main actor (the files are decrypted with the Keychain key).

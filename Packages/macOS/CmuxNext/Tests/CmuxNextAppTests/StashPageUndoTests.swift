@@ -248,9 +248,33 @@ struct StashPageUndoTests {
         let world = Self.world()
         let groups: JSONValue = [["tabs": [["url": "https://a.example/", "title": "A"]]]]
         _ = try await world.provider.call("cmux.stash.import", params: ["source": "onetab", "groups": groups, "idempotency_key": "key-1"],
-                                          context: PageCallContext(page: "cmux.stash"))
+                                          context: Self.click(30))
         let sent = try #require(world.relay.sent.last)
         #expect(sent.0 == "cmux.stash.import")
         #expect(sent.1 == ["source": "onetab", "groups": groups, "idempotency_key": "key-1", "engine": "webkit"])
+    }
+
+    /// cmux#37302: an import changes the stashes, so it goes only on the person's click, each
+    /// click once, whatever the daemon checks (an older daemon has no page allow list).
+    @Test func anImportWithoutAClickNeverReachesTheDaemon() async throws {
+        let world = Self.world()
+        let params: JSONValue = ["source": "onetab", "groups": [["tabs": [["url": "https://a.example/"]]]], "idempotency_key": "k"]
+        func refused(_ context: PageCallContext) async -> Bool {
+            do {
+                _ = try await world.provider.call("cmux.stash.import", params: params, context: context)
+                return false
+            } catch let error as PageError {
+                return error.code == PageNativeOp.userOnlyCode
+            } catch {
+                return false
+            }
+        }
+        #expect(await refused(PageCallContext(page: "cmux.stash")))
+        #expect(await refused(PageCallContext(page: "cmux.stash", userGesture: true)))
+        #expect(world.relay.sent.isEmpty)
+        _ = try await world.provider.call("cmux.stash.import", params: params, context: Self.click(31))
+        #expect(world.relay.sent.map(\.0) == ["cmux.stash.import"])
+        #expect(await refused(Self.click(31)), "a second import off the same click went through")
+        #expect(world.relay.sent.count == 1)
     }
 }
