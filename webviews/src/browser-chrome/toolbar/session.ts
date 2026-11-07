@@ -17,7 +17,7 @@ import { OmnibarRunner } from "./controller";
 import { freshEvents } from "./events";
 import { admitsKey, dispositionFor, editKindFor, omnibarKeyFor } from "./keys";
 import { indexAtX, layoutChanged, wireRect, wordRangeAt, type LayoutReport } from "./layout";
-import { TabSlotStore } from "./slots";
+import { TabSlotStore, withDraft } from "./slots";
 import type { ToolbarHostEvent, ToolbarHostState, ToolbarPageCommand, WireRect } from "./wire";
 
 /** Pointer travel (px) past which a press is a drag (AppKit's drag threshold). */
@@ -130,6 +130,7 @@ export class ToolbarSession {
       },
       onEffect: (effect) => this.runLocally(effect),
       onStep: () => this.changed(),
+      tab: () => this.tab,
     });
   }
 
@@ -184,7 +185,7 @@ export class ToolbarSession {
     const options = { home: next.omnibar.home, showsFullURLs: next.omnibar.showFullURLs };
     if (this.tab === null) {
       this.tab = next.tab;
-      this.runner.restore(initialOmnibarState(next.url, options));
+      this.runner.restore(withDraft(initialOmnibarState(next.url, options), next.draft));
     } else if (next.tab !== this.tab) {
       this.switchTab(next, options);
     } else {
@@ -202,13 +203,18 @@ export class ToolbarSession {
     this.changed();
   }
 
-  /** Leaves the shown tab (its omnibar rests in its slot) and shows `next.tab`'s. */
+  /**
+   * Leaves the shown tab (its omnibar rests in its slot) and shows `next.tab`'s: its slot here, else
+   * the draft it brought from another pane.
+   */
   private switchTab(next: ToolbarHostState, options: { home: string; showsFullURLs: boolean }): void {
     if (hasFocus(this.state)) this.loseFocus();
     if (this.tab !== null) this.slots.set(this.tab, this.state);
     this.tab = next.tab;
     const saved = this.slots.get(next.tab);
-    this.runner.restore(saved ? { ...saved, home: options.home } : initialOmnibarState(next.url, options));
+    this.runner.restore(
+      saved ? { ...saved, home: options.home } : withDraft(initialOmnibarState(next.url, options), next.draft),
+    );
     this.send({ type: "pageURLChanged", url: next.url });
     if (this.state.showsFullURLs !== options.showsFullURLs) {
       this.send({ type: "showFullURLsChanged", full: options.showsFullURLs });

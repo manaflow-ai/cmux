@@ -89,6 +89,9 @@ public final class BrowserChromeTabState: Sendable {
     let slot = UUID().uuidString
     /// The address the omnibar showed for the tab when it left (the next render compares with it).
     var shownURL: URL?
+    /// The text the tab left in the omnibar unsent, with its selection, as the toolbar page last
+    /// reported it: a pane the tab moves to has no slot for it and rests the omnibar on this.
+    var omnibarDraft: OmnibarDraft?
     /// The find pill showed, with this query and match-case setting.
     var find: (query: String, matchCase: Bool)?
     var isOmnibarHidden = false
@@ -167,6 +170,8 @@ struct BrowserChromeTabSwitch {
         // The field stops editing (the page also ends it when its tab slot changes).
         if let window = chrome.window, bar.holdsKeys(in: window) { window.makeFirstResponder(nil) }
         state.shownURL = bar.reportedURL
+        // The page reports the shown tab's draft with each status; one for another slot is a pass old.
+        if bar.status.tab == state.slot { state.omnibarDraft = bar.status.draft }
         if let shown = chrome.shownFindBar {
             state.find = (shown.pill.query, shown.pill.matchCase)
             shown.isHidden = true
@@ -190,7 +195,7 @@ struct BrowserChromeTabSwitch {
 
     /// The tab that shows: its own toolbar state, before the page binds and renders.
     private func restore(from state: BrowserChromeTabState) {
-        chrome.addressBar.showTab(state.slot, shownURL: state.shownURL)
+        chrome.addressBar.showTab(state.slot, shownURL: state.shownURL, draft: state.omnibarDraft)
         chrome.isOmnibarHidden = state.isOmnibarHidden
         chrome.wakingAddress = state.wakingAddress
         chrome.loads = state.loads
@@ -209,10 +214,12 @@ struct BrowserChromeTabSwitch {
 }
 
 extension BrowserToolbarWebView {
-    /// Shows tab slot `slot`: the page puts back the resting omnibar that tab left. The reported
-    /// address becomes that tab's, so the next page render compares with the tab's own address.
-    func showTab(_ slot: String, shownURL: URL?) {
+    /// Shows tab slot `slot`: the page puts back the resting omnibar that tab left, or, for a tab new to
+    /// this page (moved from another pane), rests on `draft`. The reported address becomes that tab's,
+    /// so the next page render compares with the tab's own address.
+    func showTab(_ slot: String, shownURL: URL?, draft: OmnibarDraft? = nil) {
         reportedURL = shownURL
+        tabDraft = draft
         tabSlot = slot
     }
 

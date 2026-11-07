@@ -107,6 +107,16 @@ struct BrowserToolbarWireTests {
         #expect(OmnibarStatus(wire: [:]) == OmnibarStatus())
     }
 
+    /// The status names its tab slot and the text that tab would leave unsent (`OmnibarDraft`).
+    @Test func theStatusCarriesItsTabAndDraft() {
+        let status = OmnibarStatus(wire: ["phase": "editing", "editing": true, "text": "weather",
+                                          "tab": "slot-a", "draft": ["text": "weather", "selection": [3, 2]]])
+        #expect(status.tab == "slot-a")
+        #expect(status.draft == OmnibarDraft(text: "weather", selection: NSRange(location: 3, length: 2)))
+        #expect(OmnibarStatus(wire: ["draft": NSNull()]).draft == nil)
+        #expect(OmnibarStatus(wire: ["draft": ["text": "", "selection": [0, 0]]]).draft == nil, "an empty draft is none")
+    }
+
     @Test func theStatusDrivesEditing() {
         let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
         #expect(!bar.isEditing)
@@ -237,6 +247,19 @@ struct BrowserToolbarWireTests {
         #expect(state["tab"] as? String == "slot-b")
         #expect(state["url"] as? String == "https://b.example/")
         #expect((state["events"] as? [Any])?.isEmpty == true, "a switch queues no event")
+        #expect(state["draft"] is NSNull, "a tab with no draft sends none")
+    }
+
+    /// A tab that comes from another pane names its draft with its slot (`ToolbarHostState.draft`).
+    @Test func aMovedTabsSlotComesWithItsDraft() throws {
+        let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
+        bar.showTab("slot-c", shownURL: URL(string: "https://c.example/"),
+                    draft: OmnibarDraft(text: "weather", selection: NSRange(location: 3, length: 2)))
+        let data = try JSONSerialization.data(withJSONObject: bar.wireState())
+        let state = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let draft = try #require(state["draft"] as? [String: Any])
+        #expect(draft["text"] as? String == "weather")
+        #expect(draft["selection"] as? [Int] == [3, 2])
     }
 
     @Test func aButtonsStateHasThePagesShape() throws {

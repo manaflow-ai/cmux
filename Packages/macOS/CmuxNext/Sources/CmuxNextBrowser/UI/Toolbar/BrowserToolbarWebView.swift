@@ -75,6 +75,9 @@ public final class BrowserToolbarWebView: NSView {
 
     /// The tab slot shown now: each keeps its own omnibar (`BrowserChromeTabState.slot`).
     var tabSlot = "default" { didSet { if tabSlot != oldValue { setNeedsPush() } } }
+    /// The draft the shown tab brought from another pane (`BrowserChromeTabState.omnibarDraft`); the
+    /// page rests on it when it has no slot of its own for the tab.
+    var tabDraft: OmnibarDraft? { didSet { if tabDraft != oldValue { setNeedsPush() } } }
     /// Back, Forward, Reload and the trailing buttons (false: the omnibar alone, a popup window).
     var showsButtons: Bool { didSet { if showsButtons != oldValue { setNeedsPush() } } }
     var navigation = ToolbarNavigation() { didSet { if navigation != oldValue { setNeedsPush() } } }
@@ -227,6 +230,7 @@ public final class BrowserToolbarWebView: NSView {
         let look = OmnibarGlassLook.current
         return [
             "tab": tabSlot,
+            "draft": tabDraft?.wire ?? NSNull(),
             "url": reportedURL?.absoluteString ?? NSNull(),
             "site": site.isEmpty ? NSNull() : site.wire,
             "title": pageTitle?() ?? NSNull(),

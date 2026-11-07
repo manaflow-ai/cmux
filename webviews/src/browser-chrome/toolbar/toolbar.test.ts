@@ -10,9 +10,10 @@ import { OmnibarRunner } from "./controller";
 import { freshEvents } from "./events";
 import { admitsKey, dispositionFor, editKindFor, omnibarKeyFor, type KeyPress } from "./keys";
 import { indexAtX, layoutChanged, wireRect, wordRangeAt, type LayoutReport } from "./layout";
-import { TabSlotStore } from "./slots";
+import { ToolbarSession } from "./session";
+import { draftOf, TabSlotStore } from "./slots";
 import { chipFor, emphasisFor, starFor, wireCommand } from "./view";
-import type { ToolbarPageCommand } from "./wire";
+import type { OmnibarDraft, ToolbarHostEvent, ToolbarHostState, ToolbarPageCommand } from "./wire";
 
 const press = (key: string, modifiers: Partial<KeyPress> = {}): KeyPress => ({
   key,
@@ -316,5 +317,158 @@ describe("view", () => {
   test("commands go to the host as they are", () => {
     expect(wireCommand({ type: "goBack" })).toEqual({ type: "goBack" });
     expect(wireCommand({ type: "focusAddressBar" })).toBeNull();
+  });
+});
+
+describe("drafts move with their tab (two panes, two toolbar pages)", () => {
+  let revision = 0;
+  function hostState(
+    tab: string,
+    url: string,
+    extra: { draft?: OmnibarDraft | null; events?: ToolbarHostState["events"] } = {},
+  ): ToolbarHostState {
+    revision += 1;
+    return {
+      revision,
+      tab,
+      draft: extra.draft ?? null,
+      url,
+      site: null,
+      title: null,
+      navigation: { canGoBack: false, canGoForward: false, loading: false },
+      showsButtons: true,
+      bookmark: "hidden",
+      pageInfoOpen: false,
+      badges: {},
+      extensions: { shows: false, pinned: [] },
+      buttons: [],
+      omnibar: {
+        readOnly: false,
+        allowsChromiumSchemes: false,
+        home: "",
+        showFullURLs: false,
+        searchEngine: { id: "google", name: "Google", queryTemplate: "https://www.google.com/search?q={searchTerms}" },
+        keywords: [],
+        intranetHosts: [],
+        fixedTypoHosts: [],
+        upward: false,
+        searchKeywordFormat: "Search %@",
+      },
+      look: { material: "off", backgroundOpacity: 1 },
+      metrics: {
+        bar: 28,
+        button: 28,
+        fontSize: 13,
+        toolbarIcon: 16,
+        trailingIcon: 18,
+        chipIcon: 16,
+        spacing: 3,
+        margin: 6,
+        inset: 2,
+        trailingInset: 2,
+        barTop: 4,
+        cornerRadius: 8,
+        preferredAddress: 200,
+        minimumAddress: 100,
+        maxPinned: 6,
+      },
+      events: extra.events ?? [],
+    };
+  }
+
+  function page() {
+    const sent: ToolbarPageCommand[] = [];
+    const session = new ToolbarSession((command) => sent.push(command));
+    const status = () => sent.filter((command) => command.type === "status").at(-1) as StatusCommand | undefined;
+    return { session, sent, status };
+  }
+
+  type StatusCommand = Extract<ToolbarPageCommand, { type: "status" }>;
+  const event = (seq: number, value: ToolbarHostEvent) => ({ seq, event: value });
+
+  /** Types `text` into pane A's omnibar for tab `tab`, leaving `selection` selected, without submitting. */
+  function typeUnsent(
+    session: ToolbarSession,
+    tab: string,
+    url: string,
+    text: string,
+    selection: [number, number],
+    seq = 1,
+  ) {
+    session.applyHostState(hostState(tab, url, { events: [event(seq, { kind: "focus", source: "programmatic" })] }));
+    expect(session.state.phase).not.toBe("idle");
+    session.runner.send({
+      type: "fieldChanged",
+      field: { text, selection: { location: selection[0], length: selection[1] }, marked: null },
+      kind: "insert",
+    });
+  }
+
+  test("the status names its tab and carries the unsent draft", () => {
+    const a = page();
+    typeUnsent(a.session, "tab-1", "https://one.example/", "weather in paris", [8, 2]);
+    expect(a.status()?.tab).toBe("tab-1");
+    expect(a.status()?.draft).toEqual({ text: "weather in paris", selection: [8, 2] });
+    expect(draftOf(a.session.state)).toEqual({ text: "weather in paris", selection: [8, 2] });
+  });
+
+  test("a tab moved to another pane keeps its unsent text and selection", () => {
+    const a = page();
+    const b = page();
+    b.session.applyHostState(hostState("tab-2", "https://two.example/"));
+    typeUnsent(a.session, "tab-1", "https://one.example/", "weather in paris", [8, 2]);
+    // The host keeps the shown tab's draft as the page reported it (`BrowserChromeTabState.omnibarDraft`).
+    const status = a.status();
+    const carried = status?.tab === "tab-1" ? status.draft : null;
+    // The tab leaves pane A (the host resigns its keys and forgets the slot there) ...
+    a.session.applyHostState(
+      hostState("tab-3", "https://three.example/", {
+        events: [event(2, { kind: "blur" }), event(3, { kind: "forgetTab", tab: "tab-1" })],
+      }),
+    );
+    // ... and pane B shows it with the draft it brought.
+    b.session.applyHostState(hostState("tab-1", "https://one.example/", { draft: carried }));
+    expect(b.session.state.phase).toBe("idle");
+    expect(b.session.state.retainedText).toBe("weather in paris");
+    b.session.applyHostState(
+      hostState("tab-1", "https://one.example/", {
+        draft: carried,
+        events: [event(1, { kind: "focus", source: "programmatic" })],
+      }),
+    );
+    expect(b.session.state.phase).toBe("editing");
+    expect(b.session.state.edit.userText).toBe("weather in paris");
+    expect(b.session.state.edit.selection).toEqual({ location: 8, length: 2 });
+    expect(b.status()?.draft).toEqual({ text: "weather in paris", selection: [8, 2] });
+    // Pane A forgot the slot: the tab coming back there takes the host's draft, not a stale one.
+    a.session.applyHostState(hostState("tab-1", "https://one.example/", { draft: null }));
+    expect(a.session.state.retainedText).toBeNull();
+  });
+
+  test("a background tab's draft rides the status of the switch that left it", () => {
+    const a = page();
+    typeUnsent(a.session, "tab-1", "https://one.example/", "draft text", [0, 5]);
+    expect(a.status()?.draft).toEqual({ text: "draft text", selection: [0, 5] });
+    a.session.applyHostState(hostState("tab-3", "https://three.example/"));
+    // The switch posts the leaving tab's resting status before the next tab's.
+    const statuses = a.sent.filter((command) => command.type === "status") as StatusCommand[];
+    const leaving = statuses.filter((command) => command.tab === "tab-1").at(-1);
+    expect(leaving?.draft).toEqual({ text: "draft text", selection: [0, 5] });
+    expect(a.status()).toMatchObject({ tab: "tab-3", draft: null });
+  });
+
+  test("a submitted or reverted bar carries no draft; a slot of its own wins over the host's", () => {
+    const a = page();
+    typeUnsent(a.session, "tab-1", "https://one.example/", "one.example/", [12, 0]);
+    expect(a.status()?.draft).not.toBeNull();
+    a.session.runner.send({ type: "key", key: { kind: "escape" } });
+    a.session.runner.send({ type: "key", key: { kind: "escape" } });
+    expect(a.status()?.draft).toBeNull();
+    typeUnsent(a.session, "tab-1", "https://one.example/", "kept here", [9, 0], 2);
+    a.session.applyHostState(hostState("tab-3", "https://three.example/"));
+    a.session.applyHostState(
+      hostState("tab-1", "https://one.example/", { draft: { text: "older", selection: [0, 0] } }),
+    );
+    expect(a.session.state.retainedText).toBe("kept here");
   });
 });

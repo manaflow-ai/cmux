@@ -72,4 +72,38 @@ import Testing
         #expect(chrome.noticeText == nil && chrome.accessoryView == nil, "tab A shows none of B's")
         #expect(stateB.noticeText == "for b", "B's notice waits for B")
     }
+
+    /// A tab dragged to another pane brings the text left unsent in its omnibar, with its selection: the
+    /// source chrome keeps the page's last draft for the tab on its state, the destination's page gets it
+    /// with the slot, and the source page forgets the slot (a later return takes the state's draft).
+    @Test func aTabMovedToAnotherPaneBringsItsOmnibarDraft() throws {
+        let a = Self.tab("a.example"), c = Self.tab("c.example")
+        let stateA = BrowserChromeTabState(), stateC = BrowserChromeTabState()
+        let source = BrowserChromeView(tab: a), destination = BrowserChromeView(tab: c)
+        let sourceWindow = Self.shown(source), destinationWindow = Self.shown(destination)
+        defer {
+            sourceWindow.close()
+            destinationWindow.close()
+            BrowserPageRetirement(tab: a, chrome: destination).retire()
+            c.close()
+        }
+        source.bind(a, state: stateA)
+        destination.bind(c, state: stateC)
+        source.addressBar.handle(.status(OmnibarStatus(wire: [
+            "phase": "editing", "editing": true, "text": "weather", "selection": [3, 2],
+            "tab": stateA.slot, "draft": ["text": "weather", "selection": [3, 2]],
+        ])))
+        destination.bind(a, state: stateA)
+        let draft = OmnibarDraft(text: "weather", selection: NSRange(location: 3, length: 2))
+        #expect(stateA.omnibarDraft == draft)
+        #expect(stateA.chrome === destination)
+        let state = destination.addressBar.wireState()
+        #expect(state["tab"] as? String == stateA.slot)
+        let wired = try #require(state["draft"] as? [String: Any])
+        #expect(wired["text"] as? String == "weather")
+        #expect(wired["selection"] as? [Int] == [3, 2])
+        let events = (source.addressBar.wireState()["events"] as? [[String: Any]] ?? []).compactMap { $0["event"] as? [String: Any] }
+        #expect(events.contains { $0["kind"] as? String == "forgetTab" && $0["tab"] as? String == stateA.slot },
+                "the source page forgets the moved tab's slot")
+    }
 }

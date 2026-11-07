@@ -8,6 +8,7 @@ import { presentation, type OmnibarPresentation } from "../omnibox/presentation"
 import { reduce } from "../omnibox/reducer";
 import { fieldText, hasFocus, isPopupOpen, highlightedRow, type OmnibarState } from "../omnibox/state";
 import type { BrowserSuggestion, OmnibarEffect, OmnibarInput, OmniboxResolver } from "../omnibox/types";
+import { draftOf, draftsEqual } from "./slots";
 import type { ToolbarPageCommand } from "./wire";
 
 type StatusCommand = Extract<ToolbarPageCommand, { type: "status" }>;
@@ -26,10 +27,12 @@ export type OmnibarRunnerOptions = {
   onEffect?: (effect: OmnibarEffect) => void;
   /** After every step and restore (the page redraws). */
   onStep?: () => void;
+  /** The tab slot the state belongs to (the status names it). */
+  tab?: () => string | null;
 };
 
-/** The status the host reads synchronously (phase, text, card), from a state. */
-export function statusOf(state: OmnibarState): StatusCommand {
+/** The status the host reads synchronously (phase, text, card, the tab's draft), from a state. */
+export function statusOf(state: OmnibarState, tab: string | null = null): StatusCommand {
   const focused = hasFocus(state);
   const open = isPopupOpen(state);
   const selection = state.edit.selection;
@@ -43,6 +46,8 @@ export function statusOf(state: OmnibarState): StatusCommand {
     elided: state.elided,
     rows: open ? state.popup.rows.map((row) => row.title) : [],
     highlighted: open ? highlightedRow(state.popup) : null,
+    tab,
+    draft: draftOf(state),
   };
 }
 
@@ -54,6 +59,8 @@ function statusEqual(a: StatusCommand, b: StatusCommand): boolean {
     a.text === b.text &&
     a.elided === b.elided &&
     a.highlighted === b.highlighted &&
+    a.tab === b.tab &&
+    draftsEqual(a.draft, b.draft) &&
     (a.selection === b.selection ||
       (a.selection !== null &&
         b.selection !== null &&
@@ -146,7 +153,7 @@ export class OmnibarRunner {
   }
 
   private finishStep(): void {
-    const status = statusOf(this.state);
+    const status = statusOf(this.state, this.options.tab?.() ?? null);
     if (this.lastStatus === null || !statusEqual(this.lastStatus, status)) {
       this.lastStatus = status;
       this.options.post(status);
