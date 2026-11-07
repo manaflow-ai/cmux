@@ -25,8 +25,9 @@ tree() {
   if [[ ! -f "$dir/.arena-complete" ]]; then
     rm -rf "$dir"
     # Not shallow: the warm checkout outlives the step. It may have no origin remote (as chief-build-cache.sh).
-    git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$root" fetch -q --no-tags origin "$sha" 2>/dev/null \
-      || git -C "$root" fetch -q --no-tags https://github.com/manaflow-ai/cmux.git "$sha" || return 1
+    # No submodules: the engines build without them, and the ghostty fetch fails ("not our ref").
+    git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$root" fetch -q --no-tags --no-recurse-submodules origin "$sha" 2>/dev/null \
+      || git -C "$root" fetch -q --no-tags --no-recurse-submodules https://github.com/manaflow-ai/cmux.git "$sha" || return 1
     mkdir -p "$dir"
     git -C "$root" archive "$sha" -- . ':(exclude)cmux-next-ios' ':(exclude)web' ':(exclude)webviews' | tar -x -C "$dir" || return 1
     touch "$dir/.arena-complete"
