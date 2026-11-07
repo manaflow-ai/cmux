@@ -52,6 +52,25 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
         Machine::Target("vm-1".into())
     );
     assert_eq!(request(&["--prompt", "-"]).prompt, "from stdin");
+    // After `--`, the prompt is text: an output flag or `-` is what it says.
+    assert_eq!(request(&["--wait", "--", "--json"]).prompt, "--json");
+    assert_eq!(request(&["--", "-"]).prompt, "-");
+}
+
+/// `cmux cloud start-chat -- --json` (cmuxterm-hq#7487 item 4): the global scan and the output
+/// lift leave `-- --json` to the parser, whose prompt it is.
+#[test]
+fn an_output_flag_after_the_separator_is_the_prompt() {
+    let (mut global, command) =
+        super::super::parse_globals(&strings(&["cloud", "start-chat", "--", "--json"]))
+            .ok()
+            .unwrap();
+    let words = lift_output(&command[2..], &mut global.output);
+    assert_eq!(global.output, OutputMode::Human);
+    assert!(matches!(
+        parse(&words, || Ok(String::new())),
+        Ok(Parsed::Run(run)) if run.prompt == "--json"
+    ));
 }
 
 #[test]
@@ -65,6 +84,9 @@ fn parse_refuses_what_start_session_would() {
         vec!["--prompt", "x", "--timeout", "soon"],
         vec!["--prompt", "x", "--bogus"],
         vec!["--prompt"],
+        vec!["--prompt", "x", "--", "y"],
+        vec!["--", "two", "words"],
+        vec!["--"],
     ] {
         assert!(parse(&strings(&words), || Ok(String::new())).is_err(), "{words:?}");
     }
