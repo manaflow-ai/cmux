@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42388094145",
+  "recorded_at": "2026-11-07T15:56:51Z",
+  "reason": "cmux-tui 293a7a2712f7 changes the image's cmux-tui (pinned a36e33e8d72f)",
+  "dry_run": false,
+  "cmux_tui": "293a7a2712f70ef8d533422d043a98bd7fbaf226",
+  "fixes": [
+    {
+      "sha": "630a3df3e0b6c73ae654d1e14977123463ac3161",
+      "mergedAt": "2026-11-07T07:33:16-08:00",
+      "subject": "fix(cmux-host): the Cloud updater checks the machine channel every minute, not every five (#37897)"
+    },
+    {
+      "sha": "1afdbb1a37fab906470ef1c6bd8192ebedec4560",
+      "mergedAt": "2026-11-07T07:27:57-08:00",
+      "subject": "cmux-tui: remote dial-tcp, a stdio tunnel for ssh ProxyCommand (#37861)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T15:56:51Z",
+    "snapshot_id": "sh-24bed4765e4442c2811094f7c6bc37e7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42388094145): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "fe919b6fec7b3240900f16a75a1c9283ff91434b",
+    "image": "cloud-native-auto-293a7a27-42388094145-1",
+    "revision": "ci-42388094145-1",
+    "at": "2026-11-07T15:56:51Z"
+  },
+  "rolled_back": false
+}
