@@ -1115,6 +1115,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-cloud-client",
+ "cmux-cloud-machine",
  "cmux-json",
  "reqwest",
  "rustls",
@@ -1168,6 +1169,7 @@ dependencies = [
 name = "cmux-cloud-handlers"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-start-core",
  "serde",
  "serde_json",
 ]
@@ -1918,6 +1920,7 @@ dependencies = [
  "acpmux-build-id",
  "anyhow",
  "async-trait",
+ "axum",
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
@@ -1941,6 +1944,7 @@ dependencies = [
  "cmux-process",
  "cmux-pty",
  "cmux-rd-host",
+ "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
  "cmux-sdk",
@@ -1956,6 +1960,7 @@ dependencies = [
  "cmux-vm",
  "cmux-vnc",
  "cmux-wg",
+ "core-foundation 0.10.1",
  "crossbeam-channel",
  "crossterm",
  "diffy",
@@ -1975,6 +1980,8 @@ dependencies = [
  "rquickjs",
  "rusqlite",
  "rustls",
+ "security-framework",
+ "security-framework-sys",
  "serde",
  "serde_json",
  "sha2 0.10.9",

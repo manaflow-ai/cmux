@@ -2,7 +2,9 @@
 // on click by default (extra view doesn't really affect anything), and you can riht click to go to it.
 // but of course we just have to be prepared to mitigate oddities"): each tab keeps its own Session
 // Info, so one tab's reload never takes the other tab's open state, width or folds. A tab with no state
-// of its own reads the chat's (a chat saved before keys were per tab). Each page is its own store over
+// of its own reads the chat's width and folds (a chat saved before keys were per tab), but starts
+// closed: the chat's open was another tab's choice (Leo, 2026-11-07: "you don't necessarily want it to
+// auto open on the next one"). Each page is its own store over
 // one storage, as each tab is its own page.
 import { expect, test } from "bun:test";
 import {
@@ -58,7 +60,7 @@ test("two tabs of one chat keep their own Session Info across a reload", () => {
   expect(rightAgain.current().sections.usage).toBe(true);
 });
 
-test("a tab with no state of its own reads the chat's old entry, then keeps its own", () => {
+test("a tab with no state of its own reads the chat's old width, starts closed, then keeps its own", () => {
   const storage = memoryStorage();
   // Saved before keys were per tab: the chat's entry only.
   const before = createSessionInfoStore(() => storage);
@@ -71,11 +73,12 @@ test("a tab with no state of its own reads the chat's old entry, then keeps its 
   expect(tab.current().open).toBe(false);
   expect(tab.current().width).toBe(480);
 
-  // Its own choice is its own from here; the chat's entry follows the latest choice in any tab.
+  // Its own choice is its own from here; another tab new to the chat takes the width, not the open.
   tab.setOpen(true);
   expect(storage.getItem(SESSION_INFO_PANE_PREFIX + tabEntry("chat-1", "tab-A"))).not.toBeNull();
   const other = page(storage, "tab-B");
-  expect(other.current().open).toBe(true);
+  expect(other.current().open).toBe(false);
+  expect(other.current().width).toBe(480);
   other.setOpen(false);
   expect(page(storage, "tab-A").current().open).toBe(true);
   // Both entries are in the index, so pruning reaches the tab's too.
