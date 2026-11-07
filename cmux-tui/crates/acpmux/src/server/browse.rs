@@ -594,7 +594,7 @@ mod tests {
         let root = t.path().join("root");
         let away = t.path().join("away");
         std::fs::create_dir_all(root.join("real")).unwrap();
-        std::fs::create_dir_all(away.join("private")).unwrap();
+        std::fs::create_dir_all(away.join("held-behind-the-link")).unwrap();
         std::os::unix::fs::symlink(&away, root.join("to-away")).unwrap();
         std::os::unix::fs::symlink(root.join("real"), root.join("to-real")).unwrap();
         std::os::unix::fs::symlink(t.path().join("gone"), root.join("dangling")).unwrap();
@@ -610,7 +610,7 @@ mod tests {
         assert_eq!(row("to-real")["target"], "dir");
         assert!(row("to-real").get("outside").is_none());
         assert_eq!(row("dangling")["target"], "missing");
-        assert!(!reply.to_string().contains("private"), "what a link names is not listed");
+        assert!(!reply.to_string().contains("held-behind-the-link"), "what a link names is not listed");
         // Opening the link resolves it, and the roots still hold.
         let e = list(&ask(&root.join("to-away")), Some(&roots), SCAN_CAP, later()).unwrap_err();
         assert_eq!(reason(e), "browse.outside_roots");
