@@ -151,6 +151,10 @@ await requireBrowserLane("newtab-machine-menu.test.ts", async () => {
           top: describe(top),
           reaches: top !== null && trigger.contains(top),
           pointerEvents: getComputedStyle(trigger).pointerEvents,
+          chatNew:
+            (window as unknown as { cmuxAcpmuxActions?: Record<string, unknown> }).cmuxAcpmuxActions?.["chat.new"] !==
+            undefined,
+          chip: trigger.closest(".acpmux-mode")?.className ?? null,
         };
       });
       log.push(["permissions", 760, JSON.stringify(hit)].join("\t"));

@@ -23,6 +23,7 @@ import {
 import { type CloudMachine, isCloudMachineRow } from "./cloudMachines";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
+import { useRowPresence } from "./rowPresence";
 import type { RunModeRows } from "./sandboxRun";
 
 /// The Cloud row's value (cloudRun.ts): not a machine id, and not an action of the list.
@@ -349,7 +350,7 @@ export function EnvironmentPicker({
   // menu, Settings > Devices and the Cloud page. A started chat's list is where it runs and its one
   // move.
   const editing = saved?.current;
-  type Action = { value: string; text: string; kind: "local" | "cloud"; run(): void };
+  type Action = { value: string; text: string; kind: "local" | "cloud"; run(): void; signsIn?: true };
   const move: Action | undefined =
     offload && onOffload
       ? {
@@ -362,22 +363,28 @@ export function EnvironmentPicker({
   // Cloud: where a chat runs off this Mac. A new chat with `runMode` picks it as where the chat runs
   // (cloudRun.ts: the app picks and sizes a machine, CLOUD_RUN); elsewhere a pick opens the host's
   // New Cloud Machine flow, which stays in the right-click menu either way.
+  // Cloud and Sign in for Cloud are one row, never two (Leo, 2026-11-07, of the menu showing both
+  // and then dropping the sign-in row: "The thing becomes just one state instead of rapidly
+  // switching to another"). Signed out (or with no account state kept, cloudMachines.ts), the row
+  // signs in only, where Cloud's New Cloud Machine flow would sign in and then make a machine
+  // (#27973); signed in, it is Cloud. Its value stays the same either way, so an answer that lands
+  // while the menu is open changes the row's words in place (RowSwap), never the list's rows. A new
+  // chat's Cloud (`runMode`) is where the chat runs, a pick that makes nothing: Send signs in first
+  // when it has to (cloudRun.ts `signedIn`), so its list has no sign-in row at all; Sign in for
+  // Cloud stays on the control's right-click menu.
   const cloud: Action | undefined =
     onConnect && runMode === undefined
-      ? { value: ACTION + "cloud", text: t("composer.cloud"), kind: "cloud", run: () => onConnect("cloud") }
+      ? cloudSignedIn === true
+        ? { value: ACTION + "cloud", text: t("composer.cloud"), kind: "cloud", run: () => onConnect("cloud") }
+        : {
+            value: ACTION + "cloud",
+            text: t("composer.cloudSignIn"),
+            kind: "cloud",
+            run: () => onConnect("cloudSignIn"),
+            signsIn: true,
+          }
       : undefined;
   const cloudRow = runMode !== undefined ? CLOUD_RUN : cloud?.value;
-  // Signed out (or before the app's Cloud reply), Sign in for Cloud follows Cloud: it signs in only,
-  // where Cloud's New Cloud Machine flow would sign in and then make a machine (#27973).
-  const signIn: Action | undefined =
-    onConnect && cloudSignedIn !== true
-      ? {
-          value: ACTION + "cloudSignIn",
-          text: t("composer.cloudSignIn"),
-          kind: "cloud",
-          run: () => onConnect("cloudSignIn"),
-        }
-      : undefined;
   // Where: Another machine, whose pick is the machine control's. Which machine: Add Machine… last.
   const another: Action | undefined =
     listRows === "where" && onAnother
@@ -395,7 +402,6 @@ export function EnvironmentPicker({
   const actions: Action[] = [
     ...(move ? [move] : []),
     ...(cloud ? [cloud] : []),
-    ...(signIn ? [signIn] : []),
     ...(another ? [another] : []),
     ...(addMachine ? [addMachine] : []),
   ];
@@ -436,7 +442,7 @@ export function EnvironmentPicker({
   })();
   // The main list: This Mac, the picked machine or saved environment when it is neither This Mac nor
   // a new Cloud machine (one checked row, so the pick is never hidden), a started chat's move,
-  // Cloud, and Sign in for Cloud while signed out.
+  // and Cloud (Sign in for Cloud while signed out).
   const pickedOther =
     checkedRow !== undefined && !isLocalId(checkedRow) && (positions.has(checkedRow) || checkedRow.startsWith(SAVED))
       ? checkedRow
@@ -446,7 +452,6 @@ export function EnvironmentPicker({
     ...(pickedOther ? [pickedOther] : []),
     ...(move ? [move.value] : []),
     ...(cloudRow ? [cloudRow] : []),
-    ...(signIn ? [signIn.value] : []),
   ];
   // Machines…: every machine, This Mac first, and New Tab's saved environments, as the search keeps them.
   const machines = [
@@ -468,7 +473,6 @@ export function EnvironmentPicker({
   const where = [
     ...ordered.filter(isLocal).map((environment) => environment.id),
     ...(cloudRow ? [cloudRow] : []),
-    ...(signIn ? [signIn.value] : []),
     ...(another ? [another.value] : []),
   ];
   // Which machine: the machines a chat can start on first, whatever their kind, then the rest
@@ -494,6 +498,12 @@ export function EnvironmentPicker({
             ? [...ordered.filter(isLocal).map((environment) => environment.id), ...(cloudRow ? [cloudRow] : [])]
             : where
           : main;
+  // The rows as they settle while the list is open (rowPresence.ts): it opens with its final rows,
+  // and a row the data adds or drops while it stays open grows or shrinks in place. Another list
+  // (Machines…) or a search replaces the rows at once.
+  const presence = useRowPresence(suggestions, open, `${list}\u0001${query}`);
+  // A leaving row draws as it last drew: its machine or action may already be gone.
+  const drawn = useRef(new Map<string, React.ReactNode>());
   // Cloud's row shows Sandboxed instead while ⌥ is held (or, once picked, until it is).
   const sandboxFace = offersSandbox && sandboxed !== alternate;
 
@@ -563,14 +573,22 @@ export function EnvironmentPicker({
       return;
     }
     // A machine, Another machine, or Cloud's New Cloud Machine flow: Persistent again.
-    if (!action || value === ACTION + "cloud" || value === ANOTHER) persistent();
+    if (!action || (value === ACTION + "cloud" && !action.signsIn) || value === ANOTHER) persistent();
     if (action) action.run();
     // The chat's own machine, paused (cloudMachines.ts withCloudSleep), is still a pick: it resumes.
     else if (value === currentRow && !(machine && isCloudMachineRow(machine))) focusPrompt();
     else if (value.startsWith(SAVED)) saved?.onPick(value.slice(SAVED.length));
     else if (machine) onPick(value);
   };
-  const row = (value: string) => {
+  const row = (value: string): React.ReactNode => {
+    const motion = presence.motion(value);
+    if (motion === "leave") return drawn.current.get(value) ?? null;
+    const node = rowContent(value);
+    if (!React.isValidElement<{ "data-row-motion"?: string }>(node)) return node;
+    drawn.current.set(value, React.cloneElement(node, { "data-row-motion": "leave" }));
+    return motion ? React.cloneElement(node, { "data-row-motion": motion }) : node;
+  };
+  const rowContent = (value: string) => {
     if (value === CLOUD_RUN && sandboxFace) {
       return (
         <span
@@ -759,7 +777,8 @@ export function EnvironmentPicker({
       >
         {listRows === "run" && <div className="acpmux-env-heading">{t("composer.whereRun")}</div>}
         <Combobox
-          suggestions={suggestions}
+          suggestions={presence.rows}
+          isItemDisabled={(value) => presence.motion(value) === "leave"}
           // A short list has no search: the field only carries the arrows, Return and Escape.
           onQuery={searchable ? setQuery : () => undefined}
           onSubmit={submit}

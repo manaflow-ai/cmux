@@ -152,7 +152,9 @@ const pickerRows = () =>
     row.querySelector(".acpmux-env-row:not(.acpmux-env-new)"),
   );
 
-test("signed out keeps Cloud and adds a sign-in row after it", async () => {
+// Leo, 2026-11-07, of the menu showing Cloud and Sign in for Cloud and then dropping the sign-in
+// row: "The thing becomes just one state instead of rapidly switching to another." One row, never two.
+test("signed out, the Cloud row is Sign in for Cloud: one row, never Cloud and sign-in together", async () => {
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
   setCloudMachinesForTestAccount(false);
   const calls: string[] = [];
@@ -161,15 +163,80 @@ test("signed out keeps Cloud and adds a sign-in row after it", async () => {
   const rows = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].filter((item) =>
     item.querySelector(".acpmux-location-name"),
   );
-  // The list is This Mac and Cloud; New Cloud Machine… and SSH… are on the control's right-click menu.
+  // The list is This Mac and the Cloud row; New Cloud Machine… and SSH… are on the control's right-click menu.
   const names = rows.map(label);
-  expect(names).toContain(t("composer.cloud"));
-  expect(names.indexOf("Sign in for Cloud")).toBe(names.indexOf(t("composer.cloud")) + 1);
+  expect(names).toContain("Sign in for Cloud");
+  expect(names).not.toContain(t("composer.cloud"));
   await act(async () => rows.find((row) => label(row) === "Sign in for Cloud")!.click());
   // Sign-in only: New Cloud Machine (`cloud`) would sign in and then create a machine.
   expect(calls).toEqual(["cloudSignIn"]);
   const { CONNECT_ACTIONS } = await import("../src/agent-session/acpmux/environments");
   expect(CONNECT_ACTIONS.cloudSignIn).toBe("palette.auth.signIn");
+});
+
+test("a sign-in answer that lands while the menu is open changes the Cloud row in place", async () => {
+  const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
+  setCloudMachinesForTestAccount(undefined);
+  await mount(true, { cloudMachines: [], onConnect: () => undefined });
+  await openPicker();
+  const rows = () =>
+    [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].filter((item) =>
+      item.querySelector(".acpmux-location-name"),
+    );
+  const before = rows();
+  expect(before.map(label)).toContain("Sign in for Cloud");
+  await act(async () => setCloudMachinesForTestAccount(true));
+  const after = rows();
+  // The same rows, the same count: only the Cloud row's words change.
+  expect(after.length).toBe(before.length);
+  expect(after.map(label)).toContain(t("composer.cloud"));
+  expect(after.map(label)).not.toContain("Sign in for Cloud");
+});
+
+test("with the account state kept from an earlier page, the menu's first rows are its settled rows", async () => {
+  const cloud = await import("../src/agent-session/acpmux/cloudMachines");
+  const storage = dom.window.localStorage;
+  scope.localStorage = storage;
+  try {
+    for (const signedIn of [true, false]) {
+      // An earlier page's answer, kept; this page loads from it before any reply of its own.
+      storage.setItem("cmux.acpmux.cloud.account", JSON.stringify({ signedIn, machines: [] }));
+      cloud.reloadKeptCloudAccountForTest();
+      let answer: (value: unknown) => void = () => undefined;
+      const replied = new Promise((resolve) => (answer = resolve));
+      (dom.window as unknown as { webkit?: unknown }).webkit = {
+        messageHandlers: {
+          agentSession: {
+            postMessage: async (message: { method?: string }) => {
+              if (message.method !== "cloudMachine.list") return { ok: true, value: null };
+              await replied;
+              return { ok: true, value: { signedIn, loaded: true, machines: [] } };
+            },
+          },
+        },
+      };
+      await mount(true, { cloudMachines: undefined, onConnect: () => undefined });
+      await openPicker();
+      const labels = () =>
+        [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")]
+          .filter((item) => item.querySelector(".acpmux-location-name"))
+          .map(label);
+      const first = labels();
+      await act(async () => {
+        answer(undefined);
+        await cloud.refreshCloudMachines();
+      });
+      expect(first).toEqual(labels());
+      expect(first.filter((name) => name === "Sign in for Cloud" || name === t("composer.cloud")).length).toBe(1);
+      expect(first).toContain(signedIn ? t("composer.cloud") : "Sign in for Cloud");
+      act(() => root?.unmount());
+      root = undefined;
+      host.replaceChildren();
+    }
+  } finally {
+    storage.clear();
+    delete scope.localStorage;
+  }
 });
 
 test("an absent Cloud account state still offers sign-in, while an explicit signed-in state does not", async () => {

@@ -18,6 +18,50 @@ export type CloudMachineRow = Environment & { cloudMachine: CloudMachine };
 /// Whether the app's Cloud account is signed in. `undefined` means the app did not provide an
 /// explicit account state (for example, a fresh home where Cloud is not available yet); the
 /// picker treats that the same as signed out until a reply says `true`.
+///
+/// The last answer is kept in this origin's localStorage (every agent page shares one website data
+/// store, newtab/settledCache.ts) and read when the page loads, so a menu opened before this page's
+/// own `cloudMachine.list` reply draws its settled rows on its first frame. Leo, 2026-11-07, of
+/// "Sign in for Cloud" showing and then vanishing as the machine menu opened: "ideally this never
+/// happens ... The thing becomes just one state instead of rapidly switching to another." A reply
+/// replaces it; a refused read clears it, as it clears the page's copy.
+const ACCOUNT_KEY = "cmux.acpmux.cloud.account";
+
+type KeptAccount = { signedIn: boolean; machines: CloudMachine[] };
+
+function accountStorage(): Storage | undefined {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function readKeptAccount(): KeptAccount | undefined {
+  try {
+    const raw = accountStorage()?.getItem(ACCOUNT_KEY);
+    if (!raw) return undefined;
+    const value = JSON.parse(raw) as { signedIn?: unknown; machines?: unknown } | null;
+    if (typeof value?.signedIn !== "boolean") return undefined;
+    const machines = value.signedIn
+      ? cloudMachinesFromReply({ signedIn: true, loaded: true, machines: value.machines })
+      : [];
+    return { signedIn: value.signedIn, machines };
+  } catch {
+    return undefined;
+  }
+}
+
+function keepAccount(signedIn: boolean | undefined, list: readonly CloudMachine[]): void {
+  try {
+    const store = accountStorage();
+    if (signedIn === undefined) store?.removeItem(ACCOUNT_KEY);
+    else store?.setItem(ACCOUNT_KEY, JSON.stringify({ signedIn, machines: signedIn ? list : [] }));
+  } catch {
+    // A blocked or full store only leaves the next page to wait for its own reply.
+  }
+}
+
 let accountSignedIn: boolean | undefined;
 
 type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -151,6 +195,14 @@ export function cloudMachineAction(machine: CloudMachine): "resume" | "open" {
 // The page's copy of the app's list: every composer reads it, and an open machine list reads it
 // again (useMachineRefresh), one request at a time.
 let machines: readonly CloudMachine[] = [];
+// The page starts from the last answer this app run (or an earlier one) kept, never from nothing.
+{
+  const kept = readKeptAccount();
+  if (kept) {
+    accountSignedIn = kept.signedIn;
+    machines = kept.machines;
+  }
+}
 const listeners = new Set<() => void>();
 let inFlight: Promise<void> | undefined;
 /// Bumped by a reset: a reply to a read asked before it is dropped.
@@ -176,13 +228,17 @@ export function refreshCloudMachines(call: Call = postNative): Promise<void> {
   inFlight ??= call("cloudMachine.list", {})
     .then((reply) => {
       if (asked === generation) {
-        publishAccount(cloudSignedInFromReply(reply));
-        publish(cloudMachinesFromReply(reply));
+        const signedIn = cloudSignedInFromReply(reply);
+        const list = cloudMachinesFromReply(reply);
+        keepAccount(signedIn, list);
+        publishAccount(signedIn);
+        publish(list);
       }
     })
     .catch((error: unknown) => {
       if ((error as { code?: unknown } | null)?.code === "native.not_connected") return;
       if (asked === generation) {
+        keepAccount(undefined, []);
         publishAccount(undefined);
         publish([]);
       }
@@ -266,6 +322,7 @@ const snapshot = () => machines;
 export function setCloudMachinesForTest(next: readonly CloudMachine[]): void {
   generation += 1;
   inFlight = undefined;
+  keepAccount(undefined, []);
   publishAccount(undefined);
   publish(next);
 }
@@ -276,3 +333,12 @@ export function setCloudMachinesForTestAccount(next: boolean | undefined): void 
 }
 
 const accountSnapshot = () => accountSignedIn;
+
+/// Tests: the page loading again, starting from what localStorage kept (as at module load).
+export function reloadKeptCloudAccountForTest(): void {
+  generation += 1;
+  inFlight = undefined;
+  const kept = readKeptAccount();
+  publishAccount(kept?.signedIn);
+  publish(kept?.machines ?? []);
+}

@@ -97,6 +97,7 @@ import {
   composerDraft,
   DRAFT_SETTLE_MS,
   notifyDraftActionsChanged,
+  useDraftActionsVersion,
   hasPendingDraftWrite,
   readDurableDraftState,
   readPersistedDraft,
@@ -1127,6 +1128,11 @@ function DefaultComposerChips({
   const signIn = useSignIn();
   // acpmux has answered with its harnesses: only then can the chip say none is installed.
   const harnessesListed = useHarnessesListed();
+  // `holdsModePick` reads the page's action map, which the connect installs after the chips first
+  // draw: the chips draw again when it is installed or dropped, or a New Tab's permission chip stayed
+  // the inert placeholder and ate every click (Leo, 2026-11-07: "I can't click to adjust the bypass
+  // permissions button there in that new tab screen"; test/newtab-machine-menu.test.ts).
+  useDraftActionsVersion();
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
   // never restarts it.
   const start = () => {
@@ -6533,6 +6539,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             catalogClientId.current += 1;
             directClient.current = undefined;
             delete window.cmuxAcpmuxActions;
+            notifyDraftActionsChanged();
             // Until a client connects again, an open handed this page would wait for that connect.
             if (!mock) void postNative("pane.clientReady", { ready: false }).catch(() => undefined);
             // Quiet while it comes back: nothing shows until the handshakes fail past the deadline.

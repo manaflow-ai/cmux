@@ -316,6 +316,14 @@ export function ComposerContext({
   // so Sign in for Cloud goes away once the app says the person is signed in (an older chat's
   // menu otherwise never asks, and keeps offering sign-in to someone already signed in).
   const readsCloudAccount = !cloudMachines && (newChat || onConnect !== undefined);
+  // With no account state kept from an earlier page (cloudMachines.ts), the app is asked once when
+  // the composer mounts, not when the menu opens, so the menu's first frame already has its rows.
+  const accountAsked = useRef(false);
+  useEffect(() => {
+    if (!readsCloudAccount || accountSignedIn !== undefined || accountAsked.current) return;
+    accountAsked.current = true;
+    void refreshCloudMachines();
+  }, [readsCloudAccount, accountSignedIn]);
   const onRefreshMachines = readsCloudAccount
     ? () => {
         onRefreshPeers?.();
