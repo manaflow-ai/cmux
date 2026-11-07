@@ -38,6 +38,9 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
   const SESSION = "steer-session";
   // A forced Stop's muted Stopped, which names cmux's end only in its tooltip.
   const FORCED_STOP = `.cv-turn-stopped[title="The agent didn't answer Stop, so cmux ended its turn."]`;
+  // A compaction still running: the running turn's live line while the turn runs (Thinking.tsx
+  // `data-compacting`), its own transcript row once the turn has ended.
+  const RUNNING_COMPACTION = '.cv-compaction[data-state="running"], .cv-worked--live[data-compacting]';
   const turn = {
     turnId: "turn-1",
     promptId: "p-turn",
@@ -445,13 +448,13 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "running" } },
       });
-      await page.locator('.cv-compaction[data-state="running"]').waitFor();
+      await page.locator(RUNNING_COMPACTION).waitFor();
       await page.getByRole("button", { name: "Stop" }).click();
       await until(() => cancels.length > 0, "Stop's session/cancel");
       record("compaction_metadata_fenced", { sourceKind: "compaction" }, 40);
       await drawn(page);
       expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(0);
-      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(1);
+      expect(await page.locator(RUNNING_COMPACTION).count()).toBe(1);
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1", cancelForced: true });
       record("status", { status: "idle" });
@@ -475,13 +478,13 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "running" } },
       });
-      await page.locator('.cv-compaction[data-state="running"]').last().waitFor();
+      await page.locator(RUNNING_COMPACTION).last().waitFor();
       const compactionRows = await page.locator(".cv-compaction").count();
       record("compaction_metadata_fenced", { sourceKind: "compaction_summary" }, 41);
       record("compaction_metadata_fenced", { sourceKind: "compaction" }, 42);
       await drawn(page);
       expect(await page.locator(".cv-compaction").count()).toBe(compactionRows);
-      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(1);
+      expect(await page.locator(RUNNING_COMPACTION).count()).toBe(1);
       recordInbound("compaction", {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "completed" } },
@@ -492,10 +495,10 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       record("turn_result", { status: "cancelled" });
       await drawn(page);
       expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(0);
-      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(1);
+      expect(await page.locator(RUNNING_COMPACTION).count()).toBe(1);
       record("turn_result", { status: "completed", turnId: "turn-2" });
       await drawn(page);
-      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(0);
+      expect(await page.locator(RUNNING_COMPACTION).count()).toBe(0);
       recordInbound("compaction", {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "completed" } },
