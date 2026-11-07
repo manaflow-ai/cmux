@@ -1865,7 +1865,10 @@ pre.cv-math-source {
 .acpmux-scroll[data-cmux-shown-scroller] {
   overflow-x: hidden;
 }
-.acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
+/* `data-asks` (App.tsx), not `.acpmux-main:has(.acpmux-asks-stack)`: a `:has()` on a transcript ancestor that
+   looks at its whole subtree is checked again for every node a streamed chunk inserts, and each check restyles
+   the composer (test/agent-pane-stream-composer-still.test.ts). */
+.acpmux-main[data-asks] .acpmux-scroll {
   margin-bottom: 0;
 }
 /* The spacer is the scroller's extent, which a followed view's offset is set against in the same
@@ -5976,7 +5979,7 @@ a.cv-sha:focus-visible {
     100% 0,
     0 0;
 }
-.acpmux-scroll:has(> .acpmux-minimap [data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
+.acpmux-scroll:has(> .acpmux-minimap[data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
   -webkit-mask-position:
     0 0,
     100% 0,
