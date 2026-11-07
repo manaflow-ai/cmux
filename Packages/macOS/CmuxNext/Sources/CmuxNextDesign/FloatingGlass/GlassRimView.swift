@@ -18,6 +18,12 @@ public final class GlassRimView: NSView {
         didSet { if look != oldValue { applyColors() } }
     }
 
+    /// When set, the rim fades out this far below the surface's top edge, so a tall surface (a sidebar group's block)
+    /// keeps its lit top and corners and draws no hairline down its sides. Nil fades top to bottom over the whole height.
+    public var fadeDepth: CGFloat? {
+        didSet { if fadeDepth != oldValue { applyColors(); needsLayout = true } }
+    }
+
     /// - Parameters:
     ///   - cornerRadius: The surface's corner radius.
     ///   - look: The rim colors for the current appearance.
@@ -55,10 +61,12 @@ public final class GlassRimView: NSView {
         let radius = min(max(cornerRadius - width / 2, 0), max(min(inset.width, inset.height) / 2, 0))
         stroke.path = inset.width > 0 && inset.height > 0
             ? CGPath(roundedRect: inset, cornerWidth: radius, cornerHeight: radius, transform: nil) : nil
+        gradient.locations = fadeDepth.map { [0, NSNumber(value: Double(min(1, $0 / max(bounds.height, 1))))] }
         CATransaction.commit()
     }
 
     private func applyColors() {
-        gradient.colors = [look.rimTop.nsColor.cgColor, look.rimBottom.nsColor.cgColor]
+        let bottom = fadeDepth == nil ? look.rimBottom : FloatingGlassLook.Gray(white: look.rimTop.white, alpha: 0)
+        gradient.colors = [look.rimTop.nsColor.cgColor, bottom.nsColor.cgColor]
     }
 }
