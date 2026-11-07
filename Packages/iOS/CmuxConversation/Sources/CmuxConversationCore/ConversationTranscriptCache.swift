@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// The newest messages of a conversation as this device last saw them, so a store built again
 /// (the app back from the background, a relaunch, a reconnect) shows them at once instead of a
@@ -29,14 +30,20 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
     public let directory: URL
     public let limit: Int
     let queue = DispatchQueue(label: "dev.cmux.conversation.transcript-cache", qos: .utility)
+    /// How long a write waits for newer changes (a streamed reply changes the transcript many
+    /// times a second): one file write per key per `writeDelay`, of the newest snapshot.
+    let writeDelay: DispatchTimeInterval
+    /// Snapshots waiting for their write, by key; the queue takes the newest.
+    private let pending = OSAllocatedUnfairLock(initialState: [String: ConversationTranscriptSnapshot]())
     /// This run's snapshots by key. Read and written on the main actor only.
     @MainActor private var memory: [String: ConversationTranscriptSnapshot] = [:]
     /// Bumps on `removeAll`: a read that started before it never lands in memory after it.
     @MainActor private var generation = 0
 
-    public init(directory: URL, limit: Int = ConversationTranscriptCache.limit) {
+    public init(directory: URL, limit: Int = ConversationTranscriptCache.limit, writeDelay: DispatchTimeInterval = .seconds(1)) {
         self.directory = directory
         self.limit = limit
+        self.writeDelay = writeDelay
     }
 
     /// The cache in Application Support/`name`.
@@ -73,28 +80,49 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
         let snapshot = Self.snapshot(info: info, meID: meID, messages: messages, limit: limit)
         guard memory[key] != snapshot else { return }
         memory[key] = snapshot
-        let url = file(for: key), directory = directory
-        queue.async {
-            guard let data = try? JSONEncoder().encode(snapshot) else { return }
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        let waiting = pending.withLock { pending in
+            defer { pending[key] = snapshot }
+            return pending[key] != nil
         }
+        guard !waiting else { return }
+        queue.asyncAfter(deadline: .now() + writeDelay) { [self] in write(key) }
     }
 
-    /// Sign-out: every kept conversation leaves this device. Waits for queued writes, so none
-    /// lands after it.
+    /// Writes the newest snapshot waiting for `key`, if any (on the queue).
+    private func write(_ key: String) {
+        guard let snapshot = pending.withLock({ $0.removeValue(forKey: key) }),
+              let data = try? JSONEncoder().encode(snapshot) else { return }
+        var directory = directory
+        if !FileManager.default.fileExists(atPath: directory.path(percentEncoded: false)) {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            // Kept messages are a copy of the server's: not in device backups.
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? directory.setResourceValues(values)
+        }
+        try? data.write(to: file(for: key), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+
+    /// Sign-out: every kept conversation leaves this device. Writes not yet made are dropped
+    /// now; the files go on the queue, after any write already running.
     @MainActor public func removeAll() {
         memory = [:]
         generation += 1
+        pending.withLock { $0 = [:] }
         let directory = directory
-        queue.sync { try? FileManager.default.removeItem(at: directory) }
+        queue.async { try? FileManager.default.removeItem(at: directory) }
     }
 
-    /// Returns once every queued write is on disk (tests).
-    public func flush() { queue.sync {} }
+    /// Makes every waiting write now and returns once the queue is done (tests, never main-thread code).
+    public func flush() {
+        queue.sync {
+            for key in pending.withLock({ Array($0.keys) }) { write(key) }
+        }
+    }
 
     nonisolated static func snapshot(info: ConversationInfo?, meID: String?, messages: [ConversationMessage], limit: Int) -> ConversationTranscriptSnapshot {
-        let kept = messages.filter { $0.seq != nil && !$0.isScheduled }.suffix(limit).map { message -> ConversationMessage in
+        // From the end: a long transcript (older pages loaded) is not walked whole.
+        let kept = messages.lazy.filter { $0.seq != nil && !$0.isScheduled }.suffix(limit).map { message -> ConversationMessage in
             var message = message
             for index in message.attachments.indices { message.attachments[index].localData = nil }
             return message

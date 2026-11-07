@@ -145,6 +145,8 @@ public final class ConversationStore {
     /// the same turn when this run already read or wrote them (a store built
     /// again after the app came back), else read off the main thread.
     public func useTranscriptCache(_ cache: ConversationTranscriptCache?, key: String?) {
+        // Another conversation's kept rows (an offline store whose Mac changed) never stay.
+        if isShowingKeptTranscript, cache !== transcriptCache || key != transcriptCacheKey { dropKeptRows() }
         transcriptCache = cache
         transcriptCacheKey = key
         guard let cache, let key, !hasLoadedNewest else { return }
@@ -171,6 +173,21 @@ public final class ConversationStore {
         for message in local { upsert(message) }
         sortAndReindex()
         isShowingKeptTranscript = true
+        notify(.reset)
+    }
+
+    /// Sign-out: keeps nothing more, and the kept rows shown (not the server's) go.
+    public func discardKeptTranscript() {
+        transcriptCache = nil
+        transcriptCacheKey = nil
+        if isShowingKeptTranscript { dropKeptRows() }
+    }
+
+    /// Back to no rows from the server: only sends not yet acknowledged stay.
+    private func dropKeptRows() {
+        isShowingKeptTranscript = false
+        messages.removeAll { $0.seq != nil }
+        sortAndReindex()
         notify(.reset)
     }
 

@@ -133,6 +133,8 @@ public final class ChiefSession {
     public private(set) var outboxTarget: String?
     /// Newest message seq already seen; newer ones from Chief alert.
     private var alertedSeq: Int?
+    /// Each message alerted as new (tests).
+    @ObservationIgnored var onAlert: (@MainActor (ConversationMessage) -> Void)?
 
     public init(backend: any ConversationBackend, identity: ChiefIdentity = .standard,
                 preferences: ChiefPreferences = ChiefPreferences(), outbox: ChiefOutbox? = nil,
@@ -188,8 +190,10 @@ public final class ChiefSession {
     public static let transcripts = ConversationTranscriptCache.inApplicationSupport("cmux-mobile-chief-transcripts")
     private let transcripts: ConversationTranscriptCache?
 
-    /// Sign-out: every kept Chief conversation leaves this phone.
+    /// Sign-out: every kept Chief conversation leaves this phone, and this session's store stops
+    /// showing and keeping them (a store made by sign-out's own backend swap showed them already).
     public func discardTranscripts() {
+        store.discardKeptTranscript()
         transcripts?.removeAll()
     }
 
@@ -712,7 +716,8 @@ public final class ChiefSession {
 
     /// Alerts for Chief's messages that arrived live (not the first page).
     private func alertNewMessages() {
-        guard store.connection == .connected, let id = conversationID else { return }
+        // Kept rows from an earlier run are not news, nor is what the first page brings.
+        guard store.connection == .connected, store.hasLoadedNewest, let id = conversationID else { return }
         // Messages are in seq order: the newest numbered one is near the end
         // (this runs on every store change, each keystroke and stream chunk).
         let newest = store.messages.last { $0.seq != nil }?.seq ?? 0
@@ -725,6 +730,7 @@ public final class ChiefSession {
         guard newest > seen else { return }
         alertedSeq = newest
         for message in store.messages where (message.seq ?? 0) > seen && message.senderID == identity.chiefID {
+            onAlert?(message)
             ChiefAlerts.shared.notify(message, title: store.info?.title ?? identity.title, conversationID: id, macID: macID,
                                      preferences: preferences, visible: isVisible)
         }

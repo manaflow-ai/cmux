@@ -32,10 +32,42 @@ import Testing
         try await waitUntil("the newest page to replace them") { session.store.hasLoadedNewest }
         #expect(!session.store.isShowingKeptTranscript)
 
-        // Another Mac's Chief never shows Mac A's messages.
-        session.macID = "mac-B"
+        // Offline with Mac A's rows kept on screen, the phone moves to Mac B: they go.
         session.use(ChiefOfflineBackend())
+        #expect(session.store.isShowingKeptTranscript)
+        session.macID = "mac-B"
         #expect(session.store.messages.isEmpty)
         #expect(!session.store.isShowingKeptTranscript)
+
+        // Sign-out: the kept rows on screen go, and nothing comes back for the next account.
+        session.macID = "mac-A"
+        #expect(session.store.isShowingKeptTranscript)
+        session.discardTranscripts()
+        #expect(session.store.messages.isEmpty)
+        session.use(ChiefOfflineBackend())
+        #expect(session.store.messages.isEmpty)
+    }
+
+    /// Messages that came while the app was away are not alerted as new when the page brings
+    /// them after the kept rows: before, the kept seq became the "seen" mark.
+    @Test func keptRowsAreNotTheSeenMark() async throws {
+        let cache = ConversationTranscriptCache(directory: FileManager.default.temporaryDirectory
+            .appending(path: "chief-transcripts-\(UUID().uuidString)"))
+        defer { cache.removeAll() }
+        let outbox = ChiefOutbox(file: FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json"))
+        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox, transcripts: cache)
+        session.macID = "mac-A"
+        session.use(ChiefMockBackend(sleep: { _ in }))
+        try await waitUntil("Mac A's Chief to load") { session.store.hasLoadedNewest && !session.store.messages.isEmpty }
+        // Kept rows end before Chief's newest message: the page brings it, as history.
+        let chiefs = try #require(session.store.messages.last { $0.seq != nil && $0.senderID == session.identity.chiefID }?.seq)
+        cache.save("mac:mac-A", info: session.store.info, meID: session.store.meID,
+                   messages: session.store.messages.filter { ($0.seq ?? 0) < chiefs })
+        var alerted: [String] = []
+        session.onAlert = { alerted.append($0.id) }
+        session.use(ChiefMockBackend(sleep: { _ in }))
+        #expect(session.store.isShowingKeptTranscript)
+        try await waitUntil("the page") { session.store.hasLoadedNewest }
+        #expect(alerted.isEmpty)
     }
 }

@@ -69,7 +69,8 @@ import Testing
         #expect(await relaunched.load("cloud:other") == nil)
     }
 
-    /// The server's page may land first: the kept messages read later do not replace it.
+    /// The server's page may land while the disk read runs: the read, done later, does not
+    /// replace it.
     @Test func theServersPageWinsOverALateRead() async throws {
         let directory = Self.directory()
         let first = ConversationTranscriptCache(directory: directory)
@@ -77,13 +78,17 @@ import Testing
         first.flush()
         let relaunched = ConversationTranscriptCache(directory: directory)
         defer { relaunched.removeAll() }
+        // The read waits behind this until the page is in.
+        let gate = DispatchSemaphore(value: 0)
+        relaunched.queue.async { gate.wait() }
         let backend = ScriptedBackend(total: 200)
         let store = ConversationStore(backend: backend, pageSize: 30)
+        store.useTranscriptCache(relaunched, key: "k")
         store.apply(.connected(info: backend.info, meID: "me", lagged: false))
         try await waitUntil { store.hasLoadedNewest }
-        // The kept messages are read now (in memory), after the page.
-        #expect(await relaunched.load("k")?.messages.count == 30)
-        store.useTranscriptCache(relaunched, key: "k")
+        gate.signal()
+        // The read lands (the page's own save may have beaten it into memory).
+        try await waitUntil { relaunched.cached("k") != nil }
         #expect(store.messages.compactMap(\.seq) == Array(171...200))
         #expect(!store.isShowingKeptTranscript)
     }
@@ -132,12 +137,51 @@ import Testing
         #expect(decoded == snapshot)
     }
 
+    /// A streamed reply changes the transcript many times a second: one file write holds the
+    /// newest of them.
+    @Test func burstsOfChangesWriteTheNewest() async throws {
+        let directory = Self.directory()
+        let cache = ConversationTranscriptCache(directory: directory, writeDelay: .milliseconds(200))
+        defer { cache.removeAll() }
+        let messages = (1...5).map { ConversationMessage(id: "m\($0)", seq: $0, clientMessageID: nil, senderID: "lc",
+                                                         sentAt: Date(timeIntervalSince1970: Double($0)), text: "m\($0)") }
+        for count in 1...5 { cache.save("k", info: nil, meID: "me", messages: Array(messages.prefix(count))) }
+        cache.flush()
+        #expect(await ConversationTranscriptCache(directory: directory).load("k")?.messages.count == 5)
+        let values = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        #expect(values.isExcludedFromBackup == true)
+    }
+
+    /// Sign-out while a store shows kept rows: they go, and it keeps nothing more.
+    @Test func discardingDropsTheKeptRowsShown() async throws {
+        let cache = ConversationTranscriptCache(directory: Self.directory())
+        defer { cache.removeAll() }
+        _ = try await Self.loadedStore(ScriptedBackend(total: 60), cache: cache, key: "a")
+        let shown = ConversationStore(backend: ScriptedBackend(total: 60), pageSize: 30)
+        shown.useTranscriptCache(cache, key: "a")
+        #expect(shown.messages.count == 30)
+        shown.discardKeptTranscript()
+        cache.removeAll()
+        #expect(shown.messages.isEmpty)
+        #expect(!shown.isShowingKeptTranscript)
+
+        // Another key's store drops the first key's kept rows before it shows its own.
+        _ = try await Self.loadedStore(ScriptedBackend(total: 60), cache: cache, key: "a")
+        let moved = ConversationStore(backend: ScriptedBackend(total: 60), pageSize: 30)
+        moved.useTranscriptCache(cache, key: "a")
+        #expect(moved.messages.count == 30)
+        moved.useTranscriptCache(cache, key: "b")
+        #expect(moved.messages.isEmpty)
+    }
+
     /// Sign-out: nothing kept is read again, from memory or disk.
     @Test func removeAllForgetsEverything() async throws {
         let directory = Self.directory()
         let cache = ConversationTranscriptCache(directory: directory)
         _ = try await Self.loadedStore(ScriptedBackend(total: 40), cache: cache, key: "mac:m1")
+        cache.flush()
         cache.removeAll()
+        cache.flush()
         #expect(cache.cached("mac:m1") == nil)
         #expect(await cache.load("mac:m1") == nil)
         #expect(await ConversationTranscriptCache(directory: directory).load("mac:m1") == nil)
