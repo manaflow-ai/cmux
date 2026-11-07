@@ -68,9 +68,7 @@ extension CloudHandlers {
         return folder.cwd
     }
 
-    /// `environment`: the Cloud environment the dialog starts on (the composer's Environment chip).
-    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil,
-                                    environment: String? = nil) {
+    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil, environment: String? = nil) {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
@@ -270,8 +268,6 @@ extension CloudHandlers {
                 }
             }
         }
-        // The composer's Environment chip (its New Cloud machine row): the setup dialog starts on it.
-        if let environment = invocation["environment"]?.stringValue, environment.hasPrefix("env_") { request.environment = environment }
         return request
     }
 

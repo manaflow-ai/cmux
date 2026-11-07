@@ -63,8 +63,7 @@ enum CloudHandlers {
                     return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined)
                 }
                 if request.isDefault, actionOrigin == .user, window != nil {
-                    CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat,
-                                                      environment: request.environment)
+                    CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat, environment: invocation["environment"]?.stringValue)
                     return nil
                 }
                 let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
