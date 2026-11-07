@@ -147,6 +147,11 @@ impl PeerSnapshots {
         if test_unknown(peer) {
             return None;
         }
+        // No copies kept (no directory for them), or no journal of the peer to compare: none
+        // can be ahead, and that is known.
+        if self.dir.is_none() || rows.is_empty() {
+            return Some(Vec::new());
+        }
         let (tx, rx) = mpsc::sync_channel(1);
         let sent = {
             let mut dropped = self.dropped();
