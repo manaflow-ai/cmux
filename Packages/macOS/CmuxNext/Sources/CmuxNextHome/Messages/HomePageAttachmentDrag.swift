@@ -1,7 +1,7 @@
 public import CmuxHomeCore
 public import CmuxNextPages
 public import CmuxNextSettings
-import AppKit
+public import AppKit
 import MessagesLabHome
 
 /// A Messages page attachment dragged out of the transcript to Finder, the Desktop or another app,
