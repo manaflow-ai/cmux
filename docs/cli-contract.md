@@ -750,7 +750,7 @@ Browser subcommands:
 | `browser frame` | Select frame context. |
 | `browser dialog` | Accept or dismiss dialogs. |
 | `browser download list` | List newest-first downloads for one browser surface; supports `--limit <1...25>` and JSON output. The response includes stable IDs, filenames, actual paths when known, status, bytes when known, and path existence. Listing is repeatable and does not consume `browser.download.wait`. |
-| `browser download [wait]` | Wait for or save a download, preserving the existing path and timeout options. |
+| `browser download [wait]` | Wait for the surface's next download. With `--path <path>` (or a bare path), save the next finished download there, resolving a relative path against the caller's folder; a failed or cancelled download returns `download_failed`. |
 | `browser profiles` | List, add, rename, clear, or delete cmux browser profiles. `clear` refuses to wipe active profiles unless `--force` is passed. |
 | `browser import` | Open the browser import wizard. In detected coding-agent environments, defaults to non-interactive cookie import; pass `--interactive` to force the wizard. Non-interactive import supports `--from`, `--profile`, `--all-profiles`, `--to-profile`, `--create-profile`, and `--domain`. |
 | `browser cookies` | Get, set, or clear cookies; `set` accepts `--http-only` to keep the cookie hidden from page JavaScript. `clear` requires an explicit scope such as `--url`, `--domain`, `--name`, or `--all`, and returns the removed count as `cleared` in JSON output. |

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socketserver
 import subprocess
 import tempfile
@@ -288,16 +289,23 @@ def main() -> int:
             if len(list_calls) != 2 or list_calls[0][1].get("limit") != 2 or list_calls[1][1].get("limit") is not None:
                 raise AssertionError(f"download list dispatch/limit mismatch: {list_calls!r}")
 
+            # The app saves the download, so a relative path is resolved
+            # against the caller's folder rather than the app's.
+            expected_path = os.path.join(os.getcwd(), "extensionless-name")
             run_cli(cli, socket_path, ["browser", SURFACE_ID, "download", "wait", "extensionless-name"])
-            if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": "extensionless-name"}):
-                raise AssertionError(f"explicit wait path was not preserved: {state.calls[-1]!r}")
+            if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": expected_path}):
+                raise AssertionError(f"explicit wait path was not resolved: {state.calls[-1]!r}")
             run_cli(cli, socket_path, ["browser", SURFACE_ID, "download", "--path", "extensionless-name"])
-            if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": "extensionless-name"}):
-                raise AssertionError(f"--path wait was not preserved: {state.calls[-1]!r}")
+            if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": expected_path}):
+                raise AssertionError(f"--path wait was not resolved: {state.calls[-1]!r}")
+            absolute_path = os.path.join(temporary, "report.csv")
+            run_cli(cli, socket_path, ["browser", SURFACE_ID, "download", "--path", absolute_path])
+            if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": absolute_path}):
+                raise AssertionError(f"absolute --path was not preserved: {state.calls[-1]!r}")
 
             run_cli(cli, socket_path, ["browser", SURFACE_ID, "download", "extensionless-name"])
-            if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": "extensionless-name"}):
-                raise AssertionError(f"legacy positional path was not preserved: {state.calls[-1]!r}")
+            if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": expected_path}):
+                raise AssertionError(f"legacy positional path was not resolved: {state.calls[-1]!r}")
             for invalid_args, expected in [
                 (["list", "--limit", "0"], "--limit must be an integer between 1 and 25"),
                 (["list", "--limit"], "--limit requires an integer between 1 and 25"),
