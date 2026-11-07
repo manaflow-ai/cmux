@@ -76,6 +76,8 @@ class Daemon {
   onclose: ((event?: { code: number }) => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
   down = false;
+  /// The machine answers an attach but not the read of the records after it.
+  readsDown = false;
   createdAt = 100;
   listed = true;
   log = LOG.slice();
@@ -174,6 +176,14 @@ class Daemon {
       return result({ events, hasMore: events.length < older.length, lastSeq: last });
     }
     if (message.method === "_acpmux/events") {
+      if (this.readsDown)
+        return this.onmessage?.({
+          data: JSON.stringify({
+            jsonrpc: "2.0",
+            id: message.id,
+            error: { code: -32603, message: "peer_unreachable: huge-blue", data: { reason: "peer_unreachable" } },
+          }),
+        });
       const events = this.log.filter((event) => event.seq > Number(p.afterSeq ?? 0));
       return result({ events, hasMore: false, lastSeq: last });
     }
@@ -408,4 +418,36 @@ test("the machine back after records it missed draws no transcript with a hole i
   }
   expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("missed 17.");
   expect(frames(chat.drawn, from, chat.shown).left).toEqual([]);
+});
+
+test("a gap read that fails keeps the hole to read: the machine's next answer fills it", async () => {
+  const chat = await openChat();
+  chat.daemon().down = true;
+  chat.daemon().announce();
+  await flush();
+  await chat.reconnect();
+  for (let seq = 17; seq <= 24; seq += 1) chat.daemon().log.push(reply(seq, `missed ${seq}. `));
+  // Back for the attach (19..24), gone again before the records between it and the pane are read.
+  chat.daemon().readsDown = true;
+  chat.daemon().down = false;
+  chat.daemon().announce();
+  await until(
+    () => chat.daemon().asked.some((message) => message.method === "_acpmux/events" && message.params?.afterSeq === 16),
+    "the gap read",
+  );
+  await flush();
+  chat.daemon().readsDown = false;
+  const from = chat.daemon().asked.length;
+  chat.daemon().down = true;
+  chat.daemon().announce();
+  await flush();
+  chat.daemon().down = false;
+  chat.daemon().announce();
+  await until(() => JSON.stringify(chat.drawn.at(-1)?.rows).includes("missed 17."), "the hole read");
+  const reads = chat
+    .daemon()
+    .asked.slice(from)
+    .filter((message) => message.method === "_acpmux/events");
+  expect(reads.map((message) => message.params?.afterSeq)).toContain(16);
+  expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("missed 24.");
 });

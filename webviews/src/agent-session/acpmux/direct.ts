@@ -2161,6 +2161,10 @@ export class AcpmuxDirectClient {
   /// that turn (stopThroughReconnect.ts).
   private turnPrompt?: string;
   private lastSeq = 0;
+  /// While a gap read is out or failed (`fetchMissedEvents`): the seq the chat's records are whole
+  /// through, below a page merged past the gap. A copy kept then continues from here, not from
+  /// `lastSeq`, so the records in the hole are read once the machine answers.
+  private wholeThrough?: { sessionId: string; seq: number };
   private turnOpen = false;
   private autoResumedAttempt: number | undefined;
   /// The last seq seen when Stop was pressed: only a turn event after it answers that Stop. A
@@ -2936,7 +2940,8 @@ export class AcpmuxDirectClient {
       this.earlyTailWindow = undefined;
       // Its rows are on screen already: the pane draws the chat as it comes, as after any kept tail.
       if (drawnEarly) this.releaseSnapshots(hold);
-      const resumeAfter = (heldCopy && !heldCopy.own) || drawnEarly ? 0 : this.lastSeq;
+      const resumeAfter =
+        (heldCopy && !heldCopy.own) || drawnEarly ? 0 : sessionId ? this.wholeSeq(sessionId) : this.lastSeq;
       // The attach asked with the list is the open's only while it is of the chat opened now, on
       // this machine as the list names it: anything else (another chat chosen, a chat on another
       // machine, which may be down and draw the Mac's copy first) is attached as before.
@@ -3125,6 +3130,7 @@ export class AcpmuxDirectClient {
     this.promptIndex?.cancel?.();
     this.promptIndex = undefined;
     this.lastSeq = 0;
+    this.wholeThrough = undefined;
     this.clockOffset = undefined;
     this.summary = undefined;
     this.autoResumedAttempt = undefined;
@@ -3331,6 +3337,13 @@ export class AcpmuxDirectClient {
   /// is what was confirmed, and the next attach continues from its newest seq, never from a record
   /// past a hole. Answers whether the chat is shown: its copy, or, with none, the machine read once
   /// more when its row said it was back (`attachIfBack`).
+  /// The newest seq `sessionId`'s records are whole through: `lastSeq`, or below it while a gap
+  /// read is out or failed (`wholeThrough`).
+  private wholeSeq(sessionId: string): number {
+    const gap = this.wholeThrough?.sessionId === sessionId ? this.wholeThrough.seq : undefined;
+    return gap === undefined ? this.lastSeq : Math.min(this.lastSeq, gap);
+  }
+
   private async keepPeerCopy(sessionId: string, generation: number, error: unknown): Promise<boolean> {
     const selected = () => generation === this.selectionGeneration && this.selectedSessionId === sessionId;
     if (!selected() || !(peerDown(error) || this.socket?.readyState !== WebSocket.OPEN)) return false;
@@ -3364,7 +3377,7 @@ export class AcpmuxDirectClient {
         sessionId,
         peer: rowNow.peer,
         generation: this.rowsGeneration,
-        lastSeq: this.lastSeq,
+        lastSeq: this.wholeSeq(sessionId),
         capturedAt: this.events.at(-1)?.at,
         offline: true,
         own: true,
@@ -3378,6 +3391,7 @@ export class AcpmuxDirectClient {
     this.copyLive = undefined;
     if (this.events.some((event) => event.seq > copy.lastSeq)) {
       this.events = this.events.filter((event) => event.seq <= copy.lastSeq);
+      this.lastSeq = Math.min(this.lastSeq, copy.lastSeq);
       this.rebuild();
     }
     this.emit("peer offline");
@@ -3994,6 +4008,7 @@ export class AcpmuxDirectClient {
     replayLiveState = true,
   ): Promise<void> {
     for (let cursor = afterSeq; ;) {
+      this.wholeThrough = { sessionId, seq: cursor };
       const result = await this.typed("_acpmux/events", {
         sessionId,
         afterSeq: cursor,
@@ -4007,6 +4022,7 @@ export class AcpmuxDirectClient {
       if (result?.hasMore !== true || missed.length === 0) break;
       cursor = Math.max(cursor, ...missed.map((event) => event.seq));
     }
+    this.wholeThrough = undefined;
     this.emit("resynced");
   }
 
