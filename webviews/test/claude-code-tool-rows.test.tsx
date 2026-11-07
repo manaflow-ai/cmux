@@ -40,7 +40,9 @@ test("a running MCP call reads Using <server>: <tool>", () => {
 
 test("a finished command and a read read verb then subject", () => {
   const command: Tool = { id: "c1", title: "git status", kind: "execute", status: "completed", command: "git status" };
-  expect(toolLabel(command, "", ran)).toBe("Ran git status");
+  expect(toolLabel(command, "", ran)).toBe("Checked git status");
+  const unknown: Tool = { id: "c2", title: "make", kind: "execute", status: "completed", command: "make lint" };
+  expect(toolLabel(unknown, "", ran)).toBe("Ran make lint");
   const read: Tool = {
     id: "r1",
     title: "Read App.tsx",

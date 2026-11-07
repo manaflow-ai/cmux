@@ -102,16 +102,17 @@ test("a turn's tool rows put their verbs in one column as wide as the widest", a
     />,
   );
   const verbs = [...container.querySelectorAll(".cv-tool__verb")].map((verb) => verb.textContent);
-  expect(verbs).toEqual(["Ran", "Read", "Searched"]);
+  // A known command reads as what it did (commandActions.ts): its verb joins the column too.
+  expect(verbs).toEqual(["Checked", "Read", "Searched"]);
   // Each subject follows its verb on the row: the words read as they did.
   const rows = [...container.querySelectorAll(".cv-tool, .cv-command")].map((row) =>
     row.querySelector(".cv-tool__text, .cv-command__text")!.textContent!.trim(),
   );
-  expect(rows).toEqual(["Ran git status", "Read App.tsx", "Searched for cv-tool"]);
+  expect(rows).toEqual(["Checked git status", "Read App.tsx", "Searched for cv-tool"]);
   // The turn's element carries every verb, so each verb's box is as wide as the widest.
   const column = container.querySelector<HTMLElement>(".cv-tools")!;
   expect(column.getAttribute("data-tool-verbs")).toBe("3");
-  expect(column.style.getPropertyValue("--cv-tool-verbs")).toBe('"Ran\\A Read\\A Searched"');
+  expect(column.style.getPropertyValue("--cv-tool-verbs")).toBe('"Checked\\A Read\\A Searched"');
 });
 
 test("the transcript's tool rows have no verb column: each subject follows its verb after one space", async () => {
@@ -129,7 +130,7 @@ test("the transcript's tool rows have no verb column: each subject follows its v
   const rows = [...container.querySelectorAll(".cv-tool, .cv-command")].map((row) =>
     row.querySelector(".cv-tool__text, .cv-command__text")!.textContent!.trim(),
   );
-  expect(rows).toEqual(["Ran git status", "Read App.tsx"]);
+  expect(rows).toEqual(["Checked git status", "Read App.tsx"]);
 });
 
 test("a row that leaves takes its verb out of the column", async () => {
@@ -153,14 +154,14 @@ test("Find skips a command row's verb and the space after it, and counts the com
   const container = await render(
     <ColumnRows
       row={turn([
-        call("git status", "execute", { command: "git status" }),
-        call("git diff", "execute", { command: "git diff" }),
+        call("make lint", "execute", { command: "make lint" }),
+        call("make test", "execute", { command: "make test" }),
       ])}
     />,
   );
   const lines = [...container.querySelectorAll(".cv-command__text")];
-  expect(lines.map((line) => line.textContent)).toEqual(["Ran git status", "Ran git diff"]);
-  expect(lines.map(findText)).toEqual(["git status", "git diff"]);
+  expect(lines.map((line) => line.textContent)).toEqual(["Ran make lint", "Ran make test"]);
+  expect(lines.map(findText)).toEqual(["make lint", "make test"]);
   expect(container.querySelectorAll(".cv-command .cv-tool__verb")).toHaveLength(2);
 });
 
