@@ -320,14 +320,14 @@ struct AgentPaneNativeSessionInfoTests {
     }
 
     /// Leo (2026-11-03): "maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a
-    /// border for it might be better". The panel paints no fill of its own and draws a hairline edge in the
-    /// separator color on its rounded corners, over the gutter and over the chat's glass alike.
+    /// border for it might be better". The panel paints no fill of its own and draws a hairline edge in its
+    /// edge color on its rounded corners, over the gutter and over the chat's glass alike.
     @Test func panelHasAHairlineEdgeAndNoFill() throws {
         let store = AgentPaneSessionInfoStore()
         let panel = AgentPaneSessionInfoPanel(store: store)
         panel.frame = CGRect(x: 0, y: 0, width: 320, height: 300)
         var colors = AgentPaneSessionInfoColors()
-        colors.separator = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 0.5)
+        colors.edge = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 0.5)
         store.colors = colors
         for foot in [nil, 120.0] as [Double?] {
             store.update(try Self.model(Self.info(foot: foot)))
@@ -339,6 +339,15 @@ struct AgentPaneNativeSessionInfoTests {
             let edge = try #require(layer.borderColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
             #expect(abs(edge.blueComponent - 0.6) < 0.01 && abs(edge.alphaComponent - 0.5) < 0.01)
         }
+    }
+
+    /// Leo (2026-11-07): "but the border on session info is way too faint". The edge is the text at 22%, as
+    /// the web panel's, not the separator's 7 to 8%; under Increase Contrast it is the full text.
+    @Test func panelEdgeIsTheTextAtTwentyTwoPercent() throws {
+        let text = NSColor(srgbRed: 0.9, green: 0.9, blue: 0.9, alpha: 1)
+        let edge = AgentPaneSessionInfoColors.edge(text: text, increaseContrast: false)
+        #expect(abs(edge.alphaComponent - 0.22) < 0.001)
+        #expect(AgentPaneSessionInfoColors.edge(text: text, increaseContrast: true).alphaComponent == 1)
     }
 
     /// cmuxterm-hq#6137: pushed in a narrow pane, the page narrows the panel below 260px and keeps that
@@ -638,9 +647,16 @@ struct AgentPaneNativeSessionInfoTests {
             view.subviews.compactMap { $0 as? SessionInfoGripView }.first
         }
         func images(_ view: SessionInfoLineView) -> [NSImageView] { view.subviews.compactMap { $0 as? NSImageView } }
+        /// Whether the line's trailing meta (a head's count and meter) is hidden; true for a line with none.
+        func countHidden(_ view: SessionInfoLineView) -> Bool { view.trailingMeta.allSatisfy { $0.isHidden } }
+        func countShown(_ view: SessionInfoLineView) -> Bool { view.trailingMeta.allSatisfy { !$0.isHidden } }
 
-        let context = view(SessionInfoLine(id: "context", kind: .header, symbol: "gauge", title: "Context", trailing: "42%",
-                                           unfolded: true, reorderable: true, action: "fold:context:0"))
+        let context = view(SessionInfoLine(id: "context", kind: .header, symbol: "gauge", title: "Context", trailing: "94K / 200K",
+                                           unfolded: true, meter: 0.47, reorderable: true, action: "fold:context:0"))
+        // Progress's head carries the segmented meter.
+        let progress = view(SessionInfoLine(id: "progress", kind: .header, title: "Progress", trailing: "2/5", unfolded: true,
+                                            segments: [.init(share: 0.4, color: "success"), .init(share: 0.6, color: "muted")],
+                                            reorderable: true, action: "fold:progress:2"))
         let changes = view(SessionInfoLine(id: "changes", kind: .header, title: "Changes", trailing: "3", unfolded: false,
                                            reorderable: true, action: "fold:changes:1"))
         let plain = view(SessionInfoLine(id: "plain", kind: .header, title: "Usage", reorderable: true))
@@ -660,7 +676,7 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(try title(machine).minX == title(row).minX)
 
         // At rest: no grip, no chevron, and nothing but the line's own icon as an image.
-        for line in [context, changes, plain, machine] {
+        for line in [context, changes, plain, machine, progress] {
             #expect(!line.showsGrip)
             #expect(grip(line)?.isHidden == true)
             #expect(!line.showsChevron)
@@ -675,21 +691,30 @@ struct AgentPaneNativeSessionInfoTests {
 
         let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
                                                     windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
-        for line in [context, changes, plain, machine] {
+        // At rest the meters draw in the trailing column.
+        #expect(context.trailingMeta.count == 2 && progress.trailingMeta.count == 2)
+        for line in [context, changes, plain, machine, progress] {
             let before = try title(line)
             line.mouseEntered(with: enter)
             line.layoutSubtreeIfNeeded()
             #expect(line.showsGrip)
             #expect(try title(line) == before)
-            // The grip sits in the line's right inset, past every trailing value, at the right edge.
+            // The grip takes the trailing value's place: its dots end on the trailing column's right edge,
+            // the rows' (Leo, 2026-11-07: "the grip and the lef tside aren't flush"), the count hides under
+            // it, and nothing else reaches its box.
             let handle = try #require(grip(line))
+            let hit = try #require(line.gripHitRect)
             #expect(!handle.isHidden)
             #expect(handle.frame.size == SessionInfoGripView.size)
-            #expect(handle.frame.maxX <= line.bounds.maxX)
-            #expect(line.bounds.maxX - handle.frame.maxX <= 2)
+            #expect(abs(handle.frame.maxX - (line.bounds.maxX - SessionInfoMetrics.trail)) < 0.5)
+            #expect(hit.width == LayoutGrid.iconBox && abs(hit.midX - handle.frame.midX) < 0.5)
+            #expect(countHidden(line))
             for other in line.subviews where other !== handle && !other.isHidden {
-                #expect(other.frame.maxX <= handle.frame.minX)
+                #expect(other.frame.maxX <= hit.minX)
             }
+            // Hovering the head lights neither the head nor the grip; only the grip's own box lights.
+            #expect(line.layer?.backgroundColor == nil || line.line.kind == .row)
+            #expect(!line.gripLit)
             if line.line.unfolded != nil {
                 // The chevron shows one grid gap after the title, before the meta.
                 #expect(line.showsChevron)
@@ -701,6 +726,8 @@ struct AgentPaneNativeSessionInfoTests {
             #expect(!line.showsGrip)
             #expect(grip(line)?.isHidden == true)
             #expect(!line.showsChevron)
+            // At rest the count is back on its edge.
+            #expect(countShown(line))
         }
     }
 
@@ -746,6 +773,8 @@ struct AgentPaneNativeSessionInfoTests {
         changes.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: start.x, y: start.y + (drop.y - start.y) / 2), in: changes))
         #expect(changes.isDragging)
         #expect(changes.showsGrip)
+        #expect(changes.gripLit)
+        #expect(changes.layer?.backgroundColor == nil)
         changes.mouseUp(with: try mouse(.leftMouseUp, drop, in: changes))
         #expect(sent == ["move:changes:context"])
         #expect(!changes.isDragging)
