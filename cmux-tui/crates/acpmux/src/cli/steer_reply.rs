@@ -358,4 +358,19 @@ mod tests {
         let (_, end) = turn_end(method::MUX_EVENT, &event("turn_result", msg)).unwrap();
         assert!(end.unwrap_err().downcast_ref::<crate::client::DaemonError>().is_none());
     }
+
+    /// The same turn's typed failure read from the session row's `lastTurn` (a wait that saw
+    /// the end there, not as an event) keeps its kind and recovery too.
+    #[test]
+    fn a_typed_last_turn_keeps_its_kind_and_recovery() {
+        let row = json!({"lastTurn": {"turnId": "t1", "status": "failed",
+            "errorText": "Failed to authenticate.", "errorKind": "auth.signed_out",
+            "recovery": "Sign in to Claude."}});
+        let e = last_turn_end(&row, "t1").unwrap().unwrap_err();
+        assert_eq!(e.to_string(), "Failed to authenticate.");
+        let data = e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone());
+        let data = data.expect("the row's failure keeps its typed fields");
+        assert_eq!(data["errorKind"], "auth.signed_out");
+        assert_eq!(data["recovery"], "Sign in to Claude.");
+    }
 }
