@@ -55,8 +55,7 @@ const finished = (id: string, command: string, description: string, minutes: num
 });
 
 function commandsFor(shape: Shape): BackgroundCommand[] {
-  if (shape === "empty")
-    return [running("a", "glaeda-gh wait pr 37840 --sha 7c2e91d", "Wait for the PR's checks", 0.2)];
+  if (shape === "empty") return [running("a", "gh pr checks 37840 --watch", "Wait for the PR's checks", 0.2)];
   if (shape === "output")
     return [running("a", "cd webviews && bun test test/background-tasks-open.test.tsx", "Run the panel tests", 0.4)];
   if (shape === "long") return [running("a", LONG, "Dry-run wt reclaim to see reclaimable worktrees", 0.2)];

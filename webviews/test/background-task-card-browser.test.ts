@@ -87,7 +87,7 @@ await requireBrowserLane("background-task-card-browser.test.ts", async () => {
       try {
         await page.locator(".acpmux-bg-card__empty").waitFor({ timeout: 30_000 });
         expect(await page.locator(".acpmux-bg-card__empty").textContent()).toBe("No output yet");
-        expect(await page.locator(".acpmux-bg-card__command").textContent()).toContain("glaeda-gh wait pr 37840");
+        expect(await page.locator(".acpmux-bg-card__command").textContent()).toContain("gh pr checks 37840 --watch");
       } finally {
         await page.close();
       }
