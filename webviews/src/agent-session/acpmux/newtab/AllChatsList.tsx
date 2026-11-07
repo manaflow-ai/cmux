@@ -25,6 +25,7 @@ import { useMinuteClock } from "../clock";
 import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
 import { AllChatsLoading } from "./AllChatsLoading";
 import { useLasting } from "../../../ui/lasting";
+import { FOLD_KEY, useProjectFold } from "./projectFold";
 
 export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
 export type AllChatsDesign = "quiet" | "age" | "project";
@@ -526,6 +527,10 @@ export function AllChatsList({
   );
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const entries = listEntries(rows, view, folded);
+  // A project folds its chats into its header, and opens them out of it, as one motion on the settle
+  // (projectFold.ts): the list and the chats folding away are drawn in `layer`.
+  const layer = useRef<HTMLDivElement>(null);
+  const projectFold = useProjectFold<AllChatsRow>(layer, ROW_HEIGHT);
   // A Shift-click range runs over the chats as the list shows them.
   const shown = entries.flatMap((entry) => (entry.kind === "chat" ? [entry.row] : []));
   const selection = useSelection(shown, state.query);
@@ -565,6 +570,29 @@ export function AllChatsList({
     },
     [fetchPage, nextCursor, state.query],
   );
+  /// A chat row's glyph, title, project and age: in the list, and drawn by a ghost that folds away.
+  const chatRowBody = (row: AllChatsRow) => {
+    const title = row.title ?? t("sidebar.newChat");
+    // The project names an untitled chat apart from the others ("New chat · cmux").
+    const project = row.cwd ? row.cwd.split("/").filter(Boolean).pop() : undefined;
+    const age = state.design === "quiet" ? undefined : ageLabel(row.updatedAt, now, t);
+    return (
+      <>
+        <span className="nt-all-glyph">
+          <AgentMark harness={row.harness} />
+        </span>
+        <span className="nt-all-title" title={title}>
+          {title}
+        </span>
+        {project && state.design !== "quiet" && view === "chats" && (
+          <span className="nt-all-project" title={row.cwd}>
+            {project}
+          </span>
+        )}
+        {age && <span className="nt-all-meta">{age}</span>}
+      </>
+    );
+  };
   const renderRow = (index: number, style: React.CSSProperties) => {
     const entry = entries[index];
     if (!entry) {
@@ -598,6 +626,7 @@ export function AllChatsList({
           style={style}
           aria-posinset={index + 1}
           aria-setsize={count}
+          {...{ [FOLD_KEY]: `project:${project.key}` }}
         >
           <button
             type="button"
@@ -607,12 +636,18 @@ export function AllChatsList({
             onClick={() => {
               // A folded chat cannot stay selected: Enter or Bring would act on rows out of sight.
               selection.clear();
-              setFolded((current) => {
-                const next = new Set(current);
-                if (open) next.add(project.key);
-                else next.delete(project.key);
-                return next;
-              });
+              projectFold.toggle(
+                `project:${project.key}`,
+                !open,
+                project.rows.map((row) => ({ key: row.key, row })),
+                () =>
+                  setFolded((current) => {
+                    const next = new Set(current);
+                    if (open) next.add(project.key);
+                    else next.delete(project.key);
+                    return next;
+                  }),
+              );
             }}
           >
             <svg className="nt-all-group-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
@@ -625,10 +660,6 @@ export function AllChatsList({
       );
     }
     const row = entry.row;
-    const title = row.title ?? t("sidebar.newChat");
-    // The project names an untitled chat apart from the others ("New chat · cmux").
-    const project = row.cwd ? row.cwd.split("/").filter(Boolean).pop() : undefined;
-    const age = state.design === "quiet" ? undefined : ageLabel(row.updatedAt, now, t);
     return (
       <div
         key={row.key}
@@ -638,6 +669,7 @@ export function AllChatsList({
         style={style}
         aria-posinset={index + 1}
         aria-setsize={count}
+        {...{ [FOLD_KEY]: row.key }}
         onContextMenuCapture={() => (menuKey.current = row.key)}
       >
         <button
@@ -663,18 +695,7 @@ export function AllChatsList({
             },
           )}
         >
-          <span className="nt-all-glyph">
-            <AgentMark harness={row.harness} />
-          </span>
-          <span className="nt-all-title" title={title}>
-            {title}
-          </span>
-          {project && state.design !== "quiet" && view === "chats" && (
-            <span className="nt-all-project" title={row.cwd}>
-              {project}
-            </span>
-          )}
-          {age && <span className="nt-all-meta">{age}</span>}
+          {chatRowBody(row)}
         </button>
       </div>
     );
@@ -806,7 +827,7 @@ export function AllChatsList({
         )
       ) : (
         <ContextMenu className="nt-all-host" items={items} onOpen={() => setMenuTarget(menuKey.current)}>
-          <div className="nt-all-scroll" onContextMenuCapture={() => (menuKey.current = undefined)}>
+          <div ref={layer} className="nt-all-scroll" onContextMenuCapture={() => (menuKey.current = undefined)}>
             <VirtualList
               className="nt-all-list"
               scrollParent={scrollParent}
@@ -818,6 +839,21 @@ export function AllChatsList({
               overscan={10}
               renderRow={renderRow}
             />
+            {/* A folding project's chats, drawn where they were while they fold into its header: a
+                picture, never hit, focused or read (projectFold.ts). */}
+            {projectFold.ghosts.map((ghost) => (
+              <div
+                key={ghost.key}
+                className="nt-all-ghost"
+                aria-hidden="true"
+                inert
+                data-fold-ghost=""
+                {...{ [FOLD_KEY]: ghost.key }}
+                style={{ transform: `translateY(${ghost.top}px)`, height: ghost.height }}
+              >
+                <div className="nt-all-row">{chatRowBody(ghost.row)}</div>
+              </div>
+            ))}
           </div>
         </ContextMenu>
       )}

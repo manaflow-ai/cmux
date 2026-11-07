@@ -1458,6 +1458,14 @@
 .lg-home-tool-details {
   margin-block-start: var(--ds-space-1);
 }
+/* The boxes a run card's steps and a tool run's details open and close in (RunCard.tsx, HomeToolGroup.tsx),
+   on the settle (session-info/foldMotion.ts): their own block, so the margins inside stay inside the height
+   that moves instead of popping in or out at its ends. */
+.lg-run-fold,
+.lg-home-tool-fold {
+  display: flow-root;
+  min-width: 0;
+}
 .lg-run-block.note {
   color: var(--page-text-2);
   font-size: var(--text-detail);

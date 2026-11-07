@@ -4,7 +4,7 @@
 // run's details, and the MCP card's Details and connected tools each open and close with their box's
 // height and opacity, drawn until the box has closed over them and nothing drawn after, and in one
 // frame under Reduce Motion.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import paneTable from "../src/pages/home-channels/generated/pane-strings.json";
 import table from "../src/pages/home-channels/generated/strings.json";
 import { HomeToolGroup } from "../src/pages/home-channels/HomeToolGroup";
@@ -17,7 +17,16 @@ import { createStrings } from "../src/pages/shared/i18n";
 import { click, expectSettle, fold, reduceMotion, render, useFoldPage, type Animated } from "./foldSettleHarness";
 
 useFoldPage();
-(globalThis as Record<string, unknown>).__cmuxPaneStrings = paneTable;
+// The run card's tool rows read the agent pane's strings, as the Home page provides them.
+const scope = globalThis as Record<string, unknown>;
+const paneStrings = scope.__cmuxPaneStrings;
+beforeAll(() => {
+  scope.__cmuxPaneStrings = paneTable;
+});
+afterAll(() => {
+  if (paneStrings === undefined) delete scope.__cmuxPaneStrings;
+  else scope.__cmuxPaneStrings = paneStrings;
+});
 
 /// The fold a toggle ran: the one Web Animation whose keyframes move a height.
 const heightFolds = () => fold.animations.filter((animation) => "height" in animation.keyframes[0]!);

@@ -775,3 +775,39 @@
 .hm-header-panels__button[aria-pressed="true"] {
   color: var(--cmux-lit-glyph);
 }
+/* A fold (McpConnectCard.tsx: Details, the connected tools) opens and closes as one motion on the settle
+   (session-info/foldMotion.ts moves its box's height and opacity; Leo, 2026-11-07: "they dont overshoot but
+   they decelerate at the end. i think that might be the key"). The stack's gap above it is inside the box, so
+   a closed box takes no room and nothing jumps when it mounts or goes. */
+.hm-mcp__fold {
+  align-self: stretch;
+  min-width: 0;
+  margin-top: -8px;
+}
+.hm-mcp__fold > .hm-mcp__fold-rows {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 8px;
+}
+.hm-mcp__fold[data-gap="tight"] {
+  margin-top: -4px;
+}
+.hm-mcp__fold[data-gap="tight"] > .hm-mcp__fold-rows {
+  gap: 4px;
+  padding-top: 4px;
+}
+/* The connected tools' chevron: one glyph, a quarter turn from closed (›) to open (⌄), on the fold's curve. */
+.hm-mcp__chevron {
+  rotate: 0deg;
+}
+.hm-mcp__connected[aria-expanded="true"] > .hm-mcp__chevron {
+  rotate: 90deg;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
+    .hm-mcp__chevron {
+    transition: rotate var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+}

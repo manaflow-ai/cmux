@@ -1,4 +1,5 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, type ReactNode } from "react";
+import { useFoldMotion } from "../session-info/foldMotion";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { pressToOpen } from "../../../ui/pressToOpen";
 import { useT } from "../i18n";
@@ -135,21 +136,15 @@ export function ChatCards({
               {/* The chats this chat's agent started, collapsed under it with their count (Leo
                   2026-10-14); a click lists them below it. */}
               {card.children && card.children.length > 0 ? (
-                <div className="nt-card-family">
-                  {row(card, false)}
-                  <button
-                    type="button"
-                    className="nt-card-children-toggle"
-                    aria-expanded={open.has(card.sessionId)}
-                    aria-label={nt("card.children", { n: String(card.children.length) })}
-                    onClick={() => toggle(card.sessionId)}
-                  >
-                    {card.children.length}
-                  </button>
-                  {open.has(card.sessionId) && (
-                    <div className="nt-card-children">{card.children.map((child) => row(child, true))}</div>
-                  )}
-                </div>
+                <CardFamily
+                  parent={row(card, false)}
+                  open={open.has(card.sessionId)}
+                  label={nt("card.children", { n: String(card.children.length) })}
+                  count={card.children.length}
+                  onToggle={() => toggle(card.sessionId)}
+                >
+                  {card.children.map((child) => row(child, true))}
+                </CardFamily>
               ) : (
                 row(card, false)
               )}
@@ -158,5 +153,45 @@ export function ChatCards({
         </div>
       )}
     </section>
+  );
+}
+
+/// A chat with the chats its agent started: its row, the count that opens them, and when open the
+/// children under it. They open and close as one motion on the settle, the cards under it moving on the
+/// same frames, and a close keeps them drawn until the box has closed over them (foldMotion.ts).
+function CardFamily({
+  parent,
+  open,
+  label,
+  count,
+  onToggle,
+  children,
+}: {
+  parent: ReactNode;
+  open: boolean;
+  label: string;
+  count: number;
+  onToggle(): void;
+  children: ReactNode;
+}) {
+  const fold = useFoldMotion<HTMLDivElement>(open, () => 0);
+  return (
+    <div className="nt-card-family">
+      {parent}
+      <button
+        type="button"
+        className="nt-card-children-toggle"
+        aria-expanded={open}
+        aria-label={label}
+        onClick={() => fold.toggle(!open, onToggle)}
+      >
+        {count}
+      </button>
+      {fold.drawn && (
+        <div ref={fold.ref} className="nt-card-children-fold">
+          <div className="nt-card-children">{children}</div>
+        </div>
+      )}
+    </div>
   );
 }

@@ -215,6 +215,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "Session Info Show more / Show less grow and close in place",
   },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
+  "src/agent-session/acpmux/newtab/projectFold.ts": {
+    count: 1,
+    what: "an All chats project folds its chats into its header and opens them out of it",
+  },
   "src/agent-session/acpmux/subagents/trayMotion.tsx": {
     count: 1,
     what: "a status line's width easing as its words slide",

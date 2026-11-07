@@ -156,14 +156,20 @@ test("a project opens its chats out of its header, fading in, as the rows under 
 test("a project reopened mid-fold brings its chats back from where their ghosts are drawn", async () => {
   await projectsPage();
   click(uploader());
+  // Cut short halfway: the ghost of the first chat is drawn half faded (JSDOM runs no animation).
+  const ghost = [...fold.container.querySelectorAll<HTMLElement>(".nt-all-ghost")].find((node) =>
+    node.textContent?.includes("Retry uploads"),
+  )!;
+  ghost.style.opacity = "0.5";
   fold.animations = [];
   click(uploader());
   expect(fold.container.querySelector(".nt-all-ghost")).toBeNull();
-  // The ghosts were drawn at their old places (no running transform in JSDOM): the rows come back from there.
   const back = fold.animations.filter(
     (animation) => animation.target.querySelector(".nt-all-title")?.textContent === "Retry uploads",
   );
   expect(back.length).toBe(1);
+  expect(back[0]!.keyframes[0]!.opacity).toBe(0.5);
+  expect(back[0]!.keyframes.at(-1)!.opacity).toBe(1);
 });
 
 test("a project folds and opens in one frame under Reduce Motion", async () => {

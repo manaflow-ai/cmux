@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures use sample chat rows and a deterministic page cursor.
 import { componentEntry } from "../../../gallery/format";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
-import type { PlayContext } from "../../../gallery/play";
+import type { Play, PlayContext } from "../../../gallery/play";
 import type { ComponentProps } from "react";
 import { AllChatsList, type AllChatsPage, type LoadChatsPage } from "./AllChatsList";
 
@@ -99,6 +99,62 @@ const leads = [
   { id: "gallery-lead-codex", title: "ui-owner", harness: "codex", state: "input" as const, label: "2 reporting" },
 ];
 
+// Projects with chats in three folders, for the fold (projectFold.ts).
+const PROJECT_DIRS = ["/Users/you/src/cmux", "/Users/you/src/uploader", "/Users/you/src/docs"];
+const projectRows: AllChatsPage = {
+  chats: Array.from({ length: 9 }, (_, index) => ({
+    key: `claude:project-${index}`,
+    harness: index % 3 === 1 ? "codex" : "claude",
+    title: [
+      "Fold sweep onto the settle",
+      "Retry uploads with backoff",
+      "Release notes for the nightly",
+      "Sidebar rows on the grid",
+      "Cover retry with tests",
+      "Fix the docs index",
+      "Composer hat polish",
+      "Chunk large uploads",
+      "Link the motion guide",
+    ][index]!,
+    cwd: PROJECT_DIRS[index % 3],
+    updatedAt: minutesAgo(index * 7 + 1),
+  })),
+  ready: true,
+  design: "age",
+};
+
+const PROJECTS_TAB = ".nt-chats-head > button.nt-chats-tab:nth-of-type(2)";
+const FIRST_PROJECT = ".nt-all-item > button.nt-all-group";
+const settled = (ctx: PlayContext) => ctx.document.getAnimations().length === 0;
+
+const showProjects = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(PROJECTS_TAB));
+  await ctx.click({ selector: PROJECTS_TAB });
+  await ctx.waitFor(() => ctx.document.querySelector(FIRST_PROJECT));
+};
+
+/// The first project folds into its header and the projects under it rise; it ends exactly on the folded
+/// list, with no ghost left drawn and nothing running.
+const projectFolds: Play = async (ctx) => {
+  await showProjects(ctx);
+  await ctx.click({ selector: FIRST_PROJECT });
+  await ctx.waitFor(() => settled(ctx), { capMs: 3000 });
+  if (ctx.document.querySelector(".nt-all-ghost")) throw new Error("A folded chat is still drawn after the fold");
+  if (ctx.find({ selector: FIRST_PROJECT }).getAttribute("aria-expanded") !== "false")
+    throw new Error("The project did not fold");
+};
+
+/// The same fold held 60 ms in: the chats partway into the header, fading, the rows under it rising.
+const projectMidFold: Play = async (ctx) => {
+  await showProjects(ctx);
+  await ctx.click({ selector: FIRST_PROJECT });
+  await ctx.waitFor(() => ctx.document.getAnimations().length > 0);
+  for (const animation of ctx.document.getAnimations()) {
+    animation.pause();
+    animation.currentTime = 60;
+  }
+};
+
 export default componentEntry<ComponentProps<typeof AllChatsList>>({
   id: "agent-pane.all-chats-list",
   title: "All chats page recovery",
@@ -126,6 +182,21 @@ export default componentEntry<ComponentProps<typeof AllChatsList>>({
     leads: {
       note: "Leads: every leader (a live chat other chats report to) once, with how many report to it; a press opens its chat.",
       props: { ...baseProps, load: async () => longRows, active: longActive, leads, now: GALLERY_NOW },
+    },
+    "projects-open": {
+      note: "Projects: the chats under their folders, every project open; each header's chevron points down.",
+      props: { ...baseProps, load: async () => projectRows, now: GALLERY_NOW },
+      play: showProjects,
+    },
+    "project-fold-settle": {
+      note: 'Chosen. A project folds: its chats slide up into its header and fade while the projects under it rise into place, every row and the chevron on the settle (--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1) over 265 ms), fast at first and decelerating into the end, never past it; nothing is drawn after it ends (Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key").',
+      props: { ...baseProps, load: async () => projectRows, now: GALLERY_NOW },
+      play: projectFolds,
+    },
+    "project-mid-fold": {
+      note: "The same fold held 60 ms in: most of the way there already, on the settle's long soft tail.",
+      props: { ...baseProps, load: async () => projectRows, now: GALLERY_NOW },
+      play: projectMidFold,
     },
     "page-empty": {
       note: "A first page with no cursor stays a quiet list with no dead loader row.",

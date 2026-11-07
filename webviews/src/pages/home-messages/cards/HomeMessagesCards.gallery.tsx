@@ -5,6 +5,7 @@
 // peek, link chips and their preview cards, the first-run panel and the header toggles.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
+import type { Play, PlayContext } from "../../../gallery/play";
 import { cardStrings } from "./strings";
 import { McpConnectCard, useMcpConnectFlow } from "./mcp/McpConnectCard";
 import {
@@ -457,6 +458,29 @@ const mcp = (server: string, style: McpCardStyle, phase: McpPhaseName, note: str
   props: { card: "mcp" as const, server, style, phase },
 });
 
+// The card's folds (Details, the connected tools) on the settle (foldMotion.ts): open and settled, or held
+// 60 ms in.
+const foldSettled = (ctx: PlayContext) => ctx.document.getAnimations().length === 0;
+const openFold =
+  (selector: string): Play =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector(selector));
+    await ctx.click({ selector });
+    await ctx.waitFor(() => ctx.document.querySelector(".hm-mcp__fold") && foldSettled(ctx), { capMs: 3000 });
+    if (ctx.document.querySelector("[data-folding]")) throw new Error("The fold ended still clipped");
+  };
+const midFold =
+  (selector: string): Play =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector(selector));
+    await ctx.click({ selector });
+    await ctx.waitFor(() => ctx.document.getAnimations().length > 0);
+    for (const animation of ctx.document.getAnimations()) {
+      animation.pause();
+      animation.currentTime = 60;
+    }
+  };
+
 export default componentEntry<Props>({
   id: "home.messages-cards",
   title: "Home chat cards",
@@ -493,6 +517,19 @@ export default componentEntry<Props>({
       "ask",
       "One line; an international look-alike keeps its risk lines open.",
     ),
+    "mcp-compact-details-settle": {
+      ...mcp(
+        "linear",
+        "compactRow",
+        "ask",
+        'Chosen. Details opens the facts under the line: the box grows and its rows fade in on the settle (--cmux-ease-settle over --cmux-motion-settle, 265 ms), decelerating into the end, never past it (Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key").',
+      ),
+      play: openFold("button.hm-mcp__link"),
+    },
+    "mcp-compact-details-mid-fold": {
+      ...mcp("linear", "compactRow", "ask", "The same Details held 60 ms in, on the settle's long soft tail."),
+      play: midFold("button.hm-mcp__link"),
+    },
     "mcp-permission-sheet": mcp("github", "permissionSheet", "ask", "A device-code server, the scopes as bullets."),
     "mcp-two-step": mcp("customURL", "twoStep", "ask", "First the ask, then Review shows the facts."),
     "mcp-bubble": mcp("linear", "bubble", "ask", "The card as the agent's message bubble."),
@@ -504,6 +541,19 @@ export default componentEntry<Props>({
     ),
     "mcp-signing-in": mcp("github", "factsTable", "signingIn", "The sign-in page is open."),
     "mcp-connected": mcp("localCommand", "factsTable", "connected", "Connected: the count line; a held tool says why."),
+    "mcp-connected-tools-settle": {
+      ...mcp(
+        "localCommand",
+        "factsTable",
+        "connected",
+        "Chosen. The count line opens the tools: the list grows and fades in on the settle, and the chevron, one glyph, turns a quarter with it.",
+      ),
+      play: openFold("button.hm-mcp__connected"),
+    },
+    "mcp-connected-tools-mid-fold": {
+      ...mcp("localCommand", "factsTable", "connected", "The tools opening, held 60 ms in."),
+      play: midFold("button.hm-mcp__connected"),
+    },
     "mcp-failed": mcp("linear", "factsTable", "failed", "The daemon refused the server's metadata."),
     "mcp-declined": mcp("customURL", "factsTable", "declined", "Cancelled."),
     "pills-pill": {

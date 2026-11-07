@@ -5,6 +5,7 @@
 import { useCallback, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Spinner } from "../../../../agent-session/acpmux/conversation/icons";
 import { Icon } from "../../../../agent-session/acpmux/icons/Icon";
+import { useFoldMotion } from "../../../../agent-session/acpmux/session-info/foldMotion";
 import { DialogButton } from "../../../../ui/DialogButton";
 import { Select } from "../../../../ui/Select";
 import type { Strings } from "../strings";
@@ -150,6 +151,10 @@ function FactsTable({ flow, strings, actions, riskFirst }: PartProps & { riskFir
 function CompactRow({ flow, strings, actions }: PartProps) {
   const { card } = flow;
   const [open, setOpen] = useState(false);
+  // Details opens and closes as one motion on the settle (session-info/foldMotion.ts): its facts are
+  // drawn until the box has closed over them. A risky server's risk lines stay out of the fold.
+  const fold = useFoldMotion<HTMLDivElement>(open, () => 0);
+  const risky = isRisky(card);
   return (
     <div className="hm-mcp__stack">
       <div className="hm-mcp__head">
@@ -159,7 +164,12 @@ function CompactRow({ flow, strings, actions }: PartProps) {
         <span className="hm-mcp__spacer" />
         {flow.phase.kind === "ask" && (
           <>
-            <button type="button" className="hm-mcp__link" aria-expanded={open} onClick={() => setOpen(!open)}>
+            <button
+              type="button"
+              className="hm-mcp__link"
+              aria-expanded={open}
+              onClick={() => fold.toggle(!open, setOpen)}
+            >
               {strings.t("home.mcpConnect.details")}
             </button>
             <DialogButton dialogKey="return" className="hm-mcp__primary" onClick={actions.connect}>
@@ -168,13 +178,17 @@ function CompactRow({ flow, strings, actions }: PartProps) {
           </>
         )}
       </div>
-      {(open || isRisky(card)) && <RiskLines card={card} strings={strings} />}
-      {open && (
-        <>
-          <Reason card={card} strings={strings} />
-          <Facts card={card} strings={strings} />
-          <ScopeMenu flow={flow} strings={strings} actions={actions} />
-        </>
+      {risky && <RiskLines card={card} strings={strings} />}
+      {fold.drawn && (
+        // The stack's gap is inside the box (cards.css `.hm-mcp__fold`), so it opens from nothing.
+        <div ref={fold.ref} className="hm-mcp__fold">
+          <div className="hm-mcp__fold-rows">
+            {!risky && <RiskLines card={card} strings={strings} />}
+            <Reason card={card} strings={strings} />
+            <Facts card={card} strings={strings} />
+            <ScopeMenu flow={flow} strings={strings} actions={actions} />
+          </div>
+        </div>
       )}
       {flow.phase.kind !== "ask" && <Controls flow={flow} strings={strings} actions={actions} />}
     </div>
@@ -459,24 +473,33 @@ const TOOL_ICON: Record<McpTool["kind"], string> = {
 /** The connected result: the count line and each tool with its class; a held tool says why. */
 function ToolList({ title, tools, strings }: { title: string; tools: readonly McpTool[]; strings: Strings }) {
   const [open, setOpen] = useState(false);
+  // The list opens and closes as one motion on the settle; its chevron is one glyph that turns with it.
+  const fold = useFoldMotion<HTMLDivElement>(open, () => 0);
   const writes = tools.filter((tool) => tool.kind !== "read").length;
   return (
     <div className="hm-mcp__tools">
-      <button type="button" className="hm-mcp__connected" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button
+        type="button"
+        className="hm-mcp__connected"
+        aria-expanded={open}
+        onClick={() => fold.toggle(!open, setOpen)}
+      >
         <Icon name="status.success" size={14} />
         {strings.format("home.mcpConnect.connected", title, String(tools.length), String(writes))}
-        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+        <Icon name="disclosure.collapsed" size={12} className="hm-mcp__chevron" />
       </button>
-      {open && (
-        <ul className="hm-mcp__tool-list">
-          {tools.map((tool) => (
-            <li key={tool.name} data-flagged={tool.flagged ? "" : undefined}>
-              <Icon name={tool.flagged ? "policy.reject" : TOOL_ICON[tool.kind]} size={12} />
-              <span className="hm-mcp__value--mono">{tool.name}</span>
-              {tool.flagged && <span className="hm-mcp__failed">{strings.t("home.mcpConnect.flagged")}</span>}
-            </li>
-          ))}
-        </ul>
+      {fold.drawn && (
+        <div ref={fold.ref} className="hm-mcp__fold" data-gap="tight">
+          <ul className="hm-mcp__tool-list hm-mcp__fold-rows">
+            {tools.map((tool) => (
+              <li key={tool.name} data-flagged={tool.flagged ? "" : undefined}>
+                <Icon name={tool.flagged ? "policy.reject" : TOOL_ICON[tool.kind]} size={12} />
+                <span className="hm-mcp__value--mono">{tool.name}</span>
+                {tool.flagged && <span className="hm-mcp__failed">{strings.t("home.mcpConnect.flagged")}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

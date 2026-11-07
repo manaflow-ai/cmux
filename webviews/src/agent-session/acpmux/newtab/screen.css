@@ -353,6 +353,12 @@
 .nt-all-group:hover,.nt-all-group:focus-visible{outline:0;color:var(--agent-text)}
 .nt-all-group-chevron{flex:none;transform:rotate(90deg)}
 .nt-all-group[aria-expanded=false] .nt-all-group-chevron{transform:none}
+/* A project's fold is one motion on the settle (projectFold.ts; Leo, 2026-11-07: "they dont overshoot but they
+   decelerate at the end. i think that might be the key"): its chevron turns on the same curve, and the chats it
+   folds away are drawn as ghosts over the list, where they were, while they slide into its header and fade. */
+@media (prefers-reduced-motion: no-preference){:root:not([data-cmux-motion=off],[data-cmux-motion=reduced],[data-agent-motion=off],[data-agent-motion=reduced]) .nt-all-group-chevron{transition:transform var(--cmux-motion-settle,265ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1))}}
+.nt-all-scroll{position:relative}
+.nt-all-ghost{position:absolute;top:0;inset-inline-start:0;width:100%;box-sizing:border-box;pointer-events:none;user-select:none}
 .nt-all-group-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .nt-all-group-count{flex:none;font-variant-numeric:tabular-nums;opacity:.8}
 
@@ -538,6 +544,12 @@
 .nt-card-children-toggle[aria-expanded="true"] {
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
   color: var(--agent-text);
+}
+/* The box the children open and close in, on the settle (ChatCards.tsx CardFamily, foldMotion.ts): its own
+   block, so their top margin stays inside the height that moves. */
+.nt-card-children-fold {
+  display: flow-root;
+  min-width: 0;
 }
 .nt-card-children {
   display: flex;

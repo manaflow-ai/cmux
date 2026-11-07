@@ -15,6 +15,7 @@ export { stepActivity } from "./runMessages";
 import { AgentNamesContext } from "../../agent-session/acpmux/conversation/agentNames";
 import { ChevronRight } from "../../agent-session/acpmux/conversation/icons";
 import { HomeToolGroup } from "./HomeToolGroup";
+import { useFoldMotion } from "../../agent-session/acpmux/session-info/foldMotion";
 import { formatDuration } from "../../agent-session/acpmux/conversation/turns";
 import type { Strings } from "../shared/i18n";
 import { liveReply, tail, useLiveRun, type LiveBook } from "./live";
@@ -84,6 +85,9 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
   // A reply the timeline shows as a draft row is not repeated here.
   const reply = running && !(draftTurn && run.turn === draftTurn) ? liveReply(streamed) : "";
   const [open, setOpen] = useState(running);
+  // The steps open and close as one motion on the settle, the cards under it moving on the same frames;
+  // a close keeps them drawn until the box has closed over them (session-info/foldMotion.ts).
+  const fold = useFoldMotion<HTMLDivElement>(open, () => 0);
   // Read folded runs too: their messages remain visible after reopening Home.
   useEffect(() => {
     if (!entry.complete && steps.length < run.stepCount) onLoad(run);
@@ -98,7 +102,7 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
     () => messageCache.classify(steps, JSON.stringify([run.conversation, run.author, run.id])),
     [messageCache, steps, run.conversation, run.author, run.id],
   );
-  const shown = useMemo(() => (open ? runBlocks(run, work.slice(-CARD_STEPS)) : []), [open, run, work]);
+  const shown = useMemo(() => (fold.drawn ? runBlocks(run, work.slice(-CARD_STEPS)) : []), [fold.drawn, run, work]);
   const stepsById = useMemo(() => new Map(steps.map((step) => [step.id, step])), [steps]);
   const count = run.stepCount;
   // Tokens, not dollars: most runs go through a subscription or a router, where the harness's dollar
@@ -107,7 +111,12 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
   return (
     <section className={`lg-run ${status}`} aria-label={run.title || strings.t("run.title")} aria-busy={running}>
       <div className="lg-run-bar">
-        <button type="button" className="lg-run-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <button
+          type="button"
+          className="lg-run-toggle"
+          aria-expanded={open}
+          onClick={() => fold.toggle(!open, setOpen)}
+        >
           {author && <Avatar participant={author} size={16} />}
           <RunMark status={status} />
           <span className="lg-run-label">{runLabel(run, now, strings)}</span>
@@ -149,23 +158,25 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
           </div>
         </AgentNamesContext.Provider>
       )}
-      {open && shown.length > 0 && (
-        <div className="lg-run-steps">
-          {count > shown.length && <p className="lg-run-more">{strings.t("run.earlier")}</p>}
-          {shown.map((block) =>
-            block.kind === "tools" ? (
-              <HomeToolGroup
-                key={block.key}
-                row={block.row}
-                steps={(block.row.items ?? []).flatMap((item) => {
-                  const step = item.tool ? stepsById.get(item.tool.id) : undefined;
-                  return step ? [step] : [];
-                })}
-                agentNames={agentNames ?? EMPTY_AGENT_NAMES}
-                collapsed
-              />
-            ) : null,
-          )}
+      {fold.drawn && shown.length > 0 && (
+        <div ref={fold.ref} className="lg-run-fold">
+          <div className="lg-run-steps">
+            {count > shown.length && <p className="lg-run-more">{strings.t("run.earlier")}</p>}
+            {shown.map((block) =>
+              block.kind === "tools" ? (
+                <HomeToolGroup
+                  key={block.key}
+                  row={block.row}
+                  steps={(block.row.items ?? []).flatMap((item) => {
+                    const step = item.tool ? stepsById.get(item.tool.id) : undefined;
+                    return step ? [step] : [];
+                  })}
+                  agentNames={agentNames ?? EMPTY_AGENT_NAMES}
+                  collapsed
+                />
+              ) : null,
+            )}
+          </div>
         </div>
       )}
       {run.status === "failed" && run.error && (
