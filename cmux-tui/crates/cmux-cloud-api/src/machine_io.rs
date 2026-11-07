@@ -91,6 +91,9 @@ pub struct Request {
     pub route: RouteChoice,
     #[serde(default)]
     pub app_version: Option<String>,
+    /// The cmux API is a local stack: a connection it refuses answers code `no_backend`.
+    #[serde(default)]
+    pub local_only: bool,
 }
 
 impl Request {

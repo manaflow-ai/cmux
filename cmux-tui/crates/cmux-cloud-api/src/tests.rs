@@ -1179,3 +1179,31 @@ fn a_success_is_never_scrubbed_whatever_its_field_order() {
     let refusal = answer_line(&Err(Failure::Transport("echo access".into())));
     assert!(!scrub(refusal, &call).contains("echo access"));
 }
+
+/// An origin on a loopback port nothing listens on.
+fn closed_origin() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    drop(listener);
+    origin
+}
+
+#[test]
+fn a_local_stack_that_is_not_running_is_no_backend_for_previews() {
+    let mut call =
+        request(&closed_origin(), Auth::Worker, "previews.refresh", json!({ "machine": "vm_abc" }));
+    call.local_only = true;
+    assert_eq!(go(&call), Err(Failure::NoBackend));
+    call.local_only = false;
+    assert!(matches!(go(&call), Err(Failure::Transport(_))));
+}
+
+#[test]
+fn a_local_stack_that_is_not_running_is_no_backend_for_a_worker_machine_io() {
+    let args = json!({ "op": "exec", "machine": VM, "command": "true", "route": "proxy" });
+    let mut call = request(&closed_origin(), Auth::Worker, "machine.io", args);
+    call.local_only = true;
+    assert_eq!(go(&call), Err(Failure::NoBackend));
+    call.local_only = false;
+    assert!(matches!(go(&call), Err(Failure::Transport(_))));
+}

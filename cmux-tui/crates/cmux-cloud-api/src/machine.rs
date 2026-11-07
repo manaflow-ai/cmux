@@ -29,6 +29,7 @@ pub(crate) async fn worker(request: &Request) -> Result<Value, Failure> {
     if let Some(version) = &request.app_version {
         fields.insert("app_version".into(), json!(version));
     }
+    fields.insert("local_only".into(), json!(request.local_only));
     let io: machine_io::Request = serde_json::from_value(Value::Object(fields))
         .map_err(|e| Failure::Transport(format!("not a machine request: {e}")))?;
     let client = machine_io::http_client().map_err(Failure::Transport)?;
@@ -87,6 +88,7 @@ pub(crate) fn read(line: &Value, path: &str) -> Result<Value, Failure> {
     let body = line.get("body").cloned().unwrap_or(Value::Null);
     match status {
         0 if code == Some("timed_out") => Err(Failure::TimedOut(path.to_owned())),
+        0 if code == Some("no_backend") => Err(Failure::NoBackend),
         0 => Err(Failure::Transport(code.unwrap_or("no answer").to_owned())),
         200..=299 => Ok(body),
         _ => Err(vm_error(status, body.to_string().as_bytes(), code)),

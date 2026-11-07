@@ -47,6 +47,11 @@ pub(crate) async fn run(
     };
     match answer {
         Ok(body) => Ok(body),
+        Err(cmux_cloud_client::Error::CommunicationError(error))
+            if request.local_only && error.is_connect() =>
+        {
+            Err(Failure::NoBackend)
+        }
         Err(error) => {
             let error = cmux_cloud_client::ApiError::from_api(error).await;
             Err(match error.status {

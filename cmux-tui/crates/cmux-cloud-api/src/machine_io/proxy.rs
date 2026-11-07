@@ -64,6 +64,9 @@ pub(super) async fn run(client: &reqwest::Client, request: &Request) -> Answer {
         Err(e) if e.is_timeout() => {
             return Answer::error(0, "timed_out", "the cmux API did not answer in time");
         }
+        Err(e) if request.local_only && e.is_connect() => {
+            return Answer::error(0, "no_backend", "the local cmux API is not running");
+        }
         Err(e) => {
             return Answer::error(
                 0,
