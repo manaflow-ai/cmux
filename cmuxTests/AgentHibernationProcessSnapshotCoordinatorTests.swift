@@ -193,4 +193,55 @@ struct AgentHibernationProcessSnapshotCoordinatorTests {
         #expect(epoch == nil)
     }
 
+    /// A Claude inbox helper still alive after the agent exited keeps its
+    /// helper scope in the refreshed epoch: it is detached, so it has no
+    /// terminal to match on the escalation or retry path.
+    @Test(arguments: [
+        ["/Applications/cmux.app/Contents/Resources/bin/cmux", "hooks", "claude", "inbox-wait"],
+        ["/usr/bin/python3", "-m", "http.server"],
+    ])
+    func refreshedEpochKeepsOnlyARegisteredHelperDetached(arguments: [String]) async throws {
+        let scopeKey = AgentHibernationPanelKey(workspaceId: UUID(), panelId: UUID())
+        let helper = AgentPIDProcessIdentity(pid: 202, startSeconds: 20, startMicroseconds: 2)
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                CmuxTopProcessInfo(
+                    pid: 202, processIdentity: helper, parentPID: 1,
+                    name: "cmux", path: nil, ttyDevice: nil, cmuxWorkspaceID: nil,
+                    cmuxSurfaceID: nil, cmuxAttributionReason: nil, processGroupID: 202,
+                    terminalProcessGroupID: nil, cpuPercent: 0, residentBytes: 0,
+                    virtualBytes: 0, threadCount: 0
+                ),
+            ],
+            sampledAt: .now, includesProcessDetails: false, includesCMUXScope: false
+        )
+        let coordinator = AgentHibernationProcessSnapshotCoordinator(
+            captureSnapshot: { snapshot },
+            processArgumentsProvider: { _ in
+                CmuxTopProcessArguments(
+                    arguments: arguments,
+                    environment: [
+                        "CMUX_WORKSPACE_ID": scopeKey.workspaceId.uuidString,
+                        "CMUX_SURFACE_ID": scopeKey.panelId.uuidString,
+                    ]
+                )
+            },
+            processIdentityProvider: { _ in helper },
+            processGroupProvider: { _ in 202 }
+        )
+
+        let epoch = try #require(await coordinator.refreshedExitEpoch(
+            processGroupLeaders: [202: helper], processScopeKey: scopeKey,
+            ttyDevice: 42, excluding: []
+        ))
+
+        let isRegistered = arguments.dropFirst() == ["hooks", "claude", "inbox-wait"]
+        #expect(epoch.terminations == [
+            .init(
+                processID: 202, processIdentity: helper, processGroupID: 202,
+                ttyDevice: nil, isCmuxHelper: isRegistered
+            ),
+        ])
+        #expect(epoch.signalableProcessIdentities == [helper])
+    }
 }
