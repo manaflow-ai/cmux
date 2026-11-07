@@ -421,12 +421,12 @@ fn run(config: &Config, core: &Mutex<Core>, mut watch: FileWatch, mut sink: Sink
         Duration::from_millis(config.min_interval_ms),
     );
     let mut rearm: BTreeSet<usize> = BTreeSet::new();
-    let mut scan = |index: usize,
-                    reason: Reason,
-                    schedule: &mut Scheduler,
-                    rearm: &mut BTreeSet<usize>,
-                    watch: &mut FileWatch,
-                    watched: &mut Vec<BTreeSet<PathBuf>>|
+    let scan = |index: usize,
+                reason: Reason,
+                schedule: &mut Scheduler,
+                rearm: &mut BTreeSet<usize>,
+                watch: &mut FileWatch,
+                watched: &mut Vec<BTreeSet<PathBuf>>|
      -> Option<Report> {
         let database = lock(core).database(index).map(Path::to_path_buf)?;
         let (outcome, cost) = measure(&database);

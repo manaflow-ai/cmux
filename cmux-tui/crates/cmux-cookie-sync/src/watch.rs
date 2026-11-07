@@ -26,6 +26,13 @@ pub(crate) enum Wake {
     /// The watcher lost events: every source may have changed.
     Rescan,
     /// The watch cannot go on (a short reason, no path).
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(
+            dead_code,
+            reason = "only the kqueue wait fails for good; notify's errors are a rescan"
+        )
+    )]
     Failed(String),
 }
 
