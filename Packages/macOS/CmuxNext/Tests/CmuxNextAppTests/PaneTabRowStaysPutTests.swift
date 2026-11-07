@@ -16,11 +16,11 @@ import Testing
 /// Two causes, both covered here at narrow and wide pane widths:
 /// - the strip's width followed the selected tab's trailing room (a chat's tools beside its toolbar, a terminal's "…"), so
 ///   a selection, an open or a close moved the tabs' end and the toolbar's slot;
-/// - a chat offered the row anew (its pane's toolbar changed with the selection) reports 0 and then its width again, as
-///   the page does (header/tabRow.ts), and the pane laid the chat under the strip for the 0: its tools in a second row.
+/// - a chat whose page loads again (a discarded chat shown) has no width until it reports, and the pane laid the chat
+///   under the strip until then: its tools in a second row, then up into the row.
 @MainActor @Suite(.serialized, .closesItsWindows) struct PaneTabRowStaysPutTests {
-    /// A chat as the pane sees it: its tab row model (``AgentPaneTabRow``) and a page that answers each new offer the
-    /// way the page did, a 0 and then its tools' width, one report per `deliver()`.
+    /// A chat as the pane sees it: its tab row model (``AgentPaneTabRow``) and a page that answers each new offer as the
+    /// page does, one report per `deliver()`.
     final class PageChat: NSView, PaneTabRowSharing, PaneParkableContent {
         let row = AgentPaneTabRow()
         let tools: CGFloat
@@ -45,7 +45,8 @@ import Testing
         func setTabRow(height: CGFloat, trailingInset: CGFloat) {
             if let lastOffer, lastOffer.height == height, lastOffer.inset == trailingInset { return }
             lastOffer = (height, trailingInset)
-            pending = height > 0 ? [0, tools] : [0]
+            // As header/tabRow.ts answers: a row offered anew gets the width, with no 0 first; a row's end gets 0.
+            pending = height > 0 ? [tools] : [0]
         }
 
         /// The page loaded again (a discarded page shown, a reload): it draws no tools until the row is offered again.
@@ -171,8 +172,8 @@ import Testing
         }
     }
 
-    /// A chat whose page loads again (shown after it was discarded) and one offered the row anew answer with a 0 and then
-    /// their width: the chat stays over the row through each report, its tools never in a second row under the tabs.
+    /// A chat whose page loads again (shown after it was discarded) stays over the row until it reports, and a row offered
+    /// anew moves nothing; tools that leave the row (a replay) give it back to the tabs.
     @Test(arguments: [360, 640, 1400])
     func aChatBetweenReportsStaysInTheRow(width: Int) {
         var pane = pane(width: CGFloat(width))
@@ -183,9 +184,13 @@ import Testing
         pane.chat.reload()
         select("chat", in: &pane)
         for frames in steps(pane) { #expect(frames == start, "at \(width)pt after a reload: \(frames) vs \(start)") }
-        // The row ends (a key resize's hold) and is offered again: a 0, then the width.
-        pane.chat.setTabRow(height: 0, trailingInset: 0)
-        while pane.chat.deliver() {}
+        // Another inset (the toolbar changed), then the pane's own again.
+        pane.chat.setTabRow(height: pane.view.shownStripHeight, trailingInset: 99)
         for frames in steps(pane) { #expect(frames == start, "at \(width)pt on a new offer: \(frames) vs \(start)") }
+        // The tools leave (a replay): the tabs take the row back, the chat under the strip.
+        pane.chat.row.report(width: 0)
+        settle(pane.view)
+        let left = Frames(pane)
+        #expect(left.chat.map { $0.height < (start.chat?.height ?? 0) } == true, "tools that left keep the chat over the row: \(left)")
     }
 }

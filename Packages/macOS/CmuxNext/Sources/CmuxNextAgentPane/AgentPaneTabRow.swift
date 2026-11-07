@@ -30,10 +30,16 @@ import CmuxNextSettings
     var supportsNativeTools = false
     public var nativeToolsEnabled: Bool { supportsNativeTools && ChromeTunables.nativeRowTools.value }
 
+    /// The page loaded again and has not reported since: its tools keep their place in the row until it does
+    /// (``sharedWidth(zoom:)``). A report, 0 included, ends it.
+    private var awaitingReport = false
+
     /// The page reported its tools' width.
     func report(width: CGFloat) {
         if width > 0 { neededWidth = width }
-        guard width != toolsWidth else { return }
+        let awaited = awaitingReport
+        awaitingReport = false
+        guard width != toolsWidth || awaited else { return }
         toolsWidth = width
         onChange?()
     }
@@ -45,6 +51,7 @@ import CmuxNextSettings
         offered = nil
         offeredNativeRowTools = nil
         toolsWidth = 0
+        awaitingReport = neededWidth > 0
         onChange?()
     }
 
@@ -54,12 +61,16 @@ import CmuxNextSettings
                 nativeRowTools: offeredNativeRowTools ?? false, soloTab: offered?.soloTab ?? false)
     }
 
-    /// The tools' slot in the row in points at `zoom` (points per CSS pixel): the need (``sharedNeed(zoom:)``), not the
-    /// width the page reports this moment. The page reports 0 and then its width again each time the row is offered anew
-    /// (a tab selected, opened or closed changes the pane's toolbar and so the row's inset, a discarded page shows again):
-    /// a pane that followed the report laid the chat under the strip until the width came back, so its tools showed in a second row under the tabs and then jumped up into the row under the pointer (Leo
-    /// 2026-11-07: "the top right button area is somehow, like, shifting its layout"). Nil before the page first reported.
-    public func sharedWidth(zoom: CGFloat) -> CGFloat? { sharedNeed(zoom: zoom) }
+    /// The tools' width in points at `zoom` (points per CSS pixel); nil while the page draws no tools in the row. A page
+    /// that loaded again (a discarded chat shown, a reload) keeps its ``sharedNeed(zoom:)`` until it reports: a pane that
+    /// followed the 0 laid the chat under the strip until the width came back, so its tools showed in a second row under
+    /// the tabs and then jumped up into the row under the pointer (Leo 2026-11-07: "the top right button area is
+    /// somehow, like, shifting its layout"). A 0 the page reports is its tools leaving the row (a replay, a quick
+    /// surface), and the tabs take the row back; a row offered anew gets the width again with no 0 (header/tabRow.ts).
+    public func sharedWidth(zoom: CGFloat) -> CGFloat? {
+        if toolsWidth > 0 { return toolsWidth * max(0.25, zoom) }
+        return awaitingReport ? sharedNeed(zoom: zoom) : nil
+    }
 
     /// ``neededWidth`` in points at `zoom`; nil before the page reported (its first offer learns it).
     public func sharedNeed(zoom: CGFloat) -> CGFloat? {
