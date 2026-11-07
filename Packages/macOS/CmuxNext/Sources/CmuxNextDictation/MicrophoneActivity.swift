@@ -2,7 +2,7 @@ import AppKit
 import CoreAudio
 
 /// Whether another app is using the microphone, for the composer's outside-dictation indicator
-/// (design/composer-dictation.md). It only reads CoreAudio properties: the default input device's
+/// (design/composer-dictation.md). It only reads CoreAudio properties: each input device's
 /// `kAudioDevicePropertyDeviceIsRunningSomewhere`, and on macOS 14.2 and later the audio process
 /// objects' `kAudioProcessPropertyIsRunningInput`, to name the app that holds it. It never opens
 /// the microphone and never hears audio, so it knows whether input runs, not how loud it is.
@@ -25,8 +25,9 @@ public final class MicrophoneActivity {
 
     private var watchers: [ObjectIdentifier: (State) -> Void] = [:]
     public private(set) var state = State.idle
-    private var device = AudioObjectID(kAudioObjectUnknown)
-    private var deviceBlock: AudioObjectPropertyListenerBlock?
+    /// The input devices listened to, each with its `IsRunningSomewhere` listener: every input,
+    /// not only the default one, since an app may record from any of them.
+    private var devices: [AudioObjectID: AudioObjectPropertyListenerBlock] = [:]
     private var systemBlock: AudioObjectPropertyListenerBlock?
     private var processBlock: AudioObjectPropertyListenerBlock?
     /// A second read shortly after a process-list change: a process joins the list before its
@@ -34,9 +35,9 @@ public final class MicrophoneActivity {
     private var settle: Task<Void, Never>?
 
     /// Reads the state now (tests pass their own).
-    var read: @MainActor (_ device: AudioObjectID) -> State = { MicrophoneActivity.readState(device: $0) }
+    var read: @MainActor (_ devices: [AudioObjectID]) -> State = { MicrophoneActivity.readState(devices: $0) }
     /// Whether listeners are installed (tests).
-    var isListening: Bool { deviceBlock != nil || systemBlock != nil }
+    var isListening: Bool { !devices.isEmpty || systemBlock != nil || processBlock != nil }
 
     public init() {}
 
@@ -57,9 +58,9 @@ public final class MicrophoneActivity {
     private func start() {
         let system = AudioObjectID(kAudioObjectSystemObject)
         let systemBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            Task { @MainActor in self?.followDefaultDevice() }
+            Task { @MainActor in self?.followDevices() }
         }
-        var address = Self.address(kAudioHardwarePropertyDefaultInputDevice)
+        var address = Self.address(kAudioHardwarePropertyDevices)
         if AudioObjectAddPropertyListenerBlock(system, &address, .main, systemBlock) == noErr { self.systemBlock = systemBlock }
         if #available(macOS 14.2, *) {
             let processBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
@@ -68,7 +69,7 @@ public final class MicrophoneActivity {
             var list = Self.address(kAudioHardwarePropertyProcessObjectList)
             if AudioObjectAddPropertyListenerBlock(system, &list, .main, processBlock) == noErr { self.processBlock = processBlock }
         }
-        followDefaultDevice()
+        followDevices()
     }
 
     private func stop() {
@@ -76,42 +77,36 @@ public final class MicrophoneActivity {
         settle = nil
         let system = AudioObjectID(kAudioObjectSystemObject)
         if let systemBlock {
-            var address = Self.address(kAudioHardwarePropertyDefaultInputDevice)
+            var address = Self.address(kAudioHardwarePropertyDevices)
             AudioObjectRemovePropertyListenerBlock(system, &address, .main, systemBlock)
         }
         if let processBlock {
             var address = Self.address(kAudioHardwarePropertyProcessObjectList)
             AudioObjectRemovePropertyListenerBlock(system, &address, .main, processBlock)
         }
-        unlistenDevice()
+        for device in Array(devices.keys) { unlisten(device) }
         (systemBlock, processBlock) = (nil, nil)
         state = .idle
     }
 
-    /// The default input device changed (or watching began): listen to the new one.
-    private func followDefaultDevice() {
-        let next = Self.defaultInputDevice()
-        if next != device {
-            unlistenDevice()
-            device = next
-            if next != kAudioObjectUnknown {
-                let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-                    Task { @MainActor in self?.refresh() }
-                }
-                var address = Self.address(kAudioDevicePropertyDeviceIsRunningSomewhere)
-                if AudioObjectAddPropertyListenerBlock(next, &address, .main, block) == noErr { deviceBlock = block }
+    /// A device came or went (or watching began): listen to each input device there is now.
+    private func followDevices() {
+        let inputs = Set(Self.inputDevices())
+        for gone in Array(devices.keys) where !inputs.contains(gone) { unlisten(gone) }
+        for device in inputs where devices[device] == nil {
+            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                Task { @MainActor in self?.refresh() }
             }
+            var address = Self.address(kAudioDevicePropertyDeviceIsRunningSomewhere)
+            if AudioObjectAddPropertyListenerBlock(device, &address, .main, block) == noErr { devices[device] = block }
         }
         refresh()
     }
 
-    private func unlistenDevice() {
-        if let deviceBlock, device != kAudioObjectUnknown {
-            var address = Self.address(kAudioDevicePropertyDeviceIsRunningSomewhere)
-            AudioObjectRemovePropertyListenerBlock(device, &address, .main, deviceBlock)
-        }
-        deviceBlock = nil
-        device = AudioObjectID(kAudioObjectUnknown)
+    private func unlisten(_ device: AudioObjectID) {
+        guard let block = devices.removeValue(forKey: device) else { return }
+        var address = Self.address(kAudioDevicePropertyDeviceIsRunningSomewhere)
+        AudioObjectRemovePropertyListenerBlock(device, &address, .main, block)
     }
 
     private func processesChanged() {
@@ -127,7 +122,7 @@ public final class MicrophoneActivity {
     /// Reads the state and tells the watchers when it changed.
     func refresh() {
         guard !watchers.isEmpty else { return }
-        let next = read(device)
+        let next = read(Array(devices.keys))
         guard next != state else { return }
         state = next
         for watcher in watchers.values { watcher(next) }
@@ -146,18 +141,28 @@ public final class MicrophoneActivity {
         return AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value) == noErr ? value : nil
     }
 
-    static func defaultInputDevice() -> AudioObjectID {
-        value(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultInputDevice, AudioObjectID(kAudioObjectUnknown))
-            ?? AudioObjectID(kAudioObjectUnknown)
+    /// The devices with at least one input stream.
+    static func inputDevices() -> [AudioObjectID] {
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        var address = address(kAudioHardwarePropertyDevices)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr, size > 0 else { return [] }
+        var all = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &all) == noErr else { return [] }
+        return all.filter { device in
+            var streams = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams, mScope: kAudioObjectPropertyScopeInput,
+                                                     mElement: kAudioObjectPropertyElementMain)
+            var bytes: UInt32 = 0
+            return AudioObjectGetPropertyDataSize(device, &streams, 0, nil, &bytes) == noErr && bytes > 0
+        }
     }
 
     /// The state as CoreAudio has it now: on 14.2 and later, from the processes whose input runs
-    /// (cmux's own left out); before, from the device alone.
-    static func readState(device: AudioObjectID) -> State {
+    /// (cmux's own left out), on any device; before, from whether any input device runs.
+    static func readState(devices: [AudioObjectID]) -> State {
         if #available(macOS 14.2, *) { return processState() }
-        guard device != kAudioObjectUnknown,
-              let running = value(device, kAudioDevicePropertyDeviceIsRunningSomewhere, UInt32(0)) else { return .idle }
-        return State(active: running != 0, bundleId: nil, name: nil)
+        let running = devices.contains { value($0, kAudioDevicePropertyDeviceIsRunningSomewhere, UInt32(0)).map { $0 != 0 } ?? false }
+        return running ? State(active: true, bundleId: nil, name: nil) : .idle
     }
 
     @available(macOS 14.2, *)
