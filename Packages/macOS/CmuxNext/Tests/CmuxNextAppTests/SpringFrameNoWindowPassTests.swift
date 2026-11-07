@@ -18,8 +18,15 @@ import Testing
 /// The rule: in the app's own window (`ShellWindow` with its `WindowRootView`, the layout shown in its main pane as
 /// `WindowRootView.show` puts it there) with a terminal in each pane, a spring frame's window pass
 /// (`NSWindow.layoutIfNeeded`, as the CA commit runs it) lays out no view whose size did not change in that frame: in
-/// particular not the window's frame view. RESIZE P0 9: a titled `ShellWindow` whose content view is the layout itself
-/// has no Auto Layout view and no frame-view pass, so the window's root view is part of the rule.
+/// particular not the window's frame view.
+///
+/// RESIZE P0 10 M2 (fleet jobs 2b94bda9fba98acbaf2c3ca4, 227f67a29d622c426da19164, 88ac032e80067f9295280828): a titled
+/// `ShellWindow` with no constraint in its content tree runs no frame-view pass (`titledPlain`). One explicit
+/// constraint anywhere in the content tree, even inside a sibling's subtree as the sidebar's are, makes AppKit give
+/// every view of the tree autoresizing-mask constraints (`LayoutRootView`, `PaneHostView`, `TerminalSurfaceView`), and
+/// the frame view then lays out in 16 of 27 spring frames. The layout not translating its mask, or a container that
+/// runs no constraint update for its subtree, does not stop it. `WindowRootView` (41 constraints) and the sidebar
+/// (`SidebarView` 68, its cards) are Auto Layout, so the app's window is red until its content tree places by frame.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct SpringFrameNoWindowPassTests {
@@ -30,24 +37,8 @@ struct SpringFrameNoWindowPassTests {
     enum Host: String, CaseIterable, CustomStringConvertible {
         /// The app's window: `ShellWindow`, its style, and `WindowRootView` showing the layout in its main pane.
         case appWindow
-        /// Diagnosis: a titled `ShellWindow` whose content view is a plain view with the layout by frame, and one
-        /// Auto Layout view beside it (a label pinned to the content view's corner).
-        case constraintSibling
-        /// Diagnosis: the layout by autoresizing mask in a container that Auto Layout pins to the content view's edges.
-        case constraintContainer
-        /// Diagnosis: the layout in a container placed by frame (autoresizing mask) that a constraint of an Auto Layout
-        /// sibling refers to (the label's leading edge pinned to the container's).
-        case constraintReferencedContainer
-        /// Diagnosis (control): a plain content view with the layout by autoresizing mask, no constraint in the window.
+        /// The control: the same window with a plain content view and the layout by its autoresizing mask.
         case titledPlain
-        /// Diagnosis: a sibling of the layout (placed by frame) holds a label pinned inside it: the constraints live in
-        /// the sibling's subtree only, as the sidebar's do.
-        case constraintInSiblingSubtree
-        /// Diagnosis: as `constraintSibling`, with the layout not translating its mask and no constraint of its own.
-        case constraintSiblingLayoutNoMask
-        /// Diagnosis: as `constraintInSiblingSubtree`, with the layout in a container that runs no constraint update
-        /// for its subtree (`updateConstraintsForSubtreeIfNeeded` and `needsUpdateConstraints` overridden).
-        case boundaryNoConstraintUpdate
 
         var description: String { rawValue }
 
@@ -63,102 +54,14 @@ struct SpringFrameNoWindowPassTests {
                 window.contentView = root
                 root.layoutSubtreeIfNeeded()
                 root.show(layout)
-            case .constraintSibling:
-                let content = NSView(frame: rect)
-                window.contentView = content
-                layout.frame = content.bounds
-                layout.autoresizingMask = [.width, .height]
-                content.addSubview(layout)
-                let label = NSTextField(labelWithString: "x")
-                label.translatesAutoresizingMaskIntoConstraints = false
-                content.addSubview(label)
-                NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-                                             label.topAnchor.constraint(equalTo: content.topAnchor)])
-            case .constraintContainer:
-                let content = NSView(frame: rect)
-                window.contentView = content
-                let container = NSView(frame: rect)
-                container.translatesAutoresizingMaskIntoConstraints = false
-                content.addSubview(container)
-                NSLayoutConstraint.activate([container.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-                                             container.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-                                             container.topAnchor.constraint(equalTo: content.topAnchor),
-                                             container.bottomAnchor.constraint(equalTo: content.bottomAnchor)])
-                content.layoutSubtreeIfNeeded()
-                layout.frame = container.bounds
-                layout.autoresizingMask = [.width, .height]
-                container.addSubview(layout)
-            case .constraintReferencedContainer:
-                let content = NSView(frame: rect)
-                window.contentView = content
-                let container = NSView(frame: rect)
-                container.autoresizingMask = [.width, .height]
-                content.addSubview(container)
-                layout.frame = container.bounds
-                layout.autoresizingMask = [.width, .height]
-                container.addSubview(layout)
-                let label = NSTextField(labelWithString: "x")
-                label.translatesAutoresizingMaskIntoConstraints = false
-                content.addSubview(label)
-                NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                                             label.topAnchor.constraint(equalTo: content.topAnchor)])
             case .titledPlain:
                 let content = NSView(frame: rect)
                 window.contentView = content
                 layout.frame = content.bounds
                 layout.autoresizingMask = [.width, .height]
                 content.addSubview(layout)
-            case .constraintInSiblingSubtree:
-                let content = NSView(frame: rect)
-                window.contentView = content
-                layout.frame = content.bounds
-                layout.autoresizingMask = [.width, .height]
-                content.addSubview(layout)
-                let side = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
-                content.addSubview(side)
-                let label = NSTextField(labelWithString: "x")
-                label.translatesAutoresizingMaskIntoConstraints = false
-                side.addSubview(label)
-                NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: side.leadingAnchor),
-                                             label.topAnchor.constraint(equalTo: side.topAnchor)])
-            case .constraintSiblingLayoutNoMask:
-                let content = NSView(frame: rect)
-                window.contentView = content
-                layout.translatesAutoresizingMaskIntoConstraints = false
-                layout.frame = content.bounds
-                content.addSubview(layout)
-                let label = NSTextField(labelWithString: "x")
-                label.translatesAutoresizingMaskIntoConstraints = false
-                content.addSubview(label)
-                NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-                                             label.topAnchor.constraint(equalTo: content.topAnchor)])
-            case .boundaryNoConstraintUpdate:
-                let content = NSView(frame: rect)
-                window.contentView = content
-                let boundary = NoConstraintUpdateView(frame: rect)
-                boundary.autoresizingMask = [.width, .height]
-                content.addSubview(boundary)
-                layout.frame = boundary.bounds
-                layout.autoresizingMask = [.width, .height]
-                boundary.addSubview(layout)
-                let side = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
-                content.addSubview(side)
-                let label = NSTextField(labelWithString: "x")
-                label.translatesAutoresizingMaskIntoConstraints = false
-                side.addSubview(label)
-                NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: side.leadingAnchor),
-                                             label.topAnchor.constraint(equalTo: side.topAnchor)])
             }
             return window
-        }
-    }
-
-    /// A container that never updates constraints for its subtree.
-    final class NoConstraintUpdateView: NSView {
-        override func updateConstraintsForSubtreeIfNeeded() {}
-        override var needsUpdateConstraints: Bool {
-            get { false }
-            set {} // swiftlint:disable:this unused_setter_value
         }
     }
 
