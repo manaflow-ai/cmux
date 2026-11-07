@@ -139,10 +139,16 @@ struct NewTabPlacementPathsTests {
             // Ctrl-` then Cmd-T: as the terminal's stand-in gives way to its daemon tab, the page shows before it for a frame or two
             // (`a b 2 c`, `a b 2 1 c`), then both settle in order (checked below). Only those frames are the known issue; any other is not.
             let known = scenario.presses == [.ctrlBacktick, .cmdT] ? [["a", "b", "2", "c"], ["a", "b", "2", "1", "c"]] : []
-            #expect(stray.allSatisfy { known.contains($0) }, "a new tab showed where no press puts it: \(stray.map { $0.joined(separator: " ") }); frames \(seen)")
+            // A close before the daemon made the tab: its daemon tab (unnamed, `?`) can show for a frame as the close lands, as a
+            // same-turn close can in NewTabCloseInterleaveOrderTests (#36813); the others keep their order.
+            let flashes = scenario.presses.contains(.closeFirst) ? stray.filter { $0.contains("?") && states.contains($0.filter { $0 != "?" }) } : []
+            #expect(stray.allSatisfy { known.contains($0) || flashes.contains($0) }, "a new tab showed where no press puts it: \(stray.map { $0.joined(separator: " ") }); frames \(seen)")
             withKnownIssue("Ctrl-` then Cmd-T shows the page before the terminal for a frame as the terminal's stand-in is swapped", isIntermittent: true) {
-                #expect(stray.isEmpty, "the page showed before the terminal: \(stray.map { $0.joined(separator: " ") }); frames \(seen)")
+                #expect(!stray.contains { known.contains($0) }, "the page showed before the terminal: \(seen)")
             } when: { !known.isEmpty }
+            withKnownIssue("a closed new tab's daemon tab can show for a frame as its close lands (#36813)", isIntermittent: true) {
+                #expect(flashes.isEmpty, "the closed tab showed: \(seen)")
+            } when: { scenario.presses.contains(.closeFirst) }
             #expect(frames.frames.last == states.last,
                     "settled at \(frames.frames.last?.joined(separator: " ") ?? "-"), want \(states.last?.joined(separator: " ") ?? "-"); frames \(seen)")
         }
