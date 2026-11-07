@@ -84,11 +84,11 @@ function stage() {
   const scope = globalThis as Record<string, unknown>;
   const savedElement = scope.HTMLElement;
   scope.HTMLElement = dom.window.HTMLElement;
-  const pointer = (type: string, x: number, y: number, at: number, target: Element = section) => {
+  const pointer = (type: string, x: number, y: number, at: number, target: Element = section, pointerId = 1) => {
     const event = new dom.window.Event(type, { bubbles: true });
     for (const [key, value] of Object.entries({
       button: 0,
-      pointerId: 1,
+      pointerId,
       clientX: x,
       clientY: y,
       screenX: x,
@@ -193,6 +193,27 @@ test("a press let go off the card before the slop ends there: a later move drags
     pointer("pointermove", 100, 200, 300);
     expect(section.dataset.dragging).toBeUndefined();
     expect(log).toEqual([]);
+  } finally {
+    close();
+  }
+});
+
+// Review of #37790 (P2): the press's window listeners took every pointer, so a second touch or pen
+// could move or let go of the first press. A press follows only the pointer that started it.
+test("another pointer neither moves nor ends a press", () => {
+  const { log, pointer, section, close } = stage();
+  try {
+    pointer("pointerdown", 100, 420, 0);
+    pointer("pointermove", 100, 300, 100, section, 2);
+    pointer("pointerup", 100, 300, 150, section, 2);
+    expect(section.dataset.dragging).toBeUndefined();
+    expect(log).toEqual([]);
+    // The press's own pointer still drags and lets go.
+    pointer("pointermove", 100, 410, 200);
+    pointer("pointermove", 100, 400, 300);
+    pointer("pointerup", 100, 400, 400);
+    expect(log[0]).toBe("start");
+    expect(log.at(-1)).toBe("drop bottom 0,-20");
   } finally {
     close();
   }
