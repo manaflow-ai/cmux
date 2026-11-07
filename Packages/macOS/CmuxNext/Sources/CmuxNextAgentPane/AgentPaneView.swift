@@ -462,11 +462,17 @@ public final class AgentPaneView: NSView {
     /// when the key comes up.
     public func toggleDictation(from event: NSEvent? = NSApp.currentEvent) {
         // A dictation app the person picked (`agentPane.dictationSource`) gets the press instead,
-        // as the mic's click does (`dictation.handoff`); one that cannot take it is a beep.
+        // as the mic's click does (`dictation.handoff`). macOS Dictation writes where the keyboard
+        // is, so the pane's page takes it first (the page keeps its prompt focused).
+        if model.composer.dictationSource == .macos, let window, window.firstResponder !== webView {
+            window.makeFirstResponder(webView)
+        }
         switch model.dictationHandoff.handOff(model.composer) {
         case nil: return
         case .ownDictation: dictation.toggle(from: event)
-        default: NSSound.beep()
+        case let failure?:
+            // The composer says why, naming the app, as for the mic's click; the old host has no stream.
+            if pageEvents?.publish(.dictationHandoff(failure: AgentPaneDictationHandoff.code(failure))) != true { NSSound.beep() }
         }
     }
 

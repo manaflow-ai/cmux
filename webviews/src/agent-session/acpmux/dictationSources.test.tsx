@@ -6,7 +6,7 @@ import { act, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { setComposerSettings } from "./composerSettings";
-import { useDictation, type Dictation, type DictationField } from "./dictation";
+import { deliverHandoffFailure, useDictation, type Dictation, type DictationField } from "./dictation";
 import { dictationSourceName, handoffFailure } from "./dictationSources";
 import { NativeError } from "./nativeError";
 import { translate } from "./i18n";
@@ -91,4 +91,11 @@ test("each source has a name", () => {
   expect(dictationSourceName("chatgpt", translate)).toBe("ChatGPT");
   expect(dictationSourceName("cmux", translate)).toBe("cmux");
   expect(dictationSourceName("macos", translate).length).toBeGreaterThan(0);
+});
+
+test("a hand-off the shortcut asked for and the host refused shows the same notice", async () => {
+  setComposerSettings({ dictationSource: "chatgpt" });
+  const dictation = await mount(async () => undefined);
+  await act(async () => deliverHandoffFailure({ code: "dictation.accessibility" }));
+  expect(dictation.current!.notice?.message).toBe(handoffFailure("dictation.accessibility", "chatgpt", translate));
 });

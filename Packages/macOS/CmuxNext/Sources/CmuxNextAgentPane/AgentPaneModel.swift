@@ -733,7 +733,10 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .dictationHandoff: return dictationHandoff.reply(composer)
-        case .dictationSources: return AgentPaneReply.success(["sources": dictationHandoff.sources()])
+        case .dictationSources:
+            let sources = dictationHandoff.sources()
+            sourceIcons.noteDictationApps(sources.compactMap { $0["bundleId"] as? String })
+            return AgentPaneReply.success(["sources": sources])
         case .dictationRecordingUpload(let path): return await AgentPaneDictationUpload.respond(path, in: self)
         case .dictationRecordingCancel(let path): return AgentPaneDictationUpload.cancel(path, in: self)
         case .openFile(let path, let target): return await openFile(path, target: target)

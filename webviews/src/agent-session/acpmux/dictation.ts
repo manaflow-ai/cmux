@@ -28,6 +28,15 @@ export function deliverDictation(update: DictationUpdate): void {
   for (const listener of listeners) listener(update);
 }
 
+const handoffListeners = new Set<(code: string) => void>();
+/// The host's `dictationHandoff {code}`: the Toggle Dictation shortcut's hand-off to the picked app
+/// did not happen; each composer shows why, as for the mic's click (dictationSources.ts).
+export function deliverHandoffFailure(value: unknown): void {
+  const code = (value as { code?: unknown } | null | undefined)?.code;
+  if (typeof code !== "string") return;
+  for (const listener of handoffListeners) listener(code);
+}
+
 let autoSend = false;
 /// `layout.json` `{"dictation": {"autoSend": true}}` sends the prompt when a session ends with
 /// words. Off by default: dictated text waits for the user. The host gates it, not this page:
@@ -235,6 +244,22 @@ export function useDictation(
       document.removeEventListener("compositionend", compositionEnd, true);
     };
   }, [prompt, call]);
+
+  // A hand-off the shortcut asked for and the host could not make.
+  useEffect(() => {
+    const listener = (code: string) =>
+      setNotice({
+        state: "failed",
+        text: "",
+        level: 0,
+        cancelled: false,
+        message: handoffFailure(code, composerSettingsSnapshot().dictationSource, t),
+      });
+    handoffListeners.add(listener);
+    return () => {
+      handoffListeners.delete(listener);
+    };
+  }, [t]);
 
   // Esc cancels, only while a session runs; idle composers keep every key.
   const active = isActive(state);

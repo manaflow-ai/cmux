@@ -102,4 +102,23 @@ import Testing
             #expect(request == .unsupported("pane.setDictationSource"))
         }
     }
+
+    /// A dictation app's icon is drawn only once `dictation.sources` listed it (this Mac has it):
+    /// a page can't learn from an icon ask whether an app is installed.
+    @Test func onlyListedDictationAppsHaveAnIcon() throws {
+        let suite = "dictation-icons-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let icons = AttachmentSourceIcons(defaults: defaults, ownBundleId: "com.cmuxterm.test")
+        // Finder stands in for an installed app: refused until listed.
+        #expect(icons.dataURL("com.apple.finder") == nil)
+        icons.noteDictationApps(["com.apple.finder"])
+        #expect(icons.dataURL("com.apple.finder")?.hasPrefix("data:image/png;base64,") == true)
+    }
+
+    @Test func aShortcutFailureReachesThePage() {
+        let event = AgentPageEvent.dictationHandoff(failure: AgentPaneDictationHandoff.code(.noAccessibility))
+        #expect(event.kind == "dictationHandoff")
+        #expect(event.value.value(at: ["code"])?.stringValue == "dictation.accessibility")
+    }
 }

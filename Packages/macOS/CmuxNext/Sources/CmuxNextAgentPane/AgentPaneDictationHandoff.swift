@@ -30,9 +30,6 @@ struct AgentPaneDictationHandoff {
         App(source: .superwhisper, bundleIds: ["com.superduper.superwhisper", "com.superduper.superwhisper-setapp"], shortcut: "opt+space"),
     ]
 
-    /// Every app bundle id the mic may draw an icon for (`attachment.sourceIcon`).
-    static let bundleIds: Set<String> = Set(apps.flatMap(\.bundleIds))
-
     static func app(_ source: AgentPaneDictationSource) -> App? { apps.first { $0.source == source } }
 
     /// Where an app is installed (tests pass their own).
@@ -129,13 +126,18 @@ struct AgentPaneDictationHandoff {
     /// The page's reply to `dictation.handoff`: success, or the failure's code (the page words it).
     func reply(_ setting: AgentPaneComposerSetting) -> [String: Any] {
         guard let failure = handOff(setting) else { return AgentPaneReply.success() }
-        let code = switch failure {
+        let code = Self.code(failure)
+        return AgentPaneReply.failure(code: code, message: code)
+    }
+
+    /// The code the page words a failure by (dictationSources.ts `handoffFailure`).
+    static func code(_ failure: Failure) -> String {
+        switch failure {
         case .ownDictation: "dictation.own"
         case .notInstalled: "dictation.app_not_installed"
         case .noAccessibility: "dictation.accessibility"
         case .badShortcut: "dictation.bad_shortcut"
         case .postFailed: "dictation.post_failed"
         }
-        return AgentPaneReply.failure(code: code, message: code)
     }
 }
