@@ -60,16 +60,26 @@ final class PageInfoWebWindow: NSWindow {
 
     /// Takes the page's height at the fixed width, keeping the top edge where it is.
     private func fit(contentHeight: CGFloat) {
-        let visible = (screen ?? NSScreen.main)?.visibleFrame.height ?? Self.maxContentHeight
+        let visibleFrame = (screen ?? NSScreen.main)?.visibleFrame
+        let visible = visibleFrame?.height ?? Self.maxContentHeight
         let size = CGSize(width: width, height: min(contentHeight, Self.maxContentHeight, visible * 0.8))
         if contentRect(forFrameRect: frame).size != size {
-            var next = frameRect(forContentRect: NSRect(origin: .zero, size: size))
-            next.origin = NSPoint(x: frame.minX, y: frame.maxY - next.height)
-            setFrame(next, display: isVisible)
+            let next = frameRect(forContentRect: NSRect(origin: .zero, size: size))
+            setFrame(Self.resized(frame, to: next.size, within: visibleFrame), display: isVisible)
         }
         guard !isReady else { return }
         isReady = true
         onReady?()
+    }
+
+    /// `frame` at `size` with its top edge kept, moved up as far as it must to stay on `visible`
+    /// (a Site data window centered while it loaded grows downward when its rows arrive).
+    nonisolated static func resized(_ frame: NSRect, to size: CGSize, within visible: NSRect?) -> NSRect {
+        var next = NSRect(x: frame.minX, y: frame.maxY - size.height, width: size.width, height: size.height)
+        guard let visible else { return next }
+        if next.minY < visible.minY { next.origin.y = min(visible.minY, visible.maxY - next.height) }
+        if next.maxY > visible.maxY { next.origin.y = visible.maxY - next.height }
+        return next
     }
 
     /// Each time the window becomes key, the page takes the keys.
