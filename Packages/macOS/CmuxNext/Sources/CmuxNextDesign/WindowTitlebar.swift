@@ -134,9 +134,10 @@ public struct WindowTitlebar {
     }
 
     /// The main pane card's top inset in `root` (the window's root view):
-    /// `gutter`, except under a minimal titlebar, where the top row's tab
-    /// pills center on the traffic lights' line (never more than `gutter`;
-    /// `PaneChromeMetrics.cardTop`).
+    /// `gutter`, except under a minimal titlebar, where the card moves down
+    /// so the top row's tab pills center on the traffic lights' line with
+    /// equal gaps above and below them (never more than `gutter`;
+    /// `topRowCardTop`, `PaneChromeMetrics.cardTop`).
     ///
     /// - Parameter clearsTrafficLights: The lights sit over the card and no
     ///   top-row strip makes room for them (tab bars at the bottom, no
@@ -151,11 +152,10 @@ public struct WindowTitlebar {
             let row = max(local.height, TitlebarBandButton.side)
             return max(gutter, root.bounds.maxY - local.midY + row / 2 + gutter).rounded(.up)
         }
-        // Floating panes keep the one even gap at the top too.
-        guard !Metrics.floatingPanes else { return gutter }
         // The top row's shared line (`TopRowLine`): the lights' center unless Debug picks another variant.
-        let centerFromTop = topRowLine(in: window)?.centerY ?? root.bounds.maxY - local.midY
-        return Metrics.windowEdgeInset(min(gutter, PaneChromeMetrics.current.cardTop(centeringPillOn: centerFromTop, scale: window.backingScaleFactor)), in: window)
+        // Floating panes keep the one even gap at the top too (`topRowCardTop`).
+        let centerFromTop = targetTopRowLine(in: window)?.centerY ?? root.bounds.maxY - local.midY
+        return topRowCardTop(centeringPillOn: centerFromTop, gutter: gutter, in: window)
     }
 
     /// Whether `view` sits in the window's titlebar band (a full-size

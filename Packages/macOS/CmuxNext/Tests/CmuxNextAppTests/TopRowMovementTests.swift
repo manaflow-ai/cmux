@@ -8,7 +8,8 @@ import Testing
 /// coming to rest) skips its content's layout: the App tells its strip (`updateWindowControlsAvoidance`),
 /// which re-checks the top row's line as well as the traffic lights (review of #37619). A top-row strip
 /// moved down leaves the line for its own centering, and a lower strip moved up onto the top row takes
-/// the line, with no resize; the pane's toolbar follows its strip both ways.
+/// the line, with no resize; the pane's toolbar follows its strip both ways. On the top row the strip
+/// sits where the card's top puts it, the pill keeps equal gaps (#38054) and the line is the pill's.
 @MainActor @Suite(.closesItsWindows, .serialized) struct TopRowMovementTests {
     // Comfortable by default: its strip's own centering and the top row's differ, so a stale layout shows.
     func with(density: DensityPreset = .comfortable, _ body: () throws -> Void) rethrows {
@@ -61,6 +62,13 @@ import Testing
     func pillTop(_ f: Fixture) throws -> CGFloat { try #require(f.strip.firstTabPillFrame).minY }
     func centered(_ f: Fixture) -> CGFloat { f.strip.metrics.tabTop(stripHeight: f.strip.bounds.height, scale: f.window.backingScaleFactor) }
 
+    /// Where the main pane's card puts the top row's strips below the window's top edge
+    /// (`WindowTitlebar.topRowCardTop`): the tabs reach the line from there with equal gaps.
+    func cardTop(_ f: Fixture) throws -> CGFloat {
+        let target = try #require(WindowTitlebar.targetTopRowLine(in: f.window))
+        return WindowTitlebar.topRowCardTop(centeringPillOn: target.centerY, gutter: Metrics.mainPaneGutter, in: f.window)
+    }
+
     /// The pill's center below the window's top edge.
     func pillCenterFromTop(_ f: Fixture) throws -> CGFloat {
         let pill = f.strip.convert(try #require(f.strip.firstTabPillFrame), to: nil)
@@ -71,6 +79,7 @@ import Testing
         try with {
             let f = fixture(topRow: true)
             defer { f.window.closeAfterTest() }
+            move(f, by: -(try cardTop(f)))
             let line = try #require(WindowTitlebar.topRowLine(in: f.window))
             try #require(WindowTitlebar.isInTopRow(f.strip))
             #expect(abs(try pillCenterFromTop(f) - line.centerY) <= 0.5, "on the top row the pill centers on the line")
@@ -122,7 +131,7 @@ import Testing
             #expect(try pillTop(f) == centered(f))
             let buttonBelow = f.toolbar.moreButton.frame.minY
 
-            move(f, by: f.container.bounds.maxY - f.strip.frame.maxY)
+            move(f, by: f.container.bounds.maxY - (try cardTop(f)) - f.strip.frame.maxY)
             let line = try #require(WindowTitlebar.topRowLine(in: f.window))
             try #require(WindowTitlebar.isInTopRow(f.strip))
             #expect(abs(try pillCenterFromTop(f) - line.centerY) <= 0.5, "moved up onto the top row, the pill takes the line")

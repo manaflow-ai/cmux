@@ -76,12 +76,50 @@ public nonisolated struct PaneChromeMetrics: Equatable, Sendable {
         pillTop(scale: scale) + tabHeight + tabGap(scale: scale)
     }
 
-    /// The card top, from the window's top edge, that puts the top row's
-    /// pill center on `centerY` (the traffic lights' center line), so the
-    /// tabs, the window buttons and the toolbar band share one line. Never
-    /// negative.
+    /// A top-row pill's top inside its strip, whose top edge is `stripTop` below the window's top
+    /// edge (the card's top inset plus the pane padding): midway between the window's top edge and
+    /// the strip's bottom (the divider under the row), so the gap above the pill equals the gap below
+    /// it, as in every other row (#38054: moving the pill inside its strip to reach the traffic
+    /// lights' line left 1 pt above it and 6 pt below at Comfortable). Never above the strip's top,
+    /// never past its bottom, on `scale`'s pixel grid.
+    public func pillTop(stripTop: CGFloat, scale: CGFloat) -> CGFloat {
+        let room = stripHeight - tabHeight
+        guard room > 0 else { return 0 }
+        return min(max(0, Self.snapDown((room - max(0, stripTop)) / 2, scale)), room)
+    }
+
+    /// The top-row pill's center below the window's top edge with the card's top `cardTop` down
+    /// (``pillTop(stripTop:scale:)``).
+    public func topRowPillCenter(cardTop: CGFloat, scale: CGFloat) -> CGFloat {
+        let stripTop = cardTop + Self.snap(panePadding, scale)
+        return stripTop + pillTop(stripTop: stripTop, scale: scale) + tabHeight / 2
+    }
+
+    /// The card top, from the window's top edge, that puts the top row's pill center on `centerY`
+    /// (the traffic lights' center line) with the pill's gaps above and below still equal
+    /// (``pillTop(stripTop:scale:)``), so the tabs, the window buttons and the toolbar band share one
+    /// line. The card only moves down: a line above the pill's center with the card at the window's
+    /// top gives 0. On the pixel grid, the room left under the card splits evenly, so the center is
+    /// within a device pixel of the line.
     public func cardTop(centeringPillOn centerY: CGFloat, scale: CGFloat) -> CGFloat {
-        max(0, Self.snapDown(centerY - Self.snap(panePadding, scale) - pillTop(scale: scale) - tabHeight / 2, scale))
+        let padding = Self.snap(panePadding, scale)
+        // With the card `c` down, the pill's center is (c + padding + stripHeight) / 2.
+        let want = 2 * centerY - stripHeight - padding
+        guard want > 0 else { return 0 }
+        let room = stripHeight - tabHeight - padding
+        guard room > 0 else { return max(0, Self.snapDown(centerY - padding - tabHeight / 2, scale)) }
+        let pill = Self.snapDown(min(max(0, (room - want) / 2), room / 2), scale)
+        return room - 2 * pill
+    }
+
+    /// `cardTop` (on the pixel grid) moved down one device pixel when the room it leaves the pill is
+    /// an odd number of pixels and `limit` allows it, so the pill's gaps above and below come out
+    /// equal on a 1x display too (the window's rim or the gutter clamped the card there).
+    public func evenSplitCardTop(_ cardTop: CGFloat, limit: CGFloat, scale: CGFloat) -> CGFloat {
+        let s = max(scale, 1)
+        let room = stripHeight - tabHeight - Self.snap(panePadding, scale) - cardTop
+        guard room > 0, Int((room * s).rounded()) % 2 != 0, cardTop + 1 / s <= limit else { return cardTop }
+        return cardTop + 1 / s
     }
 
     /// The live tokens.

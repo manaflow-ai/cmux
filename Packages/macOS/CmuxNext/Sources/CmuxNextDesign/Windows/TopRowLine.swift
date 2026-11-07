@@ -7,7 +7,8 @@ public import CmuxNextDesignTokens
 /// Debug Settings `chrome.topRowLine` keeps the variants measured for the change:
 public nonisolated enum TopRowLineLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// The default: everything centers on the traffic lights' line, the one line the window cannot
-    /// move; the top row's pills move inside their strip to reach it.
+    /// move; the main pane's card moves down to bring the top row's pills to it, and the pills keep
+    /// equal gaps above and below them (#38054). Where the card cannot reach it, the line is the pills'.
     case lights
     /// The controls follow the tabs: the band and the + center on the line the top-row pills keep on
     /// their own padding (the pane padding above the strip plus the pill's inset, `PaneChromeMetrics`;
@@ -43,11 +44,6 @@ public nonisolated struct TopRowLine: Equatable, Sendable {
 
     public init(centerY: CGFloat) { self.centerY = centerY }
 
-    /// The nearest a top-row pill comes to the window's top edge: one point, so the pill's top
-    /// corners stay inside the window at the roomiest densities. The pill never leaves its strip
-    /// either (the strip masks its tabs to its bounds), whatever this allows.
-    public static let pillMinTopGap: CGFloat = 1
-
     /// The line for `look`: the lights' center (`lights`, `off`), the pill center the top row's tabs
     /// keep on their own padding (`tabs`, ``tabsCenterY(_:scale:)``), or the titlebar row's middle
     /// (`titlebar`).
@@ -67,18 +63,14 @@ public nonisolated struct TopRowLine: Equatable, Sendable {
         metrics.tabGap(scale: scale) + metrics.tabHeight / 2
     }
 
-    /// The pill's top inside a top-row strip whose top edge is `stripTop` below the window's top, so
-    /// the pill's center sits on the line: never above the strip's own top (the strip clips its tabs
-    /// to its bounds), never nearer the window's top than ``pillMinTopGap``, and never past the
-    /// strip's bottom, on `scale`'s pixel grid. A strip that starts at or below the line (a large
-    /// pane padding, floating panes) keeps its pills at its top. Staying inside the strip wins over
-    /// the window-top gap: a pill as tall as its strip (flat chrome, no corner padding) sits at 0.
-    public func pillTop(stripTop: CGFloat, stripHeight: CGFloat, tabHeight: CGFloat, scale: CGFloat) -> CGFloat {
-        let want = centerY - tabHeight / 2 - stripTop
-        let high = max(0, stripHeight - tabHeight)
-        let low = min(max(0, Self.pillMinTopGap - stripTop), high)
-        let s = max(scale, 1)
-        return (min(max(want, low), high) * s).rounded() / s
+    /// The line the top row's pills reach with the card's top `cardTop` down: their center
+    /// (`PaneChromeMetrics.topRowPillCenter`). The pills keep equal gaps above and below and only the
+    /// card moves to reach a line (#38054), so a line the card cannot reach (Comfortable and
+    /// Spacious, whose pills center below the lights' line with the card at the window's top) gives
+    /// way to the pills': the toolbar band, the sidebar's + and the pane's buttons stay on the tabs'
+    /// line, and only the traffic lights, which macOS draws, keep their own.
+    public func reached(by metrics: PaneChromeMetrics, cardTop: CGFloat, scale: CGFloat) -> TopRowLine {
+        TopRowLine(centerY: metrics.topRowPillCenter(cardTop: cardTop, scale: scale))
     }
 
     /// A control `side` tall centered on the line, its top from the window's top, on the pixel grid.
@@ -92,7 +84,17 @@ public nonisolated struct TopRowLine: Equatable, Sendable {
 extension WindowTitlebar {
     /// The top row's line in `window`, from its top edge, under a minimal titlebar with the traffic
     /// lights showing and the tab bars on top; nil otherwise (the callers keep their own row middle).
+    /// The line is where the top row's pills come to rest (``TopRowLine/reached(by:cardTop:scale:)``):
+    /// the variant's line when the card can move to it, else the pills' own center.
     public static func topRowLine(in window: NSWindow, look: TopRowLineLook = TopRowLineLook.tunable.value) -> TopRowLine? {
+        guard let target = targetTopRowLine(in: window, look: look) else { return nil }
+        let scale = window.backingScaleFactor
+        let card = topRowCardTop(centeringPillOn: target.centerY, gutter: Metrics.mainPaneGutter, in: window)
+        return target.reached(by: .current, cardTop: card, scale: scale)
+    }
+
+    /// The variant's line before the card's limits (``topRowLine(in:look:)``): what the card's top aims for.
+    static func targetTopRowLine(in window: NSWindow, look: TopRowLineLook = TopRowLineLook.tunable.value) -> TopRowLine? {
         let settings = DesignSettings.shared
         guard settings.titlebar == .minimal, settings.tabBarPosition == .top,
               let lights = trafficLightsFrame(in: window), let content = window.contentView else { return nil }
@@ -100,6 +102,16 @@ extension WindowTitlebar {
         return TopRowLine.resolve(look, lightsCenterY: lightsCenter,
                                   tabsCenterY: TopRowLine.tabsCenterY(.current, scale: window.backingScaleFactor),
                                   titlebarHeight: Metrics.titlebarHeight)
+    }
+
+    /// The main pane card's top under a minimal titlebar with the top row's pills aiming for
+    /// `centerY`: as far down as centers them on it with equal gaps (`PaneChromeMetrics.cardTop`),
+    /// never more than `gutter`, never over the window's lit rim; floating panes keep the gutter.
+    public static func topRowCardTop(centeringPillOn centerY: CGFloat, gutter: CGFloat, in window: NSWindow) -> CGFloat {
+        guard !Metrics.floatingPanes else { return gutter }
+        let metrics = PaneChromeMetrics.current, scale = window.backingScaleFactor
+        let card = Metrics.windowEdgeInset(min(gutter, metrics.cardTop(centeringPillOn: centerY, scale: scale)), in: window)
+        return metrics.evenSplitCardTop(card, limit: max(gutter, card), scale: scale)
     }
 
     /// Lays out every view of `window` again: the sidebar (every window has one) calls it when Debug Settings picks
