@@ -429,4 +429,26 @@ import Testing
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
         return cli
     }
+
+    /// A failed carrier socket ask of the Cloud app server names the carrier step the server maps, never
+    /// a credential: a refused start keeps its code, a dropped relay and an unregistered daemon theirs,
+    /// anything else is `unavailable`.
+    @Test func aCarrierSocketAskFailureNamesTheCarrierStep() {
+        let cases: [(CloudLinkError, String)] = [
+            (CloudCarrierDial.linkError(code: "ticket", detail: "the platform answered 403"), "ticket"),
+            (CloudCarrierDial.linkError(code: "handshake", detail: nil), "handshake"),
+            (CloudCarrierDial.linkError(code: "relay", detail: nil), "relay"),
+            (CloudCarrierDial.linkError(code: "parked_timeout", detail: nil), "parked_timeout"),
+            (CloudCarrierDial.serveStartError(code: "bad_request", detail: "/tmp/s.sock is in use", socket: "/tmp/s.sock"), "socket"),
+            (.helperNotRunning(reason: "no bundled cmux-tui"), "unavailable"),
+            (.disconnected(reason: "closed"), "unavailable"),
+            (.unsupported, "unavailable"),
+        ]
+        for (error, code) in cases {
+            #expect(CloudCarrierDial.carrierRefusal(error).code == code, "\(error)")
+        }
+        let ticket = CloudCarrierDial.carrierRefusal(CloudCarrierDial.linkError(code: "ticket", detail: "the machine is paused"))
+        #expect(ticket.message.contains("paused"), "the server reads a paused machine from the message")
+        #expect(CloudCarrierDial.carrierRefusal(CloudCarrierDial.linkError(code: "bad_request", detail: nil)).retryable == false)
+    }
 }

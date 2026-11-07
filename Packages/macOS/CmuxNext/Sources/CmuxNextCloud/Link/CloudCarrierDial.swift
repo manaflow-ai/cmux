@@ -117,6 +117,25 @@ public struct CloudCarrierDial: Equatable, Sendable {
         }
     }
 
+    /// A failed carrier socket ask of the Cloud app server (``CloudCredentialRelay/carrierSocketOp``) as the
+    /// carrier step the server maps (first-party-apps/cloud/server/src/link/dial.rs): the code a refused
+    /// start named, else `unavailable`. The message is the error's wording; no credential is in either.
+    public static func carrierRefusal(_ error: any Error) -> CloudCredentialRelay.CarrierRefusal {
+        let text = (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
+        switch error as? CloudLinkError {
+        case .failed(let code, let message)?:
+            return .init(code: code, message: message.isEmpty ? text : message, retryable: code != "bad_request")
+        case .disconnected(let reason)? where reason == "relay":
+            return .init(code: "relay", message: text, retryable: true)
+        case .notUp(let state)? where state == "parked_timeout":
+            return .init(code: "parked_timeout", message: text, retryable: true)
+        case .helperNotRunning(let reason)?:
+            return .init(code: "unavailable", message: reason.isEmpty ? text : reason, retryable: true)
+        default:
+            return .init(code: "unavailable", message: text, retryable: true)
+        }
+    }
+
     /// Another `carrier serve` holds the session's socket.
     static let socketTaken = CloudLinkError.failed(code: "socket", message: "another cmux is serving this machine's connection socket")
 

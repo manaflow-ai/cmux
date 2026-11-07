@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 import Foundation
 
 /// The link of one Cloud machine for its daemon connection (C13b). A
@@ -237,6 +238,18 @@ public actor CloudLinkSession {
     }
 
     /// Ends the link for good and asks the app server to close it.
+    /// The machine's carrier socket for the Cloud app server (``CloudLinkResolver/carrierSocket(_:)``): it
+    /// neither connects nor ends this link.
+    public func carrierSocket() async throws -> String { try await resolver.carrierSocket(key) }
+
+    /// The Cloud app server's carrier ask (``CloudCredentialRelay/carrierSocketOp``) of `machine`, whose app
+    /// link is `link` (nil: this app has no session of it), as the relay's answer: the socket path, or the
+    /// carrier step that refused (``CloudCarrierDial/carrierRefusal(_:)``).
+    public static func carrierAnswer(_ link: CloudLinkSession?, machine: String) async -> Result<String, CloudCredentialRelay.CarrierRefusal> {
+        guard let link else { return .failure(.init(code: "cloud.machine.not_found", message: "this Mac has no session of \(machine)")) }
+        do { return .success(try await link.carrierSocket()) } catch { return .failure(CloudCarrierDial.carrierRefusal(error)) }
+    }
+
     public func close() async {
         end(reason: "closed")
         await resolver.close(key)

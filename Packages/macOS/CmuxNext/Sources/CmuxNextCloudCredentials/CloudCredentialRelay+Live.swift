@@ -6,7 +6,8 @@ public nonisolated extension CloudCredentialRelay {
     /// One install-bound relay shared by the app provider and private link carrier.
     static func live(identity: MacInstallIdentity, baseURL: URL,
                      signedIn: @escaping @Sendable () async -> Bool,
-                     allowedOps: @escaping @Sendable () async -> Set<String>) -> CloudCredentialRelay {
+                     allowedOps: @escaping @Sendable () async -> Set<String>,
+                     carrierSocket: @escaping CarrierSocket = CloudCredentialRelay.noCarrier) -> CloudCredentialRelay {
         let transport = InstallHTTPTransport(baseURL: baseURL)
         let headers = identity.requestHeaders
         return CloudCredentialRelay(
@@ -19,6 +20,7 @@ public nonisolated extension CloudCredentialRelay {
                 let token = try? await identity.installToken()
                 return Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
             },
-            allowedOps: allowedOps)
+            allowedOps: allowedOps,
+            carrierSocket: carrierSocket)
     }
 }

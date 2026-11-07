@@ -10,11 +10,21 @@ public import Foundation
 /// to `POST /v1/read`, a keyed op to `POST /v1/ops`. The Worker's answer
 /// goes back unchanged as the provider ABI body; the server sees no
 /// credential and the daemon never sees one.
+///
+/// `credential.carrier_socket {machine}` (the Cloud server's `relay.carrier`
+/// line, first-party-apps/cloud/server/src/link/dial.rs) answers the path
+/// of this app's own `cmux carrier serve` socket of a machine it has a
+/// session of, started when it is not running: `{value: {socket}}`. The
+/// person's credential stays in that child; the answer holds only the path
+/// (the child's socket is 0600, in this user's private temporary folder). A
+/// refusal is `{code, message, retryable}` with a `cmux carrier` step code
+/// (``CarrierRefusal``).
 public nonisolated struct CloudCredentialRelay: Sendable {
     /// The provider family this relay serves.
     public static let family = "credential"
     public static let relayOp = "credential.relay"
     public static let sessionOp = "credential.session"
+    public static let carrierSocketOp = "credential.carrier_socket"
     /// The only app server the relay serves, and the only op family it
     /// sends: an install token with origin user counts as the person on the
     /// Worker (feed answers), so no other app and no other family may ever
@@ -68,15 +78,40 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     let session: @Sendable () async -> Session
     /// The ops the app server may have sent (``bundledServedOps()`` in the app).
     let allowedOps: @Sendable () async -> Set<String>
+    /// This app's carrier socket of a machine (``carrierSocketOp``).
+    let carrierSocket: CarrierSocket
+
+    /// Why the app has no carrier socket of a machine: a `cmux carrier` step code (`ticket`, `relay`,
+    /// `parked_timeout`, `handshake`, `service_refused`, `bad_request`, `socket`), `cloud.machine.not_found`
+    /// (no session of that machine) or `unavailable`. Never a credential.
+    public struct CarrierRefusal: Error, Equatable, Sendable {
+        public var code: String
+        public var message: String
+        public var retryable: Bool
+
+        public init(code: String, message: String, retryable: Bool = false) {
+            (self.code, self.message, self.retryable) = (code, message, retryable)
+        }
+    }
+
+    /// The carrier socket path of `machine`, or why there is none.
+    public typealias CarrierSocket = @Sendable (_ machine: String) async -> Result<String, CarrierRefusal>
+
+    /// No carrier (a relay built without the app's Cloud sessions).
+    public static let noCarrier: CarrierSocket = { _ in
+        .failure(CarrierRefusal(code: "unavailable", message: "this cmux has no Cloud carrier"))
+    }
 
     public init(post: @escaping Post, token: @escaping @Sendable () async throws -> String,
                 invalidate: @escaping @Sendable () async -> Void, session: @escaping @Sendable () async -> Session,
-                allowedOps: @escaping @Sendable () async -> Set<String>) {
+                allowedOps: @escaping @Sendable () async -> Set<String>,
+                carrierSocket: @escaping CarrierSocket = CloudCredentialRelay.noCarrier) {
         self.post = post
         self.token = token
         self.invalidate = invalidate
         self.session = session
         self.allowedOps = allowedOps
+        self.carrierSocket = carrierSocket
     }
 
     /// Answers one provider call of the `credential` family.
@@ -90,8 +125,24 @@ public nonisolated struct CloudCredentialRelay: Sendable {
             return Answer(ok: true, body: .object(["signed_in": .bool(state.signedIn), "team": state.team.map(JSONValue.string) ?? .null]))
         case Self.relayOp:
             return await relay(call.params)
+        case Self.carrierSocketOp:
+            return await carrier(call.params)
         default:
             return Self.failure("operation.unsupported", "\(call.op) is not a credential op")
+        }
+    }
+
+    /// `credential.carrier_socket {machine}`: the path only, for a signed-in app.
+    private func carrier(_ params: JSONValue) async -> Answer {
+        guard let machine = params["machine"]?.stringValue, !machine.isEmpty else {
+            return Self.failure("validation.invalid", "credential.carrier_socket needs a machine")
+        }
+        guard await session().signedIn else { return Self.notSignedIn }
+        switch await carrierSocket(machine) {
+        case .success(let socket):
+            return Answer(ok: true, body: .object(["value": .object(["socket": .string(socket)])]))
+        case .failure(let refusal):
+            return Self.failure(refusal.code, refusal.message, retryable: refusal.retryable)
         }
     }
 

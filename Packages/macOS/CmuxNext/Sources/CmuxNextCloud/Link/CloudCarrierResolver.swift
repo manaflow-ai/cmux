@@ -28,6 +28,13 @@ public struct CloudCarrierResolver: CloudLinkResolver {
         return CloudLinkSocket(key: key, path: socket, generation: nil, callerOwnsVM: caller == .owner, callerIsTeammate: caller == .team)
     }
 
+    /// The serve child's socket for the Cloud app server: started when it does not run; the refusal this
+    /// link reports is left as it is.
+    public func carrierSocket(_ key: CloudLinkKey) async throws -> String {
+        guard let serve else { throw CloudLinkError.helperNotRunning(reason: "no bundled cmux-tui") }
+        return try await serve.socketPath(keepingRefusal: true)
+    }
+
     /// Why the serve child's last dial was refused since this connect, or that the child is gone.
     public func refusal(_ key: CloudLinkKey) async -> CloudLinkError? { await serve?.refusal }
 
@@ -102,9 +109,10 @@ public actor CloudCarrierServe {
     }
 
     /// The serving socket: a running child gets a fresh access token, else a new child starts (after the
-    /// last one exited). Throws ``CloudLinkError`` when it does not get ready.
-    public func socketPath() async throws -> String {
-        refused = nil
+    /// last one exited). Throws ``CloudLinkError`` when it does not get ready. `keepingRefusal`: another
+    /// client asks (the Cloud app server), so the refusal the session's own connect reads stays.
+    public func socketPath(keepingRefusal: Bool = false) async throws -> String {
+        if !keepingRefusal { refused = nil }
         if let starting { return try await starting.value }
         let mine = generation
         if ready, let child, child.isRunning {
