@@ -2,15 +2,15 @@ import CmuxNextActions
 
 /// The tab strip's "+" (a click): one
 /// registry action on the strip's pane, so it matches every other entry
-/// point of that action.
+/// point of that action. Its tab opens at the end (`position`), after the last tab, as in Chrome.
 enum StripNewTab {
-    static let action: ActionID = "newTab.default"
+    static let action: ActionID = "newTab.default", position = "position" // the argument naming a NewTabPosition
     /// Option-click on the +: New <Kind> Tab, the selected tab's kind, picked on purpose.
     static let sameKindAction: ActionID = "newTab.ofKind"
 
     static func request(pane: String, machineID: String? = nil, opensWorkspace: Bool = false, sameKind: Bool = false,
                         perform: (ActionID, ActionInvocation) -> Void) {
-        var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane)).onMachine(machineID)
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane), arguments: [position: .string("end")]).onMachine(machineID)
         if opensWorkspace { invocation.arguments["toggleWorkspace"] = .bool(true) }
         perform(sameKind ? sameKindAction : action, invocation)
     }

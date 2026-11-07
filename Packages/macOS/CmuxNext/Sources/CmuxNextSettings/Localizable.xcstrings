@@ -101168,127 +101168,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
+            "value": "Where Cmd-T puts the new tab. The + button always puts it at the end, and New Tab to the Right in a tab's menu after that tab."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd-T と + ボタンで開く新規タブの位置です。タブのメニューの「右に新規タブ」は、常にそのタブの後ろに開きます。"
+            "value": "Cmd-T で開く新規タブの位置です。+ ボタンは常に末尾に、タブのメニューの「右に新規タブ」は常にそのタブの後ろに開きます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "المكان الذي يضع فيه Cmd-T وزر + علامة التبويب الجديدة. يضعها الأمر «علامة تبويب جديدة إلى اليمين» في قائمة علامة التبويب دائمًا بعد تلك العلامة."
+            "value": "المكان الذي يضع فيه Cmd-T علامة التبويب الجديدة. يضعها زر + دائمًا في النهاية، والأمر «علامة تبويب جديدة إلى اليمين» في قائمة علامة التبويب بعد تلك العلامة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gdje Cmd-T i dugme + stavljaju novu karticu. Novi tab desno u meniju kartice uvijek je stavlja iza te kartice."
+            "value": "Gdje Cmd-T stavlja novu karticu. Dugme + je uvijek stavlja na kraj, a Novi tab desno u meniju kartice iza te kartice."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvor Cmd-T og knappen + placerer den nye fane. Ny fane til højre i en fanes menu placerer den altid efter den fane."
+            "value": "Hvor Cmd-T placerer den nye fane. Knappen + placerer den altid til sidst, og Ny fane til højre i en fanes menu efter den fane."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wo Cmd-T und die Taste + den neuen Tab einfügen. „Neuer Tab rechts“ im Menü eines Tabs fügt ihn immer hinter diesem Tab ein."
+            "value": "Wo Cmd-T den neuen Tab einfügt. Die Taste + fügt ihn immer am Ende ein, „Neuer Tab rechts“ im Menü eines Tabs hinter diesem Tab."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dónde colocan Cmd-T y el botón + la nueva pestaña. «Nueva pestaña a la derecha» en el menú de una pestaña siempre la coloca después de esa pestaña."
+            "value": "Dónde coloca Cmd-T la nueva pestaña. El botón + siempre la coloca al final, y «Nueva pestaña a la derecha» en el menú de una pestaña, después de esa pestaña."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Où Cmd-T et le bouton + placent le nouvel onglet. « Nouvel onglet à droite » dans le menu d’un onglet le place toujours après cet onglet."
+            "value": "Où Cmd-T place le nouvel onglet. Le bouton + le place toujours à la fin, et « Nouvel onglet à droite » dans le menu d’un onglet, après cet onglet."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dove Cmd-T e il pulsante + mettono la nuova scheda. «Nuova scheda a destra» nel menu di una scheda la mette sempre dopo quella scheda."
+            "value": "Dove Cmd-T mette la nuova scheda. Il pulsante + la mette sempre alla fine, e «Nuova scheda a destra» nel menu di una scheda dopo quella scheda."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កន្លែងដែល Cmd-T និងប៊ូតុង + ដាក់ផ្ទាំងថ្មី។ «ផ្ទាំងថ្មីនៅខាងស្ដាំ» ក្នុងម៉ឺនុយផ្ទាំង តែងតែដាក់វានៅបន្ទាប់ពីផ្ទាំងនោះ។"
+            "value": "កន្លែងដែល Cmd-T ដាក់ផ្ទាំងថ្មី។ ប៊ូតុង + តែងតែដាក់វានៅខាងចុង ហើយ «ផ្ទាំងថ្មីនៅខាងស្ដាំ» ក្នុងម៉ឺនុយផ្ទាំង ដាក់វានៅបន្ទាប់ពីផ្ទាំងនោះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-T와 + 버튼이 새 탭을 두는 위치입니다. 탭 메뉴의 오른쪽에 새 탭은 항상 그 탭 뒤에 둡니다."
+            "value": "Cmd-T가 새 탭을 두는 위치입니다. + 버튼은 항상 맨 끝에, 탭 메뉴의 오른쪽에 새 탭은 그 탭 뒤에 둡니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvor Cmd-T og +-knappen plasserer den nye fanen. Ny fane til høyre i en fanes meny plasserer den alltid etter den fanen."
+            "value": "Hvor Cmd-T plasserer den nye fanen. +-knappen plasserer den alltid til slutt, og Ny fane til høyre i en fanes meny etter den fanen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gdzie Cmd-T i przycisk + umieszczają nową kartę. Polecenie „Nowa karta po prawej” w menu karty zawsze umieszcza ją za tą kartą."
+            "value": "Gdzie Cmd-T umieszcza nową kartę. Przycisk + zawsze umieszcza ją na końcu, a polecenie „Nowa karta po prawej” w menu karty za tą kartą."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Onde Cmd-T e o botão + colocam a nova aba. Nova aba à direita, no menu de uma aba, sempre a coloca depois dessa aba."
+            "value": "Onde Cmd-T coloca a nova aba. O botão + sempre a coloca no fim, e Nova aba à direita, no menu de uma aba, depois dessa aba."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Куда Cmd-T и кнопка + ставят новую вкладку. «Новая вкладка справа» в меню вкладки всегда ставит её после этой вкладки."
+            "value": "Куда Cmd-T ставит новую вкладку. Кнопка + всегда ставит её в конец, а «Новая вкладка справа» в меню вкладки — после этой вкладки."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ตำแหน่งที่ Cmd-T และปุ่ม + วางแท็บใหม่ แท็บใหม่ทางขวาในเมนูของแท็บจะวางไว้หลังแท็บนั้นเสมอ"
+            "value": "ตำแหน่งที่ Cmd-T วางแท็บใหม่ ปุ่ม + จะวางไว้ท้ายสุดเสมอ และแท็บใหม่ทางขวาในเมนูของแท็บจะวางไว้หลังแท็บนั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-T ve + düğmesinin yeni sekmeyi koyduğu yer. Bir sekmenin menüsündeki Sağa yeni sekme onu her zaman o sekmeden sonra koyar."
+            "value": "Cmd-T'nin yeni sekmeyi koyduğu yer. + düğmesi onu her zaman sona, bir sekmenin menüsündeki Sağa yeni sekme ise o sekmeden sonra koyar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Куди Cmd-T і кнопка + ставлять нову вкладку. «Нова вкладка праворуч» у меню вкладки завжди ставить її після цієї вкладки."
+            "value": "Куди Cmd-T ставить нову вкладку. Кнопка + завжди ставить її в кінець, а «Нова вкладка праворуч» у меню вкладки — після цієї вкладки."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nơi Cmd-T và nút + đặt thẻ mới. Tab mới bên phải trong menu của một thẻ luôn đặt nó sau thẻ đó."
+            "value": "Nơi Cmd-T đặt thẻ mới. Nút + luôn đặt nó ở cuối, và Tab mới bên phải trong menu của một thẻ đặt nó sau thẻ đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-T 和 + 按钮放置新标签页的位置。标签页菜单中的“在右侧新建标签页”总是放在该标签页之后。"
+            "value": "Cmd-T 放置新标签页的位置。+ 按钮总是放在末尾，标签页菜单中的“在右侧新建标签页”放在该标签页之后。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-T 和 + 按鈕放置新標籤頁的位置。標籤頁選單中的「在右側新增分頁」一律放在該標籤頁之後。"
+            "value": "Cmd-T 放置新標籤頁的位置。+ 按鈕一律放在最後，標籤頁選單中的「在右側新增分頁」放在該標籤頁之後。"
           }
         }
       }

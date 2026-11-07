@@ -3,13 +3,13 @@ import CmuxNextDesign
 
 /// The Tabs rows of the General section (its own type: the schema type's line budget is per type).
 nonisolated enum TabSettingsSchema {
-    /// `tabs.newTabPosition`: where Cmd-T and the strip's + put the new tab (cx-d0d.58).
+    /// `tabs.newTabPosition`: where Cmd-T puts the new tab (cx-d0d.58); the strip's + always appends.
     static func newTabPosition(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
             NewTabPosition.configPath, section: .general, group: group,
             title: SettingsText.keyed("settings.tabs.newTabPosition", "New Tab Position"),
             help: SettingsText.keyed("settings.tabs.newTabPosition.help",
-                                    "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."),
+                                    "Where Cmd-T puts the new tab. The + button always puts it at the end, and New Tab to the Right in a tab's menu after that tab."),
             kind: .choice([
                 SettingChoice(NewTabPosition.afterCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionAfterCurrent", "After the Current Tab")),
                 SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
