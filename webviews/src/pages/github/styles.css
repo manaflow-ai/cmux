@@ -419,7 +419,8 @@ html[data-cmux-page="github"],
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
-.gh-ci-line:hover { background: var(--page-hover); }
+/* A pip hovers on its own; the row would light up outside the pip. */
+.gh-ci-line:hover:not(:has(.gh-ci-pip:hover)) { background: var(--page-hover); }
 .gh-ci-workflow { flex: none; font-size: var(--text-caption); }
 .gh-ci-time { flex: none; margin-inline-start: auto; color: var(--page-text-3); font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
 .gh-ci-pips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
