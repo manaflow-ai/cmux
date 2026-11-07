@@ -131,11 +131,12 @@ struct NewTabPlacementPathsTests {
             let seen = frames.frames.map { $0.joined(separator: " ") }
             let stray = frames.frames.filter { !states.contains($0) }
             // Ctrl-` then Cmd-T: as the terminal's stand-in gives way to its daemon tab, the page shows before it for a frame or two
-            // (`a b 2 1 c`), then both settle in order (checked below). Tracked as a follow-up; every other burst shows no stray frame.
-            withKnownIssue("Ctrl-` then Cmd-T shows the page before the terminal for a frame as the terminal's stand-in is swapped",
-                           isIntermittent: true) {
-                #expect(stray.isEmpty, "a new tab showed where no press puts it: \(stray.map { $0.joined(separator: " ") }); frames \(seen)")
-            } when: { scenario.presses == [.ctrlBacktick, .cmdT] }
+            // (`a b 2 c`, `a b 2 1 c`), then both settle in order (checked below). Only those frames are the known issue; any other is not.
+            let known = scenario.presses == [.ctrlBacktick, .cmdT] ? [["a", "b", "2", "c"], ["a", "b", "2", "1", "c"]] : []
+            #expect(stray.allSatisfy { known.contains($0) }, "a new tab showed where no press puts it: \(stray.map { $0.joined(separator: " ") }); frames \(seen)")
+            withKnownIssue("Ctrl-` then Cmd-T shows the page before the terminal for a frame as the terminal's stand-in is swapped", isIntermittent: true) {
+                #expect(stray.isEmpty, "the page showed before the terminal: \(stray.map { $0.joined(separator: " ") }); frames \(seen)")
+            } when: { !known.isEmpty }
             #expect(frames.frames.last == states.last,
                     "settled at \(frames.frames.last?.joined(separator: " ") ?? "-"), want \(states.last?.joined(separator: " ") ?? "-"); frames \(seen)")
         }
