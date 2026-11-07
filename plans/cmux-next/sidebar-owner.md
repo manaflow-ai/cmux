@@ -1531,6 +1531,29 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - Commits: the "(red)" test commit (`PinnedSummaryDensityTests`, `AAPinnedDensityGalleryTests`, fleet step
   b756692bcd72c93601f38a3e), then the fix. Before|After sheets: ~/fun/cmux-galleries/pinned-density/.
 
+## A drag's start moves no row: Pinned opens at the top edge (2026-11-07)
+
+- Leo 2026-11-07: "did we not remove or find adifferent solution for the drag here to pin yet in the sidebar? it's
+  super weird how when you drag ANY workspace, it shifts imediately due to that..."
+- Every workspace drag (and every drag on the document) turned on `showEmptyPinned` as it lifted: an empty Pinned
+  drew its header and "Drop here to pin" row at the top, and every empty document section its drop row, so every row
+  moved down the moment a drag started.
+- Now the lift shows no new row. `SidebarEmptyZones` makes, at the lift, the zones the drag can open: an empty
+  Pinned's opens once the pointer, moving up, reaches the top half of the row it opens above (or above it); an empty
+  titled section's once the pointer reaches its title. One opens at a time, on the drag's spring (rows move, the zone
+  fades in), takes the drop, and closes half a row past it. A group drag on the document rebuilds its plan when one
+  opens or closes. A section the drag empties still keeps its drop row in the dragged rows' place, and a list Pinned
+  the drag empties keeps its header and row for the whole drag (`keepsPinned`), so the row can go back.
+- A drag the document does not take (a workspace it places nowhere yet) resolves on the list, which drops into no
+  document section: it opens none of their zones (it never could drop there).
+- Tests: `SidebarDragStartKeepsRowsTests` (list and document), red commit first.
+- A block tile's drag opens zones too; a Pinned that keeps items opens none (the drop goes among its items); the
+  half-row reach is the height of the row the zone opens above (density, status and detail lines).
+- A collapsed empty section opens its zone too (its title is all it draws). A section the document refuses the drag
+  into opens none: the document's Pinned takes no item from outside it (`keepingPinned`, Pin is the way in).
+- A zone moves with its anchor row (its title's block, or the row it opens above): a drop's gap that moves that row
+  moves the zone's reach by as much.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
