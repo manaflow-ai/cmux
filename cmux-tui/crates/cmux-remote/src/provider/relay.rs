@@ -2512,9 +2512,14 @@ mod tests {
             ),
             "; stderr: 71 bytes, codes carrier.unavailable, owner.unreachable, HTTP 503"
         );
+        let five = b"auth.refused carrier.busy vm.unbound carrier.unreachable carrier.bad_answer HTTP 500";
         assert_eq!(
-            stderr_summary(b"a.a b.b c.c d.d e.e HTTP 500"),
-            "; stderr: 28 bytes, codes a.a, b.b, c.c, d.d, HTTP 500"
+            stderr_summary(five),
+            format!(
+                "; stderr: {} bytes, codes auth.refused, carrier.busy, vm.unbound, \
+                 carrier.unreachable, HTTP 500",
+                five.len()
+            )
         );
         assert_eq!(stderr_summary(b""), "");
     }
