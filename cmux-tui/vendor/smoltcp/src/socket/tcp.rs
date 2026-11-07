@@ -1890,6 +1890,10 @@ impl<'a> Socket<'a> {
             (State::SynReceived, TcpControl::Rst) if self.listen_endpoint.port != 0 => {
                 tcp_trace!("received RST");
                 self.tuple = None;
+                // cmux patch: the next SYN is a new connection: it gets the default
+                // MSS and a fresh controller (initial window), not this peer's.
+                self.remote_mss = DEFAULT_MSS;
+                self.set_congestion_control(self.congestion_control());
                 self.set_state(State::Listen);
                 return None;
             }
