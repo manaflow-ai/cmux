@@ -20,12 +20,16 @@ extension AgentPaneView: CmuxToastAvoiding {
     /// The stack or the pane moved, or the pane was hidden or shown (a workspace switch hides an
     /// ancestor and leaves every frame as it was): the window's shown toasts move clear of where it
     /// is now. A hidden pane avoids nothing, so a toast shown while it was away moves up when it comes
-    /// back. Says nothing when its window rect is unchanged, so a layout pass with no move costs no
-    /// toast work.
+    /// back. A move to another window counts even at the same frame: the toasts there move above
+    /// the composer, and those of the window it left come back down. Says nothing when its window
+    /// and its rect there are unchanged, so a layout pass with no move costs no toast work.
     func toastAvoidanceMoved() {
         let rect = window == nil || isHiddenOrHasHiddenAncestor ? NSRect.zero : convert(toastAvoidanceRect, to: nil)
-        guard rect != lastToastAvoidance else { return }
+        let left = lastToastAvoidanceWindow
+        guard rect != lastToastAvoidance || left !== window else { return }
         lastToastAvoidance = rect
+        lastToastAvoidanceWindow = window
+        if let left, left !== window { CmuxToastAvoidance.avoidanceChanged(in: left) }
         if let window { CmuxToastAvoidance.avoidanceChanged(in: window) }
     }
 }
