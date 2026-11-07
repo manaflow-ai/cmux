@@ -252,6 +252,21 @@ struct AgentReplyPullRequestsQuotaTests {
         #expect(cache.answer(link, read: false).pullRequest != nil)
     }
 
+    /// Review of #37571 at 664acfbe: a batch that reports the points under the hard floor is the
+    /// last one sent, for a read and for a probe alike.
+    @Test func noBatchIsSentAfterOneReportsThePointsUnderTheFloor() async {
+        let numbers = Array(1...64)
+        let github = FakeGitHub(Dictionary(uniqueKeysWithValues: numbers.map { ($0, Pull(state: "OPEN")) }))
+        await github.limit(remaining: 50, resetAt: Date(timeIntervalSince1970: FakeTime.epoch + 3600).formatted(.iso8601))
+        var reader = AgentChatPullRequestReader()
+        reader.runner = { arguments, _ in await github.answer(arguments) }
+        let urls = numbers.map { Self.url($0).absoluteString }
+        _ = await reader.readBatch(urls: urls)
+        #expect(await github.log.count == 1)
+        _ = await reader.probe(urls, checks: [])
+        #expect(await github.log.count == 2)
+    }
+
     /// Under the soft floor the cache stops prefetching and a card reads only its own link, once
     /// per its freshness; under the hard floor it reads nothing until the limit resets.
     @Test func underTheRateFloorsItBacksOff() async {
@@ -332,6 +347,11 @@ struct AgentReplyPullRequestsQuotaTests {
         let probe = AgentChatPullRequestReader.Probe(updatedAt: "2026-11-07T00:00:00Z", state: "open", rollupState: after)
         #expect(AgentReplyPullRequests.changed(held, probe))
         #expect(!AgentReplyPullRequests.changed(held, .init(updatedAt: held.updatedAt, state: "open", rollupState: before)))
+        // Conflicts found as the base moved, with nothing else changed (review of #37571 at 664acfbe).
+        #expect(AgentReplyPullRequests.changed(held, .init(updatedAt: held.updatedAt, state: "open", rollupState: before,
+                                                           mergeable: "conflicting")))
+        #expect(AgentChatPullRequestReader.mergeable("UNKNOWN") == "")
+        #expect(AgentChatPullRequestReader.mergeable("CONFLICTING") == "conflicting")
         // Base CI moved under an unchanged head (review of #37571 at 3548ad60): "already red on base" may change.
         #expect(AgentReplyPullRequests.changed(held, .init(updatedAt: held.updatedAt, state: "open", rollupState: before,
                                                            baseRollupState: "FAILURE CHECK_RUN:1|")))

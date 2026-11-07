@@ -83,6 +83,9 @@ nonisolated extension AgentChatPullRequestReader {
         /// pull request's `updatedAt` nor its head rollup, but it changes which failures are
         /// "already red on base" (review of #37571 at 3548ad60). Empty when not asked.
         var baseRollupState: String = ""
+        /// GitHub's `mergeable`, lower-cased, `unknown` as empty, as the full read records it: it
+        /// resolves or changes as the base moves with no `updatedAt` (review of #37571 at 664acfbe).
+        var mergeable: String = ""
     }
 
     /// A probe's answers, by URL: nil for a pull request GitHub answered null for; a URL the answer
@@ -102,6 +105,7 @@ nonisolated extension AgentChatPullRequestReader {
         let targets = urls.compactMap(Target.init(url:))
         var result = ProbeResult(probes: [:], rate: nil)
         for start in stride(from: 0, to: targets.count, by: Self.batchSize) {
+            if let rate = result.rate, rate.remaining < AgentReplyPullRequests.Budget.hardFloor { break }
             let batch = Array(targets[start..<min(start + Self.batchSize, targets.count)])
             let query = Self.probeQuery(batch.map { (target: $0, checks: checks.contains($0.url)) })
             let arguments = ["api", "graphql", "--hostname", "github.com", "-f", "query=" + query]
@@ -125,7 +129,7 @@ nonisolated extension AgentChatPullRequestReader {
             let checks = entry.checks ? " commits(last: 1) { nodes { commit { statusCheckRollup { state \(rollupCounts) } } } }"
                 + " baseRef { target { ... on Commit { statusCheckRollup { state \(rollupCounts) } } } }" : ""
             return "p\(index): repository(owner: \"\(entry.target.owner)\", name: \"\(entry.target.name)\") "
-                + "{ pullRequest(number: \(entry.target.number)) { updatedAt state isDraft\(checks) } }"
+                + "{ pullRequest(number: \(entry.target.number)) { updatedAt state isDraft mergeable\(checks) } }"
         }
         return "query { \(rateLimitField) \(aliases.joined(separator: " ")) }"
     }
@@ -152,7 +156,8 @@ nonisolated extension AgentChatPullRequestReader {
             result[target.url] = .some(Probe(updatedAt: view["updatedAt"] as? String ?? "",
                                              state: state == "open" && view["isDraft"] as? Bool == true ? "draft" : state,
                                              rollupState: rollupFingerprint(commit?["statusCheckRollup"] as? [String: Any]),
-                                             baseRollupState: rollupFingerprint(baseTarget?["statusCheckRollup"] as? [String: Any])))
+                                             baseRollupState: rollupFingerprint(baseTarget?["statusCheckRollup"] as? [String: Any]),
+                                             mergeable: Self.mergeable(view["mergeable"])))
         }
         return result
     }
@@ -177,6 +182,12 @@ nonisolated extension AgentChatPullRequestReader {
             }.sorted().joined(separator: ",")
         }
         return byState.allSatisfy(\.isEmpty) ? state : state + " " + byState.joined(separator: "|")
+    }
+
+    /// `mergeable` as ``AgentPanePullRequest`` keeps it: lower-cased, `unknown` and absent as empty.
+    static func mergeable(_ value: Any?) -> String {
+        let text = (value as? String)?.lowercased() ?? ""
+        return text == "unknown" ? "" : text
     }
 
     /// The rate limit a GraphQL answer reports; nil when it reports none (a failed read).

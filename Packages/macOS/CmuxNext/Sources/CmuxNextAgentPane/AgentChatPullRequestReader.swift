@@ -86,6 +86,9 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         var answers: [String: AgentPanePullRequest?] = [:]
         var rate: RateLimit?
         for start in stride(from: 0, to: targets.count, by: Self.batchSize) {
+            // GitHub's points left are under the floor: the next batch would spend what the user's
+            // own gh needs (review of #37571 at 664acfbe). The links it held count as tried.
+            if let rate, rate.remaining < AgentReplyPullRequests.Budget.hardFloor { break }
             let batch = Array(targets[start..<min(start + Self.batchSize, targets.count)])
             // A missing pull request fails the read but leaves the others' data: read it anyway.
             // github.com explicitly: a GH_HOST the App passes on names the user's Enterprise host.

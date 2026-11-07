@@ -283,7 +283,8 @@ public final class AgentReplyPullRequests {
     static func changed(_ held: AgentPanePullRequest, _ probe: AgentChatPullRequestReader.Probe) -> Bool {
         if probe.updatedAt != held.updatedAt || probe.state != held.state { return true }
         return ["open", "draft"].contains(held.state)
-            && (probe.rollupState != held.rollupState || probe.baseRollupState != held.baseRollupState)
+            && (probe.rollupState != held.rollupState || probe.baseRollupState != held.baseRollupState
+                || probe.mergeable != held.mergeable)
     }
 
     private func note(_ rate: AgentChatPullRequestReader.RateLimit?) {
