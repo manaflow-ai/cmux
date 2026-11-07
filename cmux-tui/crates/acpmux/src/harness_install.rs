@@ -98,13 +98,13 @@ fn which_on_path(program: &str) -> Option<PathBuf> {
 
 /// A file someone may run: a stale or non-executable `claude` is no installed CLI.
 #[cfg(unix)]
-fn is_executable(path: &Path) -> bool {
+pub(crate) fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt as _;
     path.metadata().is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
 #[cfg(not(unix))]
-fn is_executable(path: &Path) -> bool {
+pub(crate) fn is_executable(path: &Path) -> bool {
     path.is_file()
 }
 
@@ -158,11 +158,21 @@ async fn run_installer(script: &str) -> Result<()> {
         }
     };
     if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let last = err.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or_default();
-        bail!("the installer exited with {}: {}", out.status, last.trim())
+        bail!("the installer exited with {}: {}", out.status, last_line(&out.stderr, &out.stdout))
     }
     Ok(())
+}
+
+/// The installer's last non-empty line: from stderr, else stdout (an installer may report its
+/// failure on either).
+fn last_line(stderr: &[u8], stdout: &[u8]) -> String {
+    [stderr, stdout]
+        .iter()
+        .find_map(|pipe| {
+            let text = String::from_utf8_lossy(pipe);
+            text.lines().rev().map(str::trim).find(|line| !line.is_empty()).map(str::to_owned)
+        })
+        .unwrap_or_else(|| "no output".to_owned())
 }
 
 #[cfg(test)]
@@ -189,6 +199,13 @@ mod tests {
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert!(is_executable(&file));
         assert!(!is_executable(dir.path()));
+    }
+
+    #[test]
+    fn a_failure_names_the_last_line_of_stderr_else_stdout() {
+        assert_eq!(last_line(b"warn\nboom\n\n", b"ok"), "boom");
+        assert_eq!(last_line(b"  \n", b"step 1\nerror: offline\n"), "error: offline");
+        assert_eq!(last_line(b"", b""), "no output");
     }
 
     #[tokio::test]

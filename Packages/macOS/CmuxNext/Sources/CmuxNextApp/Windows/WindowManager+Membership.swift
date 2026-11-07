@@ -274,7 +274,9 @@ extension WindowManager {
     }
 
     /// Moves workspaces into an existing window and selects the first there;
-    /// a window left without workspaces closes.
+    /// a window left without workspaces closes. They keep their space, as
+    /// Merge All Windows keeps it: a window on another space switches to the
+    /// first one's space to show them, as a claim does (cmux#37366).
     /// Returns false when nothing moved (a move between an incognito
     /// window and a normal one is refused with a message).
     @discardableResult
@@ -284,6 +286,14 @@ extension WindowManager {
         if registry.value.crossesIncognito(ids, to: windowID) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return false
+        }
+        // Before the move, so the selection repair after it finds them shown there. A window on another space
+        // (New Window opens a new one) used to list them unseen while the window they left closed: in no sidebar.
+        // The first that another space shows decides (one still unreported, or already shown here, switches nothing).
+        // A window on its own incognito space never leaves it (`switchProfile`).
+        if select, incognitoSpaces[windowID] == nil, let state = states[windowID],
+           let room = ids.lazy.compactMap({ WindowProfiles.room(of: $0, current: state.profileID, machines: self.services.machines) }).first {
+            state.enterProfile(room)
         }
         transition(select: select ? [windowID: ids] : [:]) { $0.move(ids, to: windowID) }
         return true

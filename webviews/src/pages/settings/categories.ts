@@ -1,7 +1,7 @@
 // The page's navigation (SETTINGS-PAGE-FIRST-PRINCIPLES P2, P4): categories by user task, not by
 // scope or by the schema's sections. The layout (categories, group cards, their order and titles) is
-// defined once in Swift (`SettingsPageLayout`) and exported as the schema's `page`; this page and the
-// GPUI client render it from there (layer-ownership.md L5). Routes still accept the schema's section
+// defined once in schemas/settings/source/page-layout.json and exported as the schema's `page`; this
+// page and the GPUI client render it from there (layer-ownership.md L5). Routes still accept the schema's section
 // ids (`app settings <section>`, `#/settings/rooms`): each category lists them as `aliases`.
 import { rowsByKey, schema, type LocalizedText, type SchemaRow } from "./schema";
 
@@ -35,6 +35,7 @@ export const CATEGORY_CARDS = [
   "server",
   "cloudEnvironments",
   "contextMenus",
+  "sharedLinks",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */
