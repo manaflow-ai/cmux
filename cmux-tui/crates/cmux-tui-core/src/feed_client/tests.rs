@@ -345,7 +345,11 @@ fn the_github_poller_posts_with_etags_and_stops_when_turned_off() {
 #[test]
 fn another_account_starts_the_github_poller_over() {
     let h = harness(None);
-    h.gh.answers.lock().unwrap().push_back(Ok(search(json!([review_pull()]))));
+    {
+        let mut answers = h.gh.answers.lock().unwrap();
+        answers.push_back(Ok(b"HTTP/2.0 304 Not Modified\r\nETag: \"n1\"\r\n\r\n".to_vec()));
+        answers.push_back(Ok(search(json!([review_pull()]))));
+    }
     h.feed.configure_github(GitHubConfig { enabled: true, interval_s: 3600 });
     wait_until("the first pass", || h.gh.calls.lock().unwrap().len() >= 4);
     wait_until("the review request", || h.feed.list(Some("open"), Some("local"), true).len() == 1);
