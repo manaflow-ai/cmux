@@ -926,6 +926,10 @@ export function commandSaid(t: Translate, tool: Tool, look: CommandLabelLook = c
   const description = tool.description?.trim() || undefined;
   // A running script reads as one, never as its heredoc marker (`python3 - <<'EOF'`).
   if (running(tool)) return scriptSaid(t, command, true);
+  // A call that failed or that a hook blocked never takes the table's past tense: "Merged PR #101"
+  // would claim a merge that never happened. Its description (what it set out to do) or its line
+  // names it, and the row's failure mark ("blocked by hook", "Exit 1") says how it ended.
+  if (tool.status === "failed") return look === "verbs-command" ? undefined : description;
   const action = commandAction(command);
   if (look === "description" && description) return description;
   if (look === "description")
@@ -964,6 +968,8 @@ export function commandGroupSaid(
   look: CommandLabelLook = commandLook(),
 ): string | undefined {
   if (look === "command" || look === "cleaned" || tools.length < 2 || tools.some(running)) return undefined;
+  // One failed call and the group's action would claim it for all of them.
+  if (tools.some((tool) => tool.status === "failed")) return undefined;
   const actions: CommandAction[] = [];
   for (const tool of tools) {
     const action = tool.command ? commandAction(tool.command) : undefined;

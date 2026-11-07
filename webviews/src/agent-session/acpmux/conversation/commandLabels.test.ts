@@ -54,10 +54,7 @@ const CASES: [command: string, label: string][] = [
   ["git -C ~/Projects/leo-workspace diff --stat origin/main...HEAD", "Viewed the diff"],
   ["git --no-pager log --oneline -5", "Read git history"],
   ["git show 545e4caffe7a --stat | head -60", "Viewed 545e4caffe7a"],
-  [
-    "git show origin/feat-cmux-next:webviews/src/agent-session/acpmux/toolPaths.ts | head -50",
-    "Read toolPaths.ts",
-  ],
+  ["git show origin/feat-cmux-next:webviews/src/agent-session/acpmux/toolPaths.ts | head -50", "Read toolPaths.ts"],
   ["git add -A", "Staged all changes"],
   ["git add webviews/src/a.ts webviews/src/b.ts", "Staged a.ts, b.ts"],
   [`git commit -m "fix: wrap tooltips"`, "Committed “fix: wrap tooltips”"],
@@ -81,10 +78,7 @@ const CASES: [command: string, label: string][] = [
   ["gh issue list --label bug", "Listed issues"],
   ["gh run view 4061 --log-failed | tail -50", "Viewed run 4061"],
   ["gh run list --branch main --limit 5", "Listed workflow runs"],
-  [
-    "gh api repos/manaflow-ai/cmux/pulls/1 --jq .title",
-    "Called the GitHub API: repos/manaflow-ai/cmux/pulls/1",
-  ],
+  ["gh api repos/manaflow-ai/cmux/pulls/1 --jq .title", "Called the GitHub API: repos/manaflow-ai/cmux/pulls/1"],
   [`rg -n "toolLabel" webviews/src`, "Searched for “toolLabel”"],
   [`grep -rn "never as" src | grep -v test`, "Searched for “never as”"],
   [`rg -e 'isDraftCall' -g '*.ts' --type ts`, "Searched for “isDraftCall”"],
@@ -94,18 +88,12 @@ const CASES: [command: string, label: string][] = [
   [`find . -name '*.gallery.ts' | wc -l`, "Listed files"],
   ["fd -e ts toolPaths src", "Listed src"],
   ["cat skills/cmux-localization/SKILL.md", "Read SKILL.md"],
-  [
-    "sed -n '380,460p' webviews/src/agent-session/acpmux/conversation/toolGroups.ts",
-    "Read toolGroups.ts",
-  ],
+  ["sed -n '380,460p' webviews/src/agent-session/acpmux/conversation/toolGroups.ts", "Read toolGroups.ts"],
   ["head -40 ~/Projects/leo-workspace/tools/agent-memory", "Read agent-memory"],
   ["tail -n 30 /tmp/crl-install.log", "Read crl-install.log"],
   ["cat package.json tsconfig.json", "Read 2 files"],
   ["curl -s 'https://api.example.com/v1/items?page=2' | jq .", "Fetched api.example.com/v1/items"],
-  [
-    "bun test src/agent-session/acpmux/conversation/commandLabels.test.ts",
-    "Ran tests in commandLabels.test.ts",
-  ],
+  ["bun test src/agent-session/acpmux/conversation/commandLabels.test.ts", "Ran tests in commandLabels.test.ts"],
   ["FOO=1 bun test", "Ran tests with bun"],
   ["cargo test -p acpmux", "Ran tests with cargo"],
   ["env RUST_LOG=debug cargo build --release", "Built with cargo"],
@@ -121,18 +109,9 @@ const CASES: [command: string, label: string][] = [
   ["cmux-ci compile-check --ref 0a1b2c --package CmuxNextIcons", "Ran a compile check"],
   ["cmux-ci test -- bun test src/a.test.ts", "Ran bun test src/a.test.ts on CI"],
   ["lane-gh push manaflow-ai/cmux lane/x --base feat-cmux-next", "Pushed lane/x"],
-  [
-    "lane-gh search manaflow-ai/cmux is:pr command label",
-    "Searched GitHub for “is:pr command label”",
-  ],
-  [
-    "glaeda-gh wait pr manaflow-ai/cmux#123 --until done --timeout 30m",
-    "Waited on manaflow-ai/cmux#123",
-  ],
-  [
-    "wt new cmux lane/command-row-labels --from origin/feat-cmux-next",
-    "Created worktree lane/command-row-labels",
-  ],
+  ["lane-gh search manaflow-ai/cmux is:pr command label", "Searched GitHub for “is:pr command label”"],
+  ["glaeda-gh wait pr manaflow-ai/cmux#123 --until done --timeout 30m", "Waited on manaflow-ai/cmux#123"],
+  ["wt new cmux lane/command-row-labels --from origin/feat-cmux-next", "Created worktree lane/command-row-labels"],
   // A compound command names its first step and no more, an ellipsis for the rest.
   ["git add -A && git commit -m wip && git push", "Staged all changes …"],
   // Unknown programs never get a meaning: their line, without the plumbing after it.
@@ -141,10 +120,7 @@ const CASES: [command: string, label: string][] = [
   ["./scripts/web-lint.sh > /tmp/lint.log 2>&1", "Ran web-lint.sh > /tmp/lint.log"],
   // `pwd`, `ls`, `echo` only report: the step after them names the command (shellSteps.ts).
   ["pwd && git status --short", "Checked git status"],
-  [
-    "jq '.strings | length' Localizable.xcstrings",
-    "Ran jq '.strings | length' Localizable.xcstrings",
-  ],
+  ["jq '.strings | length' Localizable.xcstrings", "Ran jq '.strings | length' Localizable.xcstrings"],
   // A subcommand the table does not know reads as its line.
   ["git rev-parse HEAD", "Ran git rev-parse HEAD"],
   ["gh pr view", "Ran gh pr view"],
@@ -157,9 +133,7 @@ for (const [command, expected] of CASES)
 
 test("a description names a command the table does not know, never one it knows", () => {
   const script = `python3 - <<'EOF'\nimport json\nprint(len(json.load(open("a.json"))))\nEOF`;
-  expect(label(shell(script, { description: "Count the catalog's keys" }))).toBe(
-    "Count the catalog's keys",
-  );
+  expect(label(shell(script, { description: "Count the catalog's keys" }))).toBe("Count the catalog's keys");
   expect(label(shell("git status", { description: "Look around" }))).toBe("Checked git status");
 });
 
@@ -202,24 +176,15 @@ const DESTRUCTIVE: [command: string, label: string][] = [
   ["gh pr merge 12 --squash --delete-branch", "Ran gh pr merge 12 --squash --delete-branch"],
   ["gh pr merge 12 --admin", "Ran gh pr merge 12 --admin"],
   ["gh run cancel 4061", "Ran gh run cancel 4061"],
-  [
-    "gh api -X DELETE repos/o/r/git/refs/heads/x",
-    "Ran gh api -X DELETE repos/o/r/git/refs/heads/x",
-  ],
-  [
-    "gh api repos/o/r/issues/1/comments -f body=hi",
-    "Ran gh api repos/o/r/issues/1/comments -f body=hi",
-  ],
+  ["gh api -X DELETE repos/o/r/git/refs/heads/x", "Ran gh api -X DELETE repos/o/r/git/refs/heads/x"],
+  ["gh api repos/o/r/issues/1/comments -f body=hi", "Ran gh api repos/o/r/issues/1/comments -f body=hi"],
   ["find . -name '*.orig' -delete", "Ran find . -name '*.orig' -delete"],
   ["find build -type f -exec rm {} +", "Ran find build -type f -exec rm {} +"],
   ["fd -e log -x rm", "Ran fd -e log -x rm"],
   ["cat a.txt > b.txt", "Ran cat a.txt > b.txt"],
   ["head -5 a.txt | tee b.txt", "Ran head -5 a.txt | tee b.txt"],
   ["cat $(rm -rf x)", "Ran cat $(rm -rf x)"],
-  [
-    "lane-gh push manaflow-ai/cmux lane/x --force",
-    "Ran lane-gh push manaflow-ai/cmux lane/x --force",
-  ],
+  ["lane-gh push manaflow-ai/cmux lane/x --force", "Ran lane-gh push manaflow-ai/cmux lane/x --force"],
 ];
 
 for (const [command, expected] of DESTRUCTIVE)
@@ -235,21 +200,15 @@ test("a group of the same search says how many times", () => {
     `agent-memory search "better tooltips" 2>/dev/null | head -10 | cut -c1-220`,
   );
   expect(toolGroupLabel(t, "commands", leo)).toBe("Searched memory twice");
-  expect(
-    toolGroupLabel(t, "commands", [...leo, ...commands(`agent-memory search "hover card"`)]),
-  ).toBe("Searched memory 3 times");
+  expect(toolGroupLabel(t, "commands", [...leo, ...commands(`agent-memory search "hover card"`)])).toBe(
+    "Searched memory 3 times",
+  );
 });
 
 test("a group of one kind of work names it; a mixed group counts its commands", () => {
-  expect(
-    toolGroupLabel(t, "commands", commands("cat a.ts", "sed -n '1,9p' b.ts", "head c.ts")),
-  ).toBe("Read 3 files");
-  expect(toolGroupLabel(t, "commands", commands("git status", "git status --short"))).toBe(
-    "Checked git status twice",
-  );
-  expect(toolGroupLabel(t, "commands", commands("rg foo", "grep -rn bar src"))).toBe(
-    "Searched the code twice",
-  );
+  expect(toolGroupLabel(t, "commands", commands("cat a.ts", "sed -n '1,9p' b.ts", "head c.ts"))).toBe("Read 3 files");
+  expect(toolGroupLabel(t, "commands", commands("git status", "git status --short"))).toBe("Checked git status twice");
+  expect(toolGroupLabel(t, "commands", commands("rg foo", "grep -rn bar src"))).toBe("Searched the code twice");
   expect(toolGroupLabel(t, "commands", commands("git status", `rg foo`))).toBe("Ran 2 commands");
   expect(toolGroupLabel(t, "commands", commands("git status", "make"))).toBe("Ran 2 commands");
   const running = commands("git status", "git status");
@@ -265,8 +224,7 @@ const FAILED: [command: string, extra: Partial<Tool>, label: string][] = [
     "gh pr merge 101 --squash --match-head-commit 0123456789abcdef",
     {
       status: "failed",
-      output:
-        "PreToolUse:Bash hook error: Blocked: the fixture guard needs a passing review on the head.",
+      output: "PreToolUse:Bash hook error: Blocked: the fixture guard needs a passing review on the head.",
     },
     "Ran gh pr merge 101 --squash --match-head-commit 0123456789abcdef",
   ],
@@ -284,21 +242,13 @@ const FAILED: [command: string, extra: Partial<Tool>, label: string][] = [
     { status: "failed", output: "error: failed to push some refs" },
     "Ran git push -u origin HEAD:lane/x",
   ],
-  [
-    "rm -rf build",
-    { status: "failed", output: "rm: build: Permission denied" },
-    "Ran rm -rf build",
-  ],
+  ["rm -rf build", { status: "failed", output: "rm: build: Permission denied" }, "Ran rm -rf build"],
   [
     "cat missing.txt",
     { status: "failed", output: "cat: missing.txt: No such file or directory" },
     "Ran cat missing.txt",
   ],
-  [
-    `git commit -m "wip"`,
-    { status: "failed", output: "nothing to commit" },
-    `Ran git commit -m "wip"`,
-  ],
+  [`git commit -m "wip"`, { status: "failed", output: "nothing to commit" }, `Ran git commit -m "wip"`],
 ];
 
 for (const [command, extra, expected] of FAILED)
