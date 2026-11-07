@@ -3,12 +3,18 @@ import CmuxNextBookmarks
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import Observation
 import Testing
 
 /// The Bookmarks page shows the daemon's rows; the app's tree can lag them. `open` and `openAll`
 /// resolve a row the app's tree lacks, or holds with another URL, on the daemon's tree.
 @MainActor @Suite
 struct BookmarkPageHostTests {
+    /// The workspace a top page's window shows, as the app's observable state.
+    @MainActor @Observable final class Workspace {
+        var profile = "a"
+    }
+
     @MainActor final class Host: BookmarkPageHost {
         var mirror = BookmarkTree()
         var owner = BookmarkTree()
@@ -58,5 +64,23 @@ struct BookmarkPageHostTests {
         let page = BookmarkPageHostProvider(host: host, tabKey: "t")
         _ = try await page.call("cmux.bookmarkPage.openAll", params: ["folder": "bm_folder"], context: context)
         #expect(host.opened == ["https://new.example/"])
+    }
+
+    @Test func aTopPageReReadsItsStateWhenItsWindowsProfileChanges() async throws {
+        let host = Host()
+        let workspace = Workspace()
+        let page = BookmarkPageHostProvider(host: host, tabKey: "top")
+        page.profileOverride = { workspace.profile }
+        let state = try await page.call("cmux.bookmarkPage.state", params: .object([:]), context: context)
+        #expect(state["browser_profile_id"]?.stringValue == "a")
+        let (reasons, sink) = AsyncStream.makeStream(of: String.self)
+        let subscription = try await page.subscribe(BookmarkPageHostProvider.changedStream, filter: .null, context: context) { event in
+            sink.yield(event["reason"]?.stringValue ?? "")
+        }
+        defer { subscription.cancel() }
+        // The window moves to a workspace of another profile; the page is never hidden and shown.
+        workspace.profile = "b"
+        var iterator = reasons.makeAsyncIterator()
+        #expect(await iterator.next() == "state")
     }
 }
