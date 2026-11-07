@@ -38,8 +38,7 @@ export class FlickerLog {
   constructor(
     private readonly send: Send,
     private readonly now: () => number = Date.now,
-    // Called as a method (`this.schedule(...)`), so the default is a wrapper: a bare `setTimeout`
-    // gets this log as its receiver, which Chromium refuses ("Illegal invocation").
+    // Called through a closure: Chromium refuses `setTimeout` called as this object's method.
     private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = (run, ms) =>
       setTimeout(run, ms),
   ) {}

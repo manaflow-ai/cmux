@@ -7,7 +7,8 @@
  * *out with cmux_sdk_bytes_free. Return codes: 0 OK (read *out), -1 a null
  * pointer, -2 invalid input (not UTF-8, params not a JSON object, a kind
  * without its key), -3 a conversation rule this build does not know, -4 a
- * panic inside (caught); on any code but 0, *out is empty. Every function
+ * panic inside (caught), -5 a request that could not be sent (the
+ * connection is closed); on any code but 0, *out is empty. Every function
  * may run on any thread.
  * cmux_sdk_ffi_abi_version() returns CMUX_SDK_FFI_ABI_VERSION (src/lib.rs). */
 
@@ -39,6 +40,11 @@
 #define CMUX_SDK_ERR_UNKNOWN_RULE -3
 
 #define CMUX_SDK_ERR_PANIC -4
+
+/*
+ The request could not be sent: the connection is closed or failed.
+ */
+#define CMUX_SDK_ERR_IO -5
 
 #define CMUX_SDK_KIND_READ 0
 
@@ -166,6 +172,8 @@ int32_t cmux_sdk_next(const CmuxSdkStream *stream, uint32_t timeout_ms, CmuxSdkB
 /*
  Asks the daemon to end the stream; returns at once and may run while
  another thread waits in `cmux_sdk_next`, which then reports the end.
+ `CMUX_SDK_ERR_IO` when the cancel could not be sent (the stream's
+ connection is closed); a second cancel of the same stream is a no-op.
 
  # Safety
  `stream` is NULL or a live stream handle.

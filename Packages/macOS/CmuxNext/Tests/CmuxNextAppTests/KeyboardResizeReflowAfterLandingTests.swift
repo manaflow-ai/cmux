@@ -56,8 +56,8 @@ struct KeyboardResizeReflowAfterLandingTests {
     }
 
     /// The app's pane content with a terminal in each pane (cmux-ad m18: each frame at the pane's size, text re-wrapped
-    /// at it; the PTY's size coalesced, one per refresh): no grid goes in the key's turn or with the press's first frame
-    /// (m6 sent the final grid there, one per press; a synchronous run of frames gives no refresh a turn), and the last
+    /// at it; the PTY's size coalesced, one per refresh): no grid goes in the key's turn, at most one per terminal with the press's first frame (RESIZE P0 7)
+    /// (m6 sent the final grid there, one per press), at most the first frame's own grid with that frame (RESIZE P0 7), and the last
     /// grid each PTY gets is the grid its view rests at; in every frame the containers (the terminal hosts) take their
     /// pane's area and each surface the size its host shows it at, so its text follows the pane (S3 laid the surface out
     /// once per press: the text froze, then jumped); at the landing's release each surface rests at its host's size.
@@ -76,9 +76,11 @@ struct KeyboardResizeReflowAfterLandingTests {
         let start = try sizes()
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
+        #expect(TerminalSurfaceView.gridReports == reports, "the key's turn sent \(TerminalSurfaceView.gridReports - reports) grids: none goes before its refresh")
         try #require(rig.frame(), "the press did not spring")
         let atPress = try sizes()
-        #expect(TerminalSurfaceView.gridReports == reports, "up to its first frame the press sent \(TerminalSurfaceView.gridReports - reports) grids: none goes before its refresh")
+        // RESIZE P0 7: the first frame's landed grid goes in that frame's turn, at most one per terminal.
+        #expect(TerminalSurfaceView.gridReports - reports <= panes.count, "the press's first frame sent \(TerminalSurfaceView.gridReports - reports) grids for \(panes.count) terminals")
         var frames = 1, hostsOff: [String] = [], surfacesOff: [String] = []
         func check(_ label: String) throws {
             for pane in panes {

@@ -38,6 +38,9 @@ cmux-palette-ranker.workspace = true
 cmux-config.workspace = true
 cmux-feed-core.workspace = true
 cmux-history.workspace = true
+# The Tasks page link (tasks_link.rs): the owner socket protocol and its client.
+cmux-tasks.workspace = true
+cmux-tasks-core.workspace = true
 cmux-tui-cloud-conversations.workspace = true
 cmux-tui-platform.workspace = true
 cmux-tui-image-paste.workspace = true
