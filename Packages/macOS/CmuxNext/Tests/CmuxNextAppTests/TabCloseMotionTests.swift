@@ -300,12 +300,13 @@ import Testing
             let begin = try #require(Self.moveBegin([pinned]), "the close started no strip move")
             let shown = MotionPath(divider, "position").value(at: begin).x
             #expect(abs(shown - before) < 0.5, "the divider jumped \(shown - before) pt in the close's frame")
-            let inset = 2 * strip.metrics.tabBackgroundInset
+            // Beside the pinned tab in every tick as at rest: the divider and the tab move on one path.
+            let restGap = divider.position.x - pinned.layer.frame.maxX
             for k in 0...30 {
                 let time = begin + Double(k) / 120
                 let tab = Self.shown(pinned, at: time)
-                let x = MotionPath(divider, "position").value(at: time).x
-                #expect(x >= tab.x + tab.width - inset - 0.5, "tick \(k): the divider (x \(x)) lies over the pinned tab's pill (ends \(tab.x + tab.width - inset))")
+                let gap = MotionPath(divider, "position").value(at: time).x - (tab.x + tab.width)
+                #expect(abs(gap - restGap) < 1, "tick \(k): the divider is \(gap) pt from the pinned tab's right edge, \(restGap) at rest")
             }
         }
     }

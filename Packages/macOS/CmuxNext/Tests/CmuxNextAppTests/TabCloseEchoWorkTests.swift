@@ -10,9 +10,14 @@ import Testing
 /// Before, a closing tab made the strip not at rest, so every echo during the 200 ms slide ran a full sync and frame
 /// pass. Prints `TAB-STRIP-CLOSE n=<count> close=<µs> echo=<µs>`: the close's own sync (the strip's part of the Cmd-W
 /// key turn, budget < 10 ms) and one echo during the slide. Timing is printed, not gated.
+///
+/// The echo check needs the strip in a window, and the close slides only in a window on a screen
+/// (`Motion.canAnimate`), so this needs a display worker (`--display`); without a screen it is skipped.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .closesItsWindows)
 struct TabCloseEchoWorkTests {
-    @Test(arguments: [10, 30])
+    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
+
+    @Test(.enabled("the strip animates only in a window on a screen") { await Self.hasDisplay() }, arguments: [10, 30])
     func anEchoDuringACloseWalksNoRow(_ count: Int) throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
@@ -24,7 +29,7 @@ struct TabCloseEchoWorkTests {
         let items = (0..<count).map { TabItem(id: TabID("t\($0)"), title: "Tab number \($0)") }
         let model = TabStripModel(tabs: items, selectedID: items.first?.id)
         let strip = TabStripView(model: model)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 60), styleMask: [.borderless],
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1400, height: 60), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
@@ -32,6 +37,7 @@ struct TabCloseEchoWorkTests {
         window.contentView = strip
         window.orderFrontRegardless()
         strip.layoutSubtreeIfNeeded()
+        try #require(window.screen != nil, "SETUP: the strip's window is on no screen")
         strip.syncFromModel()
         CATransaction.flush()
         try #require(Motion.canAnimate(in: strip), "SETUP: the strip's window cannot animate on this host")

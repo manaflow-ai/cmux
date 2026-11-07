@@ -140,12 +140,14 @@ extension TabStripView {
         }
         // A tab taking another's place (`TabStripModel.successors`) gets its cell's place; that cell goes now.
         let handed = model.takeSuccessions(shown: Set(cells.keys), next: ids)
+        // A cell handed to its successor stays on the strip as that successor.
+        let successor = Dictionary(handed.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
         for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) && !handed.values.contains(id) {
             if cellsAnimate {
                 // Chrome: it shrinks to the close width with its left edge pinned to the previous
                 // tab's right edge (`relayout` pins x), no fade; it goes when the tween ends.
                 dying.insert(id)
-                closingAnchors[id] = closingAnchor(of: id, staying: ids)
+                closingAnchors[id] = closingAnchor(of: id, staying: ids, successor: successor)
                 placed[id]?.width = metrics.chrome.closeEndWidth
                 cell.beginClosing()
             } else {
@@ -213,12 +215,17 @@ extension TabStripView {
     /// The tab a closing tab's left edge stays on (``pinClosingTabs()``): the nearest one left of it that
     /// stays, so tabs closed in one change ("Close Tabs to the Right") all pin to the tab that stays,
     /// whatever order this sync meets them in. When none left of it stays, the strip's first tab (closing
-    /// too, it keeps its x); `.some(nil)` for the first tab itself; nil when it is not shown.
-    private func closingAnchor(of id: TabID, staying: Set<TabID>) -> TabID?? {
+    /// too, it keeps its x); `.some(nil)` for the first tab itself; nil when it is not shown. A tab handed
+    /// to a successor in this sync stays as that successor (`successor`: old to new).
+    private func closingAnchor(of id: TabID, staying: Set<TabID>, successor: [TabID: TabID]) -> TabID?? {
         guard let index = displayed.firstIndex(where: { $0.id == id }) else { return nil }
         guard index > 0 else { return .some(nil) }
         let left = displayed[..<index]
-        return .some(left.last { staying.contains($0.id) }?.id ?? left.first?.id)
+        for item in left.reversed() {
+            if staying.contains(item.id) { return .some(item.id) }
+            if let next = successor[item.id] { return .some(next) }
+        }
+        return .some(left.first?.id)
     }
 
     /// The zoom indicator under a still pointer went (an unzoom, a selection): its tooltip and hover

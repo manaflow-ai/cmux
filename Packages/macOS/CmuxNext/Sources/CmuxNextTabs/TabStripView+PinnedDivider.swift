@@ -30,6 +30,8 @@ extension TabStripView {
               let firstNormal = slots.firstIndex(where: { !$0.isPinned }), firstNormal > 0, slots[firstNormal - 1].isPinned,
               let pinned = placed[slots[firstNormal - 1].id], let normal = placed[slots[firstNormal].id]
         else {
+            // A move still on it would show at its next place plus the old offset.
+            if !pinnedDivider.isHidden { TabStripMove.cancel(pinnedDivider) }
             pinnedDivider.isHidden = true
             return
         }
