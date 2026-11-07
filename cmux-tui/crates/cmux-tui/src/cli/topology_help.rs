@@ -116,6 +116,12 @@ USAGE
   cmux pane <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
   cmux pane <selector> tab ...
 
+split --right --viewport-width makes a new column. When the screen's columns
+fit the window, the new column shares it: it takes an equal share and the
+others are scaled to fill the rest, keeping their proportions, so nothing
+scrolls sideways. On a screen that already scrolls, the column opens at
+that width.
+
 split keeps the focus where it is unless --focus is given. With --shell or
 -- argv the new pane (of split or create) runs that command instead of a
 shell. To add a terminal
