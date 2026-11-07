@@ -836,6 +836,7 @@
         "agentPane.showContextUsage",
         "agentPane.composerRing",
         "agentPane.showDictation",
+        "agentPane.dictationSource",
         "agentPane.spellChecking",
         "agentPane.attachmentView",
         "agentPane.showMachineLoadWarnings"
@@ -899,6 +900,13 @@
       "keys": [
         "cloud.newWorkspacesInCloud",
         "cloud.newWorkspaceFolder"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "The key chord the dictation mic posts to another app: only the person picks what cmux types into other apps.",
+      "keys": [
+        "agentPane.dictationShortcut"
       ]
     },
     {
@@ -972,6 +980,14 @@
         "workspaces.freeing.idleMinutes",
         "workspaces.freeing.agents",
         "workspaces.freeing.runningCommands"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.",
+      "keys": [
+        "agents.hiddenChats.discard",
+        "agents.hiddenChats.discardAfterMinutes"
       ]
     },
     {
