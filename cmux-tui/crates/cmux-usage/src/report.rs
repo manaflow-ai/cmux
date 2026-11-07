@@ -425,6 +425,12 @@ pub fn build(records: &[Record], from_ms: u64, to_ms: u64) -> Report {
     report
 }
 
+/// `ms` (Unix milliseconds) as local `YYYY-MM-DD HH:MM`.
+pub fn local_time(ms: u64) -> String {
+    let secs = i64::try_from(ms / 1000).unwrap_or(0);
+    Local.timestamp_opt(secs, 0).single().map(|t| t.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default()
+}
+
 fn duration(seconds: f64) -> String {
     if seconds < 60.0 {
         format!("{seconds:.0}s")
@@ -470,10 +476,7 @@ impl Report {
     /// The report as text for a terminal.
     pub fn render(&self) -> String {
         let mut out = String::new();
-        let span = |ms: u64| {
-            let secs = i64::try_from(ms / 1000).unwrap_or(0);
-            Local.timestamp_opt(secs, 0).single().map(|t| t.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default()
-        };
+        let span = local_time;
         let _ = writeln!(
             out,
             "Usage {} to {}: {} records over {} days, {} active hours, {} launches ({} after a crash or hang)",

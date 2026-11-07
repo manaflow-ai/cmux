@@ -1985,6 +1985,7 @@ dependencies = [
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "cmux-unix-socket",
+ "cmux-usage",
  "cmux-vm",
  "cmux-vnc",
  "cmux-wg",
@@ -2235,6 +2236,18 @@ dependencies = [
 [[package]]
 name = "cmux-url-input"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-usage"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "getrandom 0.3.4",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
 
 [[package]]
 name = "cmux-vault-egress"

@@ -94,6 +94,7 @@ mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
 mod live_code;
+mod usage_recording;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
@@ -620,6 +621,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| auth_token::run_if_requested(args))
         .or_else(|| auth_token::whoami_if_requested(args))
         .or_else(|| live_code::run_if_requested(args))
+        .or_else(|| usage_recording::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
