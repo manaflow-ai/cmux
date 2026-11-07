@@ -48,8 +48,12 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
                 dropHold()
                 layoutContent()
             }
+            // A split's or close's spring this key resize caught left its motion to this landing (``endPaneSpring()``):
+            // after the landing's layout, the page window comes back once, at the final size. Nothing when no spring ran.
+            if pageSyncReasons.isEmpty { paneMotion(active: false) }
             return
         }
+        endRestHold()
         if pageMotionHold == nil {
             // S5: no hold. The page lays out at the page area in every frame (no main-thread wait for its frame).
             beginPageSync(.keyResize)
@@ -82,10 +86,19 @@ extension CEFTabContentView {
             motionHosting = hosting
             hosting.resizeMotion(active: true)
         } else {
+            pageRestHold = false
             guard let hosting = motionHosting else { return }
             motionHosting = nil
             hosting.resizeMotion(active: false)
         }
+    }
+
+    /// A drag or a key resize caught a spring whose page waits at its rest: it follows its pane from now on, and that
+    /// motion's end lands it.
+    func endRestHold() {
+        guard pageRestHold else { return }
+        pageRestHold = false
+        dropHold()
     }
 }
 
@@ -98,11 +111,28 @@ extension CEFTabContentView {
 /// its pane's page area at each frame's size with its window detached (``paneMotion(active:)``), and the landing
 /// (``paneMotionDidSettle()``) lays it out at the final size and brings the window back once. The main thread never waits
 /// for a page frame (the page sync's deadline stays 0).
+///
+/// A page that holds the keys keeps its window (#37755: a close hands the keys to the page beside the closing pane, in the
+/// close's own turn, before the spring's first frame). Ordering a key window out moves the keys, an AppKit key change
+/// (#24913), and an attached window resized in every frame is the shift-then-expand. So that page lays out once, at the
+/// size it rests at, when the spring starts, and keeps that size to the landing (``holdPageAtRest(_:)``): its pixels, in
+/// the window's own layers, ride the pane's top-left corner, clipped by the pane, beside the page's own backdrop while the
+/// pane is larger. Its window takes one size in the motion and its keys, first responder and focus ask stay as they were.
 extension CEFTabContentView: PaneMotionTargeting {
     func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
         // A drag (its release spring included) and a key resize run their own motion, begun before the spring's rest.
         guard window != nil, pageSyncReasons.isDisjoint(with: [.drag, .keyResize]), pageMotionHold == nil else { return .top }
         paneMotion(active: true)
+        // Decided at the spring's start (a retarget keeps the choice): the page that keeps its window waits at its rest.
+        if pageRestHold || (!pageSyncReasons.contains(.paneSpring) && motionHosting?.keepsWindowInMotion == true) {
+            let rest = CGSize(width: bounds.width + sizeChange.width, height: bounds.height + sizeChange.height)
+            if holdPageAtRest(rest) {
+                pageRestHold = true
+                return .top
+            }
+            // It cannot hold (DevTools docked, a side panel, a fit): it follows its pane, as before.
+            endRestHold()
+        }
         beginPageSync(.paneSpring)
         return .top
     }
@@ -110,6 +140,13 @@ extension CEFTabContentView: PaneMotionTargeting {
     /// The spring landed: the page lays out at the final size, then its window comes back, once. A drag or key resize that
     /// caught the spring ends the motion itself.
     func endPaneSpring() {
+        if pageRestHold {
+            // The page is at its rest size already: the landing's layout places it on the page area, with no resize.
+            endRestHold()
+            layoutContent()
+            paneMotion(active: false)
+            return
+        }
         guard pageSyncReasons.contains(.paneSpring) else { return }
         endPageSync(.paneSpring)
         guard pageSyncReasons.isEmpty, pageMotionHold == nil else { return }

@@ -387,6 +387,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// The page window this container told of a resize motion (a divider drag), to tell its end wherever the
     /// page is by then (``CEFLayerHosting/resizeMotion(active:)``); nil otherwise.
     var motionHosting: CEFLayerHosting?
+    /// A split's, close's or zoom's spring found the page holding the keys: its window stays a page window through the
+    /// motion, and the page waits at the size it rests at instead of laying out at every frame's size
+    /// (``CEFTabContentView/paneMotionWillRest(sizeChange:)``). True from the spring's start to its landing.
+    var pageRestHold = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -558,6 +562,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             paneMotion(active: false)
             return
         }
+        endRestHold()
         paneMotion(active: true)
         beginPageSync(.drag)
     }
@@ -572,6 +577,18 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         layer?.masksToBounds = true
         // A see-through page (a cmux page) shows the pane under it, so its gap does too.
         layer?.backgroundColor = tab.host.hostView.pageSeeThrough ? nil : tab.pageBackdropColor
+        return true
+    }
+
+    /// The page lays out once at `size`, the size its pane's spring rests at, and keeps it to the landing: at the page
+    /// area's top-left corner, clipped by this view, as a held page is. Again on a retarget. False when it cannot hold
+    /// (not a plain page here, out of a window, no size).
+    func holdPageAtRest(_ size: CGSize) -> Bool {
+        guard size.width >= 1, size.height >= 1, heldPageSize != nil || startPageHold() else { return false }
+        if heldPageSize != size {
+            heldPageSize = size
+            needsLayout = true
+        }
         return true
     }
 
