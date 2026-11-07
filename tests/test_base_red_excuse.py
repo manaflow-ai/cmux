@@ -4049,6 +4049,54 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.refused_with(joined, "has no single url and checksum")
         self.assertEqual(self.releases, [])
 
+    # Review of c826e054 (cmux#37468 F1, P1): a string's contents are never code, and a target whose name is no
+    # plain literal could be CCmuxAppFFI, so it excuses nothing.
+    def real_target(self, name_expression):
+        return self.target(self.DIVERGED).replace('name: "CCmuxAppFFI"', f"name: {name_expression}")
+
+    def test_a_published_pin_inside_a_multiline_string_is_no_target(self):
+        fake = 'let note = """\n' + self.target(self.STEP_B_PIN) + '"""\nlet ffiName = "CCmuxAppFFI"\n'
+        self.refused_with(fake + self.real_target("ffiName"), "has no single plain string literal name")
+        self.refused_with('let note = """\n' + self.target(self.STEP_B_PIN) + '"""\n',
+                          "Package.swift has 0 CCmuxAppFFI binary targets")
+        self.assertEqual(self.releases, [])
+
+    def test_a_published_pin_inside_a_raw_string_is_no_target(self):
+        for opening, closing in (('#"', '"#'), ('##"""\n', '"""##'), ('#"""\n', '"""#')):
+            fake = f"let note = {opening}" + self.target(self.STEP_B_PIN).replace("\n", " ") + f'{closing}\n'
+            self.refused_with(fake, "Package.swift has 0 CCmuxAppFFI binary targets")
+            self.refused_with(fake + self.real_target("ffiName"), "has no single plain string literal name")
+        self.assertEqual(self.releases, [])
+
+    def test_a_raw_string_beside_the_real_target_is_skipped_whole(self):
+        # A raw string's `"` is no terminator: the real target after it is read, and it is the diverged one.
+        manifest = 'let s = #"a " quote, and .binaryTarget(name: "CCmuxAppFFI"... "#\n' + self.target(self.DIVERGED)
+        self.compare, self.pinned, self.source = "diverged", self.DIVERGED, self.DIVERGED
+        self.refused_with(manifest, "the pinned release's source dddddddddddd is not an ancestor")
+
+    def test_a_target_named_by_a_variable_is_refused(self):
+        self.refused_with("let ffiName = \"CCmuxAppFFI\"\n" + self.real_target("ffiName"),
+                          "has no single plain string literal name, so it could be CCmuxAppFFI")
+        self.refused_with(self.target(self.STEP_B_PIN) + self.real_target("ffiName"),
+                          "has no single plain string literal name")
+        self.assertEqual(self.releases, [])
+
+    def test_a_target_named_by_concatenation_or_interpolation_is_refused(self):
+        for name in ('"CCmux" + "AppFFI"', '"\\(prefix)AppFFI"', '"CCmux\\("AppFFI")"', '#"CCmuxAppFFI"#',
+                     '"""\nCCmuxAppFFI\n"""', '"CCmuxApp\\u{46}FI"'):
+            with self.subTest(name=name):
+                self.refused_with(self.target(self.STEP_B_PIN) + self.real_target(name),
+                                  "has no single plain string literal name")
+        self.assertEqual(self.releases, [])
+
+    def test_another_plainly_named_binary_target_and_strings_leave_the_pin_alone(self):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        self.manifest = ('let banner = """\n  "quoted" \\(x) .binaryTarget(\n"""\nlet raw = #"\\(y) "#\n'
+                         '.binaryTarget(name: "Other", path: "Frameworks/Other.xcframework")\n'
+                         + self.target(self.STEP_B_PIN))
+        self.assertEqual(len(self.judge()), 1)
+
     def test_the_real_manifest_reads_its_one_pin(self):
         text = (ROOT / excuse.FFI_PIN_MANIFEST).read_text(encoding="utf-8")
         pin, checksum, why = excuse.ffi_binary_target(text, REPO)

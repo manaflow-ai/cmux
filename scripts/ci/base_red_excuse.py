@@ -1040,7 +1040,7 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # A published base pin (2026-11-07): step-A PRs change the FFI sources faster than releases publish, so a step-B PR (its
 # Swift, or a re-pin) could never pin a release built from its own sources. Any other PR with that error has it excused
 # when both hold: (a) the release its head pins (the url and checksum of Package.swift's one CCmuxAppFFI binary
-# target, read from its code, never a comment: this repository's own cmux-app-ffi-<sha> release download) is
+# target, read from its code, never a comment or a string literal: this repository's own cmux-app-ffi-<sha> release download) is
 # published, its SOURCE_SHA names that sha, its SHA256SUMS carries that checksum for the archive, and that sha is on
 # the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
 # PR's exact head (compile_pass_at). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
@@ -1057,25 +1057,65 @@ FFI_TARGET_NAME = "CCmuxAppFFI"
 FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
 
 
-def swift_code(text: str) -> str:
-    """TEXT with its Swift comments blanked (`//` to the line end, `/* */` nested as Swift nests them), string
-    literals kept whole, so `//` inside a URL string is no comment and a URL in a comment is no code. Newlines stay."""
-    out, i, n = [], 0, len(text)
+def swift_string_end(text: str, i: int) -> tuple[int, str | None]:
+    """Where the Swift string literal starting at I ends (one past its closing delimiter, or the text's end, or the
+    line's end for an unterminated single-line one), and its text when it is one plain `"..."` literal: no `#` raw
+    delimiter, not multiline, no escape and no interpolation. Raw (`#"..."#`, any number of `#`), multiline (three quotes), escaped and
+    interpolated literals (with any strings nested in their `\\(...)`) are skipped whole and have no plain text."""
+    n, hashes = len(text), 0
+    while i + hashes < n and text[i + hashes] == "#":
+        hashes += 1
+    quote = i + hashes
+    multiline = text.startswith('"""', quote)
+    close = ('"""' if multiline else '"') + "#" * hashes
+    escape = "\\" + "#" * hashes
+    j, escaped = quote + (3 if multiline else 1), False
+    while j < n:
+        if text.startswith(close, j):
+            plain = text[quote + 1:j] if not (hashes or multiline or escaped) else None
+            return j + len(close), plain
+        if text[j] == "\n" and not multiline:
+            return j, None
+        if text.startswith(escape, j):
+            escaped, j = True, j + len(escape)
+            if j < n and text[j] == "(":
+                depth, j = 1, j + 1
+                while j < n and depth:
+                    if text[j] == '"' or (text[j] == "#" and re.match(r'#+"', text[j:j + 64])):
+                        j = swift_string_end(text, j)[0]
+                        continue
+                    depth += {"(": 1, ")": -1}.get(text[j], 0)
+                    j += 1
+            else:
+                j += 1
+            continue
+        j += 1
+    return n, None
+
+
+def swift_code(text: str) -> tuple[str, dict[int, tuple[int, str | None]]]:
+    """TEXT with its Swift comments (`//` to the line end, `/* */` nested as Swift nests them) and every string
+    literal blanked whole, offsets and newlines kept, so no comment and no string's contents can read as code; and
+    each literal's span, start -> (end, its text when it is one plain literal, else None), read from TEXT itself."""
+    out, literals, i, n = list(text), {}, 0, len(text)
+
+    def blank(start: int, end: int, fill: str = " ") -> None:
+        for k in range(start, end):
+            if out[k] != "\n":
+                out[k] = fill
+
     while i < n:
-        if text.startswith('"""', i):
-            close = text.find('"""', i + 3)
-            close = n if close < 0 else close + 3
-            out.append(text[i:close])
-            i = close
-        elif text[i] == '"':
-            j = i + 1
-            while j < n and text[j] not in '"\n':
-                j += 2 if text[j] == "\\" else 1
-            out.append(text[i:j + 1])
-            i = j + 1
+        if text[i] == '"' or (text[i] == "#" and re.match(r'#+"', text[i:i + 64])):
+            end, plain = swift_string_end(text, i)
+            literals[i] = (end, plain)
+            blank(i, end, "_")  # a literal still reads as one value word, never as code
+            out[i] = '"'
+            i = end
         elif text.startswith("//", i):
             j = text.find("\n", i)
-            i = n if j < 0 else j
+            j = n if j < 0 else j
+            blank(i, j)
+            i = j
         elif text.startswith("/*", i):
             depth, j = 1, i + 2
             while j < n and depth:
@@ -1085,75 +1125,79 @@ def swift_code(text: str) -> str:
                     depth, j = depth - 1, j + 2
                 else:
                     j += 1
-            out.append("\n" * text.count("\n", i, j))
+            blank(i, j)
             i = j
         else:
-            out.append(text[i])
             i += 1
-    return "".join(out)
+    return "".join(out), literals
 
 
 BINARY_TARGET = re.compile(r"\.binaryTarget\s*\(")
 
 
-def binary_target_args(code: str, start: int) -> tuple[list[tuple[str, str]], int]:
-    """The top-level arguments of the call whose `(` ends at START in CODE (comment-free swift_code), as (label,
-    raw value) pairs, and where the call ends. Nested calls, arrays and string literals stay inside their argument."""
+def binary_target_args(code: str, start: int) -> tuple[list[tuple[str, int, int]], int]:
+    """The top-level arguments of the call whose `(` ends at START in CODE (swift_code's blanked text), as (label,
+    value start, value end) offsets, and where the call ends. Nested calls and arrays stay inside their argument."""
     args, depth, j, part = [], 1, start, start
     while j < len(code) and depth:
         c = code[j]
-        if c == '"':
-            j += 1
-            while j < len(code) and code[j] not in '"\n':
-                j += 2 if code[j] == "\\" else 1
-        elif c in "([{":
+        if c in "([{":
             depth += 1
         elif c in ")]}":
             depth -= 1
             if depth == 0:
-                args.append(code[part:j])
+                args.append((part, j))
         elif c == "," and depth == 1:
-            args.append(code[part:j])
+            args.append((part, j))
             part = j + 1
         j += 1
     pairs = []
-    for raw in args:
-        found = re.fullmatch(r"\s*(\w+)\s*:\s*(.*?)\s*", raw, re.S)
-        pairs.append((found[1], found[2]) if found else ("", raw.strip()))
+    for a, b in args:
+        found = re.fullmatch(r"\s*(\w+)\s*:\s*(.*?)\s*", code[a:b], re.S)
+        if found:
+            pairs.append((found[1], a + found.start(2), a + found.end(2)))
+        else:
+            stripped = code[a:b].strip()
+            pairs.append(("", a, a + len(stripped)) if stripped else ("", a, a))
     return pairs, j
 
 
-def string_literal(value: str) -> str | None:
-    """VALUE's text when VALUE is exactly one plain Swift string literal with no escape or interpolation."""
-    found = re.fullmatch(r'"([^"\\\n]*)"', value)
-    return found[1] if found else None
+def ffi_target_values(manifest: str) -> tuple[str | None, str | None, str]:
+    """(url, checksum, "") of MANIFEST's one CCmuxAppFFI binary target, else (None, None, why). Every `.binaryTarget`
+    call in code (never in a comment or a string) must name itself with one plain string literal: a variable,
+    concatenation, interpolation, raw or multiline name could be CCmuxAppFFI, so it excuses nothing. The CCmuxAppFFI
+    target must be the only one and pass exactly `name:`, `url:` and `checksum:`, each once, each a plain literal."""
+    code, literals = swift_code(manifest)
 
+    def plain(start: int, end: int) -> str | None:
+        found = literals.get(start)
+        return found[1] if found and found[0] == end else None
 
+    targets = []
+    for call in BINARY_TARGET.finditer(code):
+        pairs, _ = binary_target_args(code, call.end())
+        names = [plain(a, b) for label, a, b in pairs if label == "name"]
+        if len(names) != 1 or names[0] is None:
+            return None, None, (f"a binary target at offset {call.start()} has no single plain string literal name, "
+                                f"so it could be {FFI_TARGET_NAME}")
+        if names[0] != FFI_TARGET_NAME:
+            continue
+        values = {label: plain(a, b) for label, a, b in pairs}
+        if sorted(label for label, _, _ in pairs) != ["checksum", "name", "url"] or None in values.values():
+            return None, None, f"the {FFI_TARGET_NAME} binary target has no single url and checksum, each one plain string"
+        targets.append(values)
+    if len(targets) != 1:
+        return None, None, f"Package.swift has {len(targets)} {FFI_TARGET_NAME} binary targets in its code, not one"
+    return targets[0]["url"], targets[0]["checksum"], ""
 
 
 def ffi_binary_target(manifest: str, repo: str) -> tuple[str | None, str | None, str]:
     """(source sha, checksum, "") of the one CCmuxAppFFI binary target in MANIFEST (Package.swift's text), read from
-    its code alone (swift_code: never a comment); else (None, None, why). Its url must be exactly REPO's own release
-    download of cmux-app-ffi-<sha>/CCmuxAppFFI.xcframework.zip and its checksum 64 hex characters."""
-    code, targets = swift_code(manifest), []
-    for found in BINARY_TARGET.finditer(code):
-        pairs, _ = binary_target_args(code, found.end())
-        labels = [label for label, _ in pairs]
-        if string_literal(dict(pairs).get("name", "")) != FFI_TARGET_NAME or "name" not in labels:
-            continue
-        # Only `name:`, `url:` and `checksum:` at the call's own level, each once and each one plain string: a
-        # nested `url:` (inside `path: f(url: ...)`) or any other argument is no remote release pin.
-        values = {label: string_literal(value) for label, value in pairs}
-        if sorted(labels) != ["checksum", "name", "url"] or None in values.values():
-            targets.append({"name": [FFI_TARGET_NAME]})
-        else:
-            targets.append({key: [value] for key, value in values.items()})
-    if len(targets) != 1:
-        return None, None, f"Package.swift has {len(targets)} {FFI_TARGET_NAME} binary targets in its code, not one"
-    target = targets[0]
-    if len(target.get("url", [])) != 1 or len(target.get("checksum", [])) != 1:
-        return None, None, f"the {FFI_TARGET_NAME} binary target has no single url and checksum"
-    url, checksum = target["url"][0], target["checksum"][0]
+    its code alone (ffi_target_values: never a comment or a string's contents); else (None, None, why). Its url must
+    be exactly REPO's own release download of cmux-app-ffi-<sha>/CCmuxAppFFI.xcframework.zip, its checksum 64 hex."""
+    url, checksum, why = ffi_target_values(manifest)
+    if why:
+        return None, None, why
     pin = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/releases/download/cmux-app-ffi-([0-9a-f]{40})/"
                        + re.escape(FFI_ASSET), url)
     if not pin:
