@@ -173,6 +173,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         }
     }
 
+    /// Binds the mirror to its workspace and subscribes to the control connection.
     init(
         host: RemoteTmuxHost,
         sessionName: String,
@@ -195,6 +196,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         self.workspace = workspace
         self.defaultPanelIds = Array(workspace.panels.keys)
         workspace.remoteTmuxSessionMirror = self
+        workspace.remoteTmuxMirrorState.link = RemoteTmuxMirrorLink(
+            host: host, isConnected: connection.connectionState == .connected
+        )
         workspace.syncRemoteRelayIDAliasesToController()
         self.paneInputForwarder = RemoteTmuxPaneInputForwarder(
             isActive: connection.connectionState == .connected,
@@ -257,6 +261,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                     self?.titleFilters.removeAll()
                     self?.notificationFilters.removeAll()
                     self?.clearPendingPaneSeedDeliveries()
+                    self?.forgetPaneDirectories()
                     self?.windowMirrorByWindowId.values.forEach {
                         $0.cancelPendingControlPaneFocus()
                     }
@@ -267,6 +272,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 // again opened another login tab, once per retry.
                 if state == .connected, let self {
                     AppDelegate.shared?.remoteTmuxController.noteMirrorConnected(host: self.host)
+                }
+                if let self {
+                    self.workspace?.remoteTmuxMirrorState.link?.isConnected = self.connection.connectionState == .connected
                 }
             },
             onAuthRequired: { [weak self] sshArgv in
@@ -335,6 +343,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         workspace?.remoteTmuxWindowOrderSync = nil
         if workspace?.remoteTmuxSessionMirror === self {
             workspace?.remoteTmuxSessionMirror = nil
+            workspace?.remoteTmuxMirrorState.link = nil
             workspace?.syncRemoteRelayIDAliasesToController()
         }
         // Detach owns the whole mirror set, so prune the sizing ledger once.
@@ -501,9 +510,29 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         windowMirrorByWindowId[windowId]?.noteRemoteActivePane(paneId)
         guard let workspace,
               windowMirrorByWindowId[windowId] != nil,
-              let panelId = panelIdByWindow[windowId],
-              let path = cwdByPane[paneId] else { return }
+              let panelId = panelIdByWindow[windowId] else { return }
+        // Until this pane reports, the tab must not keep the previous pane's folder.
+        guard let path = cwdByPane[paneId] else {
+            clearTabDirectory(panelId: panelId)
+            return
+        }
         _ = workspace.updateRemotePanelDirectoryWithMetadata(panelId: panelId, directory: path)
+    }
+
+    /// Drops directories trusted on a dead control stream. The reconnect reseed
+    /// queries every pane's path again, and those replies restore the tabs.
+    private func forgetPaneDirectories() {
+        cwdByPane.removeAll()
+        windowMirrorByWindowId.values.forEach { $0.cwdByPaneId.removeAll() }
+        panelIdByWindow.values.forEach(clearTabDirectory(panelId:))
+    }
+
+    private func clearTabDirectory(panelId: UUID) {
+        // Clearing also drops branch and PR metadata, so skip tabs with nothing to clear.
+        guard let workspace,
+              workspace.panelDirectories[panelId] != nil ||
+              workspace.remoteDirectoryReportPanelIds.contains(panelId) else { return }
+        workspace.clearRemotePanelDirectory(panelId: panelId)
     }
 
     /// The workspace-owned container panel id of the tab that renders `paneId`.
