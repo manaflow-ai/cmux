@@ -65,12 +65,10 @@ final class HomeMessagesHostProvider: PageProvider {
     private var keeping: HomeMessagesKept?
     private var bubbleOps: HomeMessagesBubbleOps?
     /// Stop, Stop all agents, Continue and Restart on the conversation's own Chief (``HomeMessagesChiefTurn``).
-    private lazy var chiefTurn = HomeMessagesChiefTurn { [weak services] id in
-        guard let services else { return nil }
-        let row = services.home.homeStore.rows.first(where: { row in row.id == id })
-        return HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag),
-                                chief: row.flatMap { ChiefHome.namedChief(in: $0.summary.participants) }).turnControl
-    }
+    private lazy var chiefTurn = HomeMessagesChiefTurn { [weak services] id in services.map { services in
+        HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag),
+                         chief: services.home.homeStore.namedChief(of: id)).turnControl
+    } }
     /// The first run of an empty Chief chat (``HomeMessagesFirstRunProvider``): it follows ``shown``.
     var firstRun: HomeMessagesFirstRunProvider?
     private var appearanceListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
