@@ -1,5 +1,32 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-06: the workspace hover card stands on the shared hover card glass, and a tab row with no detail line is
+  one row tall. Leo, verbatim: "it's got, like, a bit too much just default space, maybe, and you got all these empty
+  things" and "it quite clearly seems like when you hover on the left, there's no glass." The card's default material
+  is `.glass` (the frosted 0.55 window-background veil stays a gallery variant); a two-line tab row with no detail (a
+  shell "~" in "~") takes `tabRowHeight`, not `tabRowHeightTwoLines`, so no empty band sits above and below it; the
+  card's stack spaces on the shared `HoverCardStyle` (CmuxNextDesign) that the tab strip's, group and link cards use.
+  Gallery: `AAWorkspaceHoverCardVariantsGalleryTests` V1 (chosen), V2 (frosted), V2b (uniform two-line rows). Regression:
+  `WorkspaceHoverCardUnifiedStyleTests`.
+- 2026-11-06: Swift live mode's "Live mode" mark sits on the footer line right after the profile avatar (`space2`
+  from it, on its line), and the spaces dots and the Update Available button start after it. Leo, verbatim: "but why
+  are you putting live mode like that instead of in a more nice place say just to the left of the rightmost top icons?
+  or at the bottom just to the right of the profile circle in the sidebar?" It sat last in the titlebar's leading row
+  and crowded back, forward and +. While the sidebar is hidden the top row shows it, as the incognito badge; with no
+  room before Search it steps out of the line. Placements compared: design/live-mode-badge-gallery.html (the top-right
+  icons belong to one pane's tab strip, so a window mark there would move with every split). Regression:
+  `SidebarProfileChipTests.theLiveModeBadgeFollowsTheAvatar`.
+- 2026-11-05: every sidebar group draws a visible background, glass or solid. Lawrence, verbatim: "invariant: groups
+  must always have a visible bg color, groups should support both glassy and solid bgs too". New setting
+  `sidebar.groupHeader.background`: Automatic (default: cmux's own group look, Leo's glass, or solid when Debug `sidebar.groupGlass` is solid), Glass,
+  Solid. Glass is Leo's tinted pane with its rim (#36225, Debug `sidebar.groupGlass`; under Glass a Debug solid
+  draws vivid; the wash, line and tinted looks stay a solid wash unless the setting is Glass); a no-color glass pane is the solid bar's calm neutral at 0.3, not the ink at the tint (`aNoColorGlassPaneStaysCalm`), and a group with no color is the same pane untinted. Every header, at rest, hovered and dropped, keeps
+  at least 1.2:1 against the sidebar (`GroupBackground.minimumVisibleContrast`): a too-faint pane is pushed away
+  from the sidebar at its own opacity (`GroupGlassPaint`); the solid band with no color is a neutral step of the
+  theme's text (`GroupBackground`). Under glass the rail stays the pane's vivid tint (Leo's
+  `theRailIsThePanesTint`); under the solid band it is the bar's rest color, no color too. The no-color block behind
+  the members is unchanged. Gallery: Sidebar States Playground > Group backgrounds. Regression:
+  `GroupHeaderAlwaysVisibleTests`, `GroupBackgroundEveryThemeTests`. Capture tour: `sidebar-group-background`.
 - 2026-11-05: a group header's name is regular weight, not semibold. Lawrence, verbatim: "group fonts should not be
   bold". `SidebarStyle.groupHeaderFont` keeps `titleFont`'s face and size at `TypeScale.regular` (was
   `TypeScale.emphasis`); the bar's color sets the group apart. Takes back the semibold half of Leo's 2026-11-05 name
@@ -651,6 +678,7 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Favicons: a site with no favicon shows a globe | A site page (a browser tab on a host, not a New Tab page) whose favicon is missing or still loading shows a neutral globe (SF Symbol "globe", the secondary label colour) in the favicon's icon slot, so its title stays on the icon column: workspace rows (`WorkspaceIcon.pagePlaceholder`, mapped by `SidebarMapping.row`), band rows and tiles (`SidebarWorkspaceItems.workspaceInfo`, which now also shows the site's favicon once it loads), and the hover card's tab rows. The favicon replaces the globe when it loads; no layout change, nothing per frame. A terminal or agent workspace stays text only. Test: `SidebarFaviconPlaceholderTests`; crops: `AAFaviconPlaceholderGalleryTests`. | Lawrence default "a site with no favicon gets a placeholder (a neutral globe glyph in the same icon slot)" |
 
 | Pinned group header: hover Unpin | A hovered, keyboard-focused or editing pinned group header shows an Unpin button (the `statePinned` glyph in the bar's ink, label Unpin Group) left of its + (of its ⋮ when it has no +), fading with them; it runs the editor's `workspaceGroup.togglePin`. The bar's leading pin stays a mark, and a click elsewhere on the bar still only folds. An unpinned header shows no pin, at rest or on hover; Pin Group stays in its menu and editor, as for workspace rows (Leo 2026-10-21, "no empty pin symbol by default"). | Austin 2026-11-02 ("answer to the group headers thing SHOULD be YES", on https://github.com/manaflow-ai/cmux/issues/27700: pinned groups could only be unpinned from the menu or the editor; repeated header clicks folded the group); recommendation posted on https://github.com/manaflow-ai/cmux/issues/13742 |
+| One UI face | Every sidebar name draws in the UI face (`Typography.system(.default, ...)`, the bundled Inter): rows, group header names and their member counts, and a title with a decoration weight. None is made with `NSFont.systemFont`, so no SF header sits over Inter rows. Test: `SidebarUIFontFaceTests`. | Leo 2026-11-05, ask-5c88cea784 ("I just feel like the Apple system font, like especially for the sidebar, it just looks a little bit whack"); the face is his Inter pin of 2026-10-21 (`schemas/type-scale/leo-bans.json`) |
 
 Default picked (title x): the 10-21 commit c779988d57d reserved an empty icon slot on every row so that
 rows with and without a favicon line up ("weird spacing"). On 11405 Lawrence asked for the text to sit
@@ -1427,6 +1455,22 @@ An empty group now keeps only its header at rest. The header's existing + appear
   while it lists loose (`GroupJoinHold`, at most 2 s from its first loose listing, then it shows where it lists). No
   other row moves. #30583 removed the current-group stop; this removes the loose one. Test: `GroupJoinHoldTests`.
 
+## Projects and Recents, off by default (2026-11-05)
+
+- Lawrence 2026-11-05: "i think we should have similar thing in sidebar as chatgpt app, make it an option, basically u
+  have projects/groups at the top, and show more, and you have recents as well".
+- `sidebar.groupBy` = `recents` ("Projects and Recents"); the default stays `none`, so nothing changes unless chosen.
+  On: one quiet "Projects" header over every computer's groups (first 5, then "Show N more"; a group's first 5 rows),
+  then one "Recents" header over every workspace in no group, newest activity first. Headers draw in the group
+  header's quiet style (`ListHeaderRowView`, as Group by Folder's). Filter, session tree, Group by Status unchanged.
+- Design: [sidebar-recents-and-freeing-DESIGN.md](sidebar-recents-and-freeing-DESIGN.md). Tests:
+  `SidebarRecentsLayoutTests`. Tour: `scripts/cmux-next/media/tours/sidebar-recents.json`.
+- Review fixes: the opened Archive lists its rows whole in Projects and Recents (no Show more inside it, no blank gaps); Cmd-1...9 and Reveal in Sidebar reach projects past the first five.
+- A group whose workspace needs you lists above Show more, as a row past the row limit does.
+- A workspace whose idle terminals the freeing tier ended (`workspaces.freeing.*`, off by default) gets one hover
+  card line, "Freed terminals: N. They start again when you open this workspace." (snooze icon). Rows do not change.
+  Test: `SidebarRecentsLayoutTests.theHoverCardCountsTheFreedTerminals`.
+
 ## Pinned summary follows the density and text size (2026-11-03)
 
 - Lawrence 2026-11-03: "make sure size of the pinned summary thing reflect size of ui compactness i chose".
@@ -1449,3 +1493,7 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
 
 - 2026-11-02: pinned group headers show a hover Unpin button (https://github.com/manaflow-ai/cmux/issues/27700), the
   "Pinned group header: hover Unpin" row above. Unpinned headers draw no pin. Regression: GroupHeaderUnpinButtonTests.
+- 2026-11-05 (a-cmdp-memory, for a590): `SidebarModel+WorkspaceRanks.swift` adds `workspaceRanks()`, a read-only map
+  of workspace id to its place in the sidebar (top first), landed in 624581a6e3a3 (range 1a7a182ace6f..624e560418ba).
+  Cmd-P ranks workspaces by it (bias 16·2^(-rank/6)). Sidebar-Look: no visual change. Keep it in step with how rows
+  order; `CmdPSearchMemoryTests` covers it.

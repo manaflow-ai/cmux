@@ -51,6 +51,18 @@ pub(crate) const MODES: [(&str, &str, &str); 5] = [
     ("bypassPermissions", "Bypass permissions", "Accepts all permissions"),
 ];
 
+/// Claude Code's own start mode, the one acpmux runs a chat in when it sets no other: Auto
+/// (Claude handles permission decisions), which Claude Code recommends and its `defaultMode`
+/// setting usually names. Never Manual (`default`): a chat whose start level is the harness's
+/// own (`standard`), whose full access cannot run (a Claude Code that refuses bypassPermissions
+/// as root) or that is pooled before its level is set started in Manual, and every tool call
+/// then waited on the person (cmux 2026-11-05: "cmux is launching these workers in Manual"). A
+/// chat that must ask still asks: a narrower policy or an asking starter moves it to Manual
+/// (`hub/policy_mode.rs`, `hub/start_mode.rs`), a chat that leaves full access because
+/// `sessions.allowFullAccess` is off goes to Manual (`start_mode::mode_below_full_access`), and
+/// a Web start settles in an asking mode (`server/remote_guard.rs`).
+pub const OWN_MODE: &str = "auto";
+
 /// The launch flag that lets a running Claude Code switch to
 /// bypassPermissions (it does not turn the mode on by itself).
 pub const ALLOW_BYPASS_FLAG: &str = "--allow-dangerously-skip-permissions";
@@ -268,6 +280,10 @@ mod edit_diff_tests;
 mod elicitation;
 #[cfg(test)]
 mod elicitation_tests;
+// The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
+mod foreground_work;
+#[cfg(test)]
+mod foreground_work_tests;
 mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
@@ -339,6 +355,12 @@ pub const STOP_TASK: &str = "_acpmux/claude/stop_task";
 /// `{backgrounded}`; the shells it moved arrive as their own events, with
 /// origin `user_backgrounded`.
 pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
+
+/// The internal ACP request that lists the chat's own tool calls running in the foreground and
+/// how long each has run (`foreground_work.rs`), so the hub moves the long ones when the
+/// person's message waits behind them (`hub/auto_background.rs`). Answers `{work: [{toolCallId,
+/// runningMs}]}`.
+pub const FOREGROUND_WORK: &str = "_acpmux/claude/foreground_work";
 
 /// The internal ACP request that reconnects one of the chat's MCP servers
 /// (`hub/tools.rs`), `{sessionId, server}`: Claude Code's `mcp_reconnect`
@@ -467,7 +489,7 @@ pub fn spawn_plan(
         .argv
         .iter()
         .any(|a| a == ALLOW_BYPASS_FLAG || a == "--dangerously-skip-permissions");
-    let mode = if mode == "bypassPermissions" && !bypass && !own_skip { "default" } else { mode };
+    let mode = if mode == "bypassPermissions" && !bypass && !own_skip { OWN_MODE } else { mode };
     if !profile.argv.iter().any(|a| a == "--permission-mode") && !mode.is_empty() {
         args.push("--permission-mode".into());
         args.push(mode.into());
@@ -619,6 +641,9 @@ pub struct Translator {
     /// and those in the background (`run_in_background`, or moved there) until
     /// their `task_notification` or Claude's exit ends them.
     background_shells: Mutex<HashMap<String, BackgroundShell>>,
+    /// When each of the chat's own foreground Bash and Agent calls came, by tool_use id, until
+    /// its result or the turn's end (`foreground_work.rs`).
+    foreground_since: Mutex<HashMap<String, std::time::Instant>>,
     /// The plan usage limit windows Claude Code reported, newest each, by id
     /// (`usage_limits.rs`).
     usage_limits: Mutex<std::collections::BTreeMap<&'static str, Value>>,
@@ -751,6 +776,7 @@ impl Translator {
             edits: Mutex::new(HashMap::new()),
             announced: Mutex::new(HashMap::new()),
             usage_limits: Mutex::new(Default::default()),
+            foreground_since: Mutex::new(HashMap::new()),
             loops: Mutex::new(Default::default()),
         })
     }
@@ -786,6 +812,7 @@ impl Translator {
         self.steer_lines.lock().await.clear();
         drop(steers);
         drop(batches);
+        self.foreground_since.lock().await.clear();
         // A carried turn whose prompt has not come yet lost its answer too (`carry.rs`).
         self.carry.lock().await.fail_owed(message);
         held.extend(ids.into_iter().map(|id| {

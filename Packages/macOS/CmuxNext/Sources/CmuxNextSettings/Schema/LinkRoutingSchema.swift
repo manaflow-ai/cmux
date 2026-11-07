@@ -51,7 +51,8 @@ nonisolated enum LinkRoutingSchema {
                 help: SettingsText.keyed("settings.browser.externalLinkPatterns.help",
                                          "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."),
                 summary: SettingsText.keyed("settings.browser.externalLinkPatterns.summary", "Links that open in your default browser"),
-                kind: .stringList, default: .array([]), keywords: ["denylist", "blocklist", "regex", "external", "default browser"]
+                kind: .stringList, default: .array([]), keywords: ["denylist", "blocklist", "regex", "external", "default browser"],
+                placeholder: SettingText(key: nil, text: "*.example.com/*")
             ),
             SettingDescriptor(
                 TextEditorSetting.configPath, section: .general, group: SettingsText.keyed("settings.group.files", "Files"),

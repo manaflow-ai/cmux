@@ -50,6 +50,7 @@ extension UpdaterService {
     /// (the download already running, or staged) does nothing.
     public func downloadClicked() {
         syncFlowPhase()
+        log.append("download clicked (\(flow.phase))")
         if downloadAgainIfCancelled() { return }
         guard case .available = flow.phase else {
             log.append("update-found answer ignored: nothing waits on that step (\(flow.phase))")
@@ -65,6 +66,7 @@ extension UpdaterService {
     /// or when the download finishes. `willRelaunch` records keep sessions.
     public func installClicked() {
         syncFlowPhase()
+        log.append("restart to update clicked (\(flow.phase))")
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
         #endif
