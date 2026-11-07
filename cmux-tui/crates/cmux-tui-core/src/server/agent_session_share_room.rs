@@ -689,10 +689,16 @@ fn host(mux: &Arc<Mux>, share_id: &str) {
 /// socket sends `end` and its queued `DELETE` runs.
 pub(super) fn ended(shares: &LinkShares, ended: &[(String, Option<String>)]) {
     let Some(mux) = shares.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade() else { return };
+    // One reconcile per share, however many of its guests ended (forgotten guests come by the
+    // hundred, `forget_gone`).
+    let mut reconciled = std::collections::HashSet::new();
     for (share_id, guest) in ended {
         shares.bridge.forget(share_id, guest.as_deref());
         if guest.is_some() {
             // An ended share's own entry sends `end`; its kicks are moot.
+            if !reconciled.insert(share_id.as_str()) {
+                continue;
+            }
             if view(&mux, share_id).is_some_and(|v| v.state == ShareState::Active) {
                 shares.bridge.command(share_id, Cmd::Reconcile);
             }

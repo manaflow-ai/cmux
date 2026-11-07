@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextDesignTokens
+import CmuxNextDictation
 import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
@@ -315,6 +316,8 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
+        // Only the page host draws the outside-dictation mark; the old host has no event stream.
+        model.onWatchMicrophone = { [weak self] on in self?.watchMicrophone(on) }
         // A long recording is an upload of the chat: in its folder on this Mac (it goes with the chat),
         // else at the top; the App's launch sweep removes either after 30 days.
         dictation.chatSession = { [weak model] in model?.sessionId }
@@ -435,7 +438,12 @@ public final class AgentPaneView: NSView {
         super.layout()
         let frame = topBar.contentFrame(in: bounds)
         let shown = holdsPageAway ? Self.awayFrame(of: frame) : frame
-        if let page { page.frame = shown } else { webView.frame = shown }
+        if let page {
+            let moved = page.frame != shown
+            page.frame = shown
+            // Held away and back (an adopted chat drew), or resized: the native holes follow the page.
+            if moved { applyNativeRects() }
+        } else { webView.frame = shown }
         placeChromiumMove(at: frame)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
@@ -461,9 +469,31 @@ public final class AgentPaneView: NSView {
 
     /// Toggle Dictation (the shortcut, palette or menu). From a key press,
     /// holding the key past a moment makes it push-to-talk: dictation stops
-    /// when the key comes up.
-    public func toggleDictation(from event: NSEvent? = NSApp.currentEvent) {
-        dictation.toggle(from: event)
+    /// when the key comes up. `byPerson` is false for automation's runs (`cmux action run`), which
+    /// never hand off: a hand-off types into whichever app is in front.
+    public func toggleDictation(from event: NSEvent? = NSApp.currentEvent, byPerson: Bool = true) {
+        // A dictation app the person picked (`agentPane.dictationSource`) gets the press instead,
+        // as the mic's click does (`dictation.handoff`). macOS Dictation writes where the keyboard
+        // is, so the pane's page takes it first, in whichever engine shows it (the page keeps its
+        // prompt focused).
+        if model.composer.dictationSource == .macos { focusChat() }
+        // A session of cmux's own that still runs ends first, as the mic's click ends it, whatever
+        // the source is now.
+        if !dictation.phase.isStartable {
+            dictation.toggle(from: event)
+            return
+        }
+        // A hand-off types into another app: only for the person's own key or click (Globe-D, the
+        // Edit menu, the palette), never a posted one or a script's run.
+        let person = byPerson && (event ?? NSApp.currentEvent).map { AgentPanePersonInput.isPerson($0, sources: eventSources) } == true
+        let handOff = person || model.composer.dictationSource == .cmux
+        switch handOff ? model.dictationHandoff.handOff(model.composer) : .notPersons {
+        case nil: return
+        case .ownDictation: dictation.toggle(from: event)
+        case let failure?:
+            // The composer says why, naming the app, as for the mic's click; the old host has no stream.
+            if pageEvents?.publish(.dictationHandoff(failure: AgentPaneDictationHandoff.code(failure))) != true { NSSound.beep() }
+        }
     }
 
     /// Stops whichever agent pane is dictating, keeping its words, so the
@@ -474,8 +504,25 @@ public final class AgentPaneView: NSView {
         DictationMicrophone.shared.stopListening()
     }
 
+    /// The app's microphone watcher (``AgentPaneShared/microphone``); nil: no outside-dictation mark.
+    var microphoneActivity: MicrophoneActivity?
+
+    /// While `on`, tells the page whenever another app takes or releases the microphone; off (the
+    /// page's composers lost the keyboard) or a closed pane stops watching.
+    func watchMicrophone(_ on: Bool) {
+        guard let microphoneActivity else { return }
+        guard on, let pageEvents else {
+            microphoneActivity.unwatch(self)
+            return
+        }
+        microphoneActivity.watch(self) { [weak pageEvents] state in
+            _ = pageEvents?.publish(.micActivity(state))
+        }
+    }
+
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        microphoneActivity?.unwatch(self)
         // A closed page must not notify the pane that used to host it after it leaves.
         onNativeToolOwnerChange = nil
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.
@@ -642,5 +689,13 @@ public final class AgentPaneView: NSView {
         } else {
             for script in scripts() { evaluateScript(script) }
         }
+    }
+
+    /// Publishes a Cloud preview port event: an event on the page host, the store's window hook on
+    /// the old host (`agent.pageHost` off, the default; cloudPreviewPorts.ts).
+    public func cloudPreviewPortOpened(port: Int, process: String?, machineID: String? = nil,
+                                       state: String = "up", known: Bool = false) {
+        let event = AgentPageEvent.cloudPreviewPort(port: port, process: process, machineID: machineID, state: state, known: known)
+        deliver([event], scripts: [event.cloudPreviewPortScript])
     }
 }

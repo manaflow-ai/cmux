@@ -1182,15 +1182,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-cloud-handlers"
-version = "0.1.0"
-dependencies = [
- "cmux-cloud-start-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cmux-cloud-environment"
 version = "0.1.0"
 dependencies = [
@@ -1200,6 +1191,15 @@ dependencies = [
  "serde_json",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "cmux-cloud-handlers"
+version = "0.1.0"
+dependencies = [
+ "cmux-cloud-start-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1319,6 +1319,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cookie-sync"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "notify",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
@@ -1331,6 +1343,15 @@ dependencies = [
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cmux-daemon-conn-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1575,6 +1596,15 @@ version = "0.1.0"
 dependencies = [
  "ghostty-vt",
  "libc",
+]
+
+[[package]]
+name = "cmux-palette-eval"
+version = "0.1.0"
+dependencies = [
+ "cmux-palette-ranker",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2079,6 +2109,8 @@ dependencies = [
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-sdk",
+ "cmux-tasks",
+ "cmux-tasks-core",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-tui-cdp",
@@ -2111,6 +2143,7 @@ dependencies = [
  "subsecond",
  "tokio",
  "tokio-tungstenite",
+ "toml",
  "tungstenite",
  "uds_windows",
  "url",
@@ -7250,8 +7283,6 @@ checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 [[package]]
 name = "smoltcp"
 version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6f8b28ad56c6e35524a37dd492af5d1a47e31e1a4d175cd12f89c075f01980f"
 dependencies = [
  "bitflags 1.3.2",
  "byteorder",

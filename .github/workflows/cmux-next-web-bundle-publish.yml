@@ -28,7 +28,6 @@ on:
       - "scripts/cmux-next/build-agent-pane-web.sh"
       - "scripts/cmux-next/build-agent-activity-web.sh"
       - "scripts/cmux-next/build-pages-web.sh"
-      - "scripts/cmux-next/build-palette-ranker.sh"
       - "scripts/cmux-next/build-optchat-inspector-web.sh"
       - "scripts/cmux-next/build-web-bundles.sh"
       - "scripts/cmux-next/web-bundle-key.py"
