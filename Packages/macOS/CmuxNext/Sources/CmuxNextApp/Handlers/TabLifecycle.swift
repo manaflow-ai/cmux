@@ -125,7 +125,7 @@ enum TabLifecycle {
         // The targeted tab (CLI `--tab`), else the pane's selected tab (an
         // empty pane has none and gets a terminal; never a refusal).
         let selectedID = invocation.target?.kind == .tab ? invocation.target?.id
-            : controller?.stripModel.selectedID?.rawValue
+            : controller.flatMap(current)
             ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : nil)
         let tab = pane.tabs.first { $0.id == selectedID }
         let user = invocation.origin == .user
@@ -179,9 +179,12 @@ enum TabLifecycle {
 
     /// A person's new terminal or browser naming no pane (a key, the palette, the menu bar) goes where Cmd-T's does; a menu's
     /// named pane (the +'s) or a script's, the end (Leo 2026-11-07: "you make a new tab with the hotkeys, it opens up, like, subsequently").
+    /// The pane's current tab for a new tab's slot: one it selects once listed (Ctrl-` then Cmd-T: after the terminal), else the strip's selection.
+    static func current(_ pane: PaneController) -> String? { pane.pendingSelect.surface.flatMap { surface in pane.pane.tabs.first { $0.surface == surface }?.id } ?? pane.stripModel.selectedID?.rawValue }
+
     static func keySlot(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> NewTabSlot.Target? {
         guard invocation.origin == .user, invocation.target == nil, !invocation.besideCaller, let pane = ctx.services.windows.active?.focusedPane else { return nil }
-        return NewTabSlot.target(current: pane.pane.tabs.first { $0.id == pane.stripModel.selectedID?.rawValue }, pane: pane.pane.tabs, explicit: nil, user: true, setting: ctx.services.settings?.snapshot.newTabPosition)
+        return NewTabSlot.target(current: pane.pane.tabs.first { $0.id == current(pane) }, pane: pane.pane.tabs, explicit: nil, user: true, setting: ctx.services.settings?.snapshot.newTabPosition)
     }
 
     /// Reopens a browser tab's page on the other engine in the same pane,
