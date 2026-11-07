@@ -347,6 +347,7 @@ public final class AgentPaneView: NSView {
         observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         installSessionInfo()
+        installHostGlass()
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -438,6 +439,7 @@ public final class AgentPaneView: NSView {
         placeChromiumMove(at: frame)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
+        layoutHostGlass()
         // A pane resized or moved under shown toasts: its band follows at once.
         if toastsRect != nil || sentToastRoom != 0 { sendToastRoom(duration: 0) }
         redraw.laidOut(self)
