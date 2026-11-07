@@ -81,6 +81,12 @@ async fn handle(
             // with its approver signature (`Hub::card_answer_signed`).
             // The value is checked first: a refused one must not spend the phone's signature.
             hub.check_card_value(&session, id, value.as_deref().map(String::as_str))?;
+            // A card this daemon no longer holds answers no one: the refusal closes it on every
+            // client (`Hub::submit_secret`), whoever sent it, and grants nothing.
+            if !hub.card_open(&session, id) {
+                hub.submit_secret(&session, id, value)?;
+                return Ok(json!({}));
+            }
             if !conn.is_person() && !hub.card_answer_signed(&session, id, value.is_some(), params) {
                 return Err(crate::hub::person::person_required("filling a secret card"));
             }
