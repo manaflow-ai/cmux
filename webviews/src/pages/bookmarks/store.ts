@@ -120,6 +120,8 @@ export class BookmarksStore {
    * idempotency key, so the daemon replays it instead of making a second bookmark. */
   private unanswered?: { ops: string; key: string };
   private saving = false;
+  /** Bumped when an editor opens or is cancelled: a Save's reply acts only on the editor it came from. */
+  private editorSession = 0;
   /** A `reveal` of a node the tree does not hold yet. */
   private pendingReveal?: string;
   /** The profile whose listing the tree shows: until the page's profile's listing lands, its rows
@@ -424,6 +426,7 @@ export class BookmarksStore {
 
   startAddBookmark(): void {
     this.unanswered = undefined;
+    this.editorSession += 1;
     this.set({
       editor: { mode: { kind: "addBookmark" }, isFolder: false, title: "", url: "", folder: this.addFolder() },
     });
@@ -432,11 +435,13 @@ export class BookmarksStore {
   startAddFolder(): void {
     const title = this.options.newFolderTitle ?? "";
     this.unanswered = undefined;
+    this.editorSession += 1;
     this.set({ editor: { mode: { kind: "addFolder" }, isFolder: true, title, url: "", folder: this.addFolder() } });
   }
 
   startEdit(node: Bookmark): void {
     this.unanswered = undefined;
+    this.editorSession += 1;
     this.set({ editor: editState(node) });
   }
 
@@ -446,6 +451,7 @@ export class BookmarksStore {
   }
 
   cancelEditor(): void {
+    this.editorSession += 1;
     if (this.snapshot.editor) this.set({ editor: undefined });
   }
 
@@ -459,6 +465,7 @@ export class BookmarksStore {
       this.set({ editor: { ...editor, error: { kind: "invalidURL" } } });
       return false;
     }
+    const session = this.editorSession;
     if (plan.ops.length > 0) {
       const ops = JSON.stringify(plan.ops);
       const key = this.unanswered?.ops === ops ? this.unanswered.key : this.key();
@@ -466,18 +473,21 @@ export class BookmarksStore {
       let refusal: Notice | null;
       try {
         refusal = await this.apply(plan.ops, false, key, (lost) => {
-          this.unanswered = lost ? { ops, key } : undefined;
+          if (session === this.editorSession) this.unanswered = lost ? { ops, key } : undefined;
         });
       } finally {
         this.saving = false;
       }
+      // The editor may have closed (Escape), or another opened, while the apply was in flight:
+      // the reply then acts on no editor.
+      const still = session === this.editorSession ? this.snapshot.editor : undefined;
       if (refusal) {
-        // The editor may have closed (Escape) while the apply was in flight.
-        const still = this.snapshot.editor;
         if (still) this.set({ editor: { ...still, error: { kind: "refused", message: refusal.message } } });
         else this.set({ notice: refusal });
         return false;
       }
+      if (still) this.set({ editor: undefined });
+      return true;
     }
     this.set({ editor: undefined });
     return true;

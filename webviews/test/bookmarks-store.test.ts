@@ -265,6 +265,35 @@ test("after a profile change, the old profile's rows are gone and no change is s
   expect(store.getSnapshot().tree.nodes.size).toBeGreaterThan(0);
 });
 
+test("a Save that answers after its editor was cancelled leaves the next editor's draft alone", async () => {
+  for (const refuse of [false, true]) {
+    let release: () => void = () => {};
+    let hold = true;
+    class Slow extends MockBookmarksProvider {
+      override async call<R>(op: string, params: unknown): Promise<R> {
+        if (op === BookmarkOps.apply && hold) {
+          hold = false;
+          await new Promise<void>((done) => (release = done));
+          if (refuse) throw pageError("operation.failed", "no", false);
+        }
+        return super.call<R>(op, params);
+      }
+    }
+    const { store } = await started(new Slow());
+    store.startEdit(byTitle(store, "Docs"));
+    store.setEditor({ title: "A" });
+    const saving = store.commitEditor();
+    await tick();
+    store.cancelEditor();
+    store.startEdit(byTitle(store, "GitHub"));
+    store.setEditor({ title: "B draft" });
+    release();
+    await saving;
+    expect(store.getSnapshot().editor?.title).toBe("B draft");
+    expect(store.getSnapshot().editor?.error).toBeUndefined();
+  }
+});
+
 test("deleting a folder with its child selected is one apply that deletes the folder once", async () => {
   const { store, provider } = await started();
   const work = byTitle(store, "Work");
