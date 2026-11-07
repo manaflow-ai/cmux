@@ -74,12 +74,12 @@ struct WindowDockWindowTests {
         }
     }
 
-    // MARK: - A link from the Chief
+    // MARK: - The docked Chief
 
-    /// A link clicked in the Chief shows its workspace on the stage with the Chief docked left: the same view, its
-    /// draft, selection and scroll kept. Then switching the stage (sidebar picks) never touches the dock's view: not
-    /// hidden, not moved, not re-mapped.
-    @Test func aLinkFromTheChiefDocksItAndStageSwitchesNeverTouchItsView() async throws {
+    /// The Chief docked on purpose (Open Chief Dock, Cmd-I) keeps the same view, its draft, selection and scroll,
+    /// while the stage shows another workspace; switching the stage (sidebar picks) never touches the dock's view:
+    /// not hidden, not moved, not re-mapped.
+    @Test func theDockedChiefKeepsItsViewThroughStageSwitches() async throws {
         try await Self.withDocks {
             let f = try await Fixture(keys: Self.keys, tree: Self.tree())
             defer { f.close() }
@@ -88,8 +88,8 @@ struct WindowDockWindowTests {
             let view = chief.contentView
             let state = ChiefState(in: view)
 
-            f.controller.armChiefDock(home: "k0", edge: .left)
-            f.services.windows.show(workspaceID: "k1", in: f.state) // the link's jump
+            f.controller.openChiefDock("k0", edge: .left)
+            f.services.windows.show(workspaceID: "k1", in: f.state, from: .thisWindow)
             f.frame()
             #expect(f.state.docks.dock(at: .left)?.workspace == "k0", "the Chief did not dock left")
             #expect(f.state.workspaceID == "k1" && f.shown == ["k0", "k1"], "shown \(f.shown)")
@@ -97,7 +97,7 @@ struct WindowDockWindowTests {
             #expect(left.maxX <= right.minX, "the Chief is not on the left: \(left) \(right)")
             #expect(f.controller.parked["k0"] === chief, "the Chief's content was replaced")
             #expect(chief.contentView === view)
-            state.expectKept(in: view, "after the link")
+            state.expectKept(in: view, "after the dock")
 
             let dockFrame = view.frame
             let runs = chief.panes.values.map(\.debugSnapshotRuns)
@@ -114,29 +114,20 @@ struct WindowDockWindowTests {
         }
     }
 
-    /// Without a link from the Chief, a sidebar pick replaces Home as before: nothing docks.
-    @Test func aSidebarPickFromHomeDocksNothing() async throws {
+    /// From Home, a sidebar pick or a link's jump replaces Home: nothing docks (cmux#37372).
+    @Test func aPickOrALinkJumpFromHomeDocksNothing() async throws {
         try await Self.withDocks {
             let f = try await Fixture(keys: Self.keys, tree: Self.tree())
             defer { f.close() }
-            f.services.windows.show(workspaceID: "k1", in: f.state, from: .thisWindow)
+            f.services.windows.show(workspaceID: "k1", in: f.state) // a link's jump
             f.frame()
             #expect(f.state.docks.isEmpty)
             #expect(f.shown == ["k1"])
-        }
-    }
-
-    /// A link that showed nothing in time (refused, or opened in another window) leaves the arm to lapse: a later
-    /// sidebar pick does not dock Home.
-    @Test func aLapsedArmDocksNothing() async throws {
-        try await Self.withDocks {
-            let f = try await Fixture(keys: Self.keys, tree: Self.tree())
-            defer { f.close() }
-            f.controller.armChiefDock(home: "k0", edge: .left, now: ContinuousClock.now - .seconds(60))
-            f.services.windows.show(workspaceID: "k1", in: f.state, from: .thisWindow)
+            f.services.windows.show(workspaceID: "k0", in: f.state, from: .thisWindow)
+            f.services.windows.show(workspaceID: "k2", in: f.state, from: .thisWindow) // a sidebar pick
             f.frame()
             #expect(f.state.docks.isEmpty)
-            #expect(f.controller.chiefDockOnLeave == nil, "the show did not take the arm")
+            #expect(f.shown == ["k2"])
         }
     }
 
@@ -145,8 +136,8 @@ struct WindowDockWindowTests {
         try await Self.withDocks {
             let f = try await Fixture(keys: Self.keys, tree: Self.tree())
             defer { f.close() }
-            f.controller.armChiefDock(home: "k0", edge: .bottom)
-            f.services.windows.show(workspaceID: "k2", in: f.state)
+            f.controller.openChiefDock("k0", edge: .bottom)
+            f.services.windows.show(workspaceID: "k2", in: f.state, from: .thisWindow)
             f.frame()
             #expect(f.state.docks.dock(at: .bottom)?.workspace == "k0")
             let top = try #require(f.windowFrame("k2")), bottom = try #require(f.windowFrame("k0"))
@@ -162,10 +153,10 @@ struct WindowDockWindowTests {
         try await Self.withDocks {
             let f = try await Fixture(keys: Self.keys, tree: Self.tree())
             defer { f.close() }
-            f.controller.armChiefDock(home: "k0", edge: .left)
-            f.services.windows.show(workspaceID: "k1", in: f.state) // a link from the Chief
+            f.controller.openChiefDock("k0", edge: .left)
+            f.services.windows.show(workspaceID: "k1", in: f.state, from: .thisWindow)
             f.frame()
-            f.controller.openChiefDock("k0", edge: .left) // the Chief has the keys
+            f.controller.openChiefDock("k0", edge: .left) // again: the Chief has the keys
             f.frame()
             try #require(f.state.docks.isDocked("k0") && f.state.workspaceID == "k0" && f.state.stageWorkspaceID == "k1")
 

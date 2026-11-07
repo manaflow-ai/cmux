@@ -48,4 +48,38 @@ struct ChiefDockAppTests {
             #expect(!services.registry.perform("home.undockChief", invocation: ActionInvocation(origin: .user)))
         }
     }
+
+    /// No link clicked in the Chief docks it (cmux#37372): a workspace link and a subagent chip's link from Home's
+    /// chat replace Home on the window, and the Chief stays undocked.
+    @Test func noLinkClickedInTheChiefDocksIt() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let window = try #require(services.windows.active)
+            services.home.ensureHomeWorkspace(connection)
+            try await PasswordManagerRouteTests.until({ services.windowHomes.home(in: window.state.id) != nil }, within: .seconds(60),
+                                                       report: { services.home.homeWorkspaceStep })
+            let home = try #require(services.windowHomes.home(in: window.state.id))
+            let other = try #require(await services.windows.createWorkspace(into: window.state.id))
+            try await PasswordManagerRouteTests.until({ window.state.workspaceID == other })
+            let resource = try #require(services.machines.allWorkspaces.map(\.0).first { $0.id == other }?.resourceID?.rawValue)
+
+            for link in ["cmux://workspace/\(resource)", "cmux://chief/0123abcd/session/s-37372", "cmux://session/s-37372"] {
+                services.windows.show(workspaceID: home.id, in: window.state, from: .thisWindow)
+                try await PasswordManagerRouteTests.until({ window.state.workspaceID == home.id })
+                let chat = try #require(Self.homeView(in: window.root), "Home's chat is not on screen")
+                chat.transcript.onAppLink?(try #require(URL(string: link)))
+                if link.contains("workspace/") { try await PasswordManagerRouteTests.until({ window.state.workspaceID == other }) }
+                services.windows.show(workspaceID: other, in: window.state)
+                try await PasswordManagerRouteTests.until({ window.state.workspaceID == other })
+                #expect(!window.state.docks.isDocked(home.id), "\(link) docked the Chief")
+                #expect(window.state.docks.isEmpty, "\(link) made a dock: \(window.state.docks.all.map(\.workspace))")
+            }
+        }
+    }
+
+    /// The Home chat view on screen under `view`.
+    static func homeView(in view: NSView) -> HomeHostView? {
+        if let home = view as? HomeHostView, !home.isHiddenOrHasHiddenAncestor { return home }
+        for sub in view.subviews { if let home = homeView(in: sub) { return home } }
+        return nil
+    }
 }
