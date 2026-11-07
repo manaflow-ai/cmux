@@ -160,9 +160,11 @@ export function fieldGrowth(external: () => boolean): Plugin {
         );
         const timing = { duration, easing };
         const animation = field.animate(keyframes, timing);
-        // A retarget moves on in the next frame from where the field is drawn (no frame held still).
+        // Started now on the document's clock, not left pending: WebKit holds a pending animation a
+        // few frames, which the rows' move (VirtualTranscript) would run ahead of. A retarget moves
+        // on in the next frame from where the field is drawn.
         const timeline = field.ownerDocument.timeline?.currentTime;
-        if (running && typeof timeline === "number") animation.startTime = timeline;
+        if (typeof timeline === "number") animation.startTime = timeline;
         if (running) field.scrollTop = scrolled;
         // The text rewrapped meanwhile (the actions beside it changed width): move to its height. Its
         // first call is the observation starting, with nothing changed.
