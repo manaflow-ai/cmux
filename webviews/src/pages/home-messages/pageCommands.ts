@@ -156,7 +156,10 @@ export function servePageCommands(host: PageClient, latest: () => PageCommandCon
     host.handle(HandoffOps.detach, (params) => detach(latest().nav.composer(), params)),
     host.handle(HandoffOps.quoteSelection, () => quoteSelection(document, latest().nav.composer())),
     host.handle(HandoffOps.recallHistory, (params) => ({
-      recalled: latest().nav.composer()?.recallHistory(record(params).older === false ? "newer" : "older") ?? false,
+      recalled:
+        latest()
+          .nav.composer()
+          ?.recallHistory(record(params).older === false ? "newer" : "older") ?? false,
     })),
   ];
   const onKey = (event: KeyboardEvent) => void recallFromOutside(event, latest().nav.composer());
