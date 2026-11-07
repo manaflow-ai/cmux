@@ -52,6 +52,7 @@ struct LegacyChannelSession: Sendable {
         guard stateDirectory != nil,
               let channel = DaemonLaunchRules.call("legacy_channel", request, as: String?.self) ?? nil else { return false }
         return Self.decisions.answer("\(applicationSupport.path)|\(channel)") {
+            if let stateDirectory, Self.ownSnapshotIsMalformed(session: session, stateDirectory: stateDirectory) { return false }
             request.rememberedSnapshot = rememberedSnapshot()
             request.now = ISO8601DateFormatter().string(from: Date())
             return DaemonLaunchRules.call("legacy_adopts", request, as: Bool.self) ?? false
@@ -59,7 +60,37 @@ struct LegacyChannelSession: Sendable {
     }
 }
 
-/// `LegacyChannelSession`'s per-process answers.
+extension LegacyChannelSession {
+    /// Not yet recorded, and the build's own launch snapshot lists a screen, pane or tab entry that is not
+    /// an object: such a snapshot counts as touched, so it never leads to an adopt. `legacy_adopts` skips
+    /// those entries and reads the rest (cmux-daemon-launch-core legacy.rs `tabs`), so this guard keeps the
+    /// app from adopting over a session it cannot fully read until the crate counts them itself.
+    static func ownSnapshotIsMalformed(session: String, stateDirectory: URL) -> Bool {
+        let marker = stateDirectory.deletingLastPathComponent().appendingPathComponent("legacy-session-adopted")
+        guard !FileManager.default.fileExists(atPath: marker.path),
+              let path = LaunchSnapshotLocation.find(session: session, in: stateDirectory),
+              let data = FileManager.default.contents(atPath: path), data.count <= LaunchSnapshot.maximumBytes,
+              case .object(let file)? = try? JSONDecoder().decode(JSONValue.self, from: data),
+              case .object(let tree) = file["tree", default: .null], case .array(let workspaces) = tree["workspaces", default: .null]
+        else { return false }
+        return workspaces.contains { workspace in
+            guard case .object(let fields) = workspace else { return false }
+            return hasMalformedEntry(fields["screens", default: .null], nested: ["panes", "tabs"])
+        }
+    }
+
+    /// An array under `value` holding a non-object, here or in the `nested` keys below it.
+    private static func hasMalformedEntry(_ value: JSONValue, nested: ArraySlice<String>) -> Bool {
+        guard case .array(let entries) = value else { return false }
+        return entries.contains { entry in
+            guard case .object(let fields) = entry else { return true }
+            guard let key = nested.first else { return false }
+            return hasMalformedEntry(fields[key, default: .null], nested: nested.dropFirst())
+        }
+    }
+}
+
+/// `LegacyChannelSession`'s per-process answers, true and false alike.
 final class DecisionCache: Sendable {
     private let answers = Mutex<[String: Bool]>([:])
 
