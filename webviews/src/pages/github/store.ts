@@ -5,7 +5,15 @@
 // check shows up without a reload. The host reads GitHub at most once a minute per pull request
 // whatever the page asks.
 import { isPageError, type PageClient } from "../shared/pageClient";
-import { GitHubOps, routedPullRequest, type LinkedPullRequest, type PullRequestReply } from "./types";
+import {
+  GitHubOps,
+  routedPullRequest,
+  type FilePatch,
+  type LinkedPullRequest,
+  type MergeState,
+  type PullRequestDetails,
+  type PullRequestReply,
+} from "./types";
 
 export const WAIT_MS = 1_500;
 export const REFRESH_MS = 60_000;
@@ -22,10 +30,19 @@ export interface GitHubSnapshot {
   answered: boolean;
   /** Why the last open (the diff) failed, in the host's words. */
   failure?: string;
+  /** The body, conversation and reviewers (`pr.details`), once the host has read them. */
+  details?: PullRequestDetails;
+  /** The `updatedAt` the details were asked for: a newer one asks again. */
+  detailsFor?: string;
+  /** Files expanded inline, by path, with their patch as far as it has come. */
+  patches: Readonly<Record<string, FilePatch>>;
+  merge: MergeState;
 }
 
+const EMPTY = { patches: {}, merge: { phase: "idle" } } as const satisfies Partial<GitHubSnapshot>;
+
 export class GitHubStore {
-  private snapshot: GitHubSnapshot = { reading: false, answered: false };
+  private snapshot: GitHubSnapshot = { reading: false, answered: false, ...EMPTY };
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | undefined;
   /** Bumped by every new target, so an answer for the one before is dropped. */
@@ -49,7 +66,7 @@ export class GitHubStore {
     const target = routedPullRequest(hash);
     if (target?.url !== this.snapshot.target?.url) {
       this.generation += 1;
-      this.set({ target, reading: false, answered: false });
+      this.set({ target, reading: false, answered: false, ...EMPTY });
     }
     return this.ask();
   }
@@ -79,6 +96,118 @@ export class GitHubStore {
     });
     // Reading: ask again shortly for its answer. Otherwise a minute on, which keeps a shown page live.
     this.schedule(reply?.reading === true ? WAIT_MS : REFRESH_MS);
+    // A new `updatedAt` (a push, a comment, a review): its details again, and its files' diffs from the new head.
+    const updatedAt = this.snapshot.pullRequest?.updatedAt;
+    if (this.snapshot.pullRequest && updatedAt !== this.snapshot.detailsFor) void this.loadDetails(updatedAt ?? "");
+  }
+
+  /** Reads the details for `updatedAt`; the host keeps one read per pull request and `updatedAt`. */
+  private async loadDetails(updatedAt: string): Promise<void> {
+    const target = this.snapshot.target;
+    if (!target || !this.client) return;
+    const generation = this.generation;
+    const fresh = this.snapshot.detailsFor !== undefined;
+    this.set({ ...this.snapshot, detailsFor: updatedAt, ...(fresh ? { patches: this.reloadPatches() } : {}) });
+    let details: PullRequestDetails | undefined;
+    try {
+      const reply = await this.client.call<{ details?: PullRequestDetails | null }>(GitHubOps.details, {
+        url: target.url,
+      });
+      details = reply?.details && typeof reply.details.body === "string" ? reply.details : undefined;
+    } catch {
+      details = undefined;
+    }
+    if (generation !== this.generation) return;
+    // A failed read keeps what the page had and asks again with the next answer.
+    if (!details) {
+      this.set({ ...this.snapshot, detailsFor: this.snapshot.details ? this.snapshot.detailsFor : undefined });
+      return;
+    }
+    this.set({ ...this.snapshot, details });
+  }
+
+  /** The open files read again from the new head; closed ones are forgotten. */
+  private reloadPatches(): Record<string, FilePatch> {
+    const open = Object.keys(this.snapshot.patches);
+    queueMicrotask(() => open.forEach((file) => void this.loadPatch(file, true)));
+    return Object.fromEntries(open.map((file) => [file, { state: "loading" } as const]));
+  }
+
+  /** Expands `file` in place, or folds it when it is open. */
+  toggleFile(file: string): void {
+    if (this.snapshot.patches[file]) {
+      const { [file]: _, ...rest } = this.snapshot.patches;
+      this.set({ ...this.snapshot, patches: rest });
+      return;
+    }
+    void this.loadPatch(file);
+  }
+
+  private async loadPatch(file: string, again = false): Promise<void> {
+    const target = this.snapshot.target;
+    if (!target || !this.client) return;
+    if (!again && this.snapshot.patches[file]) return;
+    const generation = this.generation;
+    this.setPatch(file, { state: "loading" });
+    let next: FilePatch;
+    try {
+      const reply = await this.client.call<{ patch?: string | null; tooLarge?: boolean }>(GitHubOps.diffFile, {
+        url: target.url,
+        file,
+      });
+      next =
+        typeof reply?.patch === "string"
+          ? { state: "ready", patch: reply.patch }
+          : reply?.tooLarge
+            ? { state: "tooLarge" }
+            : { state: "missing" };
+    } catch (error) {
+      next = { state: "failed", message: isPageError(error) ? error.message : "" };
+    }
+    // Dropped when the page left the pull request, or the person folded the file meanwhile.
+    if (generation !== this.generation || !this.snapshot.patches[file]) return;
+    this.setPatch(file, next);
+  }
+
+  private setPatch(file: string, patch: FilePatch) {
+    this.set({ ...this.snapshot, patches: { ...this.snapshot.patches, [file]: patch } });
+  }
+
+  /**
+   * Merge: the first click asks to confirm (it names the method), the second merges through the
+   * host, pinned to the head commit the page shows. GitHub's rules still decide.
+   */
+  async merge(): Promise<void> {
+    const { target, details, merge } = this.snapshot;
+    if (!target || !this.client || !details?.headCommit) return;
+    if (merge.phase === "idle" || merge.phase === "failed") {
+      this.set({ ...this.snapshot, merge: { phase: "confirm" } });
+      return;
+    }
+    if (merge.phase !== "confirm") return;
+    const generation = this.generation;
+    this.set({ ...this.snapshot, merge: { phase: "merging" } });
+    let next: MergeState;
+    try {
+      const reply = await this.client.call<{ merged?: boolean; queued?: boolean }>(GitHubOps.merge, {
+        url: target.url,
+        head: details.headCommit,
+      });
+      next = reply?.merged ? { phase: "merged", queued: reply.queued === true } : { phase: "idle" };
+    } catch (error) {
+      // A click the host did not count asks for another, not a failure.
+      next =
+        isPageError(error) && error.code === "cmux.github.gesture_required"
+          ? { phase: "confirm" }
+          : { phase: "failed", message: isPageError(error) ? error.message : "" };
+    }
+    if (generation !== this.generation) return;
+    this.set({ ...this.snapshot, merge: next });
+  }
+
+  /** Steps back from the confirm. */
+  cancelMerge(): void {
+    if (this.snapshot.merge.phase === "confirm") this.set({ ...this.snapshot, merge: { phase: "idle" } });
   }
 
   /** Opens the web page (Open on GitHub), or another https page of it (a check's run). */

@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.chats.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Chat Target"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هدف الدردشة الافتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadani cilj razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmål for chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardziel für Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destino predeterminado del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cible de chat par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destinazione predefinita della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトのチャット先"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គោលដៅជជែកលំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 채팅 대상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmål for chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domyślny cel czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destino padrão do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цель чата по умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปลายทางแชตเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan sohbet hedefi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Типова ціль чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đích trò chuyện mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认聊天目标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設聊天目標"
+          }
+        }
+      }
+    },
+    "settings.chats.on.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المكان الذي يبدأ فيه cmux chat الدردشة عندما لا يحدده ‎--on ولا CMUX_ON: ‏here أو cloud أو vm:new أو vm:NAME أو اسم جهاز. الفارغ يعني here."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdje cmux chat pokreće razgovor kada ga ni --on ni CMUX_ON ne navode: here, cloud, vm:new, vm:NAME ili naziv uređaja. Prazno znači here."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor cmux chat starter en chat, når hverken --on eller CMUX_ON angiver et sted: here, cloud, vm:new, vm:NAME eller et enhedsnavn. Tom betyder here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo cmux chat einen Chat startet, wenn weder --on noch CMUX_ON ein Ziel nennt: here, cloud, vm:new, vm:NAME oder ein Gerätename. Leer bedeutet here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde inicia cmux chat un chat cuando ni --on ni CMUX_ON indican uno: here, cloud, vm:new, vm:NAME o el nombre de un dispositivo. Vacío es here."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où cmux chat démarre un chat quand ni --on ni CMUX_ON n’en indiquent un : here, cloud, vm:new, vm:NAME ou un nom d’appareil. Vide signifie here."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dove cmux chat avvia una chat quando né --on né CMUX_ON ne indicano una: here, cloud, vm:new, vm:NAME o il nome di un dispositivo. Vuoto significa here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--on も CMUX_ON も指定がないときに cmux chat がチャットを開始する場所です: here、cloud、vm:new、vm:NAME、またはデバイス名。空欄は here です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងដែល cmux chat ចាប់ផ្ដើមការជជែក ពេល --on និង CMUX_ON មិនបានកំណត់៖ here, cloud, vm:new, vm:NAME ឬឈ្មោះឧបករណ៍។ ទទេគឺ here។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--on과 CMUX_ON 모두 지정하지 않았을 때 cmux chat이 채팅을 시작하는 곳: here, cloud, vm:new, vm:NAME 또는 기기 이름. 비워 두면 here입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor cmux chat starter en chat når verken --on eller CMUX_ON angir et sted: here, cloud, vm:new, vm:NAME eller et enhetsnavn. Tom betyr here."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdzie cmux chat zaczyna czat, gdy ani --on, ani CMUX_ON go nie wskazują: here, cloud, vm:new, vm:NAME lub nazwa urządzenia. Puste oznacza here."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde o cmux chat inicia um chat quando nem --on nem CMUX_ON indicam um: here, cloud, vm:new, vm:NAME ou o nome de um dispositivo. Vazio é here."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Где cmux chat начинает чат, если ни --on, ни CMUX_ON его не указывают: here, cloud, vm:new, vm:NAME или имя устройства. Пусто означает here."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งที่ cmux chat เริ่มแชตเมื่อทั้ง --on และ CMUX_ON ไม่ได้ระบุ: here, cloud, vm:new, vm:NAME หรือชื่ออุปกรณ์ ว่างไว้หมายถึง here"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne --on ne de CMUX_ON bir hedef belirtmediğinde cmux chat'in sohbeti başlattığı yer: here, cloud, vm:new, vm:NAME veya bir cihaz adı. Boş, here demektir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Де cmux chat починає чат, коли ні --on, ні CMUX_ON його не вказують: here, cloud, vm:new, vm:NAME або назва пристрою. Порожнє означає here."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nơi cmux chat bắt đầu cuộc trò chuyện khi cả --on lẫn CMUX_ON đều không chỉ định: here, cloud, vm:new, vm:NAME hoặc tên thiết bị. Để trống là here."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当 --on 和 CMUX_ON 都未指定时，cmux chat 开始聊天的位置：here、cloud、vm:new、vm:NAME 或设备名称。留空即 here。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當 --on 與 CMUX_ON 都未指定時，cmux chat 開始聊天的位置：here、cloud、vm:new、vm:NAME 或裝置名稱。留空即 here。"
+          }
+        }
+      }
+    },
     "settings.chief.permissionMode": {
       "comment": "Chief turn permission mode (cmux#37392).",
       "extractionState": "manual",

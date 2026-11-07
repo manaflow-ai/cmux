@@ -384,7 +384,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     var syncedDragHostings: [CEFLayerHosting] = []
     /// Why this container's page windows wait for their frame at each pane size now; empty: they do not.
     var pageSyncReasons: Set<CEFPageSyncReason> = []
-    /// The page window this container told of a resize motion (a drag or a key hold), to tell its end wherever the
+    /// The page window this container told of a resize motion (a divider drag), to tell its end wherever the
     /// page is by then (``CEFLayerHosting/resizeMotion(active:)``); nil otherwise.
     var motionHosting: CEFLayerHosting?
     /// A split's, close's or zoom's spring found the page holding the keys: its window stays a page window through the
@@ -557,8 +557,9 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
                 dropHold()
                 layoutContent()
             }
-            // After the landing's layout: the page window comes back once, at the final size.
-            if pageMotionHold == nil { paneMotion(active: false) }
+            // After the landing's layout: the page window comes back once, at the final size. A key hold still on (its
+            // spring goes on) keeps the page attached, so the drag's share ends here too.
+            paneMotion(active: false)
             return
         }
         endRestHold()
