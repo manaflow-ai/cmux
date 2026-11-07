@@ -135,8 +135,10 @@ struct NewTabSuccession {
             (open.claimed, _) = (item.id, claimed.insert(item.id))
             if open.surface != tab.surface { open.found(tab.surface) }
             var others = items.filter { $0.id != item.id && $0.id != open.page }
-            if let before = open.before, !others.contains(where: { $0.id == before }) { open.before = pane.stripModel.anchor(replacing: before, newTab: left.union([item.id]), staying: Set(others.map(\.id)), opened: open.known.map { StripTabID($0) }) }
-            others.insert(item, at: others.newTabSlot(after: open.before, replacing: open.page != nil)) // `NewTabSlot`'s: the page's, else after the anchor's group
+            // Re-anchored when its anchor closed; one still listed (an earlier open's tab, hidden until answered) stays the anchor.
+            let after = open.before.flatMap { before in others.contains { $0.id == before } ? before : pane.stripModel.anchor(replacing: before, newTab: left.union([item.id]), staying: Set(others.map(\.id)), opened: open.known.map { StripTabID($0) }) }
+            if !pane.pane.tabs.contains(where: { $0.id == open.before?.rawValue }) { open.before = after }
+            others.insert(item, at: others.newTabSlot(after: after, replacing: open.page != nil)) // `NewTabSlot`'s: the page's, else after the anchor's group
             if let page = open.page, listed.contains(page) { pane.stripModel.successors[item.id] = page }
             if items == others { open.expiry.cancel() } else { kept.append(open) } // done once the daemon's order agrees (the page closed, the move landed)
             items = others
