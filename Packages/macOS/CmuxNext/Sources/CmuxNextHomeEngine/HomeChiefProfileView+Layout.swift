@@ -84,7 +84,7 @@ extension HomeChiefProfileView {
         if settings == nil {
             // The page uses the whole pane: as wide as it is, and only as wide as lets the 16:10 screen
             // (or its note) and the bar under it fit the pane's height below the header.
-            let fitsHeight = column.widthAnchor.constraint(lessThanOrEqualTo: clip.heightAnchor, multiplier: 16.0 / 10.0,
+            let fitsHeight = column.widthAnchor.constraint(lessThanOrEqualTo: scroll.heightAnchor, multiplier: 16.0 / 10.0,
                                                            constant: -Self.expandedChrome * 16.0 / 10.0)
             fitsHeight.priority = .defaultHigh
             let wide = column.widthAnchor.constraint(equalTo: document.widthAnchor, constant: -32)
