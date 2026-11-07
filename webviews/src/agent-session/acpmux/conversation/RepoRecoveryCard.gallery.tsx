@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery-only recovery fixtures.
 import { componentEntry } from "../../../gallery/format";
-import { RepoRecoveryCard, type RepoRecovery } from "./RepoRecoveryCard";
+import { RepoRecoveryCard } from "./RepoRecoveryCard";
+import type { RepoRecovery } from "./repoRecoveryCardModel";
 
 type Props = { recovery: RepoRecovery; outcomes?: boolean };
 

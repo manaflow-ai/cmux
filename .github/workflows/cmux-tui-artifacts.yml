@@ -3517,7 +3517,8 @@ jobs:
             get "$base/$name" "$dir/published"
             get "$base/$name.sha256" "$dir/published.sha256"
             published_sha="$(awk 'NR==1{print $1}' "$dir/published.sha256")"
-            [[ "$(sha256sum "$dir/published" | awk '{print $1}')" == "$published_sha" ]]
+            # `|| return 1`: macOS bash 3.2's set -e ignores a failed [[ ]].
+            [[ "$(sha256sum "$dir/published" | awk '{print $1}')" == "$published_sha" ]] || return 1
             echo "Verified: $base/$name"
           }
           verify_tree "$KEY"

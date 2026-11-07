@@ -7,7 +7,7 @@
 // `layout` keeps the gallery's alternatives (VideoFramesCard.gallery.tsx); the transcript draws `strip`.
 import { useContext, type CSSProperties } from "react";
 import { callChipHost } from "../chips/host";
-import { formatDuration } from "../chips/ReplyMedia";
+import { formatDuration } from "../chips/replyMediaModel";
 import { useT } from "../i18n";
 import { ImageViewerContext } from "./imageViewerContext";
 import { PlayTriangle } from "./icons";

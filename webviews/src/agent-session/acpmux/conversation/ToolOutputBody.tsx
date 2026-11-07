@@ -124,11 +124,12 @@ export const ToolOutput = memo(function ToolOutput({
             viewport={viewport}
           />
         )}
-      </div>
-      <div className="cv-tool-output__controls" data-find-skip="">
+        {/* Show all / Show less is the box's whole bottom row, on its own fill (ExpandRow.tsx). */}
         <PreviewMore preview={preview} />
         {!preview.long && <OutputMore output={shown} />}
-        {markdown && (
+      </div>
+      {markdown && (
+        <div className="cv-tool-output__controls" data-find-skip="">
           <button
             type="button"
             className="cv-tool-output__raw"
@@ -140,8 +141,8 @@ export const ToolOutput = memo(function ToolOutput({
             {t("subsession.raw")}
             <ChevronRight size={12} className={`cv-rotor${rawShown ? " is-open" : ""}`} />
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 });
