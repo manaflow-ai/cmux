@@ -315,7 +315,7 @@ impl StderrTail {
                         break;
                     }
                     let mut tail = tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                    tail.extend(&chunk[..read]);
+                    tail.extend(chunk.get(..read).unwrap_or_default());
                     let excess = tail.len().saturating_sub(CREDENTIAL_COMMAND_STDERR_TAIL_BYTES);
                     tail.drain(..excess);
                 }
@@ -377,8 +377,9 @@ fn stderr_summary(tail: &[u8]) -> String {
         }
     }
     let http = words.windows(2).find_map(|pair| {
-        let status = pair[1].trim_end_matches([':', ',', ';', ')']);
-        let http = pair[0] == "HTTP" || pair[0].starts_with("HTTP/");
+        let [word, next] = pair else { return None };
+        let status = next.trim_end_matches([':', ',', ';', ')']);
+        let http = *word == "HTTP" || word.starts_with("HTTP/");
         (http && status.len() == 3 && status.bytes().all(|byte| byte.is_ascii_digit()))
             .then(|| format!("HTTP {status}"))
     });
