@@ -88,7 +88,7 @@ await requireBrowserLane("guest-page-first-frame-browser.test.ts", async () => {
           sessionStorage.setItem(`cmux.guest.${share}.joined`, "g1");
           sessionStorage.setItem(`cmux.guest.${share}.via`, via);
           if (role) sessionStorage.setItem(`cmux.guest.${share}.role`, role);
-          const marks: { first?: DOMRect; area?: DOMRect } = {};
+          const marks: { first?: DOMRect; area?: DOMRect; bubbleRadius?: string } = {};
           (window as unknown as { __dock: typeof marks }).__dock = marks;
           // The dock's place on the frame that first shows it (measured before that frame paints).
           new MutationObserver((_, observer) => {
@@ -100,6 +100,14 @@ await requireBrowserLane("guest-page-first-frame-browser.test.ts", async () => {
               marks.area = document.querySelector(".guest-live__transcript")!.getBoundingClientRect();
               marks.first = dock.getBoundingClientRect();
             });
+          }).observe(document, { childList: true, subtree: true });
+          // The transcript's stylesheet loads apart from the first frame's (vite.config.guest-page.mjs):
+          // the first prompt bubble is styled by it as it is put in the page, so no row draws unstyled.
+          new MutationObserver((_, observer) => {
+            const bubble = document.querySelector(".guest-live__transcript .cv-user__bubble");
+            if (!bubble) return;
+            observer.disconnect();
+            marks.bubbleRadius = getComputedStyle(bubble).borderTopLeftRadius;
           }).observe(document, { childList: true, subtree: true });
         },
         { share: SHARE, via, role },
@@ -141,6 +149,12 @@ await requireBrowserLane("guest-page-first-frame-browser.test.ts", async () => {
       expect(live!.height).toBe(first.height);
       // The header kept its height: the transcript's area starts where it did on the first frame.
       expect((await page.locator(".guest-live__transcript").boundingBox())!.y).toBe(first.areaTop);
+      // The prompt's bubble had its rounded corners the moment it was put in the page.
+      const bubbleRadius = await page.evaluate(
+        () => (window as unknown as { __dock: { bubbleRadius?: string } }).__dock.bubbleRadius,
+      );
+      expect(bubbleRadius).toBeDefined();
+      expect(bubbleRadius).not.toBe("0px");
       expect(errors).toEqual([]);
       await page.close();
     });

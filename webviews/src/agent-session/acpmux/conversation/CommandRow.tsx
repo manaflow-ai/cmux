@@ -20,7 +20,7 @@ import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { Check, ChevronRight, TerminalSquare } from "./icons";
 import { isRunning, toolDuration } from "./toolGroups";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { commandLine, commandLook, commandSaid } from "./commandActions";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { rowFailed, toolFailure } from "./toolFailure";

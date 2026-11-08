@@ -1,9 +1,23 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-08: the Updated card's remembered height keeps its scale, review F1 and F2 of #38150. The heights
+  `SidebarUpdatedCardHost` remembers across launches are CSS pixels (points over `app.uiScale`) under new `.v3`
+  keys, read back at the scale now, so a 60 pt card remembered at 125% holds 48 at 100%; the `.v2` points at an
+  unrecorded scale are dropped, not guessed. The host also observes `app.uiScale` while a card shows and lays the
+  card out again, so a remembered card follows a scale change before its page's first report.
+  Regression: `UpdatedCardScaleDownTests`.
 - 2026-11-08: the Updated card follows a live interface scale change, review of #38107. The first-frame hold
   (`SidebarUpdatedCardHost.heldHeight`) keeps the scale it was taken at and is read at the scale now, so a scale
   decrease shrinks the card with its page instead of holding its old, larger height; #38107 made the page's
   points follow a live scale change. Regression: `UpdatedCardScaleDownTests`, `UpdatedCardLiveScaleTests`.
+- 2026-11-08: the Updated card's hover preview stays glass. Leo, verbatim: "it turns from glass when it's unhovered
+  into opaque when it does get hovered. I feel like we should be able to keep it as glass though, right?" A native
+  glass behind the card's page (`SidebarUpdatedCardHost.glass`), the card and its open preview, frosts the rows under
+  it, so the page keeps its tint open, at rest and dragged (takes back the solid fill of a72c0fd5c542, f1d36c5f77e3,
+  9205005b4340). The preview and the glass move on cubic-bezier(0.16, 1, 0.3, 1) over 265 ms on `Motion.web`. The rows
+  under the open card neither light nor open hover cards (`SidebarListView.hoverOccluded`), and the grown view takes
+  clicks only on the glass. Regression: `UpdatedCardHoverPreviewTests`, webviews `updated-card-hover-preview.test.tsx`,
+  `updated-card-native-glass.test.ts`.
 - 2026-11-07: the group editor follows its page's scale, review of #37274 (F1). The density change made the page's
   `--cmux-interface-scale` `Typography.pageScale` (the chrome body size over the Default density's 13 pt, never
   below 1), so the card is 240 x `pageScale` wide, not 240 x `userScale`: at Spacious and at Compact with Text Size

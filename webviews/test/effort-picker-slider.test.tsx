@@ -43,7 +43,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { EffortPicker } = await import("../src/agent-session/acpmux/EffortPicker");
-const { effortStopCenterX, effortStopShare } = await import("../src/agent-session/acpmux/EffortTrack");
+const { effortStopCenterX, effortStopShare } = await import("../src/agent-session/acpmux/effortTrackModel");
 const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
 const { readComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
 
