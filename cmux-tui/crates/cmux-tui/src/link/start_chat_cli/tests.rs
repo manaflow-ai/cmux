@@ -1842,7 +1842,7 @@ fn a_reserved_machine_binds_once_before_the_send_is_pinned() {
     let send = key();
     let team = "team_0123456789abcdef0123";
     let request = json!({"key": send, "account": ACCOUNT, "workspace": "new-ws", "loaded": false,
-        "reservation_key": compose, "credential_on_stdin": true, "team": team,
+        "reservation_key": compose, "credential_on_stdin": true,
         "platform": "https://cmux-platform-development.debussy.workers.dev"})
     .to_string();
     let calls = RefCell::new(Vec::new());
@@ -1860,7 +1860,7 @@ fn a_reserved_machine_binds_once_before_the_send_is_pinned() {
     let first = super::plan_with_calls(
         &path,
         &request,
-        &mut "stack-session\n".as_bytes(),
+        &mut format!("stack-session\n{}\n", super::spare_warm::install_token(team)).as_bytes(),
         &never_ensure,
         &bind,
     );

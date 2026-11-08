@@ -206,11 +206,37 @@ test("the turn ending lands the chase within BURST_S, no frame more than a line"
   }
   expect(drawn()).toBe(0);
   expect(frames).toBeLessThanOrEqual(Math.ceil(BURST_S * 120) + 1);
-  // Within a line of home it lands at once.
+  // A quiet frame within CHASE_LAND_LINES of home lands at once: nothing moves after the turn
+  // settles (agent-pane-stream-jitter).
   chase.shift(node, -0.5 * line);
   chase.land();
   expect(drawn()).toBe(0);
   expect(pending()).toBe(0);
+});
+
+test("a turn that ends in a frame that already moved adds no snap: that frame moves at most a line", () => {
+  // send-stream-motion: the reply's last line lands (part of it at once, as a landing frame does),
+  // the turn ends in the same frame, and a snap of what was left moved the rows 26-40 px in it.
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  const line = currentChatMetrics().lineHeight;
+  chase.shift(node, -0.5 * line, 2 * line);
+  frame();
+  const before = drawn();
+  // The rows' layout rises a line; the thread is drawn `drawn()` from it.
+  chase.shift(node, -line, 2 * line);
+  chase.land();
+  expect(Math.abs(-line + drawn() - before)).toBeLessThanOrEqual(line + 1e-6);
+  let previous = drawn();
+  let frames = 0;
+  while (pending() > 0 && frames < 240) {
+    const at = frame();
+    frames += 1;
+    expect(previous - at).toBeLessThanOrEqual(line + 1e-6);
+    previous = at;
+  }
+  expect(drawn()).toBe(0);
+  expect(frames).toBeLessThanOrEqual(Math.ceil(BURST_S * 120) + 1);
 });
 
 test("blocks: a reply's growth holds back a line; its landing frame moves the rest, up to CHASE_LAND_LINES", () => {
@@ -232,6 +258,27 @@ test("blocks: a reply's growth holds back a line; its landing frame moves the re
   chase.stop();
   chase.shift(node, -1.5 * line);
   expect(drawn()).toBeCloseTo(1.5 * line);
+});
+
+test("blocks: what lands before a frame's step, the step and what lands after it move the rows at most a line", () => {
+  // send-stream-motion.test.ts on the frames' own clock, frame 247 of the send: a 4-line block landed
+  // between two frames (16 px of it at once), that frame's step moved 6 px, then the same frame's
+  // measuring pass brought 0.9 of a line more and moved 12 px of it at once: 34.5 px, a line and a
+  // half, in one 120 Hz frame. The step forgot what the frame had already moved at once.
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn } = fixture();
+  const line = currentChatMetrics().lineHeight;
+  chase.shift(node, -0.5 * line, 52);
+  frame();
+  frame();
+  const before = drawn();
+  chase.shift(node, -4 * line, 52);
+  frame();
+  chase.shift(node, -0.88 * line, 52);
+  // The rows' move on screen in that frame: the layout's (up 4.88 lines) less what the thread is
+  // drawn back by now, against where it was drawn in the frame before.
+  const moved = -4.88 * line + (drawn() - before);
+  expect(Math.abs(moved)).toBeLessThanOrEqual(line + 1e-6);
 });
 
 test("reader input while still followed (at the bottom, nothing scrolls) resumes the chase next frame", () => {

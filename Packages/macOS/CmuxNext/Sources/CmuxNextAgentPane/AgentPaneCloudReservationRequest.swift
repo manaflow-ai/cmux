@@ -18,11 +18,11 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
         composeKey = params["composeKey"]?.stringValue
     }
 
-    /// Supplies only the native client's trusted platform and human-session credentials to Rust. `team` is the
-    /// backend team the reservation names: the one the app's machine list reads (CloudService.reservationTeam).
+    /// Supplies only the native client's trusted platform and human-session credentials to Rust. `install` is the
+    /// install token: Rust names the reservation in its team, the one the machine list reads and the spare warm uses.
     @MainActor
     public func run(allowed: Bool, binary: URL?, configuration: CloudConfiguration, auth: CloudAuth,
-                    team: () async throws -> String?) async -> [String: Any] {
+                    install: () async throws -> String?) async -> [String: Any] {
         guard allowed, let binary, let platform = configuration.artifactsAPIBaseURL() else {
             return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
         }
@@ -30,11 +30,10 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
             let data = try JSONEncoder().encode(params)
             var object = (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
             object["platform"] = platform.absoluteString
-            object["team"] = try await team()
             let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
             let token = try await auth.tokens().access
             let answer = try await CloudMoveCLI(binary: binary).startChatReservation(
-                release: release, request: String(decoding: payload, as: UTF8.self), access: token)
+                release: release, request: String(decoding: payload, as: UTF8.self), access: token, install: try await install())
             let reply = try JSONSerialization.jsonObject(with: answer) as? [String: Any] ?? [:]
             guard reply["ok"] as? Bool == true else {
                 // Rust emits only its fixed error codes; provider messages never reach the page.
