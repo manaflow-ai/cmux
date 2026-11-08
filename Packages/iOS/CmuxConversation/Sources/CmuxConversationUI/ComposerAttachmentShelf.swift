@@ -229,14 +229,26 @@ final class ComposerAttachmentShelf: UIView {
         blurred.alpha = 0
         exit.insertSubview(blurred, belowSubview: sharp)
         let delay = Motion.removalDelay
+        if UIView.reducesMotion {
+            // Reduce Motion: no jump to the first slot, no blur or shrink;
+            // the preview fades out where it is.
+            // motion: allow crossfade, the Reduce Motion form
+            UIView.animate(withDuration: Motion.springResponse, delay: delay, options: [.curveEaseOut, .allowUserInteraction]) {
+                exit.alpha = 0
+            } completion: { _ in
+                exit.removeFromSuperview()
+            }
+            return
+        }
         if frame.origin != current.origin {
             // The last of several jumps to the first slot as its exit starts.
-            UIView.animate(withDuration: 0.001, delay: delay, options: []) {
+            UIView.animateUnlessReduceMotion(withDuration: 0.001, delay: delay, options: []) {
                 exit.center = CGPoint(x: frame.midX, y: frame.midY)
             }
         }
         // Under the fading sharp photo, the blurred one comes up at once, so
         // the preview stays opaque while it blurs; the whole fades on the spring.
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: Motion.exitBlurRamp, delay: delay, options: [.curveLinear]) {
             blurred.alpha = 1
         }
@@ -318,9 +330,10 @@ final class ComposerAttachmentShelf: UIView {
         item.imageView.layer.cornerCurve = .continuous
     }
 
-    /// Messages' shelf spring: critically damped, 0.345 s response.
+    /// Messages' shelf spring: critically damped, 0.345 s response. Under
+    /// Reduce Motion the change lands at once (completion still runs).
     static func animate(delay: TimeInterval = 0, _ animations: @escaping () -> Void, completion: (() -> Void)? = nil) {
-        UIView.animate(
+        UIView.animateUnlessReduceMotion(
             springDuration: Motion.springResponse, bounce: 0, initialSpringVelocity: 0, delay: delay,
             options: [.beginFromCurrentState, .allowUserInteraction],
             animations: animations, completion: { _ in completion?() }

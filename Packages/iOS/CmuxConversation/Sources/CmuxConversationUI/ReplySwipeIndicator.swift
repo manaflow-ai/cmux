@@ -72,6 +72,18 @@ final class ReplySwipeIndicator: UIView {
         let drift = isOutgoing ? -ConversationReplyMotion.outgoingIndicatorDrift : 0
         let start = layer.presentation()?.affineTransform() ?? transform
         setTransform(scale: ConversationReplyMotion.indicatorFinalScale, drift: drift)
+        // Under Reduce Motion no pulse: the indicator is already at its final scale.
+        if !UIView.reducesMotion {
+            addPulse(from: start, drift: drift)
+        }
+        // motion: allow timer, an empty animator that only times the haptic
+        let timer = UIViewPropertyAnimator(duration: ConversationReplyMotion.pulseDuration / 4, curve: .linear)
+        timer.addAnimations {}
+        timer.addCompletion { _ in haptic() }
+        timer.startAnimation()
+    }
+
+    private func addPulse(from start: CGAffineTransform, drift: CGFloat) {
         let animation = CAKeyframeAnimation(keyPath: "transform")
         animation.values = [
             CATransform3DMakeAffineTransform(start),
@@ -82,10 +94,6 @@ final class ReplySwipeIndicator: UIView {
         animation.duration = ConversationReplyMotion.pulseDuration
         animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         layer.add(animation, forKey: "replyPulse")
-        let timer = UIViewPropertyAnimator(duration: ConversationReplyMotion.pulseDuration / 4, curve: .linear)
-        timer.addAnimations {}
-        timer.addCompletion { _ in haptic() }
-        timer.startAnimation()
     }
 
     /// Release without replying: back to 0.4 and transparent over 0.4 s,
@@ -93,7 +101,7 @@ final class ReplySwipeIndicator: UIView {
     /// row hides behind the thread's copy on the very next frame.
     func settle() {
         let drift = self.drift
-        UIView.animate(withDuration: ConversationReplyMotion.indicatorResetDuration, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
+        UIView.animateUnlessReduceMotion(withDuration: ConversationReplyMotion.indicatorResetDuration, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
             self.setTransform(scale: ConversationReplyMotion.indicatorInitialScale, drift: drift)
             self.alpha = 0
         }

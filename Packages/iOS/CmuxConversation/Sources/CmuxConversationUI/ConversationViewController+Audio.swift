@@ -233,6 +233,7 @@ final class ConversationAudioComposer {
         noticeLabel.autoresizingMask = [.flexibleWidth, .flexibleTopMargin]
         field.addSubview(noticeLabel)
         noticeLabel.alpha = 0
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.2) {
             self.noticeLabel.alpha = 1
             composer.placeholder.alpha = 0
@@ -244,6 +245,7 @@ final class ConversationAudioComposer {
         noticeTask = Task { [weak self] in
             try? await clock.sleep(for: .seconds(3))
             guard !Task.isCancelled, let self else { return }
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: 0.2) {
                 self.noticeLabel.alpha = 0
                 composer.placeholder.alpha = 1
@@ -263,6 +265,7 @@ final class ConversationAudioComposer {
         field.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         composer.fieldGlass.contentView.addSubview(field)
         field.alpha = 0
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.2) {
             self.field.alpha = 1
             composer.textView.alpha = 0
@@ -284,6 +287,7 @@ final class ConversationAudioComposer {
         guard let composer = controller?.composer else { return }
         setPlusGlyph("plus", in: composer)
         composer.plusButton.accessibilityLabel = String(localized: "conversation.composer.plus", defaultValue: "Apps", bundle: .module)
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.2) {
             self.field.alpha = 0
             composer.textView.alpha = 1
@@ -297,6 +301,7 @@ final class ConversationAudioComposer {
 
     private func setPlusGlyph(_ symbol: String, in composer: ConversationComposerView) {
         let image = UIImage(systemName: symbol, withConfiguration: ConversationComposerView.plusSymbolConfiguration)
+        // motion: allow crossfade, the Reduce Motion form
         UIView.transition(with: composer.plusButton, duration: 0.2, options: .transitionCrossDissolve) {
             composer.plusButton.setImage(image, for: .normal)
         }
