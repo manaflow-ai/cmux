@@ -609,7 +609,10 @@ fn a_start_during_a_fill_leaves_the_checkout_to_it() {
     machine.barrier_reads(124);
     let (code, record) = machine.run();
     assert_eq!(code, 0, "{record}");
-    assert_eq!((record["status"].as_str(), record["fill"].as_str()), (Some("kept"), Some("background")));
+    assert_eq!(
+        (record["status"].as_str(), record["fill"].as_str()),
+        (Some("kept"), Some("background"))
+    );
     assert_eq!(machine.git(&["rev-parse", "HEAD"]), before, "not fetched or forwarded");
 }
 

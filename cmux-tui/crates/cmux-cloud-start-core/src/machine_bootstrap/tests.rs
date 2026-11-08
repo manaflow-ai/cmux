@@ -421,7 +421,8 @@ fn an_identical_start_runs_again_only_after_its_fill_failed() {
     let failed = |fill: &str, code: &str| {
         let status = format!(r#"{{"status":"cloned","dir":"/w/r","fill":"{fill}"}}"#);
         std::fs::write(scratch.join("repo-status.json"), status).unwrap();
-        let script = format!("d='{}'; as_u() {{ \"$@\"; }}; {FILL_FAILED}; fill_failed", scratch.display());
+        let script =
+            format!("d='{}'; as_u() {{ \"$@\"; }}; {FILL_FAILED}; fill_failed", scratch.display());
         std::process::Command::new("sh")
             .arg("-c")
             .arg(script)
