@@ -405,6 +405,20 @@
       "title" : "Seconds Between Retries",
       "type" : "number"
     },
+    "agents.cacheCompact.enabled" : {
+      "default" : false,
+      "description" : "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache.",
+      "title" : "Compact Before the Cache Expires",
+      "type" : "boolean"
+    },
+    "agents.cacheCompact.minContextPercent" : {
+      "default" : 50,
+      "description" : "Chats using less of their context window than this are left as they are.",
+      "maximum" : 95,
+      "minimum" : 10,
+      "title" : "Only Above Context Used (%)",
+      "type" : "number"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
