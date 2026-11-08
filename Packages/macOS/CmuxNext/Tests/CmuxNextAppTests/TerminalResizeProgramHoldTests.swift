@@ -120,6 +120,11 @@ struct TerminalResizeProgramHoldTests {
         try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "Ctrl-Shift-H on p2 moved nothing")
         try await Self.stepToLanding(screen)
         await TerminalKeyResizeFrameTests.settle(screen)
+        // The rule itself, not only its pictures (review of 17154838e7b P2 1): press 2's first new size of each terminal
+        // waits for the program's redraw. With the latch, it did not (hold refreshes 0), and the fast redraw hid it.
+        let unheld = presents.firstHoldTicks.filter { $0.value != TerminalFramePresenter.resizeHoldTicks }
+        #expect(!presents.firstHoldTicks.isEmpty && unheld.isEmpty,
+                "press 2's first new sizes waited \(presents.firstHoldTicks.sorted { $0.key < $1.key }) refreshes for the program's redraw, not \(TerminalFramePresenter.resizeHoldTicks): a missed bound turned the hold off")
         try presents.check("the press after a missed bound")
     }
 
@@ -246,12 +251,15 @@ struct TerminalResizeProgramHoldTests {
         private let presenter: TerminalFramePresenter
         private(set) var program = 0
         private(set) var sizeOnly: [String] = []
+        /// Each terminal's hold (``TerminalSurfaceView/programHoldTicks``) at its first present while this watches.
+        private(set) var firstHoldTicks: [String: UInt64] = [:]
 
         init(_ screen: TerminalKeyResizeFrameTests.PaneScreen) {
             presenter = TerminalFramePresenter.forWindow(screen.window)
             presenter.presentingHook = { [weak self, unowned screen] view, state in
                 guard let self else { return }
                 let name = screen.sessions.firstIndex { $0.surfaceView === view }.map { "p\($0 + 1)" } ?? "?"
+                if firstHoldTicks[name] == nil { firstHoldTicks[name] = view.programHoldTicks }
                 if state == GHOSTTY_HOST_FRAME_READY_PROGRAM { program += 1 }
                 if state == GHOSTTY_HOST_FRAME_READY {
                     let bounds = view.bounds.size, asked = view.frameOwnership.inFlight ?? .zero
