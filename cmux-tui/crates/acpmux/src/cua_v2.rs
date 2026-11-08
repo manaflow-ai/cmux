@@ -350,7 +350,8 @@ where
                 if name == wait_for::TOOL {
                     let result = match wait_for::Wait::parse(&arguments) {
                         Ok(wait) => {
-                            let mut reader = HelperReader { helper: &mut helper, connect: &connect };
+                            let mut reader =
+                                HelperReader { helper: &mut helper, connect: &connect };
                             wait_for::run(&wait, &mut reader).await
                         }
                         Err(text) => {

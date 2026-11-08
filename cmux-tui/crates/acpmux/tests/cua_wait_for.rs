@@ -46,44 +46,51 @@ fn helper(dir: &Path, appears_at: Option<usize>) -> Receiver<Value> {
     let socket = dir.join("h.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     let endpoint = dir.join("endpoint.json");
-    std::fs::write(&endpoint, json!({"protocol": 1, "socket": socket, "secret": SECRET}).to_string())
-        .unwrap();
+    std::fs::write(
+        &endpoint,
+        json!({"protocol": 1, "socket": socket, "secret": SECRET}).to_string(),
+    )
+    .unwrap();
     std::fs::set_permissions(&endpoint, std::fs::Permissions::from_mode(0o600)).unwrap();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let Ok((stream, _)) = listener.accept() else { return };
-        let mut writer = stream.try_clone().unwrap();
-        let mut lines = BufReader::new(stream).lines();
-        let Some(Ok(_secret)) = lines.next() else { return };
-        writeln!(writer, "{}", json!({"ok": true, "protocol": 1})).unwrap();
         let mut reads = 0;
-        while let Some(Ok(line)) = lines.next() {
-            let request: Value = serde_json::from_str(&line).unwrap();
-            let result = match request["method"].as_str().unwrap() {
-                "machine/consent" => {
-                    json!({"consentRequired": false, "consent": {"screen": "none", "control": "none"}})
-                }
-                "tools/list" => json!([
-                    {"name": "get_window_state", "annotations": {"readOnlyHint": true}},
-                    {"name": "click", "annotations": {"readOnlyHint": false}}
-                ]),
-                _ => {
-                    assert_eq!(request["name"], "get_window_state", "{request}");
-                    reads += 1;
-                    let _ = tx.send(request["arguments"].clone());
-                    let elements = if appears_at.is_some_and(|at| reads >= at) {
-                        json!([
-                            {"element_index": 0, "role": "AXWindow", "label": "Doc", "depth": 0},
-                            {"element_index": 5, "element_token": "s00000009:5", "role": "AXButton", "label": "Save", "depth": 1}
-                        ])
-                    } else {
-                        json!([])
-                    };
-                    json!({"content": [{"type": "text", "text": "window_id=4 pid=123"}],
-                        "structuredContent": {"pid": 123, "window_id": 4, "elements": elements}})
-                }
-            };
-            writeln!(writer, "{}", json!({"id": request["id"], "ok": true, "result": result})).unwrap();
+        // A reconnect gets a new connection; the read count goes on.
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let mut writer = stream.try_clone().unwrap();
+            let mut lines = BufReader::new(stream).lines();
+            let Some(Ok(_secret)) = lines.next() else { continue };
+            writeln!(writer, "{}", json!({"ok": true, "protocol": 1})).unwrap();
+            while let Some(Ok(line)) = lines.next() {
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let result = match request["method"].as_str().unwrap() {
+                    "machine/consent" => {
+                        json!({"consentRequired": false, "consent": {"screen": "none", "control": "none"}})
+                    }
+                    "tools/list" => json!([
+                        {"name": "get_window_state", "annotations": {"readOnlyHint": true}},
+                        {"name": "click", "annotations": {"readOnlyHint": false}}
+                    ]),
+                    _ => {
+                        assert_eq!(request["name"], "get_window_state", "{request}");
+                        reads += 1;
+                        let _ = tx.send(request["arguments"].clone());
+                        let elements = if appears_at.is_some_and(|at| reads >= at) {
+                            json!([
+                                {"element_index": 0, "role": "AXWindow", "label": "Doc", "depth": 0},
+                                {"element_index": 5, "element_token": "s00000009:5", "role": "AXButton", "label": "Save", "depth": 1}
+                            ])
+                        } else {
+                            json!([])
+                        };
+                        json!({"content": [{"type": "text", "text": "window_id=4 pid=123"}],
+                            "structuredContent": {"pid": 123, "window_id": 4, "elements": elements}})
+                    }
+                };
+                writeln!(writer, "{}", json!({"id": request["id"], "ok": true, "result": result}))
+                    .unwrap();
+            }
         }
     });
     rx
@@ -113,8 +120,12 @@ impl Bridge {
 
     fn send(&mut self, method: &str, params: Value) -> Value {
         self.id += 1;
-        writeln!(self.input, "{}", json!({"jsonrpc": "2.0", "id": self.id, "method": method, "params": params}))
-            .unwrap();
+        writeln!(
+            self.input,
+            "{}",
+            json!({"jsonrpc": "2.0", "id": self.id, "method": method, "params": params})
+        )
+        .unwrap();
         self.input.flush().unwrap();
         let mut line = String::new();
         self.output.read_line(&mut line).unwrap();
@@ -190,5 +201,10 @@ fn wait_for_element_that_runs_out_says_timed_out_and_ends_at_its_deadline() {
         json!({"name": "wait_for_element", "arguments": {"pid": 123, "window_id": 4}}),
     );
     assert_eq!(reply["result"]["isError"], true, "{reply}");
-    assert!(reply["result"]["content"][0]["text"].as_str().unwrap().contains("needs query, role or both"));
+    assert!(
+        reply["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("needs query, role or both")
+    );
 }

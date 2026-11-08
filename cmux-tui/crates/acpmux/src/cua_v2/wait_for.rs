@@ -30,8 +30,10 @@ pub const TOOL: &str = "wait_for_element";
 pub const READ_TOOL: &str = "get_window_state";
 /// The wait's deadline when `timeout_ms` is absent.
 pub const DEFAULT_TIMEOUT_MS: u64 = 10_000;
-/// The longest wait; a larger `timeout_ms` is cut to this.
-pub const MAX_TIMEOUT_MS: u64 = 60_000;
+/// The longest wait; a larger `timeout_ms` is cut to this. With the last
+/// check's [`CHECK_GRACE`] a call ends within 55 s, under the 60 s an MCP
+/// client commonly gives one tool call.
+pub const MAX_TIMEOUT_MS: u64 = 50_000;
 /// The pause between checks when `interval_ms` is absent.
 pub const DEFAULT_INTERVAL_MS: u64 = 200;
 const MIN_INTERVAL_MS: u64 = 100;
@@ -48,7 +50,7 @@ const PASSED_ON: [&str; 4] = ["pid", "window_id", "max_depth", "max_elements"];
 pub fn definition() -> Value {
     json!({
         "name": TOOL,
-        "description": "Wait until an element appears in a window's accessibility tree (or, with gone: true, until none matches), instead of sleeping and taking another screenshot. Checks the tree with get_window_state (no screenshot) every interval_ms until timeout_ms. On a match it returns the matching elements in get_window_state's shape, with element_token values from the newest snapshot, ready for click or type_text. On timeout it returns isError with timed_out: true and the count the last check saw. Pass query (get_window_state's case-insensitive match on an element's role, label or value), role, or both.",
+        "description": "Wait until an element appears in a window's accessibility tree (or, with gone: true, until none matches), instead of sleeping and taking another screenshot. Checks the tree with get_window_state (no screenshot) every interval_ms until timeout_ms. On a match it returns the matching elements in get_window_state's shape, with element_token values from the newest snapshot, ready for click or type_text. On timeout it returns isError with timed_out: true and the count the last check saw. Pass query (get_window_state's case-insensitive match on an element's role, label or value; like it, only indexed rows count, so a plain text or spinner with no element_index never matches), role, or both.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -57,7 +59,7 @@ pub fn definition() -> Value {
                 "query": {"type": "string", "description": "get_window_state's query: a case-insensitive match on an element's role, label or value."},
                 "role": {"type": "string", "description": "Only elements of this role, for example button or AXButton (case-insensitive; the AX prefix is optional)."},
                 "gone": {"type": "boolean", "description": "Wait until no element matches instead. Default false."},
-                "timeout_ms": {"type": "integer", "minimum": 0, "maximum": MAX_TIMEOUT_MS, "description": "How long to wait in all. Default 10000; larger values are cut to 60000; 0 checks once."},
+                "timeout_ms": {"type": "integer", "minimum": 0, "maximum": MAX_TIMEOUT_MS, "description": "How long to wait in all. Default 10000; larger values are cut to 50000; 0 checks once."},
                 "interval_ms": {"type": "integer", "minimum": MIN_INTERVAL_MS, "maximum": MAX_INTERVAL_MS, "description": "The pause between checks. Default 200."},
                 "max_depth": {"type": "integer", "description": "Passed to get_window_state."},
                 "max_elements": {"type": "integer", "description": "Passed to get_window_state."}
@@ -74,7 +76,9 @@ pub fn with_definition(mut list: Value) -> Value {
     let Some(tools) = list.get_mut("tools").and_then(Value::as_array_mut) else {
         return list;
     };
-    let named = |name: &str| tools.iter().any(|tool| tool.get("name").and_then(Value::as_str) == Some(name));
+    let named = |name: &str| {
+        tools.iter().any(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
+    };
     if named(READ_TOOL) && !named(TOOL) {
         tools.push(definition());
     }
@@ -96,9 +100,9 @@ impl Wait {
     /// Reads the tool's arguments; the error is the text for the agent.
     pub fn parse(arguments: &Value) -> Result<Wait, String> {
         let example = r#"{"pid":123,"window_id":4,"query":"Save","role":"button"}"#;
-        let object = arguments
-            .as_object()
-            .ok_or_else(|| format!("invalid_arguments: {TOOL} takes an object, for example {example}"))?;
+        let object = arguments.as_object().ok_or_else(|| {
+            format!("invalid_arguments: {TOOL} takes an object, for example {example}")
+        })?;
         for key in ["pid", "window_id"] {
             if !object.get(key).is_some_and(Value::is_i64) {
                 return Err(format!(
@@ -124,13 +128,17 @@ impl Wait {
         let gone = match object.get("gone") {
             None | Some(Value::Null) => false,
             Some(Value::Bool(gone)) => *gone,
-            Some(_) => return Err(format!("invalid_arguments: {TOOL} takes gone as true or false")),
+            Some(_) => {
+                return Err(format!("invalid_arguments: {TOOL} takes gone as true or false"));
+            }
         };
         let millis = |key: &str, default: u64| -> Result<u64, String> {
             match object.get(key) {
                 None | Some(Value::Null) => Ok(default),
                 Some(value) => value.as_u64().ok_or_else(|| {
-                    format!("invalid_arguments: {TOOL} takes {key} as a whole number of milliseconds")
+                    format!(
+                        "invalid_arguments: {TOOL} takes {key} as a whole number of milliseconds"
+                    )
                 }),
             }
         };
@@ -191,7 +199,8 @@ pub trait TreeReader {
 pub fn matching(state: &Value, query: Option<&str>, role: Option<&str>) -> Vec<Value> {
     let empty = Vec::new();
     let elements = state.get("elements").and_then(Value::as_array).unwrap_or(&empty);
-    let depth = |element: Option<&Value>| element.and_then(|e| e.get("depth")).and_then(Value::as_u64);
+    let depth =
+        |element: Option<&Value>| element.and_then(|e| e.get("depth")).and_then(Value::as_u64);
     let query = query.map(str::to_lowercase);
     let role = role.map(normalized_role);
     elements
@@ -201,15 +210,17 @@ pub fn matching(state: &Value, query: Option<&str>, role: Option<&str>) -> Vec<V
             let hit = match &query {
                 None => true,
                 Some(query) => {
-                    let ancestor = match (depth(Some(element)), depth(elements.get(at.saturating_add(1)))) {
-                        (Some(own), Some(next)) => next > own,
-                        _ => false,
-                    };
+                    let ancestor =
+                        match (depth(Some(element)), depth(elements.get(at.saturating_add(1)))) {
+                            (Some(own), Some(next)) => next > own,
+                            _ => false,
+                        };
                     !ancestor || own_text_holds(element, query)
                 }
             };
             hit && role.as_ref().is_none_or(|role| {
-                element.get("role").and_then(Value::as_str).map(normalized_role).as_ref() == Some(role)
+                element.get("role").and_then(Value::as_str).map(normalized_role).as_ref()
+                    == Some(role)
             })
         })
         .map(|(_, element)| element.clone())
@@ -217,8 +228,11 @@ pub fn matching(state: &Value, query: Option<&str>, role: Option<&str>) -> Vec<V
 }
 
 fn own_text_holds(element: &Value, query: &str) -> bool {
-    ["role", "label", "value", "value_description", "title", "identifier"].iter().any(|key| {
-        element.get(*key).and_then(Value::as_str).is_some_and(|text| text.to_lowercase().contains(query))
+    ["role", "label", "value"].iter().any(|key| {
+        element
+            .get(*key)
+            .and_then(Value::as_str)
+            .is_some_and(|text| text.to_lowercase().contains(query))
     })
 }
 
@@ -234,13 +248,20 @@ pub async fn run<R: TreeReader>(wait: &Wait, reader: &mut R) -> Value {
     let mut checks: u64 = 0;
     let mut last: Vec<Value> = Vec::new();
     let mut window = Value::Null;
+    let mut unanswered = false;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         checks = checks.saturating_add(1);
-        let read = tokio::time::timeout(remaining.max(CHECK_GRACE), reader.read(wait.read_arguments.clone()));
+        let read = tokio::time::timeout(
+            remaining.max(CHECK_GRACE),
+            reader.read(wait.read_arguments.clone()),
+        );
         let result = match read.await {
             Err(_) => {
+                // This check has no answer: the count stays the last one's.
                 reader.abandon();
+                checks = checks.saturating_sub(1);
+                unanswered = true;
                 break;
             }
             Ok(Err(text)) => return failed(wait, &text, checks, started),
@@ -263,7 +284,7 @@ pub async fn run<R: TreeReader>(wait: &Wait, reader: &mut R) -> Value {
         // Nothing is held across this pause: the reader owns the connection.
         tokio::time::sleep(wait.interval.min(deadline.saturating_duration_since(now))).await;
     }
-    timed_out(wait, &last, &window, checks, started)
+    timed_out(wait, &last, &window, checks, unanswered, started)
 }
 
 fn elapsed_ms(started: Instant) -> u64 {
@@ -278,14 +299,18 @@ fn lines(elements: &[Value]) -> String {
     let mut text = String::new();
     for element in elements.iter().take(20) {
         let field = |key: &str| element.get(key).and_then(Value::as_str).unwrap_or_default();
-        let index = element.get("element_index").map(Value::to_string).unwrap_or_else(|| "-".into());
+        let index =
+            element.get("element_index").map(Value::to_string).unwrap_or_else(|| "-".into());
         text.push_str(&format!("\n- [{index}] {} {:?}", field("role"), field("label")));
         if let Some(token) = element.get("element_token").and_then(Value::as_str) {
             text.push_str(&format!(" element_token={token}"));
         }
     }
     if elements.len() > 20 {
-        text.push_str(&format!("\n- … {} more in structuredContent.elements", elements.len().saturating_sub(20)));
+        text.push_str(&format!(
+            "\n- … {} more in structuredContent.elements",
+            elements.len().saturating_sub(20)
+        ));
     }
     text
 }
@@ -318,12 +343,21 @@ fn done(wait: &Wait, found: &[Value], window: &Value, checks: u64, started: Inst
     })
 }
 
-fn timed_out(wait: &Wait, last: &[Value], window: &Value, checks: u64, started: Instant) -> Value {
+fn timed_out(
+    wait: &Wait,
+    last: &[Value],
+    window: &Value,
+    checks: u64,
+    unanswered: bool,
+    started: Instant,
+) -> Value {
     let elapsed = elapsed_ms(started);
     let timeout = u64::try_from(wait.timeout.as_millis()).unwrap_or(MAX_TIMEOUT_MS);
     let goal = if wait.gone { "to disappear" } else { "to appear" };
+    let unanswered_text =
+        if unanswered { "; one more check got no answer from the helper in time" } else { "" };
     let text = format!(
-        "timed_out: waited {elapsed} ms ({checks} checks) for {} {goal}; the last check saw {} matching element(s). Next: get_window_state to look at the window, or {TOOL} again with a larger timeout_ms (at most {MAX_TIMEOUT_MS}).",
+        "timed_out: waited {elapsed} ms ({checks} checks) for {} {goal}; the last check saw {} matching element(s){unanswered_text}. Next: get_window_state to look at the window, or {TOOL} again with a larger timeout_ms (at most {MAX_TIMEOUT_MS}).",
         wait.describe(),
         last.len()
     );
@@ -338,6 +372,7 @@ fn timed_out(wait: &Wait, last: &[Value], window: &Value, checks: u64, started: 
             "checks": checks,
             "elapsed_ms": elapsed,
             "timeout_ms": timeout,
+            "last_check_unanswered": unanswered,
             "pid": window.get("pid"),
             "window_id": window.get("window_id"),
         },
@@ -346,10 +381,7 @@ fn timed_out(wait: &Wait, last: &[Value], window: &Value, checks: u64, started: 
 }
 
 fn failed(wait: &Wait, text: &str, checks: u64, started: Instant) -> Value {
-    let text = format!(
-        "{TOOL} stopped while waiting for {}: {text}",
-        wait.describe()
-    );
+    let text = format!("{TOOL} stopped while waiting for {}: {text}", wait.describe());
     json!({
         "content": [{"type": "text", "text": text}],
         "structuredContent": {

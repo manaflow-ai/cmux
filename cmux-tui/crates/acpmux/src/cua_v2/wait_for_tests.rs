@@ -52,9 +52,11 @@ fn wait(arguments: Value) -> Wait {
 
 #[tokio::test(start_paused = true)]
 async fn waits_until_the_element_appears_and_returns_it_from_the_newest_snapshot() {
-    let mut reader = Script::new(vec![state(json!([])), state(json!([])), state(json!([save_button()]))]);
+    let mut reader =
+        Script::new(vec![state(json!([])), state(json!([])), state(json!([save_button()]))]);
     let started = Instant::now();
-    let result = run(&wait(json!({"pid": 123, "window_id": 4, "query": "Save"})), &mut reader).await;
+    let result =
+        run(&wait(json!({"pid": 123, "window_id": 4, "query": "Save"})), &mut reader).await;
     let structured = &result["structuredContent"];
     assert_eq!(result.get("isError"), None, "{result}");
     assert_eq!(structured["timed_out"], false);
@@ -94,6 +96,7 @@ async fn a_wait_that_runs_out_says_timed_out_with_the_last_count() {
     let text = result["content"][0]["text"].as_str().unwrap();
     assert!(text.starts_with("timed_out:"), "{text}");
     assert!(text.contains("Next: get_window_state"), "{text}");
+    assert_eq!(structured["last_check_unanswered"], false);
 }
 
 #[tokio::test(start_paused = true)]
@@ -117,7 +120,9 @@ async fn gone_waits_until_nothing_matches() {
 async fn gone_that_runs_out_lists_what_is_still_there() {
     let mut reader = Script::new(vec![state(json!([save_button()]))]);
     let result = run(
-        &wait(json!({"pid": 123, "window_id": 4, "role": "button", "gone": true, "timeout_ms": 300})),
+        &wait(
+            json!({"pid": 123, "window_id": 4, "role": "button", "gone": true, "timeout_ms": 300}),
+        ),
         &mut reader,
     )
     .await;
@@ -132,14 +137,16 @@ async fn a_failed_read_ends_the_wait_at_once_with_its_text() {
         "content": [{"type": "text", "text": "window 4 not found; call list_windows"}],
         "isError": true,
     }))]);
-    let result = run(&wait(json!({"pid": 123, "window_id": 4, "query": "Save"})), &mut reader).await;
+    let result =
+        run(&wait(json!({"pid": 123, "window_id": 4, "query": "Save"})), &mut reader).await;
     assert_eq!(result["isError"], true);
     assert_eq!(result["structuredContent"]["timed_out"], false);
     assert_eq!(result["structuredContent"]["checks"], 1);
     assert!(result["content"][0]["text"].as_str().unwrap().contains("call list_windows"));
 
     let mut refused = Script::new(vec![Err("consent_required".to_owned())]);
-    let result = run(&wait(json!({"pid": 123, "window_id": 4, "query": "Save"})), &mut refused).await;
+    let result =
+        run(&wait(json!({"pid": 123, "window_id": 4, "query": "Save"})), &mut refused).await;
     assert_eq!(result["isError"], true);
     assert!(result["content"][0]["text"].as_str().unwrap().ends_with("consent_required"));
 }
@@ -155,6 +162,8 @@ async fn a_read_that_never_answers_still_ends_and_drops_the_connection() {
     )
     .await;
     assert_eq!(result["structuredContent"]["timed_out"], true);
+    assert_eq!(result["structuredContent"]["checks"], 0);
+    assert_eq!(result["structuredContent"]["last_check_unanswered"], true);
     assert!(reader.abandoned);
     assert_eq!(started.elapsed(), CHECK_GRACE);
 }
@@ -164,7 +173,7 @@ fn ancestors_the_query_kept_are_not_matches() {
     // get_window_state's query keeps the matching row and its ancestors.
     let projected = json!({"elements": [
         {"element_index": 0, "role": "AXWindow", "label": "Untitled", "depth": 0},
-        {"element_index": 3, "role": "AXGroup", "depth": 1},
+        {"element_index": 3, "role": "AXGroup", "identifier": "save-row", "depth": 1},
         save_button(),
         {"element_index": 9, "role": "AXGroup", "label": "Save options", "depth": 1},
         {"element_index": 10, "role": "AXCheckBox", "label": "Save a copy", "depth": 2},
@@ -190,7 +199,10 @@ fn arguments_are_checked_and_bounded() {
         parsed.read_arguments(),
         &json!({"pid": 1, "window_id": 2, "max_depth": 80, "include_screenshot": false})
     );
-    assert_eq!(wait(json!({"pid": 1, "window_id": 2, "query": "x"})).timeout, Duration::from_millis(DEFAULT_TIMEOUT_MS));
+    assert_eq!(
+        wait(json!({"pid": 1, "window_id": 2, "query": "x"})).timeout,
+        Duration::from_millis(DEFAULT_TIMEOUT_MS)
+    );
     for (arguments, says) in [
         (json!({"window_id": 2, "query": "x"}), "needs pid"),
         (json!({"pid": 1, "query": "x"}), "needs window_id"),
@@ -208,7 +220,8 @@ fn arguments_are_checked_and_bounded() {
 
 #[test]
 fn the_tool_is_listed_only_beside_get_window_state() {
-    let listed = with_definition(json!({"tools": [{"name": "get_window_state"}, {"name": "click"}]}));
+    let listed =
+        with_definition(json!({"tools": [{"name": "get_window_state"}, {"name": "click"}]}));
     let names: Vec<&str> =
         listed["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert_eq!(names, ["get_window_state", "click", TOOL]);
