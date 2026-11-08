@@ -19,6 +19,8 @@
 // was charged as a new red to pull requests that never touched it (2026-10-30, runs 41079754472,
 // 41076022470, 41048809560). Four parts of about 879 stages each then outgrew their 480 s limit:
 // part 3 timed out at stage 750 even when retried alone (2026-11-03, run 41586011973), so six.
+// Six parts of about 701 stages each then reached their 450 s limit: part 6 scanned every stage and
+// still ran out on a busy shard (2026-11-05, run 42061901722), so seven.
 // Each part scans every `parts`-th stage of the sorted list.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -141,6 +143,27 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
       }
     };
 
+    // A stage that never settles held its worker, and so the whole part, until the file's 450 s limit:
+    // `page.evaluate` and `keyboard.press` have no timeout of their own, and which part hung changed from run
+    // to run at one SHA (2026-11-06, #37299, #34371, #37288). Past its deadline a stage is not scanned, like
+    // one that did not render, and its worker goes on with a new page.
+    const stageDeadlineMs = 60_000;
+    const scanWithin = async (page: Page, stage: (typeof stages)[number]): Promise<Scanned> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<Scanned>((resolve) => {
+        // fixed-wait: a deadline, not a wait; a stage that answers clears it and goes on at once.
+        timer = setTimeout(
+          () => resolve({ stage: stageName(stage), error: `no answer in ${stageDeadlineMs / 1000} s` }),
+          stageDeadlineMs,
+        );
+      });
+      try {
+        return await Promise.race([scan(page, stage), late]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
     // A constant title: the stage count in it made every PR that adds a stage look like a new failing test.
     test(`no orange or system accent and no opaque glass on the gallery stages (part ${part} of ${parts})`, async () => {
       const results: Scanned[] = [];
@@ -151,11 +174,13 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
           const open = () => browser!.newPage({ viewport: { width: 760, height: 900 } });
           let page = await open();
           for (let stage = queue.shift(); stage; stage = queue.shift()) {
-            const result = await scan(page, stage);
+            // fixed-wait: the stage's deadline above; each stage ends as soon as it is scanned.
+            const result = await scanWithin(page, stage);
             results.push(result);
-            // A stage that failed may leave its page stuck or crashed: the next stage gets a new one.
+            // A stage that failed may leave its page stuck or crashed: the next stage gets a new one. A hung
+            // page's close may not answer either, so it is not awaited.
             if ("error" in result) {
-              await page.close().catch(() => {});
+              void page.close().catch(() => {});
               page = await open();
             }
             if (results.length % 50 === 0)
@@ -163,7 +188,7 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
                 `accent-glass: ${results.length}/${stages.length} stages, ${Math.round(performance.now() / 1000)}s`,
               );
           }
-          await page.close();
+          await page.close().catch(() => {});
         }),
       );
 

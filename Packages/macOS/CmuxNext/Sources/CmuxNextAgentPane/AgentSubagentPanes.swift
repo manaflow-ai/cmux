@@ -16,6 +16,10 @@ import CmuxNextCompat
 @MainActor
 public final class AgentSubagentPanes {
     private var tabs: [String: String] = [:]
+    /// Every subagent this chat showed a pane for: an open nobody asked for runs once per subagent, so a page built
+    /// again that takes a long-running subagent for new never brings back a pane the person closed (Leo, 2026-11-07:
+    /// "it opened up the side sub-agent chat again"). The person's own open shows it again.
+    private var shown: Set<String> = []
     private var opening: String?
     /// The subagent whose open runs without focus but that the person asked to see meanwhile (a
     /// click while its pane opens on its own), and when: its pane takes focus once it has opened,
@@ -29,8 +33,12 @@ public final class AgentSubagentPanes {
     private var queue: [Request] = []
 
     /// A waiting request: the subagent, whether it takes focus, the chat tab that asked, and when
-    /// focus was asked for (a focus owed like ``focusOnceOpen``).
-    public struct Request: Sendable { public var agent: String; public var focus: Bool; public var chat: String; public var at: ContinuousClock.Instant }
+    /// focus was asked for (a focus owed like ``focusOnceOpen``). `asked`: the person asked for this pane; it stays
+    /// true when the focus lapses (``focusBound``, ``userActed()``), so their open still shows a closed subagent.
+    public struct Request: Sendable {
+        public var agent: String; public var focus: Bool; public var chat: String; public var at: ContinuousClock.Instant
+        public var asked: Bool = false
+    }
 
     public init() {}
 
@@ -52,7 +60,7 @@ public final class AgentSubagentPanes {
 
     /// Starts opening subagent `agent`'s pane for chat tab `chat`; false when another open runs (the
     /// request waits for ``finish()``; a repeat that asks for focus keeps that, from `now`) or this one already runs.
-    public func begin(_ agent: String, focus: Bool, chat: String, now: ContinuousClock.Instant = .now) -> Bool {
+    public func begin(_ agent: String, focus: Bool, asked: Bool? = nil, chat: String, now: ContinuousClock.Instant = .now) -> Bool {
         guard let opening else {
             self.opening = agent
             return true
@@ -60,7 +68,8 @@ public final class AgentSubagentPanes {
         if opening == agent, focus { focusOnceOpen = (agent, now) }
         if let index = queue.firstIndex(where: { $0.agent == agent }) {
             if focus { (queue[index].focus, queue[index].at) = (true, now) }
-        } else if opening != agent { queue.append(Request(agent: agent, focus: focus, chat: chat, at: now)) }
+            if asked ?? focus { queue[index].asked = true }
+        } else if opening != agent { queue.append(Request(agent: agent, focus: focus, chat: chat, at: now, asked: asked ?? focus)) }
         return false
     }
 
@@ -137,13 +146,19 @@ public final class AgentSubagentPanes {
     /// Shows subagent `agent`'s pane for chat tab `chat`: focuses the open one (with `focus`), or
     /// opens one where ``RightColumnPlacement`` says; one open at a time. An
     /// unfocused open moves the tab with the daemon's `keep_focus` (cx-3hw0i), so the chat keeps
-    /// focus throughout. False when nothing opened.
-    public func open(_ agent: String, focus: Bool, chat: String, hooks: Hooks) -> Bool {
+    /// focus throughout. `asked` (default: `focus`): the person asked for it; an open nobody asked for skips a
+    /// subagent this chat already showed, and hands its turn to the next waiting request. False when nothing opened.
+    public func open(_ agent: String, focus: Bool, asked: Bool? = nil, chat: String, hooks: Hooks) -> Bool {
         if let open = tab(for: agent, isOpen: hooks.isOpen) {
             if focus { hooks.focus(open, false) }
             return true
         }
-        guard begin(agent, focus: focus, chat: chat, now: hooks.now()) else {
+        let asked = asked ?? focus
+        if !asked, shown.contains(agent) {
+            if opening == nil, let request = finish(now: hooks.now()) { hooks.again(request) }
+            return false
+        }
+        guard begin(agent, focus: focus, asked: asked, chat: chat, now: hooks.now()) else {
             if focus, stopWatching == nil {
                 stopWatching = hooks.watchUser { [weak self] in self?.userActed() }
             }
@@ -166,6 +181,7 @@ public final class AgentSubagentPanes {
     /// Records the tab that shows subagent `agent`.
     public func record(_ agent: String, tab key: String) {
         tabs[agent] = key
+        shown.insert(agent)
     }
 
     private func prune(_ isOpen: (String) -> Bool) {

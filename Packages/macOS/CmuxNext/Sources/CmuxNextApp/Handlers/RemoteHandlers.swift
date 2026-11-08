@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextServer
+import CmuxNextWindowRules
 
 /// SSH machine actions (`SSHService`). A machine is the invocation's
 /// `machine:` target (a section header's context menu, CLI `--machine`,
@@ -12,28 +13,8 @@ import CmuxNextServer
 /// installing run in tasks; failures surface as a sheet in the UI and as a
 /// refusal on the control socket.
 enum RemoteHandlers {
-    /// Whether the observation task should end before handling this update.
-    static func shouldEndConnectionObservation(status: SSHConnectionMachine.Status) -> Bool {
-        status == .offline
-    }
-
-    /// A daemon failure belongs to one stamped connection attempt. An old failure
-    /// must never reopen recovery after a newer Retry or Reconnect has started.
-    static func shouldPresentDaemonFailure(_ failure: SSHMachineSession.DaemonFailure?, currentAttemptID: UInt64) -> Bool {
-        failure?.attemptID == currentAttemptID
-    }
-
-    /// With no active window, a focused connect needs a window for its persistent
-    /// recovery sheet. A loaded daemon is handled by `CloudHandlers.show` instead.
-    static func shouldOpenRecoveryWindow(loaded: Bool, hasWindow: Bool,
-                                         status: SSHConnectionMachine.Status,
-                                         failure: SSHMachineSession.DaemonFailure?,
-                                         currentAttemptID: UInt64) -> Bool {
-        !loaded && !hasWindow && (status.needsRecovery || shouldPresentDaemonFailure(failure, currentAttemptID: currentAttemptID))
-    }
-
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        // A joined machine's menu rows (Labs `labs.machineJoin`): Check, Rotate Credential, Revoke….
+        // A joined machine's menu rows (machines joined through the hub): Check, Rotate Credential, Revoke….
         MachineSectionHostView.bindJoinedActions(into: registry, context: context)
         let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
@@ -69,18 +50,14 @@ enum RemoteHandlers {
             }
             let home = context.services.daemon(for: pane)
             let cwd = invocation["cwd"]?.stringValue
-            // Rex-style placement words too (`below`, `bottom`); the daemon splits right or down only.
-            var direction: SplitDirection?
-            if let word = invocation["direction"]?.stringValue {
-                switch word {
-                case "right": direction = .right
-                case "down", "below", "bottom": direction = .down
-                default: throw ActionFailure(message: RemoteStrings.splitRightOrDown)
-                }
-            }
-            if daemon === home && direction == nil && cwd == nil {
+            // Rex-style placement words too (`below`, `bottom`); the daemon splits right or down only (cmux-window-rules `remote`).
+            let direction: SplitDirection?
+            switch WindowRules().terminalHere(direction: invocation["direction"]?.stringValue, sameMachine: daemon === home, cwd: cwd != nil) {
+            case .newSurface?:
                 registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id)).onMachine(home.machineID))
                 return
+            case .open(let split)?: direction = split == "right" ? .right : split == "down" ? .down : nil
+            case .splitRightOrDown?, nil: throw ActionFailure(message: RemoteStrings.splitRightOrDown)
             }
             if let failure = context.services.remoteTerminals.openTerminal(on: daemon, in: pane, home: home, cwd: cwd, splitting: direction) {
                 throw ActionFailure(message: failure.message)
@@ -169,20 +146,18 @@ enum RemoteHandlers {
 
     /// The SSH machine an invocation acts on.
     static func machine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> SSHMachineSession {
-        let machines = context.services.machines
-        if let target = invocation.target, target.kind == .machine {
-            if let session = machines.sshSession(target.id) { return session }
-            let wanted = target.id.lowercased()
-            let matches = machines.ssh.filter { session in
-                [session.host.label, session.host.destination.description, session.host.destination.displayName,
-                 session.host.destination.sshArgument].contains { $0.lowercased() == wanted }
-            }
-            if matches.count == 1, let only = matches.first { return only }
-            throw ActionFailure(message: RemoteStrings.unknownMachine(target.id))
+        let sessions = context.services.machines.ssh
+        let target = invocation.target.flatMap { $0.kind == .machine ? $0.id : nil }
+        let machines = sessions.map { session in
+            WindowRules.Machine(id: session.machineID, names: [session.host.label, session.host.destination.description,
+                                                               session.host.destination.displayName, session.host.destination.sshArgument])
         }
-        if let state = context.services.windows.active?.state, let session = machines.sshSession(state.machineID) { return session }
-        if machines.ssh.count == 1, let only = machines.ssh.first { return only }
-        throw ActionFailure(message: RemoteStrings.noMachine)
+        // The target's machine by id or one name, else the active window's, else the only one (cmux-window-rules `remote::machine`).
+        switch WindowRules().machine(target: target, machines: machines, active: context.services.windows.active?.state.machineID) {
+        case .success(let index)? where sessions.indices.contains(index): return sessions[index]
+        case .failure(.unknownMachine)?: throw ActionFailure(message: RemoteStrings.unknownMachine(target ?? ""))
+        default: throw ActionFailure(message: RemoteStrings.noMachine)
+        }
     }
 
     /// After Connect from the UI or CLI: shows the machine's first workspace in
@@ -210,7 +185,10 @@ enum RemoteHandlers {
                  session.connectionAttemptID, context.services.windows.active?.window != nil)
             }) {
                 guard !Task.isCancelled else { return }
-                if loaded {
+                // Each change's step is Rust's (cmux-window-rules `remote::connect_step`): an old attempt's failure never reopens recovery.
+                let step = WindowRules().connectStep(.init(loaded: loaded, hasWindow: hasWindow, offline: status == .offline, needsRecovery: status.needsRecovery,
+                                                           failureAttempt: failure?.attemptID, currentAttempt: attemptID))
+                if step?.showWorkspace == true {
                     recovery.stop()
                     let id: String?
                     if let first = daemon.store.workspaces.first { id = first.id }
@@ -218,15 +196,13 @@ enum RemoteHandlers {
                     if let id, !Task.isCancelled { CloudHandlers.show(id, context) }
                     return
                 }
-                if Self.shouldEndConnectionObservation(status: status) { return }
-                if Self.shouldOpenRecoveryWindow(loaded: loaded, hasWindow: hasWindow, status: status,
-                                                 failure: failure, currentAttemptID: attemptID), !requestedRecoveryWindow {
+                guard let step, !step.end else { return }
+                if step.openWindow, !requestedRecoveryWindow {
                     requestedRecoveryWindow = true
                     context.services.windows.reopenOrCreateWindow()
                 }
                 guard let window = CloudHandlers.window(context) else { continue }
-                let currentFailure = Self.shouldPresentDaemonFailure(failure, currentAttemptID: attemptID) ? failure : nil
-                if status.needsRecovery || currentFailure != nil {
+                if step.recovery {
                     let detail = RemoteStrings.detail(session) ?? ""
                     let spec = SSHConnectRecovery.spec(title: RemoteStrings.connectFailedTitle(session.host.label),
                         detail: detail, cancel: CloudStrings.cancel, copy: RemoteStrings.copyError,

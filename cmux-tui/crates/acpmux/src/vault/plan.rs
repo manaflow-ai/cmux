@@ -26,6 +26,12 @@ pub struct EnvRecord {
     /// credential is still this machine's and not revoked.
     #[serde(default)]
     pub credential: String,
+    /// How agents get it: `Some(allowed hosts)` is a placeholder the egress
+    /// proxy fills only toward those hosts; `None` is the value itself in
+    /// the env (the person's opt-out, or a hub that predates delivery). The
+    /// hub can change it without a new revision, so every pull rewrites it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -165,7 +171,13 @@ impl State {
     pub fn signature(&self) -> String {
         self.env
             .iter()
-            .map(|(name, r)| format!("{name}={}:{}:{}", r.revision, r.fingerprint, r.credential))
+            .map(|(name, r)| {
+                let delivery = r
+                    .proxy
+                    .as_ref()
+                    .map_or("env".to_owned(), |h| format!("proxy[{}]", h.join(" ")));
+                format!("{name}={}:{}:{}:{delivery}", r.revision, r.fingerprint, r.credential)
+            })
             .collect::<Vec<_>>()
             .join(",")
     }
@@ -174,14 +186,15 @@ impl State {
 /// One step of a pull.
 pub enum Step {
     /// Put this value in the secret store (new, newer or changed).
-    Store { name: String, revision: u64, value: Zeroizing<String> },
+    Store { name: String, revision: u64, value: Zeroizing<String>, proxy: Option<Vec<String>> },
     /// Remove this entry: revoked, gone from the vault, or the vault is no
     /// longer shared with this machine.
     Delete { name: String },
     /// Already stored at this revision with this value, as far as the state
     /// says; the pull checks the item and stores it again when it is missing
     /// or differs (`pull::verify_kept`).
-    Keep { name: String, revision: u64, value: Zeroizing<String> },
+    /// Its delivery is recorded again: the hub changes it without a revision.
+    Keep { name: String, revision: u64, value: Zeroizing<String>, proxy: Option<Vec<String>> },
 }
 
 impl std::fmt::Debug for Step {
@@ -209,10 +222,11 @@ pub fn plan(state: &State, env: Vec<EnvItem>) -> Vec<Step> {
                     r.revision == item.revision
                         && r.fingerprint == state.fingerprint(&item.name, &value)
                 });
+                let (name, revision, proxy) = (item.name, item.revision, item.proxy);
                 if same {
-                    steps.push(Step::Keep { name: item.name, revision: item.revision, value });
+                    steps.push(Step::Keep { name, revision, value, proxy });
                 } else {
-                    steps.push(Step::Store { name: item.name, revision: item.revision, value });
+                    steps.push(Step::Store { name, revision, value, proxy });
                 }
             }
             None if state.env.contains_key(&item.name) => {

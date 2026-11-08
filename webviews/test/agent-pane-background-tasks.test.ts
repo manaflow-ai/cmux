@@ -178,6 +178,21 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Dev server stopped.").waitFor();
+    // A finished Claude turn folds its work under one Worked for (Codex parity): open both turns'.
+    const closed = page.locator('button.cv-worked[aria-expanded="false"]');
+    while (await closed.count()) {
+      await closed.first().click();
+      await page.waitForFunction(
+        () =>
+          !document
+            .getAnimations()
+            .some(
+              (each) =>
+                each.playState === "running" &&
+                Number.isFinite(Number(each.effect?.getComputedTiming().endTime ?? Number.POSITIVE_INFINITY)),
+            ),
+      );
+    }
     // No second row for a shell whose call is in the transcript.
     expect(await page.getByText(/Background (task|command) .*npm run dev/).count()).toBe(0);
     // The one whose call is not loaded is noted in the turn it ended, before its reply.
@@ -188,8 +203,8 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     expect(await top("Stop the dev server")).toBeLessThan(at);
     expect(at).toBeLessThan(await top("Dev server stopped."));
     // The first turn's calls: the dev server stopped (a later turn said so), the watcher still runs
-    // in the background. A finished Claude turn folds its two calls under their run's line, as Claude
-    // desktop does (turns.ts claudeGroups): open it to their rows.
+    // in the background. Inside its Worked for, the turn folds its two calls under their run's line
+    // (turns.ts claudeGroups): open it to their rows.
     await page.locator("button.cv-tool", { hasText: "Ran 2 commands" }).click();
     const row = (command: string) => page.locator(".cv-tool", { hasText: command }).first();
     await row("npm run dev").waitFor({ timeout: 5_000 });
@@ -307,7 +322,10 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     expect(await note.getAttribute("aria-expanded")).toBe("true");
     const card = page.locator(`[id="${await note.getAttribute("aria-controls")}"]`);
     await card.waitFor({ timeout: 5_000 });
-    expect(await card.locator(".cv-shell__command").textContent()).toBe("$ pytest -x");
+    // A task whose registry has no output stays a compact details row; opening it does not
+    // manufacture an empty shell card.
+    expect(await card.locator(".cv-bgtask__raw-command").textContent()).toBe("pytest -x");
+    expect(await card.locator(".cv-shell").count()).toBe(0);
     // acpmux's own words on the end.
     expect(await card.locator(".cv-bgtask__detail").textContent()).toBe("Tests passed");
     // The clicked line stays where it was (foldAnchor.ts).
@@ -324,7 +342,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
 
   type Page = Awaited<ReturnType<typeof recordingPage>>;
   /// Where the chat lists its background tasks: Session Info's section (the App pushes Debug
-  /// Settings `agent.sessionInfo` with the header state; the viewer opens it from its toggle), or, with it
+  /// Settings `agent.sessionInfo` with the header state; its toggle opens it), or, with it
   /// off, the summary card's under the header's Chat summary.
   const surfaces = {
     inspector: {
@@ -334,10 +352,10 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
             window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
         );
-        // It opens only on the viewer's click (#26692).
+        // A new chat starts with Session Info closed (#37576): the person opens it.
         const toggle = page.locator("button.acpmux-session-info-toggle");
         await toggle.waitFor({ timeout: 5_000 });
-        if ((await page.locator("aside.acpmux-session-info").count()) === 0) await toggle.click();
+        if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
         const section = page.locator('aside.acpmux-session-info section[data-section="tasks"]');
         await section.waitFor({ timeout: 5_000 });
         return section;

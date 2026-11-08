@@ -23,9 +23,10 @@
 //!   {decisionNonce, approverDecision}}`; it counts only when every member's does (`person.rs`).
 //! - It counts once (the person gate's spent-nonce store), only until
 //!   `expiresAt` (at most [`MAX_LIFETIME`] ahead), and only as a one-time allow
-//!   (`allow_once`) of a tool's ask or an agent's question ([`may_allow`]): never
-//!   a lasting allow, a plan, a mode switch or a folder-trust card, so it never
-//!   changes a mode, a policy or a rule (a policy raise is its own signature, below). A deny needs no signature, from anyone.
+//!   (`allow_once`) of a tool's ask, an agent's question or acpmux's own folder-trust card
+//!   (`trust_wait.rs`: Trust records the person's answer for that one folder) ([`may_allow`]):
+//!   never a lasting allow, a plan or a mode switch, so it never changes a mode, a policy or a
+//!   rule (a policy raise is its own signature, below). A deny needs no signature, from anyone.
 //! - `acpmux host approvals rm ID` removes a Mac and then has the daemon reload
 //!   (`_acpmux/mac_approvers {reload: true}`), which takes the set's lock: it
 //!   returns only after an answer being committed, and from then on none of
@@ -36,6 +37,12 @@
 //!   domain, then the daemon run, the Mac's id, the session, the policy and a challenge nonce
 //!   this daemon issued. It counts once, for that one chat's `_acpmux/set_policy`, never a
 //!   default, a rule or a mode; a decision signature never counts as one, nor one as a decision.
+//! - A Mac's paired phones (`approvers.rs`) are enrolled the same way, by `host enroll` on that
+//!   Mac, under ids `phone:<12 hex of SHA-256 of the Mac's device id>:<phone id>`, so a phone
+//!   that Mac pairs may allow a prompt of this daemon that reached it through the Mac. Such an
+//!   id signs only decisions, never a policy raise: on its own Mac a phone raises no policy.
+//!   The next `host enroll` or `machine doctor --fix` on the Mac removes a phone it no longer
+//!   pairs; `host approvals rm ID` here removes one at once.
 //! - The app on this machine gives its own public key with
 //!   `_acpmux/mac_approver_set {id, publicKey, name}` (the person only, memory
 //!   only), so `acpmux host enroll` here knows which key to enroll on a peer.
@@ -189,6 +196,11 @@ impl MacApprovers {
         let (Some(id), Some(signature)) = (field("approver"), field("signature")) else {
             return false;
         };
+        // A Mac's paired phone enrolled here allows one prompt at a time, as on its own Mac,
+        // where no phone raises a policy.
+        if id.starts_with(super::approvers::PEER_PHONE) {
+            return false;
+        }
         let Some(signature) = super::approvers::unhex(signature).filter(|s| s.len() == 64) else {
             return false;
         };
@@ -308,9 +320,16 @@ pub fn read(path: &Path) -> anyhow::Result<Vec<Approver>> {
 }
 
 /// Whether an enrolled Mac may give `option` (with `answers`) to `request`: a
-/// one-time allow offered once, of a tool's ask (no answers) or an agent's
-/// question (with answers); never a plan, a mode switch or a folder-trust
-/// card (each widens what runs, or stays the person's on this machine).
+/// one-time allow offered once, of a tool's ask (no answers), an agent's
+/// question (with answers) or acpmux's own folder-trust card (with or without);
+/// never a plan or a mode switch (each widens what runs).
+///
+/// The folder-trust card (`trust_wait.rs`, "X wants to work in F. Do you trust this
+/// folder?") is the person's question, and a click on Trust folder in the app on an
+/// enrolled Mac is the person's answer, as a phone's is (`approvers.rs`): it records
+/// trust for that one folder and leaves every permission rule as it was. Refusing it
+/// left the card unanswerable from the Mac, and the pane offered an Enroll that could
+/// never make it count (Leo, 2026-11-04: "it doesnt let me trust on click").
 pub fn may_allow(request: &Value, option: &str, answers: Option<&Value>) -> bool {
     let offered: Vec<&Value> = request["options"]
         .as_array()
@@ -323,14 +342,21 @@ pub fn may_allow(request: &Value, option: &str, answers: Option<&Value>) -> bool
     }
     let tool = &request["toolCall"];
     let widens = tool["kind"] == "switch_mode"
-        || super::questions::trust_cwd(request).is_some()
         || tool.pointer("/_meta/claude/tool").and_then(Value::as_str) == Some("ExitPlanMode");
+    if widens {
+        return false;
+    }
+    if super::questions::trust_cwd(request).is_some() {
+        return true;
+    }
     let answers = answers.filter(|a| !a.is_null());
-    !widens
-        && match answers {
-            None => super::permission_groups::plain_tool_ask(request),
-            Some(_) => super::questions::needs_person(request),
+    match answers {
+        None => {
+            super::permission_groups::plain_tool_ask(request)
+                || super::permissions::external::is_external(request)
         }
+        Some(_) => super::questions::needs_person(request),
+    }
 }
 
 /// What an enrolled Mac signs.

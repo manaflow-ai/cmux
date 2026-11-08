@@ -5,8 +5,8 @@
 // agentMessages.ts `messageDelivery`). The recipient is a name: a subagent by its description, or
 // a short id when nothing names it, the full id in the chip's tooltip (agentNames.ts). The chip
 // opens the recipient: a subagent's view when the chat has it, else a listed chat by that name, as
-// SentMessageLine.tsx's target does; with neither it is plain. Copy
-// is in the line's hover row. Opened, the message grows in place: its whole text under the line,
+// SentMessageLine.tsx's target does; with neither it is plain. No
+// Copy on the line (Leo, 2026-11-04: "let's remove copy button"). Opened, the message grows in place: its whole text under the line,
 // with no box around it, cut between whole lines with Show more, and
 // nothing else (Leo 2026-10-21: the result's JSON under it was "immediately TMI"). Whether it is open lasts across
 // the virtualized transcript (transcriptDisclosure.tsx), and Find in Chat opens it.
@@ -14,15 +14,16 @@ import { useContext, useId, useLayoutEffect, useMemo, useRef, useState, useSyncE
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { messageDelivery, notDeliveredReason, type AgentMessage, type Delivery } from "./agentMessages";
-import { AgentMessageRow, messagePreview } from "./AgentMessageRow";
+import { AgentMessageRow } from "./AgentMessageRow";
+import { messagePreview } from "./agentMessageRowModel";
 import { AgentNamesContext, AgentOpenContext, recipientName, shortId } from "./agentNames";
 import { useFindReveal } from "./chatFind";
 import { Envelope } from "./icons";
-import { SentActions } from "./MessageActions";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { AgentMessageBody } from "./AgentMessageBody";
 import { wholeLineCut } from "./lineCut";
-import { targetChat } from "./SentMessageLine";
+import { ExpandRow } from "./ExpandRow";
+import { targetChat } from "./sentMessageLineModel";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 
 export function MessageCard({
@@ -72,7 +73,6 @@ export function MessageCard({
       meta={
         status ? <span className="cv-command__meta cv-agentmsg__status cv-message__status">{status}</span> : undefined
       }
-      actions={message.text ? <SentActions text={message.text} /> : undefined}
       body={<MessageText item={item} text={message.text || t("message.noText")} messageAt={messageAt} />}
     />
   );
@@ -162,16 +162,13 @@ function MessageText({ item, text, messageAt }: { item: AcpmuxActivity; text: st
         <AgentMessageBody text={text} messageAt={messageAt} />
       </div>
       {cutAt !== undefined && (
-        <button
-          type="button"
+        <ExpandRow
           className="cv-user__more cv-message__more"
-          aria-expanded={expanded}
-          aria-controls={id}
-          data-find-skip=""
-          onClick={() => setExpanded(!expanded)}
-        >
-          {t(expanded ? "message.less" : "message.more")}
-        </button>
+          open={expanded}
+          controls={id}
+          onToggle={() => setExpanded(!expanded)}
+          label={t(expanded ? "message.less" : "message.more")}
+        />
       )}
     </>
   );

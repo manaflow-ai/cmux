@@ -164,8 +164,8 @@ async function openEffortLevels(ctx: PlayContext) {
   );
 }
 
-/// Session Info open beside the chat: a new chat starts with it closed (https://github.com/manaflow-ai/cmux/issues/26692), so the
-/// header's toggle opens it, as a person would.
+/// Session Info open beside the chat: a new pane starts with it closed, so the header's toggle opens
+/// it, as a person would.
 async function showSessionInfo(ctx: PlayContext) {
   const shown = () => ctx.document.querySelector(".acpmux-session-info[data-presence=shown]");
   await ctx.waitFor(() => shown() ?? ctx.document.querySelector('[aria-label="Session Info"]'), { capMs: 5000 });

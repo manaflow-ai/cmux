@@ -47,6 +47,13 @@ const VIEWS = [
     chips: ".history-chips",
   },
   {
+    name: "stash",
+    path: "/stash/?mock",
+    ready: ".stash-row",
+    fit: ".stash-header *, .stash-row, .stash-row *",
+    title: ".stash-title",
+  },
+  {
     name: "apps-grid",
     path: "/apps/?mock",
     ready: ".apps-card",

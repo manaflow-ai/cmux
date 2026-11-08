@@ -2,13 +2,14 @@ import AppKit
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Inspect Element inspects web content only. While its picker runs, an event over native
 /// AppKit/SwiftUI views must go on untouched: no hit-test, no highlight overlay, no swallowed
 /// click. The suite also times the picker's cost per mouse move over a deep native view tree
 /// (`INSPECT-BENCH` lines in the log), the main-thread work every move paid before.
-@MainActor @Suite(.serialized) struct InspectElementNativeCostTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct InspectElementNativeCostTests {
     /// A window whose content is `depth` nested views, each level with `siblings` neighbours
     /// that a hit-test scans first; returns the window and the deepest view's centre (screen).
     private func deepNativeWindow(depth: Int = 40, siblings: Int = 12) -> (NSWindow, NSPoint) {

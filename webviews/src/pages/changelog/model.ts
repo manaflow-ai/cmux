@@ -294,7 +294,7 @@ export function rowKind(title: string): WhatsNewCategory {
 }
 
 /** A line as two lines compare when one repeats the other: case and a leading article aside. */
-function echoKey(text: string): string {
+export function echoKey(text: string): string {
   return stemOf(text).replace(/^(?:the|a|an)\s+/u, "");
 }
 

@@ -442,7 +442,7 @@ impl Remote for LocalRemote {
 pub(crate) async fn self_update(channel: &str, json_out: bool) -> Result<()> {
     if std::env::consts::OS != "linux" {
         bail!(
-            "host self-update keeps a Linux host's own daemon updated; update another machine with `acpmux host update NAME`"
+            "host self-update keeps a Linux host's own daemon updated; update another machine with `acpmux machine update NAME`"
         );
     }
     let paths = Paths::here()?;

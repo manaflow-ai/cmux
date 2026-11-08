@@ -1,7 +1,6 @@
 // l10n-allow-file: sample transcript for the pane-edge scrollbar regression.
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
-import type { Play } from "../../gallery/play";
 
 const snapshot = chat(
   Array.from({ length: 40 }, (_, index) => [
@@ -10,11 +9,6 @@ const snapshot = chat(
   ]).flat(),
 );
 const native = { "pane.tabState": { inspector: true } };
-/// Session Info opens only on the viewer's click (#26692).
-const open: Play = async (ctx) => {
-  if (!ctx.document.querySelector(".acpmux-session-info")) await ctx.click({ role: "button", name: "Session Info" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info[data-presence=shown]"));
-};
 
 export default agentPaneEntry({
   id: "agent-pane.scrollbar-edge",
@@ -27,14 +21,14 @@ export default agentPaneEntry({
       note: "Session Info may move the text column left; the scrollbar stays at the pane's right edge.",
       snapshot,
       native,
-      play: open,
+      sessionInfoOpen: true,
     },
     closed: {
       note: "Closing Session Info keeps the same pane-edge scrollbar and aligned transcript/composer column.",
       snapshot,
       native,
+      sessionInfoOpen: true,
       play: async (ctx) => {
-        await open(ctx);
         await ctx.click({ role: "button", name: "Session Info" });
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-session-info"));
       },

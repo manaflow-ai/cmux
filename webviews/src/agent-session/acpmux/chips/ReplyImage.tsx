@@ -13,72 +13,36 @@
 // the setting under which its chip opens without asking: a preview needs no click (Leo,
 // 2026-10-31: "I SHOULDN'T EVEN HAVE TO CLICK THE OPEN BUTTON IT SHOULD JUST PREVIEW"). A file
 // that is not there has no Open, and a template path (`${variant}-320.png`) is plain text.
-// A reply's own images (`thumb`) draw in a glass thumbnail of a fixed shape whatever their state
-// (waiting, Load image, unavailable, shown), so an image that loads never moves the reply; a click
-// opens it whole in the image viewer.
-import { useContext, useEffect, useState, type ReactNode } from "react";
+// A reply's own images (`thumb`) wait in a glass thumbnail of a fixed shape (waiting, Load image,
+// unavailable, and a shown one until it loads); a loaded one is the whole image in its own shape
+// (chips.css .cv-thumb--sized), and a click opens it in the image viewer.
+import { useContext, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
+import { knownImageSize, rememberImageSize } from "../conversation/imageEntries";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
-import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
+
 import { ElsewhereChip } from "./LinkChips";
 import { useMessageScope } from "./messageScope";
-import { usePathInfo, useReplyPolicy, type ReplyPolicy } from "./linkStore";
-import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
-import { isDeniedPath, isTemplatePath, linkPath, pathName } from "./paths";
+import { usePathInfo, useReplyPolicy } from "./linkStore";
+import { RemoteMedia, ReplyMedia } from "./ReplyMedia";
+import { mediaKind } from "./replyMediaModel";
+import { isRemoteMedia } from "./replyMediaModel";
+import { isDeniedPath, isTemplatePath, pathName } from "./paths";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
+import {
+  localImageSource,
+  remoteImageHost,
+  loadsWithoutClick,
+  started,
+  loaded,
+  clicked,
+  waiting,
+  loadEnded,
+} from "./replyImageModel";
 
 type State = { kind: "idle" } | { kind: "loading" } | { kind: "shown"; src: string } | { kind: "failed" };
-
-/// A local image: an absolute path, a `file://` URL or a relative path (from the session's folder).
-export function localImageSource(src: string): string | undefined {
-  if (isTemplatePath(src)) return undefined;
-  const path = linkPath(src);
-  if (path) return path;
-  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(src) || src.startsWith("//") || src.startsWith("#") || src.startsWith("?"))
-    return undefined;
-  return src.split(/[?#]/)[0] || undefined;
-}
-
-/// The https image's site, or undefined for anything else.
-export function remoteImageHost(src: string): string | undefined {
-  try {
-    const url = new URL(src);
-    return url.protocol === "https:" && !url.username && !url.password ? url.host : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/// Whether the web image at `src` loads without a click under `click`: it is written exactly
-/// `https://<a host the host named>/…` (lowercase, no port, user info, backslash or space before
-/// the path), the same test the host makes on the same string, so the two never disagree.
-export function loadsWithoutClick(src: string, policy: ReplyPolicy): boolean {
-  if (policy.remoteImages !== "click" || !Array.isArray(policy.clickFreeImageHosts)) return false;
-  return policy.clickFreeImageHosts.some((host) => typeof host === "string" && src.startsWith(`https://${host}/`));
-}
-
-/// Sources an automatic load started for, so a render twice in a row asks the host once.
-const started = new Set<string>();
-/// Images that loaded on their own (a file in the folders, a web image under "always"), the most
-/// recently drawn first. One it forgets loads again on its own when it draws.
-const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, (src) => started.delete(src));
-/// Images the reader loaded with "Load image". They stay: loading one again would need another
-/// click (the host spends a gesture on each), so forgetting it would leave its placeholder.
-const clicked = new Map<string, string>();
-
-/// Instances waiting on a load another instance of the same source started (the transcript's tile and
-/// the Gallery's, say): they hear when it ends, since `started` keeps them from asking the host again.
-const waiting = new Map<string, Set<() => void>>();
-const loadEnded = (src: string) => {
-  // Waiters stay until they unmount or show the image: one that wakes to a failed load may find
-  // another instance already retrying, and must hear that retry end too.
-  waiting.get(src)?.forEach((wake) => wake());
-};
-
-/// The data URL a local or web image already loaded to, if it has (the image viewer steps to it).
-export const loadedImageSrc = (src: string): string | undefined => clicked.get(src) ?? loaded.get(src);
 
 /// `auto`: load without a click. `clickFree`: that load is one the host may refuse (the image is
 /// not one it calls click-free after all); the page tells it so (`auto: true`), so a refusal spends
@@ -147,28 +111,53 @@ export function OpenableImage({
 }) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
+  // A thumbnail's frame takes the drawn image's own shape (chips.css .cv-thumb--sized), so a phone shot
+  // is a narrow column, not a centred column in a wide box: from its first paint when its size is known
+  // (its data URL's header, or the size it drew at before), else once it loads. Until then it keeps the
+  // fixed frame, so a slow image holds its place.
+  const [natural, setNatural] = useState(() => (thumb ? knownImageSize(src) : undefined));
   const image = (
     <img
       className={thumb ? "cv-thumb__img" : "cv-img"}
       src={src}
       alt={alt}
       loading="lazy"
+      onLoad={
+        thumb
+          ? (event) => {
+              const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
+              if (!(width > 0 && height > 0)) return;
+              rememberImageSize({ src }, { width, height });
+              setNatural((known) => (known?.width === width && known.height === height ? known : { width, height }));
+            }
+          : undefined
+      }
       // Decode the host-backed source as part of this paint so the final pixels do not arrive in a
       // second, visibly different frame.
       decoding="sync"
     />
   );
-  if (!openImage) return thumb ? <span className="cv-thumb">{image}</span> : image;
+  const thumbClass = natural ? "cv-thumb cv-thumb--sized" : "cv-thumb";
+  const shape = natural ? ({ "--thumb-w": natural.width, "--thumb-h": natural.height } as CSSProperties) : undefined;
+  if (!openImage)
+    return thumb ? (
+      <span className={thumbClass} style={shape}>
+        {image}
+      </span>
+    ) : (
+      image
+    );
   return (
     <button
       type="button"
-      className={thumb ? "cv-thumb cv-thumb--open" : "cv-img-open"}
+      className={thumb ? thumbClass : "cv-img-open"}
       data-open-image
       /* The file a reply read the image from: the context menu's Show in Finder selects it. */
       data-image-path={path || undefined}
       /* A button is not draggable by default: the image drags out as a file (conversation/dragOut.ts). */
       draggable
       title={alt || t("image.view")}
+      style={thumb ? shape : undefined}
       onClick={() => openImage(src, alt, path)}
     >
       {image}
@@ -256,7 +245,7 @@ function LocalImage({
   if (!outside && place !== "missing" && state.kind !== "failed")
     return thumb ? (
       <ThumbFrame state="waiting">
-        <ImageIcon size={18} className="cv-chip__icon" />
+        <ImageIcon size={20} className="cv-chip__icon" />
         <span className="cv-thumb__name">{alt || pathName(path)}</span>
       </ThumbFrame>
     ) : (

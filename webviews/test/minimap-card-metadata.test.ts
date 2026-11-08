@@ -8,6 +8,49 @@ const row = (partial: Partial<AcpmuxRow> & Pick<AcpmuxRow, "id" | "kind" | "at">
   ...partial,
 });
 
+test("a received message's card retains its sender without changing prompt ticks", () => {
+  const rows = [
+    row({
+      id: "received",
+      kind: "user",
+      at: 1,
+      text: "Review complete.",
+      incoming: {
+        kind: "message",
+        message: { name: "peer/pr-row", sessionId: "review", text: "Review complete.", raw: "Review complete." },
+      },
+    }),
+  ];
+  const turns = minimapTurns(rows, "current");
+  expect(turns.turns[0]?.metadata?.sender).toEqual({ name: "peer/pr-row", sessionId: "review", relation: undefined });
+  expect(turns.turns[0]?.id).toBe("received");
+  expect(turns.ticks[0]?.id).toBe("received");
+});
+
+for (const [kind, extra] of [
+  ["an app or persona", { app: "Muse" }],
+  ["a Chief", { chief: "agent_ops" }],
+  ["a person", { fromPerson: true }],
+] as const) {
+  test(`${kind} sender keeps its own name: its card carries no session sender`, () => {
+    const rows = [
+      row({
+        id: "relayed",
+        kind: "user",
+        at: 1,
+        text: "Yes, on it.",
+        incoming: {
+          kind: "message",
+          message: { name: "Muse", ...extra, sessionId: "child-3", text: "Yes, on it.", raw: "Yes, on it." },
+        },
+      }),
+    ];
+    const turns = minimapTurns(rows, "current");
+    expect(turns.turns[0]?.from).toBe("Muse");
+    expect(turns.turns[0]?.metadata?.sender).toBeUndefined();
+  });
+}
+
 test("a minimap card keeps the turn metadata needed for a compact hover summary", () => {
   const rows: AcpmuxRow[] = [
     row({
@@ -115,7 +158,7 @@ test("production turnView wrappers keep metadata without re-reading earlier tool
     activity,
     row({ id: "reply", kind: "assistant", at: 3, text: "Visible answer. ".repeat(40), streaming: true }),
   ];
-  const options = { working: true, liveRuns: true };
+  const options = { working: true };
   let shaped = turnView(raw, new Set(), options);
   const wrapper = shaped.find((item) => item.kind === "activity")!;
   expect(wrapper).toBeDefined();
@@ -159,7 +202,7 @@ test("a completed merged edit card cannot reuse a live run with the same derived
     streaming: true,
   });
   const source = [user, edit("A", 3, "a.ts"), edit("B", 5, "b.ts"), reply];
-  const live = turnView(source, new Set(), { working: true, liveRuns: true });
+  const live = turnView(source, new Set(), { working: true });
   const previous = minimapTurns(live, "collision");
   const ended = turnView(
     [
@@ -168,7 +211,6 @@ test("a completed merged edit card cannot reuse a live run with the same derived
       row({ id: "end", kind: "turnSummary", at: 4, status: "completed" }),
     ],
     new Set(),
-    { liveRuns: true },
   );
   const liveA = live.find((item) => item.id === "A")!;
   const endedA = ended.find((item) => item.id === "A")!;

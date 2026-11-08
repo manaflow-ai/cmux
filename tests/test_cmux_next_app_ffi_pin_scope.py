@@ -19,7 +19,7 @@ CHECKSUM = "c" * 64
 
 
 def manifest(sha: str) -> str:
-    return (".binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
+    return ("let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
             f"    url: \"https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{sha}/CCmuxAppFFI.xcframework.zip\",\n"
             f"    checksum: \"{CHECKSUM}\"\n)\n")
 
@@ -30,6 +30,8 @@ class PullRequestScope(unittest.TestCase):
         self.root = Path(self.tmp.name)
         (self.root / "scripts/cmux-next").mkdir(parents=True)
         shutil.copy(SCRIPT, self.root / "scripts/cmux-next/check-app-ffi-pin.sh")
+        (self.root / "scripts/ci").mkdir(parents=True)
+        shutil.copy(ROOT / "scripts/ci/app_ffi_pin.py", self.root / "scripts/ci/app_ffi_pin.py")
         self.env = git_fixture_env.without_auto_maintenance(dict(
             os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="t",
             GIT_COMMITTER_EMAIL="t@e"))
@@ -62,6 +64,43 @@ class PullRequestScope(unittest.TestCase):
     def check(self, *args):
         return subprocess.run(["bash", str(self.root / "scripts/cmux-next/check-app-ffi-pin.sh"), *args],
                               env=self.env, capture_output=True, text=True)
+
+    def test_a_valid_canonical_pin_passes(self):
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_pin_that_is_not_canonical_fails_naming_its_first_bad_line(self):
+        # The check reads the pin only through scripts/ci/app_ffi_pin.py: a shape the canonical match does not know
+        # fails, with the first line that does not match, even when the url and checksum are still there.
+        good = manifest(self.pinned)
+        cases = (
+            (good.replace('name: "CCmuxAppFFI"', "name: ffiName"),
+             "Package.swift line 2 is not the canonical CCmuxAppFFI pin line"),
+            ('let note = """\n' + good + '"""\n', "Package.swift line 1 has '\"\"\"'"),
+            (good + good.replace("let appFFI", "let b"), "Package.swift has 2 'binaryTarget', not one"),
+            (good + '.target(name: "CCmuxAppFFI", path: "Shim"),\n',
+             "Package.swift line 6 names CCmuxAppFFI or appFFI outside the canonical pin"),
+        )
+        for text, why in cases:
+            with self.subTest(why=why):
+                self.write("Packages/macOS/CmuxNext/Package.swift", text)
+                result = self.check()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("error: no canonical cmux-app-ffi pin in ", result.stderr)
+                self.assertIn(why, result.stderr)
+
+    def test_a_base_whose_pin_is_not_canonical_pins_nothing(self):
+        # The base's pin is read the same way: a base that is not canonical never counts as pinning this sha, so
+        # source drift is this change's own error, as with a base that pins nothing.
+        self.write("Packages/macOS/CmuxNext/Package.swift", manifest(self.pinned) + "let r = #/x/#\n")
+        self.write(SOURCE, "v2\n")
+        base = self.commit("a base whose pin is not canonical, with FFI drift")
+        self.write("Packages/macOS/CmuxNext/Package.swift", manifest(self.pinned))
+        self.write("README.md", "unrelated\n")
+        self.commit("the pull request")
+        result = self.check("--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("error: the app FFI sources changed since the pinned source", result.stderr)
 
     def test_base_drift_is_a_note_for_a_pull_request_that_does_not_touch_ffi(self):
         self.write(SOURCE, "v2\n")

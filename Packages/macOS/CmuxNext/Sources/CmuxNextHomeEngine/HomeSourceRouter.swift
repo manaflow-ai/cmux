@@ -168,6 +168,14 @@ public nonisolated final class HomeSourceRouter: HomeSource {
         await source(for: conversation).agentRuns(of: conversation, window: window)
     }
 
+    /// Where the agents are: the conversation's owner reads its Chief's spawn records and acpmux.
+    public func agentSessions(_ peers: [String], of conversation: ConversationID) async -> [HomeAgentSessionRef] {
+        await source(for: conversation).agentSessions(peers, of: conversation)
+    }
+
+    /// The agents that start: this Mac's Chief runs them, so the local owner sees them (a cloud Chief's do not show).
+    public func agentStarts() async -> AsyncStream<Set<String>> { await local.agentStarts() }
+
     public func requestLive(of conversation: ConversationID) async {
         await source(for: conversation).requestLive(of: conversation)
     }

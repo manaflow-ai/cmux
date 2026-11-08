@@ -8,7 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextRing } from "./ComposerPickers";
-import { cacheTimeLeft, contextSegments } from "./ContextCard";
+import { cacheTimeLeft, contextSegments } from "./contextCardModel";
 import { translate } from "./i18n";
 
 let dom: JSDOM | undefined;

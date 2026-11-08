@@ -44,7 +44,12 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
     }
 
     public func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage {
-        await engine.history(beforeSeq: beforeSeq, limit: limit)
+        // `-cmux-mobile-chief-slow-history`: the newest page comes 5 s late, like a slow
+        // link after a relaunch (ChiefKeptTranscriptUITests films the kept rows meanwhile).
+        if beforeSeq == nil, ProcessInfo.processInfo.arguments.contains("-cmux-mobile-chief-slow-history") {
+            await sleep(.seconds(5))
+        }
+        return await engine.history(beforeSeq: beforeSeq, limit: limit)
     }
 
     public func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
@@ -252,7 +257,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
     }
 }
 
-/// The mock answers like the Mac: a pause where Face ID would be (mock
+/// The mock answers like the Mac: a pause where signing would be (mock
 /// only: nothing is signed), then the question reads as answered and Chief
 /// replies. Layout and flow only.
 extension ChiefMockBackend: ChiefQuestionSource {

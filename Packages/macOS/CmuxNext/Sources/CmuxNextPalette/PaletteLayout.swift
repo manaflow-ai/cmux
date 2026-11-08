@@ -31,7 +31,7 @@ enum PaletteLayout {
     static var actionsMenuWidth: CGFloat { width / 2 - Metrics.space6 }
     static var actionsMenuRowHeight: CGFloat { rowHeight - Metrics.space2 }
     static var keycapSize: CGFloat { Metrics.iconSize + Metrics.space2 + textGrowth(Typography.shortcut) }
-    static var keycapCornerRadius: CGFloat { Metrics.itemCornerRadius - Metrics.space1 }
+    static var keycapCornerRadius: CGFloat { Metrics.cornerRadius(nestedIn: Metrics.itemCornerRadius, inset: Metrics.space1) }
     static var iconBox: CGFloat { Metrics.iconSize + Metrics.space2 }
 
     /// How much larger the palette's text draws than the size its density's heights are made for:
