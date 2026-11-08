@@ -573,6 +573,15 @@ export type LastMessage = {
 } & Record<string, unknown>;
 
 /**
+ * A person's return to a chat that kept working (`hub/seen.rs`): the log seq they had seen when
+ * they left, and how many turns ended while nobody showed it.
+ */
+export type LastReturn = {
+  since: number;
+  turns: number;
+} & Record<string, unknown>;
+
+/**
  * The outcome of the session's last turn. Keys the turn result lacked
  * are absent.
  */
@@ -1372,6 +1381,12 @@ export type SessionDetail = {
   /** One sidebar line; null before the first prompt. */
   lastMessage?: (LastMessage | null);
   lastPrompt?: (string | null);
+  /**
+   * The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the
+   * `turns` that ended unseen. A client opening the chat then draws "New since you looked" at
+   * `since`, also when its attach answers before its list read.
+   */
+  lastReturn?: (LastReturn | null);
   lastSeq: number;
   lastTurn?: (LastTurn | null);
   /**
@@ -1667,6 +1682,12 @@ export type SessionSummary = {
   /** One sidebar line; null before the first prompt. */
   lastMessage?: (LastMessage | null);
   lastPrompt?: (string | null);
+  /**
+   * The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the
+   * `turns` that ended unseen. A client opening the chat then draws "New since you looked" at
+   * `since`, also when its attach answers before its list read.
+   */
+  lastReturn?: (LastReturn | null);
   lastSeq: number;
   lastTurn?: (LastTurn | null);
   /**

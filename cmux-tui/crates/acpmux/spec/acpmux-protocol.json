@@ -3300,6 +3300,26 @@
       ],
       "type": "object"
     },
+    "LastReturn": {
+      "description": "A person's return to a chat that kept working (`hub/seen.rs`): the log seq they had seen when\nthey left, and how many turns ended while nobody showed it.",
+      "properties": {
+        "since": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "turns": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "since",
+        "turns"
+      ],
+      "type": "object"
+    },
     "LastTurn": {
       "description": "The outcome of the session's last turn. Keys the turn result lacked\nare absent.",
       "properties": {
@@ -5382,6 +5402,17 @@
             "null"
           ]
         },
+        "lastReturn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastReturn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the\n`turns` that ended unseen. A client opening the chat then draws \"New since you looked\" at\n`since`, also when its attach answers before its list read."
+        },
         "lastSeq": {
           "format": "uint64",
           "minimum": 0,
@@ -5703,11 +5734,11 @@
           "type": "boolean"
         },
         "unreadTurns": {
+          "default": 0,
           "description": "Turns that ended while no client showed the chat, since a person last showed it\n(`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.",
           "format": "uint64",
           "minimum": 0,
-          "type": "integer",
-          "default": 0
+          "type": "integer"
         },
         "updatedAt": {
           "format": "uint64",
@@ -6031,6 +6062,17 @@
             "null"
           ]
         },
+        "lastReturn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastReturn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the\n`turns` that ended unseen. A client opening the chat then draws \"New since you looked\" at\n`since`, also when its attach answers before its list read."
+        },
         "lastSeq": {
           "format": "uint64",
           "minimum": 0,
@@ -6340,11 +6382,11 @@
           "type": "boolean"
         },
         "unreadTurns": {
+          "default": 0,
           "description": "Turns that ended while no client showed the chat, since a person last showed it\n(`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.",
           "format": "uint64",
           "minimum": 0,
-          "type": "integer",
-          "default": 0
+          "type": "integer"
         },
         "updatedAt": {
           "format": "uint64",
