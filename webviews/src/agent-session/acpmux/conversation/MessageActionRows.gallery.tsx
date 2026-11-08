@@ -84,7 +84,10 @@ export default componentEntry<Props>({
             )}
             {/* The prompt's row keeps its Retry in the Messages view (MessageActions.tsx PromptActions). */}
             <PresentationContext.Provider value="messages">
-              <div className="cv-user" style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+              <div
+                className="cv-user"
+                style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}
+              >
                 <div className="cv-user__body">
                   <div className="ui-glass cv-user__bubble">{prompt.text}</div>
                   <PromptActions row={sent} text={sent.text ?? ""} />
@@ -92,7 +95,10 @@ export default componentEntry<Props>({
               </div>
             </PresentationContext.Provider>
             <div style={{ height: 56 }} />
-            <div className="acpmux-row acpmux-turnSummary acpmux-row--final-footer" style={{ position: "relative", insetInline: 0, contain: "layout" }}>
+            <div
+              className="acpmux-row acpmux-turnSummary acpmux-row--final-footer"
+              style={{ position: "relative", insetInline: 0, contain: "layout" }}
+            >
               <TurnFooter row={footer} />
             </div>
           </div>
@@ -124,7 +130,7 @@ export default componentEntry<Props>({
       play: pointRetry,
     },
     "just-now": {
-      note: "A prompt sent half a minute ago: \"just now\" in the same box \"1 minute ago\" takes when the minute turns, set against Copy, so nothing moves as it ticks.",
+      note: 'A prompt sent half a minute ago: "just now" in the same box "1 minute ago" takes when the minute turns, set against Copy, so nothing moves as it ticks.',
       props: { sentSeconds: 30 },
     },
   },

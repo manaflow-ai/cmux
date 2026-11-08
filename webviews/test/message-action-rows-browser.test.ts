@@ -16,10 +16,9 @@ import { chromium, type Browser, type Page } from "playwright";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 
-const ROWS = "agent-pane.message-action-rows";
-const STEERED = "agent-pane.superseded-turn-footer";
-
 await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
+  const ROWS = "agent-pane.message-action-rows";
+  const STEERED = "agent-pane.superseded-turn-footer";
   if (!(await probeEngineOrSkip("message action rows", "chromium", chromium))) return;
   setDefaultTimeout(180_000);
   const { createServer } = await import("vite");

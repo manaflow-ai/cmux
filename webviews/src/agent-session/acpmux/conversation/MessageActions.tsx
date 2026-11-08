@@ -46,7 +46,9 @@ export function MessageTime({ at, className }: { at: number; className: string }
 /// A reply's time at the end of its action row, after the buttons, as ChatGPT's: the exact date and
 /// time ("Oct 18, 5:41 AM"), hidden at rest and shown while the reader points at the reply
 /// (conversation.css `.cv-turn-time`; Leo, 2026-11-02: "notice how on hover it reveals the exact
-/// timestamp. let's follow those."). `detail`, when given, is its tooltip (the turn's time and tokens).
+/// timestamp. let's follow those."). Its tooltip is `detail` (the turn's time and tokens) when given,
+/// else the exact date and time with its year, so every reply's time hovers as a prompt's age does
+/// (Leo, 2026-11-08: "for when things are yours, sometimes it's like I can't hover onto yours").
 export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
   const now = useLabelClock(at, nextReplyTime);
   const language = usePaneLanguage();
@@ -55,7 +57,7 @@ export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
       className="cv-turn-time"
       dateTime={new Date(at).toISOString()}
       /* tooltip-allow: the turn's time and tokens, which the row no longer spells out (Leo, 2026-11-02) */ title={
-        detail
+        detail ?? exactTime(at, language)
       }
       data-tooltip-side="top"
     >
