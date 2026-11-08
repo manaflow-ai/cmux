@@ -56,6 +56,22 @@ class Flaky(unittest.TestCase):
         # A run the file missed, or a timeout that names no test, does not split one red stretch in two.
         self.assertEqual(history.flaky(runs(True, False, "-", None, False, True, keys="abcdef")), [])
 
+    def test_a_test_whose_file_flakes_through_its_siblings_is_flaky_once_it_failed_on_the_base(self):
+        # send-stream-motion, 2026-11-08: send, steer and tools share one assertion and fail now and then, one on one
+        # run and another on the next. send failed on one base push only; #37286's replay passed it and failed steer.
+        stream = "test/send-stream-motion.test.ts"
+        send, steer, tools = (f"{stream} > {s}: the default follow motion" for s in ("send", "steer", "tools"))
+        found = []
+        for i, red in enumerate([[], [steer], [], [send], [], [tools], []]):
+            found = history.record(found, f"sha{i}", 1000 + i, {stream: True, **{n: False for n in red}}, f"k{i}")
+        self.assertEqual(history.flaky(found, [send, steer, tools]), [send, steer, tools])
+        # A test of that file that never failed on the base stays the change's.
+        self.assertEqual(history.flaky(found, [f"{stream} > with motion off"]), [])
+        # One sibling broken once and fixed is one red stretch: not a flaky file.
+        once = history.record(history.record(history.record([], "a", 1, {stream: True}, "a"), "b", 2,
+                                             {stream: True, send: False}, "b"), "c", 3, {stream: True}, "c")
+        self.assertEqual(history.flaky(once, [send]), [])
+
     def test_a_break_that_holds_is_not_flaky(self):
         self.assertEqual(history.flaky(runs(True, True, False, False, keys="wwxx")), [])
 
