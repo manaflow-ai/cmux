@@ -53,23 +53,31 @@ async fn appended_turns_reach_the_ledger_and_a_pull_request_names_the_repo() {
 /// after its `forked` record, the ones its own totals paid for.
 #[tokio::test]
 async fn a_forks_seed_counts_only_its_own_turns() {
-    let mut cfg: crate::config::Config = serde_json::from_value(json!({})).unwrap();
-    cfg.store.mode = crate::config::StoreMode::Memory;
-    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    use crate::store::{EventRecord, Store as _};
+    let store = MemoryStore::default();
     let mut m = meta("fork");
     m.parent_id = Some("parent".into());
-    let fork = hub.insert_test_session(m);
-    for _ in 0..3 {
-        hub.append(&fork, "mux", "turn_result", json!({"status": "completed"}));
-    }
-    hub.append(&fork, "mux", "forked", json!({"parentId": "parent"}));
-    hub.append(&fork, "mux", "turn_result", json!({"status": "completed"}));
-    let mut m = fork.meta();
-    assert_eq!(hub.fork_own_turns(&m), Some(1));
     m.turn_count = 4;
     m.totals = Some(crate::store::TurnUsage { cost_usd: Some(2.0), ..Default::default() });
-    let seed = ledger::Seed::of(&m, hub.fork_own_turns(&m));
-    assert_eq!(seed.turns, 1);
+    store.save(&m).unwrap();
+    let kinds = ["turn_result", "turn_result", "turn_result", "forked", "turn_result"];
+    for (i, kind) in kinds.into_iter().enumerate() {
+        let rec = EventRecord {
+            seq: i as u64 + 1,
+            at: 10,
+            dir: "mux".into(),
+            kind: kind.into(),
+            msg: json!({}),
+            host_seq: None,
+        };
+        store.append("fork", &rec).unwrap();
+    }
+    let mut cfg: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(store));
+    assert_eq!(hub.fork_own_turns(&m), Some(1));
+    assert_eq!(ledger::Seed::of(&m, hub.fork_own_turns(&m)).turns, 1);
     // Not a fork: the meta's own count.
     assert_eq!(hub.fork_own_turns(&meta("plain")), None);
+    assert_eq!(ledger::Seed::of(&m, None).turns, 4);
 }
