@@ -502,13 +502,13 @@ extension MotionGate {
         return hide
     }
 
-    /// Holds a moving row's background at `cover` (opaque) while a `token` move is still more than 3% from its
-    /// target, then fades it to `fill`, its own: a selected row passing over others hides what it crosses itself,
-    /// on the same timing ``passOverAnimation(_:)`` hides them, and needs nothing undone once it ends. Nil when moves
-    /// snap.
+    /// Holds a moving row's background at `cover` (opaque) until a `token` move has settled (within 0.2% of its
+    /// target, the bound the move's own end uses), then fades it to `fill`, its own: a selected row passing over
+    /// others hides what it crosses itself in every frame it moves, and needs nothing undone once it ends. Nil when
+    /// moves snap.
     public func passOverCover(_ token: MotionSpring, cover: CGColor, fill: CGColor?) -> CAAnimation? {
         guard animatesMovement else { return nil }
-        let settle = spring(token).settlingTime(within: 0.03)
+        let settle = spring(token).settlingTime(within: 0.002)
         let total = settle + duration(MotionFade.fadeIn)
         let end = fill ?? cover.copy(alpha: 0) ?? cover
         let hold = CAKeyframeAnimation(keyPath: "backgroundColor")

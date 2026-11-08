@@ -1666,7 +1666,7 @@ An empty group now keeps only its header at rest. The header's existing + appear
   at once and faded back near the spring's settle (`cmux.passOver`, cx-ai79), so the group's header and members sat
   at opacity 0 for two frames and blinked back.
 - Now crossed rows no longer hide: they stay at full opacity the whole move. The moving selected row draws above them
-  and covers them itself: until the move is within 3% of its target its background shows its selection fill over the
+  and covers them itself: until the move has settled (within 0.2% of its target) its background shows its selection fill over the
   sidebar's opaque ground (the theme's sidebar background under the sidebar's own surface fill), then fades to its own
   fill (`passOverCover`, one render-server keyframe that removes itself), so no crossed title shows through a
   translucent fill. Over the plain sidebar the row looks the same either way.
