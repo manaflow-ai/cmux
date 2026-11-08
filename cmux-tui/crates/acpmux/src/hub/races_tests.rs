@@ -436,3 +436,28 @@ async fn cancelling_a_race_whose_children_are_not_here_finishes() {
     assert!(!done.cleanup_pending);
     assert!(!race_needs_resume(&done), "nothing for a restart to retry");
 }
+
+/// Review of #38735: a cleanup that failed after the verdict or cancel was saved is retried
+/// (`spawn_race`); a race that merely failed, or whose cleanup finished, is not.
+#[test]
+fn only_a_saved_verdict_or_cancel_with_cleanup_left_is_retried() {
+    let mut reviewing = race();
+    reviewing.winner_id = Some("c1".into());
+    assert!(!cleanup_unfinished(&reviewing), "no cleanup started");
+    reviewing.cleanup_pending = true;
+    assert!(cleanup_unfinished(&reviewing));
+    let mut cancelled = race();
+    cancelled.state = "cancelled".into();
+    cancelled.cleanup_pending = true;
+    assert!(cleanup_unfinished(&cancelled));
+    cancelled.cleanup_pending = false;
+    assert!(!cleanup_unfinished(&cancelled));
+    let mut failed = race();
+    failed.state = "failed".into();
+    failed.cleanup_pending = true;
+    assert!(!cleanup_unfinished(&failed));
+    let mut no_winner = race();
+    no_winner.cleanup_pending = true;
+    assert!(!cleanup_unfinished(&no_winner), "no verdict saved: nothing to finish");
+    assert!(!CLEANUP_RETRY_DELAYS.is_empty() && CLEANUP_RETRY_DELAYS.len() <= 5);
+}
