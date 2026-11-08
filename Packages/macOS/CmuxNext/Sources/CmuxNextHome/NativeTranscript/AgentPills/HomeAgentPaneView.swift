@@ -14,6 +14,13 @@ final class HomeAgentPaneView: NSView {
     let side = HomeAgentSidePane()
     /// The last Go to workspace click's place read and open (tests await it).
     private(set) var pendingGo: Task<Void, Never>?
+    /// Start now on a queued agent: the host asks the Chief to start it past the cap; true when it did.
+    var onStartAgent: ((String) async -> Bool)?
+    /// A queued agent opened here started: the host opens its workspace beside Home (true when it did), and its
+    /// tab here closes (user 2026-11-07, msg 23835).
+    var onHandOff: ((URL) -> Bool)?
+    /// The last Start now click's ask to the Chief (tests await it).
+    private(set) var pendingStart: Task<Void, Never>?
     /// What each open tab draws now.
     private var drawn: [String: HomeAgentChatContent?] = [:]
     // task-owner: this view; event-driven (Observation), cancelled by stop()
@@ -24,6 +31,8 @@ final class HomeAgentPaneView: NSView {
         var tabs: [String]
         var selected: String?
         var content: HomeAgentChatContent?
+        /// Agents opened here while queued that started, with where to open them.
+        var started: [String: URL]
     }
 
     /// - Parameter pane: The tabs and selection to draw.
@@ -50,9 +59,7 @@ final class HomeAgentPaneView: NSView {
     private func follow() {
         let pane = pane
         watch = Task { [weak self] in
-            let states = ObservationStream {
-                Shown(tabs: pane.tabs, selected: pane.selected, content: pane.selected.flatMap { pane.content($0, now: Date()) })
-            }
+            let states = ObservationStream { Self.shown(pane) }
             for await shown in states {
                 guard let self else { return }
                 apply(shown)
@@ -62,10 +69,23 @@ final class HomeAgentPaneView: NSView {
 
     /// Draws `shown` now (also the tests' way in, with no wait for the observation).
     func apply() {
-        apply(Shown(tabs: pane.tabs, selected: pane.selected, content: pane.selected.flatMap { pane.content($0, now: Date()) }))
+        apply(Self.shown(pane))
+    }
+
+    private static func shown(_ pane: HomeAgentPane) -> Shown {
+        Shown(tabs: pane.tabs, selected: pane.selected, content: pane.selected.flatMap { pane.content($0, now: Date()) },
+              started: pane.startedWaiting())
     }
 
     private func apply(_ shown: Shown) {
+        // A queued agent that started moves to its workspace; what is left draws next time.
+        if let onHandOff, !shown.started.isEmpty {
+            var handed = false
+            for (peer, link) in shown.started.sorted(by: { $0.key < $1.key }) {
+                handed = pane.handOff(peer, to: link, outside: onHandOff) || handed
+            }
+            if handed { return apply(Self.shown(pane)) }
+        }
         for peer in side.peers where !shown.tabs.contains(peer) {
             side.close(peer)
             drawn[peer] = nil
@@ -109,7 +129,20 @@ final class HomeAgentPaneView: NSView {
             }
         }
         let sent: (String) -> Void = { [weak pane] text in pane?.send(text, to: peer) }
-        return HomeAgentChatView(content: content, actions: HomeAgentChatView.Actions(goToWorkspace: go, sent: sent))
+        let start: (() -> Void)? = content.isQueued && onStartAgent != nil ? { [weak self] in self?.startNow(peer) } : nil
+        return HomeAgentChatView(content: content, actions: HomeAgentChatView.Actions(goToWorkspace: go, startNow: start, sent: sent))
+    }
+
+    /// Start now on queued agent `peer`: the button says Starting at once; a Chief that does not start it beeps
+    /// and the button comes back. Once its session shows, the tab moves to its workspace (``onHandOff``).
+    private func startNow(_ peer: String) {
+        guard let onStartAgent, pane.startNow(peer) else { return }
+        // task-owner: one Chief ask; ends with its answer
+        pendingStart = Task { [weak pane] in
+            guard await !onStartAgent(peer) else { return }
+            pane?.failedToStart(peer)
+            NSSound.beep()
+        }
     }
 
     /// The selected tab's chat view (tests).

@@ -108,6 +108,9 @@ public final class HomeNativeFixture {
         view.frame = host.bounds
         view.autoresizingMask = [.width, .height]
         host.addSubview(view)
+        // Start now on a queued agent: the mock Chief starts it at once (its session shows, so it says Working).
+        let store = store
+        view.onStartAgent = { peer in store.agentsStarted([peer]); return true }
         self.view = view
         shown = (id, chief)
         await view.binding.opened()

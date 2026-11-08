@@ -34,6 +34,8 @@ public final class HomeChiefTurnActions {
         transcript?.onChiefRetry = self.control == nil ? nil : { [weak self] message in self?.retry(message) }
         // `/` lists this Chief's skills when its host runs here: it reads the same folders (slash_skills.rs).
         transcript?.slashSkillsHome = self.control?.brainHome
+        // Start now on a queued agent's tab: this chat's own Chief starts it past the cap (user 2026-11-07, msg 23835).
+        transcript?.onStartAgent = self.control.map { control in { peer in await control.startNow(peer) == nil } }
         refresh()
     }
 

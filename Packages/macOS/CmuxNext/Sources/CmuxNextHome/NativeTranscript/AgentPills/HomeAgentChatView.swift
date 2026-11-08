@@ -13,6 +13,8 @@ final class HomeAgentChatView: NSView {
     /// What the header's buttons and the composer do; nil hides the button (``sent`` nil: no composer).
     struct Actions {
         var goToWorkspace: (() -> Void)?
+        /// Start now on a queued agent: the Chief starts it past the cap (shown only while it is queued).
+        var startNow: (() -> Void)?
         /// The peek's Open: the chat moves to the right pane.
         var open: (() -> Void)?
         /// The pushed chat's back button.
@@ -103,7 +105,9 @@ final class HomeAgentChatView: NSView {
         let title = label(content.title, size: TypeScale.body, weight: TypeScale.emphasis, color: .labelColor)
         // Where it runs once it moved (a machine name, not words): "a12 · Working · cmux-mini".
         let placeText = content.place.map { " · " + $0 } ?? ""
-        let status = label("\(content.peer) · \(content.status)\(placeText)", size: TypeScale.caption, weight: TypeScale.regular, color: .secondaryLabelColor)
+        // A queued agent says where it stands: "a7 · Queued · 2 ahead of it".
+        let queueText = content.queueLine.map { " · " + $0 } ?? ""
+        let status = label("\(content.peer) · \(content.status)\(queueText)\(placeText)", size: TypeScale.caption, weight: TypeScale.regular, color: .secondaryLabelColor)
         let names = NSStackView(views: [title, status])
         names.orientation = .vertical
         names.alignment = .leading
@@ -117,6 +121,18 @@ final class HomeAgentChatView: NSView {
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         views.append(spacer)
+        if content.isQueued, let start = actions.startNow {
+            let title = content.isStarting
+                ? String(localized: "home.agentPane.starting", defaultValue: "Starting…", bundle: .module)
+                : String(localized: "home.agentPane.startNow", defaultValue: "Start now", bundle: .module)
+            let startButton = button(title, symbol: "play.fill", action: start)
+            startButton.isEnabled = !content.isStarting
+            startButton.toolTip = String(localized: "home.agentPane.startNow.help",
+                                         defaultValue: "Start this agent now, without waiting for a free slot", bundle: .module)
+            startButton.setAccessibilityIdentifier("home.agentPane.startNow")
+            startNowButton = startButton
+            views.append(startButton)
+        }
         if let go = actions.goToWorkspace {
             let title = String(localized: "home.agentPane.goToWorkspace", defaultValue: "Go to workspace", bundle: .module)
             let goButton = button(title, symbol: "arrow.up.forward.app", action: go)
@@ -248,6 +264,7 @@ final class HomeAgentChatView: NSView {
         let expanded = isTaskExpanded
         let stepsShown = stepsLabel.map { !$0.isHidden } ?? false
         self.content = content
+        goToWorkspaceButton = nil
         fillHeader()
         for view in stack.arrangedSubviews {
             stack.removeArrangedSubview(view)
@@ -256,7 +273,6 @@ final class HomeAgentChatView: NSView {
         taskLabel = nil
         stepsLabel = nil
         taskToggle = nil
-        goToWorkspaceButton = nil
         fillTranscript()
         if expanded, let taskLabel { taskLabel.maximumNumberOfLines = 0 }
         if expanded, let more = taskToggle { more.title = Self.showLess }
@@ -266,6 +282,7 @@ final class HomeAgentChatView: NSView {
     /// Puts a new header (title, status, buttons) in its holder.
     private func fillHeader() {
         headerHolder.subviews.forEach { $0.removeFromSuperview() }
+        startNowButton = nil
         let header = makeHeader()
         header.translatesAutoresizingMaskIntoConstraints = false
         headerHolder.addSubview(header)
@@ -279,6 +296,8 @@ final class HomeAgentChatView: NSView {
 
     /// The header's Go to workspace button; nil when the content has no workspace link (tests).
     private(set) var goToWorkspaceButton: NSButton?
+    /// The header's Start now button; nil unless the agent is queued and the host can start it (tests).
+    private(set) var startNowButton: NSButton?
 
     /// True while the whole task shows (after Show more).
     var isTaskExpanded: Bool { taskLabel?.maximumNumberOfLines == 0 }
