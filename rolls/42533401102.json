@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42533401102",
+  "recorded_at": "2026-11-08T23:16:14Z",
+  "reason": "cmux-tui a481a748be31 changes the image's cmux-tui (pinned 345105c46de6)",
+  "dry_run": false,
+  "cmux_tui": "a481a748be3122c403540adc209df9c1eec5e77b",
+  "fixes": [
+    {
+      "sha": "a481a748be3122c403540adc209df9c1eec5e77b",
+      "mergedAt": "2026-11-08T14:49:26-08:00",
+      "subject": "Remote transport: prefer the fastest local link and fall back without a stall (#38848)"
+    },
+    {
+      "sha": "a8e8c3a7139838830bbfa4c0379ea88a8babd607",
+      "mergedAt": "2026-11-08T14:47:44-08:00",
+      "subject": "cmux-wg: send a tail-loss probe before the retransmission timeout (vendored smoltcp) (#38863)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T23:16:14Z",
+    "snapshot_id": "sh-c4d73a1f1984488e891392a576f9fc09",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42533401102): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f92047c8b13ea723c5537338c47c94942ed1e7d7",
+    "image": "cloud-native-auto-a481a748-42533401102-1",
+    "revision": "ci-42533401102-1",
+    "at": "2026-11-08T23:16:14Z"
+  },
+  "rolled_back": false
+}
