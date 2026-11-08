@@ -18,9 +18,9 @@
 
 use std::io::{BufRead as _, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use cmux_git::sync_barrier::Sync;
+use cmux_process::{Command, Stdio};
 
 const USAGE: &str = "usage: cmux repo hold DIR -- CMD [ARG...] | cmux repo wait DIR SECONDS";
 /// The child's one stdout line once it holds the barrier.
@@ -130,21 +130,9 @@ fn hold(dir: &Path, cmd: &[String]) -> i32 {
         .args(cmd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
-    // Its own session: the hold outlives this process and the caller's terminal.
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt as _;
-        // SAFETY: setsid is async-signal-safe and touches no memory of this process.
-        unsafe {
-            child.pre_exec(|| {
-                if libc::setsid() < 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
-    }
+        .stderr(Stdio::inherit())
+        // Its own session: the hold outlives this process and the caller's terminal.
+        .new_session();
     let mut child = match child.spawn() {
         Ok(child) => child,
         Err(error) => {
