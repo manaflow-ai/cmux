@@ -47,13 +47,6 @@ extension BrowserChromeView {
     /// flickers sometimes"; a second show faded the card out and a new one in).
     public func showCookieImportOffer(_ offer: BrowserCookieImportOffer, aboveToast: Bool = false,
                                       onChoice: @escaping (BrowserCookieImportChoice) -> Void) {
-        if let shown = currentCookieImportCard, shown.offer == offer {
-            shown.onChoice = { [weak self, weak shown] choice in
-                if let shown { self?.remove(shown) }
-                onChoice(choice)
-            }
-            return
-        }
         if let shown = currentCookieImportCard { remove(shown) }
         let card = BrowserCookieImportCard(offer: offer)
         card.onChoice = { [weak self, weak card] choice in
