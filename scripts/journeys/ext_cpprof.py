@@ -76,11 +76,9 @@ def step_cp_xctrace_closes(j, step):
         result.update(C.xctrace_press_profiles(xml, j.app.pid, replies, float(step.get("window_ms", 120)), int(step.get("top", 40))))
     xml.unlink(missing_ok=True)
     shutil.rmtree(trace, ignore_errors=True)
-    for row in result.get("rows") or []:  # the raw samples stay on the mini; phases and bins go to result.json
+    (j.out / f"diag-closeprofile{case.lower()}.json").write_text(__import__("json").dumps(result))  # with the raw samples
+    for row in result.get("rows") or []:  # result.json: phases and bins only
         row.pop("raw", None)
-        row.pop("strings", None)
-        row.pop("table", None)
-    (j.out / f"diag-closeprofile{case.lower()}.json").write_text(__import__("json").dumps(result))
     return result
 
 
