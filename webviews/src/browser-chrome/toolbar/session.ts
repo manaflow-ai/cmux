@@ -311,7 +311,12 @@ export class ToolbarSession {
         return;
       case "rowClick":
         this.commitComposition();
-        this.send({ type: "rowClick", row: event.row, disposition: dispositionFor(event.modifiers), shown: event.shown });
+        this.send({
+          type: "rowClick",
+          row: event.row,
+          disposition: dispositionFor(event.modifiers),
+          shown: event.shown,
+        });
         return;
       case "showPageURL":
         this.send({ type: "pageURLChanged", url: this.host?.url ?? null });

@@ -9,7 +9,10 @@ import { fileURLToPath } from "node:url";
 
 const webviews = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const repo = path.dirname(webviews);
-export const TLD_SOURCE = path.join(repo, "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/TopLevelDomains.txt");
+export const TLD_SOURCE = path.join(
+  repo,
+  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/TopLevelDomains.txt",
+);
 const GENERATED = path.join(webviews, "src/browser-chrome/omnibox/resolver/top-level-domains.generated.ts");
 
 /** The source's version line and its labels, lowercased. */
@@ -61,7 +64,9 @@ export function writeTopLevelDomains({ check = false, log = console.error } = {}
   const current = fs.existsSync(GENERATED) ? fs.readFileSync(GENERATED, "utf8") : null;
   if (check) {
     if (current === next) return 0;
-    log(`${path.relative(repo, GENERATED)} is stale or missing: run node webviews/scripts/pages/gen-top-level-domains.mjs`);
+    log(
+      `${path.relative(repo, GENERATED)} is stale or missing: run node webviews/scripts/pages/gen-top-level-domains.mjs`,
+    );
     return 1;
   }
   if (current !== next) fs.writeFileSync(GENERATED, next);

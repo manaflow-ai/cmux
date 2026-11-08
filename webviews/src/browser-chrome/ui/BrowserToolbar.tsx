@@ -328,7 +328,6 @@ function ToolbarIconButton({
       title={tooltip ? label : undefined}
       disabled={!enabled}
       data-active={active || pressed || undefined}
-     
       onMouseDown={holdsFocus ? keepFocus : undefined}
       onPointerDown={hold?.onPointerDown}
       onPointerUp={hold?.onPointerUp}
@@ -389,7 +388,6 @@ function ExtensionButton({
       title={action.name}
       disabled={action.enabled === false}
       data-active={pressed || undefined}
-     
       onMouseDown={holdsFocus ? keepFocusWhileEditing : undefined}
       draggable
       onDragStart={(event) => {
@@ -507,7 +505,6 @@ function Badges({
           className="bc-badge bc-badge-text bc-badge-focus"
           data-rect="badge:focusMode"
           title={badges.focusMode.help}
-         
           onMouseDown={press}
           onClick={() => send({ type: "focusModeBadge" })}
         >
@@ -524,7 +521,6 @@ function Badges({
           data-rect="badge:profile"
           aria-label={badges.profile.help ?? badges.profile.name}
           title={badges.profile.help ?? badges.profile.name}
-         
           style={badges.profile.color ? ({ "--bc-profile": badges.profile.color } as CSSProperties) : undefined}
           onMouseDown={press}
           onClick={() => send({ type: "profileBadge" })}
@@ -549,7 +545,6 @@ function Badges({
           data-rect="badge:machine"
           aria-label={badges.machine.help}
           title={badges.machine.help}
-         
           onMouseDown={press}
           onClick={() => send({ type: "machineBadge" })}
           onContextMenu={menuPress(() => send({ type: "machineBadge" }))}
@@ -573,17 +568,7 @@ type OmnibarProps = {
   icons: IconSizes;
 };
 
-function Omnibar({
-  state,
-  strings,
-  send,
-  field,
-  badges,
-  holdsFocus,
-  onFieldMouseDown,
-  chipDrag,
-  icons,
-}: OmnibarProps) {
+function Omnibar({ state, strings, send, field, badges, holdsFocus, onFieldMouseDown, chipDrag, icons }: OmnibarProps) {
   const t = strings.t;
   const label = chipLabel(strings, state.chip.label);
   const surface = state.suggestionsOpen ? "card" : state.editing ? "editing" : "idle";
@@ -608,7 +593,6 @@ function Omnibar({
         aria-expanded={state.chip.triggerable ? !!state.pageInfoOpen : undefined}
         title={state.chip.triggerable ? t("pageInfo.chip.tooltip") : undefined}
         disabled={!state.chip.triggerable}
-       
         // A drag out of the chip needs the press's default; at rest there is no focus to keep.
         onMouseDown={holdsFocus && !chipDrag ? keepFocus : undefined}
         draggable={chipDrag ? true : undefined}
@@ -650,7 +634,6 @@ function Omnibar({
           data-on={state.bookmark === "on" || undefined}
           aria-label={t(state.bookmark === "on" ? "browser.bookmark.edit" : "browser.bookmark.add")}
           aria-pressed={state.bookmark === "on"}
-         
           onMouseDown={holdsFocus ? keepFocus : undefined}
           onClick={() => send({ type: "bookmark" })}
         >

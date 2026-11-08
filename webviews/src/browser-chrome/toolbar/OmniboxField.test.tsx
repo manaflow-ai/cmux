@@ -8,7 +8,11 @@ import { OmniboxField } from "./OmniboxField";
 
 const field = () =>
   renderToStaticMarkup(
-    <OmniboxField inputRef={() => {}} presentation={presentation(initialOmnibarState())} placeholder="Search or enter address" />,
+    <OmniboxField
+      inputRef={() => {}}
+      presentation={presentation(initialOmnibarState())}
+      placeholder="Search or enter address"
+    />,
   );
 
 test("a blank tab's resting field draws the themed placeholder over the input", () => {
