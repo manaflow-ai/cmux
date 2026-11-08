@@ -121,15 +121,11 @@ import Testing
         #expect(bar.status.frame.minX <= bar.edgeInsets.left + 1)
     }
 
-    /// The capture scene's fixture computer keeps its control bar through the host's own reads.
     /// cmux issue 38140: in a pane too narrow for both, the panel lies over the chat. Over a see-through
     /// window the pane's fill is clear, and the chat's welcome text showed through the panel's own text.
     /// Over the chat the panel is opaque; beside it, it keeps the pane's clear fill.
     @Test func overTheChatThePanelIsOpaqueInASeeThroughWindow() throws {
-        // The see-through branch is under test: Reduce Transparency paints every surface opaque.
-        let savedReduceTransparency = ReduceTransparency.shared.override
-        ReduceTransparency.shared.override = false
-        defer { ReduceTransparency.shared.override = savedReduceTransparency }
+        // A workspace with a background picture: its window is see-through, so the pane's fill is clear.
         let workspace = ThemeScope(level: .workspace)
         workspace.pinBackdrop(.selection(.art(.vanGoghStarryNight)))
         defer { workspace.pinBackdrop(.inherit) }
@@ -160,6 +156,7 @@ import Testing
         #expect(fillAlpha() == 0)
     }
 
+    /// The capture scene's fixture computer keeps its control bar through the host's own reads.
     @Test func aPinnedControlBarIgnoresTheHostsComputer() {
         let panel = HomeChiefProfilePanel(settings: Self.card())
         let lease = Lease()

@@ -88,7 +88,7 @@ public final class HomeChiefProfilePanel {
     }
 
     /// The panel's fill and its hairline, in the theme of the view drawing them (call inside its theme scope):
-    /// beside the chat the pane's own fill, over it an opaque cover.
+    /// beside the chat the pane's own fill, over it an opaque cover. theme-scoped: every caller wraps it in `performWithTheme`.
     public func applyTheme() {
         view.layer?.backgroundColor = (coversChat ? Palette.paneCover : Palette.paneFill).cgColor
         divider.layer?.backgroundColor = Palette.paneBorder.cgColor
