@@ -65,28 +65,43 @@ extension SettingsController {
             }
         }
         if !report.dropped.isEmpty {
-            // Rechecked at the write: a key someone set since the read above stays, and counts as kept.
+            // Rechecked at the write: a key someone set since the read above stays, and counts as
+            // kept. The record goes beside the file before the publish, so nothing is removed
+            // without it.
             let candidates = SettingsSchema.all.compactMap { descriptor in report.dropped[descriptor.id].map { (descriptor, $0) } }
-            let (removed, before) = try await removeUnchanged(candidates.map { (path: $0.0.path, value: $0.1) })
-            for (descriptor, read) in candidates where !removed.contains(descriptor.path) {
-                report.dropped[descriptor.id] = nil
-                report.kept[descriptor.id] = try await file.value(at: descriptor.path) ?? read
-            }
-            if !report.dropped.isEmpty {
+            let read = report
+            let (removed, before) = try await removeUnchanged(
+                candidates.map { (path: $0.0.path, value: $0.1) }, recordBeside: "defaults-forgotten.json"
+            ) { removed, before in
+                let settled = Self.settled(read, candidates: candidates, removed: removed, before: before)
                 let record: JSONValue = .object([
                     "note": .string("cmux dropped these stored copies of defaults once, so each key follows its default again. "
                         + "To keep one, set it again in Settings or copy it back from `before`."),
-                    "dropped": .object(report.dropped),
-                    "kept": .object(report.kept),
+                    "dropped": .object(settled.dropped),
+                    "kept": .object(settled.kept),
                     "before": .string(before),
                 ])
-                try await file.writeBeside(suffix: "defaults-forgotten.json", text: record.prettyText() + "\n")
+                return record.prettyText() + "\n"
             }
+            report = Self.settled(report, candidates: candidates, removed: removed, before: before)
         }
         let dropped = report.dropped.keys.sorted().joined(separator: ", "), kept = report.kept.keys.sorted().joined(separator: ", ")
         Logger(subsystem: "com.cmuxterm.app.next", category: "settings").info(
             "stored defaults: dropped [\(dropped, privacy: .public)]; kept [\(kept, privacy: .public)]")
         marker.set(true, forKey: Self.storedDefaultsForgottenKey)
+        return report
+    }
+
+    /// `report` once the write removed only `removed`: each other candidate is kept, with its value
+    /// in `before` (the file at the write).
+    nonisolated static func settled(_ report: StoredDefaultsReport, candidates: [(SettingDescriptor, JSONValue)],
+                                    removed: [[String]], before: String) -> StoredDefaultsReport {
+        var report = report
+        let root = try? JSONC.parse(before)
+        for (descriptor, read) in candidates where !removed.contains(descriptor.path) {
+            report.dropped[descriptor.id] = nil
+            report.kept[descriptor.id] = root?.value(at: descriptor.path) ?? read
+        }
         return report
     }
 
@@ -108,8 +123,12 @@ extension SettingsController {
     }
 
     /// `CmuxConfigFile.removeUnchanged`, then a reload when it removed anything.
-    private func removeUnchanged(_ expected: [(path: [String], value: JSONValue)]) async throws -> (removed: [[String]], before: String) {
-        let result = try await file.removeUnchanged(expected)
+    private func removeUnchanged(
+        _ expected: [(path: [String], value: JSONValue)],
+        recordBeside suffix: String? = nil,
+        record: @escaping @Sendable ([[String]], String) throws -> String = { _, _ in "" }
+    ) async throws -> (removed: [[String]], before: String) {
+        let result = try await file.removeUnchanged(expected, recordBeside: suffix, record: record)
         if !result.removed.isEmpty { await reloadAfterWrite() }
         return result
     }

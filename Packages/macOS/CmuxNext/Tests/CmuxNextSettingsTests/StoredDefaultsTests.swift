@@ -123,6 +123,19 @@ import Testing
         #expect(try await file.value(at: ["appearance", "theme"]) == .string("Nord"))
     }
 
+    /// The record beside the file goes first: when it cannot be written, nothing is removed.
+    @Test func aFailedRecordWriteLeavesTheFile() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let text = #"{ "diff": { "layout": "auto" } }"#
+        let settings = try await controller(text)
+        // A directory where the record goes, so its write fails.
+        try FileManager.default.createDirectory(at: home.appending(path: "cmux-next.json.defaults-forgotten.json/x"),
+                                                withIntermediateDirectories: true)
+
+        await #expect(throws: (any Error).self) { try await settings.forgetStoredDefaults(marker: try marker(), formerDefaults: [:]) }
+        #expect(try String(contentsOf: url, encoding: .utf8) == text)
+    }
+
     /// Every former default names a schema key and differs from its current default.
     @Test func formerDefaultsNameSchemaKeys() {
         for (key, values) in SettingsSchema.formerDefaults {

@@ -179,8 +179,14 @@ public actor CmuxConfigFile {
     /// Removes each path whose value is still `expected` in the file as it is now, then each object
     /// those removals emptied, in one atomic publish; a path changed since the caller read it stays.
     /// Read and write share one actor turn, so no other write of this file lands between them.
-    /// Returns the removed paths and the text before the publish.
-    public func removeUnchanged(_ expected: [(path: [String], value: JSONValue)]) throws -> (removed: [[String]], before: String) {
+    /// With `recordBeside`, `record(removed, before)` is written beside the file first
+    /// (`writeBeside`), so a failed record write leaves the file as it was. Returns the removed
+    /// paths and the text before the publish.
+    public func removeUnchanged(
+        _ expected: [(path: [String], value: JSONValue)],
+        recordBeside suffix: String? = nil,
+        record: @Sendable (_ removed: [[String]], _ before: String) throws -> String = { _, _ in "" }
+    ) throws -> (removed: [[String]], before: String) {
         guard expected.allSatisfy({ !$0.path.isEmpty }) else { throw Failure.invalidPath("") }
         let current = try source()
         let root = try validated(current)
@@ -195,7 +201,10 @@ public actor CmuxConfigFile {
                 updated = try JSONC.removing(parent, in: updated)
             }
         }
-        if updated != current { try publish(updated) }
+        if updated != current {
+            if let suffix { try writeBeside(suffix: suffix, text: record(removed, current)) }
+            try publish(updated)
+        }
         return (removed, current)
     }
 
