@@ -159,7 +159,9 @@ impl LoopDetector {
         let index = self.pending.iter().position(|call| call.id == id);
         if !terminal {
             if let Some(index) = index {
-                self.pending[index].enrich(update);
+                if let Some(call) = self.pending.get_mut(index) {
+                    call.enrich(update);
+                }
             } else {
                 push_bounded(&mut self.pending, Call::from_update(id, update), PENDING);
             }
