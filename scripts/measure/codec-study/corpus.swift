@@ -11,6 +11,7 @@
 
 import AppKit
 import Foundation
+import ImageIO
 
 func fail(_ message: String, code: Int32 = 2) -> Never {
     FileHandle.standardError.write(Data("codec-study-corpus: \(message)\n".utf8))

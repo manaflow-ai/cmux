@@ -127,12 +127,10 @@ CODEC_STUDY_ONLY="$only" "$py" -I "$here/study.py" encode "$runs" "$work/encoded
   echo "CODEC-STUDY-ERROR the library encode ended early (exit $?)"
 if [[ $mac == 1 ]]; then
   stage encode imageio
-  "$work/bin/codec-study-imageio" types >"$out/imageio-types.json"
-  echo "CODEC-STUDY-IMAGEIO $(cat "$out/imageio-types.json" | "$py" -I -c 'import json,sys; print(json.load(sys.stdin)["settings"])')"
-  if [[ -z "$only" || "$only" == *imageio* ]]; then
-    "$work/bin/codec-study-imageio" encode "$runs" "$work/encoded" "${corpus[@]}" >"$out/imageio.jsonl" ||
-      echo "CODEC-STUDY-ERROR the ImageIO encode ended early (exit $?)"
-  fi
+  CODEC_STUDY_ONLY="$only" "$work/bin/codec-study-imageio" types >"$out/imageio-types.json"
+  echo "CODEC-STUDY-IMAGEIO $("$py" -I -c 'import json,sys; print(json.load(sys.stdin)["settings"])' <"$out/imageio-types.json")"
+  CODEC_STUDY_ONLY="$only" "$work/bin/codec-study-imageio" encode "$runs" "$work/encoded" "${corpus[@]}" >"$out/imageio.jsonl" ||
+    echo "CODEC-STUDY-ERROR the ImageIO encode ended early (exit $?)"
   stage decode imageio
   encoded=()
   while IFS= read -r file; do encoded+=("$file"); done < <(find "$work/encoded" -type f ! -name '*.decoded.png' | sort)

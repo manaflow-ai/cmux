@@ -329,7 +329,8 @@ def report(folder, out_json, out_md):
 
     md = ["# Still-frame codec study", ""]
     if machine:
-        md.append(f"{machine.get('cpu', '?')}, macOS {machine.get('macos', '?')}, {machine.get('host_kind', '')} at {machine.get('rev', '?')[:12]}, "
+        system = f"macOS {machine['macos']}" if machine.get("macos") else machine.get("os", "?")
+        md.append(f"{machine.get('cpu', '?')}, {system}, {machine.get('host_kind', '')} at {machine.get('rev', '?')[:12]}, "
                   f"{machine.get('runs', '?')} runs per number (median), {machine.get('at', '')}.")
         md.append("")
     md.append("Encode and decode in ms (median over images), bytes median, `vs PNG` is the median of bytes / PNG zlib-6 bytes of "

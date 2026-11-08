@@ -100,6 +100,9 @@ func settings() -> [Setting] {
         Setting(id: "imageio-webp-q85", codec: "webp", type: "org.webmproject.webp", ext: "webp", options: [kCGImageDestinationLossyCompressionQuality: 0.85], note: "ImageIO WebP"),
     ]
     all.removeAll { !destinationTypes.contains($0.type) }
+    // CODEC_STUDY_ONLY (codec-study.sh only=): keep the setting ids that contain one of its tokens.
+    let only = (ProcessInfo.processInfo.environment["CODEC_STUDY_ONLY"] ?? "").split(separator: ",").map(String.init)
+    if !only.isEmpty { all.removeAll { setting in !only.contains { setting.id.contains($0) } } }
     return all
 }
 

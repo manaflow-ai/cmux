@@ -11,6 +11,7 @@
 
 import AppKit
 import Foundation
+import ImageIO
 import Vision
 
 func fail(_ message: String) -> Never {
