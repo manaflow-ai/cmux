@@ -194,6 +194,20 @@ test("a paused Cloud peer that was connected draws no Reconnecting spinner", asy
   expect(host.querySelector(".acpmux-composer-foot")?.textContent ?? "").not.toContain("Reconnecting");
 });
 
+test("a Cloud peer whose sign-in or build needs a person still says so", async () => {
+  // Only the Cloud states that come back on their own are the peer copy banner's: a refused sign-in or
+  // a build the machine needs waits for a person, and the banner offers only Resume.
+  for (const [state, words] of [
+    ["authFailed", "Sign-in needed"],
+    ["updateRequired", "Update required"],
+  ] as const) {
+    await render(started("dev-vm-2", state, "cloud"));
+    expect(link()?.dataset.link, state).toBe("offline");
+    expect(said(), state).toBe(`dev-vm-2${words}`);
+    expect(reconnect(), state).toBeNull();
+  }
+});
+
 test("the model chip no longer reads Unavailable for a machine that is down", async () => {
   const { authChipText, readSessionAuth } = await import("../src/agent-session/acpmux/sessionAuth");
   expect(
