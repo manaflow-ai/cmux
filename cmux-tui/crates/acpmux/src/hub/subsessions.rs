@@ -1417,4 +1417,3 @@ mod reply_tests {
         assert!(serde_json::from_str::<Value>(&got).is_ok());
     }
 }
-
