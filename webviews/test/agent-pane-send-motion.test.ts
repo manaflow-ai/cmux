@@ -138,9 +138,13 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
     );
   };
 
+  // The thread's rise follows the follow-motion experiment (#37614): its default arms chase each
+  // move on a spring, and its eased arm is the glide this send clock drives (followGlide `sent`).
+  // The rise's clock is read in that arm; the bubble and thinking row take the send clock in every arm.
   test("a prompt sent from the latest row: room, bubble, thinking row and rise are one motion on one clock", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 520 } });
     try {
+      await page.addInitScript(() => localStorage.setItem("cmux.experiments", '{"follow-motion":"eased"}'));
       await openPane(page);
       // Earlier turns, so the chat overflows and the send rises from the latest row.
       for (const line of ["first question", "second question", "third question"]) {
