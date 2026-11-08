@@ -189,11 +189,22 @@ const hovered =
     await ctx.hover({ selector: ROW[block] });
   };
 
+// The prompt folds at thirty lines (promptCollapse.ts), taller than the other blocks' stage: its
+// states get one that holds it open, so a click on its row lands on screen.
+const PROMPT_STAGE = 900;
+const stage = (block: Block) => (block === "prompt" ? { height: PROMPT_STAGE } : {});
+
 const variants = Object.fromEntries(
   BLOCKS.flatMap((block) => [
-    [block, { note: `${block}: collapsed.`, props: { block }, play: ready(block) }],
-    [`${block}-expanded`, { note: `${block}: expanded with Show less.`, props: { block }, play: expanded(block) }],
-    [`${block}-hover`, { note: `${block}: the pointer on its bottom row.`, props: { block }, play: hovered(block) }],
+    [block, { note: `${block}: collapsed.`, props: { block }, play: ready(block), ...stage(block) }],
+    [
+      `${block}-expanded`,
+      { note: `${block}: expanded with Show less.`, props: { block }, play: expanded(block), ...stage(block) },
+    ],
+    [
+      `${block}-hover`,
+      { note: `${block}: the pointer on its bottom row.`, props: { block }, play: hovered(block), ...stage(block) },
+    ],
   ]),
 );
 
