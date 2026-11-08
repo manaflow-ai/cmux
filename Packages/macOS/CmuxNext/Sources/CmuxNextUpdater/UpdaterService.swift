@@ -520,7 +520,7 @@ public final class UpdaterService {
             // flow (a fresh check that installs the newest at once). The
             // user asked, so its progress and result show on the notice
             // card (up to date, downloading, the failure), as for a check.
-            send(.checkRequested)
+            send(.attemptRequested)
             controller.attemptUpdate()
         }
     }

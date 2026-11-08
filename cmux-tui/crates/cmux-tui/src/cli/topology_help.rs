@@ -236,8 +236,11 @@ when no command runs and no program reports work. Both need OSC 133 shell
 integration to see commands, and print the terminal record; a passed
 --timeout exits 124.
 list --agents lists the terminals that run a coding agent (Claude Code,
-Codex, or a program reporting OSC 7501 status): harness, state (busy, idle,
-waiting-for-input, ended), age, workspace and title.
+Codex, or a program reporting OSC 7501 status): harness, state (blocked,
+done, working, idle, unknown, ended), age, workspace and title. done is a
+finished turn nobody has viewed yet; viewing the tab makes it idle. The JSON
+rows carry that word as status and the older word (busy, idle,
+waiting-for-input, ended) as state.
 send types the message as one bracketed paste, presses Enter, waits until
 the agent is idle (no fresh working report, screen still for --settle) or
 the shell shows its prompt, and prints only what the terminal printed after
