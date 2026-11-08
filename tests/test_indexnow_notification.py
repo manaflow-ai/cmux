@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
+import tempfile
 from unittest.mock import patch
 import urllib.error
 from datetime import datetime, timezone
@@ -96,7 +97,59 @@ class IndexNowTests(unittest.TestCase):
         self.assertIn("web/app/lib/indexnow.ts", workflow)
         self.assertIn("scripts/ci/notify-indexnow.py", workflow)
         self.assertIn("timeout-minutes: 6", workflow)
-        self.assertIn("ref: ${{ github.event.deployment.sha || github.sha }}", workflow)
+        self.assertIn("ref: ${{ github.sha }}", workflow)
+
+    def test_workflow_is_scheduled_not_triggered_by_every_deployment_status(self):
+        # deployment_status cannot be filtered at the trigger, so every Vercel
+        # preview status started a skipped run. The schedule plus state marker
+        # replaces it.
+        workflow = (ROOT / ".github/workflows/indexnow.yml").read_text()
+        triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertNotIn("deployment_status", triggers)
+        self.assertIn("schedule:", triggers)
+        self.assertIn("--state .indexnow-state/submitted.json", workflow)
+        self.assertIn("actions/cache/restore@", workflow)
+        self.assertIn("actions/cache/save@", workflow)
+        self.assertIn("steps.submit.outputs.state_changed == 'true'", workflow)
+        self.assertIn("shell: bash", workflow)
+
+    def test_state_marker_submits_each_url_lastmod_pair_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state" / "submitted.json"
+            with patch.object(notify, "request", side_effect=[(200, KEY.encode()), (200, XML), (202, b"")]):
+                first = notify.run(CONFIG, state)
+            self.assertEqual(first, {"submitted": 2, "batches": 1, "status": 202, "stateChanged": True})
+
+            # Same sitemap an hour later: nothing new is posted and the marker is untouched.
+            with patch.object(notify, "request", side_effect=[(200, KEY.encode()), (200, XML)]) as request:
+                second = notify.run(CONFIG, state)
+            self.assertEqual(second, {"submitted": 0, "status": 0})
+            self.assertEqual(request.call_count, 2)
+
+            # A page whose lastmod changes is sent again, and only that page.
+            changed = XML.replace(b"<loc>https://cmux.com/recent</loc><lastmod>2026-03-02", b"<loc>https://cmux.com/recent</loc><lastmod>2026-03-04")
+            with patch.object(notify, "request", side_effect=[(200, KEY.encode()), (200, changed), (200, b"")]) as request:
+                third = notify.run(CONFIG, state)
+            self.assertEqual(third["submitted"], 1)
+            self.assertEqual(json.loads(request.call_args_list[2].kwargs["data"])["urlList"], ["https://cmux.com/recent"])
+
+    def test_failed_submission_keeps_the_previous_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "submitted.json"
+            error = RuntimeError("IndexNow down")
+            with patch.object(notify, "request", side_effect=[(200, KEY.encode()), (200, XML), error]):
+                with self.assertRaises(RuntimeError):
+                    notify.run(CONFIG, state)
+            self.assertFalse(state.exists())
+
+    def test_unreadable_marker_resubmits_instead_of_failing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "submitted.json"
+            state.write_text("not json")
+            with patch.object(notify, "request", side_effect=[(200, KEY.encode()), (200, XML), (202, b"")]):
+                result = notify.run(CONFIG, state)
+            self.assertEqual(result["submitted"], 2)
+            self.assertEqual(len(json.loads(state.read_text())["submitted"]), 2)
 
 if __name__ == "__main__":
     unittest.main()

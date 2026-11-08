@@ -76,7 +76,7 @@ import {
   invalidateCoderouterHandoffAuthority,
 } from "../../../services/coderouter/repository";
 import type { ProviderId } from "../../../services/vms/drivers";
-import { jsonResponse } from "../../../services/vms/routeHelpers";
+import { jsonResponse, runAfterResponse } from "../../../services/vms/routeHelpers";
 import {
   publishVmOps,
   publishVmRowsById,
@@ -100,10 +100,11 @@ import {
   deleteVmPublicationsForAccountDeletion,
 } from "../../../services/vm-publications/accountDeletion";
 import { vmModelPlaneRevoker } from "../../../services/vms/modelPlaneGateway";
+import { DELETED_ACCOUNT_ACTOR_ID } from "../../../services/auth/deletedAccount";
+import { detachDeletedAccountCustomers } from "../../../services/vms/accountDeletionCustomers";
 
 
 const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
-const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 const POSTHOG_DEFAULT_API_HOST = "https://us.posthog.com";
 const POSTHOG_PERSON_DELETE_TIMEOUT_MS = 10_000;
 const HOSTED_TENANT_DELETE_BATCH_SIZE = 2;
@@ -2018,9 +2019,16 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       deletedRows: personalVmRows,
       deletedAtMs: now.getTime(),
       rewrittenIds: sharedTeamVmRows.map((vm) => vm.id),
+      rewrittenRows: sharedTeamVmRows,
     };
   });
   publishAccountDeletionVmSync(vmSync);
+  // The kept machines no longer belong to this account: take its id off them
+  // at the provider too. Best effort, after the commit, registered with the
+  // platform so the provider calls finish after the response is sent.
+  runAfterResponse(async () => {
+    await detachDeletedAccountCustomers(vmSync.rewrittenRows);
+  });
 }
 
 /** Best-effort machines-list publication after the deletion commits; a

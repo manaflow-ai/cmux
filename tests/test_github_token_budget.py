@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """scripts/ci/github_token_budget.py warns only when the GITHUB_TOKEN budget is low."""
+from contextlib import redirect_stdout
 from datetime import datetime, timezone
+import io
 import json
 import os
 from pathlib import Path
@@ -20,7 +22,7 @@ def rate(remaining, limit=1000):
 
 
 class BudgetTests(unittest.TestCase):
-    def run_main(self, answers, env=None):
+    def run_main(self, answers, env=None, argv=()):
         calls = []
 
         def fake(args, token):
@@ -32,7 +34,7 @@ class BudgetTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile("r+") as summary, mock.patch.object(budget, "gh", fake), \
                 mock.patch.dict(os.environ, {"GH_TOKEN": "own", "GITHUB_REPOSITORY": "o/r",
                                              "GITHUB_STEP_SUMMARY": summary.name, **(env or {})}, clear=False):
-            self.assertEqual(budget.main([]), 0)
+            self.assertEqual(budget.main(list(argv)), 0)
             return calls, Path(summary.name).read_text()
 
     def test_a_healthy_budget_makes_one_call_and_writes_nothing(self):
@@ -86,6 +88,48 @@ class BudgetTests(unittest.TestCase):
         calls, summary = self.run_main([rate(10)], {"ISSUE_TOKEN": ""})
         self.assertEqual(len(calls), 1)
         self.assertIn("budget low", summary)
+
+    def test_notice_prints_one_parseable_annotation(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            calls, summary = self.run_main([rate(640)], {"ISSUE_TOKEN": ""}, ["--notice"])
+        self.assertEqual(calls, [(["api", "rate_limit"], "own")])
+        lines = [l for l in out.getvalue().splitlines() if l.startswith("::notice")]
+        self.assertEqual(len(lines), 1)
+        prefix = "::notice title=github-token-budget::"
+        self.assertTrue(lines[0].startswith(prefix))
+        body = json.loads(lines[0][len(prefix):])
+        self.assertEqual({k: body[k] for k in ("remaining", "limit", "used", "reset")},
+                         {"remaining": 640, "limit": 1000, "used": 360, "reset": 1_800_000_000})
+        read_at = datetime.fromisoformat(body["read_at"].replace("Z", "+00:00"))
+        self.assertLess(abs((datetime.now(timezone.utc) - read_at).total_seconds()), 60)
+        # A message with a newline, % or "::" would break the workflow command.
+        self.assertFalse(any(c in lines[0][len(prefix):] for c in "%\r\n") or "::" in lines[0][len(prefix):])
+        self.assertEqual(summary, "")
+
+    def test_notice_with_a_low_budget_also_warns(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.run_main([rate(150)], {"ISSUE_TOKEN": ""}, ["--notice"])
+        text = out.getvalue()
+        self.assertIn('::notice title=github-token-budget::{"remaining":150,', text)
+        self.assertIn("::warning title=GITHUB_TOKEN budget low::", text)
+
+    def test_without_notice_no_notice_is_printed(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.run_main([rate(640)])
+        self.assertNotIn("::notice", out.getvalue())
+
+    def test_the_hosted_light_rescue_prints_the_notice_first_and_never_fails_on_it(self):
+        workflow = (ROOT / ".github/workflows/ci-hosted-light-rescue.yml").read_text()
+        steps = workflow.split("    steps:\n", 1)[1]
+        budget_at = steps.index("scripts/ci/github_token_budget.py --notice")
+        self.assertLess(budget_at, steps.index("hosted_light_rescue.py"))
+        step = steps[steps.rindex("      - name:", 0, budget_at):budget_at]
+        self.assertIn("continue-on-error: true", step)
+        self.assertIn("BUDGET_TOKEN: ${{ github.token }}", step)
+        self.assertNotIn("ISSUE_TOKEN", step)
 
     def test_an_unreadable_budget_never_fails(self):
         calls, summary = self.run_main([OSError("boom")])

@@ -1,4 +1,5 @@
 import { useTranslations } from "next-intl";
+import { PRO_CHECKOUT_URL } from "@/app/lib/billing";
 import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
@@ -36,9 +37,9 @@ export default function IosPage() {
       <DocsHeading level={2} id="access">{t("accessTitle")}</DocsHeading>
       <p>
         {t.rich("accessDesc", {
-          foundersLink: (chunks) => (
+          proLink: (chunks) => (
             <a
-              href="https://github.com/manaflow-ai/cmux#founders-edition"
+              href={PRO_CHECKOUT_URL}
               className={linkClass}
             >
               {chunks}
