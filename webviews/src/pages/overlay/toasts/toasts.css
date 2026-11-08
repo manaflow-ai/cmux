@@ -28,11 +28,13 @@
   --glass-elevation: var(--elevation-2);
   position: relative;
   box-sizing: border-box;
-  /* A column whose Details give up their height first (min-height: 0 lets the toast shrink). */
-  display: flex;
-  flex-direction: column;
+  /* Two rows: the title row at its full height, then the Details, the one row that gives up height.
+     The toast's automatic minimum is its title row (a 0-minimum flexible row adds nothing to it), so in
+     a stack taller than the room only Details shrink; a collapsed toast never shrinks below its row
+     and its buttons never leave the rect the page reports for its clicks. */
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   flex: 0 1 auto;
-  min-height: 0;
   width: max-content;
   max-width: min(440px, 100%);
   min-width: 0;
@@ -61,7 +63,6 @@
 /* The title row: the message, then the action and the close button at the trailing edge. The
    buttons' hover fills stop a step short of the edge, so the toast reads as one surface with text. */
 .cmux-toast-row {
-  flex: none;
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);

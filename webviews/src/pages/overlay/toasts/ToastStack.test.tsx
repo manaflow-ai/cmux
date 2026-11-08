@@ -254,13 +254,15 @@ test("a closed toast fades where it was", () => {
 // Review 6 of #37289 (F1): the stack was anchored only at its floor, so long Details on several toasts in
 // a short window pushed the older toasts' buttons above the page, where it clips them. The stack spans
 // the page above its floor with its toasts at the bottom, and a toast that does not fit gives up the
-// height of its Details (which scroll), never its title row and buttons.
+// height of its Details (which scroll), never its title row and buttons. The toast's own minimum is its
+// title row (review of #37289 at a3f8a3de, F1: a 0 minimum let a collapsed toast shrink under its
+// buttons); test/overlay-toast-rows-hold-browser.test.ts checks the laid-out bounds in Chromium.
 test("every toast's buttons stay on the page however tall the stack is", () => {
   const css = readFileSync(new URL("./toasts.css", import.meta.url), "utf8");
   const rule = (selector: string) => css.match(new RegExp(`(?:^|\\n)${selector} \\{([^}]*)\\}`))?.[1] ?? "";
   expect(rule("\\.cmux-toasts")).toContain("top: 0;");
   expect(rule("\\.cmux-toasts")).toContain("justify-content: flex-end;");
-  expect(rule("\\.cmux-toast")).toContain("min-height: 0;");
-  expect(rule("\\.cmux-toast-row")).toContain("flex: none;");
+  expect(rule("\\.cmux-toast")).toContain("grid-template-rows: auto minmax(0, 1fr);");
+  expect(rule("\\.cmux-toast")).not.toContain("min-height: 0;");
   expect(rule("\\.cmux-toast-detail")).toContain("min-height: 0;");
 });
