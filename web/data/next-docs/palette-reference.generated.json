@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1377,
+    "entries": 1378,
     "shortcuts": 188
   },
   "sections": [
@@ -7892,6 +7892,12 @@
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
           "command": "cmux settings reload-configuration"
+        },
+        {
+          "id": "app.reloadCustomViews",
+          "title": "Reload Custom Views",
+          "shortcut": null,
+          "command": "cmux apps reload"
         },
         {
           "id": "app.remove",
