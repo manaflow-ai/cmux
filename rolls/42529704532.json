@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42529704532",
+  "recorded_at": "2026-11-08T22:30:50Z",
+  "reason": "cmux-tui b0a7382fdee2 changes the image's cmux-tui (pinned 98ed3c9f2a10)",
+  "dry_run": false,
+  "cmux_tui": "b0a7382fdee2d317a04285d802cc2bb1a9b244c1",
+  "fixes": [
+    {
+      "sha": "b0a7382fdee2d317a04285d802cc2bb1a9b244c1",
+      "mergedAt": "2026-11-08T14:05:11-08:00",
+      "subject": "acpmux: a pooled Claude or Codex agent under an old prompt-suggestions switch is discarded (#38899)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T22:30:50Z",
+    "snapshot_id": "sh-b3ab3ad22ea74b87ba76068aee440958",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42529704532): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c1b4ea9753fa6da3692dd9e49206f532beac2404",
+    "image": "cloud-native-auto-b0a7382f-42529704532-1",
+    "revision": "ci-42529704532-1",
+    "at": "2026-11-08T22:30:50Z"
+  },
+  "rolled_back": false
+}
