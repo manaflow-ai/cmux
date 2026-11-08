@@ -2381,6 +2381,8 @@ impl Hub {
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
             session.purged.store(true, Ordering::SeqCst);
+            // Its spend, title and folder leave the cost ledger with it (`hub/ledger`).
+            self.ledger.purge(&session.id);
             self.remove_cached_closed_summary(&session.id);
             let replaced = session.replaced.load(Ordering::SeqCst);
             if !self
