@@ -63,8 +63,6 @@ await requireBrowserLane("guest-open-in-app-banner-browser.test.ts", async () =>
           viewport: document.documentElement.clientWidth,
         };
       });
-      if (process.env.CMUX_BANNER_DEBUG) console.log(width, JSON.stringify(boxes));
-      if (process.env.CMUX_BANNER_DEBUG) await page.screenshot({ path: `/tmp/banner-${width}.png` });
       expect(boxes.banner.left).toBeGreaterThanOrEqual(0);
       expect(boxes.banner.right).toBeLessThanOrEqual(boxes.viewport);
       expect(boxes.parts.length).toBe(3);
