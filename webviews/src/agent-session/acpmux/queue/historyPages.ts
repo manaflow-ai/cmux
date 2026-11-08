@@ -81,6 +81,7 @@ export function historyPages({
 }): { queue: ComponentProps<typeof QueueScreen>; ledger: ComponentProps<typeof LedgerScreen> } {
   const connected = () => {
     const current = client();
+    // l10n-allow: a rejection reason for the wire log only; the row shows its own localized failure text
     if (!current) throw Object.assign(new Error("not connected"), { code: "native.not_connected" });
     return current;
   };
@@ -101,6 +102,7 @@ export function historyPages({
       verdict: async (item, verdict) => {
         // Another machine's pull request is reviewed there (its row offers no verdict): refused, so
         // the row stays rather than hiding while acpmux still lists it.
+        // l10n-allow: a rejection reason for the wire log only; the row shows its own localized failure text
         if (item.host) throw new Error("answered on its machine");
         const params = verdictParams(item, verdict);
         if (!params) throw new Error("unanswerable");
@@ -113,6 +115,7 @@ export function historyPages({
           AUDIT_PAGES,
         );
         // copyText resolves even when both clipboard paths fail: say so instead of "copied".
+        // l10n-allow: a rejection reason for the wire log only; the row shows its own localized failure text
         if (!(await copy(`${JSON.stringify(entries, null, 2)}\n`))) throw new Error("clipboard refused");
         return entries.length;
       },
