@@ -63,7 +63,10 @@ pub(crate) fn heard_within_window(attachment: &SlotAttachment, now_ms: u64) -> b
 /// accepts Connects, as before registration numbers: parking them instead
 /// would leave every client waiting out its expiry until a numbered Register
 /// or a socket close. Only the Connect allocation falls back this way; a
-/// non-current registration's Ping still hands over nothing.
+/// non-current registration's Ping still hands over nothing. A fallback
+/// allocation to a daemon that never joins leaves its circuit unjoined, so
+/// the slot's other open registrations are owed it
+/// (`owed_handover_after_fallback`).
 pub(crate) fn live_daemon<T>(
     candidates: impl IntoIterator<Item = (T, u16, SlotAttachment)>,
     slot: &str,
@@ -114,6 +117,21 @@ pub(crate) fn still_allocated_to<T: PartialEq>(
         .collect();
     live_daemon(candidates, slot, now_ms)
         .is_some_and(|(handle, number)| handle == *chosen && number == registration)
+}
+
+/// Whether `other`, another control socket on `slot` in `ready_state`, is
+/// owed the slot's unjoined circuits after a Connect went to a registration
+/// that isn't current (`live_daemon`'s legacy fallback): it is an open
+/// registration, so it may become current when the others close, and its
+/// next Ping would then be a heartbeat that hands over nothing, leaving the
+/// circuit of a fallback daemon that never joined to wait out its deadline.
+/// Its `pending_handover` is set, so its first current Ping hands them over.
+pub(crate) fn owed_handover_after_fallback(
+    other: &SlotAttachment,
+    ready_state: u16,
+    slot: &str,
+) -> bool {
+    websocket_is_open(ready_state) && replaced_by_register(other, slot)
 }
 
 /// Whether a new daemon `Register` on `slot` closes this existing control
@@ -455,6 +473,33 @@ mod tests {
         let connect_ms = T + DAEMON_LIVENESS_WINDOW_MS + 500;
         let candidates = [("replaced", CLOSING, replaced), ("current", OPEN, current)];
         assert_eq!(live_daemon(candidates, SLOT, connect_ms), None);
+    }
+
+    /// Two legacy registrations are open; the fallback gives a Connect to the
+    /// first, whose daemon is dead and never joins. When it closes, the
+    /// second becomes current, and its next heartbeat must hand it that
+    /// unjoined circuit, or the client waits out its join deadline.
+    #[test]
+    fn fallback_allocation_owes_the_other_legacy_registration_a_handover() {
+        let dead = registration(0, T);
+        let mut survivor = registration(0, T + 1_000);
+        let connect_ms = T + 2_000;
+        let candidates = [("dead", OPEN, dead.clone()), ("survivor", OPEN, survivor.clone())];
+        assert_eq!(live_daemon(candidates, SLOT, connect_ms), Some("dead"));
+        assert!(!current_registration(&dead, OPEN, [(OPEN, survivor.clone())]));
+        assert!(owed_handover_after_fallback(&survivor, OPEN, SLOT));
+        assert!(!owed_handover_after_fallback(&survivor, CLOSING, SLOT));
+        survivor.pending_handover = true;
+
+        // A heartbeat while the dead one is still open: not current.
+        let current = current_registration(&survivor, OPEN, [(OPEN, dead.clone())]);
+        let ping = record_ping(&mut survivor, current, connect_ms + 5_000);
+        assert_eq!(ping, PingHandover { unjoined: false, parked: false });
+
+        // The dead one closed: the next heartbeat is current and hands over.
+        let current = current_registration(&survivor, OPEN, [(CLOSED, dead)]);
+        let ping = record_ping(&mut survivor, current, connect_ms + 15_000);
+        assert_eq!(ping, PingHandover { unjoined: true, parked: true });
     }
 
     /// A Connect chose the current registration, then waited on storage. A

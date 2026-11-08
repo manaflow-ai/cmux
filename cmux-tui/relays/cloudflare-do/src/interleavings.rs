@@ -34,8 +34,8 @@ use crate::abuse::{
 };
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::daemon::{
-    accepts_connects, current_registration, live_daemon, next_registration_number, record_ping,
-    replaced_by_register, still_allocated_to,
+    accepts_connects, current_registration, live_daemon, next_registration_number,
+    owed_handover_after_fallback, record_ping, replaced_by_register, still_allocated_to,
 };
 use crate::park::{
     ConnectDisposition, ParkedConnect, connect_disposition, pairing_order, parked_and_live,
@@ -346,7 +346,21 @@ impl World {
                 let number = self.sockets[index].attachment.generation;
                 let during = if rng.chance(30) { self.during_allocation(index, rng) } else { None };
                 if still_allocated_to(self.candidates(), SLOT, self.now_ms, &index, number) {
+                    let fallback = !self.is_current(index);
                     self.allocate(index, "a Connect", true);
+                    if fallback {
+                        for (other, socket) in self.sockets.iter_mut().enumerate() {
+                            if other != index
+                                && owed_handover_after_fallback(
+                                    &socket.attachment,
+                                    socket.ready_state,
+                                    SLOT,
+                                )
+                            {
+                                socket.attachment.pending_handover = true;
+                            }
+                        }
+                    }
                 } else {
                     self.superseded_connects += 1;
                     self.park();

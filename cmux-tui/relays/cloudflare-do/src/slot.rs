@@ -17,8 +17,8 @@ use crate::abuse::{
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
 use crate::daemon::{
-    current_registration, live_daemon, next_registration_number, record_ping, replaced_by_register,
-    still_allocated_to,
+    current_registration, live_daemon, next_registration_number, owed_handover_after_fallback,
+    record_ping, replaced_by_register, still_allocated_to,
 };
 use crate::park::{
     ConnectDisposition, DAEMON_OFFLINE_CODE, DAEMON_OFFLINE_MESSAGE, ParkedConnect,
@@ -160,6 +160,30 @@ impl RelaySlot {
                 Some((socket, ready_state, attachment))
             });
         still_allocated_to(candidates, slot, now_ms, daemon, registration)
+    }
+
+    /// A Connect went to `chosen`, a legacy registration that isn't current
+    /// (`crate::daemon::live_daemon`'s fallback): the slot's other open
+    /// registrations are owed its circuit if it never joins
+    /// (`crate::daemon::owed_handover_after_fallback`).
+    fn owe_handover_after_fallback(&self, slot: &str, chosen: &WebSocket) {
+        for other in self.state.get_websockets_with_tag(CONTROL_TAG) {
+            if other == *chosen {
+                continue;
+            }
+            let Ok(mut attachment) = Self::attachment(&other) else {
+                continue;
+            };
+            if attachment.pending_handover
+                || !owed_handover_after_fallback(&attachment, other.as_ref().ready_state(), slot)
+            {
+                continue;
+            }
+            attachment.pending_handover = true;
+            if let Err(error) = other.serialize_attachment(&attachment) {
+                worker::console_error!("RelaySlot pending hand-over error: {error}");
+            }
+        }
     }
 
     /// Whether `socket`, a registered daemon, is still its slot's current
@@ -436,6 +460,7 @@ impl RelaySlot {
 
         match (disposition, daemon) {
             (ConnectDisposition::Allocate, Some((daemon, daemon_attachment))) => {
+                let fallback = !self.is_current_registration(&daemon, &daemon_attachment);
                 let allocation = self
                     .allocate(
                         socket,
@@ -450,6 +475,9 @@ impl RelaySlot {
                 // The daemon was replaced or closed while the allocation
                 // waited: the Connect waits for the slot's next Register or
                 // current Ping, as one that found no daemon does.
+                if allocation == Allocation::Sent && fallback {
+                    self.owe_handover_after_fallback(&request.slot, &daemon);
+                }
                 if allocation == Allocation::Superseded {
                     attachment.parked = Some(ParkedConnect {
                         lane: request.lane.clone(),
