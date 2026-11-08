@@ -59,6 +59,26 @@ fn a_grant_without_vmk_or_a_team_grant_without_chats_is_refused() {
 }
 
 #[test]
+fn team_is_always_the_grants_team_never_null() {
+    for vm_kind in [VmKind::Owner, VmKind::Team] {
+        let mut person = grant(Some(vm_kind), Some(&["ses_a"]));
+        person.team = "team_other".into();
+        let header = parsed(&header(Some(&person)).unwrap());
+        assert_eq!(header["team"], json!(person.team), "{vm_kind:?}");
+    }
+}
+
+#[test]
+fn a_header_past_acpmuxs_cap_is_refused() {
+    let id = "x".repeat(128);
+    let chats: Vec<&str> = std::iter::repeat_n(id.as_str(), 64).collect();
+    let team = grant(Some(VmKind::Team), Some(&chats));
+    assert_eq!(header(Some(&team)), Err("acpmux.header_too_long"));
+    let team = grant(Some(VmKind::Team), Some(&chats[..32]));
+    assert!(header(Some(&team)).is_ok());
+}
+
+#[test]
 fn a_grant_whose_services_lack_acpmux_is_refused() {
     let mut owner = grant(Some(VmKind::Owner), None);
     owner.services = vec!["mux-control".into(), "local-socket".into()];

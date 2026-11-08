@@ -10,6 +10,9 @@
 //! x-acpmux-carrier: {"vmk":"owner"|"team","sub":"…","team":"…","chats":["…"]|null,"name":"…"|null}
 //! ```
 //!
+//! `team` is always the grant's team, a string, for an owner too (a grant
+//! always has one); it is never `null`.
+//!
 //! After the upgrade the bridge relays acpmux's JSON-RPC: each line the
 //! client writes is one text frame, and each text frame acpmux sends is one
 //! line back. The client never writes an HTTP request through the bridge, so
@@ -40,6 +43,9 @@ pub const HEADER: &str = "x-acpmux-carrier";
 
 /// The grant service name that holds the bridge.
 pub const SERVICE_NAME: &str = "acpmux";
+
+/// acpmux's longest header value, in bytes.
+pub const MAX_HEADER_BYTES: usize = 8 * 1024;
 
 /// The longest line a client may write: one JSON-RPC message.
 pub const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
@@ -86,7 +92,11 @@ pub fn header(grant: Option<&CarrierGrant>) -> Result<String, &'static str> {
         "chats": chats,
         "name": grant.name,
     });
-    Ok(ascii_json(&value.to_string()))
+    let header = ascii_json(&value.to_string());
+    if header.len() > MAX_HEADER_BYTES {
+        return Err("acpmux.header_too_long");
+    }
+    Ok(header)
 }
 
 /// `json` with every non-ASCII character written as a `\u` escape, so it is

@@ -78,7 +78,7 @@ pub const MAX_GRANT_SERVICES: usize = 16;
 pub const MAX_SPENT_GRANTS: usize = 4096;
 
 /// The most acpmux sessions a grant's `chats` may name.
-pub const MAX_GRANT_CHATS: usize = 16;
+pub const MAX_GRANT_CHATS: usize = 64;
 
 /// The longest display `name`, in characters (acpmux's author name limit).
 pub const MAX_NAME_CHARS: usize = 64;
