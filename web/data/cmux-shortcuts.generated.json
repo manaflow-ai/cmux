@@ -1066,9 +1066,10 @@
             "zh-TW": "上一頁"
           },
           "shortcut": {
-            "key": "-",
+            "key": ",",
             "modifiers": [
-              "ctrl"
+              "opt",
+              "cmd"
             ]
           },
           "chord": null,
@@ -1083,6 +1084,17 @@
                 }
               ],
               "when": "surfaceKind != page && !codeEditorFocused"
+            },
+            {
+              "keys": [
+                {
+                  "key": "-",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "surfaceKind != terminal"
             }
           ]
         },
@@ -1112,10 +1124,10 @@
             "zh-TW": "下一頁"
           },
           "shortcut": {
-            "key": "-",
+            "key": ".",
             "modifiers": [
-              "ctrl",
-              "shift"
+              "opt",
+              "cmd"
             ]
           },
           "chord": null,
@@ -1130,6 +1142,18 @@
                 }
               ],
               "when": "surfaceKind != page && !codeEditorFocused"
+            },
+            {
+              "keys": [
+                {
+                  "key": "-",
+                  "modifiers": [
+                    "ctrl",
+                    "shift"
+                  ]
+                }
+              ],
+              "when": "surfaceKind != terminal"
             }
           ]
         },
