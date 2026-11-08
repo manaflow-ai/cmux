@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42526798202",
+  "recorded_at": "2026-11-08T21:48:12Z",
+  "reason": "cmux-tui 0449b3641e51 changes the image's cmux-tui (pinned 3f4554a4c08b)",
+  "dry_run": false,
+  "cmux_tui": "0449b3641e51b00c83c52518148d42020946f046",
+  "fixes": [
+    {
+      "sha": "0449b3641e51b00c83c52518148d42020946f046",
+      "mergedAt": "2026-11-08T21:28:11Z",
+      "subject": "relay: a suppressed resumed Ping hands over on the first current Ping (#38725)"
+    },
+    {
+      "sha": "b7e69eb20fd5668c06b7eacaf37fa3f9029b1781",
+      "mergedAt": "2026-11-08T21:23:53Z",
+      "subject": "chore(next): base autofix at 3725c1bf35bc"
+    },
+    {
+      "sha": "3725c1bf35bc207e04c295313282b28f899e9f51",
+      "mergedAt": "2026-11-08T13:20:24-08:00",
+      "subject": "acpmux: cross-vendor review queue and hash-chained approvals audit trail (#38521)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-08T21:48:12Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
