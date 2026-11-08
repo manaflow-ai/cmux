@@ -744,8 +744,9 @@ button.acpmux-attachment-pasted-open:hover {
   flex: 1;
   flex-direction: column;
   justify-content: center;
-  /* Never narrower than the label's widest part: the name always shows whole. */
-  min-width: min-content;
+  /* As narrow as the chip: its rows drop their trailing parts whole instead of widening the body
+     past the face, which would clip a part mid-word. */
+  min-width: 0;
 }
 /* The paste's first words on one line, fading out at the chip's end. `contain` keeps them from
    widening the chip: the label alone sets its width. */
@@ -769,7 +770,7 @@ button.acpmux-attachment-pasted-open:hover {
   flex: none;
   flex-wrap: wrap;
   height: var(--text-caption--line-height);
-  min-width: min-content;
+  min-width: 0;
   overflow: hidden;
   line-height: var(--text-caption--line-height);
   text-overflow: clip;
@@ -778,6 +779,14 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-paste-chip__part {
   flex: none;
   white-space: pre;
+}
+/* The first part always stays: only when it alone is wider than the chip does it end in an
+   ellipsis, never a silent cut. The parts after it wrap to the hidden line, whole. */
+.acpmux-paste-chip__part:first-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .acpmux-paste-chip__part[data-part="name"] {
   color: var(--agent-text);
@@ -876,6 +885,8 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-paste-chip[data-opening="panel"] > .acpmux-paste-chip__face {
   flex: none;
+  /* As wide as the chip, never its content's min-content (a host may center its items). */
+  align-self: stretch;
   height: var(--acpmux-attach-height, calc(var(--cmux-control-height, 24px) * 2));
 }
 .acpmux-paste-chip__panel {
@@ -992,7 +1003,7 @@ button.acpmux-attachment-pasted-open:hover {
   flex: none;
   flex-wrap: wrap;
   height: var(--text-detail--line-height);
-  min-width: min-content;
+  min-width: 0;
   overflow: hidden;
   color: color-mix(in srgb, var(--agent-text) 88%, transparent);
   font-size: var(--text-detail);

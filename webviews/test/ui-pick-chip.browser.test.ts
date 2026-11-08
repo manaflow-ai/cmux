@@ -51,7 +51,8 @@ await requireBrowserLane("ui-pick-chip.browser.test.ts", async () => {
 
   async function stage(width: number): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    const page = await browser!.newPage({ viewport: { width: Math.max(width, 480), height: 900 } });
+    // The page as wide as the pane: a wider viewport gives the stage room the pane lacks.
+    const page = await browser!.newPage({ viewport: { width, height: 900 } });
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT, width })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 60_000,
@@ -60,60 +61,82 @@ await requireBrowserLane("ui-pick-chip.browser.test.ts", async () => {
     return page;
   }
 
+  /// Each label part of the chip as the person sees it: `whole` (all of it inside every box that
+  /// clips it, the row's hidden second line included, its own text not overflowing, and nothing of
+  /// the page over it), `dropped` (none of it shows), `ellipsis` (whole box, its text ending in the
+  /// row's ellipsis), else `cut`: some of it shows, the rest clipped mid-word.
+  const partsSeen = (page: Page, selector: string) =>
+    page.evaluate((selector) => {
+      const chip = document.querySelector<HTMLElement>(selector)!;
+      const see = (part: Element) => {
+        const rect = part.getBoundingClientRect();
+        let left = rect.left;
+        let right = rect.right;
+        let top = rect.top;
+        let bottom = rect.bottom;
+        for (let box = part.parentElement; box; box = box.parentElement) {
+          const style = getComputedStyle(box);
+          if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+          const clip = box.getBoundingClientRect();
+          left = Math.max(left, clip.left);
+          right = Math.min(right, clip.right);
+          top = Math.max(top, clip.top);
+          bottom = Math.min(bottom, clip.bottom);
+        }
+        if (right - left < 0.5 || bottom - top < 0.5) return "dropped";
+        const boxWhole =
+          left <= rect.left + 0.5 && right >= rect.right - 0.5 && top <= rect.top + 0.5 && bottom >= rect.bottom - 0.5;
+        if (!boxWhole) return "cut";
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        if (!hit || !part.contains(hit)) return "covered";
+        const element = part as HTMLElement;
+        if (element.scrollWidth > element.clientWidth + 0.5)
+          return getComputedStyle(element).textOverflow === "ellipsis" ? "ellipsis" : "cut";
+        return "whole";
+      };
+      return [".acpmux-paste-chip__title", ".acpmux-paste-chip__label"].map((rowSelector) =>
+        [...chip.querySelector(rowSelector)!.children].map((part) => ({
+          text: part.textContent ?? "",
+          seen: see(part),
+        })),
+      );
+    }, selector);
+
   for (const width of WIDTHS)
-    test(`at ${width}px: the pick's label rows are never clipped or covered, in every host`, async () => {
+    test(`at ${width}px: each label part shows whole or drops whole, in every host`, async () => {
       const page = await stage(width);
       try {
         for (const [name, selector] of Object.entries(HOSTS)) {
-          const found = await page.evaluate((selector) => {
-            const chip = document.querySelector<HTMLElement>(selector)!;
-            const chipBox = chip.getBoundingClientRect();
-            const top = (x: number, y: number) => document.elementsFromPoint(x, y).find((node) => chip.contains(node));
-            const rows = [".acpmux-paste-chip__title", ".acpmux-paste-chip__label"].map((rowSelector) => {
-              const row = chip.querySelector<HTMLElement>(rowSelector)!;
-              const box = row.getBoundingClientRect();
-              return {
-                clipped: row.scrollWidth > row.clientWidth + 0.5,
-                inChip: box.left >= chipBox.left - 0.5 && box.right <= chipBox.right + 0.5,
-                parts: [...row.children].map((part) => {
-                  const rect = part.getBoundingClientRect();
-                  const hit = top(rect.left + rect.width / 2, rect.top + rect.height / 2);
-                  return {
-                    text: part.textContent ?? "",
-                    shown: rect.top < box.bottom - 0.5 && rect.bottom > box.top + 0.5,
-                    whole:
-                      rect.left >= box.left - 0.5 &&
-                      rect.right <= box.right + 0.5 &&
-                      rect.top >= box.top - 0.5 &&
-                      rect.bottom <= box.bottom + 0.5,
-                    own: Boolean(hit && row.contains(hit)),
-                  };
-                }),
-              };
-            });
-            return { rows };
-          }, selector);
-          const [title, caption] = found.rows;
-          expect(title!.parts[0]).toMatchObject({ text: "span", shown: true });
-          expect(caption!.parts[0]).toMatchObject({ text: "UI element", shown: true });
-          for (const row of found.rows) {
-            expect({ name, clipped: row.clipped, inChip: row.inChip }).toEqual({ name, clipped: false, inChip: true });
+          const [title, caption] = await partsSeen(page, selector);
+          // The first part always shows; only a pane too narrow for it alone ends it in an ellipsis.
+          const first = width >= 320 ? ["whole"] : ["whole", "ellipsis"];
+          expect({ name, text: title![0]!.text, first: first.includes(title![0]!.seen) }).toEqual({
+            name,
+            text: "span",
+            first: true,
+          });
+          expect({ name, text: caption![0]!.text, first: first.includes(caption![0]!.seen) }).toEqual({
+            name,
+            text: "UI element",
+            first: true,
+          });
+          for (const row of [title!, caption!]) {
             let dropped = false;
-            for (const part of row.parts) {
-              if (!part.shown) {
-                dropped = true;
-                continue;
-              }
-              expect({ name, text: part.text, dropped }).toEqual({ name, text: part.text, dropped: false });
-              expect({ name, text: part.text, whole: part.whole, own: part.own }).toEqual({
+            for (const [index, part] of row.entries()) {
+              if (index === 0) continue;
+              // Never cut mid-word, and none shows after one that dropped.
+              expect({ name, text: part.text, seen: part.seen }).toEqual({
                 name,
                 text: part.text,
-                whole: true,
-                own: true,
+                seen: dropped ? "dropped" : part.seen === "whole" ? "whole" : "dropped",
               });
+              if (part.seen === "dropped") dropped = true;
             }
           }
-          if (width >= 900) expect(title!.parts.every((part) => part.shown)).toBe(true);
+          if (width >= 900) expect([...title!, ...caption!].every((part) => part.seen === "whole")).toBe(true);
+          // The selector the reviewer saw cut at 320px: whole or gone, never part of it.
+          if (width === 320)
+            expect(["whole", "dropped"]).toContain(caption!.find((part) => part.text.includes(".cv-li__text"))!.seen);
         }
       } finally {
         await page.close();
