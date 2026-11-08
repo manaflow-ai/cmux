@@ -175,11 +175,13 @@ import Testing
         #expect(CloudCallerOwnership(vmk: "team") == .team)
         #expect(CloudCallerOwnership(vmk: nil) == nil)
         #expect(CloudCallerOwnership(vmk: "admin") == nil)
-        // Each token line (a connect's) lets the stand-in answer: first an owner grant, then one with no vmk.
+        // Each token line (a connect's, with a fresh token: an unchanged one is not written again) lets the
+        // stand-in answer: first an owner grant, then one with no vmk.
         let cli = try Self.standIn("printf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nread -r l\nprintf '{\"ok\":true,\"route\":\"carrier\",\"vmk\":\"owner\"}\\n' >&2\nread -r l\nprintf '{\"ok\":true,\"route\":\"carrier\"}\\n' >&2\ncat >/dev/null\n")
         defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
+        let tokens = Counter()
         let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
-            ["CMUX_CLOUD_ACCESS_TOKEN": "t"]
+            ["CMUX_CLOUD_ACCESS_TOKEN": "t-\(await tokens.next())"]
         }
         let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock") { _ in }
         let link = CloudLinkSession(key: CloudLinkKey(machine: "vm_abc123"), resolver: CloudCarrierResolver(serve: serve) { .owner })
