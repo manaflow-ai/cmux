@@ -86,6 +86,8 @@ export function SavePromptButton({ text }: { text: string }) {
               className="cv-save-prompt-input"
               value={name}
               aria-label={t("message.savePromptName")}
+              // The name the save went with is the one the note names: no edit while it is out.
+              readOnly={state.kind === "saving" || state.kind === "saved"}
               maxLength={PROMPT_NAME_MAX}
               spellCheck={false}
               aria-invalid={state.kind === "failed" || undefined}
