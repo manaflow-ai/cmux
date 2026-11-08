@@ -240,6 +240,38 @@ impl Mux {
         self.workspace_registry.lock().unwrap().terminal_keep(terminal_id)
     }
 
+    /// Whether `terminal_id` lost its last tab and waits out the reap grace: a hosted terminal
+    /// with no placement (its tab, pane, screen or workspace was closed) that is not `keep`. Its
+    /// shell still runs so a reopen can show it again, but typed input is refused
+    /// (`terminal.closed`): an agent that closed the pane must not read `sent` as a success.
+    /// A kept terminal is detached on purpose and still takes input.
+    pub(crate) fn terminal_awaiting_reap(&self, terminal_id: &TerminalPublicId) -> bool {
+        let host_id = {
+            let state = self.state.lock().unwrap();
+            let content_id = ContentPublicId::Terminal(terminal_id.clone());
+            if !state.placements_of_content(&content_id).is_empty() {
+                return false;
+            }
+            let Some(runtime) = state.terminal_catalog.get(terminal_id) else { return false };
+            let Some(identity) = self.resource_terminal_host_identity(runtime) else {
+                return false;
+            };
+            // The reaper's placed test (`reapable_and_retained_terminals`): a view sharing the
+            // runtime also places it.
+            if let Some(runtime_id) = runtime.terminal_runtime_id()
+                && state
+                    .surfaces
+                    .values()
+                    .any(|view| view.terminal_runtime_id() == Some(runtime_id))
+            {
+                return false;
+            }
+            identity.terminal_id
+        };
+        // A keep lookup that fails leaves the terminal writable, as before.
+        !self.terminal_keep(&host_id).unwrap_or(true)
+    }
+
     pub(super) fn wake_terminal_reaper(&self) {
         if let Some(events) = self.terminal_reaper_events.lock().unwrap().as_ref() {
             events.wake();

@@ -342,6 +342,10 @@ match), 2 usage error (fix the command), 3 cannot reach the session, 124 a wait 
 A change that failed with `retryable: true` prints an idempotency key: run it again with \
 `--idempotency-key <key>`, which never applies it twice. Before you retry a timed-out \
 create, list first: it may have run.
+A pane, tab or workspace you closed is gone from its list, but its terminal keeps its shell \
+for a short grace: input to it fails `terminal.closed` and `screen read` answers \
+`\"closed\": true`. `cmux closed list` shows what was closed; `cmux closed <id> reopen` \
+brings it back with the same terminal.
 ";
 
 /// The curated scopes with the root help's one-line description of each.
