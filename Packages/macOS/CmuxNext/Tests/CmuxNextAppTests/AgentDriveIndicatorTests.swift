@@ -1,6 +1,9 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextComputerUse
+@testable import CmuxNextDesign
 @testable import CmuxNextDaemon
 @testable import CmuxNextSidebar
 import CmuxNextTabs
@@ -43,5 +46,69 @@ struct AgentDriveIndicatorTests {
     @Test func quieterActivityStaysBehindTheToggle() throws {
         let row = SidebarMapping.shared.row(try Self.workspace(.editing), machine: .local)
         #expect(row.presence.isEmpty)
+    }
+
+    @Test func theRowShowsTheDriverAndItsMenuGoesToItsTabAndStopsIt() throws {
+        let presence = SidebarMapping.shared.row(try Self.workspace(.computerUse), machine: .local).presence
+        let id = WorkspaceID("ws-drive")
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        var ws = SidebarWorkspace(id: id, title: "drive")
+        ws.presence = presence
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(ws)])], activeWorkspaceID: id)
+        var intents: [SidebarIntent] = []
+        model.onIntent = { intents.append($0) }
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 400)
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.list.reload(animated: false)
+        let row = try #require(sidebar.list.rowViews[.workspace(id)] as? WorkspaceRowView)
+        row.layoutSubtreeIfNeeded()
+        let indicator = row.driveIndicator
+        #expect(!indicator.isHidden, "an agent using the computer shows on its row with the dots off")
+        #expect(indicator.frame.width > 0 && row.bounds.contains(indicator.frame))
+        #expect(indicator.accessibilityLabel()?.contains(presence[0].name) == true, "it names the agent")
+        #expect(row.hitTest(row.convert(NSPoint(x: indicator.frame.midX, y: indicator.frame.midY), to: row.superview)) === indicator,
+                "a click reaches it, not the row")
+        let menu = indicator.menu(for: presence[0])
+        #expect(menu.items.map(\.title) == [Strings.driveGoTo(presence[0].name), Strings.driveStop(.screen)])
+        for item in menu.items { _ = item.target?.perform(item.action, with: item) }
+        let tab = try #require(presence[0].tab)
+        #expect(intents.contains(.selectTab(workspace: id, tab: tab)))
+        #expect(intents.contains(.stopAgentDrive(workspace: id, tab: tab, drive: .screen)))
+    }
+
+    @Test(arguments: SidebarDriveIndicatorVariant.allCases)
+    func everyLookDrawsAndNamesTheAgent(_ variant: SidebarDriveIndicatorVariant) {
+        _ = NSApplication.shared
+        let view = AgentDriveIndicatorView()
+        let driver = SidebarPresence(id: "claude-1", name: "Claude Code 2", activity: .browsing, tab: TabID("tab_1"))
+        view.configure([driver, SidebarPresence(id: "x", name: "Codex", activity: .editing)], variant: variant)
+        #expect(view.drivers == [driver], "only drivers show")
+        #expect(view.preferredWidth > 0 && view.preferredHeight > 0)
+        #expect(view.menu(for: driver).items.map(\.title) == [Strings.driveGoTo("Claude Code 2")],
+                "a terminal agent's browser use offers no Stop")
+        view.configure([], variant: variant)
+        #expect(view.isHidden)
+    }
+
+    @Test func theCapsuleShortensTheAgentsName() {
+        #expect(AgentDriveIndicatorView.shortName("Claude Code") == "Claude")
+        #expect(AgentDriveIndicatorView.shortName("Claude Code 2") == "Claude 2")
+        #expect(AgentDriveIndicatorView.shortName("Codex") == "Codex")
+    }
+
+    /// The row's Stop is Stop Computer Use (`computerUseStop`, one path with the File menu and the CLI) given the
+    /// agent's terminals: the session that agent started stops, not the newest; with none of its own, the newest.
+    @Test(arguments: [("term_x,term_old", "cua_old"), ("term_unknown", "cua_new"), ("", "cua_new")])
+    func stopEndsTheSessionTheAgentsTerminalStarted(_ terminals: String, _ stopped: String) async {
+        let sessions = ComputerUseSessionActionsTests.FakeSessions([ComputerUseSessionActionsTests.older, ComputerUseSessionActionsTests.newer])
+        let registry = ComputerUseSessionActionsTests.registry(sessions, ComputerUseSessionActionsTests.FakeFocus())
+        let work = registry.capturingWork {
+            _ = registry.perform("computerUseStop", invocation: ActionInvocation(arguments: ["terminals": .string(terminals)]))
+        }
+        for task in work {
+            #expect(await task.value == nil)
+        }
+        #expect(sessions.stopped == [stopped])
     }
 }
