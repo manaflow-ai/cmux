@@ -104,8 +104,8 @@ type ReplyHandler = (reply: QuestionReply) => void | Promise<unknown>;
 
 /// The pill over a pending card. Folding hides the card but keeps it mounted, so the person's
 /// picks and Other text survive; the ask stays pending until answered or skipped. It draws as a quiet
-/// "Needs your input" capsule (Leo 2026-11-05, of the old amber block: "kind of ugly"): the one
-/// Needs you dot (needsYou.css), the words and the fold chevron on one capsule tinted with the mark, as JumpPill's.
+/// "Needs your input" tag (Leo 2026-11-05, of the old amber block: "kind of ugly"): the one
+/// Needs you dot (needsYou.css), the words and the fold chevron on one small-radius rect tinted with the mark, as JumpPill's.
 function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: ReplyHandler }) {
   const t = useT();
   const cardId = useId();
