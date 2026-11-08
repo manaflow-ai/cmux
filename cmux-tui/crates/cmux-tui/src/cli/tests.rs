@@ -1337,3 +1337,13 @@ fn root_help_leads_with_person_verbs_and_keeps_the_agents_tasks_near_the_top() {
         assert!(line("  pane ") > line(control), "{locale}");
     }
 }
+
+/// `cmux terminal list --agents --json` (bench rounds 1 and 3): `--agents`
+/// takes no value, so a `--json` after it is the output mode, not its value.
+#[test]
+fn w4j_a_json_switch_after_list_agents_is_the_output_mode() {
+    let (global, command) =
+        parse_globals(&strings(&["terminal", "list", "--agents", "--json"])).unwrap();
+    assert_eq!(global.output, OutputMode::Json);
+    assert_eq!(command, strings(&["terminal", "list", "--agents"]));
+}

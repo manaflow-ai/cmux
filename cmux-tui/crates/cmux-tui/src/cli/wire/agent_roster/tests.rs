@@ -350,3 +350,34 @@ fn json_stays_the_bare_ranked_array_unless_counts_is_asked_for() {
     // --jsonl is one agent per line either way.
     assert!(machine_view(&counted, &result, OutputMode::JsonLines).is_array());
 }
+
+/// One vocabulary (bench round 3, T7): `agent list` rows carry the shared
+/// `status` word that `terminal list --agents` shows, keep the daemon's
+/// older `state`, and count by `status`. A daemon `done` is a session that
+/// ended, not a finished turn, so it is no `done` agent.
+#[test]
+fn w4j_agent_list_rows_and_counts_use_the_shared_status_words() {
+    let rows = json!([
+        agent("agent_idle", "idle", NOW - 1_000, "term_1"),
+        agent("agent_ended", "done", NOW - 2_000, "term_2"),
+        agent("agent_blocked", "blocked", NOW - 3_000, "term_3"),
+    ]);
+    let result = shape(rows, &[], AgentRosterView::default(), NOW);
+    let row = |id: &str| {
+        result["agents"].as_array().unwrap().iter().find(|row| row["id"] == id).unwrap().clone()
+    };
+    assert_eq!(row("agent_idle")["status"], "idle");
+    assert_eq!(row("agent_blocked")["status"], "blocked");
+    assert_eq!(row("agent_ended")["status"], Value::Null);
+    assert_eq!(row("agent_ended")["state"], "done", "the older state word stays");
+    assert_eq!(
+        result["counts"],
+        json!({"blocked": 1, "done": 0, "working": 0, "idle": 1, "unknown": 0, "ended": 1,
+               "total": 3})
+    );
+    let text = human(&result, None);
+    assert_eq!(text.lines().next().unwrap(), "1 blocked · 0 done · 0 working · 1 idle · 1 ended");
+    let states: Vec<&str> =
+        text.lines().skip(2).filter_map(|line| line.split_whitespace().next()).collect();
+    assert_eq!(states, ["blocked", "idle", "ended"]);
+}
