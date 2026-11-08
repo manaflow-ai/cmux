@@ -27,6 +27,8 @@ import CmuxNextSettings
 /// stays open for `debug.tab_drag` and screenshots); `button`: `left`
 /// (default), `right`, `middle` (AppKit's `otherMouse*` events, button
 /// number 2: a middle click on a sidebar workspace row closes it);
+/// `deliver: "view"` hands the presses, drags and releases to the view under the point as AppKit does in a key
+/// window (`DebugMouse+Deliver`), for a no-activate run whose window is never key;
 /// `modifiers`: `cmd`, `shift`, `option`, `ctrl` (a `scroll` carries them
 /// too: Command + scroll moves the layout, `layout.scrollModifier`). Every action also moves
 /// the synthesized pointer that layout hover reads (`LayoutRootView.
@@ -130,6 +132,7 @@ enum DebugMouse {
         }
         let posted = events.compactMap { $0 }
         guard posted.count == events.count else { return .object(["error": .string("could not synthesize events")]) }
+        if params["deliver"]?.stringValue == "view" { return deliverToViews(posted, controller: controller, point: point) }
         // The layout's hover reads the pointer, not events: the synthesized
         // pointer ends where the last event is (cx-ww20).
         let last = action == "drag" ? dragTarget(params, from: point, controller: controller, window: window) : point
