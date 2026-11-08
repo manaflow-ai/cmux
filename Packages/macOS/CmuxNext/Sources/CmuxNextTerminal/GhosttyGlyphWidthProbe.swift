@@ -67,7 +67,7 @@ public nonisolated struct GhosttyGlyphWidthProbe: Sendable {
     private static func measure(_ sample: Sample, primary: CTFont, fallbackFonts: [CTFont], cellWidth: Double) -> Measurement {
         let string = sample.text as NSString
         let (font, missing) = fontAndFontCoverage(for: string, primary: primary, fallbackFonts: fallbackFonts)
-        return Measurement(sample: sample, cellWidth: cellWidth, advance: shapedAdvance(for: string, in: font), missingGlyph: missing)
+        return Measurement(sample: sample, cellWidth: cellWidth, advance: shapedAdvance(for: sample.text, in: font), missingGlyph: missing)
     }
 
     private static func fontAndFontCoverage(for string: NSString, primary: CTFont, fallbackFonts: [CTFont]) -> (CTFont, Bool) {
