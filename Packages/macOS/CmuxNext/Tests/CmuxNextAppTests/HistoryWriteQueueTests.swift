@@ -45,6 +45,24 @@ import Testing
             change(&stored)
         }
 
+        /// Keys the daemon committed (its mutation ledger: a retry of one changes nothing again), and the
+        /// key of every send in order.
+        var committed: Set<String> = []
+        var keys: [String] = []
+        /// The next this many keyed sends commit, then their reply is lost (`timedOut`).
+        var lostReplies = 0
+
+        func send(key: String, _ change: @Sendable (inout [String]) -> Void) throws {
+            attempts += 1
+            keys.append(key)
+            guard committed.insert(key).inserted else { return }
+            change(&stored)
+            if lostReplies > 0 {
+                lostReplies -= 1
+                throw DaemonError.timedOut("history.visit.record")
+            }
+        }
+
         func refuse() throws {
             attempts += 1
             throw DaemonError.command(cmd: "history.clear", message: "invalid range", code: "cmux.invalid_params")
@@ -69,7 +87,7 @@ import Testing
         daemon.drops = 1
         daemon.onDrop = { Task { @MainActor in daemon.reconnect() } }
         let queue = Self.queue(daemon)
-        await Self.sent(queue, visit: true) { client in try await client.send { $0.append("https://a.example/") } }
+        await Self.sent(queue, visit: true) { client, _ in try await client.send { $0.append("https://a.example/") } }
         #expect(daemon.stored == ["https://a.example/"])
         #expect(daemon.attempts == 2, "the dropped send was not sent again")
         #expect(queue.count == 0)
@@ -78,11 +96,11 @@ import Testing
     @Test func aClearMadeOfflineReachesTheDaemonAfterTheVisitsBeforeIt() async {
         let daemon = Daemon()
         let queue = Self.queue(daemon)
-        queue.enqueue(visit: true) { client in try await client.send { $0.append("https://cleared.example/") } }
-        queue.enqueue { client in try await client.send { $0.removeAll() } }
+        queue.enqueue(visit: true) { client, _ in try await client.send { $0.append("https://cleared.example/") } }
+        queue.enqueue { client, _ in try await client.send { $0.removeAll() } }
         #expect(queue.count == 2)
         daemon.reconnect()
-        await Self.sent(queue, visit: true) { client in try await client.send { $0.append("https://after.example/") } }
+        await Self.sent(queue, visit: true) { client, _ in try await client.send { $0.append("https://after.example/") } }
         #expect(daemon.stored == ["https://after.example/"], "a visit queued before the clear came back")
     }
 
@@ -90,7 +108,7 @@ import Testing
         let daemon = Daemon()
         daemon.up = true
         let queue = Self.queue(daemon)
-        await Self.sent(queue) { client in try await client.refuse() }
+        await Self.sent(queue) { client, _ in try await client.refuse() }
         #expect(daemon.attempts == 1)
         #expect(queue.count == 0)
     }
@@ -99,11 +117,11 @@ import Testing
         let daemon = Daemon()
         daemon.stored = ["before"]
         let queue = HistoryWriteQueue<Daemon>(capacity: 2, retryable: DaemonHistoryClient.isLinkDrop) { await daemon.connected() }
-        queue.enqueue { client in try await client.send { $0.removeAll() } }
-        queue.enqueue(visit: true) { client in try await client.send { $0.append("old") } }
+        queue.enqueue { client, _ in try await client.send { $0.removeAll() } }
+        queue.enqueue(visit: true) { client, _ in try await client.send { $0.append("old") } }
         // Nothing has run yet: the third write makes room by dropping the waiting visit, not the clear.
         daemon.reconnect()
-        await Self.sent(queue, visit: true) { client in try await client.send { $0.append("new") } }
+        await Self.sent(queue, visit: true) { client, _ in try await client.send { $0.append("new") } }
         #expect(daemon.stored == ["new"])
     }
 
@@ -112,14 +130,14 @@ import Testing
     @Test func pastCapacityWithOnlyClearsWaitingTheNewVisitIsRefused() async {
         let daemon = Daemon()
         let queue = HistoryWriteQueue<Daemon>(capacity: 2, retryable: DaemonHistoryClient.isLinkDrop) { await daemon.connected() }
-        queue.enqueue { client in try await client.send { $0.append("clear-a") } }
-        queue.enqueue { client in try await client.send { $0.append("clear-b") } }
-        queue.enqueue(visit: true) { client in try await client.send { $0.append("visit") } }
+        queue.enqueue { client, _ in try await client.send { $0.append("clear-a") } }
+        queue.enqueue { client, _ in try await client.send { $0.append("clear-b") } }
+        queue.enqueue(visit: true) { client, _ in try await client.send { $0.append("visit") } }
         #expect(queue.count == 2, "a visit took the place of a clear")
-        queue.enqueue { client in try await client.send { $0.append("clear-c") } }
+        queue.enqueue { client, _ in try await client.send { $0.append("clear-c") } }
         #expect(queue.count == 3, "a clear was dropped for room")
         daemon.reconnect()
-        await Self.sent(queue) { client in try await client.send { $0.append("last") } }
+        await Self.sent(queue) { client, _ in try await client.send { $0.append("last") } }
         #expect(daemon.stored == ["clear-a", "clear-b", "clear-c", "last"])
     }
 
@@ -128,10 +146,10 @@ import Testing
     @Test func anImportQueuedAheadGoesBeforeAnOfflineClear() async {
         let daemon = Daemon()
         let queue = Self.queue(daemon)
-        queue.enqueue { client in try await client.send { $0.removeAll() } }
-        queue.enqueue(ahead: true) { client in try await client.send { $0.append("legacy") } }
+        queue.enqueue { client, _ in try await client.send { $0.removeAll() } }
+        queue.enqueue(ahead: true) { client, _ in try await client.send { $0.append("legacy") } }
         daemon.reconnect()
-        await Self.sent(queue, visit: true) { client in try await client.send { $0.append("after") } }
+        await Self.sent(queue, visit: true) { client, _ in try await client.send { $0.append("after") } }
         #expect(daemon.stored == ["after"], "the legacy import came after the clear and restored its visits")
     }
 
@@ -146,6 +164,40 @@ import Testing
         let all = DaemonHistoryClient.clearParams(kinds: [], since: nil, profile: nil)
         #expect(all["range"] == .string("all"))
         #expect(all["local_day_start_ms"] == nil)
+    }
+
+    /// cmux#38186 review: a write whose reply never came (`timedOut`) goes again, with the same key, so a
+    /// visit the daemon did commit is answered from its ledger and counted once, never dropped or doubled.
+    @Test func aTimedOutWriteGoesAgainWithItsKeyAndCountsOnce() async {
+        let daemon = Daemon()
+        daemon.up = true
+        daemon.lostReplies = 1
+        let queue = Self.queue(daemon)
+        await Self.sent(queue, visit: true) { client, key in try await client.send(key: key) { $0.append("https://a.example/") } }
+        #expect(DaemonHistoryClient.isLinkDrop(DaemonError.timedOut("history.clear")))
+        #expect(daemon.attempts == 2, "a timed-out write was dropped, not sent again")
+        #expect(Set(daemon.keys).count == 1, "the retry carried a new key")
+        #expect(daemon.stored == ["https://a.example/"])
+    }
+
+    /// cmux#38186 review: a legacy import the link drops under throws the drop (so ``writes`` sends it
+    /// again and seeds only after it), and the app-local log stays for that retry.
+    @Test func aLegacyImportTheLinkDropsUnderThrowsTheDrop() async throws {
+        // The real path: the legacy file refuses a path through a symlink (macOS's /var -> /private/var).
+        let temporary = try #require(realpath(FileManager.default.temporaryDirectory.path, nil))
+        defer { free(temporary) }
+        let support = URL(fileURLWithPath: String(cString: temporary), isDirectory: true)
+            .appending(path: "cmux-history-import-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: support) }
+        let log = LegacyHistoryFile.visitLogURL(profile: "default", supportDirectory: support)
+        try FileManager.default.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("legacy".utf8).write(to: log)
+        let offline = DaemonHistoryClient(connection: DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-history-import-\(UUID().uuidString).sock")))
+        var thrown: (any Error)?
+        do { try await HistoryService.handOver(log, supportDirectory: support, profile: "default", to: offline) } catch { thrown = error }
+        let error = try #require(thrown, "a failed import looked like a finished one")
+        #expect(DaemonHistoryClient.isLinkDrop(error), "\(error)")
+        #expect(FileManager.default.fileExists(atPath: log.path))
     }
 
     /// The app's own wiring: an omnibox visit and a Clear History wait in the same queue while the local

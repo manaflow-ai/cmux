@@ -46,23 +46,23 @@ public struct DaemonHistoryClient: Sendable {
         return nil
     }
 
-    public func remove(ids: [String]) async throws {
+    public func remove(ids: [String], key: String = DaemonHistoryClient.key()) async throws {
         _ = try await relay.send(operation: "history.entries.remove", params: ["ids": .array(ids.map(JSONValue.string))],
-                                 idempotencyKey: Self.key())
+                                 idempotencyKey: key)
     }
 
-    public func removeSite(host: String, profile: String?) async throws {
+    public func removeSite(host: String, profile: String?, key: String = DaemonHistoryClient.key()) async throws {
         var params: [String: JSONValue] = ["host": .string(host)]
         if let profile { params["profile"] = .string(profile) }
-        _ = try await relay.send(operation: "history.site.remove", params: params, idempotencyKey: Self.key())
+        _ = try await relay.send(operation: "history.site.remove", params: params, idempotencyKey: key)
     }
 
     /// Clears `kinds` (empty: all) from `since` (nil: all time) on; a profile narrows the clear to its page visits.
     /// `since` is the absolute start taken when the person clicked, so a clear the queue delivers later
     /// still starts there, never at a range counted back from the delivery.
-    public func clear(kinds: Set<HistoryEntry.Kind>, since: Date?, profile: String? = nil) async throws {
+    public func clear(kinds: Set<HistoryEntry.Kind>, since: Date?, profile: String? = nil, key: String = DaemonHistoryClient.key()) async throws {
         _ = try await relay.send(operation: "history.clear", params: Self.clearParams(kinds: kinds, since: since, profile: profile),
-                                 idempotencyKey: Self.key())
+                                 idempotencyKey: key)
     }
 
     /// `history.clear`'s params for an absolute start: range `today` starts at the given
@@ -77,23 +77,23 @@ public struct DaemonHistoryClient: Sendable {
         return params
     }
 
-    public func recordVisit(profile: String, url: String, title: String?, tab: String?, at date: Date) async throws {
+    public func recordVisit(profile: String, url: String, title: String?, tab: String?, at date: Date, key: String = DaemonHistoryClient.key()) async throws {
         var params: [String: JSONValue] = ["profile": .string(profile), "url": .string(url), "at_ms": Self.decimal(date)]
         if let tab { params["tab"] = .string(tab) }
         if let title, !title.isEmpty { params["title"] = .string(title) }
-        _ = try await relay.send(operation: "history.visit.record", params: params, idempotencyKey: Self.key())
+        _ = try await relay.send(operation: "history.visit.record", params: params, idempotencyKey: key)
     }
 
-    public func updateTitle(profile: String, url: String, title: String) async throws {
+    public func updateTitle(profile: String, url: String, title: String, key: String = DaemonHistoryClient.key()) async throws {
         _ = try await relay.send(operation: "history.visit.title",
                                  params: ["profile": .string(profile), "url": .string(url), "title": .string(title)],
-                                 idempotencyKey: Self.key())
+                                 idempotencyKey: key)
     }
 
-    public func removeVisits(profile: String, url: String) async throws {
+    public func removeVisits(profile: String, url: String, key: String = DaemonHistoryClient.key()) async throws {
         _ = try await relay.send(operation: "history.visit.remove",
                                  params: ["profile": .string(profile), "urls": .array([.string(url)])],
-                                 idempotencyKey: Self.key())
+                                 idempotencyKey: key)
     }
 
     /// Hands the daemon the app's own visit log of `profile` from before the daemon owned page

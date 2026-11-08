@@ -185,7 +185,7 @@ final class HistoryService {
         // commands are deleted as rows in each connected daemon. The app's Back/Forward steps drop too.
         let appOwned: Set<HistoryEntry.Kind> = [.command]
         let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : kinds.subtracting(appOwned)
-        if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, since: since) } }
+        if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, since: since, key: $1) } }
         if owned.contains(.agent) { hidden.hideLocally { $0.hide(since: since, now: Date(), kind: "agent") } }
         if wants(.command) { commands.delete(since: since) }
         if wants(.page) {
@@ -202,7 +202,7 @@ final class HistoryService {
         let since = range.start(now: Date())
         let wireID = BrowserProfileRecord.wireID(for: profile)
         Task { [sync = services.onboarding.historySync] in await sync.forget(profile: wireID, since: since) }  // task-owner: imported pages too
-        daemonMutation { try await $0.clear(kinds: [.page], since: since, profile: wireID) }
+        daemonMutation { try await $0.clear(kinds: [.page], since: since, profile: wireID, key: $1) }
         services.cache.history(for: profile).forget(since: since)
         onChange?()
     }
@@ -218,7 +218,7 @@ final class HistoryService {
             commands.delete(command)
         case .location, .closed, .agent:
             let id = entry.id
-            daemonMutation { try await $0.remove(ids: [id]) }
+            daemonMutation { try await $0.remove(ids: [id], key: $1) }
             if case .agent(let session) = entry.payload { hidden.hideLocally { $0.hide(entry: session.qualifiedID) } }
             // The daemon removes every trail entry of the place; so do the app's Back/Forward steps.
             if case .location(let location, _) = entry.payload { services.locationTrail.remove(location.key) }
@@ -230,7 +230,7 @@ final class HistoryService {
     func removePages(host: String) {
         Task { [sync = services.onboarding.historySync] in await sync.forgetSite(host: host) }  // task-owner: imported pages too
         // One site removal on the daemon (one backup); memory forgets without persistence.
-        daemonMutation { try await $0.removeSite(host: host, profile: nil) }
+        daemonMutation { try await $0.removeSite(host: host, profile: nil, key: $1) }
         for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
             services.cache.history(for: profile).forget(host: host)
         }
@@ -240,7 +240,7 @@ final class HistoryService {
     /// A deleted browser profile: its page history goes too, on the daemon.
     func forget(profile: BrowserProfileID) {
         let wireID = BrowserProfileRecord.wireID(for: profile)
-        daemonMutation { try await $0.clear(kinds: [.page], since: nil, profile: wireID) }
+        daemonMutation { try await $0.clear(kinds: [.page], since: nil, profile: wireID, key: $1) }
         routes[profile] = nil
     }
 }

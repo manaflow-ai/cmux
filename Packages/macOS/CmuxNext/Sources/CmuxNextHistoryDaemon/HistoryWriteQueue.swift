@@ -6,16 +6,20 @@ public import CmuxNextWakeups
 /// therefore reaches it after the visits made before it, so those visits never come back.
 ///
 /// A write waits for a live client (`client`, which returns once the daemon serves history). One that
-/// fails because the link dropped under it (`retryable`) stays first and goes again, after a backoff
-/// that lets the next connect land; one the daemon answered and refused is done. At most `capacity`
+/// fails because the link dropped under it or its reply never came (`retryable`) stays first and goes
+/// again, after a backoff that lets the next connect land, with the same idempotency key (`key`, one per
+/// queued write), so the daemon answers a retry of a write it already committed without doing it twice.
+/// One the daemon answered and refused is done. At most `capacity`
 /// writes wait; past it the oldest waiting visit goes. A clear or remove is never dropped (else what it
 /// removed would come back): with no visit waiting, a new visit is refused instead, and a new clear or
 /// remove still goes in, past `capacity` (each one is a person's click, so they stay few).
 @MainActor
 public final class HistoryWriteQueue<Client: Sendable> {
-    public typealias Write = @Sendable (Client) async throws -> Void
+    /// Sends one write with `key`, the idempotency key every attempt of that write carries.
+    public typealias Write = @Sendable (Client, _ key: String) async throws -> Void
     private struct Item {
         let id: UInt64
+        let key: String
         let isVisit: Bool
         let write: Write
         let done: (@MainActor () -> Void)?
@@ -56,7 +60,7 @@ public final class HistoryWriteQueue<Client: Sendable> {
             }
         }
         nextID += 1
-        let item = Item(id: nextID, isVisit: visit, write: write, done: done)
+        let item = Item(id: nextID, key: DaemonHistoryClient.key(), isVisit: visit, write: write, done: done)
         if ahead {
             items.insert(item, at: items.firstIndex { $0.id != sending } ?? items.endIndex)
         } else {
@@ -76,9 +80,9 @@ public final class HistoryWriteQueue<Client: Sendable> {
             guard let item = items.first else { return }
             sending = item.id
             do {
-                try await item.write(client)
+                try await item.write(client, item.key)
             } catch where retryable(error) {
-                // The link dropped under the write: it stays first and goes again on the next connect.
+                // The link dropped under the write or its reply never came: it goes again (same key) on the next connect.
                 sending = nil
                 // concurrency-allow: Backoff.wait is an async clock sleep (the task suspends, no thread blocks), once per failed send
                 do { try await backoff.wait(owner: "history.writes") } catch { return }
@@ -95,11 +99,12 @@ public final class HistoryWriteQueue<Client: Sendable> {
 }
 
 extension DaemonHistoryClient {
-    /// Whether a write failed because the link dropped under it (or the daemon asks for a retry), so it
-    /// goes again on the next connect; any other answer was the daemon's own refusal.
+    /// Whether a write failed because the link dropped under it, its reply never came (`timedOut`: it may
+    /// or may not have committed; the retry's same key makes that safe) or the daemon asks for a retry, so
+    /// it goes again on the next connect; any other answer was the daemon's own refusal.
     public nonisolated static func isLinkDrop(_ error: any Error) -> Bool {
         switch error as? DaemonError {
-        case .notConnected?, .connectionClosed?, .daemonShutdown?, .connectFailed?: true
+        case .notConnected?, .connectionClosed?, .daemonShutdown?, .connectFailed?, .timedOut?: true
         case .command(_, _, _, _, let retryable)?: retryable == true
         default: false
         }

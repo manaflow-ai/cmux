@@ -77,7 +77,7 @@ extension HistoryService {
 
     /// Queues a daemon mutation behind every earlier visit and mutation (``writes``; a clear made while it
     /// reconnects still happens, after them), then tells open pages (they also hear history-changed).
-    func daemonMutation(_ body: @escaping @Sendable (DaemonHistoryClient) async throws -> Void) {
+    func daemonMutation(_ body: @escaping HistoryWriteQueue<DaemonHistoryClient>.Write) {
         writes.enqueue(body) { [weak self] in self?.onChange?() }
     }
 
@@ -100,16 +100,16 @@ extension HistoryService {
             }
         }
         guard let supportDirectory else { return seed() }
-        writes.enqueue(ahead: true, { await Self.handOver(LegacyHistoryFile.visitLogURL(profile: wireID, supportDirectory: supportDirectory),
-                                                          supportDirectory: supportDirectory, profile: wireID, to: $0) }, done: seed)
+        writes.enqueue(ahead: true, { daemon, _ in try await Self.handOver(LegacyHistoryFile.visitLogURL(profile: wireID, supportDirectory: supportDirectory),
+                                                                       supportDirectory: supportDirectory, profile: wireID, to: daemon) }, done: seed)
     }
 
-    /// Imports `log` (an app-local `History.sqlite`) into the daemon's store of `profile`, then
-    /// deletes it and its SQLite side files once the daemon confirms the import committed. A failed
-    /// import leaves the file for the next launch; the key (path, size, time) makes a retry of the
-    /// same file replay, and the daemon also records each imported file, so no session imports it
-    /// twice.
-    static func handOver(_ log: URL, supportDirectory: URL, profile: String, to daemon: DaemonHistoryClient) async {
+    /// Imports `log` (an app-local `History.sqlite`) into the daemon's store of `profile`, then deletes it and
+    /// its SQLite side files once the daemon confirms the import committed. It throws the daemon's error, so
+    /// ``writes`` retries a dropped link or timeout; a refusal leaves the file for the next launch. The key
+    /// (path, size, time) makes a retry of the same file replay, and the daemon also records each imported
+    /// file, so no session imports it twice.
+    static func handOver(_ log: URL, supportDirectory: URL, profile: String, to daemon: DaemonHistoryClient) async throws {
         guard let source = LegacyHistoryFile(url: log, supportDirectory: supportDirectory) else { return }
         let sidecarURLs = ["-wal", "-shm"].map {
             URL(fileURLWithPath: source.url.path + $0)
@@ -130,7 +130,7 @@ extension HistoryService {
         let digest = SHA256.hash(data: Data(identity.joined(separator: "\n").utf8))
             .prefix(8).map { String(format: "%02x", $0) }.joined()
         let key = "cmux-next-history-import-\(digest)"
-        guard (try? await daemon.importVisits(profile: profile, path: source.url.path, key: key)) != nil else { return }
+        _ = try await daemon.importVisits(profile: profile, path: source.url.path, key: key)
         _ = LegacyHistoryFile.removeGenerationIfUnchanged(
             Array(sidecars.reversed()) + [source],
             missing: missing

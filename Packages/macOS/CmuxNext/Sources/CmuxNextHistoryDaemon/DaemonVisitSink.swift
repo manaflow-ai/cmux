@@ -19,17 +19,17 @@ public final class DaemonVisitSink: BrowserHistoryPersistence {
 
     public func didRecordVisit(url: URL, title: String?, at date: Date) {
         let profile = profile, text = url.absoluteString
-        writes.enqueue(visit: true) { try await $0.recordVisit(profile: profile, url: text, title: title, tab: nil, at: date) }
+        writes.enqueue(visit: true) { try await $0.recordVisit(profile: profile, url: text, title: title, tab: nil, at: date, key: $1) }
     }
 
     public func didUpdateTitle(_ title: String, for url: URL) {
         let profile = profile, text = url.absoluteString
-        writes.enqueue(visit: true) { try await $0.updateTitle(profile: profile, url: text, title: title) }
+        writes.enqueue(visit: true) { try await $0.updateTitle(profile: profile, url: text, title: title, key: $1) }
     }
 
     public func didRemoveEntry(for url: URL) {
         onRemove?(url)
         let profile = profile, text = url.absoluteString
-        writes.enqueue { try await $0.removeVisits(profile: profile, url: text) }
+        writes.enqueue { try await $0.removeVisits(profile: profile, url: text, key: $1) }
     }
 }
