@@ -86,6 +86,11 @@ fn copy_mode_swallows_unbound_keys_and_keeps_prefix_commands() {
     );
     assert!(app.copy_mode_active());
 
+    app.focus = FocusTarget::WorkspaceRail;
+    assert!(app.copy_mode_line().is_none(), "the mode line follows focus off the terminal");
+    app.focus = FocusTarget::Pane;
+    assert!(app.copy_mode_line().is_some());
+
     app.handle_key(key('q')).unwrap();
     assert!(!app.copy_mode_active());
     let routed = app.resolve_keyboard_ingress(key('z').into());

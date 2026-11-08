@@ -232,9 +232,14 @@ impl App {
         Some(CopyOverlay { cursor, selection: state.selection, offset, matches })
     }
 
-    /// The mode line, while copy mode is active.
+    /// The mode line, while copy mode is active on the focused terminal. A
+    /// prefix command that moves focus hides it at once.
     pub(crate) fn copy_mode_line(&self) -> Option<CopyModeLine> {
-        let state = &self.copy_mode.as_ref()?.state;
+        let session = self.copy_mode.as_ref()?;
+        if self.focus != FocusTarget::Pane || Some(session.surface) != self.active_surface() {
+            return None;
+        }
+        let state = &session.state;
         let messages = &localization::catalog().copy_mode;
         let mode = match state.visual {
             None => messages.mode_copy,
