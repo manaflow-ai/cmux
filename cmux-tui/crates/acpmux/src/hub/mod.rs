@@ -192,6 +192,8 @@ pub(super) use session::{newest_first, prompt_text, short_text};
 mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
+mod bridge;
+mod desktop_bridge;
 pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
@@ -212,8 +214,6 @@ mod tools;
 pub(crate) mod turn_cap;
 mod turn_retry;
 mod watch;
-mod bridge;
-mod desktop_bridge;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
