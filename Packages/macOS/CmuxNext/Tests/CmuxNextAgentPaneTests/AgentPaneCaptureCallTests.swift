@@ -53,7 +53,7 @@ struct AgentPaneCaptureCallTests {
     }
 
     /// The shared page host refuses an op it does not list (`unknown_op`).
-    @Test(arguments: ["composer.capture", "capture.record.start", "capture.record.stop", "capture.copy", "capture.save"])
+    @Test(arguments: ["composer.capture", "capture.record.start", "capture.record.stop", "capture.copy", "capture.save", "capture.done"])
     func thePageHostRoutesEveryCall(_ method: String) {
         #expect(AgentPageOps.method(for: AgentPageOps.namespace + method) == method)
     }
@@ -186,6 +186,23 @@ struct AgentPaneCaptureCallTests {
         gone = nil
         second.end()
         #expect(!recorder.isRecording)
+    }
+
+    /// Review follow-up on #37898 (F2): a screenshot's Copy and Save are spent once the capture is
+    /// handled, a chip in the chat included, and expire unspent; a second use is refused.
+    @MainActor @Test func aHandedShotIsSpentByTheChatAndExpires() async {
+        #expect(AgentPaneCaptureCall(method: "capture.done", params: nil) == .done)
+        let recorder = AgentPaneRecorder()
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-1")
+        let bytes = Data("shot".utf8)
+        await recorder.handed(bytes.base64EncodedString(), to: model)
+        recorder.spendShot(of: model)
+        #expect(!(await recorder.takeShot(bytes, for: model)))
+        await recorder.handed(bytes.base64EncodedString(), to: model)
+        #expect(!(await recorder.takeShot(bytes, for: model, now: Date(timeIntervalSinceNow: AgentPaneRecorder.shotLifetime + 1))))
+        await recorder.handed(bytes.base64EncodedString(), to: model)
+        #expect(await recorder.takeShot(bytes, for: model))
+        #expect(!(await recorder.takeShot(bytes, for: model)))
     }
 
     /// A moved window is filmed where it is now: its part of the display, from the display's corner.

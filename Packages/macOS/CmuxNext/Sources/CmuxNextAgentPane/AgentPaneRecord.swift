@@ -84,7 +84,12 @@ final class AgentPaneRecorder {
     private struct Shot {
         weak var model: AgentPaneModel?
         let digest: Data
+        let at: Date
     }
+
+    /// How long a handed screenshot's Copy or Save stays open when the page never spends it: the
+    /// page asks at once, so this only bounds a shot whose bytes a page kept.
+    nonisolated static let shotLifetime: TimeInterval = 30
 
     private var shots: [Shot] = []
 
@@ -265,15 +270,21 @@ final class AgentPaneRecorder {
         }.value
         guard let digest else { return }
         shots.removeAll { $0.model == nil || $0.model === model }
-        shots.append(Shot(model: model, digest: digest))
+        shots.append(Shot(model: model, digest: digest, at: Date()))
     }
 
     /// Whether `data` is `model`'s last screenshot; it is spent then.
-    func takeShot(_ data: Data, for model: AgentPaneModel) async -> Bool {
+    func takeShot(_ data: Data, for model: AgentPaneModel, now: Date = Date()) async -> Bool {
         let digest = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { Self.digest(data) }.value
+        shots.removeAll { $0.model == nil || now.timeIntervalSince($0.at) > Self.shotLifetime }
         guard let index = shots.firstIndex(where: { $0.model === model && $0.digest == digest }) else { return false }
         shots.remove(at: index)
         return true
+    }
+
+    /// `model`'s page handled its last screenshot another way (the chat took it): its Copy and Save are spent.
+    func spendShot(of model: AgentPaneModel) {
+        shots.removeAll { $0.model == nil || $0.model === model }
     }
 
     nonisolated static func digest(_ data: Data) -> Data { Data(SHA256.hash(data: data)) }

@@ -31,6 +31,9 @@ extension AgentPaneCapture {
         case .copy(let payload):
             guard await shotIsHanded(payload, to: model) else { return AgentPaneModel.transportFailure(.pathInvalid) }
             return await copy(payload)
+        case .done:
+            AgentPaneRecorder.shared.spendShot(of: model)
+            return AgentPaneReply.success(["done": true])
         case .save(let payload, let name):
             guard await shotIsHanded(payload, to: model) else { return AgentPaneModel.transportFailure(.pathInvalid) }
             return await save(payload, name: name, in: hostWindow(for: model))

@@ -46,12 +46,14 @@ Page to native (`callNative`):
 | `capture.record.stop` | `{}` | `{path, name, seconds}` of the `.mp4` (or `{cancelled}` when it had no frames) |
 | `capture.copy` | `{data, mimeType}` or `{path}` | `{copied: true}` |
 | `capture.save` | `{data, mimeType, name}` or `{path, name}` | `{saved: path}` or `{cancelled}` |
+| `capture.done` | `{}` | `{done: true}`: the chat took the last screenshot, so its Copy and Save are spent |
 
 `composer.capture` keeps the existing rule for a Region or Window pick: the page asks only after
 the person's own click or key in the pane (`gestures.consume()`). `capture.record.start` and a
 shot of the cmux window or the pane, which no system pick confirms, need the person's own click
 in the last 1.5 s (`AgentPaneCapture.personClicked`): a credit left by typing never starts one. `capture.copy` and `capture.save`
-take image bytes only when they are the screenshot `composer.capture` just gave that pane (once),
+take image bytes only when they are the screenshot `composer.capture` just gave that pane (once,
+within 30 s, and not after `capture.done`),
 and a file only when it is a movie this bridge wrote, so a page never puts bytes of its own on the
 clipboard. A recording that ended by itself and is not collected before another starts waits for
 its own pane's `capture.record.stop`; it is discarded only when that pane is gone.

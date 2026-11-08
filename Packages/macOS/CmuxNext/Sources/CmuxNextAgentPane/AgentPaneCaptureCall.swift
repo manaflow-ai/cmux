@@ -15,9 +15,12 @@ public nonisolated enum AgentPaneCaptureCall: Equatable, Sendable {
     case copy(AgentPaneCapturePayload?)
     /// `capture.save {data, mimeType, name} | {path, name}`; nil when the params break the contract.
     case save(AgentPaneCapturePayload?, name: String?)
+    /// `capture.done {}`: the page handled the last screenshot another way (it went into the chat):
+    /// its Copy and Save are spent.
+    case done
 
     /// The page ops this parses (AgentPageProvider's allow-list takes them all).
-    static let methods: Set<String> = ["composer.capture", "capture.record.start", "capture.record.stop", "capture.copy", "capture.save"]
+    static let methods: Set<String> = ["composer.capture", "capture.record.start", "capture.record.stop", "capture.copy", "capture.save", "capture.done"]
 
     init?(method: String, params: [String: Any]?) {
         switch method {
@@ -27,6 +30,7 @@ public nonisolated enum AgentPaneCaptureCall: Equatable, Sendable {
         case "capture.record.stop": self = .recordStop
         case "capture.copy": self = .copy(AgentPaneCapturePayload(params))
         case "capture.save": self = .save(AgentPaneCapturePayload(params), name: Self.fileName(params?["name"] as? String))
+        case "capture.done": self = .done
         default: return nil
         }
     }

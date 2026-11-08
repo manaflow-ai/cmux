@@ -92,7 +92,11 @@ export function useCaptureBar(host: CaptureBarHost) {
             if (hostRef.current.chat() !== takenFor) {
               await callNative("capture.copy", { data: shot.data, mimeType });
               notice(say("capture.copied"));
-            } else if ("id" in read) attach(read);
+            } else {
+              if ("id" in read) attach(read);
+              // The chat took it: its Copy and Save on the host are spent.
+              void callNative("capture.done").catch(() => {});
+            }
           }
           finish();
         })
