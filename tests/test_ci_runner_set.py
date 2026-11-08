@@ -99,18 +99,21 @@ class RunnerSetTests(unittest.TestCase):
 
         jobs = yaml.safe_load((WORKFLOWS / "cmux-next.yml").read_text())["jobs"]
         gate = jobs["pr-quiet-period"]
-        self.assertIn("cmux-next.yml#pr-quiet-period",
-                      json.loads((ROOT / ".github" / "runners.json").read_text())["hosted_light_jobs"])
+        # The sleep holds no hosted Ubuntu slot: the org's 20 hosted jobs at once are for the routers
+        # and report steps (2026-11-07: the sleeps held 6 of 20 on average), so it is no hosted light job.
+        self.assertNotIn("cmux-next.yml#pr-quiet-period",
+                         json.loads((ROOT / ".github" / "runners.json").read_text())["hosted_light_jobs"])
         self.assertNotIn("needs", gate)
         self.assertIn("github.event_name == 'pull_request'", gate["if"])
         self.assertIn("github.run_attempt == 1", gate["if"])
         # landing.md: a leo-named-fix PR lands with no wait.
         self.assertIn("!contains(github.event.pull_request.labels.*.name, 'leo-named-fix')", gate["if"])
-        self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", gate["runs-on"])
-        # A fork's sleep takes hosted Ubuntu too; no Blacksmith label is written down (review F1 of #36353).
-        self.assertNotIn("'blacksmith-", gate["runs-on"])
-        self.assertTrue(gate["runs-on"].rstrip().endswith(
-            "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"))
+        # Hosted Ubuntu only outside manaflow-ai; a fork PR takes the smallest fixed size, every other
+        # run the smallest pool (review F1 of #36353: a sleep never takes a bigger runner than it needs).
+        self.assertEqual(gate["runs-on"].count("'ubuntu-24.04'"), 1)
+        self.assertTrue(gate["runs-on"].startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "))
+        self.assertEqual(re.findall(r"'blacksmith-[^']+'", gate["runs-on"]), ["'blacksmith-2vcpu-ubuntu-2404'"])
+        self.assertTrue(gate["runs-on"].rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux_2 }}"))
         self.assertEqual(gate["permissions"], {})
         self.assertTrue(all(step.get("continue-on-error") for step in gate["steps"]))
         # The two root jobs wait for it, and run when it is skipped (pushes, dispatches, re-runs).

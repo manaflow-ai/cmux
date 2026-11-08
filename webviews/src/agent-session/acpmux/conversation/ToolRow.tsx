@@ -21,6 +21,7 @@ import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
+import { PreviewChip } from "./PreviewChip";
 import { ReactionMark, ReactionReply } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
@@ -190,6 +191,7 @@ export const ToolRow = memo(function ToolRow({
       )}
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
+          {background.state === "running" && <PreviewChip toolCallId={tool.id} />}
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />

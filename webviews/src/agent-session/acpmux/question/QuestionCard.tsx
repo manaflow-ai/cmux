@@ -23,6 +23,7 @@ import {
   type CardInput,
   type CardState,
 } from "./cardState";
+import { composerHasDraft, promptHoldsDraft } from "../composerTyped";
 import "../needsYou/needsYou.css";
 import { HtmlPreview } from "./HtmlPreview";
 import { inlineText, plainText } from "./inlineText";
@@ -130,9 +131,6 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: R
   );
 }
 
-/// The prompt's typed text, without the placeholder MarkdownField keeps beside the editor.
-const composerText = (composer: Element) => composer.querySelector(".acpmux-md-root")?.textContent?.trim() ?? "";
-
 /// A refused reply's message when it is already in the person's language: the app's reply
 /// (NativeError's userMessage) or the pane's own words for a lost or timed-out request
 /// (`native.*`, direct.ts). Any other message is acpmux's English, meant for its CLI.
@@ -148,13 +146,9 @@ function localizedMessage(error: unknown): string | undefined {
 /// prompt keeps it, so a typed digit or Enter never answers the ask by surprise.
 function keyboardIsIdle(document: Document): boolean {
   const active = document.activeElement;
-  if (!active || active === document.body) {
-    const composer = document.querySelector(".acpmux-composer-prompt");
-    const shell = document.querySelector<HTMLTextAreaElement>(".acpmux-shell-field");
-    return (!composer || composerText(composer) === "") && !shell?.value.trim();
-  }
+  if (!active || active === document.body) return !composerHasDraft(document);
   const composer = active.closest(".acpmux-composer-prompt");
-  return composer !== null && composerText(composer) === "";
+  return composer !== null && !promptHoldsDraft(composer);
 }
 
 function enterReply(question: AgentQuestion, state: CardState): string | undefined {

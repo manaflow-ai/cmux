@@ -19,7 +19,7 @@
 
 use cmux_remote_protocol::RelayRole;
 
-use crate::abuse::websocket_counts_toward_capacity;
+use crate::abuse::{websocket_counts_toward_capacity, websocket_is_open};
 use crate::attachment::{SlotAttachment, SlotPhase};
 
 /// How recently a daemon's control socket must have spoken for a Connect to
@@ -41,7 +41,13 @@ pub(crate) fn accepts_connects(
         && attachment.relay.role == RelayRole::Daemon
         && attachment.relay.slot == slot
         && attachment.expires_at > now_ms / 1_000
-        && attachment.last_seen_ms.saturating_add(DAEMON_LIVENESS_WINDOW_MS) > now_ms
+        && heard_within_window(attachment, now_ms)
+}
+
+/// Whether this daemon's control socket spoke within
+/// [`DAEMON_LIVENESS_WINDOW_MS`] before `now_ms`.
+pub(crate) fn heard_within_window(attachment: &SlotAttachment, now_ms: u64) -> bool {
+    attachment.last_seen_ms.saturating_add(DAEMON_LIVENESS_WINDOW_MS) > now_ms
 }
 
 /// The first candidate a Connect on `slot` may be allocated to at `now_ms`.
@@ -62,6 +68,22 @@ pub(crate) fn replaced_by_register(attachment: &SlotAttachment, slot: &str) -> b
     attachment.phase == SlotPhase::Registered && attachment.relay.slot == slot
 }
 
+/// Whether `own`, a daemon registration whose socket is in `ready_state`,
+/// is still its slot's current one: open, registered, and not replaced by a
+/// newer Register on the slot (`others`: the slot's other control sockets).
+/// A registration number of 0 is one written before numbers existed.
+pub(crate) fn current_registration(
+    own: &SlotAttachment,
+    ready_state: u16,
+    others: impl IntoIterator<Item = SlotAttachment>,
+) -> bool {
+    websocket_is_open(ready_state)
+        && own.phase == SlotPhase::Registered
+        && !others.into_iter().any(|other| {
+            replaced_by_register(&other, &own.relay.slot) && other.generation > own.generation
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use cmux_remote_protocol::{LaneToken, RelaySocketAttachment};
@@ -73,6 +95,7 @@ mod tests {
     use crate::park::{ConnectDisposition, ParkedConnect, connect_disposition, parked_and_live};
 
     const OPEN: u16 = 1;
+    const CLOSING: u16 = 2;
     const CLOSED: u16 = 3;
     const SLOT: &str = "slot";
     /// The client's relay join timeout (`control_timeout`): what a Connect
@@ -221,5 +244,43 @@ mod tests {
         assert_eq!(handed_over[0].circuit, "c1");
         assert_eq!(handed_over[0].route, route);
         assert!(register_ms - connect_ms < CLIENT_JOIN_TIMEOUT_MS);
+    }
+
+    /// A daemon that was silent past the window and pings again resumed:
+    /// circuits allocated to it while it was silent may never have reached
+    /// it, so its Ping is handed the unjoined ones, as a Register is. A
+    /// daemon pinging on its normal heartbeat is not.
+    #[test]
+    fn ping_after_silence_past_the_window_hands_over_unjoined_circuits() {
+        let resumed = daemon(T);
+        let ping_ms = T + DAEMON_LIVENESS_WINDOW_MS + 5_000;
+        assert!(!heard_within_window(&resumed, ping_ms), "resumed: hand over");
+
+        let heartbeat = daemon(T);
+        assert!(heard_within_window(&heartbeat, T + 10_000), "heartbeat: no hand-over");
+    }
+
+    fn registration(number: u64, last_seen_ms: u64) -> SlotAttachment {
+        SlotAttachment { generation: number, ..daemon(last_seen_ms) }
+    }
+
+    /// The old daemon's Ping was in flight when the new daemon's Register
+    /// ran: the old socket is closing and a newer registration holds the
+    /// slot, so its Ping must hand over and pair nothing.
+    #[test]
+    fn replaced_registration_is_not_current() {
+        let old = registration(1, T);
+        let new = registration(2, T + 1_000);
+        assert!(!current_registration(&old, CLOSING, [new.clone()]));
+        assert!(!current_registration(&old, OPEN, [new.clone()]), "a newer one exists");
+        assert!(current_registration(&new, OPEN, [old.clone()]));
+        assert!(current_registration(&new, OPEN, []));
+        let other_slot = SlotAttachment {
+            relay: RelaySocketAttachment::control("other-slot".into()),
+            ..registration(9, T)
+        };
+        assert!(current_registration(&old, OPEN, [other_slot]));
+        // Written before registration numbers: current until replaced.
+        assert!(current_registration(&registration(0, T), OPEN, []));
     }
 }
