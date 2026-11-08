@@ -1,7 +1,10 @@
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextHome
 import CmuxNextPages
+import CmuxNextServer
+import CmuxNextSidebar
 import Foundation
 import Testing
 
@@ -16,8 +19,11 @@ import Testing
     private static let surfaces: [(page: PageDescriptor, options: PageEngineOptions)] = [
         (.agent, PageEngineOptions(chromiumAgentChat: AgentPaneTunables.chromium.value)), (.history, .standard), (.cloud, .standard), (.apps, .standard), (.settings, PageFactory.settingsEngineOptions),
         (.keybindings, .standard), (.diff, DiffPageService.engineOptions), (.markdown, FilePageService.engineOptions),
-        (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions), (.passwords, .standard),
+        (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions),
+        (.groupEditor, GroupEditorService.engineOptions), (.passwords, .standard),
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
+        (.homeMessages, PageFactory.homeChannelsEngineOptions),
+        (.homeChatColors, HomeChatColorsService.engineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
         (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard),
         (.serverCards, WebCardPanel.engineOptions),
@@ -27,6 +33,7 @@ import Testing
     private static let stillOnWebKit: [String: PageWebKitReason] = [
         PageDescriptor.iconPicker.id: .transparentOverlay,
         PageDescriptor.serverCards.id: .transparentOverlay,
+        PageDescriptor.groupEditor.id: .transparentOverlay,
     ]
 
     /// A bundle with a resource folder for every shipped page, and the table Chromium gets for it.

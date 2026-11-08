@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Machines section's text and the step names it and Add Device show (Resources/AddMachine.xcstrings).
+/// The Machines section's native menu and the step names Add Device shows (Resources/AddMachine.xcstrings).
 /// The Add Machine card reads the same table from the server-cards page (webviews gen-strings).
 nonisolated enum AddMachineStrings {
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
@@ -45,29 +45,7 @@ nonisolated enum AddMachineStrings {
         }
     }
 
-    // MARK: Machines section
+    // MARK: Machines section (the page reads the rest of the section's `machines.` keys)
 
-    static var connected: String { s("machines.connected", "Connected") }
-    static var offline: String { s("machines.offline", "Offline") }
-    static var connecting: String { s("machines.connecting", "Connecting…") }
-    static var paused: String { s("machines.paused", "Paused") }
-    static var resuming: String { s("machines.resuming", "Resuming…") }
-    static var failed: String { s("machines.failed", "Failed") }
-    static var deleted: String { s("machines.deleted", "Deleted") }
-
-    /// A group header of the Machines section; nil for this Mac, whose row has no header.
-    static func group(_ kind: MachineKind) -> String? {
-        switch kind {
-        case .local: nil
-        case .cloud: s("machines.group.cloud", "Cloud")
-        case .ssh: s("machines.group.ssh", "SSH")
-        case .server: s("machines.group.servers", "Servers")
-        case .joined: s("machines.group.joined", "Joined")
-        }
-    }
     static var newWorkspace: String { s("machines.newWorkspace", "New Workspace on This Machine") }
-    static var addMachine: String { s("machines.addMachine", "Add Machine…") }
-    static var healthOK: String { s("machines.health.ok", "Last check passed") }
-    static func healthWarning(_ step: String) -> String { String(format: s("machines.health.warning", "Last check: %@ needs attention"), step) }
-    static func healthFailing(_ step: String) -> String { String(format: s("machines.health.failing", "Last check: %@ failed"), step) }
 }

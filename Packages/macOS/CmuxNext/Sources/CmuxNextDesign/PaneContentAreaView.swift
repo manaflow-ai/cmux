@@ -118,12 +118,13 @@ public final class PaneContentAreaView: NSView {
 
     /// Draw ahead of a key hold's first frame (T-KEYS 3): the area will be `sizeChange` larger (negative: smaller) at the
     /// first refresh of its pane's spring, whose layout begins the hold. Each follower that hold will hand hears its size
-    /// then, in the key's turn, as ``drawAhead(sizeChange:)`` tells it each later refresh's.
-    public func drawAheadOfHold(sizeChange: CGSize) {
+    /// then, in the key's turn, as ``drawAhead(sizeChange:)`` tells it each later refresh's. `keyPress`: false for a
+    /// snapped structural change (``PaneMotionHoldFollowing/drawAheadOfFollow(nextHostSize:keyPress:)``).
+    public func drawAheadOfHold(sizeChange: CGSize, keyPress: Bool) {
         guard hold == nil, sizeChange != .zero else { return }
         let next = CGSize(width: max(0, bounds.width + sizeChange.width), height: max(0, bounds.height + sizeChange.height))
         for case let follower as any PaneMotionHoldFollowing in subviews where follows(follower) {
-            follower.drawAheadOfFollow(nextHostSize: next)
+            follower.drawAheadOfFollow(nextHostSize: next, keyPress: keyPress)
         }
     }
 
@@ -183,12 +184,24 @@ public final class PaneContentAreaView: NSView {
     /// The pane's own ground as it shows now (FRAME OWNER S3c, read once when the pane closes): the background of the
     /// topmost shown view that fills the area (a terminal's host paints the terminal's ground), else the area's own; nil
     /// when the pane shows the window's sheet (a see-through window).
+    /// A view that reports its own ground (``PaneGroundReporting``: a browser's chrome, whose page paints over the chrome's
+    /// window-colored layer) gives that one first.
     public var groundColor: CGColor? {
         for view in subviews.reversed() where !view.isHidden && view.frame.contains(bounds.insetBy(dx: 0.5, dy: 0.5)) {
+            if let ground = (view as? any PaneGroundReporting)?.paneGround, ground.alpha > 0 { return ground }
             if let color = view.layer?.backgroundColor, color.alpha > 0 { return color }
         }
         return layer?.backgroundColor.flatMap { $0.alpha > 0 ? $0 : nil }
     }
+}
+
+/// A view in a pane's content area whose ground is not its layer's background (CLOSE MOTION 2 case 3, cmux-ad m48): a
+/// browser's chrome paints the window's color under the page, and a closing page pane must show the page's own
+/// background, not the window's. Read once when its pane closes, on the main thread: O(1), no page script.
+@MainActor
+public protocol PaneGroundReporting: NSView {
+    /// The ground its pane shows when it closes; nil: its layer's background, as any other view.
+    var paneGround: CGColor? { get }
 }
 
 public extension NSView {

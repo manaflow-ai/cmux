@@ -12,15 +12,125 @@ import Testing
 /// browser's plain gray text buttons ignored the app theme, where the browser's other prompts (the
 /// prompt bar, notices, the cookie consent panel) draw the theme's glass tint. The banner takes the
 /// theme's glass and the app's standard dialog buttons: Import in the theme's accent, Not Now in its gray.
+///
+/// Leo, 2026-11-07: "This thing, um, this looks kind of ugly, to be honest. Like this isn't styled
+/// well." Its lines and answers are a React page on the design scale (webviews/src/pages/cookie-import;
+/// the row's look is CookieImportCard.test.tsx's); this view hosts it: the glass, the shadow, the
+/// size the page reports, and the page's answers back to the chrome.
 @MainActor @Suite(.serialized) struct BrowserCookieImportCardLookTests {
-    static func card() -> BrowserCookieImportCard {
-        let offer = BrowserCookieImportOffer(icons: [], title: "Import cookies from Google Chrome",
-                                             detail: "Stay signed in to your sites. Nothing leaves this Mac.",
-                                             importTitle: "Import…", notNowTitle: "Not Now", neverTitle: "Don't Show Again")
-        let card = BrowserCookieImportCard(offer: offer)
+    /// The card's page, as the host sees it: the states pushed and a hook to send messages back.
+    @MainActor final class FakePage: BrowserChromeWebContent {
+        let view: NSView = NSView()
+        var onMessage: ((String, [String: Any]) -> Void)?
+        var pushed: [[String: Any]] = []
+        var closed = false
+        func push(_ state: [String: Any]) { pushed.append(state) }
+        func focus() {}
+        func close() { closed = true }
+        func send(_ kind: String, _ params: [String: Any]) { onMessage?(kind, params) }
+    }
+
+    static let offer = BrowserCookieImportOffer(icons: [], title: "Import cookies from Google Chrome",
+                                                detail: "Stay signed in to your sites. Nothing leaves this Mac.",
+                                                importTitle: "Import…", notNowTitle: "Not Now", neverTitle: "Don't Show Again")
+
+    static func card(_ page: FakePage = FakePage(), offer: BrowserCookieImportOffer = offer) -> BrowserCookieImportCard {
+        let card = BrowserCookieImportCard(offer: offer) { page }
         card.frame = NSRect(x: 0, y: 0, width: 460, height: 110)
         card.layoutSubtreeIfNeeded()
         return card
+    }
+
+    @Test func theCardSendsItsPageTheOffersLinesInOnePush() throws {
+        let page = FakePage()
+        let card = Self.card(page)
+        let state = try #require(page.pushed.last)
+        #expect(page.pushed.count == 1)
+        #expect(state["title"] as? String == "Import cookies from Google Chrome")
+        #expect(state["detail"] as? String == "Stay signed in to your sites. Nothing leaves this Mac.")
+        #expect(state["importTitle"] as? String == "Import…")
+        #expect(state["notNowTitle"] as? String == "Not Now")
+        #expect(state["neverTitle"] as? String == "Don't Show Again")
+        #expect(state["icon"] == nil, "an offer with no icon sends none")
+        #expect(card.content != nil)
+    }
+
+    @Test func theBrowsersIconGoesToThePageAsAnInlinePNG() throws {
+        let icon = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+            NSColor.systemBlue.setFill()
+            rect.fill()
+            return true
+        }
+        var offer = Self.offer
+        offer.icons = [icon]
+        let page = FakePage()
+        _ = Self.card(page, offer: offer)
+        let url = try #require(page.pushed.last?["icon"] as? String)
+        #expect(url.hasPrefix("data:image/png;base64,"))
+        #expect(BrowserCookieImportCard.iconDataURL(NSImage(), pixels: 64) == nil, "an empty image is no icon")
+    }
+
+    @Test func eachAnswerOnThePageReachesTheChrome() {
+        let page = FakePage()
+        let card = Self.card(page)
+        var answers: [BrowserCookieImportChoice] = []
+        card.onChoice = { answers.append($0) }
+        for wire in ["never", "notNow", "import", "bogus"] { page.send("command", ["type": wire, "revision": 1]) }
+        #expect(answers == [.never, .notNow, .importCookies])
+        card.isDismissing = true
+        page.send("command", ["type": "import", "revision": 1])
+        #expect(answers.count == 3, "a closing card answers nothing more")
+    }
+
+    /// Keep in sync (Leo 2026-11-07: "we should be able to, like, just keep it in sync always"): a
+    /// checkbox under the detail, on by default; its state goes to the host with Import only.
+    @Test func keepInSyncGoesWithImportOnly() throws {
+        var kept: [Bool] = []
+        var offer = Self.offer
+        offer.keepInSyncTitle = "Keep in sync"
+        offer.onKeepInSync = { kept.append($0) }
+        let page = FakePage()
+        let card = Self.card(page, offer: offer)
+        let state = try #require(page.pushed.last)
+        #expect(state["keepInSyncTitle"] as? String == "Keep in sync")
+        #expect(state["keepInSync"] as? Bool == true, "on by default")
+        var answers: [BrowserCookieImportChoice] = []
+        card.onChoice = { answers.append($0) }
+        page.send("command", ["type": "notNow", "keepInSync": false, "revision": 1])
+        #expect(kept.isEmpty, "Not Now keeps the setting as it was")
+        page.send("command", ["type": "import", "keepInSync": false, "revision": 1])
+        #expect(kept == [false] && answers == [.notNow, .importCookies])
+
+        let plain = FakePage()
+        _ = Self.card(plain)
+        #expect(plain.pushed.last?["keepInSyncTitle"] == nil, "a browser whose cookies cannot be kept in sync shows no checkbox")
+    }
+
+    @Test func theCardShowsAtTheHeightThePageMeasuredAndFollowsItsChanges() throws {
+        let page = FakePage()
+        let card = Self.card(page)
+        var ready = 0
+        var resized = 0
+        card.onReady = { ready += 1 }
+        card.onResize = { resized += 1 }
+        page.send("size", ["height": 77.2, "revision": 0])
+        #expect(!card.isMeasured, "a report of another state is dropped")
+        page.send("size", ["height": 77.2, "revision": 1])
+        #expect(card.isMeasured && ready == 1 && resized == 0)
+        card.layoutSubtreeIfNeeded()
+        #expect(card.frame.height == 78)
+        page.send("size", ["height": 78, "revision": 1])
+        #expect(resized == 0, "the same height places nothing again")
+        page.send("size", ["height": 96, "revision": 1])
+        #expect(ready == 1 && resized == 1)
+    }
+
+    @Test func aRetiredCardClosesItsPage() {
+        let page = FakePage()
+        let card = Self.card(page)
+        card.retire()
+        #expect(page.closed)
+        #expect(card.content == nil)
     }
 
     @Test func theBannerIsTheThemesGlassInTheDialogRadius() throws {
@@ -28,25 +138,6 @@ import Testing
         #expect(glass.tone == .theme)
         #expect(glass.rimView == nil)
         #expect(glass.cornerRadius == FloatingGlassStyle.dialog.cornerRadius)
-    }
-
-    @Test func theBannerAnswersWithTheAppsDialogButtons() {
-        let card = Self.card()
-        #expect(card.importButton.button.role == .default)
-        #expect(card.notNowButton.button.role == .cancel)
-        // It never takes focus, so it shows no key: Return and Escape belong to the page.
-        #expect(card.importButton.keyHint == nil)
-        #expect(card.notNowButton.keyHint == nil)
-        #expect(card.importButton.keyEquivalent.isEmpty)
-        #expect(card.notNowButton.keyEquivalent.isEmpty)
-    }
-
-    @Test func theImportButtonIsFilledWithTheThemesAccent() {
-        let card = Self.card()
-        let tokens = card.themeTokens
-        #expect(card.importButton.look.fill == CmuxDialogButtonLook(role: .default, tokens: tokens).fill)
-        #expect(card.importButton.look.fill.withAlpha(1) == tokens.accent.withAlpha(1))
-        #expect(card.notNowButton.look.fill != card.importButton.look.fill)
     }
 
     @Test func theBannerHasNoVeilOfItsOwnUnderItsText() throws {

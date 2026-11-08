@@ -145,7 +145,7 @@ extension MockAgentSession {
                 session("who-dialer", name: "transport-switch", harness: "codex", live: true, branch: "lane/transport-switch",
                         pulls: ["36001"], ago: 4 * minute, files: [file("frame.rs", true), file("dial.rs", true), file("wg.rs", false)],
                         inCommon: 4),
-                session("who-relay", name: "relay-probe", host: "big-red", harness: "opencode", live: true, branch: "lane/relay-probe",
+                session("who-relay", name: "relay-probe", host: "my-vm", harness: "opencode", live: true, branch: "lane/relay-probe",
                         pulls: [], ago: 3 * 60 * minute, files: [file("frame.rs", false)], inCommon: 1),
                 session("who-framing", name: "framing-docs", harness: "claude", live: false, branch: "lane/framing-docs",
                         pulls: ["35880"], ago: 26 * 60 * minute, files: [], inCommon: 0, topic: ["link", "framing"]),

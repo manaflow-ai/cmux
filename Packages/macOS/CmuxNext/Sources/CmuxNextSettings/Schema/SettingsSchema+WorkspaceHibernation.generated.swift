@@ -26,6 +26,13 @@ extension WorkspaceHibernationSettings {
     /// `workspaces.freeing.runningCommands`: never by default: ending a program the person started is not ours to do silently. relaunch: a running command (a dev server, tail -f) ends with its shell; showing the tab types the same command on the new prompt without Return.
     public nonisolated static let freeingRunningCommandsPath = ["workspaces", "freeing", "runningCommands"]
     public nonisolated static let freeingRunningCommandsDefault: WorkspaceFreeingRunningCommandsSetting = .never
+    /// `agents.hiddenChats.discard`: Off by default (Leo, 2026-11-07: "if it really isn't being used after a while, can't things be more aggressive?"). On: a hidden agent chat's page is let go after hiddenChatDiscardAfterMinutes without browser.hibernation, least recently seen first; memory pressure shortens the wait (warning 5 minutes, critical 10 seconds). Chats whose turn runs or waits on the person, that hold a typed draft, or that are pinned stay. Browser tabs never follow it (HiddenChatPages in CmuxNextHibernation).
+    public nonisolated static let hiddenChatDiscardPath = ["agents", "hiddenChats", "discard"]
+    public nonisolated static let hiddenChatDiscardDefault = false
+    /// `agents.hiddenChats.discardAfterMinutes`: Minutes a chat stays hidden before Release Hidden Agent Chats lets its page go. 15 by default. Memory pressure shortens it (warning at most 5 minutes, critical 10 seconds).
+    public nonisolated static let hiddenChatDiscardAfterMinutesPath = ["agents", "hiddenChats", "discardAfterMinutes"]
+    public nonisolated static let hiddenChatDiscardAfterMinutesDefault: Double = 15
+    public nonisolated static let hiddenChatDiscardAfterMinutesRange: ClosedRange<Double> = 1...1440
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -106,6 +113,26 @@ nonisolated enum WorkspaceHibernationSettingsSchema {
                 ]),
                 default: .string(WorkspaceHibernationSettings.freeingRunningCommandsDefault.rawValue),
                 keywords: ["free", "running", "command", "dev server", "relaunch", "idle"]
+            ),
+            SettingDescriptor(
+                WorkspaceHibernationSettings.hiddenChatDiscardPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceHibernation.hiddenChatDiscard", "Release Hidden Agent Chats"),
+                help: SettingsText.keyed("settings.workspaceHibernation.hiddenChatDiscard.help", "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released."),
+                kind: .toggle,
+                default: .bool(WorkspaceHibernationSettings.hiddenChatDiscardDefault),
+                keywords: ["agent", "chat", "chats", "release", "discard", "hidden", "memory", "ram", "idle", "saver"]
+            ),
+            SettingDescriptor(
+                WorkspaceHibernationSettings.hiddenChatDiscardAfterMinutesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceHibernation.hiddenChatDiscardAfterMinutes", "Release Hidden Chats After"),
+                help: SettingsText.keyed("settings.workspaceHibernation.hiddenChatDiscardAfterMinutes.help", "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner."),
+                kind: .number(SettingNumber(WorkspaceHibernationSettings.hiddenChatDiscardAfterMinutesRange, step: 1, unit: .minutes)),
+                default: .number(WorkspaceHibernationSettings.hiddenChatDiscardAfterMinutesDefault),
+                keywords: ["agent", "chat", "release", "discard", "hidden", "minutes", "timeout", "memory"]
             ),
         ]
     }

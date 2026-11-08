@@ -69,7 +69,7 @@ export default changelogPageEntry({
       notes: realNightlies,
     },
     sheet: {
-      note: "What's New sheet (default since 2026-10-31, cmux-shots/whatsnew-variations), layout A Inline: up to 920px wide, each day's changes under their app area (glyph, name, count), one line each: the title and what its description adds.",
+      note: "What's New sheet (default since 2026-10-31, cmux-shots/whatsnew-variations), layout A Inline: the pane up to 920px, then 84% of it up to 1560px, each day's changes under their app area (glyph, name, count), one line each: the title and what its description adds, wrapped, never cut with an ellipsis.",
       notes: journalNotes,
     },
     "sheet-stack": {
@@ -124,6 +124,26 @@ export default changelogPageEntry({
         await ctx.waitFor(() => document.querySelector(".cls-build-action button"));
         await ctx.click({ selector: ".cls-build-action button" });
         await ctx.waitFor(() => document.querySelector('.cls-build-action button:not([data-variant="ghost"])'));
+      },
+    },
+    "sheet-prs-hover": {
+      note: "Leo 2026-11-07 (\"this could maybe still be better with linking to prs\"), variant A, the default: a public pull request's title links it and its #N shows at the row's end on hover (here the first linked row is hovered); a private change has no link. The wide column at full screen, descriptions whole.",
+      notes: realNightlies,
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".cls-row-link" });
+      },
+    },
+    "sheet-prs-end": {
+      note: "PR links variant B (prs=end): every linked row shows its #N, muted and small, at its end.",
+      notes: realNightlies,
+      route: "#/?prs=end",
+    },
+    "sheet-prs-row": {
+      note: "PR links variant C (prs=row): the whole row is the link, with the page's hover fill (here hovered) and its #N; text stays the row's colours until hover.",
+      notes: realNightlies,
+      route: "#/?prs=row",
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".cls-row-link" });
       },
     },
     "sheet-real-nightlies": {

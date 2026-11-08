@@ -156,6 +156,20 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // A prompt the daemon sends for a session (a workflow's step, its nudge) names that
+        // session: with no provenance its record would read as the person's own.
+        if opts.provenance.is_none()
+            && let Some(agent) = opts.agent.as_deref()
+        {
+            opts.provenance = Some(match self.resolve(agent).ok().filter(|s| s.id == agent) {
+                Some(from) => crate::prompt_provenance::session_message(
+                    &from.id,
+                    &self.session_name(&from.id),
+                    &session.id,
+                ),
+                None => crate::prompt_provenance::named_sender(agent, &session.id),
+            });
+        }
         self.pair_logs(opts.provenance.as_ref()).await;
         // A person's own prompt is the person asking for the chat: what a daemon start held in
         // its protected folder goes on, ahead of this prompt (`protected_hold.rs`).
@@ -848,9 +862,9 @@ impl Hub {
         // finishes later. Do not let the stale compaction flag cancel the
         // next, explicit prompt immediately.
         session.compacting.store(false, Ordering::SeqCst);
-        // Its control and mobile origin go with it: a restart that finds its turn never started
-        // queues it again as it came (`unstarted_prompt.rs`).
-        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "cloudMobile": run.cloud_mobile});
+        // Its control, mobile origin and trust gate go with it: a restart that finds its turn
+        // never started queues it again as it came (`unstarted_prompt.rs`).
+        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "cloudMobile": run.cloud_mobile, "trustGate": run.trust_gate});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks, display_parts.as_ref());
         if trigger {
@@ -893,12 +907,20 @@ impl Hub {
         };
         let (mut child, agent_sid) = match started {
             Ok(started) => started,
-            Err(e) => {
+            Err(mut e) => {
                 // A turn the shutdown settles writes no end of its own (`start_retry.rs`).
-                if !self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined)
-                    && self.hands_off(session)
-                {
+                let failed =
+                    self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined);
+                if !failed && self.hands_off(session) {
                     super::digest::forget_joined(Some(joined));
+                }
+                // Nor is it answered with what the shutdown did to its start (the agent it
+                // ended, a host detached before it answered: "no agent session"): the prompt
+                // hears the daemon is restarting, as one cut mid-turn does (chaos fault
+                // `daemon-restart-session-new`).
+                if !failed && self.shutting_down() && e.message != super::shutdown::SHUTTING_DOWN {
+                    tracing::info!(session = %session.id, "agent start ended by the shutdown: {e}");
+                    e = super::shutdown::shutting_down_error();
                 }
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
@@ -922,7 +944,18 @@ impl Hub {
             )
             .await
         {
-            self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+            // A refusal once the shutdown began (its trust read found no answer: chaos fault
+            // `daemon-restart-session-new`) writes no end of its own, as a start the shutdown
+            // ended does: the next daemon queues the prompt again (`unstarted_prompt.rs`).
+            // Decided and written under the shutdown's lock (`fail_unless_shutdown_settles`), not
+            // after a read of its flag a shutdown could begin behind.
+            if self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined) {
+                if session.status() == SessionStatus::Disconnected {
+                    self.set_status(session, SessionStatus::Ready);
+                }
+            } else if self.hands_off(session) {
+                super::digest::forget_joined(Some(joined));
+            }
             Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
             drop(guard);
             return Err(e);
@@ -947,6 +980,13 @@ impl Hub {
         } else {
             Vec::new()
         };
+        // A person's prompt (a shared chat's guest or participant, not the owner) tells the agent
+        // who sent it (`author::agent_label`); the transcript's record above keeps their words.
+        if super::forum::slash_command(&blocks).is_none()
+            && let Some(label) = crate::author::agent_label(provenance.as_ref())
+        {
+            blocks.insert(0, label);
+        }
         super::team_information::prepend(&mut blocks, &team_messages);
         // A team message, or an inbox notice (`inbox.rs`), counts as delivered only once the
         // harness writer took its prompt: `on_sent` then logs it.
@@ -1450,6 +1490,11 @@ impl Hub {
         // acpmux ended a turn whose model said nothing for `stalledTurnEndMs`: it failed.
         let stalled = result.as_ref().ok().and_then(Self::stalled_error);
         if let Some(e) = stalled {
+            result = Err(e);
+        }
+        // acpmux ended a turn whose model API refused the agent's sign-in (`turn_retry.rs`).
+        let refused = result.as_ref().ok().and_then(Self::sign_in_refused_error);
+        if let Some(e) = refused {
             result = Err(e);
         }
         // Apply queued stderr before classifying a dead process (a limit never resumes).

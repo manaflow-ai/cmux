@@ -154,11 +154,8 @@ public struct CloudOwnerAPIClient: Sendable {
             let error = object?["error"] as? [String: Any]
             throw CloudAPIError.http(status: http.statusCode, code: error?["code"] as? String, message: error?["message"] as? String)
         }
-        do {
-            return try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: value))
-        } catch {
-            throw CloudAPIError.decoding("\(path): \(error)")
-        }
+        guard let reply = try? JSONSerialization.data(withJSONObject: value) else { throw CloudAPIError.decoding("\(path): not JSON") }
+        return try CloudMachineRules().answer(reply, as: T.self, context: path)
     }
 
     /// `GET path?name=value…` with integer query values and a list cursor (base64url) only: answers the 2xx
@@ -237,8 +234,9 @@ public struct CloudOwnerAPIClient: Sendable {
             let error = object?["error"] as? [String: Any]
             throw CloudAPIError.http(status: http.statusCode, code: error?["code"] as? String, message: error?["message"] as? String)
         }
-        do { return try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: value)) }
-        catch { throw CloudAPIError.decoding("/v1/workspaces/\(workspace)/\(action): \(error)") }
+        let path = "/v1/workspaces/\(workspace)/\(action)"
+        guard let reply = try? JSONSerialization.data(withJSONObject: value) else { throw CloudAPIError.decoding("\(path): not JSON") }
+        return try CloudMachineRules().answer(reply, as: T.self, context: path)
     }
 
     /// No cache, no cookies, and redirects refused: the Stack bearer never follows one.

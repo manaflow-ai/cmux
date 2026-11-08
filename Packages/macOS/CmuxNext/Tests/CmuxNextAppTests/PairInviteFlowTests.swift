@@ -1,8 +1,9 @@
+import AppKit
 import Foundation
 @testable import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextServer
-import CmuxNextPages
+@testable import CmuxNextPages
 import CmuxNextSettings
 import Testing
 
@@ -161,8 +162,9 @@ import Testing
         let provider = fake.provider()
         await provider.mintInvite()
         let script = PageCallContext(page: "cmux.server-cards")
-        for (op, params) in [(PairInviteCardProvider.copyOp, ["target": "code"] as JSONValue),
-                             (PairInviteCardProvider.newCodeOp, [:]), (PairInviteCardProvider.setRunChiefOp, ["on": true])] {
+        let calls: [(String, JSONValue)] = [(PairInviteCardProvider.copyOp, ["target": "code"]), (PairInviteCardProvider.newCodeOp, [:]),
+                                            (PairInviteCardProvider.setRunChiefOp, ["on": true])]
+        for (op, params) in calls {
             await #expect(throws: PageError.self) { _ = try await provider.call(op, params: params, context: script) }
         }
         #expect(fake.copied.isEmpty)
@@ -193,7 +195,7 @@ import Testing
     }
 
     /// SECURITY: Confirm from a key, a script or the page's own call approves nothing: only the
-    /// person's own click on the card (WebCardPanel.isPersonClick) reaches the approve.
+    /// person's own click on the panel's native Confirm (WebCardPanel's PersonControl) reaches the approve.
     @Test func confirmIsRefusedWithoutThePersonsClick() async {
         let fake = Fake()
         let source = MockServerSource()
@@ -204,11 +206,15 @@ import Testing
         fake.push(.arrived(code: MockServerScenario.offerCode))
         await settle()
         for context in [PageCallContext(page: "cmux.server-cards"), Self.gesture] {
-            await #expect(throws: PageError.self) {
-                _ = try await provider.call(PairInviteCardProvider.confirmOp, params: ["name": "x"], context: context)
+            await #expect(throws: PageError.self, "the page has no approve op: Confirm is the panel's native button") {
+                _ = try await provider.call("cmux.pairInvite.confirm", params: ["name": "x"], context: context)
             }
         }
-        #expect(approvals(source).isEmpty, "a key's gesture with no click on a card approves nothing")
+        #expect(approvals(source).isEmpty, "no page call approves")
+        #expect(provider.personControl?.title == PairInviteCardStrings.confirm, "the native Confirm shows for the arrived machine")
+        _ = try? await provider.call(PairInviteCardProvider.setNameOp, params: ["name": "build box"], context: PageCallContext(page: "cmux.server-cards"))
+        provider.personPressed()
+        #expect(approvals(source).count == 1, "the person's click on the native Confirm approves")
         let descriptor = ServerActionCatalog.descriptors().first { $0.id == "server.pairAnotherMachine" }
         #expect(descriptor?.isPersonOnly == true, "only a person may open the card and mint an invite")
         #expect(descriptor?.arguments.isEmpty == true, "the action takes no code, words or confirm: nothing to script")
@@ -245,6 +251,190 @@ import Testing
         #expect(!provider.isWatching)
         provider.confirm(name: nil)
         #expect(approvals(source).count == 1, "the machine's own pairing outlives the invite")
+    }
+
+    @Test func anEndedOrUsedInviteCopiesNothing() async {
+        for end in [PairInviteFrame.arrived(code: MockServerScenario.offerCode), .expired, .lost, .voided(reason: "second_redemption")] {
+            let fake = Fake()
+            let provider = fake.provider()
+            await provider.mintInvite()
+            fake.push(end)
+            await settle()
+            await #expect(throws: PageError.self, "\(end)") {
+                _ = try await provider.call(PairInviteCardProvider.copyOp, params: ["target": "code"], context: Self.gesture)
+            }
+            #expect(fake.copied.isEmpty, "\(end): the stale code stays off the clipboard")
+        }
+    }
+
+    @Test func aSubscriptionReadsTheCurrentStateAtOnce() async throws {
+        let fake = Fake()
+        let provider = fake.provider()
+        await provider.mintInvite()
+        var events = 0
+        let subscription = try await provider.subscribe(PairInviteCardProvider.changesStream, filter: [:],
+                                                        context: PageCallContext(page: "cmux.server-cards")) { _ in events += 1 }
+        #expect(events == 1, "a page that subscribed after the mint still reads it")
+        subscription.cancel()
+    }
+
+    /// A test card that counts its sessions.
+    @MainActor final class CountingCard: WebCard {
+        let card: String
+        var prefix: String { "cmux.test\(card)." }
+        weak var host: WebCardPanel?
+        var opens = 0
+        var closes = 0
+        var presses = 0
+        init(_ card: String) { self.card = card }
+        func opened(again: Bool) { if !again { opens += 1 } }
+        func closed() { closes += 1 }
+        func personPressed() { presses += 1 }
+        func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue { .null }
+        func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                       onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription { PageSubscription {} }
+    }
+
+    @Test func aCardClosedBeforeItsFirstSizeEndsItsSession() throws {
+        let first = CountingCard("a"), second = CountingCard("b")
+        let panel = try #require(WebCardPanel(descriptor: .serverCards, cards: [first, second]))
+        panel.present(card: "a", over: nil, takeKeys: false)
+        #expect(!panel.isVisible, "a first opening waits for the page's size")
+        panel.present(card: "b", over: nil, takeKeys: false)
+        #expect(first.closes == 1, "another card opening ends the waiting one's session")
+        panel.dismiss()
+        #expect(second.closes == 1, "a dismiss before the first size ends the session too")
+    }
+
+    @Test func stoppingServingClosesTheOpenInviteCard() throws {
+        let invite = CountingCard(PairInviteCardProvider.route)
+        let panel = try #require(WebCardPanel(descriptor: .serverCards, cards: [invite]))
+        var made = 0
+        let menu = ServerMenuBarController(makeCards: { made += 1; return panel })
+        menu.openInvite()
+        #expect(invite.opens == 1)
+        menu.hide()
+        #expect(invite.closes == 1, "server.stopServing ends the invite's session (its socket)")
+        #expect(!panel.isVisible)
+        menu.openInvite()
+        #expect(made == 2, "a later opening makes a new card panel")
+    }
+
+    /// A panel showing `card` with an enabled native control in its footer, and a stand-in for the
+    /// person's mouse (its events are the person's unless `person` is false).
+    @MainActor final class Mouse {
+        let panel: WebCardPanel
+        private var number = 0
+        private var genuine: Set<Int> = []
+        private var current: NSEvent?
+
+        init(_ card: CountingCard) throws {
+            _ = NSApplication.shared
+            panel = try #require(WebCardPanel(descriptor: .serverCards, cards: [card]))
+            panel.present(card: card.card, over: nil, takeKeys: false)
+            panel.setPersonControl(PersonControl(title: "Confirm", isEnabled: true), card: card.card)
+            panel.pageResized(card: card.card, width: 460, height: 200)
+            panel.contentView?.layoutSubtreeIfNeeded()
+            panel.isPersonEvent = { [unowned self] in genuine.contains($0.eventNumber) }
+            panel.personClick.eventInHand = { [unowned self] in current }
+            panel.isKeyForPerson = { _ in true }
+            // The host's own setting never decides a test: the default interval.
+            panel.doubleClickInterval = { 0.5 }
+        }
+
+        /// The center of the native control, in the panel's window coordinates.
+        var onControl: NSPoint {
+            panel.personButton.convert(NSPoint(x: panel.personButton.bounds.midX, y: panel.personButton.bounds.midY), to: nil)
+        }
+
+        /// A click at `point` `after` seconds from now; the mouse-up comes inside the mouse-down's
+        /// dispatch (a button's tracking loop) when `nested`, else as its own dispatch.
+        func click(at point: NSPoint, after: TimeInterval, nested: Bool, person: Bool = true) throws {
+            let time = ProcessInfo.processInfo.systemUptime + after
+            let down = try event(.leftMouseDown, point, time), up = try event(.leftMouseUp, point, time + 0.05)
+            genuine.insert(down.eventNumber)
+            if person { genuine.insert(up.eventNumber) }
+            current = down
+            panel.dispatch(down) { if nested { current = up } }
+            if !nested {
+                current = up
+                panel.dispatch(up) {}
+            }
+        }
+
+        private func event(_ type: NSEvent.EventType, _ point: NSPoint, _ time: TimeInterval) throws -> NSEvent {
+            number += 1
+            return try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: time,
+                                                   windowNumber: panel.windowNumber, context: nil, eventNumber: number,
+                                                   clickCount: 1, pressure: 1))
+        }
+    }
+
+    @Test(arguments: [false, true]) func theNativeControlTakesOnlyThePersonsClickOnIt(nested: Bool) throws {
+        let card = CountingCard(PairInviteCardProvider.route)
+        let mouse = try Mouse(card)
+        let panel = mouse.panel
+        #expect(!panel.personButton.isHidden, "the native Confirm shows in the panel's footer")
+        #expect(panel.personButton.title == "Confirm")
+        try mouse.click(at: mouse.onControl, after: 1, nested: nested)
+        #expect(card.presses == 1, "the person's click on Confirm, its mouse-up nested or on its own")
+        try mouse.click(at: NSPoint(x: 10, y: 10), after: 2, nested: nested)
+        #expect(card.presses == 1, "a click elsewhere on the card")
+        try mouse.click(at: mouse.onControl, after: 3, nested: nested, person: false)
+        #expect(card.presses == 1, "a posted or scripted mouse-up")
+        panel.isKeyForPerson = { _ in false }
+        try mouse.click(at: mouse.onControl, after: 4, nested: nested)
+        #expect(card.presses == 1, "a panel that is not key")
+        panel.isKeyForPerson = { _ in true }
+        panel.setPersonControl(PersonControl(title: "Confirm", isEnabled: false), card: card.card)
+        try mouse.click(at: mouse.onControl, after: 5, nested: nested)
+        #expect(card.presses == 1, "a disabled Confirm")
+        panel.setPersonControl(nil, card: card.card)
+        #expect(panel.personButton.isHidden)
+    }
+
+    @Test func shrinkingAndMovingThePanelRefusesAClickAtOnce() throws {
+        let card = CountingCard(PairInviteCardProvider.route)
+        let mouse = try Mouse(card)
+        let panel = mouse.panel
+        // Confirm has stayed put a long time; then the page asks for a shorter card (Confirm moves on
+        // screen with the panel), and the panel moves.
+        panel.rearm(at: 0)
+        panel.pageResized(card: card.card, width: 460, height: 100)
+        panel.setFrame(NSRect(x: panel.frame.minX + 40, y: panel.frame.minY + 80, width: panel.frame.width,
+                              height: 100 + WebCardSurface.inset * 2 + panel.personButton.fittingSize.height), display: false)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        try mouse.click(at: mouse.onControl, after: 0.05, nested: false)
+        #expect(card.presses == 0, "a click right after Confirm moved on screen is not aimed at it")
+        try mouse.click(at: mouse.onControl, after: 1.2, nested: false)
+        #expect(card.presses == 1, "once it has stayed put, the person's click counts")
+    }
+
+    @Test func aLongerDoubleClickIntervalHoldsTheControlLonger() throws {
+        let card = CountingCard(PairInviteCardProvider.route)
+        let mouse = try Mouse(card)
+        mouse.panel.doubleClickInterval = { 1.2 }
+        mouse.panel.rearm()
+        try mouse.click(at: mouse.onControl, after: 0.6, nested: false)
+        #expect(card.presses == 0, "a click within the person's longer double-click interval is not taken")
+        try mouse.click(at: mouse.onControl, after: 2.0, nested: false)
+        #expect(card.presses == 1, "past the interval (and past the click before) it counts")
+    }
+
+    @Test func aOneByOneCardKeepsTheFooterAtFullSize() throws {
+        let card = CountingCard(PairInviteCardProvider.route)
+        let mouse = try Mouse(card)
+        let panel = mouse.panel
+        // The page asks for a 1x1 card.
+        panel.pageResized(card: card.card, width: 1, height: 1)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let bounds = try #require(panel.contentView?.bounds)
+        let button = panel.personButton
+        let frame = button.convert(button.bounds, to: panel.contentView)
+        #expect(frame.size == button.fittingSize, "Confirm keeps its full size")
+        #expect(bounds.contains(frame), "and shows whole inside the card")
+        #expect(bounds.height >= button.fittingSize.height + 2 * WebCardSurface.inset, "the footer keeps its height")
+        #expect(bounds.width == button.fittingSize.width + 2 * WebCardSurface.inset, "the page's 1x1 ask took effect, clamped to the footer")
     }
 
     @Test func aLostSocketSaysSoAndNeverReconnectsOnItsOwn() async {

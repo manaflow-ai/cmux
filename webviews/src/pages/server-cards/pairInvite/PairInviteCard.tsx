@@ -3,6 +3,7 @@
 // machine used the code, Add Server's facts, four words and name, with Confirm. Every step derives
 // from the host's status (model.ts); the card only draws it.
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { DialogButton } from "../../../ui/DialogButton";
 import { cx } from "../../../ui/cx";
 import type { Strings } from "../../shared/i18n";
@@ -30,9 +31,13 @@ export interface PairInviteCardProps {
   now: number;
   copied: CopyTarget | null;
   layout?: PairInviteLayout;
-  /** A footer or Copy button; `name` is the Name field (Confirm reads it). */
-  onAction(action: Action, name: string): void;
+  /** A footer or Copy button. */
+  onAction(action: Action): void;
   onRunChief(on: boolean): void;
+  /** The Name field changed (the native Confirm reads it). */
+  onNameChange?(name: string): void;
+  /** Draws Confirm and Try Again in the card's footer (the gallery); in the app the panel's native footer does. */
+  controlStandIn?: boolean;
 }
 
 const MINTING: PairInviteStatus = {
@@ -50,6 +55,8 @@ export function PairInviteCard({
   layout = "side",
   onAction,
   onRunChief,
+  onNameChange,
+  controlStandIn = false,
 }: PairInviteCardProps) {
   const { t } = strings;
   const step = stepOf(phaseOf(status, now), status.approver);
@@ -57,8 +64,15 @@ export function PairInviteCard({
   // The Name field keeps what the person typed for this machine; it is read only on Confirm.
   const [typed, setTyped] = useState<{ code: string; value: string } | null>(null);
   const name = candidate && typed?.code === candidate.code ? typed.value : (candidate?.name ?? "");
+  // Sent once per change of the field or of the machine (a fresh status is a new object each read).
+  const nameChange = useRef(onNameChange);
+  nameChange.current = onNameChange;
+  const candidateCode = candidate?.code;
+  useEffect(() => {
+    if (candidateCode) nameChange.current?.(name);
+  }, [candidateCode, name]);
   const buttons = buttonsOf(step);
-  const press = (action: Action) => onAction(action, name);
+  const press = (action: Action) => onAction(action);
   // Return presses the default button, never Confirm or Try Again: only a click pairs a machine.
   const main = buttons.find((button) => button.key === "return");
   const onReturn = useRef<(() => void) | null>(null);
@@ -95,20 +109,24 @@ export function PairInviteCard({
         onRunChief={onRunChief}
       />
       <footer className="server-card-footer">
-        {step.kind === "approving" && <span className="server-card-spinner" aria-hidden="true" />}
+        {step.kind === "approving" && <Spinner size={12} loading className="server-card-spinner" />}
         <span className="server-card-footer-gap" />
-        {buttons.map((button) => (
-          <DialogButton
-            key={button.action}
-            dialogKey={isClickOnly(button.action) ? null : button.key}
-            className={cx("server-card-button", button.key === "return" && "is-default")}
-            data-action={button.action}
-            disabled={!isEnabled(button.action, step, status.approver)}
-            onClick={() => press(button.action)}
-          >
-            {buttonTitle(button.action, strings, copied)}
-          </DialogButton>
-        ))}
+        {buttons
+          // Confirm and Try Again are the panel's native footer, never the page's (the gallery
+          // draws them in their place).
+          .filter((button) => controlStandIn || !isClickOnly(button.action))
+          .map((button) => (
+            <DialogButton
+              key={button.action}
+              dialogKey={isClickOnly(button.action) ? null : button.key}
+              className={cx("server-card-button", button.key === "return" && "is-default")}
+              data-action={button.action}
+              disabled={!isEnabled(button.action, step, status.approver)}
+              onClick={isClickOnly(button.action) ? undefined : () => press(button.action)}
+            >
+              {buttonTitle(button.action, strings, copied)}
+            </DialogButton>
+          ))}
       </footer>
     </section>
   );
@@ -216,7 +234,7 @@ function Header({ text }: { text: string }) {
 function Waiting({ text }: { text: string }) {
   return (
     <p className="server-card-waiting">
-      <span className="server-card-spinner" aria-hidden="true" />
+      <Spinner size={12} loading className="server-card-spinner" />
       <span>{text}</span>
     </p>
   );

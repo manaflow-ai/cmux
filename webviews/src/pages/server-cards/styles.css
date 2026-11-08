@@ -67,17 +67,7 @@ body {
 
 .server-card-spinner {
   flex: none;
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  border: 2px solid var(--page-separator);
-  border-top-color: var(--page-text-2);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .server-card-spinner {
-    animation: cmux-spin var(--cmux-spinner-period) linear infinite;
-  }
+  color: var(--page-text-2);
 }
 
 .server-card-footer {
