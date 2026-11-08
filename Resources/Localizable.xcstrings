@@ -674815,6 +674815,131 @@
           }
         }
       }
+    },
+    "browser.import.warning.safariCookiesTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Safari cookie store at %1$@ holds more cookie data than cmux's import limit of %2$@, so no cookies were imported from it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي ملف ملفات تعريف ارتباط Safari في %1$@ على بيانات تتجاوز حد الاستيراد في cmux البالغ %2$@، لذلك لم يتم استيراد أي ملفات تعريف ارتباط منه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spremište Safari kolačića na lokaciji %1$@ sadrži više podataka o kolačićima nego što dozvoljava cmux ograničenje uvoza od %2$@, pa iz njega nijedan kolačić nije uvezen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safaris cookielager på %1$@ indeholder flere cookiedata end cmux' importgrænse på %2$@, så der blev ikke importeret nogen cookies fra det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Safari-Cookie-Speicher unter %1$@ enthält mehr Cookie-Daten, als das Importlimit von cmux (%2$@) zulässt. Daher wurden daraus keine Cookies importiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El almacén de cookies de Safari en %1$@ contiene más datos de cookies que el límite de importación de cmux (%2$@), por lo que no se importó ninguna cookie de él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de cookies Safari à l’emplacement %1$@ contient plus de données de cookies que la limite d’importation de cmux (%2$@) ne le permet ; aucun cookie n’en a donc été importé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’archivio dei cookie di Safari in %1$@ contiene più dati di cookie del limite di importazione di cmux (%2$@), quindi non è stato importato alcun cookie."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ にある Safari の Cookie ストアには cmux のインポート上限（%2$@）を超える Cookie データが含まれているため、Cookie はインポートされませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឃ្លាំងខូគីរបស់ Safari នៅ %1$@ មានទិន្នន័យខូគីច្រើនជាងដែនកំណត់នាំចូលរបស់ cmux (%2$@) ដូច្នេះគ្មានខូគីណាត្រូវបាននាំចូលពីវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에 있는 Safari 쿠키 저장소의 쿠키 데이터가 cmux 가져오기 한도(%2$@)를 초과하므로 쿠키를 가져오지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lageret for Safari-informasjonskapsler på %1$@ inneholder mer data enn importgrensen i cmux (%2$@), så ingen informasjonskapsler ble importert fra det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Magazyn plików cookie Safari w lokalizacji %1$@ zawiera więcej danych niż limit importu cmux (%2$@), dlatego nie zaimportowano z niego żadnych plików cookie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O repositório de cookies do Safari em %1$@ contém mais dados de cookies do que o limite de importação do cmux (%2$@), então nenhum cookie foi importado dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранилище файлов cookie Safari в %1$@ содержит больше данных, чем допускает ограничение импорта cmux (%2$@), поэтому файлы cookie из него не импортированы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ที่เก็บคุกกี้ของ Safari ที่ %1$@ มีข้อมูลคุกกี้เกินขีดจำกัดการนำเข้าของ cmux (%2$@) จึงไม่ได้นำเข้าคุกกี้ใดจากที่เก็บนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ konumundaki Safari çerez deposu, cmux’ın içe aktarma sınırından (%2$@) daha fazla çerez verisi içerdiği için bu depodan hiçbir çerez içe aktarılmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховище файлів cookie Safari у %1$@ містить більше даних, ніж дозволяє обмеження імпорту cmux (%2$@), тому файли cookie з нього не імпортовано."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位于 %1$@ 的 Safari Cookie 存储文件中的 Cookie 数据超过了 cmux 的导入上限（%2$@），因此未从中导入任何 Cookie。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位於 %1$@ 的 Safari Cookie 儲存檔中的 Cookie 資料超過了 cmux 的匯入上限（%2$@），因此未從中匯入任何 Cookie。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

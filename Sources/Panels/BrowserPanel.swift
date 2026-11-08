@@ -10674,6 +10674,18 @@ enum BrowserDataImporter {
             let records: [SafariBinaryCookie]
             do {
                 records = try parser.parse(data)
+            } catch SafariBinaryCookiesParser.ParseError.decodedSizeExceeded(let limit) {
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.safariCookiesTooLarge",
+                            defaultValue: "The Safari cookie store at %1$@ holds more cookie data than cmux's import limit of %2$@, so no cookies were imported from it."
+                        ),
+                        reader.displayPath(for: storeURL),
+                        ByteCountFormatter.string(fromByteCount: Int64(limit), countStyle: .binary)
+                    )
+                )
+                continue
             } catch {
                 warnings.append(
                     String(
