@@ -166,6 +166,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Keeps scripts/ off the retired nightly-next/next/ feed; run python3 tests/test_nightly_next_one_feed_readers.py yourself after changing a script that reads the nightly feed (under 1 s, no Mac)."
 
 [[test]]
+path = "tests/test_nightly_next_pipeline.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks the nightly-next build and sign stages: a push run builds and dispatches a sign run (nightly_next_sign_stage) in its own group, the push run skips the sign stage, retry and run_tail cover the sign run, a superseded sign run leaves before the signer, and the resume reads a live push run only as a sign stage; run python3 tests/test_nightly_next_pipeline.py yourself after changing those (about 1 s, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_next_post_publish.py"
 lane = "linux-guard"
 

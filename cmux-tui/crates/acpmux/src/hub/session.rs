@@ -370,6 +370,9 @@ pub struct Session {
     /// The running turn's tool calls that have not ended (`stalled_turn.rs`): a turn quiet
     /// inside one gets longer before it counts as stalled.
     pub(super) open_tools: StdMutex<std::collections::HashSet<String>>,
+    /// Bounded completed tool attempts used to identify a repeated failing call
+    /// (`loop_detector.rs`).
+    pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,
     /// The turn whose stalled count runs: its prompt was written (`stalled_turn.rs`). None
     /// before that, so a turn whose prompt has not reached its agent is never stalled.
     pub(super) stalled_counted: StdMutex<Option<String>>,
@@ -845,19 +848,66 @@ pub(crate) fn prompt_text_parts(blocks: &[Value]) -> (String, Vec<Value>) {
         text.push_str(part);
         units += part.encode_utf16().count();
         if block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true) {
-            pasted.push(json!({"start": start, "end": units}));
+            let mut range = serde_json::Map::new();
+            range.insert("start".into(), json!(start));
+            range.insert("end".into(), json!(units));
+            // A paste that reads as another agent's output names it (`agent_text.rs`), so a
+            // client draws it as that agent's, never as the person's words.
+            let found = crate::agent_text::detect(part);
+            if found.agent() {
+                range.insert("agent".into(), agent_mark(&found));
+            }
+            pasted.push(Value::Object(range));
         }
     }
     (text, pasted)
 }
 
+/// `{from?, signals}`: what [`crate::agent_text::detect`] found, as a record names it.
+fn agent_mark(found: &crate::agent_text::Detected) -> Value {
+    let mut mark = serde_json::Map::new();
+    mark.insert("signals".into(), json!(found.signals));
+    if let Some(from) = &found.from {
+        mark.insert("from".into(), json!(from));
+    }
+    Value::Object(mark)
+}
+
+/// `agentText` of a prompt record: what reads as another agent's output in the typed (unmarked)
+/// text of `blocks`, the first block that does; `None` when none does. The text itself is the
+/// person's to say: a client notes it beside their bubble, never as their words alone.
+fn typed_agent_text(blocks: &[Value]) -> Option<Value> {
+    blocks
+        .iter()
+        .filter(|b| !crate::prompt_context::is_context(b))
+        .filter(|b| b.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) != Some(true))
+        .filter_map(|b| b.get("text").and_then(Value::as_str))
+        .map(crate::agent_text::detect)
+        .find(crate::agent_text::Detected::agent)
+        .map(|found| agent_mark(&found))
+}
+
 /// Adds `pasted` (the ranges of `blocks`' pasted text, `prompt_text_parts`) to the prompt
-/// record `msg`, whose `text` is `prompt_text(blocks)`; none when nothing was pasted, or
+/// record `msg`, whose `text` is `prompt_text(blocks)`, and `agentText` when its typed text
+/// reads as another agent's output (`typed_agent_text`); none when nothing was pasted, or
 /// when `msg` records some other text the ranges would not fit.
 pub(crate) fn mark_pasted(msg: &mut Value, blocks: &[Value]) {
     let (text, pasted) = prompt_text_parts(blocks);
-    if !pasted.is_empty() && msg.get("text").and_then(Value::as_str) == Some(text.as_str()) {
+    if msg.get("text").and_then(Value::as_str) != Some(text.as_str()) {
+        return;
+    }
+    if !pasted.is_empty() {
         msg["pasted"] = Value::Array(pasted);
+    }
+    // Only the person's own prompt: another agent's carries its sender (an agent kind of
+    // `_meta.provenance`, `fromAgent`). A client draws `agentText` only on the person's bubble.
+    // A person's own prompt with provenance (`person_message`, multiplayer) is still theirs.
+    let agents = super::digest::agent_sender(msg.pointer("/_meta/provenance"), None).is_some();
+    if !agents
+        && msg.get("fromAgent").is_none()
+        && let Some(agent) = typed_agent_text(blocks)
+    {
+        msg["agentText"] = agent;
     }
 }
 

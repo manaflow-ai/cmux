@@ -121,11 +121,13 @@ function inCode(markdown: string, at: number): boolean {
 /// The emoji token the caret ends in the prompt's markdown, or undefined. A token starts a word, so
 /// a time (`10:30`), a URL (`https://`) or `key:value` never opens the menu; neither does code.
 export function emojiTrigger(markdown: string, at: number): EmojiTrigger | undefined {
-  const before = markdown.slice(0, at);
+  // A token never spans a line, so only the caret's line is read: per key, not per draft.
+  const line = markdown.lastIndexOf("\n", at - 1) + 1;
+  const before = markdown.slice(line, at);
   const found = SPACE.exec(before);
   if (!found) return undefined;
   const raw = found[1]!;
-  const start = before.length - raw.length;
+  const start = line + before.length - raw.length;
   const token = unescape(raw);
   const emoticon = Object.hasOwn(EMOTICONS, token);
   const code = /^:([a-z0-9_+-]+)$/i.exec(token)?.[1];

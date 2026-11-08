@@ -74,6 +74,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var chiefDockEdge = ChiefDockSetting.edgeDefault
     /// `home.chiefDock.openBeside`: a link clicked in the Chief opens its workspace with the Chief floating over it; on when unset.
     public var chiefDockOpenBeside = ChiefDockSetting.openBesideDefault
+    /// `home.chiefPanel.style`: how the floating Chief looks (``ChiefDockSetting``); `composeBar` when unset.
+    public var chiefPanelStyle = ChiefDockSetting.styleDefault
+    /// `home.chiefPanel.seesScreen`: opening the floating Chief gives it one look at the screen; on when unset.
+    public var chiefPanelSeesScreen = ChiefDockSetting.seesScreenDefault
     /// `home.server`: cmux Cloud (`hosted`) when unset or invalid, else the self-hosted server's origin.
     public var homeServer: HomeServerSetting.Value = .hosted
     /// `labs.previewFeatures`; off when unset.

@@ -121,9 +121,16 @@ fn a_dial_parked_until_the_daemon_registers_20_s_later_connects_on_its_first_att
     assert_eq!(line(&mut stdout), "{\"cmd\":\"identify\",\"id\":1}\n");
     drop(stdin);
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
-    // The connect log has every attempt's route line: this one alone.
+    // The connect log has every attempt's route line (each followed by its
+    // phases line): this one alone.
+    assert_eq!(route_lines(&world), [route.trim_end()], "the dial retried");
+}
+
+/// The route lines of the dial's connect log, without its phases lines.
+fn route_lines(world: &World) -> Vec<String> {
     let log = world.dir.path().join(".local/state/cmux-tui/sessions/carrier/connect.log");
-    assert_eq!(std::fs::read_to_string(&log).unwrap(), route, "the dial retried");
+    let text = std::fs::read_to_string(&log).unwrap();
+    text.lines().filter(|l| l.starts_with("cloud.connect ")).map(str::to_owned).collect()
 }
 
 #[test]
@@ -176,7 +183,11 @@ fn a_refused_ticket_names_the_ticket_step() {
     assert!(reply["error_detail"].as_str().unwrap().contains("auth.forbidden"), "{reply}");
     let route = line(&mut stderr);
     assert!(route.contains("phase=connect outcome=ticket"), "{route}");
+    // The platform's status is the detail code, after ms, on stderr and in
+    // the connect log alike.
+    assert!(route.trim_end().ends_with(" detail=http_403"), "{route}");
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(2));
+    assert_eq!(route_lines(&world), [route.trim_end()]);
 }
 
 #[test]

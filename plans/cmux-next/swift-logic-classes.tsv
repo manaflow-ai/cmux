@@ -6428,7 +6428,6 @@ CmuxNextDesign	class	BackdropVideoView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextDesign	enum	BorderMode	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Borders.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	Borders	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Borders.swift	from enum BorderMode:6: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	Borders	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Borders.swift	from enum BorderMode:6: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	struct	BundledFonts	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BundledFonts.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	CardMaterial	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CardMaterial.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	CardSurfaceView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CardSurfaceView.swift	from class CardSurfaceView:10: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	enum	CheckedFont	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CheckedFont.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -9738,13 +9737,9 @@ CmuxNextServer	extension	SSHConfigHosts	0	LOGIC	100	0	Packages/macOS/CmuxNext/So
 CmuxNextServer	func	expand	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/SSHConfigHosts.swift	from struct SSHConfigHosts:14: ~/.ssh/config alias parser
 CmuxNextServer	func	keywordAndArguments	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/SSHConfigHosts.swift	from struct SSHConfigHosts:14: ~/.ssh/config alias parser
 CmuxNextServer	struct	SSHConfigHosts	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/SSHConfigHosts.swift	~/.ssh/config alias parser
-CmuxNextServer	enum	AddServerAction	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/AddServerAction.swift	sheet action enum
-CmuxNextServer	struct	AddServerButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/AddServerButton.swift	sheet button value
 CmuxNextServer	enum	AddServerStep	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/AddServerStep.swift	add-server step derived from code state
 CmuxNextServer	struct	ChiefPlacementStatus	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ChiefPlacementStatus.swift	chief placement status thresholds
-CmuxNextServer	enum	HealthOrdering	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/HealthAlert.swift	from struct HealthAlert:5: health reducer alert copy
 CmuxNextServer	struct	HealthAlert	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/HealthAlert.swift	health reducer alert copy
-CmuxNextServer	struct	HealthChecklistRow	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/HealthAlert.swift	from struct HealthAlert:5: health reducer alert copy
 CmuxNextServer	struct	LocalServerStatus	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/LocalServerStatus.swift	decode of server status with malformed rules
 CmuxNextServer	enum	MockServerScenario	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/MockServerScenario.swift	mock scenarios for demo and tests
 CmuxNextServer	class	MockServerSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/MockServerSource.swift	from class MockServerSource:7: mock server source
@@ -9761,7 +9756,6 @@ CmuxNextServer	struct	HealthCheckID	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sourc
 CmuxNextServer	struct	HealthFix	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerHealth.swift	from struct HealthCheckID:5: health check id copy
 CmuxNextServer	extension	ServerModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerModel+AddServer.swift	add-server approve flow with lookup/approve intents
 CmuxNextServer	class	ServerModel	0	MIXED	52	48	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerModel.swift	from enum ServerOverall:5: overall line derived from snapshot 100; snapshot-held daemon facts 93
-CmuxNextServer	enum	ServerOverall	0	MIXED	52	48	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerModel.swift	overall line derived from snapshot 100; snapshot-held daemon facts 93
 CmuxNextServer	extension	ServerIntentKind	0	MIXED	52	48	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerModel.swift	from enum ServerOverall:5: overall line derived from snapshot 100; snapshot-held daemon facts 93
 CmuxNextServer	struct	ServerApprovalDraft	0	MIXED	52	48	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerModel.swift	from enum ServerOverall:5: overall line derived from snapshot 100; snapshot-held daemon facts 93
 CmuxNextServer	enum	ServerPairingState	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerPairing.swift	server pairing state copy
@@ -9782,67 +9776,21 @@ CmuxNextServer	struct	ServerIntent	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Source
 CmuxNextServer	enum	ServerConnection	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerSourceEvent.swift	connection state of the source
 CmuxNextServer	enum	ServerSourceEvent	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerSourceEvent.swift	from enum ServerConnection:3: connection state of the source
 CmuxNextServer	struct	ServerStatusWire	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerStatusWire.swift	decoder for server status wire JSON
-CmuxNextServer	class	ServerHostView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerHostView.swift	from enum ServerSurface:7: server surface host view
-CmuxNextServer	enum	ServerSurface	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerHostView.swift	server surface host view
-CmuxNextServer	extension	ServerStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerStrings+AddServer.swift	localized strings
 CmuxNextServer	enum	ServerStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerStrings.swift	localized strings
-CmuxNextServer	enum	ServerHealthStyle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerStyles.swift	from enum ServerPanelStyle:4: panel styles
-CmuxNextServer	enum	ServerPairingStyle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerStyles.swift	from enum ServerPanelStyle:4: panel styles
-CmuxNextServer	enum	ServerPanelStyle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerStyles.swift	panel styles
 CmuxNextServer	enum	ServerTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerTunables.swift	debug tunables
-CmuxNextServer	class	AddServerCardPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/AddServerCardPanel.swift	from class AddServerCardPanel:10: NSPanel add server card
-CmuxNextServer	struct	AddedServerBlock	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/AddedServerBlock.swift	SwiftUI block
-CmuxNextServer	struct	ChiefPlacementRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ChiefPlacementRow.swift	SwiftUI row
-CmuxNextServer	struct	CodeStatusLine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/CodeStatusLine.swift	SwiftUI status line
-CmuxNextServer	enum	QRCode	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/QRCodeImage.swift	QR code rendering with CoreImage
-CmuxNextServer	struct	QRCodeImage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/QRCodeImage.swift	from enum QRCode:9: QR code rendering with CoreImage
-CmuxNextServer	struct	FixButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerAlertControls.swift	from struct PillButton:6: SwiftUI button
-CmuxNextServer	struct	PillButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerAlertControls.swift	SwiftUI button
-CmuxNextServer	struct	AlertRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerAlertRow.swift	SwiftUI alert row
 CmuxNextServer	class	ServerAppearance	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerAppearance.swift	from struct ServerColors:10: colors
 CmuxNextServer	extension	EnvironmentValues	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerAppearance.swift	from struct ServerColors:10: colors
 CmuxNextServer	extension	ServerColors	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerAppearance.swift	colors
 CmuxNextServer	struct	ServerColors	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerAppearance.swift	colors
-CmuxNextServer	struct	CandidateFacts	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerApproverView.swift	from struct ServerApproverView:10: SwiftUI approver view
-CmuxNextServer	struct	ServerApproverView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerApproverView.swift	SwiftUI approver view
-CmuxNextServer	struct	TeamChips	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerApproverView.swift	from struct ServerApproverView:10: SwiftUI approver view
 CmuxNextServer	extension	View	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerComponents.swift	from struct CardBackground:6: SwiftUI card background
 CmuxNextServer	struct	CardBackground	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerComponents.swift	SwiftUI card background
-CmuxNextServer	struct	ServerDivider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerComponents.swift	from struct CardBackground:6: SwiftUI card background
-CmuxNextServer	struct	StoreFooter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerComponents.swift	from struct CardBackground:6: SwiftUI card background
-CmuxNextServer	struct	DashboardPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerDashboardPanel.swift	SwiftUI dashboard panel
-CmuxNextServer	struct	PairingCard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerDashboardPanel.swift	from struct DashboardPanel:5: SwiftUI dashboard panel
-CmuxNextServer	struct	RoleCard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerDashboardPanel.swift	from struct DashboardPanel:5: SwiftUI dashboard panel
-CmuxNextServer	struct	ServerErrorBanner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerErrorBanner.swift	SwiftUI error banner
-CmuxNextServer	struct	OverallLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerHeader.swift	from struct StateDot:5: SwiftUI header
-CmuxNextServer	struct	ServerHeader	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerHeader.swift	from struct StateDot:5: SwiftUI header
-CmuxNextServer	struct	StateDot	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerHeader.swift	SwiftUI header
-CmuxNextServer	struct	HealthSummary	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerHealthVariants.swift	SwiftUI health summary
-CmuxNextServer	struct	HealthTimeline	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerHealthVariants.swift	from struct HealthSummary:4: SwiftUI health summary
-CmuxNextServer	struct	CheckGlyph	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerHealthView.swift	from struct ServerHealthView:6: SwiftUI health view
-CmuxNextServer	struct	HealthChecklist	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerHealthView.swift	from struct ServerHealthView:6: SwiftUI health view
-CmuxNextServer	struct	ServerHealthView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerHealthView.swift	SwiftUI health view
-CmuxNextServer	struct	AppServerRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerListPanel.swift	from struct ListPanel:6: SwiftUI list panel
-CmuxNextServer	struct	DeviceRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerListPanel.swift	from struct ListPanel:6: SwiftUI list panel
-CmuxNextServer	struct	ListPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerListPanel.swift	SwiftUI list panel
-CmuxNextServer	enum	ServerFormat	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerMetrics.swift	from enum ServerMetrics:4: metrics
 CmuxNextServer	enum	ServerMetrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerMetrics.swift	metrics
-CmuxNextServer	struct	CodeFirst	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerPairingVariants.swift	SwiftUI pairing variants
-CmuxNextServer	struct	QRFirst	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerPairingVariants.swift	from struct CodeFirst:4: SwiftUI pairing variants
-CmuxNextServer	struct	WordsFirst	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerPairingVariants.swift	from struct CodeFirst:4: SwiftUI pairing variants
-CmuxNextServer	struct	PairedBadge	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerPairingView.swift	from struct ServerPairingView:6: SwiftUI pairing view
-CmuxNextServer	struct	ServerPairingView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerPairingView.swift	SwiftUI pairing view
-CmuxNextServer	struct	CompactPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerPanelView.swift	from struct ServerPanelView:6: SwiftUI panel view
-CmuxNextServer	struct	PanelFacts	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerPanelView.swift	from struct ServerPanelView:6: SwiftUI panel view
-CmuxNextServer	struct	ServerPanelView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerPanelView.swift	SwiftUI panel view
-CmuxNextServer	class	DismissBox	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerRoot.swift	from class DismissBox:6: dismiss box
-CmuxNextServer	struct	ServerRoot	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerRoot.swift	from class DismissBox:6: dismiss box
-CmuxNextServer	struct	GroupTitle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerRows.swift	from struct HoverRow:5: SwiftUI hover row
-CmuxNextServer	struct	HoverRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerRows.swift	SwiftUI hover row
-CmuxNextServer	struct	MetricRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerRows.swift	from struct HoverRow:5: SwiftUI hover row
+CmuxNextServer	class	DismissBox	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerAppearance.swift	from class DismissBox:6: dismiss box
 CmuxNextServer	struct	ServerTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerTextField.swift	SwiftUI text field
 CmuxNextServer	class	ServerTextFieldBox	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerTextFieldBox.swift	text field box
-CmuxNextServer	struct	WordsGrid	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/WordsGrid.swift	SwiftUI words grid
+CmuxNextServer	class	ServerPageProvider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerPage/ServerPageProvider.swift	page bridge: the server model's state and intents for the React server surfaces
+CmuxNextServer	class	ServerPanelPopover	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerPage/ServerPanelPopover.swift	NSPopover hosting the server card page
+CmuxNextServer	enum	ServerWire	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerPage/ServerWire.swift	page JSON of the server snapshot
 CmuxNextServerHelper	enum	ServerFix	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServerHelper/ServerFix.swift	privileged XPC helper (SMAppService, pmset allowlist)
 CmuxNextServerHelper	struct	FixRunResult	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServerHelper/ServerFix.swift	from enum ServerFix:8: privileged XPC helper (SMAppService, pmset allowlist)
 CmuxNextServerHelper	class	FileFixPriorStore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServerHelper/ServerFixPriorStore.swift	from protocol ServerFixPriorStore:5: privileged XPC helper (SMAppService, pmset allowlist)

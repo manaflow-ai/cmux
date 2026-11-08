@@ -25,7 +25,7 @@ use zeroize::Zeroizing;
 
 use super::contract::Vmk;
 
-/// The longest ticket or grant accepted (cmux-remote's relay credential bound).
+/// The longest ticket accepted (cmux-remote's relay credential bound).
 const MAX_SECRET_BYTES: usize = 4096;
 /// One fetch's HTTP deadline (also bounded by the dial's own deadline).
 pub(super) const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
@@ -93,12 +93,15 @@ fn key_bytes(text: &str) -> Option<[u8; 32]> {
 }
 
 fn secret(value: &Value, name: &str) -> Result<Zeroizing<String>, String> {
+    secret_up_to(value, name, MAX_SECRET_BYTES)
+}
+
+/// [`secret`] up to `max` bytes: a grant may be as long as the session
+/// daemon reads (`cmux_link::carrier_grant::MAX_GRANT_BYTES`).
+fn secret_up_to(value: &Value, name: &str, max: usize) -> Result<Zeroizing<String>, String> {
     let text = value.get(name).and_then(Value::as_str).ok_or(format!("{name} is missing"))?;
-    if text.is_empty()
-        || text.len() > MAX_SECRET_BYTES
-        || !text.bytes().all(|b| (0x21..=0x7e).contains(&b))
-    {
-        return Err(format!("{name} is not 1 to 4096 visible ASCII bytes"));
+    if text.is_empty() || text.len() > max || !text.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
+        return Err(format!("{name} is not 1 to {max} visible ASCII bytes"));
     }
     Ok(Zeroizing::new(text.to_owned()))
 }
@@ -147,7 +150,7 @@ pub(super) fn parse_answer(value: &Value) -> Result<CarrierAnswer, String> {
         value.get("expires_at").and_then(Value::as_u64).ok_or("expires_at is missing")?;
     let grant = match value.get("grant") {
         None | Some(Value::Null) => None,
-        Some(_) => Some(secret(value, "grant")?),
+        Some(_) => Some(secret_up_to(value, "grant", cmux_link::carrier_grant::MAX_GRANT_BYTES)?),
     };
     let daemon_key = value.get("daemon_key").and_then(Value::as_str).and_then(key_bytes);
     let vmk = grant.as_deref().and_then(|g| grant_vmk(g));
@@ -271,11 +274,22 @@ impl HttpSource {
 /// The `sub` claim of a JWT credential, read without checking its
 /// signature (the platform checks the credential; this only tells whether a
 /// refreshed credential is the same person's). `None` for anything that is
-/// not a JWT with a string `sub`.
+/// not a JWT with a string `sub`: a JWT has exactly three segments and its
+/// first is a JSON header naming an `alg`, so an opaque dotted credential
+/// whose middle segment happens to decode never borrows a `sub`.
 pub(super) fn token_subject(token: &str) -> Option<String> {
-    let payload = token.split('.').nth(1)?;
-    let bytes = Zeroizing::new(URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?);
-    let claims: Value = serde_json::from_slice(&bytes).ok()?;
+    let mut segments = token.split('.');
+    let (Some(header), Some(payload), Some(_), None) =
+        (segments.next(), segments.next(), segments.next(), segments.next())
+    else {
+        return None;
+    };
+    let decode = |segment: &str| -> Option<Value> {
+        let bytes = Zeroizing::new(URL_SAFE_NO_PAD.decode(segment.trim_end_matches('=')).ok()?);
+        serde_json::from_slice(&bytes).ok()
+    };
+    decode(header)?.get("alg")?.as_str()?;
+    let claims = decode(payload)?;
     claims.get("sub")?.as_str().filter(|sub| !sub.is_empty()).map(str::to_owned)
 }
 

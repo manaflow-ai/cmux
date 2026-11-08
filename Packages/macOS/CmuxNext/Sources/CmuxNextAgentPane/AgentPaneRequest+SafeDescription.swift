@@ -76,6 +76,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .readAloud(.speak): "readAloudSpeak"
         case .readAloud(.stop): "readAloudStop"
         case .openChat: "openChat"
+        case .resumeChat: "resumeChat"
         case .openChatInTerminal: "openChatInTerminal"
         case .watchChat: "watchChat"
         case .chatsPage: "chatsPage"

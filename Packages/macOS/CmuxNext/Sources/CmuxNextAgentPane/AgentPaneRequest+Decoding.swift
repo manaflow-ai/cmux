@@ -455,6 +455,10 @@ extension AgentPaneRequest {
         case "chats.open":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChat(key) }
             else { self = .unsupported(method) }
+        case "chats.resume":
+            if let ref = params?["ref"] as? String, !ref.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, ref.utf8.count <= 4096 {
+                self = .resumeChat(ref)
+            } else { self = .unsupported(method) }
         case "chats.openInTerminal":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChatInTerminal(key) }
             else { self = .unsupported(method) }

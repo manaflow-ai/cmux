@@ -6686,6 +6686,19 @@
         {
           "keys" : [
             {
+              "key" : "",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "!codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
               "key" : "]",
               "modifiers" : [
                 "opt",
@@ -6698,7 +6711,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "l",
         "modifiers" : [
           "ctrl",
           "opt",
@@ -6735,6 +6748,19 @@
         {
           "keys" : [
             {
+              "key" : "",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "!codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
               "key" : "[",
               "modifiers" : [
                 "opt",
@@ -6747,7 +6773,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "h",
         "modifiers" : [
           "ctrl",
           "opt",
@@ -14048,7 +14074,7 @@
       "id" : "home.archiveChief",
       "main_menu" : null,
       "mcp" : "offered",
-      "palette" : "noTargetSurface",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
         "order" : 100,
@@ -14083,7 +14109,7 @@
       "id" : "home.setPrimaryChief",
       "main_menu" : null,
       "mcp" : "offered",
-      "palette" : "noTargetSurface",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
         "order" : 100,
@@ -14123,7 +14149,7 @@
       "id" : "home.deleteChief",
       "main_menu" : null,
       "mcp" : "offered",
-      "palette" : "noTargetSurface",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
         "order" : 100,
@@ -15074,6 +15100,46 @@
     },
     {
       "args" : [
+        {
+          "kind" : "string",
+          "name" : "agent",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "conversation",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "home start-agent",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.startQueuedAgent",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Start Queued Agent Now",
+      "title_key" : "action.home.startQueuedAgent",
+      "title_table" : "HomeActions"
+    },
+    {
+      "args" : [
 
       ],
       "cli" : "devOnly",
@@ -15120,13 +15186,6 @@
         {
           "kind" : "bool",
           "name" : "team",
-          "required" : false
-        },
-        {
-          "kind" : "int",
-          "max" : 6,
-          "min" : 0,
-          "name" : "open",
           "required" : false
         },
         {
@@ -28907,6 +28966,37 @@
       "palette_suggested" : null,
       "title" : "New Agent Chat on…",
       "title_key" : "action.palette.newAgentChatOn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action palette-new-cloud-chat",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.newCloudChat",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Cloud Chat",
+      "title_key" : "action.palette.newCloudChat",
       "title_table" : "ActionCatalog"
     },
     {
@@ -47086,6 +47176,37 @@
       "palette_suggested" : null,
       "title" : "Show Hidden App…",
       "title_key" : "action.app.unhide",
+      "title_table" : "AppStoreActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "apps reload",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "app.reloadCustomViews",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reload Custom Views",
+      "title_key" : "action.app.reloadCustomViews",
       "title_table" : "AppStoreActions"
     },
     {

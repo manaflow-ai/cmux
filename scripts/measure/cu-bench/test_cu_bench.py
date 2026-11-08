@@ -203,6 +203,17 @@ class FakeRun(unittest.TestCase):
             self.assertIn("start:", data["engines"]["broken"]["unavailable"])
             self.assertIsNone(data["engines"]["broken"]["ops"]["click"]["median_ms"])
 
+    def test_engine_that_answers_nothing_fails_the_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "fake_engine.py"
+            fake.write_text(FAKE)
+            out = Path(tmp) / "out"
+            # The tree engine shows no window of Notes, so every setup fails.
+            argv = ["run", "--out", str(out), "--app", str(Path(tmp) / "Notes.app"), "--rounds", "1", "--settle", "0",
+                    "--server", f"json-engine={sys.executable} -I {fake} tree"]
+            self.assertEqual(cu_bench.main(argv), 4)
+            self.assertTrue(json.loads((out / "cu-bench.json").read_text())["engines"]["json-engine"]["errors"])
+
 
 if __name__ == "__main__":
     unittest.main()

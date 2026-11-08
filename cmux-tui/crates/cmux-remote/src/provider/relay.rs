@@ -1238,8 +1238,9 @@ async fn read_until_allocation(
                 return Err(if relay_authentication_error(&code) {
                     AllocationError::Authentication(relay_rejection())
                 } else if retryable {
-                    AllocationError::Reconnect(relay_carrier_error(
+                    AllocationError::Reconnect(relay_unavailable(
                         "relay allocation is temporarily unavailable",
+                        &code,
                     ))
                 } else {
                     AllocationError::Terminal(relay_rejection())
@@ -1528,11 +1529,9 @@ async fn run_registration_loop(
                 wait.as_millis()
             );
         }
-        match wait_unless_resumed(wait, &mut shutdown).await {
+        match back_off(&mut retry, wait, &mut shutdown, std::time::SystemTime::now).await {
             Waited::Elapsed => {}
             Waited::Resumed => {
-                // The pause outlived the reason for the wait: start over.
-                retry.ready();
                 if let Some(label) = &log.label {
                     eprintln!("{label}: resumed during the wait; registering now");
                 }
@@ -1560,31 +1559,56 @@ enum Waited {
     Shutdown,
 }
 
+/// Waits out a failed attempt's `wait`. A resume during it (the pause
+/// outlived the reason for the wait) starts both backoffs over, so the next
+/// failure waits the first backoff again, not the one from before the pause.
+async fn back_off(
+    retry: &mut Retry,
+    wait: Duration,
+    shutdown: &mut watch::Receiver<bool>,
+    wall: fn() -> std::time::SystemTime,
+) -> Waited {
+    let waited = wait_unless_resumed(wait, shutdown, wall).await;
+    if waited == Waited::Resumed {
+        retry.ready();
+    }
+    waited
+}
+
 /// Waits `wait` (monotonic, so a pause does not count), looking at the
 /// clocks every [`CHECK_INTERVAL`]: a resume ends the wait at once. Ends at
-/// the latest when `wait` elapses or at shutdown.
-async fn wait_unless_resumed(wait: Duration, shutdown: &mut watch::Receiver<bool>) -> Waited {
+/// the latest when `wait` elapses or at shutdown. `wall` is the wall clock.
+async fn wait_unless_resumed(
+    wait: Duration,
+    shutdown: &mut watch::Receiver<bool>,
+    wall: fn() -> std::time::SystemTime,
+) -> Waited {
     if wait.is_zero() {
         return Waited::Elapsed;
     }
     let sleep = tokio::time::sleep(wait);
     tokio::pin!(sleep);
-    let mut clocks = ClockWatch::new(Instant::now(), std::time::SystemTime::now());
+    let mut clocks = ClockWatch::new(Instant::now(), wall());
     let mut interval = tokio::time::interval(CHECK_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
-        tokio::select! {
-            _ = &mut sleep => return Waited::Elapsed,
+        // After a pause longer than `wait`, the sleep and the tick are both
+        // ready and `select!` picks either: every wakeup looks at the clocks.
+        let elapsed = tokio::select! {
+            _ = &mut sleep => true,
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
                     return Waited::Shutdown;
                 }
+                false
             }
-            _ = interval.tick() => {
-                if clocks.jump(Instant::now(), std::time::SystemTime::now()) > CLOCK_JUMP {
-                    return Waited::Resumed;
-                }
-            }
+            _ = interval.tick() => false,
+        };
+        if clocks.jump(Instant::now(), wall()) > CLOCK_JUMP {
+            return Waited::Resumed;
+        }
+        if elapsed {
+            return Waited::Elapsed;
         }
     }
 }
@@ -1986,7 +2010,7 @@ fn relay_operation_rejection(
     retryable_message: &'static str,
 ) -> ProviderError {
     if retryable && !relay_authentication_error(code) {
-        relay_carrier_error(retryable_message)
+        relay_unavailable(retryable_message, code)
     } else {
         relay_rejection()
     }
@@ -2003,6 +2027,15 @@ fn relay_reconnect_error(
     } else {
         ProviderError::Transport(message)
     }
+}
+
+/// A retryable refusal, naming the relay's error code: a short word the
+/// relay sets (`slot-busy`), kept only when it looks like one.
+fn relay_unavailable(message: &str, code: &str) -> ProviderError {
+    let word = code.len() <= 32
+        && !code.is_empty()
+        && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    relay_carrier_error(format!("{message} (relay code {})", if word { code } else { "other" }))
 }
 
 fn relay_rejection() -> ProviderError {
@@ -2038,7 +2071,13 @@ async fn read_control(socket: &mut RelaySocket) -> Result<RelayControl, Provider
                     .map_err(|_| relay_carrier_error("relay WebSocket write failed"))?;
             }
             Some(Ok(Message::Pong(_))) => {}
-            Some(Ok(Message::Close(_))) | None => {
+            Some(Ok(Message::Close(Some(frame)))) => {
+                return Err(relay_carrier_error(format!(
+                    "relay WebSocket closed (close {})",
+                    u16::from(frame.code)
+                )));
+            }
+            Some(Ok(Message::Close(None))) | None => {
                 return Err(relay_carrier_error("relay WebSocket closed"));
             }
             Some(Ok(Message::Binary(_))) => {
@@ -2157,6 +2196,53 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::frame::coding::{Data, OpCode};
 
     use super::*;
+
+    /// The wall clock of [`a_pause_longer_than_the_backoff_resets_the_counters_whichever_wakeup_fires`]:
+    /// seconds added to a fixed start.
+    static WALL_AHEAD_S: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    fn test_wall() -> std::time::SystemTime {
+        std::time::SystemTime::UNIX_EPOCH
+            + Duration::from_secs(1_800_000_000 + WALL_AHEAD_S.load(AtomicOrdering::SeqCst))
+    }
+
+    /// A pause longer than the backoff: at the wakeup the sleep and the clock
+    /// check are both ready. Whichever `select!` picks, the jump is seen, the
+    /// counters start over and the next failure waits the first backoff (1 s),
+    /// not the 60 s from before the pause.
+    #[tokio::test(start_paused = true)]
+    async fn a_pause_longer_than_the_backoff_resets_the_counters_whichever_wakeup_fires() {
+        use super::liveness::{FIRST_CREDENTIAL_BACKOFF, MAX_CREDENTIAL_BACKOFF};
+        // `select!` picks among ready branches at random: many rounds make
+        // the sleep branch win at least once.
+        for round in 0..32 {
+            let mut retry = Retry::new();
+            let mut wait = Duration::ZERO;
+            while wait < MAX_CREDENTIAL_BACKOFF {
+                wait = retry.wait(Ended::Credential, 1.0);
+            }
+            let (_shutdown_tx, mut shutdown) = watch::channel(false);
+            let task = tokio::spawn(async move {
+                let waited = back_off(&mut retry, wait, &mut shutdown, test_wall).await;
+                (waited, retry)
+            });
+            // The wait starts and takes its first (immediate) clock check.
+            for _ in 0..8 {
+                tokio::task::yield_now().await;
+            }
+            // The machine pauses for ten minutes; its monotonic clock moves
+            // past the whole backoff at once, the wall clock ten minutes.
+            WALL_AHEAD_S.fetch_add(600, AtomicOrdering::SeqCst);
+            tokio::time::advance(wait + CHECK_INTERVAL).await;
+            let (waited, mut retry) = task.await.unwrap();
+            assert_eq!(waited, Waited::Resumed, "round {round}");
+            assert_eq!(
+                retry.wait(Ended::Credential, 1.0),
+                FIRST_CREDENTIAL_BACKOFF,
+                "round {round}: the next failure waits the first backoff"
+            );
+        }
+    }
 
     async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayControl {
         let message = socket.next().await.unwrap().unwrap();
