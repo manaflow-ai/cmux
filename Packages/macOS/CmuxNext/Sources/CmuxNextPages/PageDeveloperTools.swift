@@ -23,12 +23,17 @@ public struct PageDeveloperTools {
     /// `WKWebView`) and starts picking an element.
     public var inspect: @MainActor (NSView) -> Void
 
+    /// The person's setting (`developerTools.appPages`) and the app's page host
+    /// (``PageChromiumHosting/inspectPage(_:)``); off while no page host is installed.
+    public init() {
+        isEnabled = { DesignSettings.shared.pageDeveloperTools && PageWebView.chromiumHosting != nil }
+        inspect = { PageWebView.chromiumHosting?.inspectPage($0) }
+    }
+
     /// - Parameters:
-    ///   - isEnabled: Whether pages offer developer tools now; the person's setting by default.
-    ///   - inspect: Opens the developer tools of a page's view and starts element selection; by
-    ///     default the app's page host does (``PageChromiumHosting/inspectPage(_:)``).
-    public init(isEnabled: @escaping @MainActor () -> Bool = { DesignSettings.shared.pageDeveloperTools && PageWebView.chromiumHosting != nil },
-                inspect: @escaping @MainActor (NSView) -> Void = { PageWebView.chromiumHosting?.inspectPage($0) }) {
+    ///   - isEnabled: Whether pages offer developer tools now.
+    ///   - inspect: Opens the developer tools of a page's view and starts element selection.
+    public init(isEnabled: @escaping @MainActor () -> Bool, inspect: @escaping @MainActor (NSView) -> Void) {
         self.isEnabled = isEnabled
         self.inspect = inspect
     }
