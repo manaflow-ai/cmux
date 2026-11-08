@@ -1036,3 +1036,27 @@ test("a record with no provenance and no origin keeps the person's bubble, with 
   expect(incomingPrompt("rebase first", {})).toBeUndefined();
   expect(incomingPrompt("rebase first", { _meta: {} })).toBeUndefined();
 });
+
+test("a relayed or session-stamped sender with no sender record is verified, as acpmux reads it", () => {
+  // Review of cmux#37653: a direct transcript record carries the daemon's own proof (a relay's
+  // `fromRelay`, a proven session's `fromSessionId`, prompt_provenance.rs `sender_record_with_auth`)
+  // but no `sender` projection; it is no sender that only named itself.
+  const relayed = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "vm-1/lane",
+    to: "s-1",
+    fromRelay: { by: "lane-gh", machine: "vm-1", session: "lane" },
+    fromHarness: "codex",
+  };
+  const text = "Merged the fix.";
+  const relayedPrompt = incomingPrompt(text, { _meta: { provenance: relayed } });
+  expect(relayedPrompt?.kind === "message" && relayedPrompt.message.unverified).toBeFalsy();
+  const stamped = { kind: "agent_message", from: "fromAgent", fromName: "lane-a", to: "s-1", fromSessionId: "s-9" };
+  const stampedPrompt = incomingPrompt(text, { _meta: { provenance: stamped } });
+  expect(stampedPrompt?.kind === "message" && stampedPrompt.message.unverified).toBeFalsy();
+  // A relay record that is no relay's (no machine) proves nothing: still the sender's own word.
+  const forged = { ...relayed, fromRelay: { by: "lane-gh" } };
+  const forgedPrompt = incomingPrompt(text, { _meta: { provenance: forged } });
+  expect(forgedPrompt?.kind === "message" && forgedPrompt.message.unverified).toBe(true);
+});

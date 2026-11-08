@@ -34,7 +34,7 @@
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
-import { bareSender, senderRecord, senderUnverified } from "./senderIdentity";
+import { bareSender, provenanceAuthenticated, senderRecord, senderUnverified } from "./senderIdentity";
 import { relayEnvelope, withoutRelayEnvelope, withoutRelayLabelOfMessage } from "./relayEnvelope";
 import {
   legacyNotice,
@@ -377,7 +377,11 @@ function withSender(
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
   const record = senderRecord(provenance?.sender ?? (msg as { sender?: unknown } | undefined)?.sender);
   const sender = bareSender(prompt.message.name);
-  const unverified = senderUnverified(record, sender.declared || declared || provenance?.from === NAMED_SENDER);
+  // With no sender record, acpmux's own proof in the provenance (a relay's record, a session it
+  // stamped) verifies the sender, as acpmux's record would have (review of cmux#37653).
+  const unverified =
+    !(record === undefined && provenanceAuthenticated(provenance)) &&
+    senderUnverified(record, sender.declared || declared || provenance?.from === NAMED_SENDER);
   const harness = prompt.message.harness ?? record?.harness;
   if (!unverified && !sender.declared && harness === prompt.message.harness) return prompt;
   return {

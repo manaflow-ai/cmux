@@ -71,6 +71,22 @@ export function senderRecord(value: unknown): SenderRecord | undefined {
   return Object.keys(record).length ? record : undefined;
 }
 
+/// A relay's or a machine's name as acpmux takes it (prompt_provenance.rs `harness_fits`).
+const RELAY_NAME = /^[A-Za-z0-9._-]{1,64}$/;
+
+/// Whether a prompt's provenance carries acpmux's own proof of its sender, as acpmux's sender record
+/// reads it (prompt_provenance.rs `sender_record_with_auth`): a session it stamped (`fromSessionId`)
+/// or a relay's record of where it took the message (`fromRelay`, its relay and machine well
+/// formed). A direct transcript record carries these with no `sender` projection.
+export function provenanceAuthenticated(provenance: Record<string, unknown> | undefined): boolean {
+  if (!provenance) return false;
+  if (word(provenance.fromSessionId)) return true;
+  const relay = provenance.fromRelay;
+  if (!relay || typeof relay !== "object" || Array.isArray(relay)) return false;
+  const { by, machine } = relay as Record<string, unknown>;
+  return typeof by === "string" && RELAY_NAME.test(by) && typeof machine === "string" && RELAY_NAME.test(machine);
+}
+
 /// Whether the transcript marks the sender unverified: its record says it is not verified, or (an
 /// older acpmux with no `verification`) its name carried the suffix.
 export function senderUnverified(record: SenderRecord | undefined, declared: boolean): boolean {
