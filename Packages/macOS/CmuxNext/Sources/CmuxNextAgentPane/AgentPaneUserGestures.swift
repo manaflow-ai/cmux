@@ -200,6 +200,9 @@ import CmuxNextCompat
         /// The uploads of this send in progress (``holdForUpload(_:upload:connection:sessionId:promptId:)``),
         /// each with its own last progress.
         var uploads: [String: TimeInterval] = [:]
+        /// Uploads whose finish is in flight (``uploadFinishing(_:)``): the host awaits their Cloud or
+        /// peer transfer, so no chunk reports progress and they do not stall out.
+        var finishing: Set<String> = []
         /// While `uploads` is not empty: when the ticket's clock stopped.
         var stoppedAt: TimeInterval?
         /// A ticket another process's posted gesture paid for (``consumePosted(for:)``): the grant's
@@ -212,7 +215,7 @@ import CmuxNextCompat
         func isFresh(_ now: TimeInterval) -> Bool {
             guard let stoppedAt else { return now - at <= intent.lifetime }
             return stoppedAt - at <= intent.lifetime
-                && uploads.values.allSatisfy { now - $0 <= AgentPaneUserGestures.uploadStallLimit }
+                && uploads.allSatisfy { finishing.contains($0.key) || now - $0.value <= AgentPaneUserGestures.uploadStallLimit }
         }
     }
 
@@ -373,6 +376,16 @@ import CmuxNextCompat
         return true
     }
 
+    /// The finish of an upload holding a send ticket began: until it is released, the host awaits its
+    /// transfer and the hold no longer stalls out (a newer Send, the connection's end or Turn Off still
+    /// end it). False when its hold ended: the finish is refused.
+    public func uploadFinishing(_ upload: String) -> Bool {
+        dropEndedHolds()
+        guard let key = tickets.first(where: { $0.value.uploads[upload] != nil })?.key else { return false }
+        tickets[key]?.finishing.insert(upload)
+        return true
+    }
+
     /// An upload holding a send ticket finished or was cancelled: its hold ends, and when it was
     /// the last, the ticket's clock runs again from where it stopped. False when it held none.
     @discardableResult
@@ -381,6 +394,7 @@ import CmuxNextCompat
         dropEndedHolds()
         guard let key = tickets.first(where: { $0.value.uploads[upload] != nil })?.key, var held = tickets[key] else { return false }
         held.uploads.removeValue(forKey: upload)
+        held.finishing.remove(upload)
         if held.uploads.isEmpty, let stopped = held.stoppedAt {
             held.at += at - stopped
             held.stoppedAt = nil

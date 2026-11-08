@@ -57,7 +57,9 @@ extension AgentPaneModel {
             return reply
         case .finish(let token):
             guard let hold = uploadHolds[token] else { return await stager(stage, sessionId) }
-            guard transport.gestures.holdsTicket(upload: hold) else { return await endHeldStage(token, stager) }
+            // The transfer after the last chunk (Cloud, a peer) reports no progress: it holds the ticket
+            // until it returns.
+            guard transport.gestures.uploadFinishing(hold) else { return await endHeldStage(token, stager) }
             let reply = await stager(stage, sessionId)
             // A finish that did not complete leaves no stage behind that could still upload once the
             // ticket is spent: it is cancelled before the hold lets the prompt go.
