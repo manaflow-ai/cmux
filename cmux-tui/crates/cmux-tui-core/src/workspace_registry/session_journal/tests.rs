@@ -481,3 +481,152 @@ fn non_output_read_pages_every_other_kind_across_seek_windows() {
     }
     assert_eq!(seen, expected);
 }
+
+/// A registry whose whole journal is `segments` sealed segments of
+/// `JOURNAL_SEGMENT_RECORD_LIMIT` records, the shape of a nightly registry
+/// that ran for weeks: two of every three records are terminal output of
+/// `output_bytes` each, the rest `workspace.focus`. Returns the registry and
+/// the non-output sequences.
+fn output_heavy_sealed_registry(
+    segments: u64,
+    output_bytes: usize,
+) -> (WorkspaceRegistry, Vec<u64>) {
+    use std::io::Write as _;
+    let registry = WorkspaceRegistry::in_memory("journal-output-heavy").unwrap();
+    registry
+        .connection
+        .get()
+        .execute_batch(
+            "DROP TRIGGER session_journal_reject_delete;
+             DELETE FROM session_journal;
+             CREATE TRIGGER session_journal_reject_delete
+               BEFORE DELETE ON session_journal
+             BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
+        )
+        .unwrap();
+    let per_segment = super::super::journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT as u64;
+    let mut state = 0x2545_f491_u64;
+    let mut expected = Vec::new();
+    for segment in 0..segments {
+        let start = segment * per_segment + 1;
+        let end = start + per_segment - 1;
+        let mut records = Vec::new();
+        let mut kinds = BTreeSet::new();
+        for sequence in start..=end {
+            let output = sequence % 3 != 0;
+            let kind = if output { "terminal.output" } else { "workspace.focus" };
+            let payload = if output {
+                // Printable pseudo-random bytes, so gzip works about as hard
+                // as it does on real terminal output.
+                let bytes = (0..output_bytes)
+                    .map(|_| {
+                        state ^= state << 13;
+                        state ^= state >> 7;
+                        state ^= state << 17;
+                        b' ' + u8::try_from(state % 95).unwrap()
+                    })
+                    .collect::<Vec<_>>();
+                let offset = (sequence - 1) * u64::try_from(output_bytes).unwrap();
+                serde_json::json!({
+                    "format": "cmux.terminal-output.v1",
+                    "encoding": "base64",
+                    "data": base64::engine::general_purpose::STANDARD.encode(&bytes),
+                    "byte_count": bytes.len().to_string(),
+                    "stream_offset_start": offset.to_string(),
+                    "stream_offset_end": (offset + u64::try_from(bytes.len()).unwrap()).to_string(),
+                    "sha256": encode_bytes_hex(Sha256::digest(&bytes).as_slice()),
+                })
+            } else {
+                expected.push(sequence);
+                serde_json::json!({"workspace_id": format!("ws_{sequence:032x}")})
+            };
+            kinds.insert(kind);
+            records.push(SessionJournalRecord {
+                sequence,
+                event_id: format!("event_{sequence}"),
+                schema_version: 1,
+                kind: kind.into(),
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                occurred_at_ms: sequence,
+                committed_at_ms: sequence,
+                producer: JournalProducer { kind: "test".into(), id: "test".into() },
+                authority: None,
+                causation_id: None,
+                correlation_id: None,
+                causation_depth: 0,
+                subjects: Vec::new(),
+                sensitivity: JournalSensitivity::Metadata,
+                payload,
+                resource_revision: None,
+                previous_resource_revision: None,
+                terminal_output: None,
+            });
+        }
+        let uncompressed = serde_json::to_vec(&records).unwrap();
+        let digest = Sha256::digest(&uncompressed);
+        let mut encoder =
+            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&uncompressed).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let segment_id = format!("segment_{start}_{end}");
+        let db = registry.connection.get();
+        db.execute(
+            "INSERT INTO journal_segments(
+               segment_id, start_sequence, end_sequence, record_count, codec, content,
+               uncompressed_bytes, sha256, sealed_at_ms
+             ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, 1)",
+            params![
+                segment_id,
+                i64::try_from(start).unwrap(),
+                i64::try_from(end).unwrap(),
+                i64::try_from(per_segment).unwrap(),
+                compressed,
+                i64::try_from(uncompressed.len()).unwrap(),
+                digest.as_slice()
+            ],
+        )
+        .unwrap();
+        for kind in kinds {
+            db.execute(
+                "INSERT INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
+                params![segment_id, kind],
+            )
+            .unwrap();
+        }
+    }
+    (registry, expected)
+}
+
+/// The agent roster's replay from zero over sealed segments that are mostly
+/// terminal output (a 59 GB nightly registry took 1,780,456 ms in
+/// restore.snapshot). Prints the time the replay took; the numbers in the
+/// PR come from this test at the base and at the fix.
+#[test]
+fn roster_replay_over_output_heavy_segments_decodes_each_segment_once() {
+    let segments = 48;
+    let (registry, expected) = output_heavy_sealed_registry(segments, 4096);
+    let head = registry.session_journal_head().unwrap();
+    assert_eq!(
+        head,
+        segments * super::super::journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT as u64
+    );
+    let started = std::time::Instant::now();
+    let (mut cursor, mut seen, mut pages) = (0, Vec::new(), 0);
+    while cursor < head {
+        let (records, reached) =
+            registry.session_journal_without_output_after(cursor, head, 512).unwrap();
+        assert!(reached > cursor, "each page makes progress");
+        assert!(records.iter().all(|record| record.kind != "terminal.output"));
+        seen.extend(records.iter().map(|record| record.sequence));
+        cursor = reached;
+        pages += 1;
+    }
+    let elapsed = started.elapsed();
+    eprintln!(
+        "roster replay bench: {segments} segments, {} records, {pages} pages, {} ms",
+        seen.len(),
+        elapsed.as_millis()
+    );
+    assert_eq!(seen, expected);
+}
