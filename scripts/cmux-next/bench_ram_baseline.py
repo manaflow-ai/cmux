@@ -149,6 +149,13 @@ def cmux_workload(app: str, workload: str, settle: float, fake_agent: str | None
     with open(out) as handle:
         report = json.load(handle)
     last = report["samples"][-1]
+    # bench_memory.py goes on, and exits 0, when a workspace or a pane fails to open: a sample of fewer
+    # workspaces or panes than the workload asked for is not that workload.
+    failures = last.get("pane_failures", 0)
+    if last["workspaces"] < count or failures:
+        return {"error": f"partial {workload}: {last['workspaces']} of {count} workspaces, {failures} panes failed "
+                         f"({'; '.join(report.get('pane_failures', [])[:3])})",
+                "partial_footprint_mb": last["total_footprint_mb"]}
     return {"footprint_mb": last["total_footprint_mb"], "processes": len(last["processes"]),
             "workspaces": last["workspaces"], "kinds": last["kinds"], "top": last["processes"][:12]}
 
@@ -199,6 +206,8 @@ def main():
             if got.get("error"):
                 print(f"{name} {column}: {got['error']}")
     print(f"bench-ram-baseline: wrote {os.path.join(args.out, 'ram-baseline.json')}")
+    if any(got.get("error") for by_workload in results.values() for got in by_workload.values()):
+        raise SystemExit(1)  # a failed or partial workload is not a baseline
 
 
 if __name__ == "__main__":

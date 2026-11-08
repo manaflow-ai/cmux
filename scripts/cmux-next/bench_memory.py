@@ -440,6 +440,10 @@ def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
             "with_image": sum(1 for o in opens if o.get("first_image_ms") is not None)}
 
 
+# The panes a workspace's recipe asked for that the app refused (the report's `pane_failures`).
+PANE_FAILURES: list[str] = []
+
+
 def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats | None = None):
     """One workspace of `recipe` (kinds joined by +); returns its id or None."""
     kinds = recipe.split("+")
@@ -479,6 +483,7 @@ def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats
             raise SystemExit(f"bench-memory: unknown kind {kind!r} in --mix")
         if response.get("error") or response.get("code"):
             print(f"   {kind} in {workspace}: {response.get('message') or response.get('error')}", file=sys.stderr)
+            PANE_FAILURES.append(f"{kind} in {workspace}: {response.get('message') or response.get('error')}"[:200])
     return workspace
 
 
@@ -857,7 +862,9 @@ def main():
     def settle_and_sample(label):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
         result = sample(app_pid, bundle, label, len(opened) + 1, args.measure)
+        result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
+        report["pane_failures"] = PANE_FAILURES[:20]
         print_sample(result, args.top)
         return result
 
