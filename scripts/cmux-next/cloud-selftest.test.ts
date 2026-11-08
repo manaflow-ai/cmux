@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { select, main } from "./cloud-selftest";
 import { ACTIONS, resolve, turnErrorCode, type ActionDef, type RunCtx } from "./cloud-selftest/actions";
-import { Actor, apiResult, cliErrorCode, cliJson } from "./cloud-selftest/actors";
+import { Actor, apiResult, cliErrorCode, cliJson, helpNamesVerb } from "./cloud-selftest/actors";
 import { interpolate, judge, mismatch, scenarioOutcome, writeReport, type Scenario } from "./cloud-selftest/engine";
 import { startLocalStub } from "./cloud-selftest/faults";
 import { cmuxTeamId, cmuxUserId, selftestEmail, stackFixtures, workerFixtures, type Fixtures, type FixtureTeam, type FixtureUser } from "./cloud-selftest/fixtures";
@@ -111,6 +111,17 @@ describe("matching", () => {
     expect(turnErrorCode("401 authentication_error")).toBe("provider.auth");
   });
 
+  test("a verb is present only when its own help names it (an unknown verb gets the noun's overview, exit 0)", () => {
+    const overview = "USAGE\n  cmux vm <action> [--target machine:MACHINE_ID]\n  cmux vm ls | status | pause | resume | rm";
+    expect(helpNamesVerb(overview, ["cloud", "team", "list"])).toBe(false);
+    expect(helpNamesVerb("usage: cmux vm machine-status --target machine:MACHINE_ID", ["cloud", "machine-status"])).toBe(true);
+    expect(helpNamesVerb("cmux: usage: cmux machine access new --target\n       cmux machine access exec --target machine:VM_ID", ["machine", "access", "exec"])).toBe(true);
+    // `inference gateway status` printing the gateway's own help is not the status verb.
+    expect(helpNamesVerb("Usage:\n  cmux inference gateway [--api URL] [--team TEAM]", ["inference", "gateway", "status"])).toBe(false);
+    expect(helpNamesVerb("Usage:\n  cmux inference gateway [--api URL] [--team TEAM]", ["inference", "gateway"])).toBe(true);
+    expect(helpNamesVerb("error: unknown command cloud share", ["cloud", "share", "chat"])).toBe(false);
+  });
+
   test("the report carries no secret", () => {
     const d = mkdtempSync(path.join(tmp, "report-"));
     writeReport(d, { backend: { name: "dev", api: "https://x" }, started_at: "", meta: {}, scenarios: [{ name: "s", outcome: "fail", ms: 1, reason: "token sekret-value-123 leaked", pending_lanes: [], covers: [], steps: [] }] }, ["sekret-value-123"]);
@@ -187,6 +198,25 @@ describe("runner against a fake API", () => {
   });
   afterAll(() => api.server.stop(true));
 
+  test("a role the backend cannot express skips the scenario once, and is not provisioned again", async () => {
+    let made = 0;
+    const fixtures: Fixtures = {
+      ...api.fixtures,
+      user: async (name: string) => (name === "admin" && made++, api.fixtures.user(name)),
+      setRole: async (t: FixtureTeam, u: FixtureUser, role: string) => {
+        if (role === "admin") throw new Error("fixtures.role_unavailable: the sign-in project defines no cmux:admin team permission");
+        return api.fixtures.setRole(t, u, role as any);
+      },
+    } as Fixtures;
+    const ctx = ctxFor(api.url, fixtures);
+    const s = SCENARIOS.find((x) => x.name === "team.role_matrix")!;
+    const first = await runScenario(s, ctx, ALL);
+    const second = await runScenario({ ...s, name: "again" }, ctx, ALL);
+    expect([first.outcome, second.outcome]).toEqual(["skip", "skip"]);
+    expect(first.reason).toContain("fixtures.role_unavailable");
+    expect(made).toBe(1);
+  });
+
   test("team.list, team.role_matrix and team.member_removed_live pass through the routes, owner first, each actor its own token", async () => {
     const ctx = ctxFor(api.url, api.fixtures);
     for (const name of ["team.list", "team.role_matrix", "team.member_removed_live", "identity.isolated"]) {
@@ -238,7 +268,7 @@ describe("runner against a fake API", () => {
     const bin = path.join(tmp, "fake-cmux");
     writeFileSync(bin, `#!/bin/sh
 case "$*" in
-  "cloud team list --help") exit 0 ;;
+  "cloud team list --help") echo "usage: cmux cloud team list [--json]"; exit 0 ;;
   *--help) echo "unknown command" >&2; exit 2 ;;
   "--json cloud team list") printf '{"teams":[{"id":"%s","role":"via-cli"}],"actor":"%s","home":"%s","surface":"%s","token":"%s"}\\n' "$CMUX_CLOUD_TEAM" "$CMUX_SELFTEST_ACTOR" "$HOME" "\${CMUX_SURFACE_ID:-}" "$CMUX_CLOUD_ACCESS_TOKEN" ;;
   *) echo '{"ok":false,"error":{"code":"fake.unknown"}}'; exit 1 ;;
@@ -323,6 +353,24 @@ describe("fixtures", () => {
     expect(await fx.cleanup()).toEqual({ users: 1, teams: 1 });
     expect(f.calls.filter((c) => c.method === "DELETE" && new URL(c.url).pathname.startsWith("/api/v1/users/")).map((c) => c.url)).toEqual([expect.stringContaining("/users/su1")]);
     expect(secrets).toEqual(expect.arrayContaining(["server-key", "at1", "rt1"]));
+  });
+
+  test("stack: a permission not held is fine to take away; an undefined role permission is role_unavailable", async () => {
+    const f = fakeStack();
+    // As the live service answers: DELETE of a permission the user lacks is 401 TEAM_PERMISSION_NOT_FOUND, and a
+    // project without the cmux:admin definition answers 404 PERMISSION_NOT_FOUND to its grant.
+    const http = async (method: string, url: string, body: any, headers: Record<string, string>) => {
+      const p = new URL(url).pathname;
+      if (method === "DELETE" && p.includes("/team-permissions/")) return { status: 401, body: { code: "TEAM_PERMISSION_NOT_FOUND" } };
+      if (method === "POST" && p.endsWith("/cmux%3Aadmin")) return { status: 404, body: { code: "PERMISSION_NOT_FOUND" } };
+      return f.http(method, url, body, headers);
+    };
+    const fx = stackFixtures("run1", "server-key", [], http);
+    const owner = await fx.user("owner");
+    const member = await fx.user("member");
+    const team = await fx.team(owner, "Self-test");
+    await fx.setRole(team, member, "member");
+    await expect(fx.setRole(team, member, "admin")).rejects.toThrow("fixtures.role_unavailable");
   });
 
   test("worker: one route, the token header, the code of a refusal", async () => {

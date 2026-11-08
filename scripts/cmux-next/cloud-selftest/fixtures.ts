@@ -65,9 +65,11 @@ export function stackFixtures(run: string, serverKey: string, secrets: string[],
   if (!serverKey) throw new Error("fixtures.not_configured: no STACK_SECRET_SERVER_KEY for the dev project");
   secrets.push(serverKey);
   const headers = { "x-stack-access-type": "server", "x-stack-project-id": project, "x-stack-secret-server-key": serverKey };
-  const call = async (method: string, route: string, body?: unknown, okStatuses = [200, 201]): Promise<any> => {
+  const call = async (method: string, route: string, body?: unknown, okStatuses = [200, 201], okCodes: string[] = []): Promise<any> => {
     const r = await http(method, `${STACK_API}/api/v1${route}`, body ?? (method === "GET" ? undefined : {}), headers);
     // Never echo the service's body (user data); its known-error code is enough.
+    if (okCodes.includes(String(r.body?.code ?? ""))) return null;
+    if (r.status === 404 && String(r.body?.code ?? "") === "PERMISSION_NOT_FOUND") throw new Error(`fixtures.role_unavailable: the sign-in project defines no ${decodeURIComponent(route.split("/").pop() ?? "")} team permission`);
     if (!okStatuses.includes(r.status)) throw new Error(`fixtures.stack: ${method} ${route.split("?")[0]} HTTP ${r.status} ${String(r.body?.code ?? "")}`);
     return r.body;
   };
@@ -97,7 +99,8 @@ export function stackFixtures(run: string, serverKey: string, secrets: string[],
       await call("POST", `/team-memberships/${team.stack_team}/${user.stack_user}`, {}, [200, 201, 409]);
       for (const [r, perm] of Object.entries(ROLE_PERMISSION)) {
         if (r === role) await call("POST", `/team-permissions/${team.stack_team}/${user.stack_user}/${encodeURIComponent(perm)}`, {}, [200, 201, 409]);
-        else await call("DELETE", `/team-permissions/${team.stack_team}/${user.stack_user}/${encodeURIComponent(perm)}`, {}, [200, 404]);
+        // Not held, or not defined in this project: nothing to take away.
+        else await call("DELETE", `/team-permissions/${team.stack_team}/${user.stack_user}/${encodeURIComponent(perm)}`, {}, [200, 404], ["TEAM_PERMISSION_NOT_FOUND", "PERMISSION_NOT_FOUND"]);
       }
     },
     async remove(team, user) {

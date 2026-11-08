@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
-import { DEV_FIXTURES_HEADER, DEV_FIXTURES_PATH, handleDevFixtures, type FixtureStack } from "../src/dev-fixtures.ts"
+import { DEV_FIXTURES_HEADER, DEV_FIXTURES_PATH, fixtureStack as realFixtureStack, handleDevFixtures, type FixtureStack } from "../src/dev-fixtures.ts"
 import type { Env } from "../src/env.ts"
 import { memberRow, PROJECT, stackWorld, teamIdOf, useStack, type World } from "./team-stack-support.ts"
 import { worker } from "./team-ssh-support.ts"
@@ -152,5 +152,16 @@ describe("dev fixtures route (Cloud self-test)", { timeout: 60_000 }, () => {
     expect((await call({ op: "cleanup", run: "run2" }, e, stack)).body.value).toEqual({ users: 1, teams: 1 })
     expect(users.has(other.stack_user)).toBe(true)
     expect(users.has(real)).toBe(true)
+  })
+
+  it("takes away a permission the user does not hold, and names a role the sign-in project cannot express", async () => {
+    // As the live service answers: a DELETE of a permission not held is 401 TEAM_PERMISSION_NOT_FOUND, and a grant
+    // of a permission the project never defined is 404 PERMISSION_NOT_FOUND.
+    const known = (status: number, code: string) => new Response(JSON.stringify({ code, error: "x" }), { status, headers: { "x-stack-known-error": code } })
+    const stack = realFixtureStack(testEnv(), async (r) => (r.method === "DELETE" ? known(401, "TEAM_PERMISSION_NOT_FOUND") : known(404, "PERMISSION_NOT_FOUND")))
+    await expect(stack.revoke("team", "user", "cmux:admin")).resolves.toBeUndefined()
+    await expect(stack.grant("team", "user", "cmux:admin")).rejects.toThrow("fixtures.role_unavailable")
+    const noHeader = realFixtureStack(testEnv(), async () => new Response(JSON.stringify({ code: "TEAM_PERMISSION_NOT_FOUND" }), { status: 401 }))
+    await expect(noHeader.revoke("team", "user", "cmux:guest")).resolves.toBeUndefined()
   })
 })

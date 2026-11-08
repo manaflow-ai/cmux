@@ -65,8 +65,11 @@ const API = "https://api.stack-auth.com/api/v1"
 export const fixtureStack = (env: Env, http: (r: Request) => Promise<Response> = (r) => fetch(r)): FixtureStack => {
   const headers = { "content-type": "application/json", "x-stack-access-type": "server", "x-stack-project-id": env.STACK_PROJECT_ID, "x-stack-secret-server-key": env.STACK_SECRET_SERVER_KEY ?? "" }
   /** One call; a status in `ok` is an answer (404 for an absent membership, 409 for one that exists). Never echoes the body. */
-  const call = async <T>(method: string, path: string, body?: unknown, ok: ReadonlyArray<number> = [200, 201]): Promise<T | null> => {
+  const call = async <T>(method: string, path: string, body?: unknown, ok: ReadonlyArray<number> = [200, 201], okKnown: ReadonlyArray<string> = []): Promise<T | null> => {
     const res = await http(new Request(`${API}${path}`, { method, headers, ...(method === "GET" ? {} : { body: JSON.stringify(body ?? {}) }), signal: AbortSignal.timeout(10_000) }))
+    const known = res.headers.get("x-stack-known-error") ?? (res.ok ? "" : await res.clone().json().then((b) => String((b as { code?: unknown } | null)?.code ?? ""), () => ""))
+    if (okKnown.includes(known)) return null
+    if (known === "PERMISSION_NOT_FOUND") throw new Error("fixtures.role_unavailable: the sign-in project defines no such team permission")
     if (!ok.includes(res.status)) throw new Error(`stack ${method} ${path.split("?")[0]!.replace(/\/[^/]{20,}/g, "/…")} returned ${res.status}`)
     if (res.status === 404 || res.status === 409) return null
     return (await res.json()) as T
@@ -86,7 +89,8 @@ export const fixtureStack = (env: Env, http: (r: Request) => Promise<Response> =
     },
     addMember: async (t, u) => void (await call("POST", `/team-memberships/${enc(t)}/${enc(u)}`, {}, [200, 201, 409])),
     grant: async (t, u, p) => void (await call("POST", `/team-permissions/${enc(t)}/${enc(u)}/${enc(p)}`, {}, [200, 201, 409])),
-    revoke: async (t, u, p) => void (await call("DELETE", `/team-permissions/${enc(t)}/${enc(u)}/${enc(p)}`, {}, [200, 404])),
+    // Not held (the service answers 401 TEAM_PERMISSION_NOT_FOUND) or not defined in the project: nothing to take away.
+    revoke: async (t, u, p) => void (await call("DELETE", `/team-permissions/${enc(t)}/${enc(u)}/${enc(p)}`, {}, [200, 404], ["TEAM_PERMISSION_NOT_FOUND", "PERMISSION_NOT_FOUND"])),
     removeMember: async (t, u) => void (await call("DELETE", `/team-memberships/${enc(t)}/${enc(u)}`, {}, [200, 404])),
     listSessions: async (u) => ((await call<{ items?: Array<{ id?: unknown }> }>("GET", `/auth/sessions?user_id=${enc(u)}`))?.items ?? []).flatMap((s) => (typeof s.id === "string" ? [s.id] : [])),
     deleteSession: async (u, s) => void (await call("DELETE", `/auth/sessions/${enc(s)}?user_id=${enc(u)}`, {}, [200, 404])),
@@ -221,6 +225,7 @@ export const handleDevFixtures = async (request: Request, env: Env, deps: { stac
     if (e instanceof Refused) return refuse(403, "fixtures.refused", e.message)
     if (e instanceof Invalid) return refuse(400, "validation.invalid", e.message)
     const m = String((e as Error).message ?? e).slice(0, 200)
-    return refuse(502, m.startsWith("fixtures.sync_failed") ? "fixtures.sync_failed" : "fixtures.upstream", m)
+    const code = m.startsWith("fixtures.sync_failed") ? "fixtures.sync_failed" : m.startsWith("fixtures.role_unavailable") ? "fixtures.role_unavailable" : "fixtures.upstream"
+    return refuse(code === "fixtures.role_unavailable" ? 409 : 502, code, m)
   }
 }

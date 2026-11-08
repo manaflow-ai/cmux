@@ -158,6 +158,17 @@ export function runCli(cmux: string, actor: Actor, argv: string[], timeoutMs = 1
   });
 }
 
+/**
+ * Whether a `--help` text is the verb's own: it names `cmux WORDS` (or `cmux vm REST` for a `cloud` verb, its alias)
+ * as a whole command. An unknown verb gets its noun's overview, which exits 0 too, so the exit code proves nothing.
+ */
+export function helpNamesVerb(text: string, words: string[]): boolean {
+  if (/unknown (command|verb|subcommand)|no such (command|verb)|unrecognized/i.test(text)) return false;
+  const names = [`cmux ${words.join(" ")}`, ...(words[0] === "cloud" ? [`cmux vm ${words.slice(1).join(" ")}`] : [])];
+  const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return names.some((n) => new RegExp(`${esc(n)}(?=\\s|$|\\])`, "m").test(text));
+}
+
 const verbCache = new Map<string, boolean>();
 /**
  * Whether this cmux has the verb: `cmux WORDS --help` exits 0 with a clean environment (no app socket, so an app verb's
@@ -169,7 +180,7 @@ export function verbExists(cmux: string, words: string[]): boolean {
   if (hit !== undefined) return hit;
   const done = spawnSync(cmux, [...words, "--help"], { env: { PATH: process.env.PATH ?? "", HOME: process.env.TMPDIR ?? "/tmp", CMUX_SOCKET_PATH: "/nonexistent/cmux-selftest.sock" }, encoding: "utf8", timeout: 15_000 });
   const text = `${done.stdout ?? ""}\n${done.stderr ?? ""}`;
-  const ok = done.status === 0 && !/unknown (command|verb|subcommand)|no such (command|verb)|unrecognized/i.test(text);
+  const ok = helpNamesVerb(text, words);
   verbCache.set(key, ok);
   return ok;
 }

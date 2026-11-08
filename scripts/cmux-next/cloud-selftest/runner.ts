@@ -104,6 +104,8 @@ export async function waitTeamListed(actor: Actor, team: string, budgetMs: numbe
 /** Owner first: the team must exist before a member joins it. */
 export const provisionOrder = (specs: ActorSpec[]) => [...specs].sort((a, b) => Number(b.team_role === "owner") - Number(a.team_role === "owner"));
 
+const unavailable = new WeakMap<RunCtx, Map<string, string>>();
+
 export async function runScenario(s: Scenario, ctx: RunCtx, can: Abilities, actions: Record<string, ActionDef> = ACTIONS): Promise<ScenarioRecord> {
   const t0 = Date.now();
   const steps: StepRecord[] = [];
@@ -119,11 +121,18 @@ export async function runScenario(s: Scenario, ctx: RunCtx, can: Abilities, acti
   }
   for (const spec of provisionOrder(s.actors)) {
     const p0 = Date.now();
+    const known = unavailable.get(ctx)?.get(spec.name);
     try {
+      if (known) throw new Error(known);
       await provision(ctx, spec);
     } catch (e) {
-      steps.push({ scenario: s.name, index: -1, label: `provision ${spec.name}`, actor: spec.name, action: "fixtures", outcome: "fail", ms: Date.now() - p0, detail: String((e as Error).message).slice(0, 400) });
-      return done(`provisioning ${spec.name} failed`);
+      const detail = String((e as Error).message).slice(0, 400);
+      // The backend's sign-in project cannot express this role (no such team permission): a limit of where this runs,
+      // not a product failure. Remembered, so later scenarios do not make another identity to learn it again.
+      const limit = detail.startsWith("fixtures.role_unavailable");
+      if (limit) unavailable.set(ctx, (unavailable.get(ctx) ?? new Map()).set(spec.name, detail));
+      steps.push({ scenario: s.name, index: -1, label: `provision ${spec.name}`, actor: spec.name, action: "fixtures", outcome: limit ? "skip" : "fail", ms: Date.now() - p0, detail });
+      return done(limit ? detail : `provisioning ${spec.name} failed`);
     }
   }
   // Per scenario: its own agent session name on any machine it makes.
