@@ -28,7 +28,7 @@ await requireBrowserLane("send-entrance-delivery-mark.test.ts", async () => {
     await browser?.close();
   });
 
-  test("a send still pending after a second shows its Still sending mark beside the bubble", async () => {
+  test("a send still pending past its entrance shows its Still sending mark beside the bubble", async () => {
     const css = readFileSync(
       path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
       "utf8",
@@ -46,8 +46,12 @@ await requireBrowserLane("send-entrance-delivery-mark.test.ts", async () => {
           </div></article>
         </div></body></html>`);
       await page.addStyleTag({ content: css });
-      // Past the entrance, while the send is still pending.
-      await page.waitForTimeout(1100);
+      // Past the entrance (every animation it started has ended), the send still pending.
+      await page.waitForFunction(
+        () =>
+          document.getAnimations().length > 0 &&
+          document.getAnimations().every((animation) => animation.playState === "finished"),
+      );
       const shown = await page.evaluate(() => {
         const mark = document.getElementById("mark")!;
         const box = mark.getBoundingClientRect();
