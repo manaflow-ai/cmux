@@ -112,7 +112,10 @@ impl Holder {
     /// now. A lock another process holds (the cmux link) is refused `key_held`, with its pid
     /// when it wrote one, and the key file is never touched. Forwarding the rekey to the link
     /// comes when the link is this machine's key holder.
-    pub(crate) fn take(transport: Option<&Arc<Transport>>, state_dir: &Path) -> Result<Self, RpcError> {
+    pub(crate) fn take(
+        transport: Option<&Arc<Transport>>,
+        state_dir: &Path,
+    ) -> Result<Self, RpcError> {
         if let Some(transport) = transport
             && transport.with_key(|_| ()).is_some()
         {
@@ -120,11 +123,10 @@ impl Holder {
         }
         match KeyHolder::acquire(state_dir) {
             Ok(lock) => Ok(Self::Lock(lock)),
-            Err(KeyHolderError::KeyHeld { pid }) => Err(refusal(
-                "key_held",
-                "the link holds the key; it rekeys in a later version",
-            )
-            .with_data(json!({"reason": "key_held", "holderPid": pid}))),
+            Err(KeyHolderError::KeyHeld { pid }) => {
+                Err(refusal("key_held", "the link holds the key; it rekeys in a later version")
+                    .with_data(json!({"reason": "key_held", "holderPid": pid})))
+            }
             Err(KeyHolderError::Io(_)) => {
                 Err(RpcError::internal("this Mac's WireGuard key lock could not be taken"))
             }
@@ -243,7 +245,10 @@ async fn post(
     let code = answer
         .get("code")
         .and_then(Value::as_str)
-        .filter(|code| code.len() <= 64 && code.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)))
+        .filter(|code| {
+            code.len() <= 64
+                && code.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        })
         .unwrap_or_default();
     Err(RpcError::new(-32000, refused_words(status, code)).with_data(json!({
         "reason": "platform",
@@ -258,7 +263,9 @@ fn refused_words(status: u16, code: &str) -> String {
         "machine.wg_key_in_use" => {
             "another machine of the team holds that WireGuard key; rekey again".into()
         }
-        "machine.wg_key_invalid" => "the platform refused the new WireGuard key as malformed".into(),
+        "machine.wg_key_invalid" => {
+            "the platform refused the new WireGuard key as malformed".into()
+        }
         "machine.revoked" => "this Mac's join was revoked; add it again".into(),
         "mesh.node.not_found" | "machine.not_found" => {
             "the platform has no such machine for this account; sign in as the person who added it"

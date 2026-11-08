@@ -2078,8 +2078,8 @@ use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
     report_outbound_loss_locked,
 };
-pub(crate) mod outbox;
 mod machine_tunnel;
+pub(crate) mod outbox;
 mod pairing;
 pub mod peer_auth;
 mod peer_forward;

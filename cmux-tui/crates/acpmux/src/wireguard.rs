@@ -21,11 +21,11 @@ use cmux_link::key_holder::{KeyHolder, KeyHolderError};
 use cmux_wg::{
     InterfaceAddress, IpNetwork, WgMesh, WgMeshConfig, WgMeshListener, WgPeer, WgStream,
 };
-use zeroize::Zeroizing;
 use serde::{Deserialize, Serialize};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{RwLock, watch};
 use tokio::task::{JoinHandle, JoinSet};
+use zeroize::Zeroizing;
 
 const CONNECT_BOUND: Duration = Duration::from_secs(10);
 const MAX_BRIDGES: usize = 64;

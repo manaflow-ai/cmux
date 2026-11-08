@@ -1588,7 +1588,8 @@ async fn machine_consent_status_is_required_for_joined_or_unreadable_state() {
 
 /// A platform stand-in on loopback for the tunnel methods: each request's first line, its
 /// lower-cased headers and body, answered as the platform would.
-async fn tunnel_platform() -> (String, std::sync::Arc<std::sync::Mutex<Vec<(String, String, Value)>>>) {
+async fn tunnel_platform()
+-> (String, std::sync::Arc<std::sync::Mutex<Vec<(String, String, Value)>>>) {
     use tokio::io::AsyncReadExt;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
@@ -1658,7 +1659,11 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
     let token = json!({"token": "person-token"});
     let mut shell = Rpc::connect(&daemon.socket).await;
     shell.initialize().await;
-    for method in ["_acpmux/machine.tunnel.attach", "_acpmux/machine.tunnel.detach", "_acpmux/machine.tunnel.rekey"] {
+    for method in [
+        "_acpmux/machine.tunnel.attach",
+        "_acpmux/machine.tunnel.detach",
+        "_acpmux/machine.tunnel.rekey",
+    ] {
         let refused = shell.call(method, token.clone()).await;
         assert_eq!(reason(&refused), REASON, "{method}: {refused}");
     }
@@ -1668,7 +1673,10 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
     let missing = app.call("_acpmux/machine.tunnel.attach", json!({})).await;
     assert_eq!(reason(&missing), "token_required", "{missing}");
     let attached = app
-        .ok("_acpmux/machine.tunnel.attach", json!({"token": "person-token", "networkId": "team_test"}))
+        .ok(
+            "_acpmux/machine.tunnel.attach",
+            json!({"token": "person-token", "networkId": "team_test"}),
+        )
         .await;
     assert_eq!(attached["tunnel_id"], "machine_test");
     let rekeyed = app.ok("_acpmux/machine.tunnel.rekey", token.clone()).await;
@@ -1676,8 +1684,16 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
     assert_eq!(rekeyed["restarted"], false, "no WireGuard transport runs in this daemon");
     let requests = seen.lock().unwrap().clone();
     assert_eq!(requests.len(), 2, "{requests:?}");
-    assert!(requests[0].0.starts_with("post /v1/mesh/nodes/machine_test/attach "), "{}", requests[0].0);
-    assert!(requests[1].0.starts_with("post /v1/machines/credentials/machine_test/wg-key "), "{}", requests[1].0);
+    assert!(
+        requests[0].0.starts_with("post /v1/mesh/nodes/machine_test/attach "),
+        "{}",
+        requests[0].0
+    );
+    assert!(
+        requests[1].0.starts_with("post /v1/machines/credentials/machine_test/wg-key "),
+        "{}",
+        requests[1].0
+    );
     assert_eq!(requests[1].2["wgPublicKey"], new_key.as_str());
     for (_, headers, _) in &requests {
         assert!(headers.contains("authorization: bearer person-token"), "{headers}");
@@ -1690,7 +1706,10 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
     assert_eq!(base64::engine::general_purpose::STANDARD.encode(public.to_bytes()), new_key);
     let record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(record["wgPublicKey"], new_key.as_str());
-    assert!(!std::fs::read_to_string(&path).unwrap().contains("person-token"), "the token was stored");
+    assert!(
+        !std::fs::read_to_string(&path).unwrap().contains("person-token"),
+        "the token was stored"
+    );
 }
 
 #[path = "support/machine_consent_home.rs"]

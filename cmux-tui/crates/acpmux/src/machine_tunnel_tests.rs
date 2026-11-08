@@ -56,15 +56,16 @@ async fn platform(
                 .lines()
                 .find_map(|line| {
                     let (name, value) = line.split_once(':')?;
-                    name.eq_ignore_ascii_case("content-length").then(|| value.trim().parse().ok())?
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse().ok())?
                 })
                 .unwrap_or(0usize);
             while buffer.len() < head_end + length {
                 let n = stream.read(&mut chunk).await.unwrap();
                 buffer.extend_from_slice(&chunk[..n]);
             }
-            let body = serde_json::from_slice(&buffer[head_end..head_end + length])
-                .unwrap_or(Value::Null);
+            let body =
+                serde_json::from_slice(&buffer[head_end..head_end + length]).unwrap_or(Value::Null);
             let (line, headers) = head.split_once("\r\n").unwrap();
             let request = Seen {
                 line: line.to_owned(),
@@ -95,8 +96,11 @@ fn machine(origin: &str) -> Machine {
 
 /// What the wg-key route answers when it takes the key: the record with the key it was sent.
 fn takes_the_key(seen: &Seen) -> (u16, Value) {
-    (200, json!({"machineId": "machine_1", "joinTokenId": "join_1", "teamId": "team_1",
-                 "wgPublicKey": seen.body["wgPublicKey"]}))
+    (
+        200,
+        json!({"machineId": "machine_1", "joinTokenId": "join_1", "teamId": "team_1",
+                 "wgPublicKey": seen.body["wgPublicKey"]}),
+    )
 }
 
 fn reason(error: &RpcError) -> &str {
@@ -139,7 +143,9 @@ async fn a_rekey_sends_the_new_key_before_it_replaces_the_key_file() {
 
 #[tokio::test]
 async fn a_refused_rekey_leaves_the_key_file_as_it_was() {
-    for (status, code) in [(409, "machine.wg_key_in_use"), (403, "machine.revoked"), (503, "mesh.unavailable")] {
+    for (status, code) in
+        [(409, "machine.wg_key_in_use"), (403, "machine.revoked"), (503, "mesh.unavailable")]
+    {
         let dir = tempfile::tempdir().unwrap();
         let old_bytes = {
             public_of(dir.path());
@@ -150,11 +156,12 @@ async fn a_refused_rekey_leaves_the_key_file_as_it_was() {
         })
         .await;
         let rekeys = tokio::sync::Mutex::new(());
-        let error = rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |_| {
-            panic!("a refused rekey records no key")
-        })
-        .await
-        .unwrap_err();
+        let error =
+            rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |_| {
+                panic!("a refused rekey records no key")
+            })
+            .await
+            .unwrap_err();
         assert_eq!(reason(&error), "platform");
         let data = error.data.clone().unwrap();
         assert_eq!(data["code"], code);
@@ -174,9 +181,10 @@ async fn a_platform_that_answers_another_key_changes_nothing_here() {
     })
     .await;
     let rekeys = tokio::sync::Mutex::new(());
-    let error = rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |_| Ok(()))
-        .await
-        .unwrap_err();
+    let error =
+        rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |_| Ok(()))
+            .await
+            .unwrap_err();
     assert_eq!(reason(&error), "platform");
     assert_eq!(public_of(dir.path()), old);
 }
@@ -211,9 +219,10 @@ async fn a_key_lock_another_holder_has_is_refused_key_held() {
     // Another holder (the link, say): this process's pid is the record.
     let other = KeyHolder::acquire(dir.path()).unwrap();
     let rekeys = tokio::sync::Mutex::new(());
-    let error = rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |_| Ok(()))
-        .await
-        .unwrap_err();
+    let error =
+        rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |_| Ok(()))
+            .await
+            .unwrap_err();
     assert_eq!(reason(&error), "key_held");
     assert_eq!(error.message, "the link holds the key; it rekeys in a later version");
     assert_eq!(error.data.unwrap()["holderPid"], std::process::id());
@@ -230,7 +239,10 @@ async fn attach_and_detach_name_this_machine_as_the_person() {
         if seen.line.contains("/detach ") {
             (200, json!({"detached": true, "tunnel_id": "machine_1", "network_id": "team_1"}))
         } else {
-            (200, json!({"tunnel_id": "machine_1", "network_id": "team_1", "client_public_key": "k"}))
+            (
+                200,
+                json!({"tunnel_id": "machine_1", "network_id": "team_1", "client_public_key": "k"}),
+            )
         }
     })
     .await;
@@ -272,8 +284,13 @@ async fn a_sticky_detach_reads_as_the_platforms_refusal() {
 
 #[test]
 fn the_token_must_be_one_printable_word() {
-    for bad in [json!({}), json!({"token": ""}), json!({"token": "two words"}), json!({"token": 7}),
-                json!({"token": "a".repeat(MAX_TOKEN_BYTES + 1)})] {
+    for bad in [
+        json!({}),
+        json!({"token": ""}),
+        json!({"token": "two words"}),
+        json!({"token": 7}),
+        json!({"token": "a".repeat(MAX_TOKEN_BYTES + 1)}),
+    ] {
         assert_eq!(reason(&token(&bad).unwrap_err()), "token_required", "{bad}");
     }
     assert_eq!(token(&json!({"token": TOKEN})).unwrap().as_str(), TOKEN);

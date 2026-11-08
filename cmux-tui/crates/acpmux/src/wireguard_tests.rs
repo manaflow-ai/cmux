@@ -446,24 +446,38 @@ fn a_restart_runs_the_mesh_with_the_new_key_on_the_same_port() {
         let fresh_public = base64::engine::general_purpose::STANDARD.encode(
             x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(*fresh)).to_bytes(),
         );
-        let (a_socket, b_socket) =
-            (UdpSocket::bind("127.0.0.1:0").await.unwrap(), UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let a = StaticConfig { listen: a_socket.local_addr().unwrap(), address: "10.77.0.1:4100".parse().unwrap() };
-        let b = StaticConfig { listen: b_socket.local_addr().unwrap(), address: "10.77.0.2:4100".parse().unwrap() };
-        let a_peers = BTreeMap::from([("b".into(), peer(b_key.public_key_b64(), b.listen, b.address))]);
+        let (a_socket, b_socket) = (
+            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+        );
+        let a = StaticConfig {
+            listen: a_socket.local_addr().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        };
+        let b = StaticConfig {
+            listen: b_socket.local_addr().unwrap(),
+            address: "10.77.0.2:4100".parse().unwrap(),
+        };
+        let a_peers =
+            BTreeMap::from([("b".into(), peer(b_key.public_key_b64(), b.listen, b.address))]);
         // b already knows a only by the key a gets in the rekey.
         let b_peers = BTreeMap::from([("a".into(), peer(fresh_public, a.listen, a.address))]);
         let a_lock = KeyHolder::acquire(homes[0].path()).unwrap();
         let b_lock = KeyHolder::acquire(homes[1].path()).unwrap();
         let target_addr = target.local_addr().unwrap();
-        let a_side = Transport::from_socket(&a, &a_peers, homes[0].path(), target_addr, a_socket, a_lock)
-            .await
-            .unwrap();
-        let b_side = Transport::from_socket(&b, &b_peers, homes[1].path(), target_addr, b_socket, b_lock)
-            .await
-            .unwrap();
-        let before =
-            tokio::time::timeout(Duration::from_secs(1), a_side.connect(a_side.route("b").unwrap())).await;
+        let a_side =
+            Transport::from_socket(&a, &a_peers, homes[0].path(), target_addr, a_socket, a_lock)
+                .await
+                .unwrap();
+        let b_side =
+            Transport::from_socket(&b, &b_peers, homes[1].path(), target_addr, b_socket, b_lock)
+                .await
+                .unwrap();
+        let before = tokio::time::timeout(
+            Duration::from_secs(1),
+            a_side.connect(a_side.route("b").unwrap()),
+        )
+        .await;
         assert!(!matches!(before, Ok(Ok(_))), "b took a's old key");
         let port = a_side.local_addr();
         a_side.restart(fresh).await.unwrap();
