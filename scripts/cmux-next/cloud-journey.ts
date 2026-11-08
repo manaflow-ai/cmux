@@ -26,9 +26,7 @@
  *   -> first exec -> pass Claude login -> start agent (acpmux on the machine) -> send chat -> reply -> turn 2 (same
  *   session) -> daemon restart keeps the session (the guest's agent daemon killed, then a turn) -> connect_info
  *   -> carrier dial (an identify answered over the machine's relay slot) -> handoff record -> pause -> resume
- *   -> carrier dial after resume -> turn after resume -> delete. The carrier is the only way into a Cloud machine
- *   (cmux#37210), so the journey no longer dials the link, asks for a link_token or syncs a folder over the link.
- *   `--skip lifecycle` leaves out the later turns and the daemon restart.
+ *   -> carrier dial after resume -> turn after resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
  * summary.md (a table for a PR comment or job summary). The machine this run made is deleted at the
@@ -330,20 +328,42 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
   };
 }
 
+/** A carrier answer's `relay`, as the dial takes it (cmux-tui carrier/answer.rs relay_route): a bare `relay+do://<host>`. */
+function relayDoProblem(text: unknown): string | null {
+  if (typeof text !== "string") return "relay is missing";
+  let url: URL;
+  try { url = new URL(text); } catch { return "relay is not a URL"; }
+  const bare = !url.username && !url.password && !url.search && !url.hash && (url.pathname === "" || url.pathname === "/");
+  return url.protocol === "relay+do:" && bare && url.hostname ? null : "relay is not a relay+do:// origin";
+}
+
+/** A ticket or grant as the dial takes it (answer.rs secret): 1 to 4096 visible ASCII bytes. */
+const visibleSecret = (v: unknown): boolean => typeof v === "string" && /^[\x21-\x7e]{1,4096}$/.test(v);
+
+/** A canonical 32-byte base64url key without padding (answer.rs key_bytes: it re-encodes to the same text). */
+export function canonicalKey(v: unknown): boolean {
+  if (typeof v !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(v)) return false;
+  const bytes = Buffer.from(v, "base64url");
+  return bytes.length === 32 && bytes.toString("base64url") === v;
+}
+
 /**
- * What is wrong with a POST /v1/cloud/machines/{id}/carrier answer for a person who sent a noise_key (cmux-platform
- * CarrierRoute.ts), or null when it is a whole carrier answer: the relay, the machine's slot, a live ticket, the
- * grant for the key and the daemon's Noise key (32 bytes, base64url), which an image that serves the carrier stores
- * at bind and which the dial pins (cmux-tui carrier/client.rs pinned_daemon refuses an answer without it).
+ * What `cmux carrier dial` would refuse in a POST /v1/cloud/machines/{id}/carrier answer for a person who sent a
+ * noise_key (cmux-platform CarrierRoute.ts), or null when the dial would take it. The rules are answer.rs
+ * parse_answer's (relay, slot, ticket, expires_at, grant) and client.rs pinned_daemon's (the daemon key a dial pins),
+ * plus a ticket still live and a grant present, which a dial with a noise_key needs.
  */
 export function carrierTicketProblem(status: number, body: any, nowS = Date.now() / 1000): string | null {
   if (status !== 200 || body?.ok !== true) return `HTTP ${status} ${short(body?.error ?? body)}`;
   const v = body.value ?? {};
-  if (typeof v.relay !== "string" || !v.relay.startsWith("relay+do://")) return `no relay+do:// relay (${short(v.relay)})`;
-  for (const field of ["slot", "ticket", "grant"]) if (typeof v[field] !== "string" || !v[field]) return `no ${field}`;
-  if (typeof v.expires_at !== "number" || v.expires_at <= nowS) return `the ticket is not live (expires_at ${short(v.expires_at)})`;
-  if (typeof v.daemon_key !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(v.daemon_key) || Buffer.from(v.daemon_key, "base64url").length !== 32)
-    return "no 32-byte daemon_key: the machine's daemon stored no carrier key at bind, and the dial refuses that";
+  const relay = relayDoProblem(v.relay);
+  if (relay) return relay;
+  if (typeof v.slot !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(v.slot)) return "slot is not 1 to 128 base64url characters";
+  if (!visibleSecret(v.ticket)) return "ticket is not 1 to 4096 visible ASCII bytes";
+  if (!Number.isSafeInteger(v.expires_at) || v.expires_at < 0) return "expires_at is missing";
+  if (v.expires_at <= nowS) return `the ticket is not live (expires_at ${v.expires_at})`;
+  if (!visibleSecret(v.grant)) return "grant is not 1 to 4096 visible ASCII bytes";
+  if (!canonicalKey(v.daemon_key)) return "no canonical 32-byte daemon_key: the dial refuses an answer without one";
   return null;
 }
 
@@ -1048,7 +1068,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           machine = v.machine.id as string;
           return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
         });
-    await J.step("running (status)", async () => {
+    const bound = await J.step("running (status)", async () => {
       const m = await waitMachine(api, created.id, (x) => x.status === "running" && Boolean(x.host), 300_000);
       return { value: m, detail: `host ${m.host}, daemon ${m.image?.daemon_version ?? "?"}` };
     });
@@ -1481,8 +1501,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
-    // The carrier is the only way in (cmux#37210): connect_info, then the carrier dial. The link_token, link dial
-    // and link sync steps went with the link.
+    // The carrier is the only way into a Cloud machine (cmux-platform#1007 deletes the Native link_token and the relay
+    // chat), so the journey connects with the carrier dial and nothing else.
     await J.step("connect (connect_info)", async () => {
       const info = await installApi.read("cloud.machine.connect_info", { machine: created.id });
       return { value: null, detail: `host ${info.host} state ${info.state} epoch ${info.epoch}` };
@@ -1493,11 +1513,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts: ${d.reply.slice(0, 160)}` };
       });
     } else {
-      // Without a cmux binary the dial cannot run; the platform's half of it still can: the ticket and grant the
-      // dial asks for, and the daemon key the machine stored at bind.
+      // Without a cmux binary (the production journeys) the dial cannot run; its platform half still can: the
+      // ticket, grant and daemon key it asks for, checked by the dial's own rules.
       await J.step("connect (carrier ticket)", async () => {
-        const noiseKey = randomBytes(32).toString("base64url");
-        const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/carrier`, { noise_key: noiseKey });
+        const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/carrier`, { noise_key: randomBytes(32).toString("base64url") });
         const problem = carrierTicketProblem(r.status, r.body);
         if (problem) throw new Error(`carrier ticket: ${problem}`);
         return { value: null, detail: `${r.body.value.relay}, ticket until ${r.body.value.expires_at}, grant and daemon key present` };

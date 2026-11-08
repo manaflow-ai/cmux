@@ -29,8 +29,8 @@ public struct PaneToolbarItem: Equatable, Sendable {
 /// 0 by default; Lawrence 2026-10-20) while the tabs leave room, show muted at rest once the tabs fill
 /// the bar (`tabs.crowdedControls`; Leo 2026-10-20), and fade in while the pointer is over the tab bar or these
 /// controls (`HoverReveal`, like the strip's plus), while "…"'s menu is open and while one has keyboard
-/// focus, and stay shown, "…" and a pinned zoom button lit, while the pane is zoomed (the selected
-/// tab carries the zoom indicator, `TabStripModel.zoomsSelected`). Their width is kept while they are faded,
+/// focus, and stay shown, "…" and a pinned zoom button lit, while the pane is zoomed (the pane's
+/// top-right carries the zoom indicator, `PaneZoomIndicatorView`). Their width is kept while they are faded,
 /// so no tab moves when they appear. The overflow glyph also stays in its trailing slot throughout
 /// the opacity fade (Leo 2026-10-26). "…"'s menu opens on press (press-drag-release) and lists what
 /// opens in the pane, then the actions without a button, Search Tabs, then Show in Tab Bar.

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
-import { carrierDial, carrierTicketProblem, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
@@ -278,16 +278,32 @@ describe("opRetryable", () => {
 });
 
 describe("cloud journey: carrier ticket without a cmux binary", () => {
-  const whole = { relay: "relay+do://cmux-remote-relay-production.debussy.workers.dev", slot: "s", ticket: "t", grant: "g", daemon_key: Buffer.alloc(32, 7).toString("base64url"), expires_at: 2_000 };
-  test("a whole answer passes", () => {
-    expect(carrierTicketProblem(200, { ok: true, value: whole }, 1_000)).toBeNull();
+  const key = Buffer.alloc(32, 7).toString("base64url");
+  const whole = { relay: "relay+do://cmux-remote-relay-production.debussy.workers.dev", slot: "s_1-x", ticket: "t.t", grant: "g.g.g", daemon_key: key, expires_at: 2_000 };
+  const answer = (patch: Record<string, unknown>) => ({ ok: true, value: { ...whole, ...patch } });
+  test("an answer the dial takes passes", () => {
+    expect(carrierTicketProblem(200, answer({}), 1_000)).toBeNull();
   });
-  test("names what is missing", () => {
+  test("a refusal names its status", () => {
     expect(carrierTicketProblem(503, { ok: false, error: { code: "owner.unreachable" } }, 1_000)).toContain("HTTP 503");
-    expect(carrierTicketProblem(200, { ok: true, value: { ...whole, relay: "wss://x" } }, 1_000)).toContain("relay+do://");
-    expect(carrierTicketProblem(200, { ok: true, value: { ...whole, grant: undefined } }, 1_000)).toBe("no grant");
-    expect(carrierTicketProblem(200, { ok: true, value: whole }, 3_000)).toContain("not live");
-    expect(carrierTicketProblem(200, { ok: true, value: { ...whole, daemon_key: undefined } }, 1_000)).toContain("no 32-byte daemon_key");
-    expect(carrierTicketProblem(200, { ok: true, value: { ...whole, daemon_key: "k" } }, 1_000)).toContain("no 32-byte daemon_key");
+  });
+  test("the dial's relay rule: a bare relay+do:// with a host", () => {
+    for (const relay of ["relay+do://", "wss://x", "relay+do://h/path", "relay+do://h?q=1", "relay+do://u@h", undefined])
+      expect(carrierTicketProblem(200, answer({ relay }), 1_000)).toMatch(/relay/);
+    expect(carrierTicketProblem(200, answer({ relay: "relay+do://h/" }), 1_000)).toBeNull();
+  });
+  test("the dial's slot, ticket and grant rules", () => {
+    for (const slot of ["", " ", "a b", "x".repeat(129), 3]) expect(carrierTicketProblem(200, answer({ slot }), 1_000)).toContain("slot");
+    for (const ticket of ["", "a b", undefined]) expect(carrierTicketProblem(200, answer({ ticket }), 1_000)).toContain("ticket");
+    for (const grant of ["", " ", undefined]) expect(carrierTicketProblem(200, answer({ grant }), 1_000)).toContain("grant");
+    expect(carrierTicketProblem(200, answer({}), 3_000)).toContain("not live");
+  });
+  test("the daemon key the dial pins is canonical 32-byte base64url", () => {
+    expect(canonicalKey(key)).toBe(true);
+    const lastChar = key.at(-1)!;
+    const noncanonical = key.slice(0, -1) + (lastChar === "c" ? "d" : "c"); // same 32 bytes, other trailing bits
+    expect(Buffer.from(noncanonical, "base64url").length).toBe(32);
+    for (const daemon_key of [undefined, "k", `${key}=`, noncanonical, key.replace(/.$/, "+")])
+      expect(carrierTicketProblem(200, answer({ daemon_key }), 1_000)).toContain("daemon_key");
   });
 });
