@@ -17,7 +17,9 @@
 #
 # --dir takes assets already on disk (for example the fork's
 # binary_distrib output); without it the assets are fetched with
-# `gh release download` and checked against the release's SHA256SUMS.
+# `gh release download` and each must match its line in the release's
+# SHA256SUMS (a release without one, or an archive it does not list, is
+# refused).
 #
 # Credentials (environment first, then CMUX_CEF_R2_ENV_FILE, default
 # ~/.secrets/cmux-cef.env; values are never printed):
@@ -27,7 +29,7 @@
 #   CMUX_CEF_R2_BUCKET (default cmux-cef), CMUX_CEF_R2_ENDPOINT (optional)
 set -euo pipefail
 
-usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 
 tag=""; repo="manaflow-ai/cef"; dir=""; manifest=""
 while (( $# )); do
@@ -89,10 +91,18 @@ if [[ -z "$dir" ]]; then
   mkdir -p "$dir"
   echo "==> downloading $repo $tag assets" >&2
   gh release download "$tag" --repo "$repo" --pattern '*.tar.xz' --dir "$dir" >&2
-  if gh release download "$tag" --repo "$repo" --pattern SHA256SUMS --dir "$dir" >/dev/null 2>&1; then
-    (cd "$dir" && grep '\.tar\.xz$' SHA256SUMS | shasum -a 256 -c - >&2) ||
-      { echo "error: assets do not match the release SHA256SUMS" >&2; exit 1; }
-  fi
+  # Fail closed: a release with no SHA256SUMS, or a .tar.xz it does not list or
+  # that does not match its line, publishes nothing.
+  gh release download "$tag" --repo "$repo" --pattern SHA256SUMS --dir "$work" >/dev/null 2>&1 ||
+    { echo "error: $repo $tag has no SHA256SUMS; refusing to publish unchecked assets" >&2; exit 1; }
+  for path in "$dir"/*.tar.xz; do
+    [[ -e "$path" ]] || continue
+    name="$(basename "$path")"
+    want="$(awk -v n="$name" '{f=$2; sub(/^\*/, "", f)} f == n {print $1; exit}' "$work/SHA256SUMS")"
+    [[ -n "$want" ]] || { echo "error: $name is not listed in the release SHA256SUMS" >&2; exit 1; }
+    got="$(shasum -a 256 "$path" | awk '{print $1}')"
+    [[ "$got" == "$want" ]] || { echo "error: $name does not match the release SHA256SUMS" >&2; exit 1; }
+  done
 fi
 
 shopt -s nullglob
