@@ -344,13 +344,22 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
               await page.evaluate(
                 () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
               );
+              // Only running, finite animations: a paused one never finishes. Capped, so a stuck one
+              // fails the measurement below instead of the whole file's time limit.
               await panel.evaluate((node) =>
-                Promise.all(
-                  node
-                    .getAnimations({ subtree: true })
-                    .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
-                    .map((animation) => animation.finished.catch(() => {})),
-                ),
+                Promise.race([
+                  Promise.all(
+                    node
+                      .getAnimations({ subtree: true })
+                      .filter(
+                        (animation) =>
+                          animation.playState === "running" &&
+                          animation.effect?.getComputedTiming().endTime !== Infinity,
+                      )
+                      .map((animation) => animation.finished.catch(() => {})),
+                  ),
+                  new Promise((done) => setTimeout(done, 2_000)),
+                ]),
               );
             };
             const rows = context.locator(".ui-disclosure-panel");
@@ -363,8 +372,15 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
             await rows.waitFor({ state: "detached", timeout: 5_000 });
             await frame();
             const after = await fit(panel);
+            const shrank = fold > 0 && Math.abs(unfolded.card - after.card - fold) < 0.5;
+            if (!shrank)
+              console.log(`fold heights (${name}, ${placement}):`, {
+                fold,
+                unfolded: unfolded.card,
+                after: after.card,
+              });
             folded = {
-              shrank: fold > 0 && Math.abs(unfolded.card - after.card - fold) < 0.5,
+              shrank,
               endsAtContent: after.endsAtContent,
               scrolls: after.scrolls,
             };
