@@ -4176,6 +4176,18 @@
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
+    "sidebar.groupGradient" : {
+      "default" : "sunset",
+      "description" : "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors.",
+      "enum" : [
+        "sunset",
+        "aurora",
+        "lagoon",
+        "twoTone"
+      ],
+      "title" : "Group Gradient",
+      "type" : "string"
+    },
     "sidebar.groupHeader.background" : {
       "default" : "auto",
       "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
@@ -4201,13 +4213,14 @@
     },
     "sidebar.groupPalette" : {
       "default" : "glass",
-      "description" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+      "description" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient.",
       "enum" : [
         "glass",
         "theme",
         "wallpaper",
         "grayscale",
-        "vibrant"
+        "vibrant",
+        "gradient"
       ],
       "title" : "Group Colors",
       "type" : "string"
