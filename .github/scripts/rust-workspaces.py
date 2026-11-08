@@ -48,6 +48,8 @@ EVERYTHING = frozenset({
     ".github/scripts/test_rust_workspaces.py",
     ".github/workflows/rust-workspaces.yml",
     ".github/actions/setup-cmux-tui-rust/action.yml",
+    ".github/actions/runner-cargo-home/action.yml",
+    ".github/actions/runner-cargo-home/runner-cargo-home.sh",
     "cmux-tui/rust-toolchain.toml",
 })
 DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")

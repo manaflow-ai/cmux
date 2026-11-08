@@ -96,6 +96,7 @@ import {
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
+import { isRegroupHold } from "./conversation/keepOpenedLineModel";
 import {
   ANCHORED_COLLAPSE_EVENT,
   atFoldBottom,
@@ -131,7 +132,7 @@ import {
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { THINKING, WORKED, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { ArrowDown } from "./conversation/icons";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -1118,7 +1119,8 @@ function TranscriptView({
   queuedTail?: readonly AcpmuxRow[];
   /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
   focusComposer?: () => void;
-  onToggleActivity: (id: string) => void;
+  /// `covers`: the clicked line's other keys (turns.ts `foldCovers`), toggled with it.
+  onToggleActivity: (id: string, covers?: readonly string[]) => void;
   onOpenDiff?: OpenDiff;
   expanded: Folds;
   registry?: NativeRegistry;
@@ -3452,12 +3454,14 @@ function TranscriptView({
         stack.rows = true;
         stack.row.setAttribute("data-bottom-fold", "");
       }
+      // The clicked line: its open state, and the other keys a joined run's line is open under.
+      const clicked = shown.find((row) => row.id === id);
       const fold =
         node && !stack
           ? startTurnFold(
               host,
               id,
-              !(shown.find((row) => row.id === id)?.foldOpen ?? foldInputs.current.expanded.has(id)),
+              !(clicked?.foldOpen ?? foldInputs.current.expanded.has(id)),
               {
                 count: shown.length,
                 idAt: (index) => shown[index]?.id,
@@ -3484,7 +3488,7 @@ function TranscriptView({
         watchTurnFold(fold, host, read, foldGhosts.current, () => {
           if (turnFold.current === fold) turnFold.current = undefined;
         });
-      onToggleActivity(id);
+      onToggleActivity(id, foldCovers(clicked));
     },
     [onToggleActivity],
   );
@@ -4259,6 +4263,16 @@ function TranscriptView({
       if (!node || typeof header?.closest !== "function" || !node.contains(header) || !header.closest(".acpmux-row"))
         return;
       event.preventDefault();
+      // A line the reader opened that a new call's regroup moved in its row (KeepOpenedLine.tsx): held
+      // where it was drawn before the regroup, while the row settles. Following the latest row, the
+      // view stays on the latest row as before; a click's own hold already keeps its line.
+      const regroup = (event as CustomEvent<unknown>).detail;
+      if (isRegroupHold(regroup)) {
+        if (followingRef.current || foldHolding(foldAnchor.current)) return;
+        foldAnchor.current = { ...holdFold(header), top: regroup.top };
+        holdTop.current = node.scrollTop;
+        return;
+      }
       settleFold(header);
       const toggle = clicked && clicked.closest(".acpmux-row") === header.closest(".acpmux-row") ? clicked : header;
       const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(toggle, header);
