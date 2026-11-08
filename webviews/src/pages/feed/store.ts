@@ -113,6 +113,7 @@ export class FeedStore {
   private starting = false;
   private stops: Array<() => void> = [];
   /** The Reports basket's change subscription: made the first time the page shows the Inbox. */
+  private viewWatch: "none" | "starting" | "on" = "none";
   private reportsWatch: "none" | "starting" | "on" = "none";
   /** The first Inbox read picks GitHub when it is connected, once (FeedInboxView.pickedConnection). */
   private pickedConnection = false;
@@ -161,19 +162,7 @@ export class FeedStore {
     const alive = () => lifetime === this.lifetime;
     this.starting = true;
     try {
-      const watch = async (stream: string, onEvent: () => void) => {
-        try {
-          const stop = await this.client!.subscribe(stream, () => {
-            if (alive()) onEvent();
-          });
-          if (alive()) this.stops.push(stop);
-          else stop();
-        } catch (error) {
-          // An owner without the stream still answers reads; a lost link says so.
-          if (alive() && !(isPageError(error) && error.code === "cmux.protocol.unknown_op")) this.fail(error);
-        }
-      };
-      await watch(FeedOps.viewChanged, () => void this.reload());
+      await this.watchView(lifetime);
       if (this.snapshot.route.view === "inbox") await this.watchReports(lifetime);
       try {
         const stop = await subscribePageStreams(this.client, {
@@ -200,11 +189,33 @@ export class FeedStore {
     ++this.generation;
     ++this.reportsGeneration;
     this.starting = false;
+    this.viewWatch = "none";
     this.reportsWatch = "none";
     for (const stop of this.stops.splice(0)) stop();
   }
 
-  /** Subscribes to the Reports basket's changes once per start (only the Inbox shows it). */
+  /** Subscribes to the view's changes unless that is live or under way; a failed one (the daemon
+   *  was away when the page opened) is made again on the next reconnect. */
+  private async watchView(lifetime: number): Promise<void> {
+    if (!this.client || this.viewWatch !== "none") return;
+    this.viewWatch = "starting";
+    try {
+      const stop = await this.client.subscribe(FeedOps.viewChanged, () => {
+        if (lifetime === this.lifetime) void this.reload();
+      });
+      if (lifetime === this.lifetime) {
+        this.stops.push(stop);
+        this.viewWatch = "on";
+      } else stop();
+    } catch (error) {
+      if (lifetime !== this.lifetime) return;
+      this.viewWatch = "none";
+      // An owner without the stream still answers reads; a lost link says so.
+      if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) this.fail(error);
+    }
+  }
+
+  /** Subscribes to the Reports basket's changes (only the Inbox shows it), again on a reconnect after a failed one. */
   private async watchReports(lifetime: number): Promise<void> {
     if (!this.client || this.reportsWatch !== "none") return;
     this.reportsWatch = "starting";
@@ -247,9 +258,18 @@ export class FeedStore {
     if (!connected) this.set({ link: "disconnected", loading: false });
     else if (this.snapshot.link === "disconnected") {
       this.set({ link: "connecting" });
-      void this.reload();
-      if (this.snapshot.route.view === "inbox") void this.reloadReports();
+      void this.relink(this.lifetime);
     }
+  }
+
+  /** Back up: the subscriptions that failed while the link was down are made again first, then
+   *  the page re-reads, so no change falls between the read and the stream. */
+  private async relink(lifetime: number): Promise<void> {
+    const inbox = this.snapshot.route.view === "inbox";
+    await Promise.all([this.watchView(lifetime), inbox ? this.watchReports(lifetime) : undefined]);
+    if (lifetime !== this.lifetime) return;
+    void this.reload();
+    if (inbox) void this.reloadReports();
   }
 
   // MARK: - Reads
