@@ -921,6 +921,18 @@ fieldset.onb-kinds {
   line-height: var(--text-caption--line-height);
 }
 
+/* Reduce Transparency: the import cards turn solid and drop their blur (the one place glass may). */
+@media (prefers-reduced-transparency: reduce) {
+  .onb-import:is([data-look="grouped"], [data-look="tiles"]) {
+    --onb-card-glass: var(--ds-color-surface);
+  }
+  .onb-import[data-look="grouped"] :is(.onb-import-list, .onb-import-options),
+  .onb-import[data-look="tiles"] .onb-import-row {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 /* A row's fill and a control's opacity follow the motion switch (WebTheme's data-cmux-motion). */
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
   :is(.onb-import-row, .onb-progress-bar, .onb-chip, .onb-import input[type="checkbox"], .onb-box-mark) {
