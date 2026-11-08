@@ -267,6 +267,7 @@ jobs:
             exit 0
           fi
           git add -A -- plans/cmux-next schemas/settings docs/mdm
+          [[ ! -d web/data/next-docs ]] || git add -A -- web/data/next-docs
           [[ ! -e Packages/macOS/CmuxNext/ci-target-graph.json ]] || git add -- Packages/macOS/CmuxNext/ci-target-graph.json
           if ! git diff --cached --quiet; then
             git -c user.name="cmux-next batch queue" \
