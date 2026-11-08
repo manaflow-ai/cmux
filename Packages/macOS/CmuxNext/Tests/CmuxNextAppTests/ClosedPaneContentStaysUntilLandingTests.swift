@@ -155,8 +155,9 @@ import Testing
         #expect(releasedInFrame == nil,
                 "the closed pane's terminal was torn down in motion frame \(releasedInFrame ?? -1) of \(frames): work no frame shows ran in the motion")
         #expect(app.cache.existingTerminal(closedTab) != nil, "the landing frame itself tore the terminal down, before its commit")
-        app.committed.run() // the landing frame committed
-        #expect(app.cache.existingTerminal(closedTab) == nil, "the closed pane's terminal stayed after the landing's commit")
+        app.committed.run() // the landing frame committed: the closed host leaves the window
+        app.committed.run() // the next commit: its content goes, and the releases held for it run
+        #expect(app.cache.existingTerminal(closedTab) == nil, "the closed pane's terminal stayed after the landing's commits")
         #expect(app.cache.existingTerminal(kept) != nil, "a pane that stays lost its terminal")
     }
 

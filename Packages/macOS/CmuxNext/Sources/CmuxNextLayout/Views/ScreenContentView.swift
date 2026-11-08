@@ -23,6 +23,8 @@ final class ScreenContentView: NSView {
     var geometry: ScreenGeometry
     internal(set) var paneFrames: [PaneID: AnimatedFrame] = [:]
     private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
+    /// Handles whose split or edge left the layout (``parkDivider(_:)``): hidden on the screen until its motion lands.
+    private(set) var parkedDividers: [DividerHandleView.Kind: DividerHandleView] = [:]
     /// The hover and resize cursor of those handles from one tracking area (`ScreenDividerPointer`).
     private(set) lazy var dividerPointer = ScreenDividerPointer(screen: self)
     internal(set) var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
@@ -386,6 +388,13 @@ final class ScreenContentView: NSView {
             if let existing = dividerViews[kind] {
                 view = existing
                 view.setAxis(target.axis)
+            } else if let parked = parkedDividers.removeValue(forKey: kind) {
+                // Its split or edge came back before the motion landed (a close taken back): the same handle shows
+                // again; the presentation places it and sets its hidden state.
+                view = parked
+                view.setAxis(target.axis)
+                view.placedClips = nil
+                dividerViews[kind] = view
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
@@ -437,7 +446,7 @@ final class ScreenContentView: NSView {
         for kind in dividerViews.keys where targets[kind] == nil {
             // The handle under a drag goes away: its mouse-up never comes.
             if activeDrag?.kind == kind { endDrag() }
-            dividerViews.removeValue(forKey: kind)?.removeFromSuperview()
+            if let view = dividerViews.removeValue(forKey: kind) { parkDivider(view) }
             dividerFrames[kind] = nil
         }
 
@@ -502,6 +511,30 @@ final class ScreenContentView: NSView {
             dividerFrames[kind] = frame
         }
         (carriedShown, carriedDividers) = ([:], [:])
+    }
+
+    /// A handle whose split or edge left the layout hides in place (``DividerHandleView/park()``) and leaves the screen
+    /// after its motion lands, with the hosts a close retired (``takeParkedDividers()``, from `releaseLanded`, after the
+    /// landing frame's commit), not in the change's turn: a view removal makes AppKit mark the window's layer tree, and
+    /// the next display pass rebuilds it (`-[NSView _buildLayerTree]` walks the whole window: 2.7 to 2.8 ms of a pane
+    /// close's key cycle, CLOSE VARIANTS 7). The closing hosts leave then too, so the handles go in the same rebuild. With
+    /// nothing moving they go in the same turn, as before (``releaseParkedDividers()``).
+    func parkDivider(_ view: DividerHandleView) {
+        view.park()
+        parkedDividers[view.kind] = view
+    }
+
+    /// The handles ``parkDivider(_:)`` hid leave the screen (it settles at once, or it goes).
+    func releaseParkedDividers() {
+        for view in takeParkedDividers() { view.removeFromSuperview() }
+    }
+
+    /// The handles ``parkDivider(_:)`` hid, handed over to leave the screen (its motion landed: after that frame's
+    /// commit, `LayoutViewContext.releaseLanded`). A change after this makes a new handle for their split or edge.
+    func takeParkedDividers() -> [DividerHandleView] {
+        guard !parkedDividers.isEmpty else { return [] }
+        defer { parkedDividers.removeAll() }
+        return Array(parkedDividers.values)
     }
 
     fileprivate var firstDividerView: NSView? {

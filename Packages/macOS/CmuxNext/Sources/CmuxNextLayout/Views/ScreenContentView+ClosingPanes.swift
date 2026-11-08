@@ -56,9 +56,19 @@ extension ScreenContentView {
     }
 
     /// The screen's motion landed (or it settles at once, or it goes: `until` nil): the hosts its closes retired are torn
-    /// down (`LayoutViewContext.releaseRetired`), and their closing frames with them.
+    /// down (`LayoutViewContext.releaseRetired`), and their closing frames with them, and the handles its changes ended
+    /// leave the screen (``releaseParkedDividers()``).
     func releaseClosing(until: LayoutViewContext.Retirement? = .landing) {
+        releaseParkedDividers()
         context.releaseRetired(of: screenID, until: until)
+        closingPanes = ClosingPanes()
+    }
+
+    /// The screen's motion landed in this frame (or a frame found it at rest): as ``releaseClosing(until:)``, but no view
+    /// leaves the window in this turn. The hosts its closes retired hide, and they and the handles its changes ended
+    /// leave after the frame's commit (`LayoutViewContext.releaseLanded`).
+    func releaseLanded() {
+        context.releaseLanded(of: screenID, dividers: takeParkedDividers())
         closingPanes = ClosingPanes()
     }
 

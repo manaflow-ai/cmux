@@ -34,7 +34,8 @@ extension ScreenContentView {
             return [shown.minX, height - shown.maxY, shown.width, shown.height].map { (Double($0) * 100).rounded() / 100 }
         }
         var panes: [Any] = [], dividers: [Any] = [], closing: [Any] = []
-        for (index, subview) in screen.subviews.enumerated() {
+        // `index`: the place in the draw order, back to front (a closing host draws under its rank's live views).
+        for (index, subview) in screen.drawOrder.enumerated() {
             if let host = subview as? PaneHostView, !host.isHidden {
                 var visible = host.frame
                 if let mask = host.layer?.mask { visible = visible.intersection(mask.frame.offsetBy(dx: host.frame.minX, dy: host.frame.minY)) }

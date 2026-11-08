@@ -137,18 +137,9 @@ final class LayoutViewContext {
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }
         // A close that springs is taken back before it landed (a refused close, a reopen): the same host shows again.
-        if let entry = retired.removeValue(forKey: pane) {
-            // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
-            runClosingWork(of: pane, now: true)
-            entry.host.isHidden = false
-            entry.host.endClosingGround()
-            entry.host.chrome.isHidden = false
-            // Its ring is placed again by the next overlay sync, whatever it last showed.
-            entry.host.overlaySyncKey = nil
-            hosts[pane] = entry.host
-            if entry.until == .landing { provider?.retainContentView(entry.host.content, for: pane, retired: false) }
-            return entry.host
-        }
+        if let entry = retired.removeValue(forKey: pane) { return takeBack(entry.host, for: pane, closed: entry.until == .landing) }
+        // The same after it landed, before its teardown (``releaseLanded(of:dividers:)``).
+        if let host = landed.removeValue(forKey: pane) { return takeBack(host, for: pane, closed: true) }
         let content = provider?.makeContentView(for: pane) ?? NSView()
         // The provider handed the content made ahead: its host, parked in the window, takes the pane (no window walk now).
         if let spare = spareHost, spare.content === content {
@@ -162,6 +153,20 @@ final class LayoutViewContext {
             self?.provider?.holdsContentInMotion(for: pane) ?? false
         }
         hosts[pane] = host
+        return host
+    }
+
+    /// `host`, retired or landed (`closed`: by a close, which the provider was told), shows `pane` again.
+    private func takeBack(_ host: PaneHostView, for pane: PaneID, closed: Bool) -> PaneHostView {
+        // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
+        runClosingWork(of: pane, now: true)
+        host.isHidden = false
+        host.endClosingGround()
+        host.chrome.isHidden = false
+        // Its ring is placed again by the next overlay sync, whatever it last showed.
+        host.overlaySyncKey = nil
+        hosts[pane] = host
+        if closed { provider?.retainContentView(host.content, for: pane, retired: false) }
         return host
     }
 
@@ -224,6 +229,74 @@ final class LayoutViewContext {
         }
     }
 
+    /// Hosts whose close landed (``releaseLanded(of:dividers:)``): hidden, out of the layout, waiting for their teardown
+    /// after the landing frame's commit.
+    private var landed: [PaneID: PaneHostView] = [:]
+
+    /// The motion of `screen` landed in this frame: the hosts its closes retired hide now (the frame shows what their
+    /// removal showed) and leave after the frame's commit, with `dividers` (the handles its changes ended,
+    /// `ScreenContentView.parkDivider`), in two idle turns (``tearDownLanded(_:)``). A visible frame pays for no
+    /// teardown: in the landing turn it was 15 ms of main thread on cmux24 (60 of 60 closes over one 120 Hz refresh,
+    /// CLOSE VARIANTS 7): the views leaving the window (5 ms), their deallocation in the autorelease pop (5.5 ms) and the
+    /// layer-tree rebuild the removal asks of the display pass (2.8 ms), as Chrome never blocks a frame on a teardown.
+    func releaseLanded(of screen: ScreenID, dividers: [NSView]) {
+        var hosts: [(pane: PaneID, host: PaneHostView)] = []
+        for (pane, entry) in retired where entry.screen == screen && entry.until == .landing {
+            retired[pane] = nil
+            if !entry.host.isHidden { entry.host.isHidden = true }
+            landed[pane] = entry.host
+            hosts.append((pane, entry.host))
+        }
+        guard !hosts.isEmpty || !dividers.isEmpty else { return }
+        let batch = LandedBatch(hosts: hosts, dividers: dividers)
+        afterCommit { [weak self] in
+            guard let self else { return batch.removeViews() }
+            self.tearDownLanded(batch)
+        }
+    }
+
+    /// The teardown of a landing (``releaseLanded(of:dividers:)``), after its frame's commit. First turn: the views leave
+    /// the window (the next commit rebuilds the layer tree once, for all of them). Second turn, after that commit: their
+    /// content goes to the provider, the work held for them runs, and they deallocate there (each part in its own
+    /// autorelease pool, so no later pass pops it). A host taken back in between (``host(for:)``) is left to the layout.
+    private func tearDownLanded(_ batch: LandedBatch) {
+        batch.hosts.removeAll { landed[$0.pane] !== $0.host }
+        batch.removeViews()
+        afterCommit { [weak self] in
+            autoreleasepool {
+                let hosts = batch.hosts
+                batch.hosts.removeAll()
+                for (pane, host) in hosts where self?.landed[pane] === host {
+                    self?.landed[pane] = nil
+                    self?.provider?.releaseContentView(host.content, for: pane)
+                    self?.runClosingWork(of: pane, now: true)
+                }
+            }
+        }
+    }
+
+    /// The views and their content a landing tears down (``tearDownLanded(_:)``).
+    private final class LandedBatch {
+        var hosts: [(pane: PaneID, host: PaneHostView)]
+        var dividers: [NSView]
+        init(hosts: [(pane: PaneID, host: PaneHostView)], dividers: [NSView]) {
+            self.hosts = hosts
+            self.dividers = dividers
+        }
+
+        /// The handles and the hosts (with their rings) leave the window.
+        func removeViews() {
+            autoreleasepool {
+                for view in dividers { view.removeFromSuperview() }
+                dividers.removeAll()
+                for (_, host) in hosts {
+                    host.removeFromSuperview()
+                    host.chrome.removeFromSuperview()
+                }
+            }
+        }
+    }
+
     /// Whether `pane` left the layout in a close that still springs: its host waits, hidden, for the landing.
     func isClosing(_ pane: PaneID) -> Bool {
         if case .landing? = retired[pane]?.until { return true }
@@ -241,7 +314,7 @@ final class LayoutViewContext {
     /// The teardown of what a closing pane showed is work no frame shows (RESIZE VIDEOS F1): in the motion's frames
     /// it missed refreshes, so it follows the motion, as Chrome keeps its UI thread to what the next frame shows.
     func afterClosing(_ pane: PaneID, id: String, _ work: @escaping @MainActor () -> Void) -> Bool {
-        guard isClosing(pane) else { return false }
+        guard isClosing(pane) || landed[pane] != nil else { return false }
         closingWork[pane, default: [:]][id] = work
         return true
     }
@@ -253,7 +326,9 @@ final class LayoutViewContext {
     }
 
     /// Whether `chrome` is the ring of a retired host: the overlay sync leaves it for the teardown.
-    func isRetiredChrome(_ chrome: NSView) -> Bool { retired.values.contains { $0.host.chrome === chrome } }
+    func isRetiredChrome(_ chrome: NSView) -> Bool {
+        retired.values.contains { $0.host.chrome === chrome } || landed.values.contains { $0.chrome === chrome }
+    }
 }
 
 extension LayoutViewContext {

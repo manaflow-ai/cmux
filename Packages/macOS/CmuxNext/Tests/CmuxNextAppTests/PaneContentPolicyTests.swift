@@ -704,10 +704,12 @@ struct PaneContentPolicyTests {
         var widths: [(label: String, width: CGFloat)] = [], order: [String] = []
         func check(_ label: String) throws {
             widths.append((label, try rig.uncoveredWidth(of: line)))
-            let hosts = screen.subviews.compactMap { $0 as? PaneHostView }.filter { !$0.isHidden }
+            // In the draw order (layer depth, then the subviews): a closing host keeps its place in the subviews.
+            let drawn = screen.drawOrder
+            let hosts = drawn.compactMap { $0 as? PaneHostView }.filter { !$0.isHidden }
             let closing = hosts.filter(\.showsClosingGround), live = hosts.filter { !$0.showsClosingGround }
-            let highestClosing = closing.compactMap { screen.subviews.firstIndex(of: $0) }.max() ?? -1
-            let lowestLive = live.compactMap { screen.subviews.firstIndex(of: $0) }.min() ?? Int.max
+            let highestClosing = closing.compactMap { drawn.firstIndex(of: $0) }.max() ?? -1
+            let lowestLive = live.compactMap { drawn.firstIndex(of: $0) }.min() ?? Int.max
             if highestClosing > lowestLive { order.append("\(label): a closing host is above a live one") }
         }
         _ = try #require(rig.model.showPaneClose("p1"), "p1 did not close")

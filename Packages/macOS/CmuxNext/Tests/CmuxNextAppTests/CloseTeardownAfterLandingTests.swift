@@ -7,7 +7,9 @@ import Testing
 /// STATUS 4500 and 4541: the close's first 3 frames missed 1-3 refreshes at 120 Hz, 8-21 ms of main thread each,
 /// 39% of it the Core Animation commit that also took the closed host's layers out of the tree). In the close's own
 /// turn the closed host is hidden (no hit, no focus, no ring), its content is not released and its layers stay in the
-/// tree; the frame the motion lands in releases it, once. A close taken back before that shows the same host again.
+/// tree; the motion's landing releases it, once, after the landing frame's commit (the landing frame only hides it: the
+/// views leave in the turn after that commit, the content in the turn after the next, so no visible frame pays for the
+/// teardown, PaneCloseLandingTurnKeepsViewsTests). A close taken back before that shows the same host again.
 /// The test is the clock (120 Hz).
 @MainActor
 @Suite(.closesItsWindows)
@@ -28,6 +30,8 @@ struct CloseTeardownAfterLandingTests {
         let model: LayoutModel
         let root: LayoutRootView
         let window: NSWindow
+        /// The layout's after-commit work, collected: ``commit()`` runs it where a committed frame would.
+        var afterCommit: [@MainActor () -> Void] = []
 
         init(reduceMotion: Bool = false) {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: CloseTeardownAfterLandingTests.columns(["p1", "p2", "p3"]))],
@@ -39,7 +43,16 @@ struct CloseTeardownAfterLandingTests {
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             root.driver.isManual = true
+            root.context.afterCommit = { [unowned self] in self.afterCommit.append($0) }
             for _ in 0..<600 where root.advanceFrame(1.0 / 120) {}
+            commit()
+        }
+
+        /// The current frame committed: its after-commit work runs (what it schedules waits for the next commit).
+        func commit() {
+            let work = afterCommit
+            afterCommit.removeAll()
+            for item in work { item() }
         }
 
         var screen: ScreenContentView { root.screenViews["s"]! }
@@ -79,13 +92,21 @@ struct CloseTeardownAfterLandingTests {
         var frames = 0
         while strip.root.advanceFrame(1.0 / 120), frames < 600 {
             frames += 1
+            strip.commit()
             if strip.screen.hasMotion {
                 #expect(strip.provider.released.isEmpty, "frame \(frames) released the closed content before the motion landed")
             }
         }
         #expect(frames > 10, "the close springs over several frames (\(frames))")
-        #expect(strip.provider.released == ["p2"], "the landing releases the closed content once: \(strip.provider.released)")
+        #expect(strip.provider.released.isEmpty && closed.superview === strip.screen && closed.isHidden,
+                "the landing frame tore the closed pane down in its own turn: \(strip.provider.released)")
+        strip.commit() // the landing frame committed: the views leave
         #expect(closed.superview == nil && closed.chrome.superview == nil, "the landing takes the closed host and its ring out of the tree")
+        #expect(strip.provider.released.isEmpty, "the closed content went in the same turn as its views")
+        strip.commit() // the next commit: the content goes
+        #expect(strip.provider.released == ["p2"], "the landing releases the closed content once: \(strip.provider.released)")
+        strip.commit()
+        #expect(strip.provider.released == ["p2"], "the landing releases the closed content once: \(strip.provider.released)")
     }
 
     @Test func aCloseTakenBackBeforeItLandsShowsTheSameHostAgain() throws {
