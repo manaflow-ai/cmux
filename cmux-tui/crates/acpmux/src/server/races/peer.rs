@@ -75,8 +75,8 @@ fn forwarded(params: &Value, parent: &str, m: &str) -> Value {
         FIELD: {"parent": parent, "method": m}, "via": "app"
     }}});
     for field in ["prompt", "candidates", "reviewer", "raceId"] {
-        if let Some(value) = params.get(field) {
-            p[field] = value.clone();
+        if let (Some(value), Some(map)) = (params.get(field), p.as_object_mut()) {
+            map.insert(field.to_owned(), value.clone());
         }
     }
     p

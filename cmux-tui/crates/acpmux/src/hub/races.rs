@@ -280,8 +280,9 @@ impl Hub {
             },
         ))
         .await?;
-        let id = row["sessionId"]
-            .as_str()
+        let id = row
+            .get("sessionId")
+            .and_then(Value::as_str)
             .ok_or_else(|| RpcError::internal("child start returned no sessionId"))?;
         Ok((self.resolve(id)?, row))
     }
@@ -335,7 +336,7 @@ impl Hub {
                                 let Some(c) = r.candidates.get_mut(index) else { return };
                                 c.session_id = Some(child.id.clone());
                                 c.cwd = Some(child.read_meta(|m| m.cwd.clone()));
-                                c.turn_id = started["turnId"].as_str().map(str::to_owned);
+                                c.turn_id = started.get("turnId").and_then(Value::as_str).map(str::to_owned);
                                 // `gitHead` is the commit captured when the child folder was
                                 // admitted; the worktree display's `base` may be a branch label.
                                 c.base = child.read_meta(|m| m.git_head.clone());
@@ -426,7 +427,8 @@ impl Hub {
                 .await?;
             let updated = self.race_update(parent, id, |r| {
                 r.reviewer_session_id = Some(child.id.clone());
-                r.reviewer_turn_id = started["turnId"].as_str().map(str::to_owned);
+                r.reviewer_turn_id =
+                    started.get("turnId").and_then(Value::as_str).map(str::to_owned);
             })?;
             if !updated.active() {
                 self.subsession_stop(&child, true).await?;
@@ -702,17 +704,23 @@ fn verdict(race: &Race, reply: &str) -> Result<(String, String), RpcError> {
     let v: Value = serde_json::from_str(text).map_err(|_| {
         RpcError::invalid_params("reviewer did not return a JSON verdict; candidates retained")
     })?;
-    let winner = v["winnerId"]
-        .as_str()
+    let winner = v
+        .get("winnerId")
+        .and_then(Value::as_str)
         .filter(|id| race.candidates.iter().any(|c| c.id == *id && c.state == "completed"))
         .ok_or_else(|| {
             RpcError::invalid_params(
                 "reviewer did not select a completed candidate; candidates retained",
             )
         })?;
-    let reason = v["reason"].as_str().filter(|s| !s.trim().is_empty()).ok_or_else(|| {
-        RpcError::invalid_params("reviewer verdict needs evidence in reason; candidates retained")
-    })?;
+    let reason =
+        v.get("reason").and_then(Value::as_str).filter(|s| !s.trim().is_empty()).ok_or_else(
+            || {
+                RpcError::invalid_params(
+                    "reviewer verdict needs evidence in reason; candidates retained",
+                )
+            },
+        )?;
     Ok((winner.to_owned(), crate::secret_scan::mask(reason)))
 }
 
