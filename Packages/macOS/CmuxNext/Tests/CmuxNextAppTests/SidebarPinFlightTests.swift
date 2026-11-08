@@ -342,6 +342,30 @@ struct SidebarPinFlightTests {
         #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
     }
 
+    /// The app's unpin can send the rows first while the block still lists the item (films d007faa2, revision 18): the
+    /// row moves from the item, and the item hides until the blocks' update takes it out (one copy on every tick).
+    @Test func anUnpinWhoseBlockComesLaterStartsOnTheItem() throws {
+        let (list, window) = Self.list(pins: [Self.moved])
+        defer { window.close() }
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        list.model.workspacePin = (isPinned: { $0 == Self.moved }, toggle: { _ in })
+        let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
+        let startFrame = list.convert(start.bounds, from: start)
+        let (sections, blocks) = Self.state([])
+        list.model.sections = sections
+        list.reload(animated: true)
+        let now = CACurrentMediaTime()
+        let probes = Self.probes(Self.moved, list, now: now)
+        let arrived = try #require(list.rowViews[.workspace(Self.moved)])
+        var failures: [String] = []
+        Self.checkPath("unpinned d (rows first)", probes: probes, now: now, start: startFrame,
+                       end: list.convert(arrived.bounds, from: arrived), failures: &failures)
+        #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
+        list.blocks = blocks
+        list.reload(animated: true)
+    }
+
     /// Pin, then unpin 60 ms later: the unpin starts where the pin has the workspace drawn (no jump), with one copy on
     /// every tick, and moves to its row from rest (no velocity carried: it never passes the row).
     @Test func aRetargetStartsWhereTheMoveIs() throws {
