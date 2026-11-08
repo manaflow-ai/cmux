@@ -82,6 +82,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     public var showsPanelGlass: Bool { !backdrop.isHidden }
     /// The glass plate under the message box (see-through styles), in this view's coordinates; nil without one.
     public var composerPlate: NSRect? { plate.isHidden ? nil : plate.frame }
+    /// The glass plate behind the bar and the chat's header (see-through styles), in this view's coordinates; nil without one.
+    public var headerPlate: NSRect? { nil }
     /// The corner radius the panel draws now (0 docked).
     public var shapeCornerRadius: CGFloat { body.layer?.cornerRadius ?? 0 }
     /// The Chief view this panel shows now; nil while it is in Home's pane.
@@ -445,6 +447,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
 
     /// The see-through plate's height: the message box and its margin.
     static let plateHeight: CGFloat = 64
+    /// How far the header plate fades out below the header (a mask, so it blends with any workspace).
+    public static let headerPlateFade: CGFloat = 14
     /// The halo under the Chief's text on a see-through panel.
     private static var halo: NSShadow {
         let halo = NSShadow()
