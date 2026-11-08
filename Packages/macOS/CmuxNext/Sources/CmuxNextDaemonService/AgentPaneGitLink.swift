@@ -25,7 +25,7 @@ public final class AgentPaneGitLink {
     /// subscribes, and nothing here uses them.
     private var drain: Task<Void, Never>?
 
-    public init(daemon: DaemonService, clientName: String = "cmux-next-agent-git") {
+    public convenience init(daemon: DaemonService, clientName: String = "cmux-next-agent-git") {
         self.init(daemon: daemon, clientName: clientName, hello: nil)
     }
 
