@@ -5,7 +5,9 @@ public import Foundation
 /// parse would become a file URL of the same text. StaticURLTests checks
 /// that every case parses, so that fallback is never taken.
 public nonisolated enum StaticURL: String, CaseIterable {
-    case feedback = "https://github.com/manaflow-ai/cmux/issues/new"
+    /// The app-feedback issue form on cmux main (.github/ISSUE_TEMPLATE/app-feedback.yml): it labels the report
+    /// `app-feedback`, so HQ can count it, link its fix and tell the reporter which nightly has it.
+    case feedback = "https://github.com/manaflow-ai/cmux/issues/new?template=app-feedback.yml"
     case documentation = "https://cmux.com/docs"
     case pricing = "https://cmux.com/pricing"
     /// Help > Troubleshooting and Support: docs, Discord, GitHub issues and email in one page.
