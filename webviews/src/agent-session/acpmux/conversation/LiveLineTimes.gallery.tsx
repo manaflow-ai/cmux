@@ -11,7 +11,7 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { liveLineTimes } from "./liveLineTimes.experiment";
 import { Thinking } from "./Thinking";
-import { WorkingCountsContext, type WorkingCounts } from "./WorkingFor";
+import { WorkingCountsContext, type WorkingCounts } from "./workingForModel";
 
 type Props = { arm: "labelled" | "turn" | "hover"; thoughts?: boolean };
 

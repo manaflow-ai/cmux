@@ -4,9 +4,12 @@
 // transcript looks as the owner sees it.
 import "virtual:cmux-gallery/agent-pane.css";
 import "./page.css";
+import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { UiProvider } from "../../ui/UiProvider";
 import { GuestPage, startGuestPage } from "./GuestPage";
+import { OpenInApp } from "./OpenInApp";
+import { appLinkUrl, appScheme, chooseBrowser, offersApp } from "./appLink";
 import {
   acceptOverFetch,
   attemptId,
@@ -38,12 +41,32 @@ const root = document.getElementById("root")!;
 // A path that names no share opens the join page with Join off ("This link is incomplete").
 const shareId = link?.shareId ?? "";
 const socketUrl = `${location.protocol === "http:" ? "ws:" : "wss:"}//${location.host}/v1/chat-shares/${encodeURIComponent(shareId)}/guest`;
-createRoot(root).render(
-  <UiProvider container={root}>
+const guestId = link ? joinedAs(shareId, storage, link.invite === true) : undefined;
+// The cmux app first, when it is installed (appLink.ts): never inside the app's own web view
+// (`?in_app=1`), after the visitor chose the browser, or once this tab joined.
+const scheme = appScheme(window.location);
+const appUrl =
+  link && scheme && offersApp(window.location, storage, shareId, guestId !== undefined)
+    ? appLinkUrl(scheme, window.location.origin, link)
+    : undefined;
+
+function Guest() {
+  const [inBrowser, setInBrowser] = useState(appUrl === undefined);
+  if (!inBrowser && appUrl)
+    return (
+      <OpenInApp
+        appUrl={appUrl}
+        onContinue={() => {
+          chooseBrowser(storage, shareId);
+          setInBrowser(true);
+        }}
+      />
+    );
+  return (
     <GuestPage
       shareId={shareId}
       secret={link?.secret}
-      guestId={link ? joinedAs(shareId, storage, link.invite === true) : undefined}
+      guestId={guestId}
       name={link ? joinedName(shareId, storage) : undefined}
       role={link ? joinedRole(shareId, storage, link.invite === true) : undefined}
       storage={storage}
@@ -55,5 +78,11 @@ createRoot(root).render(
       onJoined={(guestId, name, role, via) => rememberJoined(shareId, guestId, storage, name, role, via)}
       socketUrl={socketUrl}
     />
+  );
+}
+
+createRoot(root).render(
+  <UiProvider container={root}>
+    <Guest />
   </UiProvider>,
 );

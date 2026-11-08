@@ -20,7 +20,7 @@ import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { findRowIndex } from "./chatFind";
 import { renderCall } from "./renderCall";
-import { showsTimestamp, type TurnTimes } from "./timestamps";
+import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
@@ -63,7 +63,7 @@ import { turnFoldStyle, type TurnFoldStyle } from "./turnFoldStyle";
 import { answerClaim, askKey, CLAIM_SLACK_MS } from "./waitingAskStore";
 import { canonicalCall } from "../toolNames";
 import { currentLanguage, translatorFor } from "../i18n";
-import { writeCall } from "./WriteLabel";
+import { writeCall } from "./writeLabelModel";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -162,8 +162,6 @@ export function footerLabel(t: Translate, row: AcpmuxRow): string | undefined {
 }
 const footerSays = (row: AcpmuxRow) =>
   !row.folded &&
-  // A stretch the person came in on (`supersededFooters`) has no time of its own to say.
-  !row.superseded &&
   (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
 
 /// A footer with nothing to show at rest and only hover controls (Pin, Fork, its time): no answer to
@@ -962,7 +960,7 @@ function shapedTurn(
     // A run of background-task notifications folds under one line (backgroundRuns.ts; Leo,
     // 2026-11-02: "why do you still do these").
     // A stretch the person came in after ends there, with the end-of-turn footer (`supersededFooters`).
-    const body = supersededFooters(foldBackgroundRuns(messaged, expanded), turn, endedByPerson);
+    const body = supersededFooters(foldBackgroundRuns(messaged, expanded), turn, endedByPerson, user.at);
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const liveLine = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -1903,12 +1901,23 @@ function settledWithoutSummary(turn: AcpmuxRow[]): AcpmuxRow[] {
 /// think a lot of these should've been counted as "ended"-ish turns that allow me to copy/paste your
 /// stuff / cuz look claude code lets that happen if the user comes in"). Its Copy copies the stretch
 /// (turnCopy.ts). A stretch that said nothing, or whose reply still streams, gets none; nor does one
-/// that already ends on a footer. `turn` is the turn's rows before shaping, in order.
-function supersededFooters(drawn: AcpmuxRow[], turn: readonly AcpmuxRow[], endedByPerson: boolean): AcpmuxRow[] {
+/// that already ends on a footer. `turn` is the turn's rows before shaping, in order; `startedAt`, when
+/// its prompt was sent. Each footer's time tooltip says how long its stretch worked, from the prompt
+/// (or the steer before it) to where he came in, as a turn's own footer does: without it, the time
+/// under a stretch had no tooltip at all (Leo, 2026-11-08: "I wasn't able to hover over your timestamp
+/// to see, like, this was in and out or whatever. Was it because it's, like, technically inside of a
+/// turn and, like, I steered it?").
+function supersededFooters(
+  drawn: AcpmuxRow[],
+  turn: readonly AcpmuxRow[],
+  endedByPerson: boolean,
+  startedAt: number,
+): AcpmuxRow[] {
   let out: AcpmuxRow[] | undefined;
   let from = 0;
   const close = (to: number, at: number | undefined, key: string) => {
     const stretch = turn.slice(from, to).filter((row) => row.kind !== "turnSummary");
+    const began = from > 0 ? turn[from - 1]!.at : startedAt;
     from = to + 1;
     // Its last reply, also one with work after it: the stretch ended where the person came in.
     let answer: AcpmuxRow | undefined;
@@ -1928,6 +1937,7 @@ function supersededFooters(drawn: AcpmuxRow[], turn: readonly AcpmuxRow[], ended
       at: stretch.at(-1)!.at,
       status: "completed",
       superseded: true,
+      ...workedSpan(began, turn[to]?.at ?? stretch.at(-1)!.at),
       text: answer.text,
       answerId: answer.id,
       turnCopy: parts,
@@ -1944,6 +1954,15 @@ function supersededFooters(drawn: AcpmuxRow[], turn: readonly AcpmuxRow[], ended
   if (endedByPerson && !turn.some((row) => row.kind === "turnSummary"))
     close(turn.length, undefined, turn.at(-1)?.id ?? "end");
   return out ?? drawn;
+}
+
+/// A stretch's worked time, from `began` to `ended`; none when either clock is missing or they run
+/// backwards (another computer's clock), so its tooltip never says a wrong time.
+/// It carries where it ended, so its Timeline's axis starts where the stretch did, not that much
+/// before its last reply (waterfallSpans.ts `waterfall`).
+function workedSpan(began: number, ended: number): Pick<AcpmuxRow, "durationMs" | "workEndedAt"> {
+  if (!hasTimestamp(began) || !hasTimestamp(ended) || ended <= began) return {};
+  return { durationMs: ended - began, workEndedAt: ended };
 }
 
 /// An activity row without the calls it has nothing to show for yet (toolGroups.ts `isDraftCall`),

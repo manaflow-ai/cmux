@@ -149,6 +149,10 @@ impl Hub {
         meta.chat_store = None;
         // Nor the VM boundary: only a caller's peer link asks for it (`vm_boundary.rs`).
         meta.vm_boundary = false;
+        // Nor a wait on its harness at every start (`SessionMeta::wait_start`): only a local
+        // creator that is no agent's, lane's or remote connection gets that (`server/requests.rs`
+        // `asks_to_wait_on_its_harness`); a bundle's own flag would hand it to any importer.
+        meta.wait_start = false;
         // Nor is a mode cmux set here, which only this daemon records (`SessionMeta::mode_set_by_cmux`).
         meta.mode_set_by_cmux = None;
         super::bookmarks::capped(&mut meta.bookmarks);

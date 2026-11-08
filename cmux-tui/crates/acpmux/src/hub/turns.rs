@@ -980,6 +980,13 @@ impl Hub {
         } else {
             Vec::new()
         };
+        // A person's prompt (a shared chat's guest or participant, not the owner) tells the agent
+        // who sent it (`author::agent_label`); the transcript's record above keeps their words.
+        if super::forum::slash_command(&blocks).is_none()
+            && let Some(label) = crate::author::agent_label(provenance.as_ref())
+        {
+            blocks.insert(0, label);
+        }
         super::team_information::prepend(&mut blocks, &team_messages);
         // A team message, or an inbox notice (`inbox.rs`), counts as delivered only once the
         // harness writer took its prompt: `on_sent` then logs it.

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 606,
+  "count": 607,
   "sections": [
     {
       "id": "general",
@@ -5135,6 +5135,14 @@
           "key": "browser.import.cookieBanner",
           "title": "Offer to Import Cookies",
           "help": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
+        },
+        {
+          "key": "browser.import.cookieSync",
+          "title": "Keep Imported Cookies in Sync",
+          "help": "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it.",
           "kind": "toggle",
           "default": true,
           "group": "Import"

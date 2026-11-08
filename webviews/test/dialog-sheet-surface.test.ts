@@ -107,10 +107,11 @@ test("no dialog paints its own fill, border colour or corner radius over the rol
 
 test("the Share dialog's buttons and selects are the shared controls, one height, one primary", () => {
   const dialog = read("agent-session/acpmux/share/ShareDialog.tsx");
-  // Every select's trigger is a shared button (controls.css draws `.ui-select-button.ui-btn`), so it
-  // reads as a control with its chevron in the pane, which loads no ui.css.
+  // The add row's role select is a shared button (controls.css draws `.ui-select-button.ui-btn`), so it
+  // reads as a control with its chevron in the pane, which loads no ui.css; the big rows (General
+  // access, each person) are whole-row pickers (ShareDialog.test.tsx).
   const selects = dialog.match(/<Select\b[\s\S]*?\/>/g) ?? [];
-  expect(selects.length).toBe(3);
+  expect(selects.length).toBe(1);
   for (const select of selects) expect(select).toContain('buttonClassName="ui-btn"');
   expect(read("ui/controls.css")).toMatch(/\.ui-button\.ui-btn\.ui-select-button\s*\{/);
   // One solid button (Done); no size other than the default row height.
