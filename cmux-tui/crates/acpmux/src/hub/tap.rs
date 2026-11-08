@@ -400,12 +400,7 @@ impl Hub {
             if running_changed {
                 let count =
                     tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner()).running_count();
-                tap_hub.append(
-                    &tap_session,
-                    "mux",
-                    super::views::SUBAGENTS_RUNNING,
-                    json!({"count": count}),
-                );
+                tap_hub.subagents_running(&tap_session, count);
             }
             // A background shell, a subagent's too (`processes.rs`).
             if d == "in" && kind == "background_task_update" {

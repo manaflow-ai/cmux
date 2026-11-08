@@ -246,7 +246,22 @@ impl Hub {
                 hub.wait_logs().await;
                 let _ = hub.adoption_ready.subscribe().wait_for(|ready| *ready).await;
             }
-            if let Err(error) = hub.run_race(&parent, &id, recover).await {
+            let mut result = hub.run_race(&parent, &id, recover).await;
+            // A failed race settles at once. One whose cleanup failed after its verdict or
+            // cancel was saved stays `reviewing` or `cancelled` with cleanup pending, which
+            // `fail_race` never moves: retry that cleanup a few times instead of leaving it to
+            // the next restart.
+            for delay in CLEANUP_RETRY_DELAYS {
+                // Checked after a success too: a cancel that came while the verdict's cleanup
+                // ran, and failed, leaves its own cleanup pending under an `Ok`.
+                let pending = hub.race_get(&parent, &id).is_ok_and(|r| cleanup_unfinished(&r));
+                if !pending {
+                    break;
+                }
+                tokio::time::sleep(*delay).await;
+                result = hub.run_race(&parent, &id, true).await;
+            }
+            if let Err(error) = result {
                 let _ = hub.race_update(&parent, &id, |r| {
                     fail_race(r, &error.message);
                 });
@@ -325,9 +340,9 @@ impl Hub {
                 .map(|(index, c)| { let race = &race; async move {
                     let result = if recover {
                         self.race_child(parent, race, &c.id).map(|child| {
-                            let turn = child.turn().map(|t| t.turn_id).or_else(|| child.read_meta(|m| m.last_turn.as_ref().and_then(|t| t["turnId"].as_str()).map(str::to_owned)));
                             let after = child.meta().last_seq.saturating_sub(512);
                             let events = self.events(&child.id, after, 512).unwrap_or_default();
+                            let turn = recovered_turn(&child, &events);
                             if !recovery_prompt_accepted(turn.as_deref(), child.queued() != 0, &events) {
                                 return Err(RpcError::internal(
                                     "daemon restarted before this candidate prompt was accepted; worktree retained",
@@ -465,12 +480,9 @@ impl Hub {
             }
         };
         if race.reviewer_turn_id.is_none() {
-            let turn = reviewer.turn().map(|t| t.turn_id).or_else(|| {
-                reviewer.read_meta(|m| {
-                    m.last_turn.as_ref().and_then(|t| t["turnId"].as_str()).map(str::to_owned)
-                })
-            });
-            if let Some(turn_id) = turn {
+            let after = reviewer.meta().last_seq.saturating_sub(512);
+            let events = self.events(&reviewer.id, after, 512).unwrap_or_default();
+            if let Some(turn_id) = recovered_turn(&reviewer, &events) {
                 self.race_update(parent, id, |r| r.reviewer_turn_id = Some(turn_id))?;
             }
         }
@@ -507,9 +519,59 @@ impl Hub {
     }
 
     /// A race child's prompt outcome: its turn's end, or a prompt that left the queue unrun (a
-    /// stop with close:false, a refusal at dispatch), which no turn will ever end.
+    /// stop with close:false, a refusal at dispatch), which no turn will ever end. A turn a
+    /// connection or capacity error cut goes on by itself (`auto_resume.rs`): the outcome is
+    /// its last continuation's, and none while a continuation waits, starts or runs.
     fn settled(&self, child: &Session, turn: Option<&str>) -> Option<(bool, Option<String>)> {
-        outcome(child, turn).or_else(|| self.withdrawn(child, turn).map(|e| (false, Some(e))))
+        let turn = self.continued_turn(child, turn);
+        let turn = turn.as_deref();
+        if let Some((ok, error)) = outcome(child, turn) {
+            let closed = child.status() == SessionStatus::Closed;
+            let last = child.read_meta(|m| m.last_turn.clone());
+            let (waits, deciding) = self.retry_row(child, last.as_ref());
+            if !ok && !closed && (waits.is_some() || deciding) {
+                return None;
+            }
+            return Some((ok, error));
+        }
+        self.withdrawn(child, turn).map(|e| (false, Some(e)))
+    }
+
+    /// The newest automatic continuation of `turn` in `child`'s log, following each attempt's
+    /// own continuation, else `turn` itself. Read newest first, back to `turn`'s own prompt.
+    fn continued_turn(&self, child: &Session, turn: Option<&str>) -> Option<String> {
+        let turn = turn?;
+        let ended_here = child.read_meta(|m| {
+            m.last_turn.as_ref().is_some_and(|t| {
+                t.get("turnId").and_then(Value::as_str) == Some(turn)
+                    && t.get("status").and_then(Value::as_str) != Some("failed")
+            })
+        });
+        if ended_here {
+            return Some(turn.to_owned());
+        }
+        // An attempt's turn, by the turn it continues.
+        let mut continues: HashMap<String, String> = HashMap::new();
+        let skip = |dir: &[u8], kind: &[u8]| dir != b"mux" || kind != b"user_message";
+        let _ = self.store.scan_back(&child.id, 0, u64::MAX, &skip, &mut |e| {
+            let Some(own) = e.msg.get("turnId").and_then(Value::as_str) else { return true };
+            if own == turn {
+                return false;
+            }
+            let p = e.msg.pointer("/_meta/provenance");
+            let field = |k: &str| p.and_then(|p| p.get(k)).and_then(Value::as_str);
+            if field("kind") == Some("auto_resume")
+                && let Some(cut) = field("turnId")
+            {
+                continues.insert(cut.to_owned(), own.to_owned());
+            }
+            true
+        });
+        let mut at = turn.to_owned();
+        while let Some(next) = continues.remove(&at) {
+            at = next;
+        }
+        Some(at)
     }
 
     /// Why `turn`'s prompt left `child`'s queue without running, from its `queue_removed` or
@@ -521,13 +583,19 @@ impl Hub {
         {
             return None;
         }
-        let after = child.meta().last_seq.saturating_sub(512);
-        let events = self.events(&child.id, after, 512).unwrap_or_default();
-        let last = events.iter().rev().find(|e| {
-            e.dir == "mux"
-                && e.msg.get("turnId").and_then(Value::as_str) == Some(turn)
-                && matches!(e.kind.as_str(), "turn_started" | "queue_removed" | "prompt_refused")
-        })?;
+        // Newest first over the whole log: a busy child's removal may be far back.
+        let mut last = None;
+        let skip = |dir: &[u8], kind: &[u8]| {
+            dir != b"mux" || !matches!(kind, b"turn_started" | b"queue_removed" | b"prompt_refused")
+        };
+        let _ = self.store.scan_back(&child.id, 0, u64::MAX, &skip, &mut |e| {
+            if e.msg.get("turnId").and_then(Value::as_str) != Some(turn) {
+                return true;
+            }
+            last = Some(e);
+            false
+        });
+        let last = last?;
         let why = |key| last.msg.get(key).and_then(Value::as_str).unwrap_or("withdrawn");
         match last.kind.as_str() {
             "queue_removed" => {
@@ -553,6 +621,18 @@ impl Hub {
         Ok(child)
     }
 
+    /// Closes a race child recorded by id. One that is not here (its chat moved here without
+    /// it, or it was deleted) or no longer this parent's has nothing of the race's to stop:
+    /// cleanup goes on, so it never fails, and retries at every restart, on a child it cannot reach.
+    async fn stop_race_child(self: &Arc<Self>, parent: &Session, id: &str) -> Result<(), RpcError> {
+        let child = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let Some(child) = child else { return Ok(()) };
+        if !child.read_meta(|m| m.subsession.as_ref().is_some_and(|l| l.started_by == parent.id)) {
+            return Ok(());
+        }
+        self.subsession_stop(&child, true).await.map(|_| ())
+    }
+
     async fn finish_review_cleanup(
         self: &Arc<Self>,
         parent: &Arc<Session>,
@@ -563,7 +643,7 @@ impl Hub {
             return Err(RpcError::internal("race cleanup has no persisted winner"));
         };
         if race.state == "cancelled" {
-            return Ok(());
+            return self.finish_cancel(parent, id).await;
         }
         if race.state != "reviewing" || !race.cleanup_pending {
             return Ok(());
@@ -573,8 +653,7 @@ impl Hub {
                 continue;
             }
             if let Some(child_id) = candidate.session_id.as_deref() {
-                let child = self.race_owned_child(parent, Some(child_id))?;
-                self.subsession_stop(&child, true).await?;
+                self.stop_race_child(parent, child_id).await?;
             } else if let Some(child) = self.race_child(parent, &race, &candidate.id) {
                 self.subsession_stop(&child, true).await?;
             }
@@ -588,8 +667,7 @@ impl Hub {
         let race = self.race_get(parent, id)?;
         if !race.reviewer_cleanup_done {
             if let Some(reviewer_id) = race.reviewer_session_id.as_deref() {
-                let reviewer = self.race_owned_child(parent, Some(reviewer_id))?;
-                self.subsession_stop(&reviewer, true).await?;
+                self.stop_race_child(parent, reviewer_id).await?;
             } else if let Some(reviewer) = self.race_child(parent, &race, "review") {
                 self.subsession_stop(&reviewer, true).await?;
             }
@@ -597,6 +675,21 @@ impl Hub {
         }
         let reason = race.reason.clone().unwrap_or_default();
         self.race_progress(parent, id, |r| complete_race(r, &winner, &reason))?;
+        // A cancel that came meanwhile wins (`complete_race` leaves it), and its cleanup is
+        // this one's to finish when its own call failed.
+        self.finish_cancel(parent, id).await
+    }
+
+    /// Finishes a cancelled race's pending cleanup (`race_cancel` again); nothing otherwise.
+    async fn finish_cancel(
+        self: &Arc<Self>,
+        parent: &Arc<Session>,
+        id: &str,
+    ) -> Result<(), RpcError> {
+        let race = self.race_get(parent, id)?;
+        if race.state == "cancelled" && race.cleanup_pending {
+            self.race_cancel(parent, id).await?;
+        }
         Ok(())
     }
 
@@ -638,8 +731,7 @@ impl Hub {
                 .filter_map(|c| c.session_id.as_deref())
                 .chain(race.reviewer_session_id.as_deref())
             {
-                let child = self.race_owned_child(parent, Some(child_id))?;
-                self.subsession_stop(&child, true).await?;
+                self.stop_race_child(parent, child_id).await?;
             }
             let race = self.race_progress(parent, id, |r| r.cleanup_pending = false)?;
             return Ok(json!(race));
@@ -654,6 +746,20 @@ fn fail_race(race: &mut Race, error: &str) {
     }
     race.state = "failed".into();
     race.reason = Some(crate::secret_scan::mask(error));
+}
+
+/// The waits before each retry of a race's failed cleanup (`spawn_race`); past the last, the
+/// next restart retries it (`race_needs_resume`).
+const CLEANUP_RETRY_DELAYS: &[std::time::Duration] = &[
+    std::time::Duration::from_secs(5),
+    std::time::Duration::from_secs(30),
+    std::time::Duration::from_secs(120),
+];
+
+/// A saved verdict or cancel whose children are not all stopped yet: `run_race` finishes it.
+fn cleanup_unfinished(race: &Race) -> bool {
+    race.cleanup_pending
+        && ((race.state == "reviewing" && race.winner_id.is_some()) || race.state == "cancelled")
 }
 
 fn race_needs_resume(race: &Race) -> bool {
@@ -677,6 +783,28 @@ pub(super) fn settle_imported(races: &mut Arc<Vec<Race>>) {
         }
         race.cleanup_pending = false;
     }
+}
+
+/// After a restart, the turn a race child's prompt runs or ran as: its running turn, its
+/// queued prompt's (one waiting for a run slot has no turn yet), the newest turn the log saw
+/// start or queue in `events`, else its last turn.
+fn recovered_turn(child: &Session, events: &[crate::store::EventRecord]) -> Option<String> {
+    child
+        .turn()
+        .map(|t| t.turn_id)
+        .or_else(|| child.queue().first().map(|q| q.turn_id.clone()))
+        .or_else(|| {
+            events
+                .iter()
+                .rev()
+                .filter(|e| e.dir == "mux" && matches!(e.kind.as_str(), "queued" | "turn_started"))
+                .find_map(|e| e.msg.get("turnId").and_then(Value::as_str).map(str::to_owned))
+        })
+        .or_else(|| {
+            child.read_meta(|m| {
+                m.last_turn.as_ref().and_then(|t| t["turnId"].as_str()).map(str::to_owned)
+            })
+        })
 }
 
 fn recovery_prompt_accepted(
@@ -815,7 +943,17 @@ fn statistics(races: &[Race]) -> Value {
 
 /// Streaming tokens never trigger an O(candidates) scan. Only this parent's family lifecycle
 /// and race transitions wake the supervisor; lag causes one rescan of durable child state.
-/// A child's own queue removal or refusal wakes it too: no parent record follows those.
+/// A child's own records that end its prompt with no record in its parent: a removal or
+/// refusal, and the end of a decision on its cut turn's continuation (`auto_resume.rs`).
+const CHILD_WAKES: &[&str] = &[
+    "queue_removed",
+    "prompt_refused",
+    "auto_resume_settled",
+    "auto_resume_skipped",
+    "auto_resume_exhausted",
+];
+
+/// A child's own [`CHILD_WAKES`] wake it too.
 async fn wait_transition(
     events: &mut broadcast::Receiver<HubEvent>,
     parent: &str,
@@ -827,10 +965,8 @@ async fn wait_transition(
                 if e.record.dir == "mux"
                     && ((e.session_id == parent
                         && matches!(e.record.kind.as_str(), "subsession" | "race" | "status"))
-                        || (matches!(
-                            e.record.kind.as_str(),
-                            "queue_removed" | "prompt_refused"
-                        ) && children.contains(&e.session_id.as_str()))) =>
+                        || (CHILD_WAKES.contains(&e.record.kind.as_str())
+                            && children.contains(&e.session_id.as_str()))) =>
             {
                 return Ok(());
             }
