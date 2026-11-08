@@ -472,17 +472,21 @@ All mutations are typed ops with idempotency keys to these owners; destructive o
 
 Settings (cmux.json, Settings > Server, MDM-lockable): `server.enabled`, `server.roles`, `server.channel`, `server.autoUpdate`, `server.pinnedVersion`, `server.health.allowDisplaySleep`, `server.health.alerts.<check>` (on/off, thresholds), `postgres.port`, `postgres.backupWindow`, `postgres.backupRetention`, `postgres.appQuotaGiB`, `postgres.offsiteBackup`. Team policy: `servers.enabled`, `servers.memberEnroll`, `servers.allowedRoles`.
 
-## 14. Prototypes (DEV/NIGHTLY, Debug Settings > Server)
+## 14. Prototypes (gallery variants)
 
-Swift module `CmuxNextServer` renders a projection of `server.status` with a mock source until the Rust role exists.
+The server's surfaces (the menu bar panel, Health, the pairing code and Add Server) are React on the
+server card page (`webviews/src/pages/server-cards/server`, design/server-cards.md) over the Swift
+`ServerModel`, which renders a projection of `server.status` (a mock source until the Rust role exists).
+The Debug Settings style switches are gone; each layout is a gallery variant
+(`pages.server-cards-server-surfaces`, `pages.server-cards-add-server`).
 
-| Tunable | Variants |
+| Surface | Variants |
 | --- | --- |
-| `server.panel.style` (menubar panel) | `compact`: status line, on/off switch, four rows (Terminals, Apps, Database, Health); `dashboard`: cards per role with counts and the pairing code; `list`: grouped list (Services, Health, Devices) with inline actions |
-| `server.pairing.style` | `code`: large code, small QR, the four words; `qr`: large QR, code below; `words`: the four words as the primary check and the code in a field (for reading aloud) |
-| `server.health.style` | `checklist`: every check with state and Fix; `summary`: one status line, only the open issues; `timeline`: alerts over time with resolve markers |
+| menu bar panel | `compact`: status line, on/off switch, four rows (Terminals, Apps, Database, Health); `dashboard`: cards per role with counts and the pairing code; `list`: grouped list (Services, Health, Devices) with inline actions |
+| pairing | `code`: large code, small QR, the four words; `qr`: large QR, code below; `words`: the four words as the primary check and the code in a field (for reading aloud) |
+| Health | `checklist`: every check with state and Fix; `summary`: one status line, only the open issues; `timeline`: alerts over time with resolve markers |
 
-Built in PR https://github.com/manaflow-ai/cmux/pull/16840 (module `CmuxNextServer`, mock scenarios: healthy paired Mac, battery + low disk + pending lock, unpaired, Linux headless). Recommendation, now the code defaults: panel `compact` (fits a menubar popover; `list` is the better full Server window), pairing `code` (works on every approval path, the small QR serves the phone, the words stay visible), health `checklist` (shows passing and failing checks with inline fixes; `summary` suits an issues-only area). Lawrence picks after dogfood. The App does not host the views yet (menubar status item and palette actions are step 7).
+Built in PR https://github.com/manaflow-ai/cmux/pull/16840 as Swift (mock scenarios: healthy paired Mac, battery + low disk + pending lock, unpaired, Linux headless), moved to React with the scenarios as gallery fixtures. Shipped: panel `compact` (fits a menubar popover), pairing `code` (works on every approval path, the small QR serves the phone, the words stay visible), health `checklist` (shows passing and failing checks with inline fixes).
 
 ## 15. Steps
 

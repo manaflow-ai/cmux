@@ -317,6 +317,12 @@ impl Mux {
         // Projection ordering is complete. Do not carry the fence guard into
         // cleanup or any retry/reentrant path.
         drop(fences);
+        // The terminal keeps its last harness session after it ends, so a
+        // resume can find it once the roster dropped the record (W3-H).
+        if let Some(session_id) = explicit_session_id {
+            let harness = agent_provider_identity(ingress);
+            self.note_agent_session(&terminal_id, session_id, harness.as_deref());
+        }
         // An ended session leaves the roster entirely: the done state was
         // committed and broadcast above (so remote caches converge), and the
         // live record is dropped so agents views stop listing the terminal
