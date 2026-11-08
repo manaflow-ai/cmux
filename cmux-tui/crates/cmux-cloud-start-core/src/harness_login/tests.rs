@@ -750,3 +750,26 @@ fn a_start_that_keeps_the_machines_login_never_waits_on_a_warm_copy() {
         assert!(d.reads_machine && !d.warm_copy_conflict, "{login:?}");
     }
 }
+
+#[test]
+fn a_start_that_skips_the_copy_never_waits_on_a_warm_copy() {
+    // These starts read the machine but copy nothing, so a warm's copy never ends a wait for them:
+    // the machine's own working login is kept, and a Release team guest takes no login.
+    let kept = |login| Inputs { machine_login: Some(login), ..cached(owner()) };
+    let release_team_guest = Inputs { guest_kind: Some("team".into()), ..cached(release()) };
+    let declined = Inputs { consent: Some(false), ..cached(release()) };
+    for (d, reason) in [
+        (kept(MachineLogin::Working), Reason::MachineLoginKept),
+        (kept(MachineLogin::Session), Reason::MachineLoginKept),
+        (kept(MachineLogin::Cached), Reason::MachineLoginKept),
+        (release_team_guest, Reason::GuestNotOwner),
+        (declined, Reason::ConsentDeclined),
+    ] {
+        let decision = decide(&d);
+        assert_eq!((decision.step, decision.reason), (Step::Skip, reason));
+        assert!(decision.reads_machine && !decision.warm_copy_conflict, "{reason:?}");
+    }
+    // The start that installs still waits.
+    let installs = decide(&cached(owner()));
+    assert!(installs.step == Step::Install && installs.warm_copy_conflict);
+}
