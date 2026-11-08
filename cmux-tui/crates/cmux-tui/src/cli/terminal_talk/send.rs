@@ -418,7 +418,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         return Err(SendFailure::local("usage.invalid", "send needs --text", json!({}), 2));
     }
     let pattern = match request.pattern.as_deref() {
-        Some(pattern) => Some(Regex::new(pattern).map_err(|error| {
+        Some(pattern) => Some(cmux_tui_core::wait_pattern::compile(pattern).map_err(|error| {
             SendFailure::local(
                 "usage.invalid",
                 format!("--pattern is not a valid regular expression: {error}"),
@@ -445,7 +445,8 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         ));
     }
     let agents = snapshot["agents"].as_array().map(Vec::as_slice).unwrap_or_default();
-    let agent = roster::agent_of_terminal(terminal, agents);
+    // Only the blocked check below reads the agent; done-until-seen is moot.
+    let agent = roster::agent_of_terminal(terminal, agents, false);
     if !request.force
         && let Some(agent) = &agent
         && agent.state == AgentState::WaitingForInput
@@ -458,7 +459,12 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
                  escape), or pass --force to type anyway",
                 agent.harness
             ),
-            json!({"terminal": id, "harness": agent.harness, "state": agent.state.as_str()}),
+            json!({
+                "terminal": id,
+                "harness": agent.harness,
+                "state": agent.state.as_str(),
+                "status": "blocked",
+            }),
             1,
         ));
     }

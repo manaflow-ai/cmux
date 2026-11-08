@@ -19,7 +19,7 @@ export default agentPaneEntry({
   title: "Chat another app runs",
   area: "Agent pane",
   height: 520,
-  covers: ["agent-session/acpmux/direct.ts#AcpmuxDirectClient"],
+  covers: ["agent-session/acpmux/LiveChatChoice.tsx#LiveChatChoice"],
   variants: {
     "choice-alone": {
       note: "Before, and still for a chat that cannot be watched: the choice over an empty pane",

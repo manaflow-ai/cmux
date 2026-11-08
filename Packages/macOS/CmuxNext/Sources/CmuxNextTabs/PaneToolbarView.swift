@@ -100,7 +100,8 @@ public final class PaneToolbarView: NSView {
         _ = reveal.add(moreButton)
         restObservation = Task { [weak self] in
             for await _ in ObservationStream({
-                (TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value)
+                (TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value,
+                 TabTunables.trailingButtons.value)
             }) { self?.applyRest() }
         }
     }
@@ -108,6 +109,8 @@ public final class PaneToolbarView: NSView {
     /// Hidden at rest while the tabs leave room; muted once they fill the bar (Leo 2026-10-20: no
     /// reservation of hidden icons, and no push or overlay that takes the rightmost tabs away).
     private func applyRest() {
+        // The ⋮ shows hover as the tab bar's + and ⌄ beside it do (`TabTunables.trailingButtons`).
+        moreButton.hoverStyle = TabTunables.trailingButtons.value.hoverStyle
         reveal.restAlpha = TabTunables.restingControlAlpha(crowded: strip?.isCrowded ?? false)
     }
 

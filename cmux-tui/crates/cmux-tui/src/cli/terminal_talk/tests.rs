@@ -78,6 +78,49 @@ fn agent_rows_name_harness_state_title_and_workspace_and_skip_plain_shells() {
 }
 
 #[test]
+fn agent_rows_carry_the_shared_status_and_done_until_seen() {
+    let rows = roster::agent_rows(&snapshot());
+    let statuses: Vec<Option<String>> =
+        rows.iter().map(|row| row.to_json(0)["status"].as_str().map(str::to_string)).collect();
+    assert_eq!(
+        statuses.iter().map(Option::as_deref).collect::<Vec<_>>(),
+        [Some("blocked"), Some("working"), Some("idle")]
+    );
+
+    // An unread notification on the idle claude terminal: its turn finished
+    // and nobody viewed it, so it is done and sorts above working.
+    let mut unseen = snapshot();
+    unseen["notifications"] = json!([
+        {"id": "notification_1", "terminal_id": "term_c1a0de00000000000000000000000001",
+         "unread": true, "title": "Claude finished"},
+        {"id": "notification_2", "terminal_id": "term_c0dec000000000000000000000000004",
+         "unread": false, "title": "Codex needs approval"},
+    ]);
+    let rows = roster::agent_rows(&unseen);
+    let summary: Vec<(&str, &str, &str)> = rows
+        .iter()
+        .map(|row| (row.harness.as_str(), row.status_word(), row.state.as_str()))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("codex", "blocked", "waiting-for-input"),
+            ("claude", "done", "idle"),
+            ("muse", "working", "busy")
+        ],
+        "the old state word stays for compatibility"
+    );
+    let table = roster::table(&rows, 1_000);
+    assert!(table.lines().nth(2).is_some_and(|line| line.contains(" done ")), "{table}");
+
+    let mut ended = snapshot();
+    ended["agents"][0]["state"] = json!("done");
+    let ended = roster::agent_rows(&ended);
+    let last = ended.last().unwrap();
+    assert_eq!((last.status_word(), last.to_json(0)["status"].clone()), ("ended", Value::Null));
+}
+
+#[test]
 fn agent_table_has_one_header_and_one_line_per_agent() {
     let rows = roster::agent_rows(&snapshot());
     let table = roster::table(&rows, 61_000);
@@ -706,7 +749,7 @@ fn read_run_send_pattern_matches_only_output_after_the_typed_command() {
 fn read_run_run_is_send_wait_prompt_with_exit_status() {
     let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
     let request =
-        super::parse_run("term_a", &words(&["--timeout", "10s", "--", "sh", "-c", "'exit 7'"]))
+        super::parse_run("term_a", &words(&["--timeout", "10s", "--", "sh", "-c", "exit 7"]))
             .expect("parsed");
     assert_eq!(request.text, "sh -c 'exit 7'");
     assert_eq!(request.wait, Wait::Prompt);
@@ -754,4 +797,51 @@ fn read_run_read_and_wait_flags_send_unwrap_lines_and_new() {
         .map(|a| (*a).to_owned())
         .collect();
     assert!(command::parse(&args, super::super::Surface::CmuxTui).is_err());
+}
+
+/// `terminal run -- sh -c 'exit 7'` (bench round 3, T3): the words after
+/// `--` are an argv, so the shell must get each one as one word. A plain
+/// join made the shell run `sh -c exit 7`, which exits 0.
+#[test]
+fn w4j_run_gives_the_shell_each_argv_word_as_one_word() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let shell = |line: &str| {
+        std::process::Command::new("/bin/sh").arg("-c").arg(line).output().expect("sh runs")
+    };
+    let request =
+        super::parse_run("term_a", &words(&["--", "sh", "-c", "exit 7"])).expect("parsed");
+    assert_eq!(shell(&request.text).status.code(), Some(7), "typed {:?}", request.text);
+
+    let argv = ["a b", "it's", "say \"hi\"", "$HOME", "*", "back\\slash", "", "tab\there"];
+    let mut command = vec!["--", "printf", "%s\\n"];
+    command.extend(argv);
+    let request = super::parse_run("term_a", &words(&command)).expect("parsed");
+    let printed = shell(&request.text);
+    assert!(printed.status.success(), "typed {:?}", request.text);
+    let printed = String::from_utf8(printed.stdout).expect("utf-8");
+    assert_eq!(printed.lines().collect::<Vec<_>>(), argv, "typed {:?}", request.text);
+
+    // One word after -- stays a shell line, as `run -- 'a; b'` was.
+    let request =
+        super::parse_run("term_a", &words(&["--", "echo AFTER_$((2+2)); exit 3"])).expect("parsed");
+    assert_eq!(request.text, "echo AFTER_$((2+2)); exit 3");
+    assert_eq!(shell(&request.text).status.code(), Some(3));
+}
+
+/// `send --pattern '^BENCH_OK$'` (bench round 3, T2): a pattern is matched
+/// line by line, so `^` and `$` anchor at each line without `(?m)`.
+#[test]
+fn w4j_send_pattern_anchors_match_at_each_line() {
+    let message = "for i in 1 2 3; do echo step $i; done; echo BENCH_OK";
+    let echo = format!("$ {message}");
+    let daemon = ShellDaemon::new(
+        None,
+        vec![shell_record(json!({"activity": {"state": "running"}}))],
+        &[&echo, &format!("{echo}\nstep 1\nstep 2\nstep 3\nBENCH_OK\n$ ")],
+        true,
+    );
+    let request = SendRequest { pattern: Some("^BENCH_OK$".into()), ..shell_send(message) };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["matched"], true, "{receipt}");
+    assert_eq!(super::send_exit_code(&receipt, false), 0);
 }

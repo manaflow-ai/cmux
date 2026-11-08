@@ -61,6 +61,7 @@ export const MessageRow = memo(
                   promptIds: [...row.inboxThread.promptIds],
                   ...(row.inboxThread.fromSession ? { fromSession: row.inboxThread.fromSession } : {}),
                   ...(row.inboxThread.fromHarness ? { fromHarness: row.inboxThread.fromHarness } : {}),
+                  ...(row.inboxThread.unverified ? { unverified: row.inboxThread.unverified } : {}),
                 },
               ],
             }}

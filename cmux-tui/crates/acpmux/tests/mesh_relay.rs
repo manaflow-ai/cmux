@@ -93,6 +93,8 @@ struct State {
     acks: Vec<(String, Ack)>,
     inbox_calls: usize,
     heartbeats: Vec<Heartbeat>,
+    /// When each heartbeat came, on tokio's clock.
+    beat_at: Vec<tokio::time::Instant>,
     /// Idempotency key to message id.
     keys: HashMap<String, String>,
     receipts: HashMap<String, Receipt>,
@@ -120,6 +122,8 @@ struct FakeHub {
     refusing_inbox: bool,
     /// The inbox long-polls for a minute, far past the test's wait.
     long: bool,
+    /// The row TTL a heartbeat reply names (90 s, the hub's old TTL, when unset).
+    ttl_seconds: Option<u64>,
 }
 
 impl FakeHub {
@@ -135,7 +139,12 @@ impl FakeHub {
 
     /// Waits up to 30 s for `done` to hold.
     async fn until(&self, what: &str, done: impl Fn(&State) -> bool) {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        self.until_within(Duration::from_secs(30), what, done).await;
+    }
+
+    /// Waits up to `limit` for `done` to hold.
+    async fn until_within(&self, limit: Duration, what: &str, done: impl Fn(&State) -> bool) {
+        let deadline = tokio::time::Instant::now() + limit;
         loop {
             let changed = self.changed.notified();
             if done(&self.state.lock().unwrap()) {
@@ -196,11 +205,17 @@ impl MeshHub for FakeHub {
         beat: &'a Heartbeat,
     ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>> {
         Box::pin(async move {
-            self.with(|s| s.heartbeats.push(beat.clone()));
+            self.with(|s| {
+                s.heartbeats.push(beat.clone());
+                s.beat_at.push(tokio::time::Instant::now());
+            });
             if self.refusing {
                 return Err(HubError::refused("401 mesh.unauthorized"));
             }
-            Ok(HeartbeatReply { daemon_id: "inst_b".into(), ttl_seconds: 90 })
+            Ok(HeartbeatReply {
+                daemon_id: "inst_b".into(),
+                ttl_seconds: self.ttl_seconds.unwrap_or(90),
+            })
         })
     }
 
@@ -1135,6 +1150,30 @@ async fn the_heartbeat_lists_the_sessions_here_and_a_stop_empties_them() {
     let earlier = fake.with(|s| s.heartbeats[0].clone());
     assert!(!earlier.leaving, "{earlier:?}");
     assert!(serde_json::to_value(&earlier).unwrap().get("leaving").is_none(), "omitted when false");
+}
+
+/// The heartbeat comes every third of the TTL the hub's reply names, so the hub tunes its liveness
+/// window without a daemon release: a 30 s TTL beats every 10 s, a 90 s one every 30 s (capped at
+/// `heartbeat_every`), and a reply with no TTL falls back to `heartbeat_every`.
+#[tokio::test(start_paused = true)]
+async fn the_heartbeat_comes_every_third_of_the_hubs_ttl() {
+    for (ttl, every) in [(30, 10), (90, 30), (0, 30)] {
+        let hub = hub();
+        let fake = Arc::new(FakeHub { ttl_seconds: Some(ttl), ..FakeHub::default() });
+        let options = RelayOptions { heartbeat_every: Duration::from_secs(30), ..quick() };
+        let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), options);
+        fake.until_within(Duration::from_secs(120), "three heartbeats", |s| s.beat_at.len() >= 3)
+            .await;
+        relay.stop().await;
+        let at = fake.with(|s| s.beat_at.clone());
+        for gap in at[..3].windows(2).map(|w| w[1] - w[0]) {
+            assert!(
+                gap >= Duration::from_secs(every)
+                    && gap < Duration::from_secs(every) + Duration::from_millis(500),
+                "ttl {ttl}: heartbeats {gap:?} apart, not every {every} s"
+            );
+        }
+    }
 }
 
 /// A session's send through the hub names that session as its sender, whatever `fromAgent` the
