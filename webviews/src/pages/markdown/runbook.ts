@@ -28,11 +28,12 @@ export function isRunnableLanguage(language: string): boolean {
 
 /**
  * The command a block runs: its text as written, or for a session block (`console`) only its prompt
- * lines (`$ ` or `% `), without the prompt and without the output lines. A line counts as more of the
- * command only while the shell would still read it: after a trailing `\\`, in an open quote or
- * heredoc (the line as shown, its `> ` continuation prompt dropped so it never runs as a
- * redirection), and after a trailing `|`, `||` or `&&` or in an open `if`, `for`, `case` or `{`
- * (only a `> ` prompt line: a real transcript shows one there). Any other line is output. Empty when
+ * lines (`$ ` or `% `), without the prompt and without the output lines. A line is more of the command
+ * only while the shell would still read it (an open quote, substitution or heredoc, a trailing `|`,
+ * `||` or `&&`, an open `if`, `for`, `case` or `{`) and it shows the shell's `> ` continuation prompt,
+ * which is dropped so it never runs as a redirection; after an unquoted trailing `\\` a bare line
+ * counts too. Any other line is output, and so is everything after it until the next prompt: when the
+ * scan is unsure, the command ends early (the shell then waits), it never takes output. Empty when
  * nothing runs.
  */
 export function runnableCommand(language: string, text: string): string {
@@ -42,8 +43,8 @@ export function runnableCommand(language: string, text: string): string {
   let open = CLOSED;
   for (const line of lines) {
     const prompted = /^\s*>\s?(.*)$/.exec(line);
-    const continued =
-      open.quote !== null || open.heredocs.length > 0 || open.escaped || ((open.pipe || open.depth > 0) && !!prompted);
+    const reading = open.scopes.length > 0 || open.heredocs.length > 0 || open.escaped || open.pipe || open.depth > 0;
+    const continued = reading && (!!prompted || (open.escaped && open.scopes.length === 0));
     const prompt = continued ? null : /^\s*[$%]\s+(.*)$/.exec(line);
     if (!prompt && !continued) {
       open = CLOSED;
@@ -56,10 +57,14 @@ export function runnableCommand(language: string, text: string): string {
   return commands.join("\n").trim();
 }
 
-/** What a shell still waits for after a line: the end of a quote or of a heredoc, a next line after a
- * `\\` or an operator, or the end of `depth` open compound commands. */
+/** A quoting or substitution scope the shell is inside: `'…'`, `"…"`, `` `…` ``, `$(…)` (and a
+ * `(…)` inside it) or `${…}`. */
+type Scope = "'" | '"' | "`" | "$(" | "(" | "${";
+
+/** What a shell still waits for after a line: the end of its open scopes or heredocs, a next line
+ * after a `\\` or an operator, or the end of `depth` open compound commands. */
 interface ShellOpen {
-  quote: "'" | '"' | null;
+  scopes: readonly Scope[];
   /** The delimiters of the heredocs still open, first to close first. */
   heredocs: readonly string[];
   escaped: boolean;
@@ -69,7 +74,7 @@ interface ShellOpen {
   position: boolean;
 }
 
-const CLOSED: ShellOpen = { quote: null, heredocs: [], escaped: false, pipe: false, depth: 0, position: true };
+const CLOSED: ShellOpen = { scopes: [], heredocs: [], escaped: false, pipe: false, depth: 0, position: true };
 /** Reserved words in command position that open and close a compound command (a loop opens at its
  * keyword, so `do` may stand on the next line), and those after which the next word is again in
  * command position. */
@@ -81,15 +86,15 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
   // A heredoc line is its body. Trimmed, it may close a little early (the shell would wait then), never late.
   if (before.heredocs.length > 0)
     return { ...before, heredocs: line.trim() === before.heredocs[0] ? before.heredocs.slice(1) : before.heredocs };
-  let quote = before.quote;
-  const heredocs = [...before.heredocs];
+  const scopes = [...before.scopes];
+  const heredocs: string[] = [];
   let depth = before.depth;
   let escaped = false;
-  // The current unquoted word, whether a word may be a reserved word here, and the last operator.
+  // The current top-level word, whether a word may be a reserved word here, and the last operator.
   let word = "";
   let plain = true;
   // A `\\` continuation goes on where the line before stopped; any other line starts a command.
-  let commandPosition = before.escaped ? before.position : quote === null;
+  let commandPosition = before.escaped ? before.position : scopes.length === 0;
   let last = "";
   const endWord = () => {
     if (word && plain && commandPosition) {
@@ -100,31 +105,63 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
     word = "";
     plain = true;
   };
+  // Inside any scope the characters belong to one word: mark it quoted.
+  const inWord = () => {
+    plain = false;
+    word += "x";
+    last = "";
+  };
   for (let at = 0; at < line.length; at++) {
     const char = line[at]!;
-    if (quote === "'") {
-      if (char === "'") quote = null;
+    const scope = scopes[scopes.length - 1];
+    if (scope === "'") {
+      if (char === "'") scopes.pop();
       continue;
     }
     if (char === "\\") {
       // A `\\` that ends the line continues it; any other escapes the next character.
       if (at === line.length - 1) escaped = true;
       at++;
-      plain = false;
-      word += "x";
-      last = "";
+      inWord();
       continue;
     }
-    if (quote === '"') {
-      if (char === '"') quote = null;
+    // Opening a scope: quotes everywhere but in `"…"` (where only `"` closes), substitutions everywhere.
+    if (char === "$" && line[at + 1] === "(") {
+      scopes.push("$(");
+      at++;
+      inWord();
+      continue;
+    }
+    if (char === "$" && line[at + 1] === "{") {
+      scopes.push("${");
+      at++;
+      inWord();
+      continue;
+    }
+    if (scope === '"') {
+      if (char === '"') scopes.pop();
+      else if (char === "`") scopes.push("`");
       continue;
     }
     if (char === "'" || char === '"') {
-      quote = char;
-      plain = false;
-      word += "x";
-      last = "";
-    } else if (char === "#" && !word) {
+      scopes.push(char);
+      inWord();
+      continue;
+    }
+    if (char === "`") {
+      if (scope === "`") scopes.pop();
+      else scopes.push("`");
+      inWord();
+      continue;
+    }
+    if (scope !== undefined) {
+      // Inside a substitution: its own parentheses and braces, until the one that closes it.
+      if (char === "(" && (scope === "$(" || scope === "(")) scopes.push("(");
+      else if (char === ")" && (scope === "$(" || scope === "(")) scopes.pop();
+      else if (char === "}" && scope === "${") scopes.pop();
+      continue;
+    }
+    if (char === "#" && !word) {
       // A comment runs to the line's end: nothing in it continues the line.
       break;
     } else if (char === "<" && line[at + 1] === "<") {
@@ -151,11 +188,12 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
     }
   }
   endWord();
+  const top = scopes.length === 0;
   return {
-    quote,
+    scopes,
     heredocs,
-    escaped: quote === null && escaped,
-    pipe: quote === null && !escaped && (last === "|" || last === "&&"),
+    escaped: top && escaped,
+    pipe: top && !escaped && (last === "|" || last === "&&"),
     depth,
     position: commandPosition,
   };

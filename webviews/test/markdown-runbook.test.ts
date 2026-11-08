@@ -77,6 +77,17 @@ describe("runbook steps", () => {
     expect(runnableCommand("console", "$ for f in a; do echo $f; done\n> touch marker")).toBe(
       "for f in a; do echo $f; done",
     );
+    // Quotes inside a substitution are its own: the command is closed, and the lines after are output.
+    expect(
+      runnableCommand("console", "$ printf '# %s\\nprintf marker\\n' \"$(printf '\"')\"\n# \"\nprintf marker"),
+    ).toBe("printf '# %s\\nprintf marker\\n' \"$(printf '\"')\"");
+    expect(runnableCommand("console", '$ echo "${x:-"a b"}" `echo "\'"`\n> touch marker')).toBe(
+      'echo "${x:-"a b"}" `echo "\'"`',
+    );
+    expect(runnableCommand("console", '$ echo "$(echo "(")\n> b")"\nb')).toBe('echo "$(echo "(")\nb")"');
+    // Inside an open quote or heredoc only `> ` lines continue: a bare line is output.
+    expect(runnableCommand("console", "$ echo 'a\ntouch marker'")).toBe("echo 'a");
+    expect(runnableCommand("console", "$ cat <<EOF\ntouch marker\nEOF")).toBe("cat <<EOF");
     // A heredoc's delimiter is its whole word, quoted or not, and heredocs on one line close in order.
     expect(runnableCommand("console", "$ cat <<EOF.txt\n> touch marker\n> EOF.txt\ntouch marker")).toBe(
       "cat <<EOF.txt\ntouch marker\nEOF.txt",
