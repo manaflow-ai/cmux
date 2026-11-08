@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// The Mac side of the host credential relay (cx-wb5.63, slice B of
 /// cx-wb5.57; cmux-tui-core `apps/relay.rs`): a first-party app server
@@ -80,6 +81,16 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     let allowedOps: @Sendable () async -> Set<String>
     /// This app's carrier socket of a machine (``carrierSocketOp``).
     let carrierSocket: CarrierSocket
+    /// Whether an organization turned Cloud off (`DisabledFeatures`): then no op is relayed and no
+    /// carrier socket is handed out, so a Cloud app server cannot start a carrier around the policy.
+    public let policy = Policy()
+
+    /// ``policy``: set on the main actor by the app's policy, read by each call.
+    public nonisolated final class Policy: Sendable {
+        private let state = Mutex(false)
+        public var turnedOff: Bool { state.withLock { $0 } }
+        public func set(turnedOff: Bool) { state.withLock { $0 = turnedOff } }
+    }
 
     /// Why the app has no carrier socket of a machine: a `cmux carrier` step code (`ticket`, `relay`,
     /// `parked_timeout`, `handshake`, `service_refused`, `bad_request`, `socket`), `cloud.machine.not_found`
@@ -119,6 +130,7 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         guard call.app == Self.app else {
             return Self.failure("credential.app_refused", "only \(Self.app) may use the credential relay")
         }
+        if call.op != Self.sessionOp, policy.turnedOff { return Self.turnedOff }
         switch call.op {
         case Self.sessionOp:
             let state = await session()
@@ -216,6 +228,7 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     }
 
     static let notSignedIn = failure("not_signed_in", "sign in to cmux")
+    static let turnedOff = failure("cmux.policy.turned_off", "your organization turned off cmux Cloud")
 
     static func failure(_ code: String, _ message: String, retryable: Bool = false) -> Answer {
         Answer(ok: false, body: .object(["code": .string(code), "message": .string(message), "retryable": .bool(retryable)]))

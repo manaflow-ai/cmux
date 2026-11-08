@@ -181,4 +181,26 @@ struct CloudCredentialRelayRefusalTests {
         #expect(await asked.machines == ["vm_1"], "only the first line asked")
         #expect(await sent.calls.isEmpty)
     }
+
+    /// Cloud turned off by policy: neither a carrier ask nor a relayed op reaches the carrier or the
+    /// Worker, so a Cloud app server cannot restart a stopped `carrier serve`; turned on, both run again.
+    @Test func cloudTurnedOffByPolicyRefusesCarrierAndRelay() async throws {
+        let (sent, asked) = (Sent(), Asked())
+        let carrier = Self.carrierRelay(sent, asked: asked) { _ in .success("/tmp/x.sock") }
+        let provider = CloudCredentialProvider(relay: carrier)
+        provider.setTurnedOff(true)
+        let off = try await Self.answer(try Self.carrierLine(id: 15, params: ["machine": .string("vm_1")]), relay: carrier)
+        #expect(off.ok == false)
+        #expect(off.body["code"]?.stringValue == "cmux.policy.turned_off")
+        let relay = Self.relay(sent)
+        relay.policy.set(turnedOff: true)
+        let relayed = try await Self.answer(try Self.line(id: 16, op: "cloud.machine.connect_info"), relay: relay)
+        #expect(relayed.body["code"]?.stringValue == "cmux.policy.turned_off")
+        #expect(await asked.machines.isEmpty)
+        #expect(await sent.calls.isEmpty)
+        provider.setTurnedOff(false)
+        let on = try await Self.answer(try Self.carrierLine(id: 17, params: ["machine": .string("vm_1")]), relay: carrier)
+        #expect(on.ok == true)
+        #expect(await asked.machines == ["vm_1"])
+    }
 }

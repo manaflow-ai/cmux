@@ -370,8 +370,8 @@ final class CloudService {
         policyDisabled = disabled
         // Fence Codex broker requests synchronously with the policy flip. The
         // adapter tears down holders asynchronously and retains their private
-        // homes for a later confirmed run after policy is restored.
-        codexBroker.setAvailable(!disabled)
+        // homes for a later confirmed run after policy is restored. The credential relay refuses (no carrier socket).
+        codexBroker.setAvailable(!disabled); credentialProvider?.setTurnedOff(disabled)
         if disabled {
             // Policy disable fences Cloud event delivery synchronously; machines disconnect below.
             machineWire.stop()
