@@ -532,6 +532,12 @@
           "command": null
         },
         {
+          "id": "agentReview.show",
+          "title": "Show Review Queue",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "home.unmuteConversation",
           "title": "Show Alerts",
           "shortcut": null,
@@ -560,12 +566,6 @@
           "title": "Show History",
           "shortcut": null,
           "command": "cmux history show"
-        },
-        {
-          "id": "agentReview.show",
-          "title": "Show Review Queue",
-          "shortcut": null,
-          "command": null
         },
         {
           "id": "stash.show",
