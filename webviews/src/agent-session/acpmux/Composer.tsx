@@ -164,7 +164,8 @@ import {
   type EmojiShortcodes,
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
-import { dropStashed, moveStash, readStashed, stashDraft, useNewChatStash, useStash } from "./composer/draftStash";
+import { moveStash, useNewChatStash } from "./composer/draftStash";
+import { isStashKey, useDraftStash } from "./composer/useDraftStash";
 import { StashedChip } from "./composer/StashedChip";
 import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts } from "./savedPrompts";
 
@@ -888,79 +889,32 @@ function ComposerFrame({
   /// The handle's restore, the current render's (the handle is made once).
   const restoreNow = useRef(restoreDraft);
   restoreNow.current = restoreDraft;
-  // Stash (composer/draftStash.ts): ⌃S puts the draft aside and empties the prompt; ⌃S on an empty
+  // Stash (composer/useDraftStash.ts): ⌃S puts the draft aside and empties the prompt; ⌃S on an empty
   // prompt, or a pick from the Stashed chip, brings the newest (or the picked) one back. A draft
   // typed meanwhile goes on the stack in its place, so nothing typed is ever replaced.
   const newChatKey = useNewChatStash();
   const stashChat = sessionId ?? newChatKey;
-  const stashed = useStash(stashChat);
-  const heldDraft = () => ({
-    text: field.current?.value() ?? textRef.current,
-    attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
-  });
-  const clearDraft = () => {
-    notTyped();
-    if (!field.current?.type("")) {
-      setText("");
-      setCaret(0);
-    }
-    attachmentsRef.current = attachmentsRef.current.filter((chip) => chip.shellRun);
-    setAttachments((current) => current.filter((chip) => chip.shellRun));
-  };
-  // Still the draft `held` (a stash waits on acpmux's answer): what was typed since stays.
-  const stillHeld = (held: ReturnType<typeof heldDraft>) => {
-    const now = heldDraft();
-    return (
-      now.text === held.text &&
-      now.attachments.length === held.attachments.length &&
-      now.attachments.every((chip, index) => chip.id === held.attachments[index]?.id)
-    );
-  };
-  // Whether this composer still shows `chat`: a stash's answer for a chat it left, or after it
-  // closed, changes nothing here (the draft stays stashed, or stays where it was).
-  const stashFor = useRef(stashChat);
-  stashFor.current = stashChat;
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => void (mounted.current = false);
-  }, []);
-  const showing = (chat: string) => mounted.current && stashFor.current === chat;
-  const stashNow = () => {
-    const chat = stashChat;
-    const held = heldDraft();
-    // The prompt empties once acpmux holds the draft; a refusal leaves it as it was.
-    void stashDraft(chat, held.text, held.attachments).then(
-      (done) => done && showing(chat) && stillHeld(held) && clearDraft(),
-    );
-  };
-  const unstash = (id?: string) => {
-    const chat = stashChat;
-    const target = id ?? stashed[0]?.id;
-    if (!target) return;
-    void (async () => {
-      // Read whole, and dropped only once this composer holds it again in the same chat.
-      const entry = await readStashed(chat, target);
-      if (!entry || !showing(chat)) return;
-      const held = heldDraft();
-      if (held.text.trim() || held.attachments.length > 0) {
-        // A draft typed meanwhile goes on the stack in the taken one's place, in one write.
-        if (await stashDraft(chat, held.text, held.attachments, entry.id)) {
-          // Left meanwhile: the taken draft goes back on the stack, as it was.
-          if (!showing(chat)) return void stashDraft(chat, entry.text, entry.attachments);
-          if (stillHeld(held)) clearDraft();
-          restoreDraft(entry.text, entry.attachments);
-          field.current?.focus();
-          return;
-        }
-        // acpmux refused it: the typed draft stays, and the stashed one comes back beside it.
-        if (!showing(chat)) return;
+  const {
+    stashed,
+    unstash,
+    toggle: toggleStash,
+  } = useDraftStash(stashChat, {
+    held: () => ({
+      text: field.current?.value() ?? textRef.current,
+      attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
+    }),
+    clear: () => {
+      notTyped();
+      if (!field.current?.type("")) {
+        setText("");
+        setCaret(0);
       }
-      restoreDraft(entry.text, entry.attachments);
-      field.current?.focus();
-      await dropStashed(chat, entry.id);
-    })();
-  };
+      attachmentsRef.current = attachmentsRef.current.filter((chip) => chip.shellRun);
+      setAttachments((current) => current.filter((chip) => chip.shellRun));
+    },
+    restore: (restoredText, restoredAttachments) => restoreDraft(restoredText, restoredAttachments),
+    focus: () => field.current?.focus(),
+  });
   // A new chat's stack follows it to its session, and to the tab's key once the tab is known.
   const stashedFor = useRef({ sessionId, newChatKey });
   useEffect(() => {
@@ -1879,13 +1833,9 @@ function ComposerFrame({
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     // ⌃S stashes the draft; on an empty prompt it brings the newest stashed one back.
-    if (event.key === "s" && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !shell) {
+    if (isStashKey(event) && !shell) {
       event.preventDefault();
-      const held = heldDraft();
-      // A draft that could not be stashed stays in the prompt; only an empty one brings one back.
-      if (held.text.trim() || held.attachments.length) stashNow();
-      else unstash();
-      field.current?.focus();
+      toggleStash();
       return;
     }
     // Tab takes the suggested prompt into the field; the next Tab moves focus on as usual. Esc puts

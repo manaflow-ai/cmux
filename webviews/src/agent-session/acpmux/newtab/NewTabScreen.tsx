@@ -118,6 +118,9 @@ import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
 import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts } from "../savedPrompts";
+import { useNewChatStash } from "../composer/draftStash";
+import { StashedChip } from "../composer/StashedChip";
+import { isStashKey, useDraftStash } from "../composer/useDraftStash";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import {
   applyCommand,
@@ -556,6 +559,39 @@ export function NewTabScreen(props: Props) {
       cancelHeldSend: holdForAttachments.cancel,
     },
   );
+  // Stash (composer/useDraftStash.ts), as in a chat's composer: ⌃S puts the draft aside on the
+  // tab's new-chat stack, and on an empty prompt brings the newest back. The location the page
+  // opens with is a suggestion, not a draft: it is never stashed.
+  const stashChat = useNewChatStash();
+  const {
+    stashed,
+    unstash,
+    toggle: toggleStash,
+  } = useDraftStash(stashChat, {
+    held: () => {
+      const value = field.current?.value() ?? text;
+      return { text: value === untouchedText.current ? "" : value, attachments: attachmentsRef.current };
+    },
+    clear: () => {
+      if (!field.current?.type("")) setText("");
+      attachmentsRef.current = [];
+      setAttachments([]);
+    },
+    restore: (restoredText, restoredAttachments) => {
+      touch();
+      setTouched(true);
+      const typed = field.current?.value() ?? text;
+      const next = !typed.trim() || typed === untouchedText.current ? restoredText : `${restoredText}\n\n${typed}`;
+      // The editor parses tokens as it takes the text: their chips are known first.
+      attachmentsRef.current = [
+        ...restoredAttachments,
+        ...attachmentsRef.current.filter((chip) => !restoredAttachments.some((back) => back.id === chip.id)),
+      ];
+      setAttachments(attachmentsRef.current);
+      if (!field.current?.type(next)) setText(next);
+    },
+    focus: () => field.current?.focus(),
+  });
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
@@ -1552,6 +1588,11 @@ export function NewTabScreen(props: Props) {
         return;
       }
     }
+    if (isStashKey(event) && !shell) {
+      event.preventDefault();
+      toggleStash();
+      return;
+    }
     if (shell) {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -1944,6 +1985,7 @@ export function NewTabScreen(props: Props) {
           <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
         )}
         <span className="acpmux-composer-actions">
+          {!shell && <StashedChip drafts={stashed} onRestore={unstash} chat={stashChat} />}
           {props.accessory}
           {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
               none, as Aside's New Tab: Return sends. */}

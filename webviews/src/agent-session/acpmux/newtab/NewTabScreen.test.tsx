@@ -21,6 +21,7 @@ import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachine
 import type { CloudMachine } from "../cloudMachines";
 import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
+import { resetStashForTests, stashedNow, type StashTransport } from "../composer/draftStash";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -1182,6 +1183,53 @@ test.each(
   await act(async () => create(kind).click());
   expect(asks.length).toBe(kind === "chat" ? 1 : 0);
   expect(creates).toEqual(kind === "chat" ? [] : [kind]);
+});
+
+test("⌃S on New Tab stashes the draft and empties the prompt; ⌃S on the empty prompt brings it back", async () => {
+  // acpmux's stash, in memory (draftStash.test.ts has the same fake).
+  const daemon = new Map<string, { id: string; text: string; attachments: ComposerAttachment[]; at: number }[]>();
+  let serial = 0;
+  const fake: StashTransport = {
+    list: async (chat) => ({ drafts: daemon.get(chat) ?? [] }),
+    push: async (chat, text, attachments, replaces) => {
+      const row = { id: `stash-${++serial}`, text, attachments: [...attachments], at: serial };
+      daemon.set(chat, [row, ...(daemon.get(chat) ?? []).filter((entry) => entry.id !== replaces)].slice(0, 5));
+      return { draft: row };
+    },
+    get: async (chat, id) => ({ draft: daemon.get(chat)?.find((entry) => entry.id === id) }),
+    drop: async (chat, id) => {
+      daemon.set(
+        chat,
+        (daemon.get(chat) ?? []).filter((entry) => entry.id !== id),
+      );
+      return { removed: true };
+    },
+  };
+  resetStashForTests(fake);
+  try {
+    await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} />));
+    const field = await typePrompt("half a thought");
+    const control = async () => {
+      const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+      await act(async () => {
+        editor.dispatchEvent(
+          new dom!.window.KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+    await control();
+    expect(promptValue()).toBe("");
+    const [chat] = [...daemon.keys()];
+    expect(stashedNow(chat!).map((entry) => entry.text)).toEqual(["half a thought"]);
+    expect(container.querySelector(".acpmux-stash")?.hasAttribute("data-shown")).toBe(true);
+    await control();
+    expect(promptValue()).toBe("half a thought");
+    expect(daemon.get(chat!)).toEqual([]);
+    expect(stashedNow(chat!)).toEqual([]);
+  } finally {
+    resetStashForTests();
+  }
 });
 
 test("a page that goes with an unsent draft hands it over; an untouched page hands nothing", async () => {
