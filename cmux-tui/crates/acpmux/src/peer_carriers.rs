@@ -693,17 +693,18 @@ impl Peer {
                     }
                 }
                 _ = check.tick() => {
-                    let frames = match shadow.as_mut() {
+                    let done = shadow.as_mut().is_some_and(|run| self.shadow_done(run));
+                    let frames = match shadow.take() {
                         None if self.dual_wanted(via) => {
                             let (run, frames) = self.shadow_start(via);
                             shadow = Some(run);
                             frames
                         }
-                        Some(run) if self.shadow_done(run) => match shadow.take() {
-                            Some(run) => self.shadow_end(run).await,
-                            None => Vec::new(),
-                        },
-                        _ => Vec::new(),
+                        Some(run) if done => self.shadow_end(run).await,
+                        kept => {
+                            shadow = kept;
+                            Vec::new()
+                        }
                     };
                     if !send_texts(&mut ws, frames).await {
                         self.path_failed(via);

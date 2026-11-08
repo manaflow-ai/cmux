@@ -141,6 +141,8 @@ async fn rig() -> Rig {
     });
     // Its handshake's initialize goes out; the link is made ready by hand.
     assert_eq!(next_text(&mut primary).await["method"], method::INITIALIZE);
+    // The handshake would replay `s1` from its cursor and then open its gate.
+    peer.replay_highwater.lock().unwrap().clear();
     peer.admitting.store(false, Ordering::SeqCst);
     peer.connected.store(true, Ordering::SeqCst);
     peer.with_link(|l| l.ready(crate::store::now_ms()));
@@ -211,7 +213,8 @@ async fn a_request_sent_on_both_paths_is_answered_once() {
     assert_eq!(answer, json!({"from": "shadow"}));
     send(&mut rig.primary, json!({"jsonrpc": "2.0", "id": id, "result": {"from": "link"}})).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
-    assert_eq!(rig.peer.pending_requests().await, 0);
+    // Only the rig's unanswered initialize is still pending.
+    assert!(!rig.peer.pending.lock().await.contains_key(&id.to_string()));
     assert!(rig.peer.dual_keys.lock().unwrap().is_empty());
 }
 
@@ -276,7 +279,7 @@ async fn the_extra_bytes_while_in_doubt_are_one_copy_of_each_frame() {
          adds {per_frame_stamp} bytes per frame; the attach of 1 chat {attach_bytes} bytes; \
          {frames} frames copied in all",
         link_bytes / PROMPTS,
-        (link_bytes + copied) as f64 / link_bytes as f64,
+        (link_bytes as f64 + copied as f64) / link_bytes as f64,
     );
     // One copy of each frame: the second path carries what the link does, nothing more.
     assert!(copied.abs_diff(link_bytes as u64) <= PROMPTS as u64 * 4, "{copied} vs {link_bytes}");
