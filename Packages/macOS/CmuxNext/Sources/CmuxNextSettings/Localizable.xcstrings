@@ -219067,6 +219067,399 @@
           }
         }
       }
+    },
+    "settings.group.developerTools": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدوات المطور"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razvojni alati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udviklerværktøjer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwicklerwerkzeuge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Developer Tools"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herramientas de desarrollo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outils de développement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strumenti per sviluppatori"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デベロッパツール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍អ្នកអភិវឌ្ឍន៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개발자 도구"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utviklerverktøy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Narzędzia deweloperskie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferramentas do Desenvolvedor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инструменты разработчика"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องมือนักพัฒนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geliştirici Araçları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інструменти розробника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Công cụ nhà phát triển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开发者工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開發者工具"
+          }
+        }
+      }
+    },
+    "settings.developerTools.appPages": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدوات المطور لصفحات cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razvojni alati za cmux stranice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udviklerværktøjer til cmux-sider"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwicklerwerkzeuge für cmux-Seiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Developer Tools for cmux Pages"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herramientas de desarrollo para páginas de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outils de développement pour les pages cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strumenti per sviluppatori per le pagine di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ページのデベロッパツール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍អ្នកអភិវឌ្ឍន៍សម្រាប់ទំព័រ cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 페이지용 개발자 도구"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utviklerverktøy for cmux-sider"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Narzędzia deweloperskie dla stron cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferramentas do Desenvolvedor para páginas do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инструменты разработчика для страниц cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องมือนักพัฒนาสำหรับหน้า cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sayfaları için Geliştirici Araçları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інструменти розробника для сторінок cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Công cụ nhà phát triển cho các trang cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 页面的开发者工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 頁面的開發者工具"
+          }
+        }
+      }
+    },
+    "settings.developerTools.appPages.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل «فحص العنصر» في قائمة النقر بزر الماوس الأيمن و«تبديل أدوات المطور» (⌥⌘I) في محادثات الوكلاء والصفحة الرئيسية وMarkdown والإعدادات. علامات تبويب المتصفح تتضمنها دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregledaj element u meniju desnog klika i Prebaci razvojne alate (⌥⌘I) rade u chatovima s agentima, na Početnoj, u Markdownu i Postavkama. Kartice preglednika ih uvijek imaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undersøg element i højrekliksmenuen og Slå udviklerværktøjer til/fra (⌥⌘I) virker i agentchats, Hjem, Markdown og Indstillinger. Browserfaner har dem altid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Element untersuchen“ im Kontextmenü und „Entwicklerwerkzeuge ein-/ausblenden“ (⌥⌘I) funktionieren in Agent-Chats, Home, Markdown und Einstellungen. Browser-Tabs haben sie immer."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspeccionar elemento en el menú contextual y Alternar herramientas de desarrollo (⌥⌘I) funcionan en los chats de agentes, Inicio, Markdown y Ajustes. Las pestañas del navegador siempre los tienen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspecter l’élément dans le menu contextuel et Afficher/masquer les outils de développement (⌥⌘I) fonctionnent dans les discussions d’agents, l’Accueil, Markdown et les Réglages. Les onglets du navigateur les ont toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ispeziona elemento nel menu contestuale e Attiva/Disattiva Strumenti sviluppatore (⌥⌘I) funzionano nelle chat degli agenti, in Home, Markdown e Impostazioni. I pannelli del browser li hanno sempre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右クリックメニューの「要素を検証」と「デベロッパツールを切り替え」(⌥⌘I) が、エージェントチャット、ホーム、Markdown、設定で使えます。ブラウザタブでは常に使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យធាតុ នៅក្នុងម៉ឺនុយចុចស្ដាំ និង បិទ/បើកឧបករណ៍អ្នកអភិវឌ្ឍន៍ (⌥⌘I) ដំណើរការក្នុងការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម Markdown និងការកំណត់។ ផ្ទាំងកម្មវិធីរុករកតែងតែមានវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 클릭 메뉴의 요소 검사와 개발자 도구 전환(⌥⌘I)을 에이전트 채팅, 홈, Markdown, 설정에서 사용할 수 있습니다. 브라우저 탭에는 항상 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspiser element i høyreklikkmenyen og Slå utviklerverktøy av/på (⌥⌘I) virker i agentchatter, Hjem, Markdown og Innstillinger. Nettleserfaner har dem alltid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zbadaj element w menu prawego przycisku i Przełącz narzędzia deweloperskie (⌥⌘I) działają w czatach z agentami, na stronie głównej, w Markdownie i Ustawieniach. Karty przeglądarki mają je zawsze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspecionar elemento no menu de contexto e Alternar Ferramentas do Desenvolvedor (⌥⌘I) funcionam em chats de agentes, Início, Markdown e Ajustes. As abas do navegador sempre os têm."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Просмотреть элемент» в контекстном меню и «Инструменты разработчика» (⌥⌘I) работают в чатах с агентами, на главной, в Markdown и в настройках. Во вкладках браузера они есть всегда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบองค์ประกอบในเมนูคลิกขวา และสลับเครื่องมือนักพัฒนา (⌥⌘I) ใช้ได้ในแชทเอเจนต์ หน้าหลัก Markdown และการตั้งค่า แท็บเบราว์เซอร์มีเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sağ tık menüsündeki Öğeyi incele ve Geliştirici Araçlarını Aç/Kapat (⌥⌘I), ajan sohbetlerinde, Ana Sayfa'da, Markdown'da ve Ayarlar'da çalışır. Tarayıcı sekmelerinde her zaman vardır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Переглянути елемент» у контекстному меню та «Перемкнути інструменти розробника» (⌥⌘I) працюють у чатах з агентами, на головній, у Markdown і в налаштуваннях. Вкладки браузера мають їх завжди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểm tra phần tử trong menu chuột phải và Bật/tắt công cụ nhà phát triển (⌥⌘I) hoạt động trong chat với tác tử, Trang chủ, Markdown và Cài đặt. Tab trình duyệt luôn có chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右键菜单中的“检查元素”和“切换开发者工具”(⌥⌘I) 可在智能体聊天、主页、Markdown 和设置中使用。浏览器标签页始终可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右鍵選單中的「檢查元素」和「切換開發者工具」(⌥⌘I) 可在代理聊天、首頁、Markdown 和設定中使用。瀏覽器分頁一律可用。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

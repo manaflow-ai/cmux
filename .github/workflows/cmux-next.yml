@@ -140,6 +140,7 @@ on:
       - scripts/cmux-next/settings-exports.txt
       - scripts/cmux-next/check-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - cmux-tui/**
       - CLI/**
       - cmuxCLITests/**
@@ -428,6 +429,7 @@ on:
       - scripts/cmux-next/settings-exports.txt
       - scripts/cmux-next/check-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - cmux-tui/**
       - CLI/**
       - cmuxCLITests/**
@@ -700,17 +702,20 @@ jobs:
   # 82 minutes to 2026-11-05T08:36Z, 17 of 100 PR runs were cancelled by the PR's next push (4 of
   # them under 5 minutes after the first, the rest after 5 to 36 minutes of checks and compiles).
   # It runs before portable-placement, so the placement it would read is not made yet, and an idle
-  # runner that placement finds is still idle when the job it placed starts. Like that bootstrap it
-  # takes hosted Ubuntu (.github/runners.json hosted_light_jobs): it sleeps, so it holds no fleet
-  # runner or mini. A re-run (attempt 2 and later), a `leo-named-fix` PR (landing.md: those land
+  # runner that placement finds is still idle when the job it placed starts. It sleeps on the
+  # smallest Blacksmith Linux size (the linux_2 pool), so it holds no fleet runner or mini. It is
+  # not on hosted Ubuntu: the org runs at most 20 hosted jobs at once, and on 2026-11-07 its
+  # 2,103 sleeps held 6 of them on average (8,400 of 21,600 hosted minutes), so the routers and
+  # report steps that must start fast queued 1.5-2 min at the median through the busy hours. Its
+  # own start costs nothing on any runner: the sleep ends at the push time plus the window, so a
+  # queued start sleeps that much less. A re-run (attempt 2 and later), a `leo-named-fix` PR (landing.md: those land
   # with no wait) and vars.CI_PR_QUIET_PERIOD_SECONDS = '0' skip it; pushes and dispatches never
   # run it. Leo, 2026-11-05: "i meant can you do all of htem".
   pr-quiet-period:
     if: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 && !contains(github.event.pull_request.labels.*.name, 'leo-named-fix') && format('{0}', vars.CI_PR_QUIET_PERIOD_SECONDS) != '0' }}
     name: cmux-next PR quiet period
-    # A fork's run takes hosted Ubuntu too: the job checks nothing out and holds no token, so the sleep never
-    # holds Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    # A fork pull request's sleep takes the fixed 2 vCPU label like every fork route (no pool read).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 12
     permissions: {}
     steps:
