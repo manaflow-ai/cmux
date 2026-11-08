@@ -233,7 +233,9 @@ fn script() -> Vec<Step> {
 fn layout_signature(layout: &Option<PredictionLayout>) -> Vec<(u8, u8, i32)> {
     layout
         .as_ref()
-        .map(|layout| layout.glyphs.iter().map(|glyph| (glyph.character, glyph.standing, glyph.offset)).collect())
+        .map(|layout| {
+            layout.glyphs.iter().map(|glyph| (glyph.character, glyph.standing, glyph.offset)).collect()
+        })
         .unwrap_or_default()
 }
 
@@ -329,7 +331,9 @@ fn run(rtt_ms: u64, loss: f64, predict: bool, seed: u64) -> Run {
             last_frame = now;
             prediction.presented_frame(now);
             let layout = prediction.layout(now, screen.cursor_column, COLUMNS);
-            let drawn = layout.map(|layout| layout.glyphs.iter().filter(|glyph| glyph.standing == 0).count()).unwrap_or(0);
+            let drawn = layout
+                .map(|layout| layout.glyphs.iter().filter(|glyph| glyph.standing == 0).count())
+                .unwrap_or(0);
             if remote.mode != Mode::Shell || screen.alternate {
                 drawn_where_unsafe += drawn;
             }
@@ -360,7 +364,7 @@ fn summary(rtt_ms: u64, loss: f64, predict: bool) -> (Vec<u64>, usize, usize, us
     let mut predicted = 0;
     let mut keys = 0;
     for seed in 1..=20u64 {
-        let run = run(rtt_ms, loss, predict, seed * 0x9E37_79B9_7F4A_7C15);
+        let run = run(rtt_ms, loss, predict, seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
         keys += run.latencies.len();
         all.extend(run.latencies);
         unsafe_glyphs += run.drawn_where_unsafe;
@@ -372,7 +376,9 @@ fn summary(rtt_ms: u64, loss: f64, predict: bool) -> (Vec<u64>, usize, usize, us
 
 #[test]
 fn keystroke_to_glyph_latency() {
-    println!("| RTT | loss | p50 before | p50 after | p95 before | p95 after | p99 before | p99 after | keys shown before echo |");
+    println!(
+        "| RTT | loss | p50 before | p50 after | p95 before | p95 after | p99 before | p99 after | keys shown before echo |"
+    );
     println!("|---|---|---|---|---|---|---|---|---|");
     for rtt_ms in [50u64, 150, 300] {
         for loss in [0.0, 0.02, 0.05] {
