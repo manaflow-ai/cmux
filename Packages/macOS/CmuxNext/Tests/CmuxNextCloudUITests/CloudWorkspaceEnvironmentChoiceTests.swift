@@ -56,7 +56,7 @@ struct CloudWorkspaceEnvironmentChoiceTests {
 
     @MainActor
     @Test func choosingAnEnvironmentInTheDialogReturnsItsPlan() async throws {
-        let plan = try await CloudWorkspaceSetupWizard().choosePlan(availability: .unsupportedCloudRoute, scopeIsCurrent: { true },
+        let plan = try await CloudWorkspaceSetupWizard().choosePlan(scopeIsCurrent: { true },
             supportsRepository: false, environments: environments, supportsEnvironments: true,
             present: { _ in CmuxDialogAnswer(button: "create", role: .default, values: ["source": .text("environment:env_00000000000000000001")]) })
         #expect(plan?.environment == "env_00000000000000000001")
@@ -64,7 +64,7 @@ struct CloudWorkspaceEnvironmentChoiceTests {
 
     @MainActor
     @Test func anEnvironmentAnswerOnTheClassicPathIsRefused() async throws {
-        let plan = try await CloudWorkspaceSetupWizard().choosePlan(availability: .available, scopeIsCurrent: { true },
+        let plan = try await CloudWorkspaceSetupWizard().choosePlan(scopeIsCurrent: { true },
             present: { _ in CmuxDialogAnswer(button: "create", role: .default, values: ["source": .text("newEnvironment"), "repository": .text("octo/paint")]) })
         #expect(plan == nil)
     }

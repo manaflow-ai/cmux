@@ -346,8 +346,6 @@ public final class AgentPaneModel {
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
-    /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
-    @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
     /// Runs the Cloud machine + latest transcript fork and opens its sibling without selecting this chat.
     /// The session is the one this pane showed when the click arrived, so a pane that switched
     /// sessions meanwhile never forks the newly selected chat.
@@ -704,24 +702,6 @@ public final class AgentPaneModel {
                 return Self.transportFailure(.gestureRequired)
             }
             return await onIMessage(action)
-        case .cloudCredentialTransfer(let request):
-            guard remoteChat, newTab == nil, sessionId == request.sessionID else {
-                return AgentPaneReply.failure(code: "unavailable", message: "Credential setup is unavailable for this chat.")
-            }
-            guard let onCloudCredentialTransfer else { return Self.unsupported(AgentPaneCloudCredentialTransferRequest.method) }
-            guard let connection = transport.connection,
-                  let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": [
-                    "promptId": request.retryPromptID, "sessionId": request.sessionID,
-                  ]]]), let ticket = transport.reserveGesture(intent, personOnly: true) else { return Self.transportFailure(.gestureRequired) }
-            var released = false
-            defer { if !released { _ = transport.gestures.redeem(ticket, connection: connection, pick: nil) } }
-            guard await onCloudCredentialTransfer(request), !Task.isCancelled,
-                  transport.connection == connection, sessionId == request.sessionID else {
-                return AgentPaneReply.success(["transferred": false])
-            }
-            // Preserve the original click's one-use, session/prompt-scoped grant and expiry.
-            released = true
-            return AgentPaneReply.success(["transferred": true, "promptId": request.retryPromptID, "ticket": ticket])
         case .tryAnotherApproach(let request):
             guard remoteChat, newTab == nil, let session = sessionId, let onTryAnotherApproach else {
                 return Self.unsupported(AgentPaneTryAnotherApproach.method)

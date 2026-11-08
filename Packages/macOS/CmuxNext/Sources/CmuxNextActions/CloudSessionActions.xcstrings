@@ -109,33 +109,6 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Thư mục trên máy"}}
       }
     },
-    "argument.cloudStartSession.login": {
-      "comment": "Argument title: how the Cloud machine's agent harness (Claude, Codex) gets a login: pass, machine or none.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Harness Login"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "تسجيل دخول الأداة"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Prijava alata"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Værktøjslogin"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Harness-Anmeldung"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Inicio de sesión del arnés"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Connexion du harnais"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Accesso dello strumento"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "ハーネスのログイン"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ការចូលរបស់ឧបករណ៍"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "하네스 로그인"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Verktøypålogging"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Logowanie narzędzia"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Login da ferramenta"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Вход инструмента"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "การเข้าสู่ระบบของเครื่องมือ"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Araç girişi"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Вхід інструмента"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Đăng nhập công cụ"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "工具登录"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "工具登入"}}
-      }
-    },
     "action.cloudRelayChat": {
       "comment": "Command title: sends a prompt to an agent on a Cloud machine over the machine's relay, without a link to the machine.",
       "extractionState": "manual",

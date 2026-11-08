@@ -90,6 +90,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// read): its `initialize` names `agent_login` before the first send made a session, so the
     /// first failed turn already offers Sign in. A wire with a session asks its client instead.
     private let servesLogin: Bool
+    /// False for a chat on a Cloud machine: it reaches models through the machine's edge and holds no
+    /// provider login, so its page never offers the on-machine sign-in, whatever its daemon serves.
+    private let machineSignIn: Bool
     private let cloudRepositoryRequest: CloudRepository?
     private let cloudRepositoryStart: CloudRepositoryStart?
     private let host: String?
@@ -101,9 +104,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// The wire of the chat `session` (its store record), through `client`.
     public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
                 trust: Trust? = nil, ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
-                cloudRepositoryStart: CloudRepositoryStart? = nil) {
+                cloudRepositoryStart: CloudRepositoryStart? = nil, machineSignIn: Bool = true) {
         start = nil
         servesLogin = false
+        self.machineSignIn = machineSignIn
         self.host = host
         self.linksAlias = linksAlias
         self.trust = trust
@@ -116,9 +120,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
     public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
                 ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
-                cloudRepositoryStart: CloudRepositoryStart? = nil, servesLogin: Bool = false) {
+                cloudRepositoryStart: CloudRepositoryStart? = nil, servesLogin: Bool = false, machineSignIn: Bool = true) {
         self.start = start
-        self.servesLogin = servesLogin
+        self.servesLogin = servesLogin && machineSignIn
+        self.machineSignIn = machineSignIn
         self.host = host
         self.linksAlias = linksAlias
         self.trust = trust
@@ -154,11 +159,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 return reply(id, Self.initialized(extensions: extensions, ownerCloud: false, login: servesLogin))
             }
             // task-owner: one owner-answer and sign-in read per initialize; its reply ends it
-            Task { [weak self, ownerCloud, servesLogin] in
+            Task { [weak self, ownerCloud, servesLogin, machineSignIn] in
                 let owned = await ownerCloud?() ?? false
                 // `agent_login`: the daemon relays the chat's own sign-in (the card's offer).
                 var login = servesLogin
-                if let client { login = await client.servesLogin() }
+                if let client, machineSignIn { login = await client.servesLogin() }
                 self?.reply(id, Self.initialized(extensions: extensions, ownerCloud: owned, login: login))
             }
         case "_acpmux/status":

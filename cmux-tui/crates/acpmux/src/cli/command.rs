@@ -22,15 +22,6 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Own one dedicated Codex sign-in over private stdin/stdout pipes.
-    #[cfg(unix)]
-    #[command(hide = true)]
-    CodexAuthBroker {
-        #[arg(long)]
-        home: PathBuf,
-        #[arg(long)]
-        codex: PathBuf,
-    },
     /// `gh` for an agent on a machine the person added: the GitHub broker's actions, run by the
     /// Mac that lends this machine its login (`cli/gh_shim.rs`).
     #[command(hide = true, disable_help_flag = true)]

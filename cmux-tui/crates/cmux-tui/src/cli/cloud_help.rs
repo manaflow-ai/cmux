@@ -521,12 +521,14 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 /// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
 pub(super) const START_CHAT_USAGE: &str = "\
 usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--cwd DIR]
-                             [--login pass|machine|none] [--environment ENV]
+                             [--environment ENV]
                              [--name MACHINE | --target machine:MACHINE_ID]
                              [--wait] [--timeout SECONDS] [--json]
 
 Starts an agent chat on a Cloud machine and sends it a prompt, in one step.
 The chat opens as a tab in the machine's workspace in the cmux app.
+The machine's agents reach models through the Cloud service's model route;
+no login is copied from this Mac (`cmux cloud model-route --machine ID`).
 This is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`), by its
 older name; both run the same start.
 
@@ -537,10 +539,6 @@ older name; both run the same start.
                      with `-`
   --agent AGENT      claude (default), codex, ...
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
-  --login pass|machine|none
-                     The agent's login there: yours from this Mac, the
-                     machine's own, or none (default: the machine's login or
-                     your earlier choice)
   --name MACHINE     Use the machine with this name, or create it
   --target machine:MACHINE_ID
                      Use this machine (`cmux cloud list-machines`)
@@ -558,7 +556,7 @@ new_machine: true when this run made the machine.
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
   cmux cloud start-chat --name dev --prompt 'Run the tests' --json
-  cmux cloud start-chat --agent codex --login machine --json
+  cmux cloud start-chat --agent codex --json
 
 FOLLOW-UPS (SESSION_ID from the answer)
   cmux chat send SESSION_ID 'next prompt' --wait

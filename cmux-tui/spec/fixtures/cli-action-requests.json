@@ -7,7 +7,6 @@
         "args": {
           "agent": "claude",
           "cwd": "/home/cmux/w",
-          "login": "none",
           "prompt": "What is 2+2?",
           "promptId": "p-1"
         },
@@ -2903,13 +2902,12 @@
         "args": {
           "agent": "/tmp/contract",
           "cwd": "/tmp/contract",
-          "login": "/tmp/contract",
           "name": "/tmp/contract"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud start-session --agent /tmp/contract --name /tmp/contract --cwd /tmp/contract --login /tmp/contract"
+      "source": "cmux cloud start-session --agent /tmp/contract --name /tmp/contract --cwd /tmp/contract"
     },
     {
       "params": {
@@ -2917,14 +2915,13 @@
         "args": {
           "agent": "/tmp/contract",
           "cwd": "/tmp/contract",
-          "login": "/tmp/contract",
           "prompt": "/tmp/contract",
           "promptId": "/tmp/contract"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud relay-chat --agent /tmp/contract --prompt /tmp/contract --cwd /tmp/contract --prompt-id /tmp/contract --login /tmp/contract"
+      "source": "cmux cloud relay-chat --agent /tmp/contract --prompt /tmp/contract --cwd /tmp/contract --prompt-id /tmp/contract"
     },
     {
       "params": {

@@ -1,4 +1,4 @@
-//! `cmux cloud start-chat [--prompt TEXT] [--agent claude] [--cwd DIR] [--login L] [--environment E]
+//! `cmux cloud start-chat [--prompt TEXT] [--agent claude] [--cwd DIR] [--environment E]
 //! [--name MACHINE | --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes a Cloud chat from
 //! nothing to a reply, for a person, a script or the Chief (Leo, 2026-11-02: "we need to improve
 //! the docs/instructions/commands and guidance and whatnot to make this all smoother faster more
@@ -9,7 +9,7 @@
 //!
 //! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux.
 //!    With `--environment`, `cloud new-machine --environment E` first makes the chat's machine in it.
-//! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D] [--login L]`: takes the machine (or
+//! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D]`: takes the machine (or
 //!    creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
 //!    Without `--name` or `--target` it creates a new small machine with a new name, so the chat
 //!    never lands on a machine another workspace uses (leo-workspace `design/cloud.md`, "One
@@ -72,16 +72,11 @@ const TAKES_VALUE: &[&str] = &[
     "-p",
     "--agent",
     "--cwd",
-    "--login",
     "--environment",
     "--name",
     "--target",
     "--timeout",
 ];
-
-/// `--login`'s words, as `cloud start-session` takes them (`CloudHarnessLoginAsk.choice`): the person's
-/// login, the machine's own, or none.
-const LOGINS: &[&str] = &["pass", "machine", "none"];
 
 /// Which machine the chat starts on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,9 +95,6 @@ pub(super) struct Request {
     pub prompt: Option<String>,
     pub agent: String,
     pub cwd: Option<String>,
-    /// `--login pass|machine|none`: the harness login the machine's agent gets, as `cloud start-session`
-    /// takes it (`CloudHarnessLoginAsk`); `None` leaves the app's default.
-    pub login: Option<String>,
     /// `--environment ID|NAME`: the Cloud environment (`env_…`, or its name) a new machine boots in
     /// (`cloud new-machine --environment`).
     pub environment: Option<String>,
@@ -170,7 +162,6 @@ pub(super) fn send_existing(
         prompt: Some(prompt),
         agent: String::new(),
         cwd: None,
-        login: None,
         environment: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait,
@@ -284,7 +275,6 @@ pub(super) fn parse(
     let mut prompt = None;
     let mut agent = None;
     let mut cwd = None;
-    let mut login = None;
     let mut environment = None;
     let mut name = None;
     let mut target = None;
@@ -314,7 +304,6 @@ pub(super) fn parse(
             "--prompt" | "-p" => prompt = Some(value()?),
             "--agent" => agent = Some(value()?),
             "--cwd" => cwd = Some(value()?),
-            "--login" => login = Some(value()?),
             "--environment" => environment = Some(value()?),
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
@@ -366,12 +355,6 @@ pub(super) fn parse(
     {
         return Err(UsageError::new(format!("--cwd {dir}: an absolute folder on the machine")));
     }
-    let login = match login.map(|word| word.trim().to_lowercase()) {
-        Some(word) if !LOGINS.contains(&word.as_str()) => {
-            return Err(UsageError::new(format!("--login {word:?}: pass, machine or none")));
-        }
-        login => login,
-    };
     let environment = match environment.map(|word| word.trim().to_owned()) {
         Some(word) if word.is_empty() => return Err(UsageError::new("--environment is empty")),
         environment => environment,
@@ -396,7 +379,7 @@ pub(super) fn parse(
         }
         (None, None) => Machine::New,
     };
-    Ok(Parsed::Run(Request { prompt, agent, cwd, login, environment, machine, wait, timeout }))
+    Ok(Parsed::Run(Request { prompt, agent, cwd, environment, machine, wait, timeout }))
 }
 
 /// One run of this binary: its exit code and what it printed.
@@ -528,9 +511,6 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     }
     if let Some(cwd) = &request.cwd {
         words.push(format!("--cwd {}", shell_quote(cwd)));
-    }
-    if let Some(login) = &request.login {
-        words.push(format!("--login {login}"));
     }
     // The prompt may be private: the command names where it goes, not what it says.
     if request.prompt.is_some() {
@@ -997,9 +977,6 @@ fn steps(
     if let Some(cwd) = &request.cwd {
         start.extend(["--cwd".to_owned(), cwd.clone()]);
     }
-    if let Some(login) = &request.login {
-        start.extend(["--login".to_owned(), login.clone()]);
-    }
     start.push("--json".to_owned());
     let started = match step_result(&runner.cmux(&start)) {
         Ok(started) => started,
@@ -1431,9 +1408,6 @@ fn relay_chat(
     if let Some(cwd) = &request.cwd {
         args.extend(["--cwd".to_owned(), cwd.clone()]);
     }
-    if let Some(login) = &request.login {
-        args.extend(["--login".to_owned(), login.clone()]);
-    }
     args.extend(["--prompt-id".to_owned(), runner.prompt_id()]);
     args.push("--json".to_owned());
     // The app may take its whole answer window: with less of `--timeout` left, the link path keeps to it.
@@ -1467,25 +1441,6 @@ fn relay_chat(
             ));
         }
     };
-    // The app gave the machine no usable login before the send (`cloud.relay.login_*`): the link path would only
-    // reach the same signed-out agent, so the app's typed answer and its recovery command are the outcome.
-    let undelivered = at(&relayed, "delivered").as_bool() == Some(false);
-    if let Some(code) = at(&relayed, "error_code")
-        .as_str()
-        .filter(|code| undelivered && code.starts_with(RELAY_LOGIN_CODES))
-    {
-        let message =
-            at(&relayed, "error_message").as_str().unwrap_or("the machine has no login").to_owned();
-        progress.sending = false;
-        let exit = if code == "cloud.relay.login_pending" { 75 } else { 1 };
-        return Relayed::Answered(failed(
-            code,
-            message,
-            json!({"machine_id": machine_id, "command": at(&relayed, "command"),
-                   "login_reason": at(&relayed, "login_reason"), "sent": false}),
-            exit,
-        ));
-    }
     // Certainly never on the machine (the relay refused it, no machine took it, an image without the relay): the
     // link path sends it.
     if at(&relayed, "delivered").as_bool() == Some(false) {
@@ -1770,11 +1725,6 @@ fn typed_error(relayed: &Value) -> Value {
     }
     Value::Object(typed)
 }
-
-/// The app's `cloud relay-chat` refusals about the machine's harness login (refused, missing, declined, failed,
-/// pending, account changed, skipped, unverified): nothing was sent, and nothing else is. Each answer carries the
-/// start-session command that recovers it.
-const RELAY_LOGIN_CODES: &str = "cloud.relay.login_";
 
 /// The app has no `cloud relay-chat` (an older app): the CLI's own usage error, or the app's unknown action.
 fn lacks_action(error: &Value) -> bool {

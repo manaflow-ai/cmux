@@ -139,8 +139,6 @@ acpmux-build-id = { path = "../acpmux-build-id" }
 
 [target.'cfg(unix)'.dependencies]
 cmux-cloud-api.workspace = true
-# `cmux cloud codex-holder` (cli/cloud_codex_holder.rs, unix only).
-cmux-cloud-codex-holder.workspace = true
 # `cmux automation` (cli/automation.rs, unix only): the store and the launchd runner use
 # unix files and processes, so the crate does not build for Windows.
 cmux-automations.workspace = true

@@ -444,26 +444,23 @@ fn rc_file(shell: Option<&str>) -> &'static str {
     }
 }
 
-/// A Cloud machine's sign-in failure: what the agent had, and the one way to sign it in, the
-/// Mac's "Set up Claude Code credentials" on the failed turn (the turn card's button). No
-/// terminal, no shell file and no fallback route: the person is not on this machine (Leo,
-/// 2026-10-31: "STOP USING CODEROUTER").
+/// A Cloud machine's sign-in failure. The machine never holds a Claude login: its Claude reaches
+/// models only through the Cloud service's model route (the machine's coderouter edge), which holds
+/// the sign-in on the team's or the person's behalf. So the fix is never on this machine, never a
+/// terminal or a copy from the Mac: it is the route's account or the person's model gateway.
 fn compose_cloud(agent: &Found, original: &str) -> String {
     let mut out = String::from("Claude is not signed in here.");
-    if agent.signed_in() {
+    if agent.endpoint.is_none() {
         out.push_str(&format!(
-            " This Cloud machine had {}, and Claude did not accept it.",
-            list(&agent.sources)
-        ));
-    } else {
-        out.push_str(&format!(
-            " This Cloud machine has no Claude sign-in (Claude home {}).",
+            " This Cloud machine's Claude has no model route (Claude home {}); start a new machine to get the current image.",
             tilde(&agent.home)
         ));
+    } else {
+        out.push_str(
+            " This Cloud machine reaches Claude through the Cloud service, which has no Claude account or model gateway for you.",
+        );
+        out.push_str(" Set one up with `cmux inference setup`, then send the message again.");
     }
-    out.push_str(
-        " Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again.",
-    );
     out.push_str(&format!(" (Claude said: {})", original.trim()));
     out
 }
@@ -566,27 +563,40 @@ mod tests {
         assert!(!super::explains("Claude is not signed in here. Not logged in"));
     }
 
-    /// A Cloud machine's sign-in failure says how to sign it in from the Mac, and nothing about
-    /// a terminal, a shell file or the CodeRouter.
+    /// A Cloud machine's sign-in failure points at its model route (an account or a gateway), never
+    /// at a terminal, a shell file or a login copied from the Mac.
     #[test]
-    fn a_cloud_machine_says_only_how_to_sign_it_in() {
+    fn a_cloud_machine_points_at_its_model_route() {
         let none = super::Found {
             home: dirs::home_dir().unwrap_or_default().join(".claude"),
             ..super::Found::default()
         };
         let text = super::compose_cloud(&none, "Not logged in · Please run /login");
         assert!(text.starts_with("Claude is not signed in here."), "{text}");
-        assert!(text.contains("no Claude sign-in (Claude home ~/.claude)"), "{text}");
-        assert!(text.contains("Set up Claude Code credentials"), "{text}");
+        assert!(text.contains("has no model route (Claude home ~/.claude)"), "{text}");
         assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
-        for word in ["terminal", "zshrc", "ANTHROPIC_API_KEY", "CodeRouter", "router", "fallback"] {
-            assert!(!text.contains(word), "{word}: {text}");
+        let routed = super::Found { endpoint: Some("coderouter.cmux.internal".into()), ..none };
+        let text = super::compose_cloud(&routed, "API Error: 403 No Claude upstream account");
+        assert!(text.contains("through the Cloud service"), "{text}");
+        assert!(text.contains("cmux inference setup"), "{text}");
+        for text in [
+            super::compose_cloud(&routed, "x"),
+            super::compose_cloud(&super::Found::default(), "x"),
+        ] {
+            for word in [
+                "terminal",
+                "zshrc",
+                "ANTHROPIC_API_KEY",
+                "credentials",
+                "from your Mac",
+                "setup-token",
+                "/login",
+            ] {
+                assert!(!text.contains(word), "{word}: {text}");
+            }
+            // Not explained twice.
+            assert!(!super::explains(&text));
         }
-        // Not explained twice.
-        assert!(!super::explains(&text));
-        let had = super::Found { sources: vec!["a Claude.ai login".into()], ..none };
-        let text = super::compose_cloud(&had, "API Error: 401 OAuth token has expired");
-        assert!(text.contains("had a Claude.ai login, and Claude did not accept it"), "{text}");
     }
 
     /// Dogfood 2026-10-26: Claude Code's 401 ("Failed to authenticate") reached the person as

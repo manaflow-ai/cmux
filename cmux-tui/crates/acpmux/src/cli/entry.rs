@@ -192,10 +192,6 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         other => other,
     });
     match command {
-        #[cfg(unix)]
-        Some(Command::CodexAuthBroker { home, codex }) => {
-            crate::cli::codex_auth_broker::run(home, codex).await
-        }
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
         // Before anything that reads or writes the home: this runs as root.
         #[cfg(target_os = "linux")]

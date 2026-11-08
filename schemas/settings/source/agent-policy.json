@@ -919,14 +919,6 @@
     },
     {
       "agent": "privacy",
-      "why": "The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.",
-      "keys": [
-        "cloud.useMyClaudeLoginOnMyCloudMachines",
-        "cloud.useMyCodexLoginOnMyCloudMachines"
-      ]
-    },
-    {
-      "agent": "privacy",
       "keys": [
         "agents.chats.roots",
         "agents.chats.discovery"

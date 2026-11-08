@@ -52,7 +52,6 @@ mod cloud_automation_relay;
 #[cfg(unix)]
 mod cloud_client_session;
 #[cfg(unix)]
-mod cloud_codex_holder;
 #[cfg(unix)]
 mod cloud_environment;
 #[cfg(unix)]
@@ -632,7 +631,6 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
-        .or_else(|| cloud_codex_holder::run_if_requested(args))
         .or_else(|| cloud_api::run_if_requested(args))
         .or_else(|| cloud_hands::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
