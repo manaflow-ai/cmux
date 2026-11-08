@@ -34,6 +34,33 @@ enum Made {
 }
 
 impl Hub {
+    /// A fork's own turns: the turn results in its log after its `forked` record (the ones
+    /// before it are the parent's, copied); its meta's `turn_count` starts at the parent's. None
+    /// for a chat that is not a fork. Read once, at a first start that seeds the cost ledger
+    /// (`hub/ledger` `seed`), parsing only those two kinds.
+    pub(super) fn fork_own_turns(&self, meta: &SessionMeta) -> Option<u64> {
+        meta.parent_id.as_ref()?;
+        let (mut forked, mut turns) = (false, 0u64);
+        let kinds = ["forked", "turn_result"];
+        let scanned = self.store.scan_kinds(&meta.id, &kinds, &mut |e: EventRecord| {
+            match e.kind.as_str() {
+                "forked" => {
+                    forked = true;
+                    turns = 0;
+                }
+                _ => turns += u64::from(forked && e.dir == "mux"),
+            }
+            true
+        });
+        match scanned {
+            Ok(()) => Some(turns),
+            Err(e) => {
+                tracing::debug!(session = %meta.id, "ledger seed: fork log: {e}");
+                Some(0)
+            }
+        }
+    }
+
     /// Whether the session runs Claude Code, and its profile env plus its
     /// preset's (`agent_tools::left_out`, where Claude keeps its store).
     pub(super) async fn harness_env(

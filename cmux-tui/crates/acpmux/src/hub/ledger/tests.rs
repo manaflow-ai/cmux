@@ -497,3 +497,61 @@ fn a_seeded_session_looks_up_its_repository() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn close_drains_the_writer_before_it_ends() {
+    let dir = scratch("close");
+    let cost = json!({"model": "claude-opus-5-5", "costUsd": 1.0});
+    {
+        let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+        for i in 0..50 {
+            turn(&l, "a", D0 + i, 1, cost.clone(), "claude", "claude");
+        }
+        // No flush: the shutdown's close is what writes the queue out.
+        assert!(l.close(std::time::Duration::from_secs(10)));
+        // A line after the close stays in memory and does not fail.
+        turn(&l, "a", D0 + 99, 0, cost.clone(), "claude", "claude");
+        assert!(l.close(std::time::Duration::from_secs(1)));
+    }
+    let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert_eq!(after.query(&all(D0, D0)).totals.turns, 50);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_folded_session_with_no_repository_looks_it_up() {
+    let dir = scratch("fold-repo");
+    let checkout = dir.join("checkout");
+    std::fs::create_dir_all(checkout.join(".git")).unwrap();
+    std::fs::write(
+        checkout.join(".git/config"),
+        "[remote \"origin\"]\n\turl = git@github.com:acme/widgets.git\n",
+    )
+    .unwrap();
+    let ledger_dir = dir.join("ledger");
+    std::fs::create_dir_all(&ledger_dir).unwrap();
+    let line = json!({"t": "s", "sid": "a", "harness": "claude", "cwd": checkout, "createdAt": 1});
+    std::fs::write(ledger_dir.join(store::FILE), format!("{line}\n")).unwrap();
+    let l = Ledger::open_with(Some(ledger_dir), COMPACT_BYTES, "leo@test".into());
+    l.flush();
+    assert_eq!(
+        l.lock().sessions.get("a").and_then(|i| i.repo.clone()).as_deref(),
+        Some("acme/widgets")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_seeded_session_with_turns_and_no_usage_counts_them_unpriced() {
+    let l = mem();
+    l.seed(vec![Seed {
+        id: "a".into(),
+        at: D0,
+        turns: 3,
+        totals: TurnUsage::default(),
+        ctx: TurnContext { model: Some("claude-opus-5-5".into()), ..ctx("claude", "claude") },
+    }]);
+    let t = l.query(&all(D0, D0)).totals;
+    assert_eq!((t.turns, t.unpriced_turns), (3, 3));
+    assert_eq!(t.cost_usd, 0.0);
+}
