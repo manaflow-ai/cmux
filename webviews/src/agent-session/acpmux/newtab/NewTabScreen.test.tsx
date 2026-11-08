@@ -2,7 +2,9 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { noChat } from "../../../gallery/fixtures/acpmux";
+import { noChat, session } from "../../../gallery/fixtures/acpmux";
+import { showsFirstRunStarters } from "./FirstRunStarters";
+import { translateNewTab } from "./strings";
 import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
 import { CloudStartView } from "../CloudStartView";
@@ -387,6 +389,41 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
+});
+
+test("first run: the starters show only once acpmux answered with an agent and no chat exists", () => {
+  expect(showsFirstRunStarters(noChat([]), { allChats: false })).toBe(true);
+  // Before acpmux answers, an empty chat list proves nothing about a first run.
+  expect(showsFirstRunStarters(noChat([], { catalog: [] }), { allChats: false })).toBe(false);
+  expect(showsFirstRunStarters(noChat([session({ sessionId: "s1" })]), { allChats: false })).toBe(false);
+  expect(showsFirstRunStarters(noChat([]), { allChats: true })).toBe(false);
+});
+
+test("a first-run starter fills the composer, sends nothing, and the rows stay while it is edited", async () => {
+  let asked = 0;
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onAsk={() => void asked++} />);
+  });
+  const field = await promptField();
+  const rows = [...container.querySelectorAll<HTMLButtonElement>(".nt-starters .nt-starter")];
+  expect(rows.map((row) => row.textContent)).toEqual([
+    translateNewTab("starters.explain"),
+    translateNewTab("starters.fix"),
+    translateNewTab("starters.review"),
+  ]);
+  await act(async () => rows[1]!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
+  expect(asked).toBe(0);
+  expect(container.querySelectorAll(".nt-starters .nt-starter")).toHaveLength(3);
+});
+
+test("with a chat on this Mac, New Tab draws no starters", async () => {
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([session({ sessionId: "s1" })])} />);
+  });
+  await promptField();
+  expect(container.querySelector(".nt-starters")).toBeNull();
 });
 
 test("No folder, then a remote machine with a folder: headline, location and send name that folder", async () => {

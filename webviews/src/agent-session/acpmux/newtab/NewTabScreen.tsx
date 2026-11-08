@@ -91,6 +91,7 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import { AmbientWidgets } from "./AmbientWidgets";
 import type { NewTabWeather } from "./ambient";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
+import { FirstRunStarters, showsFirstRunStarters, type FirstRunStarterLook } from "./FirstRunStarters";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { DEFAULT_NEW_TAB_TEMPLATE, screenSections, screenTemplate, type ScreenTemplate } from "./templates";
@@ -301,6 +302,9 @@ type Props = NewTabScreenActions & {
   /// The page's widgets (`tabs.newTabWidgets.*`, pageWidgets.ts): on Minimal, without them the page
   /// is the composer alone. Unset shows the template's own (shownPageWidgets).
   pageWidgets?: PageWidgets;
+  /// How the first-run starters under the composer look (FirstRunStarters.tsx); the gallery's
+  /// variants set it, the app leaves it unset (rows).
+  starterLook?: FirstRunStarterLook;
   /// true: `tabs.newTabWidgets.greeting` is set to false (not the default): with the headline off,
   /// Minimal keeps no room for it, so the composer sits where it sat with the greeting off.
   headlineOff?: boolean;
@@ -2204,6 +2208,18 @@ export function NewTabScreen(props: Props) {
     />
   );
   const extras = <NewTabExtras widgets={widgets} now={at} />;
+  // First run (no chats on this Mac or its peers yet): three things to ask, under the composer. A
+  // pick fills the composer and sends nothing; the first chat takes them away for good.
+  const pickStarter = (prompt: string) => {
+    edit(prompt);
+    requestAnimationFrame(() => {
+      field.current?.focus();
+      field.current?.setCaret(field.current.plainText().length);
+    });
+  };
+  const starters = showsFirstRunStarters(snapshot, { allChats }) && (
+    <FirstRunStarters {...(props.starterLook ? { look: props.starterLook } : {})} onPick={pickStarter} />
+  );
   // The stage's widgets, in the user's order (`tabs.newTabWidgets.order`): Projects and Quick
   // Actions are cards (cards next to each other share a column), Recent Chats is the player and the
   // lists, as before the order; with Recent Chats off the player and the other lists come last.
@@ -2319,6 +2335,7 @@ export function NewTabScreen(props: Props) {
               {!order.includes("chats") && playerAndLists}
             </div>
             {composerCard}
+            {starters}
             {extras}
             {props.notice}
             {environmentPanel}
@@ -2336,6 +2353,7 @@ export function NewTabScreen(props: Props) {
               headline
             )}
             {composerCard}
+            {starters}
             {extras}
             {ambient}
             {props.notice}
