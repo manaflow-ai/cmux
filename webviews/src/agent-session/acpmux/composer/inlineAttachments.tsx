@@ -454,7 +454,12 @@ const InlineChip = memo(function InlineChip({
             aria-label={`${attachment.name || pasteName(text)}, ${label}`}
             onClick={() => onExpand(id)}
           >
-            <TextAttachmentCard text={text} label={label} wrap />
+            <TextAttachmentCard
+              text={text}
+              label={label}
+              wrap
+              {...(onKeepFile ? { reserve: t("composer.pastedText.keepFile") } : {})}
+            />
           </button>
           {onKeepFile ? <KeepFileButton onKeep={() => onKeepFile(id)} /> : null}
           {remove}
