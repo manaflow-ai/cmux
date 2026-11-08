@@ -11,7 +11,7 @@ struct ChiefPanelStyleSettingTests {
 
     @Test func theComposeBarWhenUnsetAndEachStyleIsKept() throws {
         #expect(Self.parse(nil).chiefPanelStyle == "composeBar")
-        for style in ["composeBar", "pill", "card", "panel", "bubble"] {
+        for style in ["composeBar", "pill", "card", "panel", "bubble", "seeThrough", "seeThroughBar"] {
             let snapshot = Self.parse(.string(style))
             #expect(snapshot.chiefPanelStyle == style && snapshot.diagnostics.isEmpty, "\(style)")
         }
@@ -19,5 +19,16 @@ struct ChiefPanelStyleSettingTests {
         #expect(bad.chiefPanelStyle == "composeBar" && !bad.diagnostics.isEmpty, "an unknown style is not reported")
         let row = try #require(SettingsSchema.descriptor(for: ChiefDockSetting.stylePath), "no Settings row")
         #expect(row.defaultValue == .string("composeBar"))
+    }
+
+    /// `home.chiefPanel.seesScreen`: the floating Chief's "sees your screen" eye; on when unset.
+    @Test func seesScreenIsOnWhenUnset() throws {
+        let unset = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
+        #expect(unset.chiefPanelSeesScreen)
+        let off = CmuxConfigSnapshot.parse(.object(["home": .object(["chiefPanel": .object(["seesScreen": .bool(false)])])]),
+                                           validDensities: [], validMetrics: [])
+        #expect(!off.chiefPanelSeesScreen)
+        let row = try #require(SettingsSchema.descriptor(for: ChiefDockSetting.seesScreenPath), "no Settings row")
+        #expect(row.defaultValue == .bool(true))
     }
 }

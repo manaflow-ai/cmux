@@ -192,6 +192,9 @@ public final class ChiefScreenShare {
         return seen
     }
 
+    /// One look when the floating Chief opens.
+    public func glance(app: String? = nil, window: String? = nil) async -> ChiefScreenObservation? { nil }
+
     /// Waits for the work already started: a Screen Recording check, the look under way
     /// and the last journal step. A signal, never a delay: tests read the outcome after it.
     public func settled() async {

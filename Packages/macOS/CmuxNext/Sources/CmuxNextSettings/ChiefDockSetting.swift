@@ -12,6 +12,8 @@
 ///   Chief floating over it; on when unset.
 public nonisolated struct ChiefDockSetting {
     public nonisolated init() {}
+    /// `home.chiefPanel.seesScreen`.
+    public static let seesScreenPath = ["home", "chiefPanel", "seesScreen"]
 
     /// The edge; one that is not an edge is the default plus a diagnostic.
     static func parseEdge(_ root: JSONValue) -> (String, SettingsDiagnostic?) {

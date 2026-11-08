@@ -46,7 +46,12 @@ struct ChiefPanelStyleWindowTests {
         let grip = view.convert(NSPoint(x: view.gripRect.midX, y: view.gripRect.midY), to: nil)
         #expect(TitlebarDragPolicy.decide(at: grip, in: window) == .staysPut, "a press on the grip moves the whole window")
         try #require(TitlebarDragPolicy.decide(at: grip, in: window) == .staysPut)
-        window.sendEvent(mouse(.leftMouseDown, at: grip, in: window))
+        let down = mouse(.leftMouseDown, at: grip, in: window)
+        // A first click into a window that is not key (another window or app in front) must still drag.
+        let frameView = try #require(window.contentView?.superview)
+        let gripView = try #require(frameView.hitTest(frameView.convert(grip, from: nil)))
+        #expect(gripView.acceptsFirstMouse(for: down), "a first click on the grip only makes the window key")
+        window.sendEvent(down)
         for step in 1...4 {
             let t = CGFloat(step) / 4
             window.sendEvent(mouse(.leftMouseDragged, at: NSPoint(x: grip.x + delta.dx * t, y: grip.y + delta.dy * t), in: window))
@@ -89,7 +94,7 @@ struct ChiefPanelStyleWindowTests {
     func theCollapsingStylesGrowIntoTheChatWithTheKeys(_ style: ChiefPanelStyle) async throws {
         let (f, view, _) = try await Self.openPanel(style)
         defer { f.close() }
-        let collapses = [ChiefPanelStyle.composeBar, .pill, .bubble].contains(style)
+        let collapses = [ChiefPanelStyle.composeBar, .pill, .bubble, .seeThroughBar].contains(style)
         let resting = view.frame
         #expect((resting.height < 100) == collapses, "\(style): resting height \(resting.height)")
         f.controller.frameFocusChiefPanel()
@@ -99,6 +104,85 @@ struct ChiefPanelStyleWindowTests {
         f.controller.focusStagePane(toward: nil)
         f.frame()
         #expect(view.frame == resting, "\(style): without the keys it did not rest again: \(view.frame)")
+    }
+
+    /// The see-through styles (user 2026-11-07, "iMessage style: very transparent and minimal"): no panel glass behind
+    /// the chat, so the workspace shows through between the bubbles; what stays readable over any background is the
+    /// Chief's own bubbles with a halo around its text, and a glass plate under the message box. The others keep
+    /// the panel glass.
+    @Test(arguments: ChiefPanelStyle.allCases)
+    func theSeeThroughStylesDropThePanelGlassButKeepTheTextReadable(_ style: ChiefPanelStyle) async throws {
+        let (f, view, chief) = try await Self.openPanel(style)
+        defer { f.close() }
+        f.controller.frameFocusChiefPanel()
+        f.frame()
+        let clear = style == .seeThrough || style == .seeThroughBar
+        #expect(style.isSeeThrough == clear)
+        #expect(view.showsPanelGlass == !clear, "\(style): panel glass \(view.showsPanelGlass)")
+        #expect((chief.shadow != nil) == clear, "\(style): no halo keeps the Chief's text readable over the workspace")
+        let plate = view.composerPlate
+        #expect((plate != nil) == clear, "\(style): the message box has no plate")
+        if let plate { #expect(plate.minY >= view.bounds.height - 80 && plate.width >= view.bounds.width - 2, "\(style): plate \(plate)") }
+    }
+
+    /// Both message-bar styles rest as a bar along the bottom of their place (the see-through one rested as a 44 pt
+    /// square with the message box cut off in the first capture); the pill and the bubble rest small at the right.
+    @Test(arguments: [ChiefPanelStyle.composeBar, .seeThroughBar])
+    func theMessageBarStylesRestAsAFullBar(_ style: ChiefPanelStyle) async throws {
+        let (f, view, _) = try await Self.openPanel(style)
+        defer { f.close() }
+        #expect(view.frame.width >= 200 && view.frame.height <= 60, "\(style) rests as \(view.frame)")
+    }
+
+    /// The chat itself leaves its background clear in the see-through styles (the Home chat paints its theme's
+    /// background, which hid the workspace behind it in the first see-through capture), and paints it again in the
+    /// other styles and once it leaves the panel.
+    @Test func theChatLeavesItsBackgroundClearOnlyWhileSeeThrough() async throws {
+        let chat = ClearableChat()
+        let f = try await ChiefPanelWindowTests.fixture(chat)
+        defer { f.close() }
+        f.controller.armChiefPanel()
+        f.services.windows.show(workspaceID: "k1", in: f.state)
+        f.frame()
+        let view = try #require(f.controller.chiefPanelView)
+        try #require(f.controller.frameChiefPanelShown, "the link opened no Chief")
+        for style in ChiefPanelStyle.allCases {
+            view.style = style
+            f.frame()
+            #expect(chat.chiefShowsThrough == style.isSeeThrough, "\(style): the chat's background clear \(chat.chiefShowsThrough)")
+        }
+        view.style = .seeThrough
+        f.frame()
+        view.release()
+        #expect(!chat.chiefShowsThrough, "the chat stayed clear after it left the panel")
+    }
+
+    final class ClearableChat: NSView, ChiefPanelContent {
+        var chiefIsAnswering = false
+        var chiefShowsThrough = false
+        init() { super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 400)) }
+        @available(*, unavailable) required init?(coder: NSCoder) { nil }
+    }
+
+    /// "Sees your screen" (user 2026-11-07): an eye in the panel says the Chief gets a look at the screen when it
+    /// opens, on by default; a click on it turns it off (and on), through the setting.
+    @Test func theEyeShowsWhetherTheChiefSeesTheScreenAndTogglesIt() async throws {
+        let (f, view, _) = try await Self.openPanel(.card)
+        defer { f.close() }
+        var toggles = 0
+        view.actions.toggleSeesScreen = { toggles += 1 }
+        let eye = try #require(Self.find("window.chiefPanel.seesScreen", in: view) as? NSButton, "no eye in the panel")
+        #expect(!eye.isHidden && view.seesScreen, "the eye is hidden or off by default")
+        eye.performClick(nil)
+        #expect(toggles == 1)
+        view.seesScreen = false
+        #expect(eye.toolTip != nil && eye.image?.accessibilityDescription != nil)
+    }
+
+    static func find(_ id: String, in view: NSView) -> NSView? {
+        if view.accessibilityIdentifier() == id { return view }
+        for child in view.subviews { if let found = find(id, in: child) { return found } }
+        return nil
     }
 
     @MainActor @Observable final class StyleBox { var style = ChiefPanelStyle.panel }
