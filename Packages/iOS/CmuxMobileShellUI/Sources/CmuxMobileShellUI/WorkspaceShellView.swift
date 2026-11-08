@@ -104,6 +104,9 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     /// far leading edge the HIG reserves for it, in the same place as the
     /// detail bar's toggle once the sidebar is hidden.
     var sidebarToggle: (() -> Void)?
+    /// Reports the toggle's window frame so the detail bar can line up with
+    /// the row the system toolbar actually lays out.
+    var sidebarToggleFrameChanged: ((CGRect) -> Void)?
 
     private var titlePlacement: ToolbarItemPlacement {
         if horizontalSizeClass == .regular,
@@ -120,6 +123,11 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     action: sidebarToggle,
                     usesSystemToolbarChrome: true
                 )
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .global)
+                } action: { frame in
+                    sidebarToggleFrameChanged?(frame)
+                }
             }
         }
         ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
@@ -202,6 +210,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
     let showAddDevice: (() -> Void)?
     var gateWarningPairingIDs: Set<String> = []
     var sidebarToggle: (() -> Void)?
+    var sidebarToggleFrameChanged: ((CGRect) -> Void)?
 
     var body: some ToolbarContent {
         WorkspaceRootToolbarContent(
@@ -216,7 +225,8 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             showAddDevice: showAddDevice,
             gateWarningPairingIDs: gateWarningPairingIDs,
             statusLine: renderContext.statusLine,
-            sidebarToggle: sidebarToggle
+            sidebarToggle: sidebarToggle,
+            sidebarToggleFrameChanged: sidebarToggleFrameChanged
         )
     }
 }
@@ -313,6 +323,9 @@ struct WorkspaceShellView: View {
     /// content-width environment so the computer picker budgets against the
     /// sidebar it actually renders in, not the full screen.
     @State private var splitSidebarWidth: CGFloat = 0
+    /// The phone split sidebar toggle's window frame, used to line the detail
+    /// bar up with the sidebar's toolbar row.
+    @State private var splitSidebarToggleFrame: CGRect = .zero
     #endif
     @AppStorage(WorkspaceMacSelection.storageKey) private var macSelection: WorkspaceMacSelection = .all
     /// Legacy fallback while the toast presenter is disabled: the old
@@ -1027,7 +1040,8 @@ struct WorkspaceShellView: View {
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible,
                 toggleSidebar: toggleSplitSidebar,
                 showsSidebarToggle: splitColumnVisibility == .detailOnly,
-                sidebarDestinationShortcuts: destinationShortcuts
+                sidebarDestinationShortcuts: destinationShortcuts,
+                sidebarToolbarRowFrame: splitSidebarToolbarRowFrame
             )
         }
         .navigationSplitViewStyle(.balanced)
@@ -1164,6 +1178,16 @@ struct WorkspaceShellView: View {
         } action: { width in
             splitSidebarWidth = width
         }
+    }
+
+    /// The sidebar toolbar row the detail bar lines up with: set only on a
+    /// phone split layout once the sidebar's toggle has laid out. The last
+    /// reading is kept while the sidebar is hidden, so the detail bar stays on
+    /// the same row as the sidebar opens and closes.
+    private var splitSidebarToolbarRowFrame: CGRect? {
+        guard hostsSplitDestinationsInSidebar,
+              splitSidebarToggleFrame.height > 0 else { return nil }
+        return splitSidebarToggleFrame
     }
 
     /// The destination the split sidebar currently shows. While search is
@@ -1566,7 +1590,8 @@ struct WorkspaceShellView: View {
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
             gateWarningPairingIDs: store.macVersionUpdateRequiredPairingIDs,
-            sidebarToggle: sidebarToggle
+            sidebarToggle: sidebarToggle,
+            sidebarToggleFrameChanged: sidebarToggle == nil ? nil : { splitSidebarToggleFrame = $0 }
         )
     }
 
@@ -2069,7 +2094,8 @@ struct WorkspaceShellView: View {
         backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil,
         toggleSidebar: (() -> Void)? = nil,
         showsSidebarToggle: Bool = false,
-        sidebarDestinationShortcuts: WorkspaceSidebarDestinationShortcuts? = nil
+        sidebarDestinationShortcuts: WorkspaceSidebarDestinationShortcuts? = nil,
+        sidebarToolbarRowFrame: CGRect? = nil
     ) -> some View {
         // A Cloud machine's workspace makes its new workspace on that machine,
         // whether or not a Mac is connected.
@@ -2093,7 +2119,8 @@ struct WorkspaceShellView: View {
             signOut: signOut,
             toggleSidebar: toggleSidebar,
             showsSidebarToggle: showsSidebarToggle,
-            sidebarDestinationShortcuts: sidebarDestinationShortcuts
+            sidebarDestinationShortcuts: sidebarDestinationShortcuts,
+            sidebarToolbarRowFrame: sidebarToolbarRowFrame
         )
     }
 }
