@@ -578,13 +578,24 @@ impl RosterEntry {
 /// only mutates roster state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RosterDelta {
-    Upsert { terminal_id: String, entry: RosterEntry },
-    Remove { terminal_id: String, source: AgentSource },
+    Upsert {
+        terminal_id: String,
+        entry: RosterEntry,
+    },
+    Remove {
+        terminal_id: String,
+        source: AgentSource,
+    },
     /// The screen proved a hook session's agent gone with no `SessionEnd`
     /// (the plugin's exit at journal `sequence`, observed at
     /// `observed_at_ms`): the roster ended `session_id`'s fence and dropped
     /// its row, and the hook projector ends its fence and row the same way.
-    EndHookSession { terminal_id: String, session_id: String, sequence: u64, observed_at_ms: u64 },
+    EndHookSession {
+        terminal_id: String,
+        session_id: String,
+        sequence: u64,
+        observed_at_ms: u64,
+    },
 }
 
 /// Live-agent roster: terminal public id to the agent's last reported
