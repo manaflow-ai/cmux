@@ -11,7 +11,7 @@
 //! carries the same end-to-end session and is used only after an
 //! authenticated probe answers on it.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
 
 /// The link a path rides, best first (the derived order is the rank).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -121,6 +121,7 @@ pub fn medium_of(remote: IpAddr, networks: &[LocalNetwork]) -> Medium {
 #[cfg(all(unix, feature = "local-networks"))]
 pub fn local_networks() -> Vec<LocalNetwork> {
     use std::ffi::CStr;
+    use std::net::{Ipv4Addr, Ipv6Addr};
     let mut out = Vec::new();
     let mut head: *mut libc::ifaddrs = std::ptr::null_mut();
     // SAFETY: getifaddrs allocates a list we walk read-only and free once;
