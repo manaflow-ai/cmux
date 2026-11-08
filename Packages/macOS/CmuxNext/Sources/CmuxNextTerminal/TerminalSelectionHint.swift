@@ -65,6 +65,18 @@ final class TerminalSelectionHint {
         cmux_terminal_selection_released(&state)
     }
 
+    /// The press ended with no release (the terminal left its window mid-drag); the hint goes too.
+    func ended() {
+        released()
+        hide()
+    }
+
+    /// The terminal's new size: a hint it no longer fits goes, rather than clip or spill.
+    func resized() {
+        guard chip != nil, let view, chipSize.width + Self.bottomInset * 2 > view.bounds.width else { return }
+        hide()
+    }
+
     private func show(in view: NSView) {
         let chip = ShortcutHintChipView()
         chip.text = Self.text
