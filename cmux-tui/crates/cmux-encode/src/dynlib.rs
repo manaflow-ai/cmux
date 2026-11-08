@@ -90,6 +90,8 @@ macro_rules! framework {
             /// `available()` before the first call; the stand-ins only keep a missed check from
             /// calling through a NULL address.
             mod fallback {
+                // Unused in a module that declares no functions (constants only).
+                #[allow(unused_imports)]
                 use super::*;
                 $(
                     pub unsafe extern "C" fn $function($(_: $arg_ty),*) $(-> $ret)? {
