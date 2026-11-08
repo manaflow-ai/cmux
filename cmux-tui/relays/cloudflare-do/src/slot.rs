@@ -16,6 +16,7 @@ use crate::abuse::{
 };
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
+use crate::daemon::{live_daemon, replaced_by_register};
 use crate::park::{
     ConnectDisposition, DAEMON_OFFLINE_CODE, DAEMON_OFFLINE_MESSAGE, ParkedConnect,
     connect_disposition, expired_while_parked, pairing_order, parked_and_live, parked_notice,
@@ -116,29 +117,14 @@ impl RelaySlot {
         counts
     }
 
-    fn registered_daemon(
-        &self,
-        slot: &str,
-        now: u64,
-        now_ms: u64,
-    ) -> Option<(WebSocket, SlotAttachment)> {
-        self.state
-            .get_websockets_with_tag(CONTROL_TAG)
-            .into_iter()
-            .find(|socket| {
-                Self::attachment(socket).is_ok_and(|attachment| {
-                    websocket_counts_toward_capacity(
-                        socket.as_ref().ready_state(),
-                        attachment.idle_deadline_ms,
-                        now_ms,
-                    ) && attachment.phase == SlotPhase::Registered
-                        && attachment.relay.slot == slot
-                        && attachment.expires_at > now
-                })
-            })
-            .and_then(|socket| {
-                Self::attachment(&socket).ok().map(|attachment| (socket, attachment))
-            })
+    fn registered_daemon(&self, slot: &str, now_ms: u64) -> Option<(WebSocket, SlotAttachment)> {
+        let candidates =
+            self.state.get_websockets_with_tag(CONTROL_TAG).into_iter().filter_map(|socket| {
+                let attachment = Self::attachment(&socket).ok()?;
+                let ready_state = socket.as_ref().ready_state();
+                Some(((socket, attachment.clone()), ready_state, attachment))
+            });
+        live_daemon(candidates, slot, now_ms)
     }
 
     async fn circuits(&self) -> Result<CircuitLedger> {
@@ -284,9 +270,8 @@ impl RelaySlot {
 
         for existing in self.state.get_websockets_with_tag(CONTROL_TAG) {
             if existing != *socket
-                && Self::attachment(&existing).is_ok_and(|current| {
-                    current.phase == SlotPhase::Registered && current.relay.slot == slot
-                })
+                && Self::attachment(&existing)
+                    .is_ok_and(|current| replaced_by_register(&current, &slot))
             {
                 Self::fail(&existing, "replaced", "daemon control connection was replaced", 4001);
             }
@@ -294,6 +279,7 @@ impl RelaySlot {
 
         attachment.phase = SlotPhase::Registered;
         attachment.generation = 0;
+        attachment.last_seen_ms = now_ms;
         attachment.expires_at = claims.expires_at_unix;
         attachment.idle_deadline_ms = now_ms
             .saturating_add(DAEMON_CONTROL_IDLE_TIMEOUT_MS)
@@ -365,7 +351,7 @@ impl RelaySlot {
         // client reads only the answer for the lane it asked for last.
         attachment.parked = None;
 
-        let daemon = self.registered_daemon(&request.slot, now, now_ms);
+        let daemon = self.registered_daemon(&request.slot, now_ms);
         let disposition = if daemon.is_some() {
             connect_disposition(true, 0, 0)
         } else {
@@ -589,8 +575,9 @@ impl RelaySlot {
                 if attachment.phase == SlotPhase::Registered
                     && attachment.expires_at > self.now() =>
             {
-                attachment.idle_deadline_ms = self
-                    .now_ms()
+                let now_ms = self.now_ms();
+                attachment.last_seen_ms = now_ms;
+                attachment.idle_deadline_ms = now_ms
                     .saturating_add(DAEMON_CONTROL_IDLE_TIMEOUT_MS)
                     .min(attachment.expires_at.saturating_mul(1_000));
                 socket.serialize_attachment(&attachment)?;
@@ -696,6 +683,7 @@ impl DurableObject for RelaySlot {
             expires_at: 0,
             idle_deadline_ms,
             parked: None,
+            last_seen_ms: 0,
         })?;
         self.state.accept_websocket_with_tags(&pair.server, &[tag]);
         if let Err(error) = self.ensure_cleanup_alarm(idle_deadline_ms).await {
