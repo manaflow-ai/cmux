@@ -195,4 +195,81 @@ import Testing
         #expect(moved != nil, "the moved tab left the focus topology")
         #expect(moved?.kind == .terminal, "the moved tab lost its kind")
     }
+
+    // MARK: Review follow-ups on #37735 (F2 to F4)
+
+    /// F2: a tab dragged past the tear-off distance leaves its strip in the hand-off's turn
+    /// (`handOffDrag`: the tab goes to the pointer, `detachedID`, then a sync). It is under the
+    /// pointer, not closed: it leaves with no close, and so it does when its move lands.
+    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    func aTabHandedToADragLeavesWithNoClose() throws {
+        let model = TabStripModel(tabs: (0..<3).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }, selectedID: TabID("tab0"))
+        try onScreen(model) { strip in
+            strip.detachedID = TabID("tab1")
+            strip.sync(fromModel: false)
+            #expect(!strip.dying.contains(TabID("tab1")), "the tab handed to the drag played the close")
+            #expect(strip.cells[TabID("tab1")] == nil, "the tab handed to the drag stayed in its strip")
+            model.tabs.remove(at: 1)
+            strip.sync(fromModel: true)
+            #expect(strip.dying.isEmpty, "closing: \(strip.dying.map(\.rawValue))")
+        }
+    }
+
+    /// F2 for a group: the group handed to a drag takes its members and its chip with no close.
+    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    func aGroupHandedToADragLeavesWithNoClose() throws {
+        let tabs = [TabItem(id: "a", title: "a"), TabItem(id: "g1", title: "g1", groupID: "G"), TabItem(id: "g2", title: "g2", groupID: "G")]
+        let model = TabStripModel(tabs: tabs, groups: [TabGroupItem(id: "G")], selectedID: "a")
+        try onScreen(model) { strip in
+            try #require(strip.groups.chips["G"] != nil)
+            strip.groups.detachedGroupID = "G"
+            strip.sync(fromModel: false)
+            #expect(strip.dying.isEmpty, "closing: \(strip.dying.map(\.rawValue))")
+            #expect(strip.cells["g1"] == nil && strip.cells["g2"] == nil, "the group's tabs stayed in their strip")
+        }
+    }
+
+    /// F3: a move to the workspace the tab is already in moves nothing: its tab is not departing, so
+    /// its later real close still plays.
+    @Test func aMoveToItsOwnWorkspaceMarksNoDeparture() throws {
+        let shown = try PaneCloseControllerTests.Shown(tree: PaneCloseControllerTests.splitTree(Self.sideBySide))
+        defer { shown.end() }
+        let source = try shown.controller(2)
+        let tab = try #require(source.pane.tabs.first), workspace = try #require(shown.services.daemon.store.workspaces.first)
+        TabMoves.toWorkspace(tab, workspace: workspace, services: shown.services)
+        #expect(!source.stripModel.departures.contains(StripTabID(tab.id)), "a move that stays in its workspace marked a departure")
+    }
+
+    /// F3 for a group: a group moved within its own pane stays there; its tabs are not departing.
+    @Test func aGroupMovedWithinItsPaneMarksNoDeparture() throws {
+        var grouped = TabSnapshot(surface: SurfaceID(rawValue: 200), title: "~")
+        grouped.tabGroup = "G"
+        let panes = [PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 100), title: "~")]),
+                     PaneSnapshot(id: 2, tabs: [grouped, TabSnapshot(surface: SurfaceID(rawValue: 201), title: "~")],
+                                  tabGroups: [TabGroupSnapshot(id: "G", surfaces: [SurfaceID(rawValue: 200)], pane: 2)])]
+        let tree = DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [ScreenSnapshot(id: 1, layout: Self.sideBySide, panes: panes)])])
+        let shown = try PaneCloseControllerTests.Shown(tree: tree)
+        defer { shown.end() }
+        let source = try shown.controller(2)
+        let tab = try #require(source.pane.tabs.first)
+        try #require(tab.tabGroup == "G")
+        TabGroupMoves.move("G", to: source.pane, index: 1, services: shown.services, transaction: .generate()) { _ in }
+        #expect(!source.stripModel.departures.contains(StripTabID(tab.id)), "a group that stays in its pane marked a departure")
+    }
+
+    /// F4: Move Pane to Dock with no dock moves the pane's other tabs into the new workspace
+    /// (`TabMoves.join`) through the same departure as any move: their strip drops them with no close.
+    @Test func joiningTabsIntoAWorkspaceMarksTheirDeparture() async throws {
+        let first = ScreenSnapshot(id: 1, layout: Self.sideBySide, panes: [PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 100), title: "~")]),
+                                                                          PaneSnapshot(id: 2, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 200), title: "~"), TabSnapshot(surface: SurfaceID(rawValue: 201), title: "~")])])
+        let second = ScreenSnapshot(id: 2, layout: .leaf(3), panes: [PaneSnapshot(id: 3, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 300), title: "~")])])
+        let tree = DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [first]), WorkspaceSnapshot(id: 2, key: nil, name: "w2", screens: [second])])
+        let shown = try PaneCloseControllerTests.Shown(tree: tree)
+        defer { shown.end() }
+        let source = try shown.controller(2)
+        let other = try #require(shown.services.daemon.store.workspaces.last)
+        let tabs = source.pane.tabs
+        await TabMoves.join(tabs[...], workspace: WorkspaceKey(rawValue: other.id), services: shown.services)
+        for tab in tabs { #expect(source.stripModel.departures.contains(StripTabID(tab.id)), "\(tab.id) left its strip as a close") }
+    }
 }
