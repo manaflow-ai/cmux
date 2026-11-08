@@ -133,6 +133,7 @@ impl Hub {
             // Logged under the lock that approved it: the author's removal, which takes this lock
             // too, is logged after it, so the log's order is the queue's (`not_waiting`, restore).
             self.append(session, "mux", "queue_approved", msg);
+            self.audit_queued(session, prompt_id, &q.preview, true, Some(by.control));
         }
         session.queue_moved.notify_waiters();
         Ok(())
@@ -160,6 +161,7 @@ impl Hub {
             let msg = json!({"promptId": prompt_id, "turnId": removed.turn_id,
                              "revision": removed.revision, "declinedAt": now_ms()});
             self.append(session, "mux", "queue_declined", msg);
+            self.audit_queued(session, prompt_id, &removed.preview, false, None);
             (removed, ledger)
         };
         self.settle_removed(session, removed, &mut ledger, json!({"reason": "declined"}));

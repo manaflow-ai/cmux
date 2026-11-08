@@ -2069,6 +2069,7 @@ pub mod local_app;
 pub(crate) mod machine_health;
 mod memory_inbox;
 mod models_fanout;
+mod review_queue;
 mod new_worktree;
 mod outbound;
 use outbound::{
