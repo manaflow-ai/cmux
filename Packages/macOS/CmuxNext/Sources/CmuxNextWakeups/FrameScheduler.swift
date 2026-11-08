@@ -417,7 +417,7 @@ public final class FrameScheduler: NSObject {
 
     private func fire(_ client: FrameClient, _ tick: FrameTick) {
         ledger.record(client.owner, reason: "frame")
-        if !client.fire(tick) { drop(ObjectIdentifier(client)) }
+        if !ledger.turnSpan("frame:" + client.owner, { client.fire(tick) }) { drop(ObjectIdentifier(client)) }
     }
 
     private struct WeakScheduler {
