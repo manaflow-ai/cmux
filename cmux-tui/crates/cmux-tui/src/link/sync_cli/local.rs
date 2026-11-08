@@ -57,6 +57,43 @@ pub(super) struct LocalFile {
     /// 0644, 0755, 0600 or 0700: the executable bit and whether group and
     /// others could read it here.
     pub permissions: u32,
+    /// The device and inode a [`Source::File`] had when it was listed: the
+    /// read refuses another file found at its path since (a folder above it
+    /// swapped for a symlink), see [`open_listed`].
+    pub id: Option<(u64, u64)>,
+}
+
+impl LocalFile {
+    /// The regular file at `path`, as `meta` (its `symlink_metadata`) found it.
+    pub(super) fn listed(path: &Path, meta: &std::fs::Metadata) -> Self {
+        use std::os::unix::fs::MetadataExt as _;
+        Self {
+            source: Source::File(path.to_path_buf()),
+            permissions: permissions_of(meta.permissions().mode()),
+            id: Some((meta.dev(), meta.ino())),
+        }
+    }
+}
+
+/// Opens the file at `path` without following a symlink or blocking on a FIFO
+/// swapped in since it was listed; anything but a regular file is refused, and
+/// so is a file other than the one listed as `id` (a folder above it swapped for
+/// a symlink that leads out of the folder copied).
+pub(super) fn open_listed(path: &Path, id: Option<(u64, u64)>) -> anyhow::Result<std::fs::File> {
+    use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
+    let opened = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("cannot read {}", path.display()))?;
+    let meta = opened.metadata()?;
+    if !meta.is_file() {
+        bail!("{} is no longer a regular file", path.display());
+    }
+    if id.is_some_and(|id| id != (meta.dev(), meta.ino())) {
+        bail!("{} is not the file listed there (a folder above it changed)", path.display());
+    }
+    Ok(opened)
 }
 
 /// The files to push and what was skipped.
@@ -434,7 +471,7 @@ fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()
     if data_at.is_none() && matches!(name, "config" | "config.worktree") {
         let text = std::fs::read_to_string(path).unwrap_or_default();
         let source = Source::Bytes(clean_config(&text).into_bytes());
-        set.files.insert(target, LocalFile { source, permissions: 0o644 });
+        set.files.insert(target, LocalFile { source, permissions: 0o644, id: None });
         return Ok(());
     }
     if data_at.is_some_and(|index| parts[index] == "logs") {
@@ -442,7 +479,7 @@ fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()
         let cleaned: String = text.split_inclusive('\n').map(without_user_info).collect();
         set.files.insert(
             target,
-            LocalFile { source: Source::Bytes(cleaned.into_bytes()), permissions: 0o644 },
+            LocalFile { source: Source::Bytes(cleaned.into_bytes()), permissions: 0o644, id: None },
         );
         return Ok(());
     }
@@ -455,11 +492,7 @@ fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()
 fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> {
     match std::fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_file() && holdable(&relative) => {
-            let permissions = permissions_of(meta.permissions().mode());
-            set.files.insert(
-                relative,
-                LocalFile { source: Source::File(path.to_path_buf()), permissions },
-            );
+            set.files.insert(relative, LocalFile::listed(path, &meta));
         }
         Ok(meta) if meta.file_type().is_symlink() && holdable(&relative) => {
             match super::links::local(set.skips.top(), &relative, path)
@@ -733,13 +766,31 @@ mod tests {
     use std::process::Command;
 
     use super::{
-        LocalSet, Rules, Skips, borrowed_object, borrowed_skipped, collect, unquote, walk_plain,
+        LocalFile, LocalSet, Rules, Skips, borrowed_object, borrowed_skipped, collect, open_listed,
+        unquote, walk_plain,
     };
 
     fn write(top: &Path, relative: &str) {
         let path = top.join(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, "x\n").unwrap();
+    }
+
+    /// A file is read only as the file listed: once a folder above it is swapped for a symlink that
+    /// leads out of the folder copied, the same path names another file, and the read refuses it.
+    #[test]
+    fn a_read_refuses_a_file_found_through_a_folder_swapped_since_it_was_listed() {
+        let root = tempfile::tempdir().unwrap();
+        let (top, outside) = (root.path().join("top"), root.path().join("outside"));
+        write(&top, "sub/notes.txt");
+        write(&outside, "notes.txt");
+        let path = top.join("sub/notes.txt");
+        let listed = LocalFile::listed(&path, &std::fs::symlink_metadata(&path).unwrap());
+        assert!(open_listed(&path, listed.id).is_ok());
+        std::fs::rename(top.join("sub"), top.join("sub-old")).unwrap();
+        std::os::unix::fs::symlink(&outside, top.join("sub")).unwrap();
+        assert!(open_listed(&path, listed.id).is_err());
+        assert!(open_listed(&path, None).is_ok(), "no listing: only the last name is checked");
     }
 
     /// A chat's copy of a plain folder never takes a credential folder's or
