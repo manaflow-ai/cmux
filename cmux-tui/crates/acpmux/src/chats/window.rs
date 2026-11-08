@@ -13,6 +13,8 @@ use std::collections::{HashMap, HashSet};
 use cmux_chat_index::{ChatIndex, IndexedChat};
 use serde_json::{Value, json};
 
+use super::search::Needle;
+use super::text::ChatText;
 use super::{ChatActivity, ChatQuery, chat_value, key_text, parse_key};
 
 /// What a window shows: `{window, gen?, query?, harness?, folder?, account?, limit?, topLevel?,
@@ -26,7 +28,11 @@ use super::{ChatActivity, ChatQuery, chat_value, key_text, parse_key};
 /// `history` is the client's choice history as JSON text, `{now, frecency}` in the palette
 /// ranker's own shape (`cmux_palette_ranker::Frecency`, keys `chat:<key>`), so a chat the person
 /// chose before ranks as it did in the palette. `count` makes a no-query window report the
-/// `total` of chats it could show, so a client can say how many more there are.
+/// `total` of chats it could show, so a client can say how many more there are. `content` makes a
+/// query window also find chats by what was said in them (`text.rs`: every word of the query in
+/// one prompt or answer): after the chats its ranker found, the other chats that hold the words,
+/// newest first, each row with `match: {turn, role, snippet, highlights, matches}`, all counted in
+/// `total`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowSpec {
     pub window: String,
@@ -43,6 +49,8 @@ pub struct WindowSpec {
     /// The client's choice history, parsed once when the spec is read.
     history: Option<ParsedHistory>,
     count: bool,
+    /// A query also finds chats by what was said in them.
+    content: bool,
 }
 
 /// The client's choice history: the palette ranker's frecency and the clock it is read at.
@@ -125,11 +133,13 @@ impl WindowSpec {
             }
             Some(_) => return Err("history must be a JSON string".to_owned()),
         };
-        let count = match params.get("count") {
-            None | Some(Value::Null) => false,
-            Some(Value::Bool(on)) => *on,
-            Some(_) => return Err("count must be true or false".to_owned()),
+        let flag = |name: &str| match params.get(name) {
+            None | Some(Value::Null) => Ok(false),
+            Some(Value::Bool(on)) => Ok(*on),
+            Some(_) => Err(format!("{name} must be true or false")),
         };
+        let count = flag("count")?;
+        let content = flag("content")?;
         Ok(Self {
             window,
             generation,
@@ -141,6 +151,7 @@ impl WindowSpec {
             untitled,
             history,
             count,
+            content,
         })
     }
 }
@@ -217,7 +228,12 @@ pub fn ranked(
 /// The rows of `spec` in `index`: one walk of the index in its order (newest first) that stops
 /// once the window is full and one more chat passes; a value is built only for a chat the filter
 /// and the exclusions pass.
-pub fn rows(spec: &WindowSpec, index: &ChatIndex, activity: &ChatActivity) -> WindowRows {
+pub fn rows(
+    spec: &WindowSpec,
+    index: &ChatIndex,
+    activity: &ChatActivity,
+    text: Option<&ChatText>,
+) -> WindowRows {
     let decorated = |chat: &IndexedChat| {
         let mut value = chat_value(chat);
         activity.decorate(&mut value);
@@ -234,7 +250,7 @@ pub fn rows(spec: &WindowSpec, index: &ChatIndex, activity: &ChatActivity) -> Wi
         return WindowRows { rows, has_more: false, total: None };
     }
     if let Some(query) = &spec.query {
-        return ranked_rows(spec, query, index, activity);
+        return ranked_rows(spec, query, index, activity, text);
     }
     let mut window = WindowRows::default();
     for chat in index.chats() {
@@ -266,12 +282,15 @@ pub fn rows(spec: &WindowSpec, index: &ChatIndex, activity: &ChatActivity) -> Wi
 }
 
 /// A query window: every chat the filter and the exclusions pass, ranked by the palette ranker,
-/// the first `limit` of them and the total that matched.
+/// then (with `content`) the others whose text holds the query's words, newest first; the first
+/// `limit` of them and the total that matched.
+// perf-hot: 150ms chats-window-query (p95 per keystroke over 2,000 chats)
 fn ranked_rows(
     spec: &WindowSpec,
     query: &str,
     index: &ChatIndex,
     activity: &ChatActivity,
+    text: Option<&ChatText>,
 ) -> WindowRows {
     let home = dirs::home_dir().map(|home| home.to_string_lossy().trim_end_matches('/').to_owned());
     let mut candidates: Vec<(String, Value)> = Vec::new();
@@ -301,13 +320,36 @@ fn ranked_rows(
         candidates.push((key, value));
     }
     let order = ranked(query, entries, spec.history.as_ref().map(|h| (h.now, h.frecency.clone())));
-    let total = order.len();
+    let mut total = order.len();
     let mut slots: Vec<Option<(String, Value)>> = candidates.into_iter().map(Some).collect();
-    let rows = order
-        .into_iter()
+    let mut rows: Vec<Row> = order
+        .iter()
         .take(spec.filter.limit)
-        .filter_map(|i| slots.get_mut(i).and_then(Option::take))
+        .filter_map(|&i| slots.get_mut(i).and_then(Option::take))
         .collect();
+    let needle = text.filter(|_| spec.content).zip(Needle::parse(query).ok());
+    if let Some((text, needle)) = needle {
+        let found = text.search(&needle);
+        let titled: HashSet<usize> = order.into_iter().collect();
+        // The candidates are in the index's order: newest first.
+        for (i, slot) in slots.iter_mut().enumerate() {
+            let Some(hit) = slot.as_ref().and_then(|(key, _)| found.get(key)) else { continue };
+            if titled.contains(&i) {
+                continue;
+            }
+            total += 1;
+            if rows.len() >= spec.filter.limit {
+                continue;
+            }
+            let Some((key, mut value)) = slot.take() else { continue };
+            if let (Some(said), Some(object)) =
+                (text.hit(&key, *hit, &needle), value.as_object_mut())
+            {
+                object.insert("match".into(), said);
+            }
+            rows.push((key, value));
+        }
+    }
     WindowRows { rows, has_more: total > spec.filter.limit, total: Some(total) }
 }
 

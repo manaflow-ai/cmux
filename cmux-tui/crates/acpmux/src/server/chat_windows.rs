@@ -168,6 +168,8 @@ fn start(hub: &Arc<Hub>, service: &Arc<ChatService>, conn: &Arc<Conn>) {
         windows.task = true;
     }
     let mut changes = service.subscribe();
+    // What was said in a chat came in (a window that searches it shows the new matches).
+    let mut text = service.text().subscribe();
     let (hub, service, conn) = (hub.clone(), service.clone(), conn.clone());
     let live = Live::new();
     // task-owner: the connection (R6): it ends with the connection, its last window or the runtime.
@@ -189,6 +191,7 @@ fn start(hub: &Arc<Hub>, service: &Arc<ChatService>, conn: &Arc<Conn>) {
                     Err(RecvError::Closed) => break,
                 },
                 () = conn.chat_windows.wake.notified() => {}
+                changed = text.changed() => if changed.is_err() { break },
             }
             // The batches that came meanwhile: one recompute reads the index after all of them.
             while matches!(changes.try_recv(), Ok(_) | Err(TryRecvError::Lagged(_))) {}

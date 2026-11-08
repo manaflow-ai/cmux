@@ -8,6 +8,7 @@ version = "1.0.0"
 dependencies = [
  "acpmux-build-id",
  "acpmux-hot",
+ "aho-corasick",
  "anyhow",
  "base64",
  "bytes",

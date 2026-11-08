@@ -37,9 +37,14 @@ public final class AcpmuxChatWindows {
         public var history: String?
         /// acpmux reports how many chats the window could show in all (`Window.total`).
         public var count: Bool
+        /// A query also finds chats by what was said in them, after those its ranker found: each
+        /// such row carries ``AcpmuxChat/said``.
+        public var content: Bool
 
         public init(window: String, limit: Int, topLevel: Bool = true, exclude: [String] = [], keys: [String]? = nil,
-                    query: String? = nil, untitled: String? = nil, history: String? = nil, count: Bool = false) {
+                    query: String? = nil, untitled: String? = nil, history: String? = nil, count: Bool = false,
+                    content: Bool = false) {
+            self.content = content
             self.untitled = untitled
             self.history = history
             self.count = count
@@ -63,6 +68,7 @@ public final class AcpmuxChatWindows {
             if let untitled { params["untitled"] = untitled }
             if let history { params["history"] = history }
             if count { params["count"] = true }
+            if content { params["content"] = true }
             return params
         }
     }

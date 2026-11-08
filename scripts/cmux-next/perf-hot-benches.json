@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "chats-window-query": {
+      "what": "one keystroke on the command palette's chats page: acpmux's query window (chats/window.rs ranked_rows) ranks every chat's title, then searches the held text of every chat for the words (chats/text.rs ChatText::search, one pass, its answer kept until the text changes) and builds the snippets of the rows it shows",
+      "bench": "cargo test -p acpmux --lib chats::text::tests::search_bench -- --ignored --nocapture (2,000 chats; prints p50/p95/max per keystroke)",
+      "owner": "acpmux"
+    },
     "daemon-request": {
       "what": "the app's daemon-request probe on every request to the daemon (DaemonRequestLatency.record: one bucket lookup and three relaxed atomics)",
       "bench": "scripts/cmux-next/austins-day (app_requests: the probe's own p99 under 80 agents)",

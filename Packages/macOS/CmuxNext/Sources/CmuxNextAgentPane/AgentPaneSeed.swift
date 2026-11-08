@@ -44,6 +44,9 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// A Sandboxed send that already ended, shown by this new page as its own (a Run notification's
     /// click, ``AgentPaneSandboxRuns``).
     public var sandboxResult: SandboxResult?
+    /// The `revealTurn` value the new page opens scrolled to (``AgentPaneModel/pendingRevealTurn``):
+    /// the chats page's match in what was said. Handed out once.
+    public var revealTurn: String?
 
     /// An ended Sandboxed send: its task, attempt key and final receipt (`{"receipt": …}` as JSON).
     public nonisolated struct SandboxResult: Sendable, Equatable {
@@ -70,7 +73,9 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
                 promptBy: PromptBy = .automation,
                 adopt: AgentPaneAdopt? = nil, surface: AgentPaneSurface? = nil, harness: String? = nil, model: String? = nil,
                 host: String? = nil,
-                folderNeeded: AgentPaneFolderNeeded? = nil, pastChat: String? = nil, showsHarnesses: Bool = false) {
+                folderNeeded: AgentPaneFolderNeeded? = nil, pastChat: String? = nil, showsHarnesses: Bool = false,
+                revealTurn: String? = nil) {
+        self.revealTurn = revealTurn
         self.promptBy = promptBy
         self.showsHarnesses = showsHarnesses
         self.folderNeeded = folderNeeded
