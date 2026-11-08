@@ -87,6 +87,8 @@ pub(super) fn scrub(text: &str, home: Option<&str>) -> String {
     let users_dir = |home: &&str| {
         matches!(home.trim_matches('/').to_ascii_lowercase().as_str(), "" | "users" | "home")
     };
+    // A trailing slash (`HOME=/srv/alice/`) would keep the home from matching `/srv/alice/x`.
+    let home = home.map(|home| home.trim_end_matches('/'));
     if let Some(home) = home.filter(|home| !users_dir(home)) {
         // Only a whole path component: with `/Users/al`, `/Users/alice` must not become `~ice`.
         let Some(bounded) = compile(&format!(r#"(?i){}([/\s"']|$)"#, regex::escape(home))) else {
