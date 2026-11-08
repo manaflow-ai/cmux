@@ -35,6 +35,16 @@ struct SidebarPinOneApplyTests {
         return (SidebarLayoutDocument(sections: [top, section]), sections)
     }
 
+    /// The item infos the app gives every workspace the document holds (`SidebarWorkspaceItems.workspaceInfos`): each
+    /// names its workspace, which the list's pin motion reads to find the item that draws it.
+    static func infos() -> [LayoutItemID: SidebarItemInfo] {
+        Dictionary(uniqueKeysWithValues: ([anchor] + listed).map { workspace in
+            var info = SidebarItemInfo(title: workspace.rawValue, symbol: "terminal")
+            info.workspace = workspace
+            return (item(workspace).id, info)
+        })
+    }
+
     final class Harness {
         let model: SidebarModel
         let sidebar: SidebarView
@@ -48,6 +58,7 @@ struct SidebarPinOneApplyTests {
             model.docDrag = SidebarDocDrag(item: { _ in nil }, section: { _ in nil }, begin: { _ in [:] }, drop: { _, _ in },
                                            adoptRef: { _ in nil })
             model.layout = layout
+            model.itemInfo = SidebarPinOneApplyTests.infos()
             sidebar = SidebarView(model: model, design: DesignSettings.shared)
             sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 560)
             window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 560), styleMask: [.titled],
@@ -146,6 +157,9 @@ struct SidebarPinOneApplyTests {
             h.model.layout = layout
             pass()
         }
+        // The app's turns after the change (its layout pass, the selection's repaint, the display): the flight must
+        // still be on the item a few frames in, not only at the end of the apply's turn.
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         let name = "\(arrival)\(active ? " (active)" : "")"
         guard let item = h.list.blockRegions.lazy.compactMap({ $0.itemView(workspace: Self.moved) }).first, let layer = item.layer else {
             return #expect(Bool(false), "\(name): no Pinned item draws d")
