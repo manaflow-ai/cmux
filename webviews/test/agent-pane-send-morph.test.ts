@@ -64,7 +64,7 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
 
   /// The pane's dev entry with its mock agent and three earlier turns, so the chat overflows and a
   /// send rises from the latest row; the agent then answers late, as a real one does.
-  const openChat = async (page: Page) => {
+  const openChat = async (page: Page, turns = ["first question", "second question", "third question"]) => {
     await page.addInitScript(() => {
       Object.assign(window, {
         webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
@@ -74,16 +74,17 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
     const port = (pane!.httpServer!.address() as { port: number }).port;
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(field).waitFor();
-    for (const line of ["first question", "second question", "third question"]) {
+    for (const line of turns) {
       await page.locator(field).click();
       await page.keyboard.type(line);
       await page.keyboard.press("Enter");
       await page.locator(".cv-user__bubble", { hasText: line }).waitFor();
       await page.getByRole("button", { name: "Stop" }).waitFor({ state: "detached", timeout: 30_000 });
     }
-    expect(
-      await page.locator(".acpmux-scroll").evaluate((scroll) => scroll.scrollHeight > scroll.clientHeight + 200),
-    ).toBe(true);
+    if (turns.length > 2)
+      expect(
+        await page.locator(".acpmux-scroll").evaluate((scroll) => scroll.scrollHeight > scroll.clientHeight + 200),
+      ).toBe(true);
     await page.evaluate(() =>
       Object.assign(window, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 2000 }),
     );
@@ -298,6 +299,50 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       expect(drawn[0]!.bubble!.shown, "the bubble draws in its place").toBe(true);
       expect(drawn[0]!.bubble!.ink, "the bubble fades in in place").toBeLessThan(0.6);
       expect(drawn.at(-1)!.bubble!.ink).toBeGreaterThan(0.99);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // The PR's first-send gate: a new chat's first prompt has no transcript yet to say it is at the
+  // bottom, so nothing flies and it fades in place (SEND-ENTRANCE), whichever way the transcript
+  // comes to draw it. A short chat that already has rows and fits is at its latest row and morphs.
+  test("a new chat's first prompt: nothing flies, the prompt fades in place", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
+    try {
+      await openChat(page, []);
+      expect(await page.locator(".cv-user__bubble").count(), "the chat starts empty").toBe(0);
+      await compose(page);
+      await watch(page, 900);
+      await page.keyboard.press("Enter");
+      const seen = await frames(page);
+      for (const frame of seen) expect(frame.ghosts, `no copy flies at ${frame.at} ms`).toEqual([]);
+      const drawn = seen.filter((frame) => frame.bubble);
+      expect(drawn.length, "the sent row was never drawn").toBeGreaterThan(2);
+      expect(drawn[0]!.bubble!.shown, "the bubble draws in its place").toBe(true);
+      expect(drawn[0]!.bubble!.ink, "the bubble fades in in place").toBeLessThan(0.6);
+      expect(drawn.at(-1)!.bubble!.ink).toBeGreaterThan(0.99);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a short chat that fits, sent from its latest row, morphs", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
+    try {
+      await openChat(page, ["first question"]);
+      expect(
+        await page.locator(".acpmux-scroll").evaluate((scroll) => scroll.scrollHeight <= scroll.clientHeight + 1),
+        "one turn fits the pane",
+      ).toBe(true);
+      await compose(page);
+      await watch(page, 900);
+      await page.keyboard.press("Enter");
+      const seen = await frames(page);
+      expect(
+        seen.some((frame) => frame.ghosts.length > 0),
+        "the composer's prompt becomes the sent message",
+      ).toBe(true);
     } finally {
       await page.close();
     }
