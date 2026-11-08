@@ -2,7 +2,7 @@ import Foundation
 
 /// The answer of a harness's backend check on this Mac's acpmux (`_acpmux/harness/doctor`, one
 /// real hello turn), as the Chief Settings popover shows it.
-public enum HomeHarnessCheck: Equatable, Sendable {
+nonisolated public enum HomeHarnessCheck: Equatable, Sendable {
     case passed
     /// The first step that failed (`launch`, `initialize`, `session`, `prompt`, ...) and the
     /// doctor's words for why, so the note names what to fix.

@@ -1077,6 +1077,7 @@ async fn acp_steps(
         opts,
         prompt_limit,
         crate::config::derive_family(id, profile) == "codex",
+        bridged,
         id,
     )
     .await;
@@ -1149,6 +1150,7 @@ async fn handshake(
     opts: &DoctorOptions,
     prompt_limit: Duration,
     codex: bool,
+    bridged: bool,
     harness_id: &str,
 ) -> bool {
     let init = json!({
@@ -1192,13 +1194,23 @@ async fn handshake(
             let protocol_mismatch = (lower.contains("unknown variant")
                 && lower.contains("session/new"))
                 || lower.contains("method not found");
+            // The bridge answers -32001 "Codex broker unavailable" when its sign-in file is
+            // missing or refused (`codex_app_server.rs`, `AuthGate`).
             let auth = !protocol_mismatch
-                && (e.contains("auth") || e.contains("-32000") || e.contains("login"));
+                && (e.contains("auth")
+                    || e.contains("-32000")
+                    || e.contains("-32001")
+                    || e.contains("login")
+                    || e.contains("broker"));
             r.push(
                 "session",
                 StepStatus::Fail,
                 &e,
-                Some(if protocol_mismatch && codex {
+                Some(if protocol_mismatch && bridged {
+                    // Through the bridge, an unknown method is the app-server refusing the
+                    // bridge's own request: a codex older than the bridge speaks.
+                    "the Codex app-server refused the bridge's request; update codex, then doctor again".into()
+                } else if protocol_mismatch && codex {
                     "this command is a Codex app-server, not the acpmux bridge; verify readiness with `acpmux daemon harnesses`, then start a real session with `acpmux new --machine MACHINE -m codex -d`".into()
                 } else if protocol_mismatch {
                     format!("the configured command did not speak ACP session/new; check its ACP mode, then run `acpmux harness doctor {harness_id}` again")
