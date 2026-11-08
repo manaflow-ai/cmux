@@ -159,6 +159,13 @@ import PackageDescription
 // program-fresh frame turns the main run loop when it completes, so cmux's
 // presenter can hold a resize's frame for the program's redraw (RESIZE P0 12).
 //
+// Since 2db2ea423..8e881185b (fork PR #88, stacked on #87): READY_PROGRAM
+// means the program redrew the whole new grid, not only that it wrote output.
+// A picture begins at a synchronized update, a cursor home, a full clear or a
+// line feed; it counts when it reaches the last row and column without going
+// past the grid (RESIZE P0 13). An old-grid frame (a program that repaints
+// for the size it read before the change) no longer ends cmux's hold.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -182,8 +189,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-2db2ea42350db95a105b69e37b919943c6790140-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "0fdd886ff307085703d808503a8ed1da490a559b1fe7a83b2b76df73f00656de"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-8e881185b5afaf587df13356030e206aada4f1f8-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "14c3f1ff076cce97f37772f59549cf6de63e71a2a7850e76890f9f506c98c8d3"
         ),
     ]
 )
