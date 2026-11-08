@@ -72,7 +72,7 @@ impl ImagePasteRequest {
                 })?;
             }
             ("cancel", None, None, None, None, None) => {
-                mux.image_pastes.cancel(&owner, &upload_id)?
+                mux.image_pastes.cancel(&owner, &upload_id)?;
             }
             _ => anyhow::bail!("image-invalid-request"),
         }

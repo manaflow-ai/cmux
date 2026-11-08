@@ -146,9 +146,7 @@ fn pasted_path(input: &std::sync::mpsc::Receiver<Vec<u8>>) -> PathBuf {
     PathBuf::from(path)
 }
 
-fn file_paste_fixture(
-    name: &str,
-) -> (
+type FilePasteFixture = (
     Arc<Mux>,
     Arc<crate::Surface>,
     Arc<crate::Surface>,
@@ -156,7 +154,9 @@ fn file_paste_fixture(
     MessageWriter,
     String,
     std::sync::mpsc::Receiver<Vec<u8>>,
-) {
+);
+
+fn file_paste_fixture(name: &str) -> FilePasteFixture {
     let mux = Mux::new_for_test(name, crate::SurfaceOptions::default());
     let source = mux.new_workspace(None, Some((80, 24))).unwrap();
     let surface = projected_image_paste_view(&mux, &source);
