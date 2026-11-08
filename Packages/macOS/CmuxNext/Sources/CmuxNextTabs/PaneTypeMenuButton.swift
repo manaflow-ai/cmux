@@ -9,8 +9,9 @@ import QuartzCore
 /// Its look follows ``TabTrailingButtons``: in every style but `plates` it draws its chevron as the +'s stroke (one
 /// weight, one ink) and shows hover as the + does (Lawrence 2026-11-07: the square grey block behind it).
 final class PaneTypeMenuButton: NSView {
-    /// The `plates` look (before 2026-11-07): an SF Symbol on a rounded plate.
-    private let glyph = TitlebarBandButton(symbol: "chevron.down")
+    /// The `plates` look (before 2026-11-07): an SF Symbol on a rounded plate, made the first time that style lays out
+    /// (every pane's strip has a chooser, and the other styles draw the chevron as a layer).
+    private var glyph: TitlebarBandButton?
     private let fillLayer = CALayer()
     private let chevronLayer = CAShapeLayer()
     private lazy var pointer = PointerHover(self) { [weak self] _ in self?.updateColors() }
@@ -19,8 +20,8 @@ final class PaneTypeMenuButton: NSView {
     var onAccessibilityFocus: ((Bool) -> Void)?
     var isHighlighted = false {
         didSet {
-            glyph.isHighlighted = isHighlighted
-            glyph.hover.state.pressed = isHighlighted
+            glyph?.isHighlighted = isHighlighted
+            glyph?.hover.state.pressed = isHighlighted
             updateColors()
         }
     }
@@ -38,8 +39,6 @@ final class PaneTypeMenuButton: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        // The add buttons' size class: the chevron spans about the +'s width beside it.
-        glyph.symbolPointSize = { Metrics.addMenuChevronPointSize }
         layer?.masksToBounds = false
         fillLayer.cornerCurve = .circular
         fillLayer.actions = ["bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull()]
@@ -49,8 +48,6 @@ final class PaneTypeMenuButton: NSView {
         chevronLayer.actions = ["bounds": NSNull(), "position": NSNull(), "path": NSNull(), "strokeColor": NSNull(), "lineWidth": NSNull()]
         layer?.addSublayer(fillLayer)
         layer?.addSublayer(chevronLayer)
-        addSubview(glyph)
-        glyph.setAccessibilityElement(false)
         setAccessibilityElement(true)
         setAccessibilityRole(.popUpButton)
         setAccessibilityLabel(Strings.axNewTab)
@@ -67,8 +64,17 @@ final class PaneTypeMenuButton: NSView {
     override func layout() {
         super.layout()
         let plates = style == .plates
-        glyph.isHidden = !plates
-        glyph.frame = bounds
+        if plates, glyph == nil {
+            let made = TitlebarBandButton(symbol: "chevron.down")
+            // The add buttons' size class: the chevron spans about the +'s width beside it.
+            made.symbolPointSize = { Metrics.addMenuChevronPointSize }
+            made.setAccessibilityElement(false)
+            (made.isHighlighted, made.hover.state.pressed) = (isHighlighted, isHighlighted)
+            addSubview(made)
+            glyph = made
+        }
+        glyph?.isHidden = !plates
+        glyph?.frame = bounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         chevronLayer.isHidden = plates
