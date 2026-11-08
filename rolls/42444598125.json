@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42444598125",
+  "recorded_at": "2026-11-08T04:00:26Z",
+  "reason": "cmux-tui 88208f61a41a changes the image's cmux-tui (pinned 3662a91aea56)",
+  "dry_run": false,
+  "cmux_tui": "88208f61a41a953315fed5980ce2e037bf50a12b",
+  "fixes": [
+    {
+      "sha": "8d6a2c1214e86bf58a976c920d1c5133d84ff242",
+      "mergedAt": "2026-11-07T19:20:22-08:00",
+      "subject": "Rust action catalog: the Chief chat zoom keys run on Bring your history too (#38109) (#38162)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T04:00:26Z",
+    "snapshot_id": "sh-87d7d36b0ba0496d894693f0cdcbee8c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42444598125): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3de13fca068f23517e7604eb187a180f8a9aab79",
+    "image": "cloud-native-auto-88208f61-42444598125-1",
+    "revision": "ci-42444598125-1",
+    "at": "2026-11-08T04:00:26Z"
+  },
+  "rolled_back": false
+}
