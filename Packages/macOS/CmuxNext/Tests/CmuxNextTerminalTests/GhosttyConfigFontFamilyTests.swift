@@ -25,4 +25,9 @@ struct GhosttyConfigFontFamilyTests {
         """
         #expect(GhosttyConfigFontFamily.fontFamilies(configText: text) == ["Iosevka"])
     }
+
+    @Test func quotedFamilyNamesDecodeGhosttyEscapes() {
+        let text = #"font-family = "Quote \"Mono\" \\ Wide""#
+        #expect(GhosttyConfigFontFamily.fontFamilies(configText: text) == ["Quote \"Mono\" \\ Wide"])
+    }
 }

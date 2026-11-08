@@ -56,9 +56,37 @@ enum GhosttyConfigFontFamily {
             guard !line.hasPrefix("#"), let equals = line.firstIndex(of: "=") else { continue }
             guard line[..<equals].trimmingCharacters(in: .whitespaces) == "font-family" else { continue }
             var value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
-            if value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") { value = String(value.dropFirst().dropLast()) }
+            if value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") {
+                value = decodeQuotedValue(String(value.dropFirst().dropLast()))
+            }
             if value.isEmpty { result = [] } else { result.append(value) }
         }
+        return result
+    }
+
+    /// Ghostty config strings use backslash escapes for a quote and a literal
+    /// backslash. Decode only those two escapes so an unknown escape remains
+    /// unchanged instead of silently changing a configured family name.
+    private nonisolated static func decodeQuotedValue(_ value: String) -> String {
+        var result = ""
+        result.reserveCapacity(value.count)
+        var escaping = false
+        for character in value {
+            if escaping {
+                if character == "\"" || character == "\\" {
+                    result.append(character)
+                } else {
+                    result.append("\\")
+                    result.append(character)
+                }
+                escaping = false
+            } else if character == "\\" {
+                escaping = true
+            } else {
+                result.append(character)
+            }
+        }
+        if escaping { result.append("\\") }
         return result
     }
 }
