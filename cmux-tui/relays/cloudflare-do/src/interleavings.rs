@@ -38,7 +38,8 @@ use crate::abuse::{
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::daemon::{
     accepts_connects, current_registration, live_daemon, next_registration_number,
-    owed_handover_after_fallback, record_ping, replaced_by_register, still_allocated_to,
+    owed_handover_after_close, owed_handover_after_fallback, record_ping, replaced_by_register,
+    still_allocated_to,
 };
 use crate::park::{
     ConnectDisposition, ParkedConnect, connect_disposition, pairing_order, parked_and_live,
@@ -193,17 +194,20 @@ impl World {
 
     /// The socket at `index` closes: its peer closed it or went away
     /// (`RelaySlot::websocket_close`), or the cleanup alarm closed it past
-    /// its idle deadline (`RelaySlot::alarm`).
+    /// its idle deadline (`RelaySlot::alarm`). Both call
+    /// `RelaySlot::owe_handover_after_close`.
     fn close(&mut self, index: usize) {
-        let closed = &self.sockets[index].attachment;
-        let legacy = closed.generation == 0 && replaced_by_register(closed, SLOT);
-        let survivor = self.sockets.iter().enumerate().any(|(other, socket)| {
-            other != index
-                && socket.ready_state == OPEN
-                && socket.attachment.generation == 0
-                && replaced_by_register(&socket.attachment, SLOT)
-        });
-        if legacy && survivor && !self.unjoined().is_empty() {
+        let closed = self.sockets[index].attachment.clone();
+        let mut owed = false;
+        for (other, socket) in self.sockets.iter_mut().enumerate() {
+            if other != index
+                && owed_handover_after_close(&closed, &socket.attachment, socket.ready_state, SLOT)
+            {
+                socket.attachment.pending_handover = true;
+                owed = true;
+            }
+        }
+        if owed && !self.unjoined().is_empty() {
             self.legacy_closes_with_unjoined += 1;
         }
         self.sockets[index].ready_state = CLOSING;
