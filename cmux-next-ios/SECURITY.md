@@ -129,10 +129,30 @@ session summary and refuses missing or unknown modes, non-asking modes, and an
 acpmux enforcement policy other than `ask`. Its preflight accepts Claude
 `default`/`plan` and Codex `ask` only. History remains readable in other modes.
 
-This preflight is not atomic VM authorization. Shipping requires the VM's
-mobile-capability implementation to enforce the authenticated owner, actual
-harness profile and asking-mode floor at dispatch, through the queue and for
-the active turn. The adapter cannot establish a Codex bridge profile from its
+This preflight is not atomic VM authorization. The VM enforces the
+authenticated owner, actual harness profile and asking-mode floor itself, and
+its daemon advertises `cloud-mobile-chat-v1` only because it does
+(hq#8003):
+
+- The carrier reaches the VM daemon as a `mux-control` stream. The session
+  host writes the verified carrier grant's role (`vmk`) on it before any of
+  the phone's bytes (`carrier-role`), and the daemon binds it once. A
+  teammate's or role-less stream can't start a chat on the caller's `owner`
+  word.
+- A connection that declared `cloud-mobile-chat-v1` may send only the
+  adapter's commands (`phone_carrier.rs`): `identify`, `set-client-info`,
+  `list-workspaces`, `create-workspace`, an agent `new-conversation-tab` of
+  the machine's own store, `close-surface` of an agent tab no chat is bound
+  to, and `agent-session-{of,start,attach,events,prompt,cancel,detach,context}`.
+  It may not send command-bearing params. The declaration lasts for the
+  connection's life.
+- Its start needs an acpmux that reports the Cloud mobile floor. It must be a
+  family the floor has a mode for, and the new session must end up in a mode
+  acpmux's floor accepts for the profile it actually runs. Otherwise the
+  session is ended.
+- Every one of its prompts is stamped `via: cloud-mobile`. acpmux holds it to
+  that floor at dispatch, through the queue and for the active turn.
+ The adapter cannot establish a Codex bridge profile from its
 mode name, or prevent a concurrent mode change by itself. No Mac approval
 signature or Full-access setting is transplanted to the VM. Approval answers, mode changes, file operations and other native
 commands are unsupported on this service.
