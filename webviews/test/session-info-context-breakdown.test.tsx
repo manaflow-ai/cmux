@@ -8,7 +8,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextRing } from "../src/agent-session/acpmux/ComposerPickers";
-import { contextBreakdown, ContextSection } from "../src/agent-session/acpmux/session-info/ContextSection";
+import { ContextSection } from "../src/agent-session/acpmux/session-info/ContextSection";
+import { contextBreakdown } from "../src/agent-session/acpmux/session-info/contextSectionModel";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import { COMPACT_PROMPT, compactThrough } from "../src/agent-session/acpmux/conversation/turnActions";
 

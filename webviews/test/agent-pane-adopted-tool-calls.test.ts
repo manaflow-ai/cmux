@@ -162,8 +162,10 @@ await requireBrowserLane("agent-pane-adopted-tool-calls.test.ts", async () => {
     const edit = steps.locator("button.cv-tool", { hasText: "Edited 2 files" });
     await expect(edit.textContent()).resolves.toBe("Edited 2 files+4-1");
 
-    const lines = await page.locator(".cv-command__line").allTextContents();
-    expect(lines).toEqual(["git status --short", "grep -n '^version' Cargo.toml", "sed -n 1,8p CHANGELOG.md"]);
+    // `git status --short`, `grep -n '^version' Cargo.toml` and `sed -n 1,8p CHANGELOG.md`, each as
+    // what it did (commandActions.ts).
+    const lines = await page.locator(".cv-command__text").allTextContents();
+    expect(lines).toEqual(["Checked git status", "Searched for “^version”", "Read CHANGELOG.md"]);
     // The answer stays outside the fold, after the work.
     await page.getByText(ANSWER).waitFor();
     await page.close();

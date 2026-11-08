@@ -1,3 +1,7 @@
+// The paths, defaults and the AgentPaneComposerRing, AgentPaneAttachmentView, AgentPaneNewChatPlace and
+// AgentPaneDictationSource enums are generated from schemas/settings/source/agent-pane-composer.json
+// (Schema/SettingsSchema+AgentPaneComposer*.generated.swift).
+
 import CmuxNextDesign
 
 /// The agent pane composer's own keys in cmux.json (the pane reads the same names,
@@ -44,27 +48,16 @@ import CmuxNextDesign
 /// `reasoningSliderStyle` carries the Debug Settings visual comparison choice, defaulting to
 /// `accent` so the slider's current treatment remains unchanged.
 public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
-    public static let showContextUsagePath = ["agentPane", "showContextUsage"]
-    public static let composerRingPath = ["agentPane", "composerRing"]
-    public static let showDictationPath = ["agentPane", "showDictation"]
-    public static let dictationSourcePath = ["agentPane", "dictationSource"]
-    public static let dictationShortcutPath = ["agentPane", "dictationShortcut"]
-    public static let spellCheckingPath = ["agentPane", "spellChecking"]
-    public static let attachmentViewPath = ["agentPane", "attachmentView"]
-    public static let scrollToBottomOnSendPath = ["agentPane", "scrollToBottomOnSend"]
-    public static let showMachineLoadWarningsPath = ["agentPane", "showMachineLoadWarnings"]
-    public static let newChatsInPath = ["agentPane", "newChatsIn"]
-
-    public var showContextUsage = true
-    public var composerRing = AgentPaneComposerRing.context
-    public var showDictation = true
-    public var dictationSource = AgentPaneDictationSource.cmux
-    public var dictationShortcut = ""
-    public var spellChecking = false
-    public var attachmentView = AgentPaneAttachmentView.inline
-    public var scrollToBottomOnSend = true
-    public var showMachineLoadWarnings = true
-    public var newChatsIn = AgentPaneNewChatPlace.local
+    public var showContextUsage = Self.showContextUsageDefault
+    public var composerRing = Self.composerRingDefault
+    public var showDictation = Self.showDictationDefault
+    public var dictationSource = Self.dictationSourceDefault
+    public var dictationShortcut = Self.dictationShortcutDefault
+    public var spellChecking = Self.spellCheckingDefault
+    public var attachmentView = Self.attachmentViewDefault
+    public var scrollToBottomOnSend = Self.scrollToBottomOnSendDefault
+    public var showMachineLoadWarnings = Self.showMachineLoadWarningsDefault
+    public var newChatsIn = Self.newChatsInDefault
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
     /// The Debug Settings visual choice (`agent.reasoningSliderStyle`); never parsed from cmux.json.
@@ -156,31 +149,6 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     }
 }
 
-/// How the composer and sent messages show attachments (`agentPane.attachmentView`).
-public nonisolated enum AgentPaneAttachmentView: String, Sendable, Hashable, CaseIterable {
-    /// Each attachment in the text where it was added, as Messages does.
-    case inline
-    /// The attachments together in a row.
-    case strip
-    /// In the text and in the row too, so every attachment shows in one place with its remove
-    /// (Leo, 2026-10-24: "ALSO show the top displayed attachments alongside the inline attachments").
-    case both
-}
-
-/// What the composer's mic dictates with (`agentPane.dictationSource`): cmux's own dictation, or an
-/// app the person already dictates with (design/composer-dictation.md).
-public nonisolated enum AgentPaneDictationSource: String, Sendable, Hashable, CaseIterable {
-    /// cmux's own dictation, as before.
-    case cmux
-    /// macOS Dictation, into the composer.
-    case macos
-    case chatgpt
-    case claude
-    case gemini
-    case wisprFlow
-    case superwhisper
-}
-
 /// A chord the mic sends for an app source (`agentPane.dictationShortcut`): modifiers and one key,
 /// joined with `+`, such as `ctrl+opt+space` or `cmd+shift+d`. At least one of cmd, ctrl, opt; a
 /// bare key or shift alone would type into the composer instead of reaching the app.
@@ -223,139 +191,5 @@ public nonisolated struct AgentPaneDictationShortcut: Sendable, Hashable {
         if key.count == 1, let character = key.first, character.isASCII, character.isLetter || character.isNumber { return true }
         if key.hasPrefix("f"), let number = Int(key.dropFirst()), (1...19).contains(number) { return true }
         return false
-    }
-}
-
-/// What the composer's ring shows (`agentPane.composerRing`).
-public nonisolated enum AgentPaneComposerRing: String, Sendable, Hashable, CaseIterable {
-    /// How much of its context window the chat has used (the ring as it always was).
-    case context
-    /// The account's plan usage limits (5-hour and weekly), when the harness reports them.
-    case planUsage
-}
-
-/// Where a new chat runs when its composer picks nothing (`agentPane.newChatsIn`).
-public nonisolated enum AgentPaneNewChatPlace: String, Sendable, Hashable, CaseIterable {
-    /// This Mac, as before.
-    case local
-    /// The person's own Cloud machine (a free one of theirs, else a new one).
-    case cloud
-}
-
-/// The composer's rows (General > Agent Chat, next to the edited-files card's).
-nonisolated enum AgentPaneComposerSettingsSchema {
-    static var descriptors: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
-        return [
-            SettingDescriptor(
-                AgentPaneComposerSetting.showContextUsagePath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.showContextUsage", "Show Context Usage"),
-                help: SettingsText.keyed("settings.agentPane.showContextUsage.help",
-                                         "The ring beside the model that fills as the chat uses its context window."),
-                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.showContextUsage),
-                keywords: ["context", "usage", "tokens", "window", "ring", "composer", "agent"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.composerRingPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.composerRing", "Composer Ring"),
-                help: SettingsText.keyed("settings.agentPane.composerRing.help",
-                                         "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them."),
-                kind: .choice([
-                    SettingChoice(AgentPaneComposerRing.context.rawValue,
-                                  SettingsText.keyed("settings.choice.composerRingContext", "Context")),
-                    SettingChoice(AgentPaneComposerRing.planUsage.rawValue,
-                                  SettingsText.keyed("settings.choice.composerRingPlanUsage", "Plan Usage")),
-                ]),
-                default: .string(AgentPaneComposerSetting.fallback.composerRing.rawValue),
-                keywords: ["context", "usage", "plan", "limit", "limits", "5-hour", "weekly", "rate", "quota", "ring", "composer", "agent"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.showDictationPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.showDictation", "Show Dictation Button"),
-                help: SettingsText.keyed("settings.agentPane.showDictation.help",
-                                         "The microphone beside Send in every composer, including the New Tab page."),
-                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.showDictation),
-                keywords: ["dictation", "microphone", "mic", "voice", "speech", "composer", "agent", "new tab"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.dictationSourcePath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.dictationSource", "Dictate With"),
-                help: SettingsText.keyed("settings.agentPane.dictationSource.help",
-                                         "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut."),
-                kind: .choice([
-                    SettingChoice(AgentPaneDictationSource.cmux.rawValue, SettingsText.keyed("settings.choice.dictationSourceCmux", "cmux")),
-                    SettingChoice(AgentPaneDictationSource.macos.rawValue, SettingsText.keyed("settings.choice.dictationSourceMacos", "macOS Dictation")),
-                    SettingChoice(AgentPaneDictationSource.chatgpt.rawValue, SettingsText.keyed("settings.choice.dictationSourceChatgpt", "ChatGPT")),
-                    SettingChoice(AgentPaneDictationSource.claude.rawValue, SettingsText.keyed("settings.choice.dictationSourceClaude", "Claude")),
-                    SettingChoice(AgentPaneDictationSource.gemini.rawValue, SettingsText.keyed("settings.choice.dictationSourceGemini", "Gemini")),
-                    SettingChoice(AgentPaneDictationSource.wisprFlow.rawValue, SettingsText.keyed("settings.choice.dictationSourceWisprFlow", "Wispr Flow")),
-                    SettingChoice(AgentPaneDictationSource.superwhisper.rawValue, SettingsText.keyed("settings.choice.dictationSourceSuperwhisper", "Superwhisper")),
-                ]),
-                default: .string(AgentPaneComposerSetting.fallback.dictationSource.rawValue),
-                keywords: ["dictation", "dictate", "microphone", "mic", "voice", "speech", "chatgpt", "claude", "gemini", "wispr", "flow", "superwhisper", "macos", "composer"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.dictationShortcutPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.dictationShortcut", "Dictation App Shortcut"),
-                help: SettingsText.keyed("settings.agentPane.dictationShortcut.help",
-                                         "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default."),
-                kind: .text, default: .string(AgentPaneComposerSetting.fallback.dictationShortcut),
-                keywords: ["dictation", "shortcut", "hotkey", "key", "chatgpt", "claude", "gemini", "wispr", "flow", "superwhisper"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.spellCheckingPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.spellChecking", "Check Spelling While Typing"),
-                help: SettingsText.keyed("settings.agentPane.spellChecking.help",
-                                         "Underlines misspellings and offers system suggestions in the composer."),
-                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.spellChecking),
-                keywords: ["spell", "spelling", "grammar", "misspelling", "composer", "suggestions", "typing"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.attachmentViewPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.attachmentView", "Attachment View"),
-                help: SettingsText.keyed("settings.agentPane.attachmentView.help",
-                                         "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same."),
-                kind: .choice([
-                    SettingChoice(AgentPaneAttachmentView.inline.rawValue,
-                                  SettingsText.keyed("settings.choice.agentChatAttachmentInline", "Inline")),
-                    SettingChoice(AgentPaneAttachmentView.strip.rawValue,
-                                  SettingsText.keyed("settings.choice.agentChatAttachmentStrip", "Strip")),
-                    SettingChoice(AgentPaneAttachmentView.both.rawValue,
-                                  SettingsText.keyed("settings.choice.agentChatAttachmentBoth", "Inline and Strip")),
-                ]),
-                default: .string(AgentPaneComposerSetting.fallback.attachmentView.rawValue),
-                keywords: ["attachment", "attachments", "image", "picture", "file", "inline", "strip", "both", "composer", "messages"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.scrollToBottomOnSendPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.scrollToBottomOnSend", "Scroll to Bottom When I Send"),
-                help: SettingsText.keyed("settings.agentPane.scrollToBottomOnSend.help",
-                                         "When off, sending while you are reading up keeps your place and shows new messages below."),
-                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.scrollToBottomOnSend),
-                keywords: ["scroll", "bottom", "send", "message", "chat", "latest", "follow"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.showMachineLoadWarningsPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.showMachineLoadWarnings", "Show Machine Load Warnings"),
-                help: SettingsText.keyed("settings.agentPane.showMachineLoadWarnings.help",
-                                         "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu."),
-                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.showMachineLoadWarnings),
-                keywords: ["machine", "load", "memory", "cpu", "warning", "computer", "composer", "agent"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.newChatsInPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.newChatsIn", "Start New Chats In"),
-                help: SettingsText.keyed("settings.agentPane.newChatsIn.help",
-                                         "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat."),
-                kind: .choice([
-                    SettingChoice(AgentPaneNewChatPlace.local.rawValue,
-                                  SettingsText.keyed("settings.choice.newChatsInLocal", "This Mac")),
-                    SettingChoice(AgentPaneNewChatPlace.cloud.rawValue,
-                                  SettingsText.keyed("settings.choice.newChatsInCloud", "Cloud")),
-                ]),
-                default: .string(AgentPaneComposerSetting.fallback.newChatsIn.rawValue),
-                keywords: ["cloud", "new chat", "start", "machine", "vm", "remote", "this mac", "local", "run"]
-            ),
-        ]
     }
 }

@@ -6,13 +6,14 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { appendThought, mergeToolItem } from "../direct";
 import { SubagentFold } from "../subagents/subagentFold";
-import { firstStepCount, stepProbe, ToolGroupRow } from "./ToolGroupRow";
+import { ToolGroupRow } from "./ToolGroupRow";
+import { firstStepCount, stepProbe } from "./toolGroupRowModel";
 import { FindReveal, type FindRevealTarget } from "./chatFind";
 import { ToolRows } from "./TurnRows";
 import * as toolFailure from "./toolFailure";
 import * as thoughts from "./thoughts";
-import { thoughtLayout } from "./ThoughtRow";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { thoughtLayout } from "./thoughtRowModel";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -3,6 +3,7 @@
 // with Show all N lines when it is long (BlockParts.tsx). A prose file (Markdown, text) wraps with a
 // hanging indent; code keeps its lines whole, its right edge fading while more lies past it. The
 // changes view (changes/EditBlock.tsx) draws the same edits at full size.
+import { cornerAction } from "./cornerActions";
 import { lazy, Suspense, useContext, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { editPatch, type TurnFile } from "../diff";
 import { copyTextResult } from "./clipboard";
@@ -12,12 +13,9 @@ import { fileBlockKind, useBlockWrap } from "./blockWrap";
 import { PreviewMore, WrapButton } from "./BlockParts";
 import { usePreview, useSidewaysRef } from "./blockPartsModel";
 import { FindReveal, foldFind } from "./chatFind";
-import { EditDiffLoading, useDiffPainted } from "./EditDiffLoading";
-
-/// The card's lines (EditDiffHunks.tsx, on @pierre/diffs) come in their own chunk, so the page's
-/// first script parses without Pierre (bd cx-z9kz0). The header shows at once; the page starts the
-/// chunk once it has painted (App.tsx), so the lines rarely wait.
-export const loadEditDiffHunks = () => import("./EditDiffHunks");
+import { EditDiffLoading } from "./EditDiffLoading";
+import { useDiffPainted } from "./editDiffLoadingModel";
+import { loadEditDiffHunks } from "./editDiffModel";
 const EditDiffHunks = lazy(() => loadEditDiffHunks().then((module) => ({ default: module.EditDiffHunks })));
 
 /// Bumps each time Find in Chat's current match is in `file` (its text, or the call that made it),
@@ -92,10 +90,10 @@ export function EditDiffFrame({
         </span>
         <span className="cv-edit-diff__add">+{file.additions}</span>
         <span className="cv-edit-diff__del">-{file.deletions}</span>
-        <WrapButton kind={kind} className="cv-codeblock__action cv-edit-diff__wrap" />
+        <WrapButton kind={kind} className={`${cornerAction()} cv-edit-diff__wrap`} />
         <button
           type="button"
-          className="cv-codeblock__action cv-edit-diff__copy"
+          className={`${cornerAction()} cv-edit-diff__copy`}
           aria-label={copied ? t("code.copied") : t("code.copyDiff")}
           onClick={() =>
             void copyTextResult(patches.join("")).then(

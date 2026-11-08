@@ -31,6 +31,7 @@ import { VoiceInputCard } from "./VoiceInputCard";
 import { ContextMenusCard } from "./ContextMenusCard";
 import { ServerCard } from "./ServerCard";
 import { SharedLinksCard } from "./SharedLinksCard";
+import { TailnetCard } from "./TailnetCard";
 import { SectionActions } from "./SectionActions";
 import {
   ACCENT_KEY,
@@ -77,6 +78,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   server: () => <ServerCard />,
   cloudEnvironments: () => <CloudEnvironmentsCard />,
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
+  tailnet: () => <TailnetCard />,
   contextMenus: (focus) => <ContextMenusCard focus={focus} />,
   personalization: (focus, workspace) => <PersonalizationCard focus={focus} workspace={workspace} />,
 };

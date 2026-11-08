@@ -12,7 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { mcpCall, mcpLabel } from "../src/agent-session/acpmux/conversation/mcpCalls";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
-import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { toolLabel } from "../src/agent-session/acpmux/toolPaths";
@@ -40,7 +40,9 @@ test("a running MCP call reads Using <server>: <tool>", () => {
 
 test("a finished command and a read read verb then subject", () => {
   const command: Tool = { id: "c1", title: "git status", kind: "execute", status: "completed", command: "git status" };
-  expect(toolLabel(command, "", ran)).toBe("Ran git status");
+  expect(toolLabel(command, "", ran)).toBe("Checked git status");
+  const unknown: Tool = { id: "c2", title: "make", kind: "execute", status: "completed", command: "make lint" };
+  expect(toolLabel(unknown, "", ran)).toBe("Ran make lint");
   const read: Tool = {
     id: "r1",
     title: "Read App.tsx",
@@ -129,6 +131,37 @@ test("the live line draws no mark of its own: the shimmer is its only working si
 test("the split arm keeps out and in on the live line", () => {
   globalThis.cmuxExperiments = { "live-line-tokens": "split" };
   expect(shown(liveLine({ doing: "Using repo: repo grep" }))).toBe(
-    "Using repo: repo grep 3m 2s · ↓ 47.4K out ↑ 2.7M in",
+    // "in" is the uncached input (9K fresh + 41K cache writes), never every call's reads added up.
+    "Using repo: repo grep 3m 2s · ↓ 47.4K out ↑ 50K in",
   );
+});
+
+// A verb says what a command did (commandActions.ts), so a merge a hook blocked never reads "Merged
+// PR #101": the row reads as its line, and its failure stays on the row as its status word.
+test("a hook-blocked merge row draws no success verb and keeps its failure", async () => {
+  const { CommandRow } = await import("../src/agent-session/acpmux/conversation/CommandRow");
+  const tool: Tool = {
+    id: "blocked-merge",
+    title: "Bash",
+    kind: "execute",
+    status: "failed",
+    command: "gh pr merge 101 --squash --match-head-commit 0123456789abcdef",
+    output: "PreToolUse:Bash hook error: Blocked: the fixture guard needs a passing review first.",
+  };
+  const html = renderToStaticMarkup(<CommandRow item={{ kind: "tool", text: "Bash", tool }} />);
+  expect(html).not.toContain("Merged");
+  expect(html).toContain("gh pr merge 101");
+  expect(html).toContain(t("tools.blockedByHook"));
+  const rejected = renderToStaticMarkup(
+    <CommandRow
+      item={{
+        kind: "tool",
+        text: "Bash",
+        tool: { ...tool, id: "rejected-push", command: "git push origin main", output: "Exit code 1\n! [rejected]" },
+      }}
+    />,
+  );
+  expect(rejected).not.toContain("Pushed");
+  expect(rejected).toContain("git push origin main");
+  expect(rejected).toContain("Exit 1");
 });

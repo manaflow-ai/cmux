@@ -28,6 +28,7 @@ done
 PAGES="
 apps
 artifacts
+bookmarks
 changelog
 chief-inspector
 chief-usage
@@ -51,7 +52,9 @@ mobile-pairing
 onboarding
 overlay
 passwords
+server-cards
 settings
+stash
 stats
 tasks
 "

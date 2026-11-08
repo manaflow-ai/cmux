@@ -6,6 +6,7 @@
 // a reply does (`link.openPath`; the host only takes the path, so it opens at its top). The closed row
 // stays one line (ToolRow.tsx). Leo, 2026-11-05: "could we potentially do even better?"; the same web
 // draws it on the Mac and the phone.
+import { cornerAction } from "./cornerActions";
 import { useMemo, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "../chips/host";
@@ -95,7 +96,7 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
             ? t("fileCards.oneLine", { n: read.start })
             : t("fileCards.lineRange", { start: read.start, end: read.end })}
         </span>
-        <CopyButton text={read.code} label={t("code.copy")} className="cv-codeblock__action cv-edit-diff__copy" />
+        <CopyButton text={read.code} label={t("code.copy")} className={`${cornerAction()} cv-edit-diff__copy`} />
       </div>
       <div className="cv-filepeek__body" data-preview={preview.attribute}>
         <div className="cv-filepeek__code">

@@ -23,6 +23,24 @@ pub(crate) struct SlotAttachment {
     /// A client Connect waiting for the daemon to register (`crate::park`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parked: Option<ParkedConnect>,
+    /// When a registered daemon's control socket last spoke (its Register or
+    /// a Ping), in ms. Zero on client sockets and on an attachment written
+    /// before this field existed (`crate::daemon`).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub last_seen_ms: u64,
+    /// A daemon that resumed after silence past the liveness window while its
+    /// registration wasn't current: its first Ping once it is current is
+    /// handed the slot's unjoined circuits (`crate::daemon::record_ping`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pending_handover: bool,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +147,8 @@ mod tests {
             expires_at: 1_000,
             idle_deadline_ms: 2_000,
             parked: None,
+            last_seen_ms: 0,
+            pending_handover: false,
         };
 
         let encoded = serde_json::to_vec(&attachment).unwrap();

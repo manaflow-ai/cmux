@@ -42,8 +42,6 @@ export interface HistorySnapshot {
   picking?: RowID;
   copied?: RowID;
   error?: string;
-  /** A line about another tool's import from the host (Import from Conductor's), shown under the sources. */
-  notice?: string;
 }
 export const OPS = {
   detect: "cmux.importHistory.detect",
@@ -87,8 +85,6 @@ export function canImport(snapshot: HistorySnapshot): boolean {
   );
 }
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-/** The longest delay `setTimeout` holds (2^31 - 1 ms, about 24.8 days); a later end waits again from there. */
-const LONGEST_TIMEOUT_MS = 2_147_483_647;
 
 /** One owner for detection, explicit picks and the complete batch. Export discovery is explicit. */
 export class ImportHistoryStore {
@@ -96,7 +92,6 @@ export class ImportHistoryStore {
   private readonly listeners = new Set<() => void>();
   private detecting = false;
   private stopped = false;
-  private noticeTimer?: ReturnType<typeof setTimeout>;
   constructor(
     private readonly client: Pick<PageClient, "call"> | null,
     initial?: HistorySnapshot,
@@ -142,14 +137,10 @@ export class ImportHistoryStore {
       if (!this.client) throw new Error("cmux.importHistory.unavailable");
       const result = await this.client.call<{
         sources: { source: string; kind?: string; title?: string; path?: string }[];
-        notice?: string | null;
-        noticeUntil?: number | null;
       }>(OPS.detect, exports ? { exports: true } : {});
       const detected = result.sources ?? [];
-      this.endNotice(result.notice ? result.noticeUntil : undefined);
       this.set({
         phase: "ready",
-        notice: result.notice && !this.noticeEnded(result.noticeUntil) ? result.notice : undefined,
         rows: this.snapshot.rows
           .filter((row) => !row.id.startsWith("detected-"))
           .map((row) => {
@@ -197,25 +188,6 @@ export class ImportHistoryStore {
     } finally {
       this.detecting = false;
     }
-  }
-  private noticeEnded(until: number | null | undefined): boolean {
-    return typeof until === "number" && until <= Date.now();
-  }
-  /** One timer to the host's end for the notice (Conductor Cloud's shutdown), so a page left open past it drops the line. */
-  private endNotice(until: number | null | undefined): void {
-    clearTimeout(this.noticeTimer);
-    this.noticeTimer = undefined;
-    if (typeof until !== "number" || !Number.isFinite(until)) return;
-    const wait = until - Date.now();
-    if (wait <= 0) return;
-    if (wait > LONGEST_TIMEOUT_MS) {
-      this.noticeTimer = setTimeout(() => this.endNotice(until), LONGEST_TIMEOUT_MS);
-      return;
-    }
-    this.noticeTimer = setTimeout(() => {
-      this.noticeTimer = undefined;
-      this.set({ notice: undefined });
-    }, wait);
   }
   async retryDetection(): Promise<void> {
     if (this.detecting || this.busy) return;

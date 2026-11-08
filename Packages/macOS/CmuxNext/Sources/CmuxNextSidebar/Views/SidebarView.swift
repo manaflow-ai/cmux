@@ -157,7 +157,10 @@ public final class SidebarView: NSView {
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()
+        list.hoverOccluded = { [weak self] point in self?.updatedCardView.covers(windowPoint: point) == true }
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
+        // The tab row's New Tab + (Leo 2026-11-07: one size class for both, in the middle of the two).
+        newButton.drawsAddGlyph = true
         newWorkspaceOptionsButton.setAccessibilityLabel(Strings.newWorkspaceOptions)
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)
@@ -310,6 +313,8 @@ public final class SidebarView: NSView {
 
         addSubview(footer)
         footer.addSubview(profileBar)
+        // A switcher menu keeps the strip revealed while it is open, as the + menu does.
+        profileBar.onMenuOpenChange = { [weak self] open in self?.chromeMenuOpenChanged(open) }
         searchButton.setAccessibilityIdentifier("cmux.sidebar.search")
         searchButton.onPress = { [weak self] in
             guard let self else { return }
@@ -362,7 +367,9 @@ public final class SidebarView: NSView {
         let button = SidebarStyle.toolbarButtonSize
         let rowMidY = window.flatMap(Self.titlebarRowMidY(in:)).map { convert(CGPoint(x: 0, y: $0), from: nil).y } ?? titlebarHeight / 2
         let x = titlebarLeadingX
-        let buttonY = (rowMidY - button / 2).rounded()
+        // On the device pixel grid, not whole points: the top row's line can sit on a half point (#38054).
+        let pixels = max(window?.backingScaleFactor ?? 2, 1)
+        let buttonY = ((rowMidY - button / 2) * pixels).rounded() / pixels
         let trailing = b.width - Metrics.space3
         // The + and its chooser chevron are one split button: the + first, the narrow chevron
         // segment right after it, touching. The chevron is the optional extra (the +'s right-click

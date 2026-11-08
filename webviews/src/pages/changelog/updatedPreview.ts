@@ -6,7 +6,9 @@
 //
 // This file holds the parts with no DOM: the rows the preview lists, and the hover intent that
 // decides when it opens and closes.
-import { changeItems, mergedView, readableChanges, readableUpdate } from "./model";
+import { areaOf, byArea, subjectArea, type AreaKey } from "./areas";
+import { changeItems, echoKey, mergedView, readableChanges, readableUpdate } from "./model";
+import { curatedArea } from "./SheetPage";
 import type { ReleaseNotes, WhatsNewCategory } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
 import { GENERIC_ENTRY_ID, hasCuratedChanges, isGenericEntry, isGenericWhatsNewEntry } from "./updateSummary";
@@ -17,6 +19,14 @@ export interface PreviewEntry {
   title: string;
   detail?: string;
   category?: WhatsNewCategory;
+  /** The app area the change is in (areas.ts), as What's New groups it; absent: Other. */
+  area?: AreaKey;
+}
+
+/** The preview's rows under their areas, in What's New's order (``byArea``): Leo 2026-11-08, "the
+    sections should be more obvious what's what". */
+export function previewSections(entries: PreviewEntry[]): { area?: AreaKey; items: PreviewEntry[] }[] {
+  return byArea(entries);
 }
 
 /** The rest on the card before the preview opens: the app's hover-card dwell
@@ -25,6 +35,9 @@ export const PREVIEW_DWELL_MS = 400;
 /** How long the preview stays after the pointer leaves the card, so a pointer that slips out over
     the card's edge and back does not close and reopen it. */
 export const PREVIEW_GRACE_MS = 180;
+/** How long the preview's close runs before the card hands its room back (the card's own curve,
+    `--wn-preview-motion` in updateSurfaces.css); a pointer back on it within that reopens at once. */
+export const PREVIEW_CLOSE_MS = 265;
 
 /** The update's changes as the preview lists them: the notes of every build the update spans (each
     change once, newest build first), else what the host sent for the installed build. Internal work
@@ -41,7 +54,9 @@ export function previewEntries(
     const key = entry.title.trim().toLowerCase();
     if (!key || seen.has(key) || isGenericEntry(entry.id, entry.title)) return;
     seen.add(key);
-    rows.push(entry.detail && repeatsTitle(entry.title, entry.detail) ? { ...entry, detail: undefined } : entry);
+    const area = entry.area ?? areaOf(entry.title);
+    const row = { ...entry, ...(area ? { area } : {}) };
+    rows.push(row.detail && repeatsTitle(row.title, row.detail) ? { ...row, detail: undefined } : row);
   };
   if (span && span.length > 0) {
     // The generic entry leaves by its source identity before mergedView localizes its title: in
@@ -49,13 +64,27 @@ export function previewEntries(
     const view = mergedView(span.map(withoutGenericEntry), language);
     const items = [...(view.hero ? [view.hero] : []), ...view.groups.flatMap((group) => group.items)];
     for (const item of items)
-      add({ id: item.id, title: item.title, detail: item.summary || undefined, category: item.category });
+      add({
+        id: item.id,
+        title: item.title,
+        detail: item.summary || undefined,
+        category: item.category,
+        area: curatedArea(item.title, item.summary),
+      });
     // A build with no reviewed entries reads its commits' readable titles, as the card's summary
     // does; one with reviewed entries reads those alone (#37615 F4).
     for (const build of span) {
       if (hasCuratedChanges(build)) continue;
-      readableChanges(changeItems(build)).changes.forEach((change, index) =>
-        add({ id: `${build.build}-${index}`, title: change.title, detail: change.description || undefined }),
+      // Each change's area from its commit subject, before the subject reads as a title, as the
+      // page files it (model.ts pageChanges; review F2 of #38332).
+      const items = changeItems(build).map((item) => ({ ...item, area: subjectArea(item.title) }));
+      readableChanges(items).changes.forEach((change, index) =>
+        add({
+          id: `${build.build}-${index}`,
+          title: change.title,
+          detail: change.description || undefined,
+          area: change.area,
+        }),
       );
     }
     if (rows.length > 0) return rows;
@@ -78,11 +107,11 @@ const ECHO_PREFIX = 20;
     cut to one line, and a pull request's changelog sentence often restates its title ("Show in
     Mini points the floating mini at any chat, …" / "Show in Mini points the floating mini at any
     agent chat (…)"). Case, punctuation and spacing aside, the two lines repeat each other when one
-    starts with the other or they open with the same ECHO_PREFIX characters. */
+    starts with the other or they open with the same ECHO_PREFIX characters. A leading article does
+    not count, as in the notes' own comparison (``echoKey``). */
 export function repeatsTitle(title: string, detail: string): boolean {
   const plain = (text: string) =>
-    text
-      .toLowerCase()
+    echoKey(text)
       .replace(/[^\p{L}\p{N}]+/gu, " ")
       .trim();
   const a = plain(title);
@@ -114,9 +143,15 @@ const realTimers: IntentTimers = {
     the pointer has been off it for the grace. Two sources say where the pointer is: the page's own
     pointer events, and the sidebar host's (its native tracking area; WebKit sends a page no pointer
     moves while another of the app's windows, a Chromium page's, has the key). Once the host has
-    spoken, the host is the one source: the page's last word can be stale. */
+    spoken, the host is the one source: the page's last word can be stale.
+
+    A pointer that comes back while the close still runs reopens it at once, with no dwell: the list
+    is still there under it, so leaving and coming back reads as one stay, never as close, wait, open
+    (Leo 2026-11-08: "flicker upon hovering over what's new"). */
 export class PreviewIntent {
   private open = false;
+  /** The close the grace started is still running (``reopen``): a return skips the dwell. */
+  private closing: unknown = undefined;
   private hostKnown = false;
   private pageInside = false;
   private hostInside = false;
@@ -127,6 +162,8 @@ export class PreviewIntent {
     private readonly timers: IntentTimers = realTimers,
     private readonly dwell = PREVIEW_DWELL_MS,
     private readonly grace = PREVIEW_GRACE_MS,
+    /** How long a close runs on screen (the card's 265 ms curve, `--wn-preview-motion`). */
+    private readonly reopen = PREVIEW_CLOSE_MS,
   ) {}
 
   get isOpen(): boolean {
@@ -154,6 +191,7 @@ export class PreviewIntent {
 
   dispose(): void {
     this.cancel();
+    this.endClosing();
   }
 
   private get inside(): boolean {
@@ -164,10 +202,12 @@ export class PreviewIntent {
     this.cancel();
     if (this.inside === this.open) return;
     const next = this.inside;
+    if (next && this.closing !== undefined) return this.set(true);
     this.timer = this.timers.set(
       () => {
         this.timer = undefined;
         this.set(next);
+        if (!next) this.closing = this.timers.set(() => (this.closing = undefined), this.reopen);
       },
       next ? this.dwell : this.grace,
     );
@@ -179,7 +219,14 @@ export class PreviewIntent {
     this.timer = undefined;
   }
 
+  private endClosing(): void {
+    if (this.closing === undefined) return;
+    this.timers.clear(this.closing);
+    this.closing = undefined;
+  }
+
   private set(open: boolean): void {
+    this.endClosing();
     if (open === this.open) return;
     this.open = open;
     this.onChange(open);

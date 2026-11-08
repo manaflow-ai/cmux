@@ -70,6 +70,11 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub stuck_error: Option<String>,
+    /// A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.
+    /// Additive so older clients and peers can omit it.
+    #[serde(default)]
+    #[schemars(default)]
+    pub loop_episode: Option<LoopEpisodeSummary>,
     pub agent_session_id: Option<String>,
     /// The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
     /// a Codex chat's earlier roots, which its older records still name, so a client folding
@@ -248,6 +253,19 @@ pub struct SessionSummary {
     /// are found, for any other harness, and from a peer on an older acpmux.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_stats: Option<UsageStats>,
+}
+
+/// The bounded diagnosis shown beside a looping chat. The daemon emits one event when this
+/// becomes active and another when progress clears it; the summary lets a newly attached client
+/// render the current state without replaying the transcript.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopEpisodeSummary {
+    pub episode_id: u64,
+    pub since: u64,
+    pub count: u32,
+    pub diagnosis: String,
+    pub hint: String,
 }
 
 /// A chat's spend and context as its harness recorded them (`usage_stats.rs`):
@@ -540,6 +558,13 @@ pub struct QueuedPromptSummary {
     #[serde(default)]
     #[schemars(default)]
     pub subagent_retry: Option<QueuedSubagentRetry>,
+    /// Its `_meta.provenance` when it names a sender that is no agent's to act on: another agent's
+    /// message the person edited (`editedBy`, still that agent's words to read) or a prompt no
+    /// proof attributes (`unverified`). An app draws its card from it while `fromAgent` is null.
+    /// Null otherwise. Display only, never authority.
+    #[serde(default)]
+    #[schemars(default)]
+    pub provenance: Option<serde_json::Value>,
     /// acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,
     /// `hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the
     /// messages it carries and never as the person's queued prompt, also when it has not read
@@ -566,11 +591,25 @@ pub struct QueuedSubagentRetry {
 /// The person who queued a prompt in a shared chat.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(transform = require_all)]
+#[schemars(transform = require_all_but_avatar)]
 pub struct QueuedAuthor {
-    /// `tailnet:<login>` or `user_…`.
+    /// `tailnet:<login>`, `user_…` or `guest:<share>.<guest>`.
     pub id: String,
     pub name: String,
+    /// Their profile picture (`_meta.provenance` `fromAvatar`, an `https://` URL), left out when
+    /// they have none (and from an older acpmux).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
+}
+
+/// [`require_all`], but a [`QueuedAuthor`]'s `avatar` may be left out.
+fn require_all_but_avatar(schema: &mut schemars::Schema) {
+    require_all(schema);
+    if let Some(Value::Array(required)) =
+        schema.as_object_mut().and_then(|object| object.get_mut("required"))
+    {
+        required.retain(|name| name != "avatar");
+    }
 }
 
 /// An image a queued prompt sends.

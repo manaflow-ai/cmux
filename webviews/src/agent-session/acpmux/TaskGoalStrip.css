@@ -1,14 +1,21 @@
 /* A provider-neutral goal stays in the bottom stack, directly above the composer. The row is
    deliberately quiet: its controls belong to the goal, while the objective remains the strongest
-   text. */
+   text. It stands in the composer's column, on the card's two edges as the running tray and the host
+   line do (--cv-inset, --cv-inset-end, less the narrow outset: bottomStack.css), never as a band the
+   pane's width wide: in a wide pane its text ran past the transcript's column (cmux#38051).
+   test/agent-pane-goal-strip-column.test.ts holds it there. */
 .acpmux-goal {
   position: relative;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--ds-space-2);
+  min-width: 0;
   min-height: var(--ds-control-row);
-  padding: var(--ds-space-1) var(--cv-edge, var(--ds-space-4));
+  margin: 0 calc(var(--cv-inset-end, var(--cv-inset, var(--ds-space-4))) - var(--acpmux-stack-outset, 0px)) 0
+    calc(var(--cv-inset, var(--ds-space-4)) - var(--acpmux-stack-outset, 0px));
+  padding: var(--ds-space-1) var(--ds-space-2);
   color: var(--agent-soft);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -94,3 +101,41 @@
 @media (prefers-reduced-motion: reduce) {
   .acpmux-goal-action { transition: none; }
 }
+
+/* A Claude Code /loop (cmux#38051): one quiet chip. It says only when the loop checks back; the
+   agent's wake prompt is in its tooltip and, on demand, in the details, which wrap inside the column
+   and scroll past a few lines instead of widening or growing the stack. */
+.acpmux-goal[data-kind="loop"] .acpmux-goal-copy {
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+.acpmux-goal-loop-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  color: var(--agent-muted);
+}
+.acpmux-goal[data-kind="loop"] .acpmux-goal-state {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-goal[data-kind="loop"] .acpmux-goal-action {
+  width: var(--ds-control-icon);
+  height: var(--ds-control-icon);
+}
+.acpmux-goal-loop-details {
+  min-width: 0;
+  max-height: calc(6 * var(--text-caption--line-height, 18px));
+  margin-left: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.acpmux-goal-loop-details p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acpmux-goal-loop-prompt { color: var(--agent-soft); }

@@ -82,21 +82,22 @@ import Testing
         return CGPoint(x: CGFloat(minX + maxX + 1) / 2 - half, y: CGFloat(minY + maxY + 1) / 2 - half)
     }
 
-    /// Home's glyph, the pin and a workspace row's icon start their ink at one x, the icon column's leading edge
-    /// (Lawrence msg 19643, "left alignment here is bad"; until then they shared one center x).
+    /// Home's glyph, the pin and a workspace row's icon share one center x, the icon column's center
+    /// (https://github.com/manaflow-ai/cmux/issues/38061; Lawrence msg 19643 had started every ink at the inset, which
+    /// put the narrow pin's center left of the house's).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
-    func leadingGlyphsShareOneLeadingX(_ c: Case) throws {
+    func leadingGlyphsShareOneCenterX(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let pin = try HomePinnedRowAlignmentTests.item(list, Self.pinned.id)
             let iconRow = try HomePinnedRowAlignmentTests.row(list, Self.icon)
-            let homeX = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home).minX
-            let pinX = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin).minX
-            let iconX = list.convert(iconRow.icon.frame, from: iconRow).minX
-            #expect(abs(homeX - iconX) <= Self.tolerance, "\(c.testDescription): Home's glyph starts at \(homeX), a row icon's column at \(iconX)")
-            #expect(abs(pinX - iconX) <= Self.tolerance, "\(c.testDescription): the pin starts at \(pinX), a row icon's column at \(iconX)")
+            let homeX = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home).midX
+            let pinX = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin).midX
+            let iconX = list.convert(iconRow.icon.frame, from: iconRow).midX
+            #expect(abs(homeX - iconX) <= Self.tolerance, "\(c.testDescription): Home's glyph centers at \(homeX), a row icon's column at \(iconX)")
+            #expect(abs(pinX - iconX) <= Self.tolerance, "\(c.testDescription): the pin centers at \(pinX), a row icon's column at \(iconX)")
         }
     }
 

@@ -5,6 +5,13 @@ import Foundation
 extension AgentPaneRequest {
     private static let maximumUploadStageChunk = 512 * 1024
 
+    /// A Cloud environment id as the platform makes them (`env_` and up to 64 letters, digits, `_`
+    /// or `-`): the only `environment` `action.run` passes on.
+    static func isCloudEnvironmentID(_ id: String) -> Bool {
+        id.hasPrefix("env_") && (5...68).contains(id.count)
+            && id.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == "-") }
+    }
+
     private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
@@ -23,7 +30,11 @@ extension AgentPaneRequest {
                 guard parsed.count == list.count else { return .unsupported(method) }
                 batch = parsed.map { AgentPaneUploadBatchEntry(name: $0.0, size: $0.1) }
             }
-            return .uploadStage(.begin(name: name, size: size, batchToken: batchToken, batch: batch))
+            let begin = AgentPaneUploadStageRequest.begin(name: name, size: size, batchToken: batchToken, batch: batch)
+            // A begin that names a Send (any of its three fields) goes only under that Send's ticket.
+            guard ["sessionId", "promptId", "ticket"].contains(where: { params[$0] != nil }) else { return .uploadStage(begin) }
+            guard let ticket = AgentPaneUploadSendTicket(beginParams: params) else { return .unsupported(method) }
+            return .uploadStageForSend(begin, ticket)
         case "chat.upload.chunk":
             guard let token = params["token"] as? String, (1...128).contains(token.utf8.count),
                   let offset = (params["offset"] as? NSNumber)?.intValue, offset >= 0,
@@ -444,6 +455,10 @@ extension AgentPaneRequest {
         case "chats.open":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChat(key) }
             else { self = .unsupported(method) }
+        case "chats.resume":
+            if let ref = params?["ref"] as? String, !ref.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, ref.utf8.count <= 4096 {
+                self = .resumeChat(ref)
+            } else { self = .unsupported(method) }
         case "chats.openInTerminal":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChatInTerminal(key) }
             else { self = .unsupported(method) }
@@ -492,6 +507,9 @@ extension AgentPaneRequest {
         case "pane.sessionInfo.overlays":
             if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]) { self = .sessionInfoOverlays(rects) }
             else { self = .unsupported(method) }
+        case "pane.toastAvoidance":
+            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first?.rect) }
+            else { self = .unsupported(method) }
         case "pane.glass":
             if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
             else { self = .unsupported(method) }
@@ -521,7 +539,9 @@ extension AgentPaneRequest {
                 self = .btwInline(question: question, sessionId: sessionId)
             } else { self = .unsupported(method) }
         case "chat.sideChat":
-            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 {
+                self = .sideChat(id, splitRight: params?["split"] as? String == "right")
+            } else { self = .unsupported(method) }
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
@@ -567,9 +587,13 @@ extension AgentPaneRequest {
             // A `session` that is there must be a usable id: a malformed one is refused, never
             // dropped (which would run the action on whatever the tab shows).
             let session = params?["session"].map { $0 as? String }
+            // An `environment` is New Cloud Machine's only, and a Cloud environment id (`env_…`);
+            // any other is refused, never dropped (which would make a machine in another one).
+            let environment = params?["environment"].map { $0 as? String }
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
-               session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true {
-                self = .runAction(id, session: session ?? nil)
+               session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true,
+               environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true {
+                self = .runAction(id, session: session ?? nil, environment: environment ?? nil)
             } else {
                 self = .unsupported(method)
             }

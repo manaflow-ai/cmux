@@ -1864,7 +1864,8 @@
 }
 
 /* ---------- Sheets (routes.ts): one dialog, one decision ---------- */
-/* The palette's surface and the shared popup rule (a dimmed page, the solid popup surface). */
+/* A dimmed page and the sheet role's glass (ui/popupSurface.css .ui-dialog.ui-glass): its veil, radius
+   and depth, never the solid popup surface. */
 .lg-form.ui-dialog,
 .lg-form {
   position: fixed;
@@ -1877,9 +1878,6 @@
   max-height: 80vh;
   padding: 0;
   border: 0;
-  border-radius: 12px;
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
   overflow: hidden;
   z-index: var(--layer-overlay);
 }

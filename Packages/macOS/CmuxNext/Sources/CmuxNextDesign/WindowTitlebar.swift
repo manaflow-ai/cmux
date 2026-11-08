@@ -134,9 +134,10 @@ public struct WindowTitlebar {
     }
 
     /// The main pane card's top inset in `root` (the window's root view):
-    /// `gutter`, except under a minimal titlebar, where the top row's tab
-    /// pills center on the traffic lights' line (never more than `gutter`;
-    /// `PaneChromeMetrics.cardTop`).
+    /// `gutter`, except under a minimal titlebar, where the card moves down
+    /// so the top row's tab pills center on the traffic lights' line with
+    /// equal gaps above and below them (never more than `gutter`;
+    /// `topRowCardTop`, `PaneChromeMetrics.cardTop`).
     ///
     /// - Parameter clearsTrafficLights: The lights sit over the card and no
     ///   top-row strip makes room for them (tab bars at the bottom, no
@@ -154,8 +155,15 @@ public struct WindowTitlebar {
         // Floating panes keep the one even gap at the top too.
         guard !Metrics.floatingPanes else { return gutter }
         // The top row's shared line (`TopRowLine`): the lights' center unless Debug picks another variant.
-        let centerFromTop = topRowLine(in: window)?.centerY ?? root.bounds.maxY - local.midY
-        return Metrics.windowEdgeInset(min(gutter, PaneChromeMetrics.current.cardTop(centeringPillOn: centerFromTop, scale: window.backingScaleFactor)), in: window)
+        // Concentric (the default line): the gutter on top as at the sides, with or without a top-row strip.
+        if TopRowLineLook.tunable.value == .concentric { return Metrics.windowEdgeInset(gutter, in: window) }
+        guard let target = targetTopRowLine(in: window) else {
+            // No top-row strip (tab bars at the bottom): the card keeps its place from before #38054.
+            let card = PaneChromeMetrics.current.cardTopKeepingStripCentering(centeringPillOn: root.bounds.maxY - local.midY,
+                                                                              scale: window.backingScaleFactor)
+            return Metrics.windowEdgeInset(min(gutter, card), in: window)
+        }
+        return topRowCardTop(centeringPillOn: target.centerY, gutter: gutter, in: window)
     }
 
     /// Whether `view` sits in the window's titlebar band (a full-size

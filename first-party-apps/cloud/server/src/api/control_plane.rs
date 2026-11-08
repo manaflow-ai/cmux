@@ -75,4 +75,13 @@ pub trait ControlPlane {
     fn call(&mut self, call: &WireCall) -> Result<WireReply, RelayError>;
 
     fn session(&mut self) -> Result<SessionStatus, RelayError>;
+
+    /// The Mac app's carrier socket of `machine` (crate::link::dial): a
+    /// result whose `value` is `{"socket": PATH}`, or the app's typed
+    /// refusal. Never a credential. A control plane with no app (tests that
+    /// never connect) has none.
+    fn carrier_socket(&mut self, machine: &str) -> Result<WireReply, RelayError> {
+        let _ = machine;
+        Err(RelayError::Unavailable("this host has no cmux app carrier".into()))
+    }
 }

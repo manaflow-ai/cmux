@@ -37,9 +37,6 @@ export type AgentSessionTheme = {
   borders?: "default" | "none";
   /// Whether keyboard focus outlines, including transcript response rows, are shown.
   focusRingEnabled?: boolean;
-  /// The chat column's width on a wide pane (Debug Settings `agent.chatWidth`, acpmux chatWidth.ts):
-  /// `standard`, `wide` or `wideBlocks`. Absent means standard.
-  chatWidth?: string;
   /// A collapsed tool run's look (acpmux toolRunLook.ts): `kind` (absent), `pencil`, `quiet` or
   /// `quiet-pencil`. Only the gallery sends it, for the versions it keeps beside the default.
   toolRunLook?: string;

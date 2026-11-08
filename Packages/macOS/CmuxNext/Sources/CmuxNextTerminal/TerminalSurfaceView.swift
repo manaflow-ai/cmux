@@ -157,6 +157,8 @@ public final class TerminalSurfaceView: NSView {
     private(set) lazy var clipboardRequests = TerminalClipboardRequests(view: self)
     /// Cmd-hover and Cmd-click on links beyond Ghostty's own (``TerminalLinkPointer``).
     private(set) lazy var linkPointer = TerminalLinkPointer(view: self)
+    /// Option-drag selection while a program has the mouse, and its first-use hint (``TerminalSelectionHint``).
+    private(set) lazy var selectionHint = TerminalSelectionHint(view: self)
 
     // MARK: Lifecycle
 
@@ -232,7 +234,7 @@ public final class TerminalSurfaceView: NSView {
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output",
                                   frameLayer: layer.map(ObjectIdentifier.init))
         if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
-        registerForDraggedTypes([.fileURL, .URL, .string])
+        registerForDraggedTypes([.fileURL, .URL, .string, .png, .tiff])
         updateContentScale()
         updateSurfaceSize(forceReport: true)
         updateOcclusion()
@@ -485,7 +487,12 @@ public final class TerminalSurfaceView: NSView {
     ///   spring (a tab switch mid-hold) the grid of these bounds then waits for the refresh, and the layout's grid replaces it;
     ///   sent at once (RESIZE P0 7's first grid of a refresh), it reached the PTY as a grid its pane never showed (RESIZE P0
     ///   8, item 0: a tab switch mid-hold sent 99x34, then 80x44).
-    func updateSurfaceSize(forceReport: Bool = false, justShown: Bool = false) {
+    /// - Parameter drawingAhead: The call gives Ghostty a size drawn ahead (``applyAhead()``): the shown frame did not
+    ///   change, so the copy-mode cursor box stays.
+    /// - Parameter replacingAhead: That size replaces a size drawn ahead whose frame will not show (a key press retargeted
+    ///   the spring): its grid goes at once (``TerminalGridReporter/coalesced(_:waitsForRefresh:replacesUnshown:)``).
+    func updateSurfaceSize(forceReport: Bool = false, justShown: Bool = false, drawingAhead: Bool = false,
+                           replacingAhead: Bool = false) {
         guard let surface else { return }
         // Not shown (made, hidden or parked): no size and no report now; the view sizes and reports once it
         // is shown (`syncWindowState`), a forced report included.
@@ -497,22 +504,30 @@ public final class TerminalSurfaceView: NSView {
         // not take Ghostty back to the shown size and drop that frame), else the view's (``place(_:anchor:)``).
         let pixels = toBacking(frameOwnership.inFlight ?? frameOwnership.ahead ?? bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
-        defer { copyMode.syncCursor() }
+        defer { if !drawingAhead { copyMode.syncCursor() } }
         setSurfacePixels(pixels, on: surface)
         let size = ghostty_surface_size(surface)
-        // The PTY's grid is the grid the view's committed bounds fit: what its pane shows. Never the size asked of Ghostty
-        // and not shown yet (`inFlight`), nor the size drawn ahead for the next refresh (`ahead`): those go to Ghostty's
-        // render only (its reflow preview), and a press that retargets the spring may never show them (resize owner,
-        // STATUS 14461). The presenter's landing calls this again with the new bounds (``frameDidLand()``).
-        guard let desired = shownGrid(on: surface, fallback: size) else { return publish(size: size, grid: nil) }
+        // The PTY's grid. In a key resize it is the grid of the size asked of Ghostty (`inFlight`, else the size drawn
+        // ahead for the next refresh, `ahead`): RESIZE P0 11, cause E (Lawrence m55, "terminals: zero lag"). Chromium
+        // sends a renderer its new size before the compositor needs the frame, and shows that size with the frame the
+        // renderer drew for it; the program is the renderer of a terminal's contents, so it gets the grid before the pass
+        // that presents the frame, and redraws at it in the refresh between (its output parsed about 3.5 ms after the
+        // send, a 120 Hz refresh is 8.3 ms). Sent only when the size showed (STATUS 14461), the program redrew after its
+        // frame was on screen, and every drawn-ahead frame showed the program's picture of the previous grid, clipped or
+        // banded at the new edge (diag 2b50b18e, cmux21, macOS 26, 1x 120 Hz, px-keys-held-2-s1r: 35 of 37 judged edge
+        // frames). A retarget can leave one such grid unshown; the next refresh sends the grid it asks for. Elsewhere it
+        // is the grid the view's committed bounds fit (a drag's goes once its size shows; a split's, close's or zoom's
+        // spring holds its grid to the landing), and the landing calls this again with the new bounds (``frameDidLand()``).
+        let keyResize = followsKeyResize
+        let reported = keyResize ? Self.grid(fitting: size) : shownGrid(on: surface, fallback: size)
+        guard let desired = reported else { return publish(size: size, grid: nil) }
         publish(size: size, grid: desired)
         // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close) resizes this view on every display
         // frame: the surface draws each size (the reflow preview), and the grid goes to the owner once the
         // spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame. A key resize whose host
         // follows its pane (cmux-ad m18) and a drag (its release's spring too, cmux-ad m29) are live instead: their
         // grids go coalesced (``TerminalGridReporter``), at most once per refresh (the first at once, RESIZE P0 7), ending at the landing's.
-        let followsKeyHold = (superview as? TerminalHostView)?.surfaceFollowsArea ?? false
-        let live = followsKeyHold || isFollowingResizeGesture
+        let live = keyResize || isFollowingResizeGesture
         // A size whose frame is not drawn yet and is no longer the one wanted (FRAME OWNER S4: the pane
         // moved on, or its spring landed, while the frame waited) reports nothing: the wanted size
         // reports its grid when its frame lands. The landing's release sized from such a size and sent its stale grid,
@@ -534,9 +549,24 @@ public final class TerminalSurfaceView: NSView {
             // A drag's grid goes once its size shows: now with the bounds, or when the presenter shows it (`frameDidLand`).
             gridReports.drag(report, shownNow: frameOwnership.inFlight == nil)
         } else {
-            // A key spring's grid: the committed bounds' (shown), coalesced; a just-shown view's waits for the refresh.
-            gridReports.coalesced(report, waitsForRefresh: justShown)
+            // A key spring's grid: the size asked of Ghostty, coalesced; a just-shown view's waits for the refresh.
+            gridReports.coalesced(report, waitsForRefresh: justShown, replacesUnshown: replacingAhead)
         }
+    }
+
+    /// Whether a key resize drives this view's size (``updateSurfaceSize(forceReport:justShown:drawingAhead:)``): its host
+    /// follows its pane's key hold, or the key's turn drew the press's first size ahead or the hold's end asked its final
+    /// size (``TerminalHostView`` `aheadOfKeyResize`, never a snapped split's, close's or zoom's) and that size is with
+    /// Ghostty. A drag that began meanwhile keeps its own rule (its grid goes when its size shows).
+    private var followsKeyResize: Bool {
+        guard !isFollowingResizeGesture, let host = superview as? TerminalHostView else { return false }
+        return host.surfaceFollowsArea
+            || (host.aheadOfKeyResize && (frameOwnership.ahead != nil || frameOwnership.inFlight != nil))
+    }
+
+    /// The grid Ghostty fits to the size it was given; nil when no whole cell fits.
+    private static func grid(fitting size: ghostty_surface_size_s) -> TerminalGridSize? {
+        size.columns > 0 && size.rows > 0 ? TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows)) : nil
     }
 
     /// `ghostty_surface_set_size`, unless Ghostty already has `pixels` (the size a landing shows, the size drawn ahead): a
@@ -553,9 +583,7 @@ public final class TerminalSurfaceView: NSView {
     private func shownGrid(on surface: ghostty_surface_t, fallback size: ghostty_surface_size_s) -> TerminalGridSize? {
         let shown = toBacking(bounds.size)
         let asked = toBacking(frameOwnership.inFlight ?? frameOwnership.ahead ?? bounds.size)
-        if shown == asked {
-            return size.columns > 0 && size.rows > 0 ? TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows)) : nil
-        }
+        if shown == asked { return Self.grid(fitting: size) }
         var columns: UInt16 = 0, rows: UInt16 = 0
         guard shown.width >= 1, shown.height >= 1,
               ghostty_surface_fit_grid(surface, UInt32(shown.width), UInt32(shown.height), &columns, &rows),

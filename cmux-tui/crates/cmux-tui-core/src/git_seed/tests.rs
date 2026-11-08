@@ -558,6 +558,26 @@ fn a_delta_after_the_machine_changed_fails_and_changes_nothing() {
 }
 
 #[test]
+fn a_delta_after_a_stash_on_the_machine_fails_and_keeps_that_stash() {
+    let world = World::new("machine-stash");
+    write(&world.mac.join("a"), "a\none\n");
+    let first = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    assert_eq!(seed(&world, &world.start_params(&folder, &first))["state"], "done");
+    write(&world.mac.join("a"), "a\ntwo\n");
+    let second = world.snapshot("two", &[&first.work, &first.head]);
+    let mut params = world.start_params(&folder, &second);
+    params["since"] = first.work.into();
+    // Only the stash moves: HEAD, the index and the files stay the seed's.
+    let head = git(&folder, &["rev-parse", "HEAD"]);
+    git(&folder, &["update-ref", "refs/stash", &head]);
+    let before = state(&folder);
+    let status = seed(&world, &params);
+    assert_eq!(status["error_code"], "seed.machine_changed", "{status}");
+    assert_eq!(state(&folder), before, "the machine's stash is kept");
+}
+
+#[test]
 fn the_wire_answers_in_the_daemon_envelope() {
     let answer = answer_line(None, true, r#"{"id":1,"cmd":"git.seed.status","job":"x"}"#);
     assert_eq!(answer["ok"], false);

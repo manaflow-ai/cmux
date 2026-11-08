@@ -1,56 +1,20 @@
 // The highlighted fenced-code card: a Pierre `File` with the pane's syntax theme (a ```diff fence
 // is highlighted as a diff). Ported from the agent-pane reference prototype
 // (src/conversation/CodeBlock.tsx); CodeBlock.tsx loads it after the page's first frame.
-import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { DIFFS_TAG_NAME, File as PierreFile } from "@pierre/diffs";
-import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";
-import { isHighlighted } from "../shikiLanguages";
+import { cornerAction } from "./cornerActions";
+import { useState } from "react";
+import { codeUnsafeCSS, cornerUnsafeCSS } from "./highlightedCodeModel";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
 import { WrapLines } from "./icons";
 import { CodeHeader } from "./CodeHeader";
 import { codeHeaderClass, useCodeHeaderLook } from "./codeHeaderModel";
 import { useT } from "../i18n";
-import { MAX_TOKENIZED_LINE } from "./highlightLimits";
-import { onHighlightTimeout, paneHighlightPool } from "./highlightPool";
 import { PlainCode, PlainCodeLines } from "./StreamingCode";
 import { OpenPreview } from "./OpenPreview";
 import type { CodeBlockProps } from "./CodeBlock";
 import { currentChatMetrics } from "../chatDisplay";
-import { highlightWorkerFailed, subscribeHighlightWorker } from "./highlightWorkerState";
-
-/// Pierre's line height: a line of the card's body.
-const LINE_HEIGHT = 20;
-
-/// Pierre paints its own lines; they are transparent so the card's fill shows through.
-export const codeUnsafeCSS = `${diffUnsafeCSS}
-:host {
-  --diffs-dark-bg: transparent;
-  --diffs-light-bg: transparent;
-  --diffs-font-family: var(--cv-mono, var(--cmux-diff-code-font-family, "SF Mono", ui-monospace, Menlo, monospace));
-  --diffs-font-size: var(--cv-codeblock-size, 12px);
-  --diffs-line-height: var(--cv-codeblock-line-height, ${LINE_HEIGHT}px);
-  background: transparent;
-}
-[data-line] > span { top: 0; }
-pre, code, [data-code], [data-content], [data-line] { background: transparent !important; --diffs-line-bg: transparent; }
-/* Pierre keeps a strip for its horizontal scrollbar under the lines at all times
-   (--diffs-scrollbar-gutter: 6px in WebKit, 0 where scrollbars overlay). It hangs into the card's
-   bottom padding instead, so the card is as tall as its lines in every engine, as the plain card
-   it replaces is (StreamingCode.tsx), and the text under a closing fence does not move. */
-pre[data-file] { display: flow-root; }
-[data-code] { margin-bottom: calc(-1 * var(--diffs-scrollbar-gutter, 0px)); }
-`;
-
-/// An unlabeled card's first line keeps room after its end for the actions floating over its corner
-/// (conversation.css `--cv-code-corner-reserve`, which the shadow root inherits), so it never runs
-/// under them once scrolled to its end, and wraps short of them (cmux#30689).
-const cornerUnsafeCSS = `${codeUnsafeCSS}
-[data-line="1"] { padding-inline-end: var(--cv-code-corner-reserve, 0px); }
-`;
-
-/// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
-const paneThemeType = () => (document.documentElement.dataset.theme === "light" ? "light" : "dark");
+import { DiffsHost, usePierreCode } from "./usePierreCode";
 
 /**
  * Fenced code card: language label with wrap and copy over a Pierre `File`, highlighted in the
@@ -89,12 +53,12 @@ export function HighlightedCode({
       />
     );
   return (
-    <div className={`cv-codeblock${codeHeaderClass(look)}`} ref={menuPartRef({ code })}>
+    <div className={`cv-codeblock${codeHeaderClass(look)}`} ref={menuPartRef({ code, codeLanguage: lang })}>
       <CodeHeader look={look} lang={lang} label={label}>
         <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
         <button
           type="button"
-          className="cv-codeblock__action"
+          className={cornerAction()}
           aria-pressed={wrap}
           data-fold-toggle=""
           aria-label={t("changes.wrapLines")}
@@ -124,67 +88,3 @@ export function HighlightedCode({
     </div>
   );
 }
-
-/// Pierre's `File` in the pane's syntax theme, painted into `host` in the pane's worker pool: what the
-/// fenced card and a read's bare lines (HighlightedLines.tsx) share. `painted` turns true once its lines
-/// are on screen; `workerAvailable` false (no pool, a failed worker, a job past its budget) means the
-/// caller draws plain lines instead.
-export function usePierreCode(code: string, lang: string, unsafeCSS: string, wrap: boolean) {
-  const host = useRef<HTMLDivElement>(null);
-  const view = useRef<PierreFile | undefined>(undefined);
-  const pool = paneHighlightPool("word-alt", isHighlighted(lang) ? lang : "text");
-  const workerFailed = useSyncExternalStore(subscribeHighlightWorker, highlightWorkerFailed, () => false);
-  const [painted, setPainted] = useState(false);
-  // A highlight job past its budget (highlightWatchdog.ts) draws the card as plain text.
-  const name = `snippet-${useId()}`;
-  const [tooSlow, setTooSlow] = useState(false);
-  const workerAvailable = Boolean(pool?.isWorkingPool()) && !workerFailed && !tooSlow;
-  useLayoutEffect(() => onHighlightTimeout(name, () => setTooSlow(true)), [name]);
-  useLayoutEffect(() => {
-    const el = host.current;
-    if (!el || !workerAvailable || highlightWorkerFailed() || !pool?.isWorkingPool()) return;
-    setPainted(false);
-    registerAgentDiffTheme();
-    const file = new PierreFile(
-      {
-        theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT },
-        themeType: paneThemeType(),
-        disableFileHeader: true,
-        disableLineNumbers: true,
-        overflow: "scroll",
-        unsafeCSS,
-        tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
-        onPostRender: (node, _instance, phase) => {
-          if (phase !== "unmount" && node.shadowRoot?.querySelector("[data-line]")) setPainted(true);
-        },
-      },
-      pool,
-      // React owns the host element: Pierre must not remove it on cleanUp.
-      true,
-    );
-    view.current = file;
-    const theme = new MutationObserver(() => file.setThemeType(paneThemeType()));
-    theme.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => {
-      theme.disconnect();
-      view.current = undefined;
-      file.cleanUp();
-      el.shadowRoot?.replaceChildren();
-    };
-  }, [lang, unsafeCSS, pool, workerAvailable]);
-  useLayoutEffect(() => {
-    const el = host.current;
-    const file = view.current;
-    if (!el || !file || !workerAvailable || highlightWorkerFailed() || !pool?.isWorkingPool()) return;
-    file.setOptions({ ...file.options, overflow: wrap ? "wrap" : "scroll" });
-    // Shiki throws for a language the bundle does not ship; those draw as plain text.
-    file.render({
-      fileContainer: el,
-      file: { name, contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
-    });
-  }, [code, lang, unsafeCSS, pool, wrap, name, workerAvailable]);
-  return { host, painted, workerAvailable };
-}
-
-/// Pierre's host element (`<diffs-container>`); it attaches its own shadow root.
-export const DiffsHost = DIFFS_TAG_NAME as unknown as "div";

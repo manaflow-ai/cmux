@@ -14,23 +14,23 @@ import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
 import { installDragOut } from "./conversation/dragOut";
 import { installPageKey } from "./pageKey";
-import { installToastRoom } from "./toastRoom";
 import { installRevealSettle } from "../shared/pageReveal";
 import { setHarnessSymbolHost } from "../shared/harnessIcons";
 import { experimentArm } from "../../experiments/experiment";
 import { liveBackground } from "../../ui/liveBackground/liveBackground.experiment";
 import { reportHostGlass } from "../../ui/glass/hostGlass";
 import { chatUnderHoverCard, hostGlassCover } from "./chatUnderGlass";
+import { installUiPointer, type UiPointerControl } from "./uiPointer/picker";
 
-// The native own-window picker runs in the page's inspector runtime. Keep its report on the
-// normal host protocol so the shared page host and the legacy WKWebView use the same validation.
-(
-  globalThis as typeof globalThis & {
-    __cmuxUiPointerPost?: (params: Record<string, unknown>) => void;
-  }
-).__cmuxUiPointerPost = (params) => {
-  void postNative("uiPointer.report", params);
-};
+// Inspect Element's page side (uiPointer/picker.ts), driven by the native own-window picker. Its
+// report goes on the normal host protocol so the shared page host and the legacy WKWebView use the
+// same validation.
+(globalThis as typeof globalThis & { __cmuxUiPointer?: UiPointerControl }).__cmuxUiPointer = installUiPointer(
+  document,
+  {
+    post: (report) => void postNative("uiPointer.report", report),
+  },
+);
 
 // One transcript snapshot per display frame, however many deltas land in it.
 AcpmuxDirectClient.scheduleFrame = nextFrame;
@@ -47,8 +47,6 @@ installDragOut(document);
       installLiveBackground(document, arm),
     );
 }
-// The app's toasts keep a band at the pane's foot that the chat stays above (toastRoom.ts).
-installToastRoom(document);
 // The composer shows its caret only while the page is the key one (pageKey.ts).
 installPageKey(document);
 // A switch away and back is a reattach: nothing started while hidden plays on return, and a change

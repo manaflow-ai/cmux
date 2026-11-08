@@ -7,7 +7,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
-import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
 
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
 const counts: WorkingCounts = {

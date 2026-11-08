@@ -1,12 +1,9 @@
-//! The server's environment allowlist and the environment of its child
-//! processes.
+//! The server's environment allowlist.
 //!
 //! The server reads only `CMUX_APP_ID`, `CMUX_APP_DATA_DIR`, `TMPDIR` and
 //! `LANG` ([`AppEnv::from_process`] is the only environment read in this
-//! crate). Every child (each `cmux link dial`) starts from an empty
-//! environment plus [`AppEnv::child_env`]: `TMPDIR` and `LANG` when set,
-//! and `HOME` = an owner-only folder under the app's data folder, so no
-//! child reads the user's home.
+//! crate). It starts no child process: a machine's streams go to the Mac
+//! app's carrier socket (crate::link::dial).
 
 use std::ffi::OsStr;
 use std::io;
@@ -66,36 +63,18 @@ impl AppEnv {
         self.data_dir.as_deref()
     }
 
+    /// `LANG`, when the host set a usable one.
+    pub fn lang(&self) -> Option<&str> {
+        self.lang.as_deref()
+    }
+
     /// The temporary folder for short socket paths: `TMPDIR`, else `/tmp`.
     pub fn temp_dir(&self) -> PathBuf {
         self.tmpdir.as_deref().map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
     }
-
-    fn require_data_dir(&self) -> io::Result<&Path> {
-        self.data_dir().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::NotFound, "cmux gave the Cloud app no data folder")
-        })
-    }
-
-    /// The whole environment of a child process: `TMPDIR` and `LANG` when
-    /// set, and `HOME` = `<data>/home` (created owner-only).
-    pub fn child_env(&self) -> io::Result<Vec<(String, String)>> {
-        let home = self.require_data_dir()?.join("home");
-        private_dir(&home)?;
-        let home = home.to_str().ok_or_else(|| io::Error::other("the data folder is not UTF-8"))?;
-        let mut env = vec![("HOME".to_owned(), home.to_owned())];
-        if let Some(lang) = &self.lang {
-            env.push(("LANG".to_owned(), lang.clone()));
-        }
-        if let Some(tmpdir) = &self.tmpdir {
-            env.push(("TMPDIR".to_owned(), tmpdir.clone()));
-        }
-        Ok(env)
-    }
 }
 
-/// An absolute path with no `"`, `$` or control characters (it reaches
-/// child environments and argv).
+/// An absolute path with no `"`, `$` or control characters.
 fn usable_path(path: &Path) -> bool {
     let text = path.to_string_lossy();
     path.is_absolute() && !text.contains(['"', '$']) && !text.chars().any(char::is_control)

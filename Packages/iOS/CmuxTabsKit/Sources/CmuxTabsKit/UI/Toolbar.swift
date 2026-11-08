@@ -144,7 +144,7 @@ struct TabsToolbar: View {
         }
         // Back <-> back | forward and the enabled tint morph with the toolbar spring.
         .animation(theme.motion.resolve(theme.motion.expandTap), value: splitBack)
-        .animation(.easeInOut(duration: 0.2), value: tab?.navigation.canGoBack == true)
+        .animation(theme.motion.resolve(.easeInOut(duration: 0.2)), value: tab?.navigation.canGoBack == true)
         .onChange(of: loading, initial: true) { _, loading in updateProgress(loading: loading) }
         .onChange(of: tab?.navigation.progress ?? 1) { _, _ in updateProgress(loading: loading) }
     }
@@ -304,7 +304,7 @@ struct TabsToolbar: View {
                 .font(.system(size: 17, weight: .medium))
                 .frame(width: 44, height: m.control)
                 .contentShape(.rect)
-                .animation(.easeInOut(duration: 0.15), value: loading)
+                .animation(theme.motion.resolve(.easeInOut(duration: 0.15)), value: loading)
             }
             .buttonStyle(.plain)
             .foregroundStyle(theme.colors.label)
@@ -466,13 +466,13 @@ struct TabsToolbar: View {
             if progressOpacity == 0 {
                 progressShown = 0
                 progressOpacity = 1
-                withAnimation(.easeOut(duration: 0.25)) { progressShown = p }
+                withAnimation(theme.motion.resolve(.easeOut(duration: 0.25))) { progressShown = p }
             } else {
-                withAnimation(.easeOut(duration: 0.25)) { progressShown = max(progressShown, p) }
+                withAnimation(theme.motion.resolve(.easeOut(duration: 0.25))) { progressShown = max(progressShown, p) }
             }
         } else if progressOpacity > 0 {
-            withAnimation(.easeOut(duration: 0.2)) { progressShown = 1 } completion: {
-                withAnimation(.easeOut(duration: 0.25)) { progressOpacity = 0 }
+            withAnimation(theme.motion.resolve(.easeOut(duration: 0.2))) { progressShown = 1 } completion: {
+                withAnimation(theme.motion.resolve(.easeOut(duration: 0.25))) { progressOpacity = 0 }
             }
         }
     }

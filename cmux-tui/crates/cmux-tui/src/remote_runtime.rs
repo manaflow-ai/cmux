@@ -29,6 +29,7 @@ use cmux_remote::daemon::{
     DaemonSessionPolicy, DirectWebSocketOptions, serve_direct_websocket_with_options,
     serve_unix_with_shutdown,
 };
+use cmux_remote::first_dial::{DialOutcome, LinkCell};
 use cmux_remote::http::serve_workspace_http;
 use cmux_remote::identity::{
     AuthDatabase, IdentityError, PersistedAuthStateSchema, credential_free_route_hint,
@@ -57,6 +58,9 @@ use tokio::sync::watch;
 use url::Url;
 
 use crate::localization::catalog;
+
+mod link_sidecars;
+pub(crate) use link_sidecars::tunnel_route_record;
 
 pub const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
 const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
@@ -650,6 +654,26 @@ impl Drop for ClientRuntimeHandle {
 }
 
 pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<ClientRuntimeHandle> {
+    start_client_runtime_with(options, None)
+}
+
+/// [`start_client_runtime`] for a link that outlives a failed first connect (`remote connect
+/// --headless`, the app's machine link): the first connect is a recovery like any later drop. Its
+/// link socket answers from the start, it redials within its budget, at once on a network change
+/// or an `await-ready`, and the startup timeout no longer ends it. It returns once connected, on a
+/// permanent error (a refused identity, a changed daemon key, a bound `--reconnect-attempts` run
+/// out), on a shutdown signal, or when `keep_waiting` (read every 100 ms) says the owner is gone.
+pub fn start_recovering_client_runtime(
+    options: ClientRuntimeOptions,
+    keep_waiting: impl Fn() -> bool,
+) -> anyhow::Result<ClientRuntimeHandle> {
+    start_client_runtime_with(options, Some(&keep_waiting))
+}
+
+fn start_client_runtime_with(
+    options: ClientRuntimeOptions,
+    keep_waiting: Option<&dyn Fn() -> bool>,
+) -> anyhow::Result<ClientRuntimeHandle> {
     if options.routes.is_empty() {
         return Err(anyhow!("remote connection has no route candidates"));
     }
@@ -658,6 +682,7 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
     }
     options.reconnect.validate()?;
     let startup_timeout = options.startup_timeout;
+    let recovering = keep_waiting.is_some();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (finished_tx, finished_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -666,15 +691,17 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
         .spawn(move || {
             let runtime = build_remote_runtime("cmux-remote-client-worker")
                 .context("could not start remote client Tokio runtime")?;
-            let result = runtime.block_on(run_client(options, shutdown_rx, ready_tx));
+            let result = runtime.block_on(run_client(options, shutdown_rx, ready_tx, recovering));
             runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             finished_tx.send_replace(true);
             result
         })
         .context("could not start remote client thread")?;
-    let deadline = std::time::Instant::now() + startup_timeout;
+    let deadline = keep_waiting.is_none().then(|| std::time::Instant::now() + startup_timeout);
     let ready = loop {
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        let left = deadline.map_or(STARTUP_SIGNAL_POLL, |deadline| {
+            deadline.saturating_duration_since(std::time::Instant::now())
+        });
         match ready_rx.recv_timeout(left.min(STARTUP_SIGNAL_POLL)) {
             Ok(Ok(ready)) => break ready,
             Ok(Err(error)) => {
@@ -687,7 +714,18 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
                 reap_failed_startup(thread, "cmux-remote-client");
                 return Err(anyhow!("remote connection startup interrupted by a signal"));
             }
+            Err(mpsc::RecvTimeoutError::Timeout)
+                if keep_waiting.is_some_and(|keep_waiting| !keep_waiting()) =>
+            {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!("remote connection owner went away before the first connect"));
+            }
             Err(mpsc::RecvTimeoutError::Timeout) if !left.is_zero() => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) if keep_waiting.is_some() => {
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!("remote client runtime stopped before the first connect"));
+            }
             Err(error) => {
                 let _ = shutdown_tx.send(true);
                 reap_failed_startup(thread, "cmux-remote-client");
@@ -817,21 +855,33 @@ impl Drop for ClientSocketLease {
     }
 }
 
+/// `recovering`: the link outlives a failed first connect, and says on stderr why each first
+/// dial failed (an owner that still reads only stderr learns the reason without waiting for an
+/// exit that no longer comes).
 async fn run_client(
     options: ClientRuntimeOptions,
     mut shutdown: watch::Receiver<bool>,
     ready: mpsc::SyncSender<Result<ClientReady, String>>,
+    recovering: bool,
 ) -> anyhow::Result<()> {
     let setup = async {
-        let (connection, route) = connect_first_available(&options, shutdown.clone()).await?;
-        if *shutdown.borrow() {
-            let _ = connection.close().await;
-            return Err(anyhow!("remote client startup was cancelled"));
-        }
         let local_socket = match options.local_socket.clone() {
             Some(path) => path,
             None => default_client_socket(&options.state_dir, options.session)?,
         };
+        let sidecars = link_sidecars::PendingSidecars::start(&local_socket).await;
+        let (connection, route) = dial_first_connection(
+            &options,
+            shutdown.clone(),
+            sidecars.cell(),
+            sidecars.network(),
+            recovering,
+        )
+        .await?;
+        if *shutdown.borrow() {
+            let _ = connection.close().await;
+            return Err(anyhow!("remote client startup was cancelled"));
+        }
         let socket_preparation =
             prepare_client_socket_with_shutdown(&local_socket, Some(shutdown.clone())).await?;
         if *shutdown.borrow() {
@@ -843,7 +893,8 @@ async fn run_client(
         let socket = socket_preparation.bind()?;
         // The SSH route behind this socket, so a CLI at a version-skew dead
         // end can name the exact upgrade command (cli/skew.rs, cx-ytw1).
-        let route_record = write_tunnel_route(&local_socket, &route);
+        let route_record = link_sidecars::write_tunnel_route(&local_socket, &route);
+        let _sidecars = sidecars.attach(&connection);
         let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::oneshot::channel();
         let bridge_multiplexer = multiplexer.clone();
         let mut bridge = tokio::spawn(async move {
@@ -891,42 +942,67 @@ async fn run_client(
     setup
 }
 
+/// The first connect on a link of its own: a fresh state and no network watch.
+#[cfg(test)]
 async fn connect_first_available(
     options: &ClientRuntimeOptions,
-    mut shutdown: watch::Receiver<bool>,
+    shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<(Arc<ClientConnection>, String)> {
-    let mut attempts = 0_u32;
-    let mut delay = options.reconnect.initial_delay;
-    loop {
-        attempts = attempts.saturating_add(1);
-        let mut attempt = RuntimeInitialRouteAttempt { options, shutdown: shutdown.clone() };
-        match select_initial_route(
-            &options.routes,
-            options.session,
-            options.lane_policy,
-            client_auth_kind(&options.auth),
-            options.ssh_bootstrap.upgrade,
-            &mut attempt,
-        )
-        .await
-        {
-            Ok(connection) => return Ok(connection),
-            Err(error)
-                if error.retryable
-                    && options
-                        .reconnect
-                        .maximum_attempts
-                        .is_none_or(|maximum| attempts < maximum) =>
+    let watch = cmux_remote::network_watch::NetworkWatch::manual();
+    connect_first_available_watching(options, shutdown, watch.subscribe()).await
+}
+
+/// The first connect on a link of its own, told of network changes by `network`.
+#[cfg(test)]
+async fn connect_first_available_watching(
+    options: &ClientRuntimeOptions,
+    shutdown: watch::Receiver<bool>,
+    network: watch::Receiver<u64>,
+) -> anyhow::Result<(Arc<ClientConnection>, String)> {
+    dial_first_connection(options, shutdown, &LinkCell::new(), network, false).await
+}
+
+/// The first connect, run like a recovery of a later drop (`LinkCell::dial`): budgeted bursts
+/// that park between them, a network change on `network` or a caller's wait dials at once, and
+/// `cell` says where it is. A retryable route failure never ends it unless the policy bounds the
+/// attempts; a permanent one (a refused identity, a changed daemon key) does.
+async fn dial_first_connection(
+    options: &ClientRuntimeOptions,
+    mut shutdown: watch::Receiver<bool>,
+    cell: &LinkCell,
+    network: watch::Receiver<u64>,
+    report_retries: bool,
+) -> anyhow::Result<(Arc<ClientConnection>, String)> {
+    let attempt_shutdown = shutdown.clone();
+    let dial = cell.dial(options.reconnect, network, || {
+        let mut attempt =
+            RuntimeInitialRouteAttempt { options, shutdown: attempt_shutdown.clone() };
+        async move {
+            match select_initial_route(
+                &options.routes,
+                options.session,
+                options.lane_policy,
+                client_auth_kind(&options.auth),
+                options.ssh_bootstrap.upgrade,
+                &mut attempt,
+            )
+            .await
             {
-                tokio::select! {
-                    _ = tokio::time::sleep(options.reconnect.retry_delay(delay)) => {}
-                    _ = wait_for_shutdown(&mut shutdown) => {
-                        return Err(anyhow!("remote client startup was cancelled"));
+                Ok(connection) => DialOutcome::Ready(connection),
+                Err(error) if error.retryable => {
+                    if report_retries {
+                        eprintln!("remote connect: {:#}; redialing", error.error);
                     }
+                    DialOutcome::Retry(error)
                 }
-                delay = (delay * 2).min(options.reconnect.maximum_delay);
+                Err(error) => DialOutcome::Fatal(error),
             }
-            Err(error) => return Err(error.error),
+        }
+    });
+    tokio::select! {
+        result = dial => result.map_err(|error| error.error),
+        _ = wait_for_shutdown(&mut shutdown) => {
+            Err(anyhow!("remote client startup was cancelled"))
         }
     }
 }
@@ -1128,7 +1204,14 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
                         session: self.options.session,
                         lane_policy: self.options.lane_policy,
                         limits: SessionLimits::default(),
-                        reconnect: self.options.reconnect,
+                        // `--reconnect-attempts` bounds the first connect
+                        // only. The established link redials in budgeted
+                        // bursts and parks between them instead of ending
+                        // the process, which made every layer above redial.
+                        reconnect: ReconnectPolicy {
+                            maximum_attempts: None,
+                            ..self.options.reconnect
+                        },
                     },
                     Some(reconnect_groups),
                 ),
@@ -1216,7 +1299,28 @@ async fn bootstrap_initial_ssh_route(
 }
 
 fn ssh_bootstrap_failure_is_retryable(error: &anyhow::Error) -> bool {
-    error.downcast_ref::<BootstrapError>().is_some_and(BootstrapError::is_retryable_carrier_failure)
+    error.downcast_ref::<BootstrapError>().is_some_and(|error| {
+        error.is_retryable_carrier_failure() && !ssh_refused_permanently(error)
+    })
+}
+
+/// What ssh prints when it reached the host and was refused: a failed authentication or a host
+/// key it will not accept. ssh exits 255 for these as for an unreachable host, but no redial can
+/// fix them, so a link that outlives a failed first connect must not redial them.
+const SSH_PERMANENT_REFUSALS: &[&str] = &[
+    "Permission denied",
+    "Host key verification failed",
+    "Too many authentication failures",
+    "No more authentication methods",
+    "REMOTE HOST IDENTIFICATION HAS CHANGED",
+];
+
+fn ssh_refused_permanently(error: &BootstrapError) -> bool {
+    let (BootstrapError::Remote { stderr, .. } | BootstrapError::Install { stderr, .. }) = error
+    else {
+        return false;
+    };
+    SSH_PERMANENT_REFUSALS.iter().any(|refusal| stderr.contains(refusal))
 }
 
 /// Returns when the owner asks the runtime to stop or a termination signal
@@ -1527,34 +1631,6 @@ fn route_failure_allows_fallback(error: &ConnectionError) -> bool {
 
 async fn wait_for_shutdown(shutdown: &mut watch::Receiver<bool>) {
     while !*shutdown.borrow() && shutdown.changed().await.is_ok() {}
-}
-
-/// `<socket>.route`: the SSH route a client runtime's local socket tunnels
-/// to. Only SSH routes are recorded (no credential is in them); the CLI only
-/// prints it, never runs it.
-pub(crate) fn tunnel_route_record(socket: &Path) -> PathBuf {
-    let mut path = socket.as_os_str().to_owned();
-    path.push(".route");
-    PathBuf::from(path)
-}
-
-fn write_tunnel_route(socket: &Path, route: &str) -> Option<PathBuf> {
-    if !route.starts_with("ssh://") {
-        return None;
-    }
-    let record = tunnel_route_record(socket);
-    let _ = fs::remove_file(&record);
-    #[cfg(unix)]
-    {
-        use std::io::Write as _;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file =
-            OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record).ok()?;
-        file.write_all(route.as_bytes()).ok()?;
-    }
-    #[cfg(not(unix))]
-    fs::write(&record, route).ok()?;
-    Some(record)
 }
 
 async fn wait_for_fatal(fatal: &mut watch::Receiver<Option<String>>) -> String {
@@ -2403,10 +2479,22 @@ async fn run_daemon(
         pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeReadySend);
         let mut shutdown_failures = Vec::new();
         if ready.send(Ok(info)).is_ok() {
-            let services = DaemonServices::with_local_sockets(
+            // A Cloud machine's carrier (a grant config) also bridges the
+            // acpmux service to this user's acpmux carrier socket, in the
+            // home `cmux acp` resolves.
+            #[cfg(unix)]
+            let acpmux_socket = options
+                .carrier_grant_config
+                .as_ref()
+                .and_then(|_| crate::acp::daemon_acpmux_home())
+                .map(|home| cmux_remote::acpmux_bridge::socket_path(&home));
+            #[cfg(not(unix))]
+            let acpmux_socket = None;
+            let services = DaemonServices::with_carrier_sockets(
                 workspace,
                 Some(mux_socket),
                 options.local_sockets.clone(),
+                acpmux_socket,
             );
             services.run_with_shutdown(clients, shutdown).await;
         } else {
@@ -3301,7 +3389,49 @@ mod tests {
     use super::*;
 
     #[cfg(unix)]
+    mod first_connect_recovery;
+    #[cfg(unix)]
     mod initial_route_budget;
+
+    /// Binds a stream socket at `path` that never listens, as a crashed
+    /// client leaves it. A connect to it is refused even while the returned
+    /// descriptor, or a copy that a concurrent fork inherited, is open.
+    /// (A dropped listener is not stale until every copy is closed.)
+    #[cfg(unix)]
+    fn bind_stale_client_socket(path: &Path) -> std::os::fd::OwnedFd {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use std::os::unix::ffi::OsStrExt;
+
+        // SAFETY: socket(2) has no memory arguments; a valid result is a new
+        // descriptor that the OwnedFd takes.
+        let raw = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+        assert!(raw >= 0, "socket: {}", std::io::Error::last_os_error());
+        // SAFETY: `raw` is a new descriptor that nothing else owns.
+        let socket = unsafe { OwnedFd::from_raw_fd(raw) };
+        // SAFETY: F_SETFD with an int flag on a descriptor this test owns.
+        let cloexec = unsafe { libc::fcntl(socket.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
+        assert_eq!(cloexec, 0, "fcntl: {}", std::io::Error::last_os_error());
+
+        // SAFETY: sockaddr_un is plain data; all-zero bytes are a valid value.
+        let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+        address.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX).unwrap();
+        let bytes = path.as_os_str().as_bytes();
+        assert!(bytes.len() < address.sun_path.len(), "socket path too long");
+        for (slot, byte) in address.sun_path.iter_mut().zip(bytes) {
+            *slot = libc::c_char::from_ne_bytes([*byte]);
+        }
+        let length = libc::socklen_t::try_from(size_of::<libc::sockaddr_un>()).unwrap();
+        // SAFETY: `address` is an initialized sockaddr_un of `length` bytes.
+        let bound = unsafe {
+            libc::bind(
+                socket.as_raw_fd(),
+                std::ptr::from_ref(&address).cast::<libc::sockaddr>(),
+                length,
+            )
+        };
+        assert_eq!(bound, 0, "bind {}: {}", path.display(), std::io::Error::last_os_error());
+        socket
+    }
 
     fn instrumented_test_timeout(timeout: Duration) -> Duration {
         let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
@@ -5636,6 +5766,12 @@ mod tests {
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: None,
                 maximum_duration: None,
+                attempts_per_recovery: 3,
+                // Real-clock fixture: redial as fast as its delays allow.
+                redial_budget: cmux_remote::connection::RedialBudget {
+                    capacity: 1_000,
+                    refill_interval: Duration::from_millis(1),
+                },
             },
             startup_timeout: instrumented_test_timeout(Duration::from_secs(5)),
             state_dir: directory.path().join("client"),
@@ -5800,6 +5936,12 @@ mod tests {
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
                 maximum_duration: None,
+                attempts_per_recovery: 3,
+                // Real-clock fixture: redial as fast as its delays allow.
+                redial_budget: cmux_remote::connection::RedialBudget {
+                    capacity: 1_000,
+                    refill_interval: Duration::from_millis(1),
+                },
             },
             startup_timeout: Duration::from_secs(2),
             state_dir: directory.path().join("client"),
@@ -5876,6 +6018,12 @@ mod tests {
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
                 maximum_duration: None,
+                attempts_per_recovery: 3,
+                // Real-clock fixture: redial as fast as its delays allow.
+                redial_budget: cmux_remote::connection::RedialBudget {
+                    capacity: 1_000,
+                    refill_interval: Duration::from_millis(1),
+                },
             },
             startup_timeout: Duration::from_secs(1),
             state_dir: directory.path().join("client"),
@@ -6672,7 +6820,10 @@ mod tests {
 
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mux.sock");
-        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        let stale = bind_stale_client_socket(&path);
+        // Another thread of the test process can fork while the stale socket
+        // is open; the child keeps a copy of its descriptor until exec.
+        let _forked_copy = stale.try_clone().unwrap();
         drop(stale);
 
         let lock_path = directory.path().join("mux.sock.lock");
@@ -6709,7 +6860,10 @@ mod tests {
     async fn concurrent_stale_client_socket_takeover_has_one_owner() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mux.sock");
-        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        let stale = bind_stale_client_socket(&path);
+        // Another thread of the test process can fork while the stale socket
+        // is open; the child keeps a copy of its descriptor until exec.
+        let _forked_copy = stale.try_clone().unwrap();
         drop(stale);
 
         let start = Arc::new(tokio::sync::Barrier::new(2));

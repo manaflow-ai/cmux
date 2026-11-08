@@ -35,7 +35,7 @@ extension AgentTabStore {
             watch.read()
         }, openSide: { [weak self] chat, fork in // the tracker (AgentSidePanes) asks RightColumnPlacement; the app opens there
             guard let self else { return }; AgentSidePanes.chat(chat).open(fork, chat: resolve(provisional), hooks: .init(pane: { [weak self] in self?.locate(self?.resolve($0) ?? $0).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }, column: { [weak self] in self?.rightColumn(self?.resolve($0) ?? $0) ?? .init() }) { [weak self] _, _, created, finished in // openOnRight decides again in its turn (RightColumnTurns)
-                self?.openOnRight(of: provisional, open: { [weak self] pane, daemon, split in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: fork, split: split) }, created: { key, _ in created(key) }, finished: { _ in finished() }) ?? false })
+                self?.openOnRight(of: provisional, splitRight: AgentSidePanes.chat(chat).takeSplitRight(fork), open: { [weak self] pane, daemon, split in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: fork, split: split) }, created: { key, _ in created(key) }, finished: { _ in finished() }) ?? false })
         }, openRight: { [weak self] session in guard let self else { return false }; return openRight?(resolve(provisional), session, nil) ?? false
         }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, showsSubagent: { [weak self] title, tone, keepingTitle in guard let self else { return }; SubagentTabTitles.shared.show(title, inTab: resolve(provisional), tone: tone, keepingTitle: keepingTitle) }, showsSubagentFacts: { [weak self] facts in guard let self else { return }; SubagentTabTitles.shared.showFacts(facts, inTab: resolve(provisional)) }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
             guard let self else { return nil }
@@ -105,16 +105,16 @@ extension AgentTabStore {
     /// `created` hears the new tab with that decision. `finished` (or a refusal) ends the turn. An open asked for while
     /// another is still moving into place waits and answers true.
     @discardableResult
-    func openOnRight(of provisional: String, origin: ActionOrigin = .user, open: @escaping AgentTabOpen,
+    func openOnRight(of provisional: String, origin: ActionOrigin = .user, splitRight: Bool = false, open: @escaping AgentTabOpen, // splitRight: always a split right of the chat (`/side`)
                      created: (@MainActor (_ key: String, _ decision: RightColumnPlacement.Decision<String>) -> Void)? = nil,
                      finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
         var opened = true
         var ran = true // the turn ran in this call (false once it waits for another open)
         let now = serially(resolve(provisional)) { [weak self] done in
             guard let self else { finished?(false); return done() }
-            let decision = RightColumnPlacement.decide(rightColumn(resolve(provisional)))
+            let decision: RightColumnPlacement.Decision<String> = splitRight ? .splitRight : RightColumnPlacement.decide(rightColumn(resolve(provisional)))
             // A created hook is always passed, so openBeside and main pane layout call `finished` on every path once they opened.
-            opened = place(decision, of: provisional, origin: origin, open: open, created: { key in created?(key, decision) },
+            opened = place(decision, of: provisional, origin: origin, inMainPane: !splitRight, open: open, created: { key in created?(key, decision) },
                            finished: { moved in done(); finished?(moved) })
             guard !opened else { return }
             done()
@@ -130,10 +130,10 @@ extension AgentTabStore {
     /// chat, a split below the right column's one pane, or a tab in a pane (nil: the chat's own). A chat that is its
     /// screen's main pane with nothing on its right yet makes that column by main pane layout's rule (``openInMainPane``);
     /// once its strip column is there, it is the chat's right side and the same lower split applies.
-    private func place(_ decision: RightColumnPlacement.Decision<String>, of provisional: String, origin: ActionOrigin, open: AgentTabOpen, created: @escaping @MainActor (String) -> Void, finished: @escaping @MainActor (_ moved: Bool) -> Void) -> Bool {
+    private func place(_ decision: RightColumnPlacement.Decision<String>, of provisional: String, origin: ActionOrigin, inMainPane: Bool, open: AgentTabOpen, created: @escaping @MainActor (String) -> Void, finished: @escaping @MainActor (_ moved: Bool) -> Void) -> Bool {
         // Nothing on the right (a split right, or a chat too narrow to split: #27789's review at 84718cf2): main pane layout decides first.
         let rightIsEmpty = switch decision { case .splitRight, .tab(nil): true; case .splitBelow, .tab(.some): false }
-        if rightIsEmpty, let placed = openInMainPane(resolve(provisional), origin == .user, { try open($0, $1, nil) }, created, finished) { return placed }
+        if rightIsEmpty, inMainPane, let placed = openInMainPane(resolve(provisional), origin == .user, { try open($0, $1, nil) }, created, finished) { return placed }
         switch decision {
         case .splitRight: return openBeside(provisional, origin: origin, open: open, created: created, finished: finished)
         case .splitBelow(let pane):

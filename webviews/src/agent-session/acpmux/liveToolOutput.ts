@@ -15,7 +15,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { outputShapesRows } from "./conversation/toolGroups";
-import { stripAnsi } from "./conversation/toolOutput";
+import { stripAnsi } from "./conversation/toolOutputModel";
 import { oneRowChangeFrom } from "./rowChanges";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;

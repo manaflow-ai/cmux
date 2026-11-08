@@ -11,7 +11,7 @@ import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { BackgroundTaskNote } from "../src/agent-session/acpmux/conversation/BackgroundTaskNote";
 import { readFileSync } from "node:fs";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
-import { InStep } from "../src/agent-session/acpmux/conversation/ToolFailureCause";
+import { InStep } from "../src/agent-session/acpmux/conversation/toolFailureCauseModel";
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
 import { toolGroupLabel } from "../src/agent-session/acpmux/conversation/toolGroups";
@@ -95,7 +95,7 @@ test("while a background command runs, an opened run lists it as a step, with no
 });
 
 test("a failed call's row is its command, then its failure tag, then its chevron", () => {
-  const failing = shell("Read the fixture list", { status: "failed", output: "Exit code 1\nls: nope" });
+  const failing = shell(undefined, { status: "failed", output: "Exit code 1\nls: nope" });
   // A step of an opened run is tagged "failed" (drawn "Failed"); its Shell block names the exit.
   const step = renderToStaticMarkup(
     <InStep.Provider value>
