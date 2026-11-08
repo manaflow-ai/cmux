@@ -881,16 +881,11 @@ fn controls(meta: &SessionMeta, from: Option<&str>) -> bool {
 /// (or runs a turn that takes no notice and is not the person's, whose end would bring it), or
 /// it is an FYI and only FYIs are new, which wait for the flush in any chat (`inbox_review`).
 fn would_strand(session: &Session, inbox: &Inbox, meta: &SessionMeta, class: PromptClass) -> bool {
-    if inbox.due_now {
-        return false;
-    }
     // Before the first work's hold: FYIs alone wait for the flush after its turn too.
-    let new_fyis_only =
-        inbox.items.iter().filter(|i| !i.noticed).all(|i| i.class == PromptClass::Fyi);
-    if class == PromptClass::Fyi && new_fyis_only {
+    if fyis_alone_wait(inbox, class) {
         return true;
     }
-    if inbox.held_by_person || inbox.first.is_some() {
+    if inbox.due_now || inbox.held_by_person || inbox.first.is_some() {
         return false;
     }
     if inbox.items.iter().any(|i| !i.noticed && wakes(meta, i)) {
@@ -900,6 +895,15 @@ fn would_strand(session: &Session, inbox: &Inbox, meta: &SessionMeta, class: Pro
         None => true,
         Some(turn) => !turn.persons && !session.steering.load(Ordering::SeqCst),
     }
+}
+
+/// Whether an FYI (`class`) would wait for the flush whatever the chat does next: only FYIs are
+/// new and no Stop made them due now (`inbox_review`). A first work's turn or a cut turn's
+/// continuation brings them no sooner.
+fn fyis_alone_wait(inbox: &Inbox, class: PromptClass) -> bool {
+    class == PromptClass::Fyi
+        && !inbox.due_now
+        && inbox.items.iter().filter(|i| !i.noticed).all(|i| i.class == PromptClass::Fyi)
 }
 
 /// The refusal of a waiting send whose message the receiver's inbox would hold without waking it
@@ -1182,8 +1186,14 @@ impl Hub {
             if session.meta().status == SessionStatus::Closed {
                 return Err(super::queue::closing_error());
             }
-            let strands =
-                !wakes_now && !continuing && would_strand(session, &inbox, &meta_now, class);
+            // A continuation that may still fire brings a turn, but no sooner notice for FYIs
+            // alone (router review of #38603 at 8991049, F1).
+            let strands = !wakes_now
+                && if continuing {
+                    fyis_alone_wait(&inbox, class)
+                } else {
+                    would_strand(session, &inbox, &meta_now, class)
+                };
             let carry = inbox.carrying.iter_mut().find(|c| c.ids.iter().any(|id| id == prompt_id));
             if let Some(carry) = carry {
                 // A resend of one a notice carries now: answered with that notice.
