@@ -39,11 +39,11 @@ extension AgentTabStore {
     /// Agent chat tab `key`'s exact folder for a terminal opened from it
     /// (``AgentPaneModel/terminalFolder``). Only a chat this Mac's acpmux runs, on this Mac's
     /// daemon, in a folder that exists here: a Cloud, SSH or peer chat's folder is another
-    /// machine's path, even where the same path exists here.
-    func terminalFolder(of key: String, machine: String? = nil) -> String? {
-        let scoped = tabKey(key, machine: machine)
-        guard let folder = views[scoped]?.model.terminalFolder, daemonForTabScoped(resolvedKey(scoped))?.isLocal == true,
-              let host = record(for: resolvedKey(scoped))?.record.host, host == localHost, WorkingURL.isDirectory(folder) else { return nil }
+    /// machine's path, even where the same path exists here: only a shell on that machine's `daemon` gets it (Lawrence, 2026-11-08).
+    func terminalFolder(of key: String, machine: String? = nil, on daemon: DaemonService? = nil) -> String? {
+        let scoped = resolvedKey(tabKey(key, machine: machine ?? daemon?.machineID))
+        if let daemon, !daemon.isLocal { return daemonForTabScoped(scoped) === daemon && remoteMachineID(of: scoped.key, machine: scoped.machine) == daemon.machineID ? views[scoped]?.model.terminalFolder : nil }
+        guard let folder = views[scoped]?.model.terminalFolder, daemonForTabScoped(scoped)?.isLocal == true, let host = record(for: scoped)?.record.host, host == localHost, WorkingURL.isDirectory(folder) else { return nil }
         return folder
     }
 

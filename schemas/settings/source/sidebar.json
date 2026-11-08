@@ -1128,7 +1128,7 @@
           },
           "help": {
             "key": "settings.sidebar.groupPalette.help",
-            "text": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked."
+            "text": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."
           },
           "kind": "choice",
           "choices": [
@@ -1166,6 +1166,20 @@
                 "key": "settings.choice.groupPaletteVibrant",
                 "text": "Vibrant"
               }
+            },
+            {
+              "value": "gradient",
+              "title": {
+                "key": "settings.choice.groupPaletteGradient",
+                "text": "Gradient"
+              }
+            },
+            {
+              "value": "pictorial",
+              "title": {
+                "key": "settings.choice.groupPalettePictorial",
+                "text": "Pictorial"
+              }
             }
           ],
           "default": "glass",
@@ -1182,10 +1196,78 @@
             "grayscale",
             "vibrant",
             "glass",
-            "automatic"
+            "automatic",
+            "gradient",
+            "pictorial",
+            "picture"
           ],
           "swift_enum": {
             "name": "GroupPalette",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.groupGradient",
+          "name": "groupGradient",
+          "title": {
+            "key": "settings.sidebar.groupGradient",
+            "text": "Group Gradient"
+          },
+          "help": {
+            "key": "settings.sidebar.groupGradient.help",
+            "text": "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "sunset",
+              "title": {
+                "key": "settings.choice.groupGradientSunset",
+                "text": "Sunset"
+              }
+            },
+            {
+              "value": "aurora",
+              "title": {
+                "key": "settings.choice.groupGradientAurora",
+                "text": "Aurora"
+              }
+            },
+            {
+              "value": "lagoon",
+              "title": {
+                "key": "settings.choice.groupGradientLagoon",
+                "text": "Lagoon"
+              }
+            },
+            {
+              "value": "twoTone",
+              "title": {
+                "key": "settings.choice.groupGradientTwoTone",
+                "text": "Two-Tone"
+              }
+            }
+          ],
+          "default": "sunset",
+          "keywords": [
+            "sidebar",
+            "group",
+            "groups",
+            "color",
+            "colors",
+            "colour",
+            "gradient",
+            "sunset",
+            "aurora",
+            "lagoon"
+          ],
+          "swift_enum": {
+            "name": "GroupGradient",
             "generated": false,
             "module": "CmuxNextDesign"
           },

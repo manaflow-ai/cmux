@@ -1696,7 +1696,12 @@ async fn dispatch_request_with_identity(
                 (None, Some(caller)) if !conn.is_person() && caller != s.id => {
                     hub.resolve(caller).ok().map(|from| {
                         let name = from.meta().name;
-                        crate::prompt_provenance::session_message(&from.id, &name, &s.id)
+                        // Which of its agents: a Claude Code subagent's send says so
+                        // (`prompt_provenance::FROM_SUBAGENT`), within the proven session.
+                        crate::prompt_provenance::with_subagent(
+                            crate::prompt_provenance::session_message(&from.id, &name, &s.id),
+                            &params,
+                        )
                     })
                 }
                 (provenance, _) => provenance,
@@ -1767,10 +1772,12 @@ async fn dispatch_request_with_identity(
                 // A proven session's note to itself: that session's, as the daemon knows.
                 None if conn.caller() == Some(s.id.as_str()) => {
                     let name = hub.session_name(&s.id);
-                    Some(crate::prompt_provenance::observed(
+                    // A subagent's report to its own lead's chat names that subagent too.
+                    let note = crate::prompt_provenance::with_subagent(
                         crate::prompt_provenance::session_message(&s.id, &name, &s.id),
-                        transport,
-                    ))
+                        &params,
+                    );
+                    Some(crate::prompt_provenance::observed(note, transport))
                 }
                 None => Some(crate::prompt_provenance::unverified(
                     &s.id,
@@ -1954,6 +1961,7 @@ async fn dispatch_request_with_identity(
                 admitted: false,
                 send_now: false,
                 thread,
+                wake_or_fail: flag("wakeOrFail") == Some(true),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
                         conn.origin == super::Origin::Peer,
@@ -2880,7 +2888,7 @@ async fn dispatch_request_with_identity(
             if params.get("cancelFork").and_then(Value::as_bool) == Some(true)
                 && let Some(token) = params.get("cancelToken").and_then(Value::as_str)
             {
-                return Ok(json!({"cancelled": hub.cancel_pending_fork(token).await}));
+                return Ok(json!({"cancelled": hub.cancel_pending_fork(token).await?}));
             }
             let s = hub.resolve(session_key(&params)?)?;
             // A Fork Conversation the person cancelled before using it (`hub/fork_cancel.rs`).
@@ -3243,7 +3251,10 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
 /// says so (`sender_harness.rs`: `senderHarness`; a shell under a terminal or cmux claims none). A relay names what it
 /// carries (`fromRelay`, `via`: the lane-gh broker, the Cloud mobile carrier). A trigger, the
 /// app's own transport (`LocalApp`, whose pane proves the person instead) and every non-unix
-/// transport are no terminal. Any of those stays `unverified`. What is left is a plain unix
+/// transport are no terminal. Any of those stays `unverified`. A send the daemon keeps and delivers
+/// later (`_acpmux/send_queue`) replays on the outbox's own unix connection with its request's
+/// claims and the caller its sender named, proven or not (`Delivery::unproven_caller`), so it is
+/// judged here as the send itself was (#38260 F1). What is left is a plain unix
 /// connection of the user that claims nothing: the person at their terminal. A script of the
 /// same user that strips every label is let through, as it was before #37497; it still never
 /// releases a protected hold (`PromptOptions::unproven_owner`), never counts as an authenticated

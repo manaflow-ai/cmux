@@ -147,7 +147,8 @@ fn should_inject(args: &[OsString], getenv: impl Fn(&str) -> Option<OsString>) -
 fn prepare_hooks(args: &[OsString]) -> anyhow::Result<(Vec<OsString>, Option<PathBuf>)> {
     let executable = current_executable()?;
     let helper = hook_helper(&executable);
-    let hooks = session_hook_settings(helper.is_none().then_some(executable.as_path()))?;
+    let hooks =
+        session_hook_settings(helper.is_none().then_some(executable.as_path()), &executable)?;
     let cache = agent_hook_install::runtime_cmux_tui_data_home()
         .context("no data directory for Claude settings")?
         .join("claude-settings");
@@ -165,11 +166,26 @@ fn hook_helper(executable: &Path) -> Option<PathBuf> {
         .filter(|path| path.is_absolute())
 }
 
-/// The hook settings fragment merged into every wrapped launch.
-fn session_hook_settings(emit_binary: Option<&Path>) -> anyhow::Result<Map<String, Value>> {
+/// The hook settings fragment merged into every wrapped launch: the agent
+/// hooks, and a `SessionStart` hook that runs `executable` (this build) to
+/// tell the model where it runs (agent_session_context.rs).
+fn session_hook_settings(
+    emit_binary: Option<&Path>,
+    executable: &Path,
+) -> anyhow::Result<Map<String, Value>> {
     let mut settings = agent_hook_install::claude_session_hook_settings(emit_binary)?;
     // The hooks drive cmux notifications; Claude's own would duplicate them.
     settings.insert("preferredNotifChannel".into(), Value::from("notifications_disabled"));
+    let context = serde_json::json!({"hooks": [{
+        "type": "command",
+        "command": crate::agent_session_context::hook_command(executable)?,
+        "timeout": 10,
+    }]});
+    let mut extra = Map::new();
+    extra.insert("SessionStart".into(), Value::Array(vec![context]));
+    let mut fragment = Map::new();
+    fragment.insert("hooks".into(), Value::Object(extra));
+    merge_settings(&mut settings, fragment);
     Ok(settings)
 }
 
@@ -716,7 +732,7 @@ mod tests {
             "literal",
         ]);
         let cache = root.path().join("cache");
-        let hooks = session_hook_settings(None).unwrap();
+        let hooks = session_hook_settings(None, Path::new("/opt/cmux/cmux-tui")).unwrap();
         let out = args_with_hooks(&args, hooks.clone(), &cache).unwrap();
 
         assert_eq!(out[0], "--settings");
@@ -745,12 +761,16 @@ mod tests {
     /// Hook commands match `agent hook install`, or call `agent hook emit` without a helper.
     #[test]
     fn claude_wrapper_hook_commands_match_the_installed_hooks_or_fall_back_to_emit() {
-        let installed = session_hook_settings(None).unwrap();
+        let installed = session_hook_settings(None, Path::new("/opt/cmux/cmux-tui")).unwrap();
         let command = installed["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
         assert!(command.contains("\"${h:-:}\" 'claude' 'Stop'"), "{command}");
         assert_eq!(installed["hooks"]["Stop"][0]["hooks"][0]["async"], true);
 
-        let emit = session_hook_settings(Some(Path::new("/opt/cmux tui/cmux-tui"))).unwrap();
+        let emit = session_hook_settings(
+            Some(Path::new("/opt/cmux tui/cmux-tui")),
+            Path::new("/opt/cmux/cmux-tui"),
+        )
+        .unwrap();
         let command = emit["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
         assert!(
             command.starts_with(
@@ -764,11 +784,38 @@ mod tests {
         );
     }
 
+    /// Every wrapped launch adds one more `SessionStart` hook, after the
+    /// installed ones: this build's `agent session-context`, which tells the
+    /// model it runs in cmux, its ids and `cmux skill show`.
+    #[test]
+    fn claude_wrapper_adds_the_session_context_hook_of_this_build() {
+        let hooks = session_hook_settings(None, Path::new("/opt/cmux tui/cmux-tui")).unwrap();
+        let groups = hooks["hooks"]["SessionStart"].as_array().unwrap();
+        let commands = groups
+            .iter()
+            .flat_map(|group| group["hooks"].as_array().cloned().unwrap_or_default())
+            .filter_map(|hook| hook["command"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            commands.iter().filter(|command| command.ends_with(" agent session-context")).count(),
+            1,
+            "{commands:?}"
+        );
+        assert_eq!(
+            commands.last().map(String::as_str),
+            Some("'/opt/cmux tui/cmux-tui' agent session-context")
+        );
+        assert!(commands.len() >= 2, "the installed SessionStart hook stays: {commands:?}");
+        let last = groups.last().unwrap();
+        assert_eq!(last["hooks"][0]["timeout"], 10);
+        assert!(last["hooks"][0].get("async").is_none(), "Claude must read its output");
+    }
+
     /// Unreadable or malformed `--settings` values fail so the launch proceeds without hooks.
     #[test]
     fn claude_wrapper_skips_injection_for_bad_settings_arguments() {
         let root = tempfile::tempdir().unwrap();
-        let hooks = session_hook_settings(None).unwrap();
+        let hooks = session_hook_settings(None, Path::new("/opt/cmux/cmux-tui")).unwrap();
         for args in [
             os(&["--model", "opus", "--settings"]),
             os(&["--settings", "/nonexistent/settings.json"]),

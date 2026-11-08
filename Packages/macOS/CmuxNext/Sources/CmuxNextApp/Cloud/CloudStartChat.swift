@@ -180,7 +180,7 @@ struct CloudStartChat {
         await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { machine.daemon.supports(DaemonCapability.agentSessionContent.rawValue) }, update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
         guard machine.daemon.supports(DaemonCapability.agentSessionContent.rawValue), let carry = AgentPaneCloudAttachments(start.attachments), let pastes = CloudUploads.pastes,
               let binary = services.cloud.move.cli, let socket = await machine.daemon.connection?.endpoint?.socketPath,
-              let root = cwd.flatMap({ CloudAccessAsks.remoteRoot($0, roots: services.cloud.move.workRoots) }) ?? services.cloud.move.workRoots.first else { throw CloudMove.Failure(message: CloudUploadStrings.failed) }
+              let root = cwd.flatMap(services.cloud.move.workRoot(of:)) ?? services.cloud.move.workRoots.first else { throw CloudMove.Failure(message: CloudUploadStrings.failed) }
         let access = CloudAccessCLI(binary: binary)
         return try await carry.withUploaded(in: pastes, upload: { paths in
             try Self.checkAccount(origin.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)

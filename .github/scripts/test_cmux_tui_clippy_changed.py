@@ -294,9 +294,8 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertEqual(self.calls(), [])
         self.assertEqual(self.ratchet_calls(), [])
 
-    def test_compare_base_lints_the_same_packages_at_the_base_first(self) -> None:
-        # cmux-next fast gates: a row lowered on the tip since the PR's own ratchet ran (#28182); the base's
-        # own count over the row is the base's red, so the ratchet gets the base run to compare with.
+    def test_compare_base_skips_the_base_lint_when_head_passes_the_baseline(self) -> None:
+        # The base run only excuses counts over the baseline, so a HEAD within it is green as it stands.
         self.change("cmux-tui/crates/a/src/lib.rs")
         head = self.git("rev-parse", "HEAD").strip()
         heads = self.tmp / "heads.log"
@@ -305,13 +304,29 @@ class ClippyChangedTests(unittest.TestCase):
                                 env_extra={"HEAD_LOG": str(heads)})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
+        self.assertEqual(self.calls(), [lint])
+        self.assertEqual(heads.read_text().split(), [head])
+        self.assertFalse(out.with_name(out.name + ".base").exists())
+        self.assertEqual(self.ratchet_calls(), [["--repo", str(self.repo.resolve()), "--clippy-json", str(out)]])
+
+    def test_compare_base_lints_the_same_packages_at_the_base_when_head_is_red(self) -> None:
+        # cmux-next fast gates: a row lowered on the tip since the PR's own ratchet ran (#28182); the base's
+        # own count over the row is the base's red, so the ratchet gets the base run to compare with.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        head = self.git("rev-parse", "HEAD").strip()
+        heads = self.tmp / "heads.log"
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                                env_extra={"HEAD_LOG": str(heads), "RATCHET_RC": "1"})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
         self.assertEqual(self.calls(), [lint, lint])
-        self.assertEqual(heads.read_text().split(), [self.base, head])
+        self.assertEqual(heads.read_text().split(), [head, self.base])
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), head, "the checkout is back on HEAD")
         base_out = out.with_name(out.name + ".base")
         self.assertIn('"build-finished"', base_out.read_text())
-        self.assertEqual(self.ratchet_calls(), [["--repo", str(self.repo.resolve()), "--clippy-json", str(out),
-                                                 "--base-clippy-json", str(base_out)]])
+        strict = ["--repo", str(self.repo.resolve()), "--clippy-json", str(out)]
+        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--base-clippy-json", str(base_out)]])
 
     def test_compare_base_returns_to_head_when_the_base_lint_cannot_start(self) -> None:
         self.change("cmux-tui/crates/a/src/lib.rs")
@@ -319,7 +334,8 @@ class ClippyChangedTests(unittest.TestCase):
         out = self.tmp / "out" / "panic-clippy.jsonl"
         out.parent.mkdir(parents=True)
         out.with_name(out.name + ".base").mkdir()  # opening the base JSONL fails
-        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base")
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                                env_extra={"RATCHET_RC": "1"})
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), head)
 

@@ -64,6 +64,7 @@ impl App {
             AppEvent::MachineControllerCompleted(completion) => {
                 Ok(self.apply_machine_controller_completion(*completion))
             }
+            AppEvent::DaemonReconnect(outcome) => self.on_daemon_reconnect(outcome),
             AppEvent::Mux(MuxEvent::Empty) => self.on_mux_empty(),
             AppEvent::Mux(MuxEvent::SurfaceExited(id, _)) => self.on_surface_exited(id),
             AppEvent::Mux(MuxEvent::SurfaceResized { surface, cols, rows, reservation_id }) => {
@@ -130,6 +131,10 @@ impl App {
             }
             AppEvent::Mux(MuxEvent::SizeStateChanged { surface, .. }) => {
                 self.refresh_size_state_label(surface);
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::Notification(notification)) => {
+                self.forward_notification_to_host(&notification);
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),

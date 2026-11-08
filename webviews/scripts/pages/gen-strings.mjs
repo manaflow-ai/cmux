@@ -207,6 +207,11 @@ export const PAGES = {
       },
     ],
   },
+  // The Bookmarks page shares its table with the Swift bar, bubble and manager.
+  bookmarks: {
+    out: "webviews/src/pages/bookmarks/generated/strings.json",
+    catalogs: [{ file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings` }],
+  },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {
     out: "webviews/src/pages/cloud/generated/strings.json",
@@ -235,6 +240,29 @@ export const PAGES = {
       {
         file: `${sources}/CmuxNextApp/Resources/MobilePairing.xcstrings`,
         keys: (all) => all.filter((key) => key.startsWith("mobilePairing.page.")),
+      },
+    ],
+  },
+  // The server cards (cmux-page://cmux.server-cards/) share the tables of the Swift they replaced:
+  // Pair Another Machine's own, and the Add Server words, name and buttons it reuses.
+  "server-cards": {
+    out: "webviews/src/pages/server-cards/generated/strings.json",
+    catalogs: [
+      { file: `${sources}/CmuxNextServer/Resources/PairInvite.xcstrings` },
+      {
+        file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
+        keys: (all) =>
+          all.filter((key) =>
+            [
+              "approver.wordsQuestion",
+              "approver.wordsWarning",
+              "approver.retry",
+              "approver.done",
+              "approver.name",
+              "approver.cancel",
+              "approver.runChief",
+            ].includes(key),
+          ),
       },
     ],
   },
