@@ -846,7 +846,6 @@ final class CloudService {
         link.beginEnding()
         dropAllMachines()
         await link.endLink(final: false)
-        do { try await clearPeerTails(LaunchIdentity.current().build, work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
@@ -854,6 +853,7 @@ final class CloudService {
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
             for share in await shareInstalls.ended(except: installIdentity) { await share.signOut(stackUser: stackUser, session: { try await auth.tokens().access }) }
         }
+        do { try await clearPeerTails(LaunchIdentity.current().build, work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         // An ensure that slipped in during the revoke: stop that link too.
         await link.stopLink()
         await auth.signOut()
