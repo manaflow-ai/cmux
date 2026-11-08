@@ -24,6 +24,12 @@
       "reason": "debt: the sandboxed-run notice's timeout label names the classic /api/runs route it follows"
     },
     {
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient+MachineRoutes.swift",
+      "pattern": "route:/api/vm",
+      "count": 1,
+      "reason": "keep: the one classic machine write too large for a daemon request (over 4 MiB) still posts to /api/vm/{id}/fs/write, as every classic machine call did before; the rest moved to the daemon's cloud.machine.io in this PR"
+    },
+    {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
       "pattern": "route:/api/runs",
       "count": 3,

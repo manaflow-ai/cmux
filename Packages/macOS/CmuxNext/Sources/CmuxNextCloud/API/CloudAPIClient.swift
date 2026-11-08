@@ -21,6 +21,8 @@ public struct CloudAPIClient: Sendable {
     /// A Worker machines client's exec and file routes through cmux-tui (direct to the provider
     /// with a client session); nil: through the daemon's `cloud.machine.io` (CloudAPIClient+MachineRoutes.swift).
     var machineIO: CloudMachineIO?
+    /// A write too large for one daemon request goes to the route over this (CloudAPIClient+MachineRoutes.swift).
+    var fileRoute: URLSession = CloudAPIClient.noStoreTransport
 
     /// Requests that carry the account's bearer token: ephemeral, no URL
     /// cache, no cookies, so no answer (or the request headers stored with

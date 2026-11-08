@@ -56,9 +56,56 @@ extension CloudAPIClient {
 
     /// Writes a guest file atomically through the backend wrapper.
     public func writeFile(_ id: String, path: String, data: Data, mode: Int? = nil) async throws {
-        var request: [String: JSONValue] = ["path": .string(path), "data_base64": .string(data.base64EncodedString())]
+        let encoded = data.base64EncodedString()
+        var request: [String: JSONValue] = ["path": .string(path), "data_base64": .string(encoded)]
         if let mode { request["mode"] = .number(Double(mode)) }
-        _ = try await machine("write", id, request, timeout: .seconds(120), as: Ignored.self)
+        // A body past one daemon request goes to the route itself, so every write the route takes
+        // still goes (`cmux cloud machine-io` reads stdin whole, so a Worker client's goes there first).
+        let route: (@Sendable () async throws -> Ignored)? = encoded.utf8.count <= Self.daemonWriteLimit ? nil : { [self] in
+            try await postWrite(id, path: path, encoded: encoded, mode: mode)
+        }
+        _ = try await machine("write", id, request, timeout: .seconds(120), as: Ignored.self, route: route)
+    }
+
+    /// The most base64 one write sends through the daemon: its requests are at most 4 MiB
+    /// (cmux-tui `resource::MAX_MESSAGE_BYTES`), less room for the envelope and the credentials.
+    static let daemonWriteLimit = (4 << 20) - (128 << 10)
+
+    /// `POST .../fs/write` straight to the route, with the headers the daemon's call would send.
+    private func postWrite(_ id: String, path: String, encoded: String, mode: Int?) async throws -> Ignored {
+        let credentials = try await credentials()
+        let route = "\(sendsStackSession ? "/api/vm" : "/v1/cloud/machines")/\(id)/fs/write"
+        guard id.range(of: #"^[A-Za-z0-9_-]+$"#, options: .regularExpression) != nil,
+              let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + route) else {
+            throw CloudAPIError.transport("not a Cloud machine id")
+        }
+        var request = URLRequest(url: url, timeoutInterval: 120)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(credentials.access)", forHTTPHeaderField: "Authorization")
+        request.setValue("cmux-mac", forHTTPHeaderField: "X-Cmux-Client")
+        request.setValue(appVersion, forHTTPHeaderField: "X-Cmux-App-Version")
+        if let refresh = credentials.refresh { request.setValue(refresh, forHTTPHeaderField: "X-Stack-Refresh-Token") }
+        if let team = credentials.team { request.setValue(team, forHTTPHeaderField: sendsStackSession ? "X-Cmux-Team-Id" : "x-cmux-team") }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["path": path, "dataBase64": encoded]
+        if let mode { body["mode"] = mode }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await fileRoute.data(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw CloudAPIError.timedOut(route)
+        } catch let error as URLError where backendIsLocalOnly && error.code == .cannotConnectToHost {
+            throw CloudAPIError.noBackend(baseURL)
+        } catch {
+            throw CloudAPIError.transport(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else { throw CloudAPIError.transport("no HTTP response") }
+        guard (200..<300).contains(http.statusCode) else {
+            throw CloudAPIError.from(status: http.statusCode, data: data, headerCode: http.value(forHTTPHeaderField: "x-cmux-vm-error"))
+        }
+        return Ignored()
     }
 
     public func makeDirectory(_ id: String, path: String) async throws {
@@ -74,19 +121,21 @@ extension CloudAPIClient {
     }
 
     /// An answer that is not read.
-    struct Ignored: Decodable {}
+    struct Ignored: Decodable, Sendable {}
 
     /// One exec or file operation: through ``machineIO`` on a Worker machines client that has one,
     /// decoded exactly as the route's own answer (a refusal throws what the route's would), else
     /// (a classic client, no cmux-tui, or one that gave no answer) the daemon's `machine.io`.
+    /// `route`: the call too large for the daemon, sent in its place.
     private func machine<T: Decodable>(_ op: String, _ id: String, _ fields: [String: JSONValue], timeout: Duration,
-                                       as type: T.Type) async throws -> T {
+                                       as type: T.Type, route: (@Sendable () async throws -> T)? = nil) async throws -> T {
         var args = fields
         args["op"] = .string(op)
         args["machine"] = .string(id)
         // A Worker machine's call through the daemon takes the cmux API's own route, as it did when
         // the app sent it itself: the daemon keeps no client session between calls.
         let viaDaemon = { [self] () async throws -> T in
+            if let route { return try await route() }
             var sent = args
             if !sendsStackSession { sent["route"] = .string("proxy") }
             if T.self == Ignored.self, let ignored = Ignored() as? T {
