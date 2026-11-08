@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextSidebar
+import CmuxNextWindowRules
 import Foundation
 
 /// `agent.openSessionWorkspace`: a new workspace whose selected tab is the
@@ -147,8 +148,10 @@ enum AgentSessionWorkspace {
     @discardableResult
     @MainActor static func expectPlacement(_ id: String, group: String?, top: Bool, parent: AgentSessionParents.Identity?,
                                            window: String? = nil, windows: WindowManager) -> (slot: WorkspaceSlot?, rule: NewWorkspaceDefaultSlot?) {
+        // The placement is cmux-window-rules `chat::agent::session_placement`; no answer places it like Cmd-N.
+        let placement = WindowRules().sessionPlacement(group: group != nil, top: top)
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
-        if let group {
+        if let group, placement?.joinsGroup == true {
             // The daemon lists it loose; the pass that first lists it sends the join (``GroupJoinRows``), or this
             // placement does when it runs first: one join, and the row draws in its group from its first frame.
             PendingWorkspaceRows.shared.groupJoins.hold(id, group: group)
@@ -157,11 +160,17 @@ enum AgentSessionWorkspace {
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
             }
         }
-        let own = group == nil && !top ? AgentSessionParents.workspace(of: parent, in: windows.services.machines.allWorkspaces.map { $0.0 }) : nil
+        let own = placement?.belowCaller == true
+            ? AgentSessionParents.workspace(of: parent, in: windows.services.machines.allWorkspaces.map { $0.0 }) : nil
         let slot = own.flatMap { WorkspaceSlot.belowGrouped($0, in: windows.controllers.flatMap { $0.sidebar.model.sections }) }
-        let rule = top ? NewWorkspaceDefaultSlot(placement: .top, current: nil, named: true) : NewWorkspacePlacements.rule(for: window, in: windows)
-        NewWorkspacePlacements.expect(id, in: window, slot: slot, byDefault: group == nil ? rule : nil, then: join, windows: windows)
-        return (slot, group == nil ? rule : nil)
+        let defaultSlot: WindowRules.SessionPlacement.DefaultSlot? = if let placement { placement.defaultSlot } else { .newWorkspace }
+        let rule: NewWorkspaceDefaultSlot? = switch defaultSlot {
+        case .top?: NewWorkspaceDefaultSlot(placement: .top, current: nil, named: true)
+        case .newWorkspace?: NewWorkspacePlacements.rule(for: window, in: windows)
+        case nil: nil
+        }
+        NewWorkspacePlacements.expect(id, in: window, slot: slot, byDefault: rule, then: join, windows: windows)
+        return (slot, rule)
     }
 
     /// The chat of a re-homed lane's new session as a tab of its predecessor's

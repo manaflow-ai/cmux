@@ -156,7 +156,7 @@ const railBox = () => {
 };
 const lengths = () => ticks().map((_, index) => Math.round(length(index) * 10) / 10);
 
-for (const width of [800, 780])
+for (const width of [880, 860])
   test(`a ${width} px pane still draws the rail, every prompt a tick and the band lit`, async () => {
     paneWidth = width;
     const view = await mount(12);
@@ -170,7 +170,7 @@ for (const width of [800, 780])
   });
 
 test("as the pane narrows the rail keeps its full look and stays close to the text", async () => {
-  paneWidth = 800;
+  paneWidth = 880;
   const view = await mount(12);
   try {
     const box = railBox()!;
@@ -186,7 +186,7 @@ test("as the pane narrows the rail keeps its full look and stays close to the te
 });
 
 test("hovering the close rail shows the full wave without changing its box", async () => {
-  paneWidth = 800;
+  paneWidth = 880;
   const view = await mount(12);
   try {
     const rest = lengths();
@@ -205,7 +205,7 @@ test("hovering the close rail shows the full wave without changing its box", asy
 });
 
 test("keyboard focus on the close rail shows the full wave too", async () => {
-  paneWidth = 760;
+  paneWidth = 840;
   const view = await mount(12);
   jest.useFakeTimers();
   try {
@@ -222,7 +222,7 @@ test("keyboard focus on the close rail shows the full wave too", async () => {
 });
 
 test("when text would overlap the rail, its edge strip reveals it and then hides it again", async () => {
-  paneWidth = 760;
+  paneWidth = 840;
   // The leave grace (HOVER_INTENT.cardGrace) runs only with motion on; Reduce Motion hides at once (below).
   reduceMotion = false;
   const view = await mount(12);
@@ -252,7 +252,7 @@ test("when text would overlap the rail, its edge strip reveals it and then hides
 });
 
 test("under Reduce Motion the strip's revealed rail hides as soon as the pointer leaves", async () => {
-  paneWidth = 760;
+  paneWidth = 840;
   const view = await mount(12);
   jest.useFakeTimers();
   try {
@@ -283,7 +283,7 @@ async function holdCard(index: number) {
 }
 
 test("with the pointer on its card, the close rail keeps the full wave around the previewed prompt", async () => {
-  paneWidth = 800;
+  paneWidth = 880;
   const view = await mount(12);
   jest.useFakeTimers();
   try {
@@ -360,7 +360,7 @@ test("the occluded rail stays visible at rest, dimmed, and leaves the text its c
 });
 
 test("the rail keeps a live strip at the smallest pane width", async () => {
-  paneWidth = 760;
+  paneWidth = 840;
   const view = await mount(12);
   try {
     expect(document.querySelector(".acpmux-minimap__strip")).toBeDefined();

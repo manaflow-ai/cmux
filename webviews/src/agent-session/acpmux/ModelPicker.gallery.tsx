@@ -2,11 +2,12 @@
 import { componentEntry } from "../../gallery/format";
 import type { ChatAccounts } from "./chatAccounts";
 import type { ModelPickerProps } from "./modelPickerLayout";
+import type { UsedLook } from "./quickModelMenuModel";
 import type { Play } from "../../gallery/play";
 import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
 import { topModelsFor } from "./topModels";
 import { mergeModelCatalog } from "./modelCatalog";
-import { type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
+import { type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
 import { SOL_SEARCH_CATALOG, SOL_SEARCH_QUERY } from "../../gallery/fixtures/modelSearch";
 
 /// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context.
@@ -289,16 +290,37 @@ const quickSlider: ModelPickerProps = {
   },
 };
 
-/// A started Claude chat can fork to Codex, excluding another Claude-family profile.
+/// A started Claude chat can fork to Codex, excluding another Claude-family profile. Codex's models
+/// list and pick as a New Tab's do (Leo 2026-11-06: "Everybody wants to see the models"); a pick of
+/// one is held for the next message, which forks.
 const startedFork: ModelPickerProps = {
   ...quick,
+  harness: "claude",
+  model: curated.catalog.find((entry) => entry.id === "claude")!.models[0]!.id,
   catalog: [
     ...curated.catalog,
     { ...curated.catalog.find((entry) => entry.id === "claude")!, id: "claude-work", name: "Claude (work)" },
   ],
   harnessFixed: true,
-  fork: { to: () => undefined, ready: true, targets: new Set(["codex"]) },
+  fork: { targets: new Set(["codex"]), hold: () => undefined },
 };
+
+/// The same chat with a Codex model held for its next message: the chip names it with its effort
+/// and the fork mark, and the menus mark what the chat ran in `used`'s look. `glyph` ships (the
+/// history glyph after the running model and its provider, a hairline ring on the chat's own tab);
+/// `dot` and `caption` are the versions it was chosen over.
+const heldCodex = curated.catalog.find((entry) => entry.id === "codex")!.models[0]!;
+const startedHeld = (used: UsedLook): ModelPickerProps => ({
+  ...startedFork,
+  label: heldCodex.name ?? heldCodex.id,
+  detail: "High",
+  fork: {
+    targets: new Set(["codex"]),
+    hold: () => undefined,
+    held: { harness: "codex", model: heldCodex.id, effort: "high", name: "Codex" },
+    used,
+  },
+});
 
 /// A short New Tab/chat pane with 48 installed accounts: the menu must cap to its window and
 /// let the Account list scroll to its last row without an empty spacer.
@@ -334,6 +356,16 @@ const openQuick: Play = async (ctx) => {
 const openColumns: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null);
+};
+
+/// Opens the columns on the chat's own tab, where the "used here" marks show beside the hold.
+const openOwnTab: Play = async (ctx) => {
+  await openColumns(ctx);
+  await ctx.click({ selector: '.acpmux-cols-tab[aria-label="Claude Code"]' });
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelector(".acpmux-cols [role=listbox] :is(.acpmux-used-mark, .acpmux-used-caption)") !== null,
+  );
 };
 
 /// The columns' account avatar opens its card, which lists the harness's other accounts.
@@ -519,7 +551,6 @@ export default componentEntry<GalleryProps>({
     "agent-session/acpmux/QuickModelMenu.tsx#QuickModelMenu",
     "agent-session/acpmux/QuickModelColumns.tsx#QuickModelColumns",
     "ui/ScrollArea.tsx#ScrollArea",
-    "agent-session/acpmux/HarnessHealthNotice.tsx#UpdateOfferContext",
   ],
   styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css"), import("./composerControls.css")]),
   load: () =>
@@ -607,18 +638,24 @@ export default componentEntry<GalleryProps>({
       },
       play: openQuick,
     },
-    // The same chat where it can fork (Leo 2026-10-22: "can expose as fork"): the whole rail, and
-    // the Codex tab offers Fork to Codex in place of its models.
-    "started-chat-fork": {
-      props: startedFork,
+    // A Codex model held for the next message: the chip names it with the fork mark, and the menu
+    // opens on the Codex tab with the held row checked and its effort shown. Shipped look (`glyph`).
+    "started-chat-held": { props: startedHeld("glyph"), play: openColumns },
+    // The "used here" mark's versions, each on the chat's own tab beside the held Codex pick, the
+    // rail listing every harness the chat can fork to (Leo 2026-11-06: "Everybody wants to see the
+    // models").
+    // C, shipped: the history glyph after the running model, a hairline ring on its tab.
+    "started-chat-used-glyph": { props: startedHeld("glyph"), play: openOwnTab },
+    // A: a dot after the running model's name and on its tab.
+    "started-chat-used-dot": { props: startedHeld("dot"), play: openOwnTab },
+    // B: "In this chat" after the running model's name; its tab a dot in the corner.
+    "started-chat-used-caption": { props: startedHeld("caption"), play: openOwnTab },
+    // The full picker with the same hold: the rail's Claude tab carries the ring, Codex's row the check.
+    "started-chat-held-full": {
+      props: { ...startedHeld("glyph"), quick: undefined },
       play: async (ctx) => {
-        await openColumns(ctx);
-        await ctx.click({ selector: '.acpmux-cols-tab[aria-label="Codex"]' });
-        await ctx.waitFor(() =>
-          [...ctx.document.querySelectorAll(".acpmux-cols [role=listbox] [role=button]")].some(
-            (row) => row.textContent === "Fork to Codex",
-          ),
-        );
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp-harness[data-used="glyph"]') !== null);
       },
     },
     // Its account card lists the signed-in routes, separate from named launch harnesses.

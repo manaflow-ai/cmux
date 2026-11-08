@@ -26,10 +26,13 @@ extension SidebarDocument {
         let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.sidebarDoc) }
         let store = SidebarDocStore(remote: wrapping(DaemonSidebarDocRemote(connection: { local.connection }, serves: serves)))
         self.store = store
-        // Under `top` a new workspace lists at the daemon's slot for it until its item comes (sidebar-ordering-DESIGN.md);
-        // `afterCurrent` keeps its row at the window's slot (PendingWorkspaceRows), `bottom` lists it last.
-        docSections.placesNewRowsFirst = { [weak services] in
-            (services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback) == .top
+        // A new workspace lists at the daemon's slot until its item comes: below the active window's current one (none on Home: first).
+        docSections.newRowsPlace = { [weak services] in
+            switch services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementDefault {
+            case .top: .first
+            case .bottom: .last
+            case .afterCurrent: services?.windows.active.flatMap { $0.state.page == nil ? $0.state.workspaceID : nil }.map(SidebarDocSections.NewRowsPlace.below) ?? .first
+            }
         }
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
         store.newItemRoom = { [weak services, weak self] in self?.room(services?.windows.active?.state.profileID.rawValue) }

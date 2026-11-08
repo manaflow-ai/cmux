@@ -10,6 +10,10 @@
 //! A group's `members` list its workspace and item rows in drawn order; an
 //! item is named by the app's own `ref` (item ids need not be unique).
 //!
+//! A workspace's `creator` links it under the workspace that made it (an
+//! agent's or a script's); `creator` keeps every edit inside that tree and
+//! `tree` draws it (depth, guide lines, collapsed count).
+//!
 //! Also here: the keyboard reorder's next slot ([`keyboard_target`]), the
 //! group ordering verbs' index ([`group_index`]), the named-group rules
 //! (`names`) and one window's placement mapped to the daemon's order
@@ -18,11 +22,15 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 
+mod creator;
+#[cfg(test)]
+mod creator_tests;
 mod names;
 mod order;
 mod placement;
 #[cfg(test)]
 mod tests;
+pub mod tree;
 
 pub use names::{
     NamedGroup, NamedRow, group_named, predecessor, same_group_name, valid_group_name,
@@ -51,10 +59,17 @@ impl SectionId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Workspace {
     pub id: String,
     pub machine: String,
+    /// The public id of the workspace that made this one: it lists right
+    /// after that one's subtree, in its group or section.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creator: Option<String>,
+    /// Its children are hidden behind a count.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub collapsed_children: bool,
 }
 
 /// A group member row: a workspace, or a link, tab or app item.
@@ -187,6 +202,19 @@ pub enum Intent {
     ToggleGroup {
         group: String,
     },
+    /// Breaks the creator links of `ids`; each lists after its old creator's subtree.
+    Detach {
+        ids: Vec<String>,
+    },
+    /// Links `ids` under `creator`, right after its subtree in its group or section.
+    Attach {
+        ids: Vec<String>,
+        creator: String,
+    },
+    /// Hides or shows a creator's children.
+    ToggleChildren {
+        id: String,
+    },
 }
 
 /// Where a workspace sits: its section, its node, and its index among a
@@ -212,8 +240,9 @@ fn default_true() -> bool {
     true
 }
 
-/// The edit's result. `changed`: the intent had a structural effect (false
-/// for a refused one). `sections`: the new tree, or None when it is the
+/// The edit's result. `changed`: the intent was accepted and changed the
+/// tree (false for a refused one or one that leaves the tree as it was, as a
+/// flag set to its own value; `changed` implies `sections`). `sections`: the new tree, or None when it is the
 /// request's (a refused edit may still have changed it, as a pin that added
 /// an empty Pinned section).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -225,9 +254,10 @@ pub struct EditReply {
 /// Runs one edit (`EditRequest`).
 pub fn edit(request: &EditRequest) -> EditReply {
     let mut sections = request.sections.clone();
-    let changed = apply_with(&request.intent, &mut sections, request.prunes);
+    let applied = apply_with(&request.intent, &mut sections, request.prunes);
     let sections = (sections != request.sections).then_some(sections);
-    EditReply { changed, sections }
+    // An accepted intent that leaves the tree as it was (a flag set to its own value) changed nothing.
+    EditReply { changed: applied && sections.is_some(), sections }
 }
 
 /// Applies an intent. False when it was refused or had no structural effect.
@@ -236,6 +266,15 @@ pub fn apply(intent: &Intent, sections: &mut Vec<Section>) -> bool {
 }
 
 fn apply_with(intent: &Intent, sections: &mut Vec<Section>, prunes: bool) -> bool {
+    let listed = creator::listed(sections);
+    if !apply_intent(intent, sections, prunes) {
+        return false;
+    }
+    creator::settle(sections, &listed, intent);
+    true
+}
+
+fn apply_intent(intent: &Intent, sections: &mut Vec<Section>, prunes: bool) -> bool {
     match intent {
         Intent::Reorder { ids, position } => reorder(ids, position, sections, prunes),
         Intent::Move { ids, group } => move_to_group(ids, group, sections),
@@ -269,6 +308,9 @@ fn apply_with(intent: &Intent, sections: &mut Vec<Section>, prunes: bool) -> boo
         Intent::ToggleGroup { group } => {
             mutate_group(group, sections, |group| group.collapsed = !group.collapsed)
         }
+        Intent::Detach { ids } => creator::detach(ids, sections),
+        Intent::Attach { ids, creator } => creator::attach(ids, creator, sections),
+        Intent::ToggleChildren { id } => creator::toggle_children(id, sections),
     }
 }
 
@@ -327,10 +369,17 @@ pub enum Request {
         shown: Vec<String>,
         rowed: Vec<String>,
     },
+    /// The creator tree's rows ([`tree::rows`]); `indent` is the step in points.
+    Tree {
+        sections: Vec<Section>,
+        #[serde(default = "tree::default_indent")]
+        indent: u32,
+    },
 }
 
 /// Answers one request as JSON: an [`EditReply`], a position or index (null
-/// for none), a list of group ids, a bool, an index or a list of placements.
+/// for none), a list of group ids, a bool, an index, a list of placements or
+/// the tree's rows.
 pub fn respond(request: &Request) -> serde_json::Result<Vec<u8>> {
     match request {
         Request::Edit(edit_request) => serde_json::to_vec(&edit(edit_request)),
@@ -361,6 +410,9 @@ pub fn respond(request: &Request) -> serde_json::Result<Vec<u8>> {
         }
         Request::PersonalPlacements { moving, local_index, shown, rowed } => {
             serde_json::to_vec(&personal_placements(moving, *local_index, shown, rowed))
+        }
+        Request::Tree { sections, indent } => {
+            serde_json::to_vec(&tree::TreeReply { rows: tree::rows(sections, *indent) })
         }
     }
 }
@@ -456,6 +508,9 @@ pub(crate) fn wire(index: usize) -> i64 {
 }
 
 fn reorder(ids: &[String], position: &Position, sections: &mut [Section], prunes: bool) -> bool {
+    // A creator carries its children, as a group carries its subgroups.
+    let (ids, position) = creator::carrying(ids, position, sections);
+    let (ids, position) = (ids.as_slice(), &position);
     let Some(target) = sections.iter().find(|section| section.id == position.section) else {
         return false;
     };
@@ -506,14 +561,42 @@ fn move_to_group(ids: &[String], group: &str, sections: &mut [Section]) -> bool 
     reorder(ids, &position, sections, true)
 }
 
+/// Moves a group and its subgroups (listed flat after it) as one block.
+/// `index` counts the section's rows with only the group itself taken out
+/// (`group_index`'s coordinates), so its own subgroups before that slot
+/// move the block up by their count.
 fn reorder_group(group: &str, index: i64, sections: &mut [Section]) -> bool {
     let Some((s, n)) = locate_group(group, sections) else { return false };
     let Some(section) = sections.get_mut(s) else { return false };
-    let nodes = &mut section.nodes;
-    let node = nodes.remove(n);
-    let clamped = clamp(index, nodes.len());
-    nodes.insert(clamped, node);
-    clamped != n
+    let mut subtree: HashSet<&str> = HashSet::from([group]);
+    let mut moving = vec![false; section.nodes.len()];
+    for (at, node) in section.nodes.iter().enumerate() {
+        let Node::Group { group: listed } = node else { continue };
+        let inside =
+            at == n || listed.parent.as_deref().is_some_and(|parent| subtree.contains(parent));
+        if inside && let Some(flag) = moving.get_mut(at) {
+            subtree.insert(&listed.id);
+            *flag = true;
+        }
+    }
+    // The slot in the rows without the group, less the subgroups before it.
+    let slot = clamp(index, section.nodes.len().saturating_sub(1));
+    let staying_before = |at: usize| if at > n { at.saturating_sub(1) } else { at };
+    let below = moving
+        .iter()
+        .enumerate()
+        .filter(|(at, flag)| **flag && *at != n && staying_before(*at) < slot)
+        .count();
+    let before = section.nodes.clone();
+    let mut block = Vec::new();
+    let mut rest = Vec::new();
+    for (node, flag) in std::mem::take(&mut section.nodes).into_iter().zip(moving) {
+        if flag { block.push(node) } else { rest.push(node) }
+    }
+    let at = slot.saturating_sub(below).min(rest.len());
+    rest.splice(at..at, block);
+    section.nodes = rest;
+    section.nodes != before
 }
 
 fn create_group(
@@ -523,7 +606,7 @@ fn create_group(
     index: Option<i64>,
     sections: &mut [Section],
 ) -> bool {
-    let ordered = tree_order(ids, sections);
+    let ordered = tree_order(&creator::with_subtrees(ids, sections), sections);
     // The group forms at `target` (an onto-drop's target row), else at the first workspace in tree order.
     let first = target
         .filter(|target| ordered.iter().any(|id| id == target))
@@ -582,6 +665,7 @@ fn ungroup(id: &str, sections: &mut [Section]) -> bool {
         })
         .collect();
     section.nodes.splice(n..n, loose);
+    lift_orphans(section);
     true
 }
 
@@ -594,6 +678,7 @@ fn close_group(id: &str, sections: &mut [Section]) -> bool {
         group.collapsed = true;
     } else {
         section.nodes.remove(n);
+        lift_orphans(section);
     }
     true
 }
@@ -719,6 +804,22 @@ fn prune_empty_groups(
             }
             Node::Workspace { .. } | Node::Item { .. } => true,
         });
+        lift_orphans(section);
+    }
+}
+
+/// A subgroup whose parent left its section (pruned, closed or ungrouped)
+/// lists at the top level, as the app's depth pass draws it
+/// (`resolvingGroupDepths`), instead of naming a group that is gone.
+fn lift_orphans(section: &mut Section) {
+    let listed: HashSet<String> =
+        section.nodes.iter().filter_map(|node| node.group_id().map(str::to_owned)).collect();
+    for node in &mut section.nodes {
+        if let Node::Group { group } = node
+            && group.parent.as_ref().is_some_and(|parent| !listed.contains(parent))
+        {
+            group.parent = None;
+        }
     }
 }
 

@@ -82,8 +82,9 @@ impl Hub {
             return Err(RpcError::invalid_params("fixed session ids cannot adopt another chat"));
         }
         let caller_selected_id = fixed_id.is_some();
-        // Harness discovery and launcher checks finish in the background.
-        self.wait_startup().await;
+        // Harness discovery and launcher checks finish in the background. Bounded: a startup that
+        // never ends (a wedged agent host's adoption) answers with its phase, not silence.
+        self.wait_startup_within(super::startup::NEW_SESSION_STARTUP_WAIT).await?;
         // Mutations wait for the complete index. A later durable check also refuses
         // malformed or partially written chats that the startup loader could not install.
         if caller_selected_id {
@@ -107,6 +108,7 @@ impl Hub {
             route,
             subsession,
             lineage,
+            created_by,
             disallowed_tools,
             checked_cwd,
             additional_directories,
@@ -277,6 +279,7 @@ impl Hub {
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
+        meta.created_by = created_by;
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
@@ -353,9 +356,9 @@ impl Hub {
                     None => unique_name_among(&sessions, agent),
                 },
             };
+            meta.wait_start = wait_start;
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
-            session.wait_start.store(wait_start, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 fork_from.clone();
             // Read before the session is published: a stop from then on ends its first start.
@@ -923,8 +926,8 @@ impl Hub {
             // (`cpu_class.rs`, item 3). Each try has the whole budget: a caller waits up to twice
             // that (Chief's `SESSION_NEW_DEADLINE`).
             // A start that waits on its harness ends with None only when its harness did no work
-            // for `START_HUNG` (`StartWatch`): a fault, said apart from a missed deadline, which
-            // the Chief retries as a slow machine.
+            // for `START_HUNG` (`StartWatch`): said apart from a missed deadline, so its caller
+            // does not wait on it again; Chief starts a fresh harness (`turn::is_hung_start`).
             let hung =
                 !session.person.load(Ordering::SeqCst) && session.wait_start.load(Ordering::SeqCst);
             if let Some(state) = harness.background().filter(|_| !retried) {
@@ -1343,7 +1346,16 @@ impl Hub {
                     return Err(RpcError::internal(format!("claude did not start: {}", e.message)));
                 }
             }
-            let state = child.claude_state().await.unwrap_or_default();
+            // A hosted agent's host that did not answer (the shutdown detached it, or it ended)
+            // told nothing of its session: the start fails, never recording no id over the one
+            // it was given and handing out an agent with none ("no agent session").
+            let Some(state) = child.claude_state().await else {
+                return Err(if self.shutting_down() {
+                    super::shutdown::shutting_down_error()
+                } else {
+                    RpcError::internal("the agent host did not answer as its agent started")
+                });
+            };
             let (sid, modes, opts) = (state.session_id, state.modes, state.config_options);
             {
                 let mut m = session.meta.lock().unwrap();
@@ -1414,6 +1426,10 @@ impl Hub {
                 match res {
                     Ok(v) => {
                         self.absorb_session_response(session, &v);
+                        self.health.record_acp_auth_success(
+                            &meta.harness,
+                            "ACP session/load authenticated the harness",
+                        );
                         self.append(
                             session,
                             "mux",
@@ -1457,6 +1473,10 @@ impl Hub {
                 m.set_agent_session_id(Some(sid), "non-claude");
             }
             self.absorb_session_response(session, &res);
+            self.health.record_acp_auth_success(
+                &meta.harness,
+                "ACP session/new authenticated the harness",
+            );
             if had_history {
                 session.rehydrate.store(true, Ordering::SeqCst);
                 self.append(
@@ -1612,6 +1632,7 @@ impl Hub {
             }
         }
         if !list.is_empty() {
+            self.recheck_live_models(agent, &list);
             self.known_models.lock().unwrap().insert(agent.to_owned(), list);
         }
     }
@@ -2049,7 +2070,10 @@ mod fixed_id_tests {
 /// wait bounds that.
 #[derive(Default)]
 struct StartWatch {
-    last: Option<crate::cpu_class::HarnessState>,
+    /// The read the next is judged against, and when it was taken. Kept until a later read
+    /// shows work or a [`WORK_WINDOW`](crate::cpu_class::WORK_WINDOW) has passed, so a short tick
+    /// sums a launcher's runtime ticks over a whole window instead of judging each alone.
+    last: Option<(crate::cpu_class::HarnessState, std::time::Duration)>,
     idle_since: Option<std::time::Duration>,
 }
 
@@ -2061,8 +2085,16 @@ impl StartWatch {
             self.idle_since = None;
             return false;
         };
-        let worked = self.last.as_ref().is_none_or(|last| state.worked_since(last));
-        self.last = Some(state.clone());
+        let (worked, window_passed) = match &self.last {
+            None => (true, true),
+            Some((last, at)) => {
+                let between = waited.saturating_sub(*at);
+                (state.worked_since(last, between), between >= crate::cpu_class::WORK_WINDOW)
+            }
+        };
+        if worked || window_passed {
+            self.last = Some((state.clone(), waited));
+        }
         if worked {
             self.idle_since = None;
             return false;
@@ -2113,8 +2145,9 @@ impl<'a> ReplayHold<'a> {
 }
 
 /// The error of a start whose harness did no work for `START_HUNG` (`StartWatch`): it waits on
-/// something no wait cures (input, a lock, a sign-in prompt). Not retryable, and worded apart from
-/// a deadline so its creator shows it rather than waiting again.
+/// something no wait cures (input, a lock, a sign-in prompt). Not retryable on this harness (it
+/// is ended), and worded apart from a deadline so its creator does not wait on it again: Chief
+/// tries a fresh harness through its reply ledger and, if none starts, says so (#36028).
 fn start_hung(harness: &crate::cpu_class::HarnessSeen) -> RpcError {
     let mut e = RpcError::new(
         -32000,

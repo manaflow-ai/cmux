@@ -1,6 +1,6 @@
 import { type QueueEdit } from "../model";
 import type { IncomingMessage } from "../conversation/incomingMessage";
-import { markSentNow } from "../conversation/PendingSteer";
+import { markSentNow } from "../conversation/pendingSteerModel";
 import { callNative } from "../callNative";
 
 /// Resumes the chat's paused messages with another agent (conversation/AgentPairNote.tsx).
@@ -14,8 +14,10 @@ export const editQueued = (promptId: string, edit: QueueEdit) =>
     return ok;
   });
 
-/// The recap's ×: the client drops its row (direct.ts dismissRecap), so no empty slot stays.
-export const dismissRecap = (rowId: string) => void window.cmuxAcpmuxActions?.["chat.recap.dismiss"]?.({ rowId });
+/// The recap's ×: the client drops its row (direct.ts dismissRecap), so no empty slot stays. The key
+/// names the chat, so a press on a chat a switch still shows never drops the next chat's recap.
+export const dismissRecap = (rowId: string, key: string) =>
+  void window.cmuxAcpmuxActions?.["chat.recap.dismiss"]?.({ rowId, key });
 
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
 export const openOfferChat = (sessionId: string) =>

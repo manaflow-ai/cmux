@@ -89,6 +89,26 @@ uint8_t cmux_tab_drop_edge_pane_edge(uint8_t edge);
 uint8_t cmux_pane_edge_opposite(uint8_t edge);
 uint8_t cmux_pane_edge_drop_zone(uint8_t edge);
 uint8_t cmux_pane_edge_split_axis(uint8_t edge);
+/* The store's optimistic overlay rules, operation "optimistic" of
+ * cmux_layout_reducer_json (cmux-layout-reducer optimistic.rs). One request
+ * tagged by "op"; the answer is the view the pending intent shows, or null
+ * when it shows nothing:
+ *   split              {screen, target, dir, ratio, leaf, split_id, column?, row?} -> {layout, columns, pane_at}
+ *   dock               {screen, leaf, column, dock} -> {layout, columns}
+ *   remove_pane        {screen, pane} -> {layout, columns}
+ *   move_tab           {same_pane, from, index, target_count} -> {final}
+ *   place_workspace    {groups, from, kind, group?, index?} -> {index}
+ *   row_heights        {rows, heights} -> {heights}
+ *   daemon_move_index  {visible, moving, index, held} -> {final, current}
+ * Layout nodes and columns use the daemon's wire shapes. Called per intent
+ * apply and overlay restore, never per frame. */
+/* New > Kind > Placement, operation "new_placement" of cmux_layout_reducer_json
+ * (cmux-layout-reducer new_placement.rs): open a terminal, browser, agent chat
+ * or New Tab Page at one of the fork's ten places.
+ *   {kind, placement, tabSplit?} -> {op, edge?, left?, make}
+ * op is split (edge right|left|top|bottom), column (left), row, tab,
+ * workspace or window; make is in_place or made_then_moved. Called once per
+ * New action run. */
 /* Focus operations of cmux_layout_reducer_json (cmux-focus-core wire.rs):
  *   focus_input_world   InputObservation -> {violations:[{invariant,window?,detail}], unsettled:[window]}
  *   focus_input_step    {old, event, new, window?} (FocusState read views, a FocusEvent) -> {violations}
@@ -112,6 +132,11 @@ uint8_t cmux_pane_edge_split_axis(uint8_t edge);
  *   view(request)        {live, window, filter?, collapsed?} -> [row]
  *                        row = {key, kind, section, parent?, depth, item?, dimmed, ref?, collapsed?}
  *   drag_begin(items)    {items:[id]} -> {row_key:{before,into,after,refusal?}}
+ *   project(request)     view's request -> {sections, machines, items, machine_sections, machine_order,
+ *                        unplaced, band_groups, host_groups, archived, group_sorts, pinned_in_group}
+ *                        (the rows regrouped as the list draws them; its rows are the last view's)
+ *   plan(request)        {plan:"subgroup", parent, id, name, color?} | {plan:"host_group", session, on?, title?}
+ *                        -> {"ok":true,"ops":[op]} | {"refusal":"unknown_group"|"too_deep"}
  */
 /*
  * The sidebar's drop rules as a handle per drag (drag_handle.rs). The rows and
@@ -172,6 +197,8 @@ char *cmux_sidebar_mirror_apply_batch(CmuxSidebarMirror *mirror, const uint8_t *
 char *cmux_sidebar_mirror_apply_intent(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
 char *cmux_sidebar_mirror_view(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
 char *cmux_sidebar_mirror_drag_begin(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
+char *cmux_sidebar_mirror_project(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
+char *cmux_sidebar_mirror_plan(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
 
 /*
  * Typed replies (bead cx-x5jpp): the same calls, read with no JSON decode.
@@ -962,6 +989,8 @@ typedef struct CmuxSidebarFaceRow {
     CmuxSidebarFaceRange status_line;
     uint64_t last_activity_ms;
     double progress_value;
+    uint32_t front_chat;       /* the chat Copy Agent Identifier copies: the front tab's, else the first chat */
+    uint32_t reserved2;
 } CmuxSidebarFaceRow;
 
 typedef struct CmuxSidebarFaceListedTab {

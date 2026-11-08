@@ -42,7 +42,7 @@ fn the_facts_name_the_machines_paths() {
 #[test]
 fn a_start_plan_writes_then_starts() {
     let request = json!({"kind": "lane", "name": "n", "startId": "ab",
-        "repo": {"display": "o/r", "directory": "work/r", "record": "{}", "step": "#!/bin/sh\n"}});
+        "repo": {"owner": "o", "name": "r"}});
     let (code, plan) = call(c"cloud_bootstrap_start_plan", &request);
     assert_eq!(code, OK);
     let steps = plan["steps"].as_array().unwrap();
@@ -121,4 +121,23 @@ fn the_create_rules_answer() {
         &json!({"code": "cmux.cloud.indeterminate", "attempt": 1, "attempts": 3}),
     );
     assert_eq!(retries, json!({"retries": true}));
+}
+
+#[test]
+fn a_repo_spec_parses_or_says_why() {
+    let (code, parsed) =
+        call(c"cloud_machine_repo_parse", &json!({"spec": "https://gitlab.com/g/p@v1"}));
+    assert_eq!(code, OK);
+    assert_eq!(parsed["repo"]["owner"], "g");
+    assert_eq!(parsed["repo"]["ref"], "v1");
+    assert_eq!(parsed["repo"]["isGitHub"], false);
+    assert!(parsed["repo"]["step"].as_str().unwrap().contains("host='gitlab.com'"));
+    let (_, refused) =
+        call(c"cloud_machine_repo_parse", &json!({"spec": "https://x:y@github.com/o/r"}));
+    assert_eq!(refused, json!({"invalid": "credentialsInURL"}));
+    let (_, described) = call(c"cloud_machine_repo_describe", &json!({"owner": "o", "name": "r"}));
+    assert_eq!(described["spec"], "o/r");
+    assert_eq!(described["url"], "https://github.com/o/r.git");
+    let (_, is_ref) = call(c"cloud_machine_repo_is_ref", &json!({"ref": "a..b"}));
+    assert_eq!(is_ref, json!({"isRef": false}));
 }

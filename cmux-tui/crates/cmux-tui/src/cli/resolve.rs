@@ -767,6 +767,19 @@ pub(super) fn call_as(
     idempotency_key: Option<&str>,
     credential: Option<&str>,
 ) -> Result<Value, Failure> {
+    call_as_on(reader, None, operation, params, idempotency_key, credential)
+}
+
+/// [`call_as`] on the daemon at `socket`, which an older daemon's error
+/// names in its restart fix (cli/older_daemon.rs).
+pub(super) fn call_as_on(
+    reader: &mut Reader,
+    socket: Option<&Path>,
+    operation: ResourceOperation,
+    params: Map<String, Value>,
+    idempotency_key: Option<&str>,
+    credential: Option<&str>,
+) -> Result<Value, Failure> {
     let id = random_request_id().map_err(|error| Failure::Transport(format!("cmux: {error}")))?;
     let mut request = json!({
         "protocol": PROTOCOL,
@@ -785,7 +798,10 @@ pub(super) fn call_as(
     send_request(reader, &encoded)?;
     match read_response(reader, &id).map_err(response_failure)? {
         Ok(result) => Ok(result),
-        Err(error) => Err(Failure::Resource(error)),
+        Err(error) => Err(Failure::Resource(
+            super::older_daemon::replace(reader, &error, operation.wire_name(), socket)
+                .unwrap_or(error),
+        )),
     }
 }
 
