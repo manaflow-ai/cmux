@@ -157,6 +157,24 @@ if [ -n "$CACHED_ARCHIVE" ] && [ -f "$CACHED_ARCHIVE" ]; then
   fi
 fi
 
+# The API URL of the release's archive asset, or nothing when the release or
+# asset is missing or the API cannot be read.
+ghosttykit_api_asset_url() {
+  local release
+  release="$(curl --fail --silent --show-error --location --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" --max-time 60 \
+    ${GH_TOKEN:+-H "Authorization: Bearer $GH_TOKEN"} \
+    "https://api.github.com/repos/manaflow-ai/ghostty/releases/tags/$TAG")" || return 1
+  printf '%s' "$release" | ARCHIVE_NAME="$ARCHIVE_NAME" python3 -c '
+import json, os, sys
+for asset in json.load(sys.stdin).get("assets", []):
+    if asset.get("name") == os.environ["ARCHIVE_NAME"]:
+        print(asset["url"])
+        sys.exit(0)
+sys.exit(1)
+'
+}
+DOWNLOAD_HEADER=""
+
 # Each attempt is its own curl process so --continue-at resumes from the bytes
 # already on disk; curl's built-in --retry starts the file over.
 if [ "$FROM_CACHE" -eq 0 ]; then
@@ -165,7 +183,7 @@ if [ "$FROM_CACHE" -eq 0 ]; then
   while :; do
     attempt=$((attempt + 1))
     status=0
-    curl --fail --show-error --location \
+    curl --fail --show-error --location ${DOWNLOAD_HEADER:+-H "$DOWNLOAD_HEADER"} \
       --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" \
       --max-time "$DOWNLOAD_MAX_TIME" \
       --speed-limit "$DOWNLOAD_STALL_BYTES_PER_SECOND" \
@@ -177,6 +195,18 @@ if [ "$FROM_CACHE" -eq 0 ]; then
       break
     fi
     if [ "$attempt" -gt "$DOWNLOAD_RETRIES" ]; then
+      # github.com's release download path answered 504 for over an hour on
+      # 2026-11-08 while the API's asset endpoint served the same files. Try
+      # that once before giving up; the pinned checksum checks what it sends,
+      # and a release that does not exist still fails here at once.
+      if [ -z "${GHOSTTYKIT_URL:-}" ] && [ -z "$DOWNLOAD_HEADER" ] && api_url="$(ghosttykit_api_asset_url)"; then
+        echo "Download from github.com failed (curl exit $status); trying the GitHub API asset endpoint" >&2
+        DOWNLOAD_URL="$api_url"
+        DOWNLOAD_HEADER="Accept: application/octet-stream"
+        rm -f "$ARCHIVE_PATH"
+        attempt=0
+        continue
+      fi
       echo "Failed to download $ARCHIVE_NAME after $attempt attempts (curl exit $status)" >&2
       exit 1
     fi
