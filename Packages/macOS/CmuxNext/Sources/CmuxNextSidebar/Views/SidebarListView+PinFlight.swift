@@ -90,6 +90,16 @@ struct SidebarPinFlightSource {
 
 /// The sources the apply running now hands off: the list rows a pin moves into a block and the block items an unpin
 /// moves back into the list, by workspace.
+/// MOTION LAB (branch motion-lab-nomerge only, never merged): false plays P0, the pin path before the flight (Debug >
+/// Motion Lab); every build outside the lab flies.
+@MainActor func labPinFlies() -> Bool {
+    #if DEBUG || CMUX_BENCH_HOOKS
+    DesignSettings.shared.motionLab.pinFlies
+    #else
+    true
+    #endif
+}
+
 struct SidebarPinFlightSources {
     var pins: [WorkspaceID: SidebarPinFlightSource] = [:]
     var unpins: [WorkspaceID: SidebarPinFlightSource] = [:]
@@ -126,7 +136,7 @@ extension SidebarListViewComponents {
     /// realized rows and the blocks' items are read (O(realized + pinned)). Empty when the apply does not move rows.
     func pinFlightSources(from old: SidebarLayout, to layout: SidebarLayout, moves: Bool) -> SidebarPinFlightSources {
         var sources = SidebarPinFlightSources()
-        guard moves, drag == nil, settling == nil, landing == nil else { return sources }
+        guard moves, labPinFlies(), drag == nil, settling == nil, landing == nil else { return sources }
         let pinned = blockWorkspaces(blocks)
         for (key, view) in rowViews {
             guard case let .workspace(id) = key, layout.row(for: key) == nil, pinned.contains(id), !view.isHidden else { continue }

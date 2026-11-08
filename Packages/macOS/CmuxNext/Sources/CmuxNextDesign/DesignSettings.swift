@@ -139,6 +139,8 @@ public final class DesignSettings {
     /// ZOOM VARIANTS film selector (``FilmZoomVariant``; DEBUG and bench builds only, never ships): the launch variables'
     /// selection, changed at run time by `debug.frames` `zoom_variant`.
     @ObservationIgnored public var filmZoom = FilmZoomVariant(environment: ProcessInfo.processInfo.environment)
+    /// MOTION LAB (``MotionLab``; Debug > Motion Lab..., branch motion-lab-nomerge only): the live close, zoom and pin picks.
+    public let motionLab = MotionLab()
     #endif
     /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
     public var homeChannelsEnabled = false

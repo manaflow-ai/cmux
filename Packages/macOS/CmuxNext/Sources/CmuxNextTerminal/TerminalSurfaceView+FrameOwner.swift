@@ -132,6 +132,10 @@ extension TerminalSurfaceView {
     var programHoldTicks: UInt64 {
         guard followsKeyResize || isFollowingResizeGesture, !frameOwnership.programMissedHold else { return 0 }
         #if DEBUG || CMUX_BENCH_HOOKS
+        // MOTION LAB (never merged): "Redraw hold" off shows each size with no wait, for comparison.
+        if !DesignSettings.shared.motionLab.redrawHold { return 0 }
+        #endif
+        #if DEBUG || CMUX_BENCH_HOOKS
         // ZOOM VARIANTS films (m66, lead 03:2xZ): a film zoom (Z1-Z4) snaps the zoomed pane in the key's turn with its grid
         // (`keyPress`, the key-resize path), so its new size waits for the program's redraw like a key resize's, at most 2
         // refreshes (the shared hold's API with holdTicks 2). The panes it covers do not resize: no request, no grid.
@@ -335,7 +339,7 @@ extension TerminalSurfaceView {
     /// frame of the size whose grid the close owns waits for the program's redraw at it, for at most 2 refreshes from the
     /// send (lead: `request(view, holdTicks: 2, sentEpoch:)`). Any other size (a V6 growth step) does not wait.
     func filmHoldTicks(for size: CGSize) -> UInt64? {
-        guard let owned = frameOwnership.filmSnapGrid, let surface, !frameOwnership.programMissedHold else { return nil }
+        guard DesignSettings.shared.motionLab.redrawHold, let owned = frameOwnership.filmSnapGrid, let surface, !frameOwnership.programMissedHold else { return nil }
         let pixels = convertToBacking(size)
         var columns: UInt16 = 0, rows: UInt16 = 0
         guard pixels.width >= 1, pixels.height >= 1,

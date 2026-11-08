@@ -117,8 +117,11 @@ public struct FilmCloseVariant: Sendable, Equatable {
     public var curve: Curve
     /// The CURVE SET curve this selection plays ("K2"), nil for the 150 ms default (``curve`` and ``milliseconds``).
     public var named: String?
+    /// MOTION LAB (``MotionLab``): the shape the lab picked, with its time and slow motion; before ``named``.
+    public var custom: Shape?
     /// The shape a motion of this selection takes: the named curve, else ``curve`` over ``milliseconds``.
     public var shape: Shape {
+        if let custom { return custom }
         if let named, let shape = Shape.named[named] { return shape }
         switch curve {
         case .bezier: return .bezier(x1: 0.2, y1: 0, x2: 0, y2: 1, seconds: duration)
@@ -130,6 +133,7 @@ public struct FilmCloseVariant: Sendable, Equatable {
     /// surface is held at its final size, clipped by its growing frame) with a CURVE SET curve: the pane and divider
     /// frames move on that curve instead of the split spring. Nil with no curve named (the build's own close).
     public var frameCurve: Shape? {
+        if let custom, kind == .v0 || kind == .v6 { return custom }
         if kind == .v6 { return named.flatMap { Shape.named[$0] } ?? Shape.named["CUR"] }
         guard let named, let shape = Shape.named[named] else { return nil }
         switch kind {
@@ -199,6 +203,7 @@ public struct FilmCloseVariant: Sendable, Equatable {
     /// selection the next closes play and answers it. A film-only route on an existing probe, so the App gains no lines.
     @MainActor public static func select(_ command: String) -> [String: Any] {
         var film = DesignSettings.shared.filmClose
+        film.custom = nil // the film kit's words, not a Motion Lab pick
         for word in command.split(whereSeparator: { $0 == " " || $0 == ":" || $0 == "," }).dropFirst().map(String.init) {
             if let kind = kind(word) { film.kind = kind } else if let curve = Curve(rawValue: word.lowercased()) { (film.curve, film.named) = (curve, nil) }
             else if Shape.named[word.uppercased()] != nil { film.named = word.uppercased() } else if word.lowercased() == "nocurve" { film.named = nil }
@@ -216,7 +221,7 @@ public struct FilmCloseVariant: Sendable, Equatable {
     /// Reduce Motion) the value applies at once. `completion` runs when it ends (at once with no animation).
     @MainActor public func animate(_ layer: CALayer, _ keyPath: String, from: Any, to value: Any,
                                    completion: @escaping @MainActor () -> Void) {
-        guard Motion.panes.animatesMovement, duration > 0 || named != nil else {
+        guard Motion.panes.animatesMovement, duration > 0 || named != nil || custom != nil else {
             Motion.setModel(layer, keyPath, value)
             completion()
             return

@@ -219,7 +219,7 @@ extension SidebarListViewComponents {
         func drawsInBlock(_ id: WorkspaceID) -> Bool {
             let drawn = drawnInBlocks ?? blockDrawnWorkspaces()
             drawnInBlocks = drawn
-            return drawn.contains(id)
+            return labPinFlies() && drawn.contains(id)
         }
         let insertsWorkspace = spliced != nil || layout.rows.contains { row in
             if case let .workspace(id) = row.key { old.row(for: row.key) == nil && !drawsInBlock(id) } else { false }
@@ -253,7 +253,7 @@ extension SidebarListViewComponents {
         let reopened = animate ? Self.movedByThemselves(openingRows.keys, from: old, to: layout) : []
         // A pin or an unpin hands its workspace from a list row to a block item or back: the arriving view starts where
         // the leaving one is drawn now and moves on the rows' spring (`SidebarListView+PinFlight`).
-        if opensRows, !adopting { showFlownItems(to: layout) }
+        if opensRows, !adopting, labPinFlies() { showFlownItems(to: layout) }
         let flightSources = pinFlightSources(from: old, to: layout, moves: opensRows && !adopting)
         if !flightSources.pins.isEmpty { for region in blockRegions { region.flyingWorkspaces = Set(flightSources.pins.keys) } }
         var flights: [SidebarPinFlight] = []

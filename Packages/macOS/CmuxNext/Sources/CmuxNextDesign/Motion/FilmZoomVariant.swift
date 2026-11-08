@@ -70,6 +70,26 @@ public struct FilmZoomVariant: Sendable, Equatable {
 
     public var kind: Kind
     public var curve: Curve
+    /// MOTION LAB (``MotionLab``): the curve the lab picked, with its time and slow motion; before ``curve``.
+    public var custom: FilmProgressDriver.Curve?
+
+    /// The bezier this selection plays (control points and seconds); nil for a spring.
+    var bezier: (points: (Float, Float, Float, Float), seconds: Double)? {
+        switch custom {
+        case let .bezier(x1, y1, x2, y2, seconds)?: ((x1, y1, x2, y2), seconds)
+        case .spring?: nil
+        case nil: curve.bezier
+        }
+    }
+
+    /// The spring this selection plays (damping ratio and response); nil for a bezier.
+    var spring: (damping: Double, response: Double)? {
+        switch custom {
+        case let .spring(damping, response)?: (damping, response)
+        case .bezier?: nil
+        case nil: curve.spring
+        }
+    }
 
     public init(kind: Kind = .v0, curve: Curve = .k2) {
         self.kind = kind
@@ -95,6 +115,7 @@ public struct FilmZoomVariant: Sendable, Equatable {
     /// the next zooms play and answers it, with the spring's settle time to 0.5 pt over `travel` points (`travel=900`).
     @MainActor public static func select(_ command: String) -> [String: Any] {
         var film = DesignSettings.shared.filmZoom
+        film.custom = nil // the film kit's words, not a Motion Lab pick
         var travel = 900.0
         for word in command.split(whereSeparator: { $0 == " " || $0 == ":" || $0 == "," }).dropFirst().map(String.init) {
             if let kind = kind(word) { film.kind = kind } else if let curve = curve(word) { film.curve = curve }
@@ -104,7 +125,7 @@ public struct FilmZoomVariant: Sendable, Equatable {
         DesignSettings.shared.filmZoom = film
         var answer: [String: Any] = ["variant": film.kind.rawValue, "curve": film.curve.rawValue, "plays": film.active?.kind.rawValue ?? "V0",
                                      "duration_ms": film.duration * 1000]
-        if film.curve.spring != nil {
+        if film.spring != nil {
             answer["settle_ms"] = film.settleTime(travel: travel, within: 0.5) * 1000
             answer["overshoot_pt"] = film.driver.overshoot * travel // m68: must be < 0.5
         }
@@ -113,13 +134,13 @@ public struct FilmZoomVariant: Sendable, Equatable {
 
     /// The curve's length: a bezier's duration, a spring's settle time to 0.5 pt over 900 pt.
     public var duration: TimeInterval {
-        if let bezier = curve.bezier { return bezier.seconds }
+        if let bezier = self.bezier { return bezier.seconds }
         return settleTime(travel: 900, within: 0.5)
     }
 
     /// A spring's time until it stays within `within` of its target, from rest `travel` away (sampled at 1 ms).
     public func settleTime(travel: Double, within: Double) -> TimeInterval {
-        guard let spring = curve.spring else { return curve.bezier?.seconds ?? 0 }
+        guard let spring = self.spring else { return bezier?.seconds ?? 0 }
         let (stiffness, damping) = Self.coefficients(spring)
         var x = travel, v = 0.0, t = 0.0, last = 0.0
         let dt = 0.0005
@@ -154,12 +175,12 @@ public struct FilmZoomVariant: Sendable, Equatable {
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         Motion.setModel(layer, keyPath, value)
         let animation: CABasicAnimation
-        if let bezier = curve.bezier {
+        if let bezier = self.bezier {
             animation = CABasicAnimation(keyPath: keyPath)
             let p = bezier.points
             animation.timingFunction = CAMediaTimingFunction(controlPoints: p.0, p.1, p.2, p.3)
             animation.duration = bezier.seconds
-        } else if let spring = curve.spring {
+        } else if let spring = self.spring {
             let (stiffness, damping) = Self.coefficients(spring)
             let motion = CASpringAnimation(keyPath: keyPath)
             motion.mass = 1
@@ -178,8 +199,8 @@ public struct FilmZoomVariant: Sendable, Equatable {
 
     /// The one-value driver on this variant's curve (``FilmProgressDriver``).
     public var driver: FilmProgressDriver {
-        if let spring = curve.spring { return FilmProgressDriver(damping: spring.damping, response: spring.response) }
-        let bezier = curve.bezier ?? ((0, 0, 1, 1), 0.1)
+        if let spring = self.spring { return FilmProgressDriver(damping: spring.damping, response: spring.response) }
+        let bezier = self.bezier ?? ((0, 0, 1, 1), 0.1)
         return FilmProgressDriver(points: bezier.points, seconds: bezier.seconds)
     }
 

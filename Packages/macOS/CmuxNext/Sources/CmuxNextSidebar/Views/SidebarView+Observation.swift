@@ -178,7 +178,9 @@ extension SidebarViewComponents {
         // now, not at the next layout pass, so the list reloads once with both (ptr8: a settle on the rows alone showed
         // the stale blocks for a frame: the dragged tile back in Pinned, the rows bumped, the card aimed 24 pt off; a
         // pin's row closed one apply before its Pinned item came, a pass later: the p1 films' 20 ms split, cx-odqn).
-        if listChanged, profilesChanged, !profileChanged, model.docDrag != nil { updateBands(reloadsList: false) }
+        if listChanged, profilesChanged, !profileChanged, model.docDrag != nil, labPinFlies() || list.settling != nil || list.landing != nil {
+            updateBands(reloadsList: false)
+        }
         if listChanged {
             if profileChanged {
                 switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
