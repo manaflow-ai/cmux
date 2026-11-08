@@ -29,7 +29,7 @@ use cmux_remote::daemon::{
     DaemonSessionPolicy, DirectWebSocketOptions, serve_direct_websocket_with_options,
     serve_unix_with_shutdown,
 };
-use cmux_remote::first_dial::{DialOutcome, LinkCell};
+use cmux_remote::first_dial::{DialOutcome, DialStop, LinkCell};
 use cmux_remote::http::serve_workspace_http;
 use cmux_remote::identity::{
     AuthDatabase, IdentityError, PersistedAuthStateSchema, credential_free_route_hint,
@@ -1021,6 +1021,12 @@ struct InitialRouteSelectionError {
 impl InitialRouteSelectionError {
     fn terminal(error: anyhow::Error) -> Self {
         Self { error, retryable: false }
+    }
+}
+
+impl From<DialStop> for InitialRouteSelectionError {
+    fn from(stop: DialStop) -> Self {
+        Self { error: anyhow!("{stop}"), retryable: matches!(stop, DialStop::NetworkChanged) }
     }
 }
 
