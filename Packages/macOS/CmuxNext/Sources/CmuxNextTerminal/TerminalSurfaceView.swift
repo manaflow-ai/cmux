@@ -150,6 +150,9 @@ public final class TerminalSurfaceView: NSView {
     /// The left press went to Ghostty as a link click, in a program that has the mouse or with
     /// Shift- or Option-Command (``TerminalPointerMods``): its drags and release go the same way.
     var linkPressInCapture = false
+    /// The left press went to Ghostty as an Option selection in a program that has the mouse
+    /// (``TerminalPointerMods``): its drags and release go the same way.
+    var selectionPressInCapture = false
 
     /// Keyboard copy mode (``TerminalCopyMode``).
     private(set) lazy var copyMode = TerminalCopyMode(view: self)
@@ -157,6 +160,8 @@ public final class TerminalSurfaceView: NSView {
     private(set) lazy var clipboardRequests = TerminalClipboardRequests(view: self)
     /// Cmd-hover and Cmd-click on links beyond Ghostty's own (``TerminalLinkPointer``).
     private(set) lazy var linkPointer = TerminalLinkPointer(view: self)
+    /// The first-use hint for selecting text while a program has the mouse (``TerminalSelectionHint``).
+    private(set) lazy var selectionHint = TerminalSelectionHint(view: self)
 
     // MARK: Lifecycle
 

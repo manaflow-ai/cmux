@@ -49,6 +49,7 @@ extension TerminalSurfaceView {
         previousPressureStage = 0
         defer {
             linkPressInCapture = false
+            selectionPressInCapture = false
             if let surface { ghostty_surface_mouse_pressure(surface, 0, 0) }
         }
         if linkPointer.mouseUp(event) { return }
@@ -79,7 +80,10 @@ extension TerminalSurfaceView {
         linkPointer.movedWithoutButton()
         sendPosition(event)
     }
-    public override func mouseDragged(with event: NSEvent) { sendPosition(event, phase: .followingPress) }
+    public override func mouseDragged(with event: NSEvent) {
+        selectionHint.dragged()
+        sendPosition(event, phase: .followingPress)
+    }
     public override func rightMouseDragged(with event: NSEvent) { sendPosition(event) }
     public override func otherMouseDragged(with event: NSEvent) { sendPosition(event) }
     public override func mouseEntered(with event: NSEvent) { sendPosition(event) }
@@ -185,12 +189,14 @@ extension TerminalSurfaceView {
     // MARK: Helpers
 
     /// A left press: the move first, with the keys that let Ghostty find a link under it while
-    /// the program has the mouse, then the press, as a link click when it found one
-    /// (``TerminalPointerMods``).
+    /// the program has the mouse, then the press, as a link click when it found one or as a
+    /// selection with Option held (``TerminalPointerMods``).
     private func sendLeftPress(_ event: NSEvent) {
         sendPosition(event)
         let mods = pointerMods(event.modifierFlags)
         linkPressInCapture = mods.linkGesture(event.modifierFlags, phase: .press) || mods.chordGesture(event.modifierFlags, phase: .press)
+        selectionPressInCapture = mods.selectionGesture(event.modifierFlags, phase: .press)
+        selectionHint.pressed(event.modifierFlags)
         sendButton(event, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT, phase: .press, position: false)
     }
 
@@ -214,11 +220,13 @@ extension TerminalSurfaceView {
     }
 
     /// The pointer state ``TerminalPointerMods`` decides from. The capture check takes the
-    /// terminal's lock, so it runs only with Command alone held (or during a link click).
+    /// terminal's lock, so it runs only with Command or Option alone held (or during a link click).
     func pointerMods(_ flags: NSEvent.ModifierFlags) -> TerminalPointerMods {
-        let asks = TerminalPointerMods.commandOnly(flags) || TerminalPointerMods.commandChord(flags) || linkPressInCapture
+        let asks = TerminalPointerMods.commandOnly(flags) || TerminalPointerMods.commandChord(flags) || TerminalPointerMods.optionOnly(flags)
+            || linkPressInCapture
         let captured = asks && surface.map { ghostty_surface_mouse_captured($0) } == true
-        return TerminalPointerMods(captured: captured, overLink: session?.model.hoveredLink != nil, linkPress: linkPressInCapture)
+        return TerminalPointerMods(captured: captured, overLink: session?.model.hoveredLink != nil, linkPress: linkPressInCapture,
+                                   selectionPress: selectionPressInCapture)
     }
 
     /// `flags` as Ghostty gets them with a pointer event in `phase` (``TerminalPointerMods``).
