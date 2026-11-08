@@ -51,7 +51,9 @@ use windows_sys::Win32::System::Threading::{
 mod claude_worktree_tests;
 mod message_hooks;
 mod status_conflict;
-use message_hooks::{delivers_messages, hook_command, hook_command_with, journal_hook_command};
+#[cfg(unix)]
+use message_hooks::hook_command_with;
+use message_hooks::{delivers_messages, hook_command, journal_hook_command};
 use status_conflict::{conflict_row, ensure_replaceable_target};
 
 const COMMAND_MARKER: &str = "cmux-tui-journal-hook";

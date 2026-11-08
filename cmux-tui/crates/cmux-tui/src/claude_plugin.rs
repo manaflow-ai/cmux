@@ -250,8 +250,8 @@ mod tests {
         let nested = write("nested.json", br#"{"settings": {"disableSideloadFlags": true}}"#);
         let plist = write("p.plist", b"bplist00\x01disableSideloadFlags\x09");
         let missing = root.path().join("missing.json");
-        assert!(!sideloading_disabled(&[off.clone(), none.clone(), missing.clone()]));
-        assert!(sideloading_disabled(&[off.clone(), nested]));
+        assert!(!sideloading_disabled(&[off.clone(), none.clone(), missing]));
+        assert!(sideloading_disabled(&[off, nested]));
         assert!(sideloading_disabled(&[none, plist]));
         let files = policy_files(Some(root.path()), None);
         assert!(files.contains(&root.path().join(".claude/remote-settings.json")), "{files:?}");
