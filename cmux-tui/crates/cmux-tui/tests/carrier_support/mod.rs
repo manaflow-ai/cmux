@@ -32,6 +32,10 @@ pub const MACHINE: &str = "vm_0123456789abcdefghij";
 pub const ISSUER: &str = "cmux:cloud:test";
 pub const SLOT: &str = "carrier-dial-slot";
 pub const TOKEN: &str = "person-test-credential";
+/// Two people's JWT credentials (`sub` person-a, person-b), both of whom
+/// the platform answers for.
+pub const JWT_A: &str = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJwZXJzb24tYSJ9.sig";
+pub const JWT_B: &str = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJwZXJzb24tYiJ9.sig";
 pub const TEAM: &str = "team_00000000000000000001";
 pub const BIN: &str = env!("CARGO_BIN_EXE_cmux-tui");
 
@@ -99,6 +103,7 @@ pub async fn platform(
     asked: Arc<AtomicUsize>,
     teams: Teams,
     keys: Keys,
+    bearers: Bearers,
 ) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -110,6 +115,7 @@ pub async fn platform(
             let asked = asked.clone();
             let teams = teams.clone();
             let keys = keys.clone();
+            let bearers = bearers.clone();
             let status = status.load(Ordering::SeqCst);
             tokio::spawn(async move {
                 let mut reader = tokio::io::BufReader::new(&mut stream);
@@ -131,8 +137,12 @@ pub async fn platform(
                     if let Some(value) = header.strip_prefix("content-length:") {
                         length = value.trim().parse().unwrap();
                     }
-                    authorized |=
-                        header == format!("authorization: bearer {}", TOKEN.to_ascii_lowercase());
+                    if let Some(bearer) = [TOKEN, JWT_A, JWT_B].into_iter().find(|token| {
+                        header == format!("authorization: bearer {}", token.to_ascii_lowercase())
+                    }) {
+                        authorized = true;
+                        bearers.lock().unwrap().push(bearer);
+                    }
                 }
                 let mut body = vec![0; length];
                 reader.read_exact(&mut body).await.unwrap();
@@ -207,11 +217,14 @@ pub async fn fake_mux(path: &Path) {
 pub type Teams = Arc<Mutex<Vec<Option<String>>>>;
 /// The `noise_key` of each platform request (`None` for a ticket-only ask).
 pub type Keys = Arc<Mutex<Vec<Option<String>>>>;
+/// The accepted credential of each platform request that had one, in order.
+pub type Bearers = Arc<Mutex<Vec<&'static str>>>;
 
 pub struct World {
     pub platform: SocketAddr,
     pub teams: Teams,
     pub keys: Keys,
+    pub bearers: Bearers,
     /// The relay the platform's answers name.
     pub relay: SocketAddr,
     /// The daemon key the platform answers (as `world_full`'s `key` says).
@@ -270,6 +283,7 @@ pub fn world_signed(
     let state = dir.path().join("daemon");
     let teams = Teams::default();
     let keys = Keys::default();
+    let bearers = Bearers::default();
     let shared_status = Arc::new(AtomicU16::new(status));
     let answered = shared_status.clone();
     let (platform, registration, relay, signer, daemon_key) = runtime.block_on(async {
@@ -320,6 +334,7 @@ pub fn world_signed(
             asked,
             teams.clone(),
             keys.clone(),
+            bearers.clone(),
         )
         .await;
         (platform, registration, relay_address, answered_signer, daemon_key)
@@ -328,6 +343,7 @@ pub fn world_signed(
         platform,
         teams,
         keys,
+        bearers,
         relay,
         daemon_key,
         signer,

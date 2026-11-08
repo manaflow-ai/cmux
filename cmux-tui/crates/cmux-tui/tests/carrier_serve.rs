@@ -325,6 +325,80 @@ fn a_dial_that_another_person_s_credential_overtook_is_never_handed_out() {
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
 }
 
+/// `serve` reading its credential from `file`.
+fn serve_file(world: &World, socket: &Path, file: &Path) -> Child {
+    Command::new(BIN)
+        .args(["carrier", "serve", "--machine", MACHINE, "--deadline-ms", "30000"])
+        .args(["--socket", socket.to_str().unwrap()])
+        .args(["--cloud-api", &format!("http://{}", world.platform)])
+        .args(["--cloud-token-file", file.to_str().unwrap()])
+        .env_clear()
+        .env("HOME", world.dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
+#[test]
+fn another_person_s_token_file_never_rides_the_held_session() {
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    let socket = socket_path(&world);
+    let file = world.dir.path().join("token");
+    std::fs::write(&file, TOKEN).unwrap();
+    let mut child = serve_file(&world, &socket, &file);
+    let (ready, mut stderr) = first_line(&mut child);
+    assert_eq!(ready["ok"], true, "{ready}");
+    let mut first = open(&socket);
+    ask(&mut first, 1);
+    assert_served(&mut stderr, None);
+
+    // The file now holds someone the platform refuses: the next connection
+    // dials with it instead of riding the first person's session.
+    std::fs::write(&file, "someone-else").unwrap();
+    let mut second = open(&socket);
+    let failed: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(failed["ok"], false, "the first person's session was shared: {failed}");
+    assert_eq!(failed["error_code"], "ticket", "{failed}");
+    let mut read = Vec::new();
+    second.read_to_end(&mut read).unwrap();
+    assert!(read.is_empty(), "nothing reached the second connection");
+    assert_eq!(ask(&mut first, 2), 0, "the first connection keeps its session");
+    drop(child.stdin.take());
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+}
+
+#[test]
+fn a_stdin_token_after_a_token_file_swap_never_rides_the_old_session() {
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    let socket = socket_path(&world);
+    let file = world.dir.path().join("token");
+    std::fs::write(&file, JWT_A).unwrap();
+    let mut child = serve_file(&world, &socket, &file);
+    let (ready, mut stderr) = first_line(&mut child);
+    assert_eq!(ready["ok"], true, "{ready}");
+    let mut first = open(&socket);
+    ask(&mut first, 1);
+    assert_served(&mut stderr, None);
+    assert_eq!(*world.bearers.lock().unwrap(), [JWT_A]);
+
+    // B's credential lands in the file, then on stdin.
+    std::fs::write(&file, JWT_B).unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    apply(&mut stdin, &mut stderr, &format!("{{\"access_token\":\"{JWT_B}\"}}\n"));
+    let mut second = open(&socket);
+    ask(&mut second, 2);
+    assert_served(&mut stderr, None);
+    assert_eq!(
+        *world.bearers.lock().unwrap(),
+        [JWT_A, JWT_B],
+        "B's connection dialed its own session with B's credential"
+    );
+    drop(stdin);
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+}
+
 #[test]
 fn each_connected_connection_says_the_grant_s_vmk() {
     let world = world_signed(
