@@ -6,7 +6,10 @@ public import Foundation
 /// host acts itself, as Needs you's answers do (``AgentPaneAskAnswer``), and only when every rule holds:
 /// - The page is the Review queue (``AgentPaneNewTab/review``) on this Mac's acpmux
 ///   (``AgentPaneModel/pendingAsksSocket``), and the chat is a bare or `local/` id there, never another
-///   computer's.
+///   computer's. A peer may itself be named `local`, and acpmux forwards a `local/<id>` that is not
+///   its own to that peer, so `_acpmux/info` is read first and a reply naming a `peer` (every
+///   forwarded reply does, `peer_forward.rs`) refuses, as Needs you's reads do
+///   (``AgentPanePendingAsks``).
 /// - The person's own key press or click is spent: Accept takes it as a grant
 ///   (``AgentPaneUserGestures/consume()``), a send as a prompt the person sent
 ///   (``AgentPaneUserGestures/consumeForSend()``). A script's post does neither.
@@ -63,9 +66,11 @@ public nonisolated struct AgentPaneReview: Sendable, Equatable {
             && signature.allSatisfy(\.isHexDigit)
     }
 
-    /// Delivers `(session, text, promptID)` to acpmux; tags `session` (tests pass fakes).
+    /// Delivers `(session, text, promptID)` to acpmux; tags `session`; answers whether `session` is
+    /// a chat the acpmux at `socket` holds itself (tests pass fakes).
     public typealias Deliver = @Sendable (AcpmuxEnvironment, String, String, String) async -> Bool
     public typealias Tag = @Sendable (String, String, [String: any Sendable]) async throws -> Void
+    public typealias Owns = @Sendable (String, String) async -> Bool
 
     @MainActor func respond(
         in model: AgentPaneModel,
@@ -75,11 +80,21 @@ public nonisolated struct AgentPaneReview: Sendable, Equatable {
         tag setTag: Tag = { socket, session, set in
             _ = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/tag",
                                                   params: ["sessionId": session, "set": set], deadline: AcpmuxEnvironment.answerDeadline)
+        },
+        owns: Owns = { socket, session in
+            // `_acpmux/info` answers a forwarded id with the peer's name (`peer`); its own, never.
+            guard let info = try? await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/info",
+                                                                params: ["sessionId": session], deadline: .seconds(5)) else { return false }
+            return info["peer"] == nil
         }
     ) async -> [String: Any] {
         let method = verdict == .accept ? "review.accept" : "review.send"
         guard model.newTab?.review == true, let socket = model.pendingAsksSocket,
               let local = AgentPanePendingAsks.localSession(session) else {
+            return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
+        }
+        // The daemon's own chat, never a peer's that acpmux would forward the id to.
+        guard await owns(socket, local) else {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
         }
         let gestures = model.transport.gestures

@@ -64,7 +64,11 @@ export function ReviewScreen({
   const { rows, pending, extend } = useReviewQueue(sessions, readDiff, local, now);
   const [selected, setSelected] = useState<string | undefined>();
   const lastIndex = useRef(0);
-  const [comment, setComment] = useState<{ key: string; text: string } | undefined>(
+  /// The open comment; `sent` is a send that failed: its words and prompt id, so a retry of the same
+  /// words reuses the id and acpmux delivers it once even if the first one got through.
+  const [comment, setComment] = useState<
+    { key: string; text: string; sent?: { text: string; promptId: string } } | undefined
+  >(
     initialComment ? { key: initialComment, text: "" } : undefined,
   );
   const [failures, setFailures] = useState<ReadonlyMap<string, string>>(() => new Map());
@@ -111,7 +115,8 @@ export function ReviewScreen({
 
   const sendComment = (row: ReviewRow, text: string) => {
     if (!text.trim()) return;
-    const promptId = newPromptId();
+    const retry = comment?.key === row.key ? comment.sent : undefined;
+    const promptId = retry && retry.text === text ? retry.promptId : newPromptId();
     setComment(undefined);
     decide(
       row,
@@ -119,7 +124,7 @@ export function ReviewScreen({
       (tag) => send(row.owner.sessionId, changesPrompt(row, text), tag, promptId),
       t("review.failed.send"),
       // A send that failed gives the person's words back, unless another comment is open now.
-      () => setComment((open) => open ?? { key: row.key, text }),
+      () => setComment((open) => open ?? { key: row.key, text, sent: { text, promptId } }),
     );
     list.current?.focus({ preventScroll: true });
   };
@@ -179,7 +184,7 @@ export function ReviewScreen({
             now={now}
             failure={failures.get(row.key)}
             comment={comment?.key === row.key ? comment.text : undefined}
-            onComment={(text) => setComment({ key: row.key, text })}
+            onComment={(text) => setComment((open) => ({ ...open, key: row.key, text }))}
             onSend={(text) => sendComment(row, text)}
             onCancel={() => {
               setComment(undefined);
@@ -312,9 +317,14 @@ function CommentBox({
     field.current?.focus();
   }, []);
   return (
-    // A press in the comment stays in it: the option around it would open the diff.
-    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- stops the press, acts on nothing
-    <div className="rv-comment" onMouseDown={(event) => event.stopPropagation()}>
+    // A press or key in the comment stays in it: the list around it would open the diff (Return,
+    // Space, a press) or move (its own keys), and the buttons would not act.
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- stops the press and keys, acts on nothing
+    <div
+      className="rv-comment"
+      onMouseDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
       <textarea
         ref={field}
         className="rv-comment-field"

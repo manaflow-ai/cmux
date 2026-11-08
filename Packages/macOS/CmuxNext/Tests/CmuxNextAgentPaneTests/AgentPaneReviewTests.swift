@@ -24,7 +24,10 @@ struct AgentPaneReviewTests {
     private actor Acpmux {
         var calls: [String] = []
         var delivers = true
+        /// The chats this acpmux holds itself; any other `local/<id>` it would forward to a peer named `local`.
+        var own: Set<String> = ["local/a1"]
         func record(_ call: String) { calls.append(call) }
+        func setOwn(_ value: Set<String>) { own = value }
         func setDelivers(_ value: Bool) { delivers = value }
     }
 
@@ -42,6 +45,8 @@ struct AgentPaneReviewTests {
             return await acpmux.delivers
         }, tag: { socket, session, set in
             await acpmux.record("tag \(socket) \(session) \(set.map { "\($0.key)=\($0.value)" }.joined())")
+        }, owns: { socket, session in
+            socket == reviewSocket ? await acpmux.own.contains(session) : false
         })
     }
 
@@ -111,5 +116,18 @@ struct AgentPaneReviewTests {
         elsewhere.transport.gestures.record()
         #expect(Self.code(await Self.run(Self.accept, elsewhere, acpmux)) == "unsupported")
         #expect(await acpmux.calls.isEmpty)
+    }
+
+    /// A peer may be named `local`, and acpmux forwards a `local/<id>` that is not its own to it:
+    /// a verdict on such an id writes nothing and spends no key press.
+    @Test func aChatAcpmuxWouldForwardToAPeerNamedLocalIsNeverTagged() async {
+        let model = Self.page(), acpmux = Acpmux()
+        await acpmux.setOwn([])
+        model.transport.gestures.record()
+        #expect(Self.code(await Self.run(Self.accept, model, acpmux)) == "unsupported")
+        #expect(Self.code(await Self.run(Self.send, model, acpmux)) == "unsupported")
+        #expect(await acpmux.calls.isEmpty)
+        await acpmux.setOwn(["local/a1"])
+        #expect(Self.code(await Self.run(Self.accept, model, acpmux)) == nil, "the key press was not spent")
     }
 }

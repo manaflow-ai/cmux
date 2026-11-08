@@ -44,6 +44,10 @@ export function useReviewQueue(
   const [reads, setReads] = useState<ReadonlyMap<string, ReviewRead>>(() => new Map());
   const [want, setWant] = useState(READ_WINDOW);
   const running = useRef(0);
+  /// The candidates as of the last render: a read that answers late prunes against these, not the
+  /// list it started with.
+  const latest = useRef(candidates);
+  latest.current = candidates;
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -70,10 +74,11 @@ export function useReviewQueue(
         running.current -= 1;
         if (!alive.current) return;
         setReads((previous) => {
-          // Only the folders still listed keep a read: the map never outgrows the candidates.
-          const keep = new Set(candidates.map(readKey));
+          // Only the folders still listed keep a read: the map never outgrows the candidates, and a
+          // read whose folder moved on (its chat did something since) is dropped.
+          const keep = new Set(latest.current.map(readKey));
           const map = new Map([...previous].filter(([key]) => keep.has(key)));
-          map.set(readKey(candidate), result);
+          if (keep.has(readKey(candidate))) map.set(readKey(candidate), result);
           return map;
         });
       });
