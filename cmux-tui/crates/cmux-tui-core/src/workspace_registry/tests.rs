@@ -4077,6 +4077,13 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
     assert_eq!(events.batches.len(), 1);
     assert_eq!(events.batches[0].revision, 2);
     assert_eq!(events.batches[0].changes[0]["resource"], "terminal");
+    // The tab that still showed the closed terminal is retired with it, so the
+    // registry satisfies the live-content invariant and opens.
+    assert_eq!(events.batches[0].changes[1]["kind"], "delete");
+    assert_eq!(events.batches[0].changes[1]["resource"], "tab");
+    assert_eq!(events.batches[0].changes[1]["id"], tab_id(1).as_str());
+    assert!(topology.tabs.is_empty(), "tab of the closed terminal remained live: {topology:?}");
+    assert!(topology.panes.iter().all(|pane| pane.active_tab.is_none()));
     let live_terminals: i64 = reopened
         .connection
         .query_row(
