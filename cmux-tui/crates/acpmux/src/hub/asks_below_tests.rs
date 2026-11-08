@@ -102,3 +102,18 @@ async fn closing_a_waiting_child_clears_its_parent() {
 fn chat_lists_hear_of_a_change() {
     assert!(crate::chats::changes_activity(RECORD_KIND));
 }
+
+/// A child restored as Waiting changes no status when its host is adopted (`hosts.rs`), so the
+/// adoption re-decides its parent's count, which a new daemon starts at none.
+#[tokio::test]
+async fn a_child_restored_waiting_counts_once_its_parent_is_redecided() {
+    let (hub, parent) = hub_with_parent().await;
+    let child = child_of(&hub, &parent, "tests", 1).await;
+    child.meta.lock().unwrap().status = SessionStatus::Waiting;
+    hub.subsessions.note_status(&parent.id, &child.id, SessionStatus::Waiting);
+    assert_eq!(hub.session_summary(&parent)["subsessionsWaiting"], 0, "nothing decided it yet");
+    hub.refresh_parent_asks_below(&child);
+    assert_eq!(hub.session_summary(&parent)["subsessionsWaiting"], 1);
+    assert_eq!(hub.session_summary(&parent)["indicator"], "input");
+    hub.shutdown_all().await;
+}
