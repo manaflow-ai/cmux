@@ -12,16 +12,21 @@ import XCTest
 final class SafariCookieImportTests: XCTestCase {
     private var temporaryDirectory: URL!
 
+    /// Creates an empty temporary home for each test.
     override func setUpWithError() throws {
         temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SafariCookieImportTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
     }
 
+    /// Removes the temporary home.
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: temporaryDirectory)
     }
 
+    /// Only live, in-filter cookies reach the selected profile, with their attributes;
+    /// duplicates keep the later expiry, and no other profile, including the
+    /// default one, receives them.
     @MainActor
     func testImportWritesOnlyEligibleCookiesToTheSelectedProfile() async throws {
         let prefix = "cmux-safari-import-\(UUID().uuidString)"
@@ -34,6 +39,8 @@ final class SafariCookieImportTests: XCTestCase {
             Self.record(domain: ".other.net", name: "\(prefix)-excluded", path: "/", value: "excluded", expiry: future, flags: 0),
             Self.record(domain: ".example.com", name: "\(prefix)-expired", path: "/", value: "expired", expiry: past, flags: 0),
             Self.record(domain: ".other.net", name: "\(prefix)-excluded-expired", path: "/", value: "excluded", expiry: past, flags: 0),
+            Self.record(domain: ".example.com", name: "\(prefix)-duplicate", path: "/", value: "later", expiry: future.addingTimeInterval(3_600), flags: 0),
+            Self.record(domain: ".example.com", name: "\(prefix)-duplicate", path: "/", value: "earlier", expiry: future, flags: 0),
         ])
         let destination = try XCTUnwrap(
             BrowserProfileStore.shared.createProfile(named: "Safari import target \(UUID().uuidString)")
@@ -55,8 +62,9 @@ final class SafariCookieImportTests: XCTestCase {
 
         // Expired cookies inside the filters count as skipped. Cookies outside
         // the filters were not asked for, so they are not counted, as in the
-        // Firefox and Chromium importers.
-        XCTAssertEqual(result.importedCount, 2)
+        // Firefox and Chromium importers. Duplicates collapse to one cookie
+        // before the write and are not counted either.
+        XCTAssertEqual(result.importedCount, 3)
         XCTAssertEqual(result.skippedCount, 1)
         XCTAssertEqual(result.warnings, [])
         let destinationCookies = await BrowserProfileStore.shared
@@ -64,23 +72,32 @@ final class SafariCookieImportTests: XCTestCase {
             .filter { $0.name.hasPrefix(prefix) }
         XCTAssertEqual(
             Set(destinationCookies.map(\.name)),
-            ["\(prefix)-secure", "\(prefix)-session"]
+            ["\(prefix)-secure", "\(prefix)-session", "\(prefix)-duplicate"]
         )
+        XCTAssertEqual(destinationCookies.count, 3)
         let secure = try XCTUnwrap(destinationCookies.first { $0.name == "\(prefix)-secure" })
         XCTAssertEqual(secure.value, "secure")
         XCTAssertEqual(secure.domain, ".example.com")
         XCTAssertTrue(secure.isSecure)
         XCTAssertTrue(secure.isHTTPOnly)
         let session = try XCTUnwrap(destinationCookies.first { $0.name == "\(prefix)-session" })
+        XCTAssertEqual(session.value, "session")
+        XCTAssertEqual(session.domain, "login.example.com")
         XCTAssertEqual(session.path, "/account")
         XCTAssertTrue(session.isSessionOnly)
         XCTAssertFalse(session.isSecure)
         XCTAssertFalse(session.isHTTPOnly)
+        let duplicate = try XCTUnwrap(destinationCookies.first { $0.name == "\(prefix)-duplicate" })
+        XCTAssertEqual(duplicate.value, "later", "the later-expiring duplicate should win")
         let otherCookies = await BrowserProfileStore.shared
             .websiteDataStore(for: otherProfile.id).httpCookieStore.allCookies()
         XCTAssertFalse(otherCookies.contains { $0.name.hasPrefix(prefix) })
+        let defaultProfileCookies = await BrowserProfileStore.shared
+            .websiteDataStore(for: BrowserProfileStore.shared.builtInDefaultProfileID).httpCookieStore.allCookies()
+        XCTAssertFalse(defaultProfileCookies.contains { $0.name.hasPrefix(prefix) })
     }
 
+    /// A store above the parser's decode limit is reported with the limit, not as damaged.
     @MainActor
     func testStoreAboveTheDecodeLimitGetsItsOwnWarningNamingTheLimit() async throws {
         let sourceProfile = try writeSourceProfile(records: [
@@ -178,14 +195,17 @@ final class SafariCookieImportTests: XCTestCase {
         return bytes
     }
 
+    /// `value` as four big-endian bytes.
     private static func bigEndian(_ value: UInt32) -> [UInt8] {
         withUnsafeBytes(of: value.bigEndian, Array.init)
     }
 
+    /// `value` as little-endian bytes.
     private static func littleEndian(_ value: UInt32) -> [UInt8] {
         withUnsafeBytes(of: value.littleEndian, Array.init)
     }
 
+    /// `value` as little-endian bytes.
     private static func littleEndian(_ value: UInt64) -> [UInt8] {
         withUnsafeBytes(of: value.littleEndian, Array.init)
     }
