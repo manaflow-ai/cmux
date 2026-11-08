@@ -56,7 +56,7 @@ for (const engine of ["webkit", "chromium"])
       await page.evaluate(() => document.fonts.ready);
       const box = (await chip.boundingBox())!;
       await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-      await page.waitForSelector(".acpmux-cols-list[role=listbox], .acpmux-cols-list [role=option]");
+      await page.waitForSelector(".acpmux-cols-list [role^=menuitem]");
       await page.waitForTimeout(600);
       if (variant === "noMinWidth")
         await page.evaluate(() => {
@@ -64,12 +64,12 @@ for (const engine of ["webkit", "chromium"])
         });
       const report = await page.evaluate(() => {
         const list = [...document.querySelectorAll<HTMLElement>(".acpmux-cols-list")].find((l) =>
-          l.querySelector('[role="option"]'),
+          l.querySelector("[role^=menuitem]"),
         );
         if (!list) return { error: "no list" };
         const lb = list.getBoundingClientRect();
         const cs = getComputedStyle(list);
-        const rows = [...list.querySelectorAll<HTMLElement>('[role="option"]')];
+        const rows = [...list.querySelectorAll<HTMLElement>("[role^=menuitem]")];
         const out: any = {
           list: { x: lb.x, w: lb.width, offsetW: list.offsetWidth, clientW: list.clientWidth, scrollW: list.scrollWidth, scrollLeft: list.scrollLeft, padL: cs.paddingLeft, padR: cs.paddingRight, borderR: cs.borderRightWidth, attrs: [...list.attributes].map((a) => a.name).join(" ") },
           rows: [] as any[],
