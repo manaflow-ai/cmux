@@ -94,6 +94,33 @@ pub(in crate::link) fn origin_url(config: &str) -> Option<String> {
     None
 }
 
+/// The nearest folder at or above `path` on the machine with a `.git` folder: the repository a
+/// chat's folder is in. Never `/`, a top folder (`/home`) or a home folder itself (`/home/NAME`,
+/// `/root`), whose dotfiles repository is not the chat's project. None when there is none.
+pub(in crate::link) fn repo_root(socket: &Path, path: &str) -> anyhow::Result<Option<String>> {
+    let mut remote = Remote::connect(socket)?;
+    let mut here = path.trim_end_matches('/').to_owned();
+    while deep_enough(&here) {
+        if remote.kind(&format!("{here}/.git"))?.as_deref() == Some("dir") {
+            return Ok(Some(here));
+        }
+        let Some((parent, _)) = here.rsplit_once('/') else { break };
+        here = parent.to_owned();
+    }
+    Ok(None)
+}
+
+/// Whether `path` is below a home folder (`/home/NAME/x`, `/root/x`, `/Users/NAME/x`) or three
+/// folders deep elsewhere: a folder a project can be.
+fn deep_enough(path: &str) -> bool {
+    let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+    match parts.first() {
+        Some(&"root") => parts.len() >= 2,
+        Some(_) => parts.len() >= 3,
+        None => false,
+    }
+}
+
 /// The machine's seed record HEAD (`refs/cmux-seed/head`, loose or packed)
 /// and its branch: what a partial clone's fetch starts from. None when the
 /// folder is not a seed's.
@@ -212,7 +239,15 @@ fn run(command: &mut Command) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{claim, is_partial, origin_url};
+    use super::{claim, deep_enough, is_partial, origin_url};
+
+    #[test]
+    fn a_repository_root_is_never_a_home_or_top_folder() {
+        for (path, ok) in [("/", false), ("/home", false), ("/home/cmux", false), ("/home/cmux/app", true), ("/root", false),
+            ("/root/app", true), ("/Users/me", false), ("/Users/me/app", true), ("/work/a", false), ("/work/a/b", true)] {
+            assert_eq!(deep_enough(path), ok, "{path}");
+        }
+    }
 
     #[test]
     fn a_seed_clone_is_partial_and_a_copy_is_not() {

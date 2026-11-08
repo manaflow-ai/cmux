@@ -193,6 +193,21 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "cloudTransferLocal",
+        group: GROUP,
+        title: t("ActionCatalog", "action.cloudTransferLocal", "Transfer to This Mac"),
+        description: Some("Transfers a chat on a Cloud machine that no move from this Mac put there to this Mac: copies its folder (the branch, commits, staged and working changes; never secrets or ignored files) into a new folder (--path, else ~/Cloud Transfers/<folder>). On your own machine the chat then moves here as Bring Back Local moves it; on a teammate's, you get your own copy of the folder and the chat stays with its owner. Only a person runs it: an agent's run is refused."),
+        keywords: &["vm", "cloud", "transfer", "local", "copy", "chat", "agent", "sync", "mac"],
+        category: "cloud",
+        symbol: "laptopcomputer.and.arrow.down",
+        surfaces: PALETTE | CONTEXT_MENU,
+        arguments: &[args::PATH.optional()],
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 2)], ..SurfacePlan::DEFAULT },
+        targets: &["tab"],
+        cli_name: "cloud transfer-local",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "cloudSSH",
         group: GROUP,
         title: t("ActionCatalog", "action.cloudSSH", "Open Cloud SSH Terminal"),

@@ -393,6 +393,12 @@ const GROUPS: &[Group] = &[
                 "Bring a moved chat back to this Mac",
                 "移したチャットをこの Mac に戻す",
             ),
+            verb(
+                "transfer-local",
+                "[--path DIR]",
+                "Transfer any other Cloud chat (or a teammate's copy) to this Mac",
+                "ほかの Cloud チャット（チームメイトのものはコピー）をこの Mac に転送",
+            ),
         ],
     },
     Group {

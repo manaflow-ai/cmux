@@ -5546,6 +5546,17 @@
     "zh-Hans": "在此机器上设置 GitHub",
     "zh-Hant": "在此機器上設定 GitHub"
    },
+   "action.cloudTransferLocal": {
+    "ar": "النقل إلى جهاز Mac هذا",
+    "de": "Auf diesen Mac übertragen",
+    "en": "Transfer to This Mac",
+    "es": "Transferir a este Mac",
+    "fr": "Transférer vers ce Mac",
+    "ja": "この Mac に転送",
+    "ko": "이 Mac으로 전송",
+    "zh-Hans": "传输到这台 Mac",
+    "zh-Hant": "傳輸到這台 Mac"
+   },
    "action.cloudTunnelAttach": {
     "ar": "إرفاق شبكة نفق Cloud",
     "bs": "Priključi mrežu Cloud tunela",

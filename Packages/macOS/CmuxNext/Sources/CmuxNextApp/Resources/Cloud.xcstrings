@@ -16676,6 +16676,146 @@
         "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдається прочитати %@, тому нічого не доставлено. Виправте або видаліть файл, потім знову збережіть секрети командою cmux cloud secret set."}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể đọc %@ nên chưa gửi gì. Hãy sửa hoặc xóa tệp, rồi lưu lại bí mật bằng cmux cloud secret set."}}
       }
+    },
+    "cloud.transferLocal.copying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copying the chat's folder to this Mac…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Ordner des Chats wird auf diesen Mac kopiert …"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Copie du dossier de la discussion sur ce Mac…"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جارٍ نسخ مجلد المحادثة إلى جهاز Mac هذا…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Copiando la carpeta del chat a este Mac…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "正在將聊天的資料夾拷貝到這台 Mac…"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "正在将聊天的文件夹拷贝到这台 Mac…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅 폴더를 이 Mac으로 복사하는 중…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャットのフォルダをこの Mac にコピーしています…"}}
+      }
+    },
+    "cloud.transferLocal.folderName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud Transfers"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Cloud-Übertragungen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Transferts Cloud"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "عمليات النقل من Cloud"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Transferencias de Cloud"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud 傳輸"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud 传输"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud 전송"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud 転送"}}
+      }
+    },
+    "cloud.transferLocal.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Your copy of the folder is open on this Mac. The chat keeps running on %@."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Deine Kopie des Ordners ist auf diesem Mac geöffnet. Der Chat läuft weiter auf %@."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Votre copie du dossier est ouverte sur ce Mac. La discussion continue sur %@."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "نسختك من المجلد مفتوحة على جهاز Mac هذا. تستمر المحادثة في العمل على %@."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tu copia de la carpeta está abierta en este Mac. El chat sigue ejecutándose en %@."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "你的資料夾拷貝已在這台 Mac 上打開。聊天會繼續在 %@ 上執行。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "你的文件夹副本已在这台 Mac 上打开。聊天会继续在 %@ 上运行。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "폴더 사본이 이 Mac에서 열렸습니다. 채팅은 %@에서 계속 실행됩니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "フォルダのコピーをこの Mac で開きました。チャットは %@ で引き続き実行されます。"}}
+      }
+    },
+    "cloud.transferLocal.notAMachineChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Transfer to This Mac works on a chat that runs on a Cloud machine."}},
+        "de": {"stringUnit": {"state": "translated", "value": "„Auf diesen Mac übertragen“ funktioniert bei einem Chat, der auf einer Cloud-Maschine läuft."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "« Transférer vers ce Mac » fonctionne avec une discussion qui s’exécute sur une machine Cloud."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يعمل \"النقل إلى جهاز Mac هذا\" على محادثة تعمل على جهاز Cloud."}},
+        "es": {"stringUnit": {"state": "translated", "value": "«Transferir a este Mac» funciona con un chat que se ejecuta en una máquina de Cloud."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "「傳輸到這台 Mac」適用於在 Cloud 機器上執行的聊天。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "“传输到这台 Mac”适用于在 Cloud 机器上运行的聊天。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "'이 Mac으로 전송'은 Cloud 머신에서 실행 중인 채팅에서 사용할 수 있습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「この Mac に転送」は Cloud マシンで実行中のチャットで使えます。"}}
+      }
+    },
+    "cloud.transferLocal.noFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This chat has no folder on the machine to copy."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Dieser Chat hat auf der Maschine keinen Ordner zum Kopieren."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Cette discussion n’a aucun dossier à copier sur la machine."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لا يوجد لهذه المحادثة مجلد على الجهاز لنسخه."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Este chat no tiene ninguna carpeta en la máquina que copiar."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "這個聊天在機器上沒有可拷貝的資料夾。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "这个聊天在机器上没有可拷贝的文件夹。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 채팅에는 머신에서 복사할 폴더가 없습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このチャットには、マシン上にコピーできるフォルダがありません。"}}
+      }
+    },
+    "cloud.transferLocal.copyFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't copy the folder from %1$@: %2$@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Ordner konnte nicht von %1$@ kopiert werden: %2$@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de copier le dossier depuis %1$@ : %2$@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر نسخ المجلد من %1$@: %2$@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo copiar la carpeta desde %1$@: %2$@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法從 %1$@ 拷貝資料夾：%2$@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法从 %1$@ 拷贝文件夹：%2$@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%1$@에서 폴더를 복사할 수 없습니다: %2$@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%1$@ からフォルダをコピーできませんでした: %2$@"}}
+      }
+    },
+    "cloud.transferLocal.folderNotEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%@ already has files. Pick a new or empty folder."}},
+        "de": {"stringUnit": {"state": "translated", "value": "%@ enthält bereits Dateien. Wähle einen neuen oder leeren Ordner."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "%@ contient déjà des fichiers. Choisissez un dossier nouveau ou vide."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يحتوي %@ على ملفات بالفعل. اختر مجلدًا جديدًا أو فارغًا."}},
+        "es": {"stringUnit": {"state": "translated", "value": "%@ ya tiene archivos. Elige una carpeta nueva o vacía."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "%@ 已有檔案。請選擇新的或空的資料夾。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%@ 已有文件。请选择新的或空的文件夹。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@에 이미 파일이 있습니다. 새 폴더나 빈 폴더를 선택하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@ にはすでにファイルがあります。新しいフォルダか空のフォルダを選んでください。"}}
+      }
+    },
+    "cloud.transferLocal.notOnRemote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The machine's branch isn't on its remote yet. Push it from the machine, then transfer again."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Branch der Maschine ist noch nicht auf ihrem Remote. Pushe ihn von der Maschine und übertrage dann erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La branche de la machine n’est pas encore sur son dépôt distant. Poussez-la depuis la machine, puis transférez à nouveau."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "فرع الجهاز ليس على المستودع البعيد بعد. ادفعه من الجهاز، ثم انقل مرة أخرى."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La rama de la máquina aún no está en su remoto. Haz push desde la máquina y vuelve a transferir."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "機器的分支尚未在其遠端上。請從機器推送，然後再傳輸一次。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "机器的分支尚未在其远程上。请从机器推送，然后再传输一次。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "머신의 브랜치가 아직 원격 저장소에 없습니다. 머신에서 푸시한 다음 다시 전송하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシンのブランチがまだリモートにありません。マシンからプッシュしてから、もう一度転送してください。"}}
+      }
+    },
+    "cloud.transferLocal.cloneFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This Mac couldn't clone the project from its remote. Check that you can reach the repository, then try again."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Dieser Mac konnte das Projekt nicht von seinem Remote klonen. Prüfe, ob du das Repository erreichst, und versuche es erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Ce Mac n’a pas pu cloner le projet depuis son dépôt distant. Vérifiez que vous pouvez accéder au dépôt, puis réessayez."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر على جهاز Mac هذا استنساخ المشروع من مستودعه البعيد. تحقّق من أنه يمكنك الوصول إلى المستودع، ثم حاول مرة أخرى."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Este Mac no pudo clonar el proyecto desde su remoto. Comprueba que puedes acceder al repositorio y vuelve a intentarlo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "這台 Mac 無法從遠端複製專案。請確認你能存取該儲存庫，然後再試一次。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "这台 Mac 无法从远程克隆项目。请确认你能访问该仓库，然后重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 Mac이 원격 저장소에서 프로젝트를 복제하지 못했습니다. 저장소에 접근할 수 있는지 확인한 다음 다시 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Mac はリモートからプロジェクトをクローンできませんでした。リポジトリにアクセスできることを確認してから、もう一度お試しください。"}}
+      }
+    },
+    "cloud.transferLocal.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't transfer the chat to this Mac. Try again; if it keeps failing, run `cmux cloud diagnostics`. Reason: %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Chat konnte nicht auf diesen Mac übertragen werden. Versuche es erneut; wenn es weiter fehlschlägt, führe `cmux cloud diagnostics` aus. Grund: %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de transférer la discussion vers ce Mac. Réessayez ; si l’échec persiste, exécutez `cmux cloud diagnostics`. Raison : %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر نقل المحادثة إلى جهاز Mac هذا. حاول مرة أخرى؛ وإذا استمر الفشل، شغّل `cmux cloud diagnostics`. السبب: %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo transferir el chat a este Mac. Vuelve a intentarlo; si sigue fallando, ejecuta `cmux cloud diagnostics`. Motivo: %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法將聊天傳輸到這台 Mac。請再試一次；如果持續失敗，請執行 `cmux cloud diagnostics`。原因：%@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法将聊天传输到这台 Mac。请重试；如果持续失败，请运行 `cmux cloud diagnostics`。原因：%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅을 이 Mac으로 전송할 수 없습니다. 다시 시도하세요. 계속 실패하면 `cmux cloud diagnostics`를 실행하세요. 이유: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャットをこの Mac に転送できませんでした。もう一度お試しください。失敗が続く場合は `cmux cloud diagnostics` を実行してください。理由: %@"}}
+      }
     }
   },
   "version": "1.0"

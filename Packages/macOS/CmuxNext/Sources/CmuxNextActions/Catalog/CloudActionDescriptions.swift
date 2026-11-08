@@ -77,6 +77,13 @@ nonisolated enum CloudActionDescriptions {
             folder, moves the chat back, opens it here and closes the machine's tab. Only a person runs it: \
             an agent's run (MCP, or the CLI from an agent's chat) is refused.
             """,
+        "cloudTransferLocal": """
+            Transfers a chat on a Cloud machine that no move from this Mac put there to this Mac: copies its \
+            folder (the branch, commits, staged and working changes; never secrets or ignored files) into a \
+            new folder (--path, else ~/Cloud Transfers/<folder>). On your own machine the chat then moves \
+            here as Bring Back Local moves it; on a teammate's, you get your own copy of the folder and the \
+            chat stays with its owner. Only a person runs it: an agent's run is refused.
+            """,
         "cloudSSH": """
             Opens a new terminal tab in the machine's first workspace (--target machine:<id>), resuming a \
             paused machine first, and returns machine_id, workspace_id and the tab's surface_id (terminal_id \

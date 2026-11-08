@@ -43,6 +43,8 @@ pub struct Answer {
     pub seed_phase: Option<String>,
     pub seed_started_at: Option<f64>,
     pub seed_finished_at: Option<f64>,
+    /// `link seed fetch --find-root`: the machine's folder it copied (the chat's repository root).
+    pub remote_root: Option<String>,
 }
 
 impl Answer {
@@ -134,6 +136,7 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         seed_phase: string(&object, "seed_phase"),
         seed_started_at: object.get("seed_started_at").and_then(Value::as_f64),
         seed_finished_at: object.get("seed_finished_at").and_then(Value::as_f64),
+        remote_root: string(&object, "remote_root"),
     };
     (answer, Some(object))
 }
@@ -329,6 +332,15 @@ pub enum Call {
         local: String,
         remote: String,
     },
+    /// `link seed fetch --find-root` (Transfer to This Mac): the first copy of the machine's folder
+    /// of a chat in a new folder here; `adopt` (the chat moves here) keeps the sync records.
+    TransferFetch {
+        socket: String,
+        local: String,
+        remote: String,
+        #[serde(default)]
+        adopt: bool,
+    },
     /// `link seed pull --or-copy` (Bring Back Local).
     BringBackPull {
         socket: String,
@@ -476,6 +488,13 @@ pub fn invocation(call: &Call) -> Invocation {
     match call {
         Call::SeedPush { socket, local, remote } => {
             plain(words(&["link", "seed", "push", "--socket", socket, local, remote]))
+        }
+        Call::TransferFetch { socket, local, remote, adopt } => {
+            let mut args = words(&["link", "seed", "fetch", "--socket", socket, local, remote, "--find-root"]);
+            if *adopt {
+                args.push("--adopt".to_owned());
+            }
+            plain(args)
         }
         Call::BringBackPull { socket, local, remote } => {
             plain(words(&["link", "seed", "pull", "--socket", socket, local, remote, "--or-copy"]))

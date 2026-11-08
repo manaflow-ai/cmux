@@ -21,8 +21,12 @@
 //! build on this fetch; without it (a copy, the chat stays on the machine)
 //! nothing on the machine changes but a seed's export record.
 //!
+//! `--find-root` takes the machine's repository REMOTE is in (the nearest
+//! folder above it with a `.git` folder, never `/` or a home folder itself),
+//! else REMOTE: a chat's folder is often a subfolder of its project.
+//!
 //! Output: one JSON line, `{"ok":true,"mode":"copy"|"git"|"seed","folder":
-//! LOCAL,...the pull's summary}` (exit 0), or `{"ok":false,"error",
+//! LOCAL,"remote_root":THE_FOLDER_COPIED,...the pull's summary}` (exit 0), or `{"ok":false,"error",
 //! "error_code"}` (exit 1): `fetch.no_folder`, `fetch.folder_not_empty`,
 //! `fetch.no_remote` (a partial clone without an `https://` origin),
 //! `fetch.not_a_seed`, `fetch.clone_failed`, `fetch.base_unreachable` (the
@@ -39,8 +43,10 @@ use super::super::sync_cli::{self, Back, SeedBase, SeedPulled, fetch::Shape};
 use super::pull::keep;
 
 /// The CLI's fetch (module docs): its line and exit code.
-pub(super) fn run(socket: &Path, local: &Path, remote: &str, adopt: bool) -> (Value, i32) {
+pub(super) fn run(socket: &Path, local: &Path, remote: &str, adopt: bool, find_root: bool) -> (Value, i32) {
     let keep_new = |relative: &str| !access_cli::is_secret(relative);
+    let found = if find_root { sync_cli::fetch::repo_root(socket, remote).ok().flatten() } else { None };
+    let remote = found.as_deref().unwrap_or(remote);
     let back = match sync_cli::fetch::shape(socket, remote) {
         Ok(Shape::Partial { remote_url }) => partial(socket, local, remote, remote_url, adopt),
         Ok(_) => sync_cli::fetch::fetch(socket, local, remote, adopt, &keep_new),
@@ -49,6 +55,7 @@ pub(super) fn run(socket: &Path, local: &Path, remote: &str, adopt: bool) -> (Va
     match back {
         Back::Done(mut summary) => {
             cmux_json::JsonSet::set(&mut summary, "folder", json!(local.display().to_string()));
+            cmux_json::JsonSet::set(&mut summary, "remote_root", json!(remote));
             (summary, 0)
         }
         Back::Conflict(conflicts, reasons) => {

@@ -33,7 +33,7 @@ use cmux_cloud_wire::{Op, TeamAgentKeyRemoveOp, TeamAgentKeySetOp, TeamAgentKeyS
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
-use super::{OutputMode, UsageError};
+use super::UsageError;
 
 const USAGE: &str = "usage: cmux cloud team-keys status [--json]\n       cmux cloud team-keys set claude|codex [--kind api_key|oauth] [--secret-file PATH] [--idempotency-key KEY] [--json]\n       cmux cloud team-keys remove claude|codex [--idempotency-key KEY] [--json]\n  each takes --team TEAM_ID (or CMUX_CLOUD_TEAM), --cloud-api URL (or CMUX_CLOUD_API_URL)\n  and --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN); set reads the key from a hidden\n  prompt or stdin unless --secret-file names a file, never from an argument";
 const TEAM_ENV: &str = "CMUX_CLOUD_TEAM";

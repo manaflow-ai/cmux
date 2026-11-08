@@ -27,6 +27,8 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var seedPhase: String?
         public var seedStartedAt: Double?
         public var seedFinishedAt: Double?
+        /// `link seed fetch --find-root`: the machine's repository root the chat's folder is in.
+        public var remoteRoot: String?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
                     conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,
@@ -96,6 +98,14 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link seed push`: seeds `local` at `remote` from its GitHub remote plus one bundle, else copies it.
     public func seedPush(socket: String, local: String, remote: String) async throws -> Answer {
         try await run(["verb": "seed-push", "socket": socket, "local": local, "remote": remote]).answer
+    }
+
+    /// `cmux link seed fetch --find-root`: the first copy of the machine's folder of a chat at `remote` (its
+    /// repository root, when it is in one) in the new or empty folder `local` (Transfer to This Mac). `adopt` (the
+    /// chat moves here) keeps the sync records on both sides, so the move's pull and Bring Back build on it.
+    public func transferFetch(socket: String, local: String, remote: String, adopt: Bool) async throws -> Answer {
+        struct Call: Encodable { var verb = "transfer-fetch"; var socket: String, local: String, remote: String, adopt: Bool }
+        return try await run(Call(socket: socket, local: local, remote: remote, adopt: adopt)).answer
     }
 
     /// `cmux link seed pull --or-copy` (Bring Back Local).
