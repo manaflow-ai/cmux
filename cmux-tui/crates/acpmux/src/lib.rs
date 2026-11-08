@@ -103,6 +103,7 @@ pub mod mesh_http;
 pub mod model_copies;
 pub mod name_match;
 pub mod native;
+pub mod network_watch;
 pub mod no_panic;
 pub mod offer_mcp;
 pub mod oom_rank;

@@ -27,6 +27,36 @@ async fn a_silent_peer_loses_the_link_within_seconds() {
     assert!(started.elapsed() >= peer.timings.silence_budget(), "{:?}", started.elapsed());
 }
 
+/// A network change checks a live link at once: one whose route went (the peer silent from
+/// then on) is dropped `NETWORK_PROBE` after the change, not at the end of the silence budget,
+/// and its redial starts then.
+#[tokio::test(start_paused = true)]
+async fn a_network_change_drops_a_dead_link_at_once() {
+    let (tx, _rx) = mpsc::channel(8);
+    let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    let (ours, _theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let started = tokio::time::Instant::now();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    peer.network_changed();
+    let ended = tokio::time::timeout(Duration::from_secs(10), serving).await.unwrap();
+    let error = ended.unwrap().expect_err("the link ends with why");
+    let took = started.elapsed();
+    eprintln!(
+        "dead link dropped {:.1}s after it opened (network change at 0.5s)",
+        took.as_secs_f64()
+    );
+    assert!(error.contains("network changed"), "{error}");
+    assert!(took < peer.timings.silence_budget(), "{took:?}");
+    assert!(
+        took <= Duration::from_millis(500) + NETWORK_PROBE + Duration::from_millis(50),
+        "{took:?}"
+    );
+}
+
 /// Bytes of a frame still coming in count as an answer, so a large frame on a slow link is
 /// not cut by the short silence budget.
 #[tokio::test(start_paused = true)]

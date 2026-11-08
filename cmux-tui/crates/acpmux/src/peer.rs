@@ -6,7 +6,7 @@
 
 use crate::no_panic::LockExt;
 use crate::peer_link::{
-    Backoff, Link, LinkTimings, PeerState, SleepWatch, WAKE_PROBE, write_deadline,
+    Backoff, Link, LinkTimings, NETWORK_PROBE, PeerState, SleepWatch, WAKE_PROBE, write_deadline,
 };
 use crate::rpc::{Message, RpcError, method};
 use cmux_json::JsonSet as _;
@@ -263,6 +263,9 @@ pub struct Peer {
     stop_changed: tokio::sync::watch::Sender<bool>,
     /// A client waits on the peer: reconnects come within seconds (`peer_wanted.rs`).
     wanted: wanted::Wanted,
+    /// Moved on each time this computer's network changes (`network_watch.rs`): a backoff wait
+    /// ends at once, and a live link is probed (`NETWORK_PROBE`).
+    network: tokio::sync::watch::Sender<u64>,
     /// Counts connect attempts that settled (ready or failed), bumped by the
     /// hub once it applied the outcome, so a caller can await the next one.
     settled: tokio::sync::watch::Sender<u64>,
@@ -407,6 +410,7 @@ impl Peer {
             stop_signal: Notify::new(),
             stop_changed: tokio::sync::watch::channel(false).0,
             wanted: Default::default(),
+            network: tokio::sync::watch::Sender::new(0),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
             states: StdMutex::new(None),
@@ -1978,6 +1982,8 @@ impl Peer {
         );
         wake_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut wake_probe: Option<tokio::time::Instant> = None;
+        // A network change probes the link at once: its ssh tunnel may ride a route that went.
+        let mut network = self.network.subscribe();
         // The clocks are read before every write too, not only on `wake_check`'s tick: after a wake
         // the regular ping's tick may be served first, and its write must be held to the probe's
         // deadline, never the whole send budget.
@@ -2007,7 +2013,20 @@ impl Peer {
                 _ = self.stop_signal.notified() => break Ok(LinkEnd::Stopped),
                 _ = wake_check.tick() => check_wake!(),
                 _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
-                    break Err(format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()));
+                    break Err(probe_unanswered());
+                }
+                changed = network.changed() => {
+                    // The sender lives as long as this peer; a closed one is never polled again.
+                    if changed.is_err() {
+                        continue;
+                    }
+                    tracing::info!(peer = %self.name, "the network changed; checking the link");
+                    let deadline = tokio::time::Instant::now() + NETWORK_PROBE;
+                    match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
+                        Ok(Ok(())) => wake_probe = Some(wake_probe.map_or(deadline, |at| at.min(deadline))),
+                        Ok(Err(e)) => break Err(e.to_string()),
+                        Err(_) => break Err(stopped_reading(NETWORK_PROBE)),
+                    }
                 }
                 // Once only: a finished oneshot is not polled again.
                 stale = &mut stale_rx, if !stale_settled => {
@@ -2529,6 +2548,11 @@ fn connect_timed_out(after: Duration) -> String {
     format!("connect timed out after {}s", after.as_secs())
 }
 
+/// Why a link a wake or a network change probed was dropped.
+fn probe_unanswered() -> String {
+    "no answer to the link check after this computer woke or its network changed".to_owned()
+}
+
 fn stopped_reading(budget: Duration) -> String {
     format!("peer stopped reading (a send waited {}s)", budget.as_secs())
 }
@@ -2537,9 +2561,7 @@ fn stopped_reading(budget: Duration) -> String {
 /// passed, else the send budget.
 fn write_late(budget: Duration, wake_probe: Option<tokio::time::Instant>) -> String {
     match wake_probe {
-        Some(probe) if probe <= tokio::time::Instant::now() => {
-            format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs())
-        }
+        Some(probe) if probe <= tokio::time::Instant::now() => probe_unanswered(),
         _ => stopped_reading(budget),
     }
 }

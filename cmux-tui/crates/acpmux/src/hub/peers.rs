@@ -580,6 +580,15 @@ impl Hub {
         self.peer(name)
     }
 
+    /// This computer's network changed (`network_watch.rs`): every peer link waiting to redial
+    /// dials now, and every live one is checked at once.
+    pub fn network_changed(&self) {
+        let peers: Vec<_> = self.peers.lock().unwrap().values().cloned().collect();
+        for peer in peers {
+            peer.network_changed();
+        }
+    }
+
     pub fn connected_peers(&self) -> Vec<Arc<crate::peer::Peer>> {
         self.peers
             .lock()

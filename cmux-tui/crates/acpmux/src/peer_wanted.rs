@@ -41,7 +41,7 @@ pub(super) const READY_FOR: Duration = Duration::from_secs(10);
 pub(super) enum BackoffWait {
     /// The delay passed.
     Done,
-    /// This computer slept through it: the attempt goes now.
+    /// This computer slept through it, or its network changed: the attempt goes now.
     Woke,
     /// The peer was stopped.
     Stopped,
@@ -157,6 +157,7 @@ impl Peer {
         let started = Instant::now();
         let wanted = Backoff::wanted(delay, crate::peer_link::jitter());
         let mut watch = SleepWatch::now();
+        let mut network = self.network.subscribe();
         loop {
             // Listening before the read: an ask between the two still wakes this wait.
             let asked = self.wanted.asked.notified();
@@ -185,9 +186,21 @@ impl Peer {
                         return BackoffWait::Done;
                     }
                 }
+                // The network that failed may be back: the attempt goes now, and the next ones
+                // are quick again.
+                Ok(()) = network.changed() => {
+                    tracing::info!(peer = %self.name, "the network changed; reconnecting now");
+                    return BackoffWait::Woke;
+                }
                 _ = self.stop_signal.notified() => return BackoffWait::Stopped,
             }
         }
+    }
+
+    /// This computer's network changed (`network_watch.rs`): a wait for the next attempt ends
+    /// now, and a live link is checked at once.
+    pub(crate) fn network_changed(&self) {
+        self.network.send_modify(|changes| *changes += 1);
     }
 }
 
@@ -213,6 +226,37 @@ mod tests {
         peer.want();
         assert_eq!(wait.await.unwrap(), BackoffWait::Done);
         assert!(started.elapsed() <= Backoff::WANTED_CAP, "{:?}", started.elapsed());
+    }
+
+    /// The network coming back (a wake, a switch of Wi-Fi) ends a backoff wait at once, every
+    /// time: it is no client's ask, so no `WANTED_CAP` holds the next one.
+    #[tokio::test(start_paused = true)]
+    async fn a_network_change_ends_a_backoff_wait_at_once() {
+        let peer = peer();
+        for _ in 0..2 {
+            let waiting = peer.clone();
+            let started = Instant::now();
+            let wait = tokio::spawn(async move { waiting.wait_backoff(Backoff::CAP).await });
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            assert!(!wait.is_finished());
+            peer.network_changed();
+            let ended = wait.await.unwrap();
+            let took = started.elapsed();
+            eprintln!(
+                "redial {:.0} ms after its wait began (network back at 100 ms)",
+                took.as_secs_f64() * 1000.0
+            );
+            assert_eq!(ended, BackoffWait::Woke);
+            assert!(took < Duration::from_millis(150), "{took:?}");
+        }
+    }
+
+    /// The first redial after a drop waits at most 150 ms.
+    #[test]
+    fn the_first_redial_waits_at_most_150_ms() {
+        let first = Backoff::default().next(1.0);
+        eprintln!("first redial step at most {} ms", first.as_millis());
+        assert!(first <= Duration::from_millis(150));
     }
 
     /// A client that asks while the link is down gets the next attempt at once, not after

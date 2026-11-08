@@ -107,7 +107,10 @@ pub struct Backoff {
 }
 
 impl Backoff {
-    pub const BASE: Duration = Duration::from_millis(500);
+    /// The first step, drawn from 75 to 150 ms: a redial after a dropped link costs an open
+    /// chat little more than the dial itself, and a host that keeps refusing still reaches the
+    /// cap within ten attempts.
+    pub const BASE: Duration = Duration::from_millis(150);
     pub const CAP: Duration = Duration::from_secs(60);
     /// The longest step while a client waits on the peer: a daemon that restarts or a
     /// handshake that fails once costs an open chat a second, not the doubled minute.
@@ -189,6 +192,12 @@ impl SleepWatch {
 // timeout: a socket that survived sleep but cannot answer this probe is a dead transport, so
 // redialing is safer than holding every queued write indefinitely.
 pub const WAKE_PROBE: Duration = Duration::from_secs(30);
+
+/// After this computer's network changes, how long an open link has to answer a ping before it
+/// is dropped and redialed: a live link answers in one round trip, the regular ping's interval.
+// timeout: an answer that takes longer than this after a route change comes over a route that
+// went; the redial is cheaper than the silence budget.
+pub const NETWORK_PROBE: Duration = Duration::from_secs(2);
 
 /// When a write that starts at `now` gives up: after the send `budget`, or at a running wake
 /// probe's deadline when that comes first, so a write to a link that died while the computer
