@@ -328,10 +328,11 @@ fn turn_targets(endpoints: &[String], options: &DialOptions) -> Vec<SocketAddr> 
 
 /// The class of a datagram the tunnel's pacer sent in `priority`.
 /// Handshake messages, keepalives and anything not WireGuard data keep the
-/// class their shape gives (control).
+/// class their shape gives (control). Ultra-mode parity repairs the data it
+/// follows, so it takes that data's class.
 fn send_class_of(datagram: &[u8], priority: cmux_wg::Priority) -> SendClass {
     match send_class(datagram) {
-        SendClass::Control => SendClass::Control,
+        SendClass::Control if !cmux_wg::is_ultra_parity(datagram) => SendClass::Control,
         _ => match priority {
             cmux_wg::Priority::Interactive => SendClass::Input,
             cmux_wg::Priority::Bulk => SendClass::Bulk,
@@ -1843,6 +1844,11 @@ mod tests {
         let mut initiation = vec![0u8; 148];
         initiation[0] = 1;
         assert_eq!(send_class_of(&initiation, Priority::Bulk), SendClass::Control);
+        let mut parity = vec![0u8; 400];
+        parity[0] = 0xCF;
+        assert!(cmux_wg::is_ultra_parity(&parity));
+        assert_eq!(send_class_of(&parity, Priority::Bulk), SendClass::Bulk, "parity is not control");
+        assert_eq!(send_class_of(&parity, Priority::Interactive), SendClass::Input);
     }
 
     /// The phone roams from one TURN allocation to another and announces its

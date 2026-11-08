@@ -5,9 +5,7 @@ import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextSettings
 
-/// App Store actions (plans/cmux-next/app-platform.md section 3). Opening
-/// the window from automation never installs anything; installs and removals
-/// pass the App Store's native consent card (`app.install`, `app.remove`).
+/// App Store actions (app-platform.md 3): automation never installs; installs and removals pass the consent card.
 enum AppStoreHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let previewTitle = SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath)?.title
@@ -26,9 +24,7 @@ enum AppStoreHandlers {
         registry.bind("appStore.showInstalled", unavailable: preview, invoke: { invocation in
             services.apps.showStore(tab: .installed, focus: invocation.allowsViewChange)
         })
-        // Hide and unhide (V9): apps-set hidden on the supervisor with the
-        // invocation's origin; the supervisor decides which origins may hide.
-        // The app keeps running and answering granted calls.
+        // Hide and unhide (V9): apps-set hidden with the invocation's origin (the supervisor decides); the app keeps running.
         func bindHidden(_ id: ActionID, _ hidden: Bool) {
             registry.bind(id, run: { invocation in
                 let appID = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
@@ -48,8 +44,7 @@ enum AppStoreHandlers {
                 })
             })
         }
-        // First-party app pages: `app.open` (sidebar label item, palette, CLI
-        // `app open <id> [--command <id>]`). Without an app, the palette page lists them.
+        // `app.open` (sidebar item, palette, CLI `app open <id> [--command <id>]`); without an app, a palette page lists them.
         registry.bind("app.open", run: { invocation in
             let appID = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
             guard !appID.isEmpty else {
@@ -85,6 +80,10 @@ enum AppStoreHandlers {
         })
         bindHidden("app.hide", true)
         bindHidden("app.unhide", false)
+        registry.bindEffect("app.reloadCustomViews", requires: nil, effect: { _ in // the error card's Reload, for every local app
+            if let reason = services.apps.client.unavailableReason { throw Self.unavailable(reason) }
+            services.apps.client.reloadLocalApps(); return .done
+        })
         // Install and remove (CLI `cmux apps install|remove [--deploy <target>]`, palette, MCP): the
         // App Store's consent card (AppsStoreChange); only the person's click makes it the user's.
         for (id, kind) in [("app.install", AppsStoreChange.Kind.install), ("app.remove", .remove)] as [(ActionID, AppsStoreChange.Kind)] {

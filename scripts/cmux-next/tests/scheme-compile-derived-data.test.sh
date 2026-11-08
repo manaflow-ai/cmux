@@ -154,6 +154,7 @@ for line in "error: CAS error encountered during compilation" "error: CAS error:
     "error: failed to load input '/x/a.swift' from CAS" "error: failed to replay cached diagnostics: x" \
     "error: remote service unavailable" "error: cache plugin failed" \
     "<unknown>:0: error: module file '/dd/ModuleCache.noindex/ColorSync-5KVU.pcm' not found: unloadable casid 0~m-Qb==: corrupt object '009BE41B'" \
+    "<unknown>:0: error: module file '/dd/ModuleCache.noindex/MetricKit-7JQ8.pcm' not found: missing module cache key 0~YZCh==: module file is not available in the CAS" \
     "error: corrupt object '008CE5D8'"; do
   printf '%s\n' "$line" > "$TMP/caslog"
   cmux_next_runtime_cas_failed "$TMP/caslog" || fail "runtime CAS failure was not recognized: $line"

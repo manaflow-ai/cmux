@@ -203,7 +203,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             }
             .onChange(of: scrollRequest) { _, target in
                 guard let target else { return }
-                withAnimation(theme.motion.gentle.animation) { proxy.scrollTo(target, anchor: target == "bottom" ? .bottom : .top) }
+                withAnimation(theme.motion.gentle.animation.unlessReduceMotion) { proxy.scrollTo(target, anchor: target == "bottom" ? .bottom : .top) }
             }
             .listStyle(.insetGrouped)
             .environment(\.defaultMinListRowHeight, theme.metrics.settingsRowHeight)
@@ -503,7 +503,7 @@ struct AppearanceTiles: View {
                                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                                     .strokeBorder(selected ? theme.colors.label.color : theme.colors.separator.color, lineWidth: selected ? 2 : 0.5)
                             }
-                            .animation(theme.motion.snap.animation, value: selected)
+                            .animation(theme.motion.snap.animation.unlessReduceMotion, value: selected)
                         Text(mode.title)
                             .font(theme.type.meta.weight(selected ? .semibold : .regular))
                             .foregroundStyle(selected ? theme.colors.label : theme.colors.label2)

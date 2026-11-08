@@ -227,6 +227,15 @@ try {
     const view = shown();
     expect(view.tile).toBeNull();
     expect(view.files.join("")).toContain("screen-demo.mp4");
+    // Its frames are what make it a tile: the same chip with one is one.
+    const { sentVideosOf } = await import("../src/agent-session/acpmux/conversation/sentVideos");
+    expect(sentVideosOf({ text: "look", retryAttachments: [chip] })).toEqual([]);
+    expect(
+      sentVideosOf({
+        text: "look",
+        retryAttachments: [{ ...chip, video: { ...chip.video, frames: [{ atMs: 2_000, data: "AA==" }] } }],
+      }),
+    ).toHaveLength(1);
   });
 
   test("a person's own line that only reads like a note, with no frame or link, draws no tile", async () => {

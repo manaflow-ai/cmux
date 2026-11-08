@@ -7,7 +7,15 @@ public import CmuxNextDesign
 /// loop, so nothing is sent until they click Allow. The App lists ``identifier`` as user-only
 /// (DebugDialog), so automation never answers it. Keys live in Resources/Cloud.xcstrings with every app locale.
 public struct CloudChangeRequest {
-    public init() {}
+    /// The machine's name, when the change has one.
+    public var machine: String?
+    /// The change's arguments as the agent or script asked them (`size: large`), shown so the person sees what they allow.
+    public var asked: [String: String]
+
+    public init(machine: String? = nil, asked: [String: String] = [:]) {
+        self.machine = machine
+        self.asked = asked
+    }
 
     public static let identifier = "cmux.dialog.cloud.changeRequest"
     /// The id of the button that says yes.
@@ -17,7 +25,9 @@ public struct CloudChangeRequest {
     public func spec(_ title: String) -> CmuxDialogSpec {
         CmuxDialogSpec(
             title: title,
-            lines: [String(localized: "cloud.changeRequest.body", defaultValue: "Asked by an agent or a script. A Cloud machine change can count against your Cloud plan.", table: "Cloud", bundle: .module)],
+            lines: [String(localized: "cloud.changeRequest.body", defaultValue: "Asked by an agent or a script. A Cloud machine change can count against your Cloud plan.", table: "Cloud", bundle: .module)]
+                + (machine.map { [String(format: String(localized: "cloud.changeRequest.machine", defaultValue: "Machine: %@", table: "Cloud", bundle: .module), $0)] } ?? [])
+                + asked.keys.sorted().map { "\($0): \(asked[$0] ?? "")" },
             buttons: [.cancel(String(localized: "cloud.changeRequest.decline", defaultValue: "Don't Allow", table: "Cloud", bundle: .module)),
                       CmuxDialogButton(id: Self.accept, title: String(localized: "cloud.changeRequest.accept", defaultValue: "Allow", table: "Cloud", bundle: .module), role: .default)],
             identifier: Self.identifier)
