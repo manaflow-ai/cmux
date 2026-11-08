@@ -23,6 +23,10 @@ type Frame = {
   at: number;
   clicked: boolean;
   dock: Box;
+  /** The fold's drawn height (0 without one). */
+  fold: number;
+  /** The fold box's node (a counter) and its animations, for a failure's trace. */
+  foldAt: string;
   jump: Box | null;
   row: number;
   /** The hat's elements outside its fold, by a stable key, with their box and drawn opacity. */
@@ -74,6 +78,7 @@ await requireBrowserLane("composer-hat-fold-balance.test.ts", async () => {
   const settle = (page: Page) =>
     page.evaluate(async () => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      // raf-read: scrollTop is the scroll position itself, which a frame's paint does not change.
       const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
       for (let still = 0, last = Number.NaN; still < 2;) {
         await frame();
@@ -123,6 +128,12 @@ await requireBrowserLane("composer-hat-fold-balance.test.ts", async () => {
         const rect = row.getBoundingClientRect();
         return rect.top > view.top + 20 && rect.bottom < view.top + view.height / 2;
       });
+      const ids = new WeakMap<Element, number>();
+      let nextId = 0;
+      const nodeId = (node: Element) => {
+        if (!ids.has(node)) ids.set(node, ++nextId);
+        return ids.get(node)!;
+      };
       const sample = () => {
         const hat = tray();
         const fold = hat.querySelector(":scope > .acpmux-running-tray__fold");
@@ -145,6 +156,13 @@ await requireBrowserLane("composer-hat-fold-balance.test.ts", async () => {
           at: performance.now(),
           clicked: w.__clicked,
           dock: box(document.querySelector(".acpmux-dock")!),
+          fold: fold ? fold.getBoundingClientRect().height : 0,
+          foldAt: fold
+            ? `#${nodeId(fold)} ${fold
+                .getAnimations()
+                .map((animation) => `${animation.playState}@${Math.round(Number(animation.currentTime ?? -1))}`)
+                .join(",")} list ${fold.firstElementChild?.getBoundingClientRect().height.toFixed(1)}`
+            : "-",
           jump: jump ? box(jump) : null,
           row: anchor ? anchor.getBoundingClientRect().top : Number.NaN,
           parts,
@@ -212,11 +230,17 @@ await requireBrowserLane("composer-hat-fold-balance.test.ts", async () => {
 
   /** The dock's height moves one way only and lands exactly on `end`. */
   function oneWay(frames: Frame[], grows: boolean, end: number) {
+    const back: string[] = [];
     for (let index = 1; index < frames.length; index++) {
       const step = frames[index]!.dock.h - frames[index - 1]!.dock.h;
-      if (grows) expect(step).toBeGreaterThanOrEqual(-0.5);
-      else expect(step).toBeLessThanOrEqual(0.5);
+      if (grows ? step < -0.5 : step > 0.5) back.push(`frame ${index}: ${step.toFixed(2)}px`);
     }
+    // Each frame's time, dock and fold height, for a failure's message.
+    const trace = frames.map(
+      (frame) =>
+        `${(frame.at - frames[0]!.at).toFixed(0)}ms dock ${frame.dock.h.toFixed(2)} fold ${frame.fold.toFixed(2)} ${frame.foldAt}`,
+    );
+    expect({ back, trace: back.length > 0 ? trace : [] }).toEqual({ back: [], trace: [] });
     expect(Math.abs(frames.at(-1)!.dock.h - end)).toBeLessThanOrEqual(0.5);
   }
 
@@ -235,12 +259,18 @@ await requireBrowserLane("composer-hat-fold-balance.test.ts", async () => {
    *  drawn, is faint or narrow then, never a pop at full size. Returns the offenders. */
   function pops(frames: Frame[]): string[] {
     const found = new Set<string>();
+    // Each element's widest drawn width in the window: one that comes or goes while narrow against it
+    // (growing from nothing, or narrowing away) is moving, not popping.
+    const widest = new Map<string, number>();
+    for (const frame of frames)
+      for (const [key, part] of Object.entries(frame.parts)) widest.set(key, Math.max(widest.get(key) ?? 0, part.w));
     for (let index = 1; index < frames.length; index++) {
       const before = frames[index - 1]!.parts;
       const now = frames[index]!.parts;
-      const faint = (part: Box & { opacity: number }) => part.opacity <= 0.35 || part.w <= 4;
-      for (const [key, part] of Object.entries(now)) if (!before[key] && !faint(part)) found.add(`in: ${key}`);
-      for (const [key, part] of Object.entries(before)) if (!now[key] && !faint(part)) found.add(`out: ${key}`);
+      const faint = (part: Box & { opacity: number }, key: string) =>
+        part.opacity <= 0.35 || part.w <= Math.max(4, 0.6 * (widest.get(key) ?? 0));
+      for (const [key, part] of Object.entries(now)) if (!before[key] && !faint(part, key)) found.add(`in: ${key}`);
+      for (const [key, part] of Object.entries(before)) if (!now[key] && !faint(part, key)) found.add(`out: ${key}`);
     }
     return [...found];
   }
