@@ -448,7 +448,15 @@ fn an_upload_sends_a_dropped_folder_without_its_secrets() {
     let base = home.parent().unwrap().to_path_buf();
     let tmp = base.join("tmp");
     let app = home.join("projects/app");
-    for dir in ["src/deep", "gcloud", "nested/.ssh", "empty"] {
+    for dir in [
+        "src/deep",
+        "gcloud",
+        "nested/.ssh",
+        "empty",
+        ".hidden",
+        "Library/Keychains",
+        "docs/.config",
+    ] {
         std::fs::create_dir_all(app.join(dir)).unwrap();
     }
     for dir in [".ssh", "Library/Preferences"] {
@@ -462,6 +470,10 @@ fn an_upload_sends_a_dropped_folder_without_its_secrets() {
     std::fs::write(app.join("server.pem"), "fake-folder-pem\n").unwrap();
     std::fs::write(app.join("gcloud/adc.json"), "fake-folder-gcloud\n").unwrap();
     std::fs::write(app.join("nested/.ssh/config"), "fake-folder-ssh\n").unwrap();
+    std::fs::write(app.join(".hidden/token"), "fake-folder-hidden\n").unwrap();
+    std::fs::write(app.join("Library/Keychains/login.plist"), "fake-folder-keychain\n").unwrap();
+    std::fs::write(app.join("docs/.config/app.toml"), "fake-folder-config\n").unwrap();
+    std::fs::write(app.join(".bash_history"), "fake-folder-history\n").unwrap();
     std::fs::write(base.join("elsewhere/other.txt"), "fake-folder-outside\n").unwrap();
     std::os::unix::fs::symlink(base.join("elsewhere/other.txt"), app.join("link.txt")).unwrap();
     let dropped = home.join("projects/shot.png");
@@ -482,6 +494,10 @@ fn an_upload_sends_a_dropped_folder_without_its_secrets() {
         "server.pem",
         "gcloud/adc.json",
         "nested/.ssh/config",
+        ".hidden/token",
+        "Library/Keychains/login.plist",
+        "docs/.config/app.toml",
+        ".bash_history",
         "link.txt",
         ".cmux-sync.json",
     ] {

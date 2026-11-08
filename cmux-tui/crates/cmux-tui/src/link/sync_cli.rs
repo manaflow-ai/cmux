@@ -591,6 +591,8 @@ pub(super) fn copy_folder_with_progress(
     let (mut made, mut seen) = (BTreeSet::new(), BTreeMap::new());
     let (mut small, mut alone) = (Vec::new(), Vec::new());
     for (relative, file) in set.files {
+        // Each file's checks are round trips too: the app's idle deadline hears them.
+        progress();
         let at = format!("{target}/{relative}");
         let (parent, _) = remote::split(&at)?;
         if through_link(&mut remote, target, parent, &mut seen)? {

@@ -8,7 +8,9 @@
 //! ([`dropped_place`]), and its name is not a dot or credential folder's. Its
 //! files go as a shared folder's do ([`super::shared_file`]: never a secret
 //! file at any depth, nothing of a repository, in git only what git does
-//! not ignore), never a symlink, and no sync record is left with the copy.
+//! not ignore), and none on a path with a dot, credential or `Keychains`
+//! name ([`folder_file`]); never a symlink, and no sync record is left with
+//! the copy.
 //!
 //! What may go: a regular file (canonical, so a symlink is judged by where
 //! it leads), whose name is not a secret file's or a dot
@@ -78,7 +80,7 @@ pub(super) fn upload_with_id(
             let _ = std::io::stdout().flush();
         };
         let copied = if *folder {
-            let keep = |relative: &str, git: bool| super::shared_file(file, relative, git);
+            let keep = |relative: &str, git: bool| folder_file(file, relative, git);
             sync_cli::copy_folder_with_progress(socket, file, &at, &keep, &mut heartbeat)
                 .map(|(files, skipped)| json!({"folder": true, "files": files, "skipped": skipped}))
         } else {
@@ -98,6 +100,20 @@ pub(super) fn upload_with_id(
         uploads.push(entry);
     }
     Ok(json!({"uploads": uploads}))
+}
+
+/// Whether the file at `relative` of an uploaded `folder` goes: as a shared
+/// folder's would ([`super::shared_file`]), and with no dot file or folder,
+/// credential folder or `Keychains` folder anywhere on its path, so a folder
+/// that holds a home's worth of files (a backup's `Library/Keychains`,
+/// `.config`) sends none of those.
+fn folder_file(folder: &Path, relative: &str, git: bool) -> bool {
+    relative.split('/').all(|name| {
+        let lower = name.to_ascii_lowercase();
+        !name.starts_with('.')
+            && !super::SECRET_FOLDERS.contains(&lower.as_str())
+            && lower != "keychains"
+    }) && super::shared_file(folder, relative, git)
 }
 
 /// Only the random transfer directory can be removed, never an arbitrary relative path.
