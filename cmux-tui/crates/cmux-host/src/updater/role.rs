@@ -27,8 +27,11 @@ use crate::daemon_spec::{WORK_HOME, WORK_USER};
 
 /// The first check after `cmux host run` starts (a boot or an update's restart).
 const BOOT_DELAY: Duration = Duration::from_secs(30);
-/// Every few minutes while the machine runs.
-const INTERVAL: Duration = Duration::from_secs(300);
+/// Every minute while the machine runs: a merged fix reaches an idle machine
+/// within about a minute of the channel moving, not five. One check is a GET
+/// of the small signed channel file (served uncached, max-age 60) and a
+/// signature check; it logs only when its outcome changes.
+const INTERVAL: Duration = Duration::from_secs(60);
 /// An update waiting for a turn to end looks again this soon.
 const BUSY_RETRY: Duration = Duration::from_secs(60);
 /// No flip or restart this long after the role starts (a boot or an update's

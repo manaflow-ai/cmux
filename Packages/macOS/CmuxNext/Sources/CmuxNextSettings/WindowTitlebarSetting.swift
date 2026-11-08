@@ -5,8 +5,6 @@ public import CmuxNextDesign
 /// strip with the workspace name).
 public nonisolated struct WindowTitlebarSetting {
     public nonisolated init() {}
-    public static let configPath = ["window", "titlebar"]
-    public static let fallback: TitlebarStyle = .minimal
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
@@ -24,8 +22,6 @@ public nonisolated struct WindowTitlebarSetting {
 /// "always".
 public nonisolated struct TitlebarButtonsSetting {
     public nonisolated init() {}
-    public static let configPath = ["window", "titlebarButtons"]
-    public static let fallback: TitlebarButtonsMode = .hover
 
     static func parse(_ root: JSONValue) -> (TitlebarButtonsMode, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (fallback, nil) }
@@ -40,8 +36,6 @@ public nonisolated struct TitlebarButtonsSetting {
 /// `tabs.plusButton` in cmux-next.json (R120): "hover" (default) or "always".
 public nonisolated struct PlusButtonSetting {
     public nonisolated init() {}
-    public static let configPath = ["tabs", "plusButton"]
-    public static let fallback: PlusButtonMode = .hover
 
     static func parse(_ root: JSONValue) -> (PlusButtonMode, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (fallback, nil) }

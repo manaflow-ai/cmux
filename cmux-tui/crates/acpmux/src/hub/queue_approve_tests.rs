@@ -557,3 +557,81 @@ async fn a_restart_keeps_a_continuations_goal_mark_and_an_edit_drops_it() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A prompt of acpmux's own control state the person rewrote in the queue is their prompt now:
+/// a restart keeps it, for every kind a restart or its cleanup leaves out (`queue_edit.rs`
+/// `controls`). Before, the edit kept the kind, so the load dropped the person's words: an inbox
+/// notice in `restore_queue`, a subagent retry in `drop_unsent_subagent_retries`, and a forum
+/// announcement's refresh rewrote them (Codex reviews of #37497). A message that names its
+/// sender keeps only that.
+#[tokio::test]
+async fn a_restart_keeps_control_prompts_the_person_rewrote() {
+    let dir = std::env::temp_dir().join(format!("acpmux-edited-control-{}", uuid::Uuid::now_v7()));
+    let durable = || {
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+            "defaultHarness": "fake"
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Local;
+        let store = crate::store::open(&cfg.store, &dir).unwrap();
+        Hub::new(cfg, store)
+    };
+    let hub = durable();
+    let new = crate::hub::NewRequest {
+        cwd: Some(std::env::temp_dir()),
+        ..crate::hub::NewRequest::default()
+    };
+    let session = hub.new_session(new).await.unwrap();
+    let id = session.id.clone();
+    let kinds = [
+        ("notice", json!({"kind": super::super::inbox::NOTICE_KIND})),
+        (
+            "retry",
+            json!({"kind": super::super::subagent_retry::PROVENANCE_KIND,
+                "subagentId": "s/t9", "agentId": "agent-s/t9", "attempt": 1}),
+        ),
+        ("trigger", json!({"kind": "trigger"})),
+        ("forum-post-1", json!({"kind": super::super::forum::PROVENANCE_KIND, "postId": "post-1"})),
+        (
+            "report",
+            json!({"kind": super::super::lane_reports::KIND, "from": "acp:lane-1",
+                "fromName": "lane-1", "firstWork": true, "goalMark": "41"}),
+        ),
+    ];
+    for (prompt_id, provenance) in &kinds {
+        insert(&hub, &session, prompt_id, Some(provenance));
+        let text = format!("Do {prompt_id} instead");
+        let edit = json!({"sessionId": id, "promptId": prompt_id, "op": "update", "text": text});
+        hub.queue_edit(&session, &edit, Control::Local, false, None).await.unwrap();
+    }
+    hub.shutdown_all().await;
+    drop((session, hub));
+
+    let hub = durable();
+    let session = hub.resolve(&id).unwrap();
+    hub.load_session_log(&session);
+    let left: Vec<(String, String, Option<Value>)> = session
+        .queue()
+        .into_iter()
+        .map(|q| {
+            let kind = q.run.provenance.as_ref().and_then(|p| p.get("kind")).cloned();
+            (q.prompt_id, q.preview, kind)
+        })
+        .collect();
+    // A lane's report keeps who sent it, as a session's message and nothing more: no gate, first
+    // work or mark acts on the person's words.
+    let sender = |prompt_id: &str| (prompt_id == "report").then(|| json!("session_message"));
+    let want: Vec<(String, String, Option<Value>)> = kinds
+        .iter()
+        .map(|(id, _)| ((*id).to_owned(), format!("Do {id} instead"), sender(id)))
+        .collect();
+    assert_eq!(left, want, "the person's rewritten control prompts after a restart");
+    let report = session.queue().into_iter().find(|q| q.prompt_id == "report").unwrap();
+    let kept = report.run.provenance.clone().unwrap();
+    assert_eq!(kept["fromName"], "lane-1", "{kept}");
+    assert!(kept.get("firstWork").is_none() && kept.get("goalMark").is_none(), "{kept}");
+    assert!(kept.get(crate::prompt_provenance::EDITED_BY).is_some(), "{kept}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}

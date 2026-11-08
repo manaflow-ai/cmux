@@ -1,5 +1,5 @@
 public import CmuxNextActions
-public import CmuxNextHome
+public import CmuxNextHomeModel
 
 extension HomeMessageRouting {
     /// The palette's known values of a Home argument: ``ActionSuggestions/homeRecipients`` (the

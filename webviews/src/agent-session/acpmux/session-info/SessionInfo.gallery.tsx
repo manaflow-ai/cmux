@@ -24,9 +24,10 @@ import { createWorkflowAdapter } from "../summary/foldWorkflows";
 import { sessionSummary, type SummarySource, type SummaryWakeup } from "../summary/sessionSummary";
 import { parallelWorkflowProcesses, workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
 import { SessionInfo, SessionInfoPanel, type SessionInfoPlacement } from "./SessionInfo";
-import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
+import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
+import type { SubagentHeaderVariant } from "./subagentScopeHeaderModel";
 import { subagentSummary, type SubagentScope } from "./subagentScope";
-import { outputArtifacts } from "./OutputsSection";
+import { outputArtifacts } from "./outputsSectionModel";
 import { DEFAULT_SECTIONS } from "./sessionInfoState";
 import { sessionEntry, type AcpmuxSessionEntry } from "../sessionList";
 import type { SessionUsageStats } from "../usageStats";
@@ -1529,6 +1530,23 @@ export default componentEntry<Props>({
         summary: { ...summary, cwd: SCRATCHPAD, branch: undefined, worktree: undefined },
         repository: undefined,
       },
+    },
+    "connectors-loaded": {
+      note: 'Connector inventory variant: two MCP servers loaded by the attached harness read as "2 loaded". This deliberately does not claim provider authentication or resource authorization.',
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          mcpServers: [
+            { name: "github", status: "connected" as const },
+            { name: "linear", status: "connected" as const },
+          ],
+        },
+      },
+    },
+    "connectors-connecting": {
+      note: 'Connector inventory variant: one MCP server is still loading, so the head says "1 connecting" rather than a green connected count.',
+      props: { ...full, summary: { ...summary, mcpServers: [{ name: "github", status: "pending" as const }] } },
     },
     "context-connectors-open": {
       note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",

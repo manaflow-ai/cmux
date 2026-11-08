@@ -1,13 +1,14 @@
 // The system and tool rows of Leo's 2026-11-02 capture of a Claude chat (gallery entry
 // agent-pane.transcript-system-rows#leo-capture; Leo: "these are all so stupid looking"): another
 // agent's received line, a reply that said only ".", "Scheduled check", an opened "Ran 2 commands"
-// and "Compacting the conversation…". Measured between visible marks in Chromium, light and dark
+// and a compaction's note ("Compaction ended": a running compaction is the live line's state).
+// Measured between visible marks in Chromium, light and dark
 // (leo-workspace design/transcript-spacing.md rule 2):
 //
 // - consecutive one-line rows are SYSTEM_ROW_PITCH (22) apart centre to centre, whatever their kind
 //   (rule 3): no block gap between a status row, a background turn's line and a tool run;
 // - a reply of one period draws nothing, so nothing sits on its own line under the received line;
-// - "Scheduled check" and "Compacting the conversation…" start their words on the run's text column.
+// - "Scheduled check" and "Compaction ended" start their words on the run's text column.
 //
 // CMUX_TRANSCRIPT_SPACING_LOG=1 logs every row and every measured mark.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -61,10 +62,11 @@ await requireBrowserLane("transcript-system-rows.test.ts", async () => {
     "gcp-agent-lane-2/cloud-clouddo",
     "Scheduled check",
     "Ran 2 commands",
-    // A command reads as its command, never Bash's description (Codex parity).
-    "gh workflow view backend.yml",
-    "gh workflow run backend.yml",
-    "Compacting the conversation",
+    // A command the verb table does not know (`gh workflow`) reads as Bash's description
+    // (commandActions.ts commandSaid).
+    "Check backend.yml dispatch inputs",
+    "Dispatch production promote of the candidate",
+    "Compaction ended",
   ];
 
   const measure = (page: Page): Promise<Measured> =>

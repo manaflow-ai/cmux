@@ -215,6 +215,59 @@ fn checked_display_parts(parts: Option<&Value>, blocks: &[Value]) -> (Option<Val
     ((!valid.is_empty()).then_some(Value::Array(valid)), refused)
 }
 
+/// The fields of another sender's provenance its card is drawn from (`prompt_sender.rs`, the
+/// apps' `incomingMessage.ts` and `AgentIncoming.swift`): who sent it and how sure acpmux is.
+const SENDER_FIELDS: [&str; 14] = [
+    "from",
+    "fromName",
+    "fromShortName",
+    "fromRole",
+    "fromModel",
+    "fromEffort",
+    crate::prompt_provenance::FROM_CHIEF,
+    crate::prompt_provenance::FROM_SESSION_ID,
+    crate::prompt_provenance::FROM_HARNESS,
+    crate::prompt_provenance::DECLARED_LABEL,
+    crate::prompt_provenance::CLAIMED,
+    crate::prompt_provenance::VERIFIED,
+    crate::prompt_provenance::TRANSPORT,
+    crate::prompt_provenance::FORWARDED_BY,
+];
+
+/// What a person's edit keeps of a waiting prompt's provenance. Its author's own edit keeps it
+/// whole, still theirs under the same rules, and names its editor. Another session's message keeps
+/// who sent it and names its editor (`prompt_provenance::edited_by`), and nothing else: no kind or
+/// field that acts on a queued prompt (a restart's or a cleanup's skip of a notice, a retry, an
+/// announcement or a trigger, a family or lane report's gate, a delegator's first work, a goal's
+/// mark, a digest's members) reaches the person's words. Any other prompt is the editor's own.
+fn edited_provenance(
+    provenance: Option<&Value>,
+    editor: crate::author::Editor<'_>,
+) -> Option<Value> {
+    let p = provenance?;
+    if crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id))) {
+        return Some(crate::prompt_provenance::edited_by(p.clone(), editor));
+    }
+    let kind = p.get("kind").and_then(Value::as_str)?;
+    // Each draws as a session's message (`incomingMessage.ts`); `agent_message` as its own.
+    let kind = match kind {
+        "agent_message" => "agent_message",
+        "session_message" | "task_result" => "session_message",
+        k if k == super::subsessions::PROVENANCE_KIND || k == super::lane_reports::KIND => {
+            "session_message"
+        }
+        _ => return None,
+    };
+    let mut kept = serde_json::Map::new();
+    kept.insert("kind".to_owned(), json!(kind));
+    for field in SENDER_FIELDS {
+        if let Some(value) = p.get(field) {
+            kept.insert(field.to_owned(), value.clone());
+        }
+    }
+    Some(crate::prompt_provenance::edited_by(Value::Object(kept), editor))
+}
+
 impl Hub {
     /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, images?, index?}`, where
     /// `resume` needs no `promptId`. Answers `{sessionId, promptId, op, ok}`, and `send_now` and `interrupt` also how it was sent
@@ -358,11 +411,14 @@ impl Hub {
                 control: stricter(q.run.control, control),
                 cloud_mobile: q.run.cloud_mobile,
                 trust_gate: q.run.trust_gate || trust_gate,
-                // The person rewrote it: it is no longer the sender's message, unless the sender
-                // is that person.
-                provenance: q.run.provenance.clone().filter(|p| {
-                    crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id)))
-                }),
+                // The person rewrote it: it keeps who sent it and says who edited it, and nothing
+                // of what its provenance did (`edited_provenance`). Its ask (`class`) was the
+                // sender's words' and goes.
+                provenance: edited_provenance(q.run.provenance.as_ref(), editor),
+                // What it does is the person's now, apart from who it names: no agent's message to
+                // clear with an agents-only removal, hold for a stop or fold into a digest
+                // (`queue.rs` `remove_queued_by`, `digest.rs`), as a restart reads the same edit
+                // (`queue_updated` drops `fromAgent`). Its sender stays in `provenance` only.
                 agent: None,
                 class: None,
                 supersede: None,
@@ -370,7 +426,7 @@ impl Hub {
                 message_id: None,
                 message_sender: None,
             });
-            q.preview = short_text(&text, 200);
+            q.preview = short_text(super::inbox::relay_body(&text), 200);
             // Its author's edit of a prompt that waits for the owner is a new revision: an
             // approval names the words the owner saw (`queue_approve.rs`).
             if again {

@@ -11,7 +11,7 @@ import { BACKGROUND_TURN, backgroundTurnRowId } from "../conversation/background
 import { withSubagentLines } from "./runningTray";
 import { SUBAGENT_DONE } from "./subagentRows";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
-import { SubagentViewsContext } from "./SubagentGroup";
+import { SubagentViewsContext } from "./subagentGroupModel";
 
 // As Claude's live records name them: acpmux's subagent is `<session>/<tool call>`, the
 // notification's origin the bare call.

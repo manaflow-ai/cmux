@@ -146,7 +146,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.path.<machine>`,
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
-- Cloud credentials: `cmux.cloud.link-credential`
+- Cloud credentials: `cmux.cloud.link-credential`, `cmux.cloud.hands.stdin` (the hands engine's JSON lines into
+  the bundled `cmux cloud hands` child's stdin, user-initiated, serial: its pipe writes block only it and keep
+  their order; a few small lines per answer, level change or token ask, so no back-pressure; a write to an
+  engine that exited fails with EPIPE (no SIGPIPE) and the engine is started again; HandsEngine)
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
 - Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,

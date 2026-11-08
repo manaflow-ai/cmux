@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
-import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
+import { BrowseFailure } from "./BrowseFailure";
+import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
@@ -13,11 +14,9 @@ import {
   ServerIcon,
   type RunRowDetails,
   type EnvironmentFaceStyle,
-  SECTION_LABELS,
-  environmentStateLabel,
-  useMachineRefresh,
   type SavedEnvironmentRows,
 } from "./EnvironmentPicker";
+import { SECTION_LABELS, environmentStateLabel, useMachineRefresh } from "./environmentPickerModel";
 import { machineColor } from "./machineColor";
 import {
   isCloudMachineRow,
@@ -49,7 +48,8 @@ import {
   type ExtraFolderControl,
   type ExtraFolderRows,
 } from "./extraFolders";
-import type { BrowseRequest, BrowseResult } from "./AddProjectPanel";
+import type { BrowseRequest } from "./AddProjectPanel";
+import type { BrowseResult } from "./addProjectPanelModel";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
@@ -63,6 +63,7 @@ import type { RunModeRows } from "./sandboxRun";
 import { machineLoadWarning, type MachineResources } from "./machineResources";
 import { useComposerSettings } from "./composerSettings";
 import { repickMachine, type RepickMachine } from "./cloudRepick";
+import { chatComputerId, ownMachineName, type ChatPlace } from "./chatMachine";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -144,6 +145,7 @@ export function ComposerContext({
   onNoProject,
   noProject = false,
   localName,
+  route,
   onNewChat,
   onBrowseFolder,
   onConnect,
@@ -198,6 +200,9 @@ export function ComposerContext({
   noProject?: boolean;
   /// This Mac's name (the handshake's `machineName`).
   localName?: string;
+  /// The page's route to its acpmux (chatMachine.ts `chatPlace`): over a remote route the `local`
+  /// row names the machine it reaches, never this Mac.
+  route?: ChatPlace;
   /// A started chat's New Chat Here, or a folder picked from its menu: a new chat in that folder,
   /// in a tab of its own.
   onNewChat?(cwd: string): void;
@@ -275,6 +280,8 @@ export function ComposerContext({
   const accountSignedIn = useCloudSignedIn();
   const cloudSignedIn = cloudSignedInSeam ?? accountSignedIn;
   const shownMachines = cloudMachines ?? accountMachines;
+  // The page's own acpmux by name: this Mac, or the machine a remote route reaches (chatMachine.ts).
+  const ownName = ownMachineName(summary, localName, peerKinds, route);
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
   // one's transport and state, in both the environment picker and the plain Computer menu; for a
   // new chat, then the account's Cloud machines acpmux does not list (a paused one, say).
@@ -282,7 +289,7 @@ export function ComposerContext({
     // A Cloud machine acpmux has no link to that the account says is paused or resuming reads so,
     // not as a lost link; in a new chat a paused one is a pick that resumes it.
     const listed = withCloudSleep(
-      availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStates, peerResources),
+      availableComputers(summary, sessions, peers, peerKinds, ownName, peerConnected, peerStates, peerResources),
       shownMachines,
       newChat,
     );
@@ -299,7 +306,7 @@ export function ComposerContext({
     peerConnected,
     peerStates,
     peerResources,
-    localName,
+    ownName,
     newChat,
     shownMachines,
     t,
@@ -309,6 +316,15 @@ export function ComposerContext({
   // so Sign in for Cloud goes away once the app says the person is signed in (an older chat's
   // menu otherwise never asks, and keeps offering sign-in to someone already signed in).
   const readsCloudAccount = !cloudMachines && (newChat || onConnect !== undefined);
+  // The app is asked once when the composer mounts, not when the menu opens, so the menu's first
+  // frame already has this page's answer (cloudMachines.ts keeps only the signed-in yes or no
+  // across pages; the account's machines are always this page's own reply).
+  const accountAsked = useRef(false);
+  useEffect(() => {
+    if (!readsCloudAccount || accountAsked.current) return;
+    accountAsked.current = true;
+    void refreshCloudMachines();
+  }, [readsCloudAccount]);
   const onRefreshMachines = readsCloudAccount
     ? () => {
         onRefreshPeers?.();
@@ -751,7 +767,7 @@ export function ComposerContext({
         : layout === "where-machine" && localMachine
           ? t(CONTEXT_LABELS.chooseMachine)
           : localMachine
-            ? (localName ?? t("composer.thisMac"))
+            ? (ownName ?? t("composer.thisMac"))
             : placeName;
   const machineLive =
     cloudPicked || sandboxPicked || savedPick || waiting || (layout === "where-machine" && localMachine)
@@ -1105,10 +1121,9 @@ function BranchIcon() {
   );
 }
 
-/// The machine a chat runs on: its peer (an SSH or Cloud machine), else its Cloud host, else this Mac.
-function computerId(summary?: Summary): string {
-  return summary?.peer || (summary?.hostKind === "cloud" && summary.host) || "local";
-}
+/// The machine a chat runs on: its peer (an SSH or Cloud machine), else its Cloud host, else the page's
+/// own acpmux (chatMachine.ts, the source Session Info's machine row draws from).
+const computerId = (summary?: Summary): string => chatComputerId(summary);
 
 function availableComputers(
   summary: Summary | undefined,

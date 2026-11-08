@@ -19,6 +19,10 @@ name: Cloud capture account provision
 # (cmux-cloud-capture-journey-prod@manaflow.dev), sealed to this repository's cmux-next-cloud-journey environment as
 # CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (cloud-journey-prod.yml and backend.yml journey-production).
 #
+# With `target: journey-guest`, the same steps make the second staging account (cmux-cloud-capture-guest@manaflow.dev,
+# "Capture Guest"), sealed to this repository's cmux-next-vm-image-dev environment as CMUX_DOGFOOD_GUEST_STACK_EMAIL
+# and _PASSWORD: the guest side of two-account tests such as a chat share (cloud-chat-proof.yml signin_account).
+#
 # With `grant_email` set, the run only gives that existing capture test account (cmux-cloud-capture…@manaflow.dev,
 # e.g. the no-team owner account) the `pro` operator plan: no password change, nothing sealed or uploaded.
 
@@ -30,9 +34,9 @@ on:
         required: false
         default: ""
       target:
-        description: "capture: the staging capture account. production: the production probe account. journey-production: the production Cloud journey's account (both cloud-vm-production)"
+        description: "capture: the staging capture account. production: the production probe account. journey-production: the production Cloud journey's account (both cloud-vm-production). journey-guest: the second staging account for two-account tests"
         type: choice
-        options: [capture, production, journey-production]
+        options: [capture, production, journey-production, journey-guest]
         default: capture
 
 permissions:

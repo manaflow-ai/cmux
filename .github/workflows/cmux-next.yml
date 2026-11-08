@@ -100,7 +100,6 @@ on:
       - scripts/cmux-next/build-agent-pane-web.sh
       - scripts/cmux-next/build-pages-web.sh
       - scripts/cmux-next/build-agent-activity-web.sh
-      - scripts/cmux-next/build-palette-ranker.sh
       - scripts/cmux-next/build-optchat-inspector-web.sh
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
@@ -386,7 +385,6 @@ on:
       - scripts/cmux-next/build-agent-pane-web.sh
       - scripts/cmux-next/build-pages-web.sh
       - scripts/cmux-next/build-agent-activity-web.sh
-      - scripts/cmux-next/build-palette-ranker.sh
       - scripts/cmux-next/build-optchat-inspector-web.sh
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
@@ -3924,7 +3922,7 @@ jobs:
           bash tests/test_check_app_personalities.sh
 
       # The package's resources include the web bundles (agent pane, pages,
-      # Activity, palette ranker) and the tests read them: build them from the
+      # Activity) and the tests read them: build them from the
       # sources (cx-vn5) with the bun webviews/package.json pins.
       - name: Setup Bun
         if: ${{ steps.reuse.outputs.hit != 'true' }}
@@ -4577,7 +4575,7 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       # The package's resources include the web bundles (agent pane, pages,
-      # Activity, palette ranker) and the tests read them: build them from the
+      # Activity) and the tests read them: build them from the
       # sources (cx-vn5) with the bun webviews/package.json pins.
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -4710,11 +4708,19 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
 
-      # Building the package's reducer FFI can recreate the isolated crate's
-      # workspace lockfile. Remove generated state immediately before
-      # pin-cmux-tui validates the checkout.
+      # Building the package's reducer FFI can rewrite the isolated crate's
+      # workspace lockfile. Put the checkout back immediately before
+      # pin-cmux-tui validates it: the committed lockfile (#37324 tracks it)
+      # is restored, and an untracked one is removed. Deleting a tracked
+      # lockfile leaves the tree dirty, and pin-cmux-tui refuses that.
       - name: Clean generated layout-reducer FFI lockfile
-        run: rm -f cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+        run: |
+          lock=cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+          if git ls-files --error-unmatch "$lock" >/dev/null 2>&1; then
+            git checkout -- "$lock"
+          else
+            rm -f "$lock"
+          fi
 
       - name: Fetch the same-tree cmux-tui
         timeout-minutes: 50
@@ -5082,7 +5088,7 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       # The package's resources include the web bundles (agent pane, pages,
-      # Activity, palette ranker) and the tests read them: build them from the
+      # Activity) and the tests read them: build them from the
       # sources (cx-vn5) with the bun webviews/package.json pins.
       - name: Setup Bun
         if: ${{ steps.reuse.outputs.hit != 'true' }}

@@ -83,7 +83,7 @@ struct GroupNoChosenColorTests {
         #expect(Self.alpha(header.pill.backgroundColor) == 1, "an uncolored header paints its solid neutral bar at rest")
         #expect(header.dot.isHidden, "an uncolored header shows no color dot")
         let tokens = ThemeScope.app.tokens
-        let want = GroupBackground(tint: .none, strength: .band, glass: false, themed: false, tokens: tokens)
+        let want = GroupBackground(tint: .none, strength: .band, glass: false, palette: .vibrant, tokens: tokens)
         let drawn = try #require(header.pill.backgroundColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
         let rgb = ThemeRGB(red: drawn.redComponent, green: drawn.greenComponent, blue: drawn.blueComponent)
         #expect(abs(rgb.red - want.shown.red) < 0.006 && abs(rgb.green - want.shown.green) < 0.006
@@ -93,13 +93,12 @@ struct GroupNoChosenColorTests {
         #expect(!(abs(rgb.red - tokens.sidebarBackground.red) < 0.006 && abs(rgb.green - tokens.sidebarBackground.green) < 0.006
             && abs(rgb.blue - tokens.sidebarBackground.blue) < 0.006), "the bar is the theme's own background color")
 
-        let editor = SidebarGroupEditorPanel()
+        let editor = SidebarGroupEditor()
         var picked: GroupTint?
-        editor.onColor = { picked = $0 }
-        editor.pick(.grey)
+        editor.onColor = { _, tint in picked = tint }
+        editor.pick(.grey, for: GroupID("g"))
         #expect(picked == GroupTint.none, "the No color dot clears the color")
-        #expect(try #require(editor.swatches.first { $0.color == .grey }).isChosen)
-        editor.pick(.green)
+        editor.pick(.green, for: GroupID("g"))
         #expect(picked == .palette(.green))
     }
 }
