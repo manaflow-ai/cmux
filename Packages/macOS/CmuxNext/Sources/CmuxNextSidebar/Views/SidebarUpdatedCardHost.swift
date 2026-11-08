@@ -22,8 +22,11 @@ import CmuxNextWakeups
 /// glass though, right?"). It is the card's size and its open preview's, and runs
 /// the page's preview motion with it (``MotionGate/cardCurve``).
 ///
-/// Resting on the card opens its hover preview, a scrollable list of the update's
-/// changes in the same glass (Leo 2026-11-07: "a quick access scroll through of
+/// Resting on the card opens its changes beside the sidebar, in the app's one hover card window
+/// (``SidebarUpdatedNotesPopover``; Lawrence 2026-11-07, on the list that grew up over the
+/// sidebar: "i dont like how it expands upwards"). The look before, kept as a Debug choice
+/// (``UpdatedCardPreviewMode/above``), opens a hover preview in the card itself, a scrollable list
+/// of the update's changes in the same glass (Leo 2026-11-07: "a quick access scroll through of
 /// what's new. Right in that bottom left of the sidebar area"). The page decides
 /// when (it hears the pointer from this view's tracking area,
 /// ``SidebarSurfaceIsland/setPointerInside(_:)``) and asks for the room above the
@@ -73,8 +76,21 @@ final class SidebarUpdatedCardHost: NSView {
             island?.close()
             pageReported = false
             island = card == nil ? nil : surfaces?.island(.updated)
+            notes.tearDown()
+            notes.surfaces = surfaces
+            prepareNotes()
             isHidden = card == nil || island == nil
         }
+    }
+    /// The card's changes beside the sidebar (``UpdatedCardPreviewMode/beside``, the shipped look).
+    let notes = SidebarUpdatedNotesPopover()
+    /// Where the card shows its changes, read when the card shows (Debug Settings
+    /// `sidebar.updatedCard.preview`; the page reads the same look from the theme).
+    private(set) var previewMode = UpdatedCardPreviewMode.shipped
+
+    /// Makes (or closes) the changes' popover page for the card's look.
+    private func prepareNotes() {
+        notes.prepare(in: self, enabled: card != nil && previewMode.opensBeside)
     }
     var island: (any SidebarSurfaceIsland)? {
         didSet {
@@ -289,9 +305,11 @@ final class SidebarUpdatedCardHost: NSView {
         guard card != self.card else { return }
         // A card that shows (at launch, after the update) takes its room at once.
         if card != nil, self.card == nil { (landsAtOnce, pageReported, heldHeight, holdArmed, pendingRememberedHeight) = (true, false, 0, false, nil) }
+        if card != nil, self.card == nil { previewMode = UpdatedCardPreviewMode.tunable.value }
         self.card = card
         closeButton.label = card?.dismissLabel ?? ""
         if card != nil, island == nil { island = surfaces?.island(.updated) }
+        prepareNotes()
         if card == nil {
             if let island {
                 // The card went away (dismissed): its page goes too (cx-asynu).
@@ -339,6 +357,7 @@ final class SidebarUpdatedCardHost: NSView {
         isHovered = hovered
         setHoverShown(closeButton, hovered && card != nil, fades: window != nil)
         island?.setPointerInside(hovered && card != nil)
+        notes.cardHovered(hovered && card != nil)
     }
 
     /// A hidden card is not under the pointer: hidden by the slot (a card of higher priority took it)
@@ -348,6 +367,7 @@ final class SidebarUpdatedCardHost: NSView {
         didSet {
             if isHidden, !oldValue {
                 pointerLeft()
+                notes.hide()
                 hideEndsDrag()
             }
         }
@@ -358,6 +378,7 @@ final class SidebarUpdatedCardHost: NSView {
         isHovered = false
         setHoverShown(closeButton, false, fades: false)
         island?.setPointerInside(false)
+        notes.cardHovered(false)
     }
 
     /// The room the open hover preview needs from the card's resting edge (the card and the preview's

@@ -598,3 +598,107 @@
 .wn-updated[data-anchor="top"][data-preview="open"] .wn-preview {
   box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--composer-material-edge);
 }
+
+/* The Updated card's changes beside the sidebar (UpdatedNotes.tsx, `#/surface/updated-notes`, the
+   shipped look; Lawrence 2026-11-07, on the list that grew up over the sidebar: "i dont like how it
+   expands upwards, also it looks very bad"). In the app's hover card window, whose glass the host
+   draws: a calm header (what the app updated to and What's New on one line, the full version under
+   it), a hairline, then each change, its title whole on as many lines as it needs and a quiet
+   detail under it. The section scrolls inside the popover (surface.css). */
+.wn-notes {
+  box-sizing: border-box;
+  padding: var(--ds-space-3) var(--ds-space-1) var(--ds-space-1);
+  overflow-y: auto;
+  color: var(--page-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.wn-notes-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--ds-space-3);
+  align-items: baseline;
+  padding: 0 var(--ds-space-2) var(--ds-space-2);
+  border-bottom: 1px solid var(--page-separator);
+}
+.wn-notes-title {
+  min-width: 0;
+  font-weight: var(--weight-emphasis);
+  overflow-wrap: anywhere;
+}
+.wn-notes-whatsnew {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+  cursor: default;
+}
+.wn-notes-whatsnew:hover { color: var(--page-text); }
+.wn-notes-version {
+  grid-column: 1 / -1;
+  color: var(--page-text-3);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.wn-notes-list {
+  list-style: none;
+  margin: var(--ds-space-1) 0 0;
+  padding: 0;
+}
+.wn-notes-row {
+  display: grid;
+  gap: 0;
+  width: 100%;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.wn-notes-row:hover { background: var(--page-hover); }
+.wn-notes-row-title {
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.wn-notes-row-detail {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+}
+.wn-notes[data-titles] .wn-notes-list { margin-top: var(--ds-space-1); }
+:is(.wn-notes-whatsnew, .wn-notes-row, .wn-card-seenew):focus-visible {
+  outline: 2px solid var(--cmux-accent, currentColor);
+  outline-offset: 2px;
+}
+/* The `quiet` look: the card's second line is See What's New, in the note's place and size. */
+.wn-card-seenew {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+.wn-card-seenew:hover { color: var(--page-text); }
+/* The `version` look: the full version is the card's second line at rest. */
+.wn-card[data-mode="version"] .wn-card-version { margin: 0; }
+/* No faded last row (Lawrence 2026-11-07: a dimmed row read as disabled): the scrollbar marks more. */
+.wn-notes[data-cmux-card-scroll] { -webkit-mask: none !important; mask: none !important; }

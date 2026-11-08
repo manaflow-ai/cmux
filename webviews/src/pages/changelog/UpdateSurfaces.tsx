@@ -54,6 +54,7 @@ import type {
   UpdateSurfaceActions,
 } from "./updateHighlights";
 import { PreviewIntent, previewEntries } from "./updatedPreview";
+import { parsePreviewMode, type UpdatedPreviewMode } from "./updatedPreviewMode";
 import { pressCard, SHIPPED_DRAG_FEEL, type CardDragFeel, type CardDragHost, type CardRow } from "./updatedCardDrag";
 import { PREVIEW_MAX_PX, UpdatedCardPreview, type PreviewLayout } from "./UpdatedCardPreview";
 export type { PreviewLayout } from "./UpdatedCardPreview";
@@ -96,7 +97,7 @@ const COPIED_MS = 1500;
  * and `copied` is true for a moment, for the caller to say "Copied" in place: nothing pops over the
  * surface. Its CSS keeps it plain inline text, and a drag across the line still selects it with the
  * words around it (u4466); a pointer click that ends a selection copies nothing. */
-function CopyVersion({
+export function CopyVersion({
   version,
   className,
   strings,
@@ -221,6 +222,7 @@ export function UpdatedCard({
   animate = true,
   placement = "title",
   previewLayout = "header",
+  previewMode,
   previewOpen,
   hostPointer,
   onPreviewSize,
@@ -249,6 +251,10 @@ export function UpdatedCard({
   /** How the open hover preview is laid out (gallery variants); `header` ships. The sidebar host
       draws its x on the card's title line, wherever this layout puts it (SidebarUpdatedCardHost). */
   previewLayout?: PreviewLayout;
+  /** Where the card shows the update's changes (updatedPreviewMode.ts); undefined reads the theme's
+      (the shipped `beside`: the native host opens them beside the sidebar, the card never grows).
+      Only `above` opens the hover preview in the card itself. */
+  previewMode?: UpdatedPreviewMode;
   /** Holds the hover preview open or closed (gallery stills); undefined: the pointer decides. */
   previewOpen?: boolean;
   /** Whether the sidebar host has the pointer on the card (its native tracking area); undefined
@@ -271,6 +277,8 @@ export function UpdatedCard({
   const [copied, setCopied] = useState(false);
   const themed = useDecoration("updated-card");
   const doodle = (decoration === undefined ? themed : decoration) === "doodle";
+  const themedMode = parsePreviewMode(useDecoration("updated-card-preview"));
+  const mode = previewMode ?? themedMode;
   const summary = span ? summarizeUpdate(span, strings.language) : summarizeHighlights(readableUpdate(data));
   const top = summary.rows[0];
   const name = /^[^-]+-nightly\.\d+$/.test(data.version) ? strings.t("updates.card.nightly") : data.version;
@@ -285,7 +293,7 @@ export function UpdatedCard({
     hostPointer,
     onPreviewSize,
     onPreviewGlass,
-    enabled: !doodle,
+    enabled: !doodle && mode === "above",
     runsHeight: true,
   });
   const openChangelog = () => {
@@ -342,18 +350,30 @@ export function UpdatedCard({
       </svg>
     </button>
   );
-  const note = (
-    <p className="wn-card-note">
-      {top ? (
-        <>
-          <span className="wn-card-area">{strings.format("updates.card.areaLabel", rowLabel(top, strings))}</span>{" "}
-          {top.phrases[0]}
-        </>
-      ) : (
-        strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild")
-      )}
-    </p>
-  );
+  // The card's second line: the top change (the shipped look), the full version (`version`), or See
+  // What's New (`quiet`, a card with no list).
+  const note =
+    mode === "version" && name !== data.version ? (
+      <p className="wn-card-version">{data.version}</p>
+    ) : mode === "quiet" ? (
+      <p className="wn-card-note">
+        <button type="button" className="wn-card-seenew" onClick={openChangelog}>
+          {strings.t("updates.card.seeWhatsNew")}
+          <span aria-hidden="true"> ↗</span>
+        </button>
+      </p>
+    ) : (
+      <p className="wn-card-note">
+        {top ? (
+          <>
+            <span className="wn-card-area">{strings.format("updates.card.areaLabel", rowLabel(top, strings))}</span>{" "}
+            {top.phrases[0]}
+          </>
+        ) : (
+          strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild")
+        )}
+      </p>
+    );
   if (doodle) {
     return (
       <Doodle animate={animate}>
@@ -382,6 +402,7 @@ export function UpdatedCard({
       aria-labelledby={titleId}
       data-placement={placement}
       data-layout={previewLayout}
+      data-mode={mode}
       data-anchor={anchor}
       data-drags={drag ? "" : undefined}
       data-preview={preview.shown ? "open" : "closed"}

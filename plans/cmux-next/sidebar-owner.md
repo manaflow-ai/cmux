@@ -759,6 +759,21 @@ and moves to the header's title line while the preview is open (`SidebarUpdatedC
 layouts open with no height run. Gallery variants (`previewLayout`): `header` (ships), `header-bottom`, `titles`.
 Regression: webviews `updated-card-preview-reads-whole.test.ts`.
 
+## The Updated card stays still; its changes open beside the sidebar (2026-11-07)
+
+Lawrence, 2026-11-07 7:18pm, on the change list that grew up out of the bottom card over the sidebar's rows: "i dont
+like how it expands upwards, also it looks very bad who keeps on making this bad ? show me variations that it looks
+better". The card no longer grows: resting on it (280 ms) opens its changes beside the sidebar in the app's one hover
+card window (`SidebarUpdatedNotesPopover`, page `#/surface/updated-notes`, `UpdatedNotes.tsx`), menu-wide (340 pt),
+as the staged update card's highlights open: "Updated to Nightly" with What's New ↗ on one line, the full version
+under it, a hairline, then each change's title whole and a quiet detail (2 lines). No edge fade. The popover stays
+while the pointer travels to it and closes 250 ms after it left both (corridor capped at 1.2 s); a drag closes it.
+Debug Settings `sidebar.updatedCard.preview` (`UpdatedCardPreviewMode`) keeps the looks to compare: `beside`
+(ships), `beside-titles`, `version` (the full version as the card's second line), `quiet` (no list, See What's New),
+`above` (the in-card list that grows up, the look before). The page reads the look from the theme slot
+`updated-card-preview`, sent only when it is not the shipped one. Regression: webviews
+`updated-card-stays-still.test.tsx`.
+
 ## The window top shares one line; the + sits on the trailing column (2026-11-07)
 
 Leo 2026-11-07: "i was thinking we can do some work to align the top bit of the sidebar with the tabs/vice versa, and

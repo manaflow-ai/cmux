@@ -72,7 +72,12 @@ async function renderCard(d: UpdateHighlights) {
   const noop = () => undefined;
   await act(async () =>
     root!.render(
-      <UpdatedCard data={d} strings={createStrings(table)} actions={{ openChangelog: noop, dismiss: noop }} />,
+      <UpdatedCard
+        data={d}
+        strings={createStrings(table)}
+        actions={{ openChangelog: noop, dismiss: noop }}
+        previewMode="above"
+      />,
     ),
   );
 }

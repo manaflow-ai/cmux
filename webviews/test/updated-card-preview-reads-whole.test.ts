@@ -38,7 +38,7 @@ await requireBrowserLane("updated-card-preview-reads-whole.test.ts", async () =>
      (window as any).mount = (data: unknown) => {
        const root = createRoot(document.getElementById("root")!);
        const props: any = { data, strings: createStrings(table), actions: { openChangelog() {}, dismiss() {} },
-         closeButton: false, glass: false, previewOpen: true };
+         closeButton: false, glass: false, previewOpen: true, previewMode: "above" };
        flushSync(() => root.render(createElement(UpdatedCard, props)));
      };`,
   );

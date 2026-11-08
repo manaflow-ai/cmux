@@ -436,6 +436,8 @@ function UpdateSurfacesGallery({
               previewOpen={previewOpen}
               glass={overRows ? overRows === "glass" : undefined}
               previewLayout={previewLayout}
+              // The held-open preview stills show the in-card list (the look before the popover).
+              previewMode={previewOpen === undefined ? undefined : "above"}
             />
           </div>
           {besideComposer && <ComposerStandIn />}

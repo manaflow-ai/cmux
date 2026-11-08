@@ -450,6 +450,7 @@ describe("the card", () => {
           actions={{ openChangelog: () => opened.push("open"), dismiss: () => undefined }}
           closeButton={false}
           decoration={null}
+          previewMode="above"
           {...props}
         />,
       ),
@@ -535,6 +536,7 @@ describe("the card", () => {
             actions={{ openChangelog: () => undefined, dismiss: () => undefined }}
             closeButton={false}
             decoration={null}
+            previewMode="above"
             hostPointer={false}
             onPreviewSize={(h: number) => sizes.push(h)}
           />,
@@ -729,6 +731,9 @@ async function withSurface(
   try {
     const { mountUpdateSurface } = await import("../src/pages/changelog/surface");
     const host = dom.window.document.getElementById("root")!;
+    // The in-card preview is the look before the popover beside the sidebar: the host sends it in
+    // the theme's slot (UpdatedCardPreviewMode `above`).
+    dom.window.document.documentElement.setAttribute("data-cmux-decoration-updated-card-preview", "above");
     await act(async () => mountUpdateSurface(host, "updated", client));
     await until(() => sizes.length > 0 && pointer !== undefined);
     expect(pointer).toBeDefined();
