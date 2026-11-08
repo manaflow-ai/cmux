@@ -210,6 +210,8 @@ pub(crate) struct State {
     pub sessions: HashMap<Arc<str>, SessionInfo>,
     open: HashMap<Arc<str>, Open>,
     suppressed: HashSet<String>,
+    /// Sessions whose folder's origin remote was asked for already (`Work::Repo`).
+    repo_asked: HashSet<Arc<str>>,
     /// Interned model and version strings.
     strings: BTreeSet<Arc<str>>,
     /// Lines handed to the writer so far.
@@ -258,6 +260,27 @@ impl State {
         bucket.last_at = bucket.last_at.max(at);
     }
 
+    /// Forgets everything about `session`: its row, its buckets on every day, its open turn.
+    pub(crate) fn remove_session(&mut self, session: &str) {
+        self.sessions.remove(session);
+        self.open.remove(session);
+        self.repo_asked.remove(session);
+        self.days.retain(|_, buckets| {
+            buckets.retain(|key, _| &*key.session != session);
+            !buckets.is_empty()
+        });
+    }
+
+    /// Asks once per session (per run) for its folder's origin remote, when it has none.
+    fn wants_repo(&mut self, session: &str) -> bool {
+        let Some((key, row)) = self.sessions.get_key_value(session) else { return false };
+        if row.repo.is_some() || row.cwd.is_none() {
+            return false;
+        }
+        let key = key.clone();
+        self.repo_asked.insert(key)
+    }
+
     /// Merges `info` into the session's row; true when it changed.
     pub(crate) fn merge_session(&mut self, session: &str, info: SessionInfo) -> bool {
         let key = self.session_key(session);
@@ -287,6 +310,10 @@ pub(crate) enum Line {
         #[serde(flatten)]
         info: SessionInfo,
     },
+    /// The session was purged: the fold drops everything before it about `sid`. The writer
+    /// compacts right after writing one, so the purged lines leave the file with it.
+    #[serde(rename = "p")]
+    Purge { sid: String },
 }
 
 /// What the writer thread is handed.
@@ -383,9 +410,17 @@ impl Ledger {
     /// Observes one appended record. Only prompts, turn starts, tool calls and turn results do
     /// anything; the meta read is one short lock of the session's own meta.
     pub(crate) fn observe(&self, session: &super::Session, record: &EventRecord) {
+        use std::sync::atomic::Ordering;
+        if session.purged.load(Ordering::SeqCst) {
+            return;
+        }
         self.record(&session.id, record, || {
             TurnContext::of(&session.meta.lock().unwrap_or_else(PoisonError::into_inner))
         });
+        // A purge that landed while this record was counted: it is the purge's to drop.
+        if session.purged.load(Ordering::SeqCst) {
+            self.purge(&session.id);
+        }
     }
 
     /// [`Ledger::observe`] for session `id`; `ctx` is read only for a turn result.
@@ -452,7 +487,7 @@ impl Ledger {
         totals.wall_ms = open.start.map_or(0, |start| record.at.saturating_sub(start));
         let new_session = !s.sessions.contains_key(session);
         let changed = s.merge_session(session, ctx.info);
-        let needs_repo = s.sessions.get(session).is_some_and(|row| row.repo.is_none());
+        let needs_repo = s.wants_repo(session);
         if changed || new_session {
             let info = s.sessions.get(session).cloned().unwrap_or_default();
             self.emit(&mut s, Line::Session { sid: session.to_owned(), info });
@@ -462,11 +497,21 @@ impl Ledger {
             Line::Spend { sid: session.to_owned(), at: record.at, model, pv: version, totals };
         self.emit(&mut s, line);
         drop(s);
-        if new_session
-            && needs_repo
-            && let Some(cwd) = cwd
-        {
+        if needs_repo && let Some(cwd) = cwd {
             self.send(Work::Repo { sid: session.to_owned(), cwd: PathBuf::from(cwd) });
+        }
+    }
+
+    /// `session` was purged (`_acpmux/workspace_purge`, `Hub::kill(.., true)`): its spend,
+    /// title, folder, workspace and pull requests leave the index now and the file at the
+    /// writer's next step (a tombstone, then a compaction). A queued repository lookup for it
+    /// finds no row and adds nothing.
+    pub fn purge(&self, session: &str) {
+        let mut s = self.lock();
+        let known = s.sessions.contains_key(session) || s.open.contains_key(session);
+        s.remove_session(session);
+        if known {
+            self.emit(&mut s, Line::Purge { sid: session.to_owned() });
         }
     }
 
@@ -492,6 +537,7 @@ impl Ledger {
         }
         s.seeded = true;
         let version = crate::pricing::table().version.clone();
+        let mut repos = Vec::new();
         for seed in sessions {
             if s.sessions.contains_key(seed.id.as_str())
                 || seed.turns == 0
@@ -501,13 +547,23 @@ impl Ledger {
             }
             let model = seed.ctx.model.clone().unwrap_or_else(|| "unknown".into());
             let totals = Totals::priced(&model, &seed.totals, seed.turns);
+            let cwd = seed.ctx.info.cwd.clone();
             s.merge_session(&seed.id, seed.ctx.info);
+            if s.wants_repo(&seed.id)
+                && let Some(cwd) = cwd
+            {
+                repos.push(Work::Repo { sid: seed.id.clone(), cwd: PathBuf::from(cwd) });
+            }
             let info = s.sessions.get(seed.id.as_str()).cloned().unwrap_or_default();
             self.emit(&mut s, Line::Session { sid: seed.id.clone(), info });
             s.add_bucket(&seed.id, &model, &version, seed.at, &totals);
             let line =
                 Line::Spend { sid: seed.id, at: seed.at, model, pv: version.clone(), totals };
             self.emit(&mut s, line);
+        }
+        drop(s);
+        for work in repos {
+            self.send(work);
         }
     }
 

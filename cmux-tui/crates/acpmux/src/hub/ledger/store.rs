@@ -10,22 +10,44 @@ use super::{Line, State, Work};
 
 pub(crate) const FILE: &str = "turns.jsonl";
 
-/// Folds `path` into `state`; returns its size. A line that does not parse (a torn last write)
-/// is skipped.
+/// Folds `path` into `state`; returns its size. A complete line that does not parse is skipped.
+/// A last line with no newline (a write torn by a crash) is cut off the file, so the next append
+/// starts a line of its own instead of joining the fragment.
 pub(crate) fn fold(path: &Path, state: &mut State) -> u64 {
     let Ok(file) = File::open(path) else { return 0 };
     state.existed = true;
-    let size = file.metadata().map(|m| m.len()).unwrap_or(0);
-    for line in BufReader::new(file).lines().map_while(Result::ok) {
-        if line.trim().is_empty() {
+    let mut reader = BufReader::new(file);
+    let mut buf = Vec::new();
+    let mut whole: u64 = 0;
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => break,
+            Ok(_) if buf.last() != Some(&b'\n') => break,
+            Ok(n) => whole += n as u64,
+            Err(e) => {
+                tracing::warn!("ledger: read {}: {e}", path.display());
+                break;
+            }
+        }
+        let Ok(text) = std::str::from_utf8(&buf) else { continue };
+        if text.trim().is_empty() {
             continue;
         }
-        match serde_json::from_str::<Line>(&line) {
+        match serde_json::from_str::<Line>(text) {
             Ok(line) => apply(state, line),
             Err(e) => tracing::debug!("ledger: skipped a line: {e}"),
         }
     }
-    size
+    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(whole);
+    if size > whole {
+        let cut = OpenOptions::new().write(true).open(path).and_then(|f| f.set_len(whole));
+        match cut {
+            Ok(()) => tracing::warn!("ledger: cut a torn last line off {}", path.display()),
+            Err(e) => tracing::warn!("ledger: cannot cut a torn line off {}: {e}", path.display()),
+        }
+    }
+    whole
 }
 
 fn apply(state: &mut State, line: Line) {
@@ -36,6 +58,7 @@ fn apply(state: &mut State, line: Line) {
         Line::Session { sid, info } => {
             state.merge_session(&sid, info);
         }
+        Line::Purge { sid } => state.remove_session(&sid),
     }
 }
 
@@ -116,6 +139,11 @@ impl Writer {
         if self.size <= self.compact_bytes.max(self.floor.saturating_mul(2)) {
             return;
         }
+        self.compact();
+    }
+
+    /// Rewrites the file as the state's buckets and sessions.
+    fn compact(&mut self) {
         let (lines, seq) = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             (snapshot(&state), state.seq)
@@ -145,6 +173,10 @@ impl Writer {
         let Some(repo) = crate::git_state::origin_repo(cwd) else { return };
         let line = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            // Purged while the lookup waited: nothing comes back for it.
+            if !state.sessions.contains_key(sid.as_str()) {
+                return;
+            }
             let info = super::SessionInfo { repo: Some(repo), ..Default::default() };
             if !state.merge_session(&sid, info) {
                 return;
@@ -164,10 +196,12 @@ impl Writer {
         self.maybe_compact();
         while let Ok(first) = rx.recv() {
             let mut text = String::new();
+            let mut purged = false;
             let mut work = Some(first);
             while let Some(w) = work.take().or_else(|| rx.try_recv().ok()) {
                 match w {
                     Work::Line(seq, line) => {
+                        purged |= matches!(*line, Line::Purge { .. });
                         if seq > self.written_upto
                             && let Some(s) = encode(&line)
                         {
@@ -181,13 +215,22 @@ impl Writer {
                     #[cfg(test)]
                     Work::Flush(done) => {
                         self.write(&std::mem::take(&mut text));
-                        self.maybe_compact();
+                        if std::mem::take(&mut purged) {
+                            self.compact();
+                        } else {
+                            self.maybe_compact();
+                        }
                         let _ = done.send(());
                     }
                 }
             }
             self.write(&text);
-            self.maybe_compact();
+            if purged {
+                // A purged session's lines leave the file now, not at the next size bound.
+                self.compact();
+            } else {
+                self.maybe_compact();
+            }
         }
     }
 }
