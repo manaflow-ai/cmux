@@ -41,10 +41,7 @@ fn set_divider_visible_hides_and_shows_a_divider_in_the_layout() {
     )
     .unwrap_err();
     assert_eq!(error.to_string(), "unknown split 999999");
-    assert_eq!(
-        crate::server::responses::response_error_code(&error).as_deref(),
-        Some(LayoutRatioError::UNKNOWN_TARGET_CODE)
-    );
+    assert_eq!(response_error_code(&error).as_deref(), Some(LayoutRatioError::UNKNOWN_TARGET_CODE));
     mux.shutdown();
 }
 
