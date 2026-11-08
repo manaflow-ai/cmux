@@ -52,7 +52,7 @@ public import os
                 try await decision.readGuest(exec: { (try? await pinned.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause)
             }
             if decision.verdict.guestTakesLogin { decision.take(await CloudMachineLogin.read(on: pinned, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)) }
-            guard decision.verdict.transferProvider == .claude, decision.verdict.step == .install else { return false }
+            guard decision.verdict.transferProvider == .claude, decision.verdict.warmInstalls ?? (decision.verdict.step == .install) else { return false }
             if let outcome = try await CloudCredentialTransfer.CachedLogin.startOutcome({
                 await CloudCredentialTransfer.cachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams)
             }) {

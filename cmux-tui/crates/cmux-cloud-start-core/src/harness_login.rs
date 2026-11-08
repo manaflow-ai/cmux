@@ -277,9 +277,9 @@ pub struct Decision {
     /// so this no longer happens; kept for the handshake.
     pub skipped_team_machine: bool,
     /// Whether this start would race the spare warm's login copy (cmux-tui `start-chat warm-spare`)
-    /// were one in flight on its machine: it reads the machine and its step installs a login (a
-    /// skip, a refusal or `--login machine` copies nothing), for a provider the warm copies
-    /// ([`warm_copies`]). Only such a start waits on that copy; any other never waits.
+    /// were one in flight on its machine: it reads the machine and its step is one the warm installs
+    /// on ([`warm_installs`]: `install` only; a confirm, a consent question, a skip or a refusal
+    /// never waits), for a provider the warm copies ([`warm_copies`]).
     pub warm_copy_conflict: bool,
     /// Whether the spare warm's headless copy installs this provider's login at this step
     /// ([`warm_installs`]): the warm's copy decision, read by the App, and the one
@@ -520,8 +520,9 @@ pub fn decide(d: &Inputs) -> Decision {
         reads_machine,
         guest_takes_login: guest_takes_login(kind, d.release, d.provider),
         skipped_team_machine: reason == Reason::GuestNotOwner && kind == Some("team"),
+        // The warm's own install rule: a start waits only where the warm would install.
         warm_copy_conflict: reads_machine
-            && matches!(step, Step::Install | Step::ConfirmThenInstall | Step::AskConsent)
+            && warm_installs(step)
             && d.provider.is_some_and(warm_copies),
         warm_installs: warm_installs(step) && d.provider.is_some_and(warm_copies),
         summary: summary(d, step, reason),
