@@ -329,7 +329,8 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
 - **cmux Cloud machines.** A Cloud machine's chats run in that machine's own acpmux, which is not
   one of this Mac's machines. From the Mac, `cmux cloud start-chat --prompt TEXT --wait --json`
   starts a chat there, sends the prompt and answers the reply with its `machine_id` and
-  `session_id`; its `follow_up` commands send, wait and read on through `cmux cloud exec`.
+  `session_id`; its `follow_up` commands send (`cmux chat send`), wait and read on
+  (`cmux cloud chat status|last --target machine:vm-… --session SESSION_ID`).
 - **Old spellings.** `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and
   `--host` still work; `machine`, `machine pick`, `machine dedicated` and `--machine` are the names.
 - **Check first.** Run `acpmux machine status` before remote work and after any request to a

@@ -543,7 +543,7 @@ final class HomeHostView: PaneMotionFollowingView {
         return await settingsView.debugEditPicture(source, zoom: zoom, save: save)
     }
     /// `debug.home.drive` chief_name: the settings open with the keyboard in the name field (`close`: they close, as a click outside).
-    func debugEditChiefName(close: Bool) -> Bool { if close { settings.close(); return true }; return toggleChiefSettings(openOnly: true) && settingsView.beginEditingName() }
+    func debugEditChiefName(close: Bool) -> Bool { if close { closeProfile(); return true }; return toggleChiefSettings(openOnly: true) && settingsView.beginEditingName() }
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
     var debugNamedChief: String? { control.named }
     #endif

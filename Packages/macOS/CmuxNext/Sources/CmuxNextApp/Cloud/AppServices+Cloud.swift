@@ -189,12 +189,11 @@ extension AppServices {
         return .machine(id, store: cloud.computerControl, openInteractive: { [weak self] in self?.openChiefComputerDesktop(machine: machine) })
     }
 
-    /// Open Desktop (`cloudOpenDesktop`) as the person's own run: the native viewer (the app's VNC
-    /// client, input-capable) where this build has it, else the browser viewer.
+    /// Open Desktop (`cloudOpenDesktop`) as the person's own run: the machine's `cmux-rd` desktop over the
+    /// carrier, the one viewer Open Desktop has (CloudHandlers.openDesktop).
     @MainActor
     func openChiefComputerDesktop(machine: String) {
-        let viewer = RemoteViewAvailability().isAvailable ? "native" : "web"
         _ = registry.perform("cloudOpenDesktop", invocation: ActionInvocation(
-            target: ActionTargetRef(kind: .machine, id: machine), arguments: ["viewer": .string(viewer)], origin: .user))
+            target: ActionTargetRef(kind: .machine, id: machine), arguments: [:], origin: .user))
     }
 }

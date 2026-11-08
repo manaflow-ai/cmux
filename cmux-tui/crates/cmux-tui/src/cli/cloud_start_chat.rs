@@ -458,17 +458,6 @@ pub(super) fn fresh_machine_name() -> String {
     format!("chat-{}", id.chars().take(16).collect::<String>())
 }
 
-/// A new machine's name for [`Runner::fresh_name`].
-pub(super) fn fresh_machine_name() -> String {
-    let id = uuid::Uuid::new_v4().simple().to_string();
-    format!("chat-{}", id.chars().take(8).collect::<String>())
-}
-
-/// A new prompt id for [`Runner::prompt_id`].
-pub(super) fn new_prompt_id() -> String {
-    format!("start-chat-{}", uuid::Uuid::new_v4().simple())
-}
-
 /// The globals a step needs to reach the same app.
 fn forwarded_globals(global: &GlobalArgs) -> Vec<String> {
     let mut words = Vec::new();
@@ -756,6 +745,8 @@ struct Progress {
     creation: Option<String>,
     /// The command to ask again when it is not a start (`cmux chat send SESSION`'s own send, [`send_to`]).
     again: Option<String>,
+    /// The newest turn before the send, once the send answered: the timeout's `cloud chat status --after`.
+    baseline: Option<u64>,
 }
 
 impl Progress {
@@ -782,7 +773,7 @@ impl Progress {
         let machine = self.machine.clone().unwrap_or_else(|| request.machine.clone());
         match (&self.chat, self.sending) {
             (Some((machine_id, session, answer)), true) => {
-                wait_timeout(request, machine_id, session, answer.clone())
+                wait_timeout(request, machine_id, session, self.baseline, answer.clone())
             }
             (None, true) => {
                 let again = again_command(request, &machine);
@@ -1171,6 +1162,7 @@ fn send_prompt(
     };
     let reported = sections(&sent);
     let baseline = last_turn(reported.get("history")).map_or(0, |turn| turn.seq);
+    progress.baseline = Some(baseline);
     if reported.get("exit").map(String::as_str).map(str::trim) != Some("0") {
         let output = reported.get("send").cloned().unwrap_or_default();
         return failed(
@@ -1297,7 +1289,7 @@ fn wait_turn(
         // less than one left (the steps before spent it), no wait past the deadline.
         let slice = deadline.bound(runner, Duration::from_secs(WAIT_SLICE_SECONDS)).as_secs();
         if slice == 0 {
-            return wait_timeout(request, machine_id, session, answer);
+            return wait_timeout(request, machine_id, session, Some(baseline), answer);
         }
         let poll = format!(
             "{GUEST_PRELUDE}\"$c\" acp wait {sid} --timeout {slice} >/dev/null 2>&1; \
@@ -1360,7 +1352,7 @@ fn wait_turn(
             );
         }
         if deadline.passed(runner) {
-            return wait_timeout(request, machine_id, session, answer);
+            return wait_timeout(request, machine_id, session, Some(baseline), answer);
         }
         if turn.is_none() {
             let pause = deadline.bound(runner, NOT_STARTED_PAUSE);
@@ -1369,14 +1361,23 @@ fn wait_turn(
     }
 }
 
-fn wait_timeout(request: &Request, machine_id: &str, session: &str, answer: Value) -> Outcome {
+/// The turn outlived `--timeout`: wait on with `cloud chat status`, after `baseline` (the newest turn before the
+/// send) when the send answered it.
+fn wait_timeout(
+    request: &Request,
+    machine_id: &str,
+    session: &str,
+    baseline: Option<u64>,
+    answer: Value,
+) -> Outcome {
+    let after = baseline.map(|seq| format!(" --after {seq}")).unwrap_or_default();
     failed(
         "chat.wait_timeout",
         format!(
-            "the turn is still running after {}s; wait on with: cmux cloud exec \
-             --target machine:{machine_id} --command '{GUEST_CMUX} acp wait {session} \
-             --timeout {WAIT_SLICE_SECONDS}'",
-            request.timeout.as_secs()
+            "the turn is still running after {}s; wait on with: cmux cloud chat status \
+             --target machine:{machine_id} --session {}{after} --wait {WAIT_SLICE_SECONDS}",
+            request.timeout.as_secs(),
+            shell_quote(session)
         ),
         json!({"answer": answer}),
         3,
@@ -1653,8 +1654,8 @@ fn follow_ups(machine: &str, session: &str) -> Value {
     };
     json!({
         "send": format!("cmux chat send {session} 'PROMPT' --wait"),
-        "wait": on(format!("{GUEST_CMUX} acp wait {session} --timeout {WAIT_SLICE_SECONDS}")),
-        "last": on(format!("{GUEST_CMUX} acp last {session}")),
+        "status": format!("{} --wait {WAIT_SLICE_SECONDS}", on("status")),
+        "last": on("last"),
     })
 }
 

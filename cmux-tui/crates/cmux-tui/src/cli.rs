@@ -55,6 +55,7 @@ mod chief;
 mod chief_target;
 #[cfg(unix)]
 mod cloud_agent;
+#[cfg(unix)]
 mod cloud_api;
 #[cfg(unix)]
 mod cloud_automation_relay;

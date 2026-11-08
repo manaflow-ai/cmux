@@ -562,8 +562,10 @@ EXAMPLES
   cmux cloud start-chat --name dev --prompt 'Run the tests' --json
   cmux cloud start-chat --agent codex --login machine --json
 
-FOLLOW-UPS (SESSION_ID from the answer)
+FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
   cmux chat send SESSION_ID 'next prompt' --wait
+  cmux cloud chat status --target machine:MACHINE_ID --session SESSION_ID --wait 20
+  cmux cloud chat last --target machine:MACHINE_ID --session SESSION_ID
 
 Run from an agent chat, it starts at once, as from a terminal: no card asks
 the person. Only when they turned off cloud.agentsStartWithoutAsking does the
