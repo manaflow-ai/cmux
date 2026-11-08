@@ -315,4 +315,51 @@ private struct BinaryCookiesFixture {
             try bounded.parse(data)
         }
     }
+
+    @Test func appliesTheDecodeLimitAcrossPagesNotPerPage() throws {
+        let data = BinaryCookiesFixture.file(pages: [[sessionCookie], [sessionCookie]])
+        let recordSize = BinaryCookiesFixture.record(sessionCookie).count
+        let limit = recordSize + recordSize / 2
+        let bounded = SafariBinaryCookiesParser(maximumDecodedBytes: limit)
+
+        // Either page alone fits under the limit; together they do not.
+        #expect(try bounded.parse(BinaryCookiesFixture.file(pages: [[sessionCookie]])).count == 1)
+        #expect(throws: SafariBinaryCookiesParser.ParseError.decodedSizeExceeded(limit: limit)) {
+            try bounded.parse(data)
+        }
+    }
+
+    @Test func rejectsAStringOffsetInsideTheFixedHeader() {
+        var bytes = [UInt8](BinaryCookiesFixture.file(pages: [[sessionCookie]]))
+        let recordStart = 12 + 16
+        let nameOffsetIndex = recordStart + 20
+        bytes.replaceSubrange(nameOffsetIndex..<nameOffsetIndex + 4, with: BinaryCookiesFixture.littleEndian(UInt32(0)))
+
+        #expect(throws: SafariBinaryCookiesParser.ParseError.cookieOutOfBounds(pageIndex: 0, cookieIndex: 0)) {
+            try parser.parse(Data(bytes))
+        }
+    }
+
+    @Test func anExpiredOnlyStoreDecodesToCookiesThatAreAllExpired() throws {
+        var expired = sessionCookie
+        expired.expiry = 100
+        var older = themeCookie
+        older.expiry = -5
+        let data = BinaryCookiesFixture.file(pages: [[expired, older]])
+        let now = Date(timeIntervalSinceReferenceDate: 1_000)
+
+        let cookies = try parser.parse(data)
+
+        #expect(cookies.count == 2)
+        #expect(cookies.allSatisfy { $0.isExpired(at: now) })
+    }
+
+    @Test func aSessionOrFutureCookieIsNotExpired() throws {
+        let data = BinaryCookiesFixture.file(pages: [[sessionCookie, themeCookie]])
+        let now = Date(timeIntervalSinceReferenceDate: 1_000)
+
+        let cookies = try parser.parse(data)
+
+        #expect(cookies.map { $0.isExpired(at: now) } == [false, false])
+    }
 }
