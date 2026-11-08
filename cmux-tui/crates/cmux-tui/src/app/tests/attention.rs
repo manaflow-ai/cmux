@@ -71,21 +71,12 @@ fn attention_entries_put_blocked_and_requested_tabs_before_unread_ones() {
 fn w5q_tui_attention_puts_a_finished_agent_turn_before_a_bell() {
     let base = notify_tree(41, true);
     let mut workspace = base.workspaces()[0].clone();
-    let bell = workspace.screens[0].panes[0].tabs[0].clone();
-    let mut finished = bell.clone();
+    let mut finished = workspace.screens[0].panes[0].tabs[0].clone();
     finished.surface = 44;
     finished.name = Some("pong".into());
-    finished.notification = Some(crate::session::tree::TabNotificationView {
-        unread: true,
-        level: "info",
-        sequence: 9,
-    });
+    finished.notification = Some(TabNotificationView { unread: true, level: "info", sequence: 9 });
     workspace.screens[0].panes[0].tabs[0].notification =
-        Some(crate::session::tree::TabNotificationView {
-            unread: true,
-            level: "info",
-            sequence: 2,
-        });
+        Some(TabNotificationView { unread: true, level: "info", sequence: 2 });
     workspace.screens[0].panes[0].tabs.push(finished);
     let tree = TreeView::from_parts(vec![workspace], 0, Some(1), 0);
     let mut idle = blocked_agent(44, 50);

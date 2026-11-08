@@ -245,11 +245,15 @@ fn snapshot_queue(snapshot: &Value) -> Vec<Value> {
         .collect()
 }
 
+/// `value` trimmed, when any text is left.
+fn shown(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|text| !text.is_empty())
+}
+
 /// Why a blocked terminal waits on the person: its blocked program status
 /// message (Claude Code's `approve Bash: …`) or title, else its newest
 /// unread notification's body or title (a hook's "needs your permission").
 fn blocked_reason(terminal: &Value, notifications: &[Value]) -> Option<String> {
-    let shown = |value: Option<&str>| value.map(str::trim).filter(|text| !text.is_empty());
     let reported = records(field(terminal, "extra"), "program_status")
         .iter()
         .filter(|record| text(record, "state") == Some("blocked"))
