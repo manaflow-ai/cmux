@@ -686,7 +686,9 @@ fn a_cli_check_sees_the_service_connect_hold_and_does_not_flip() {
     );
     let mut ran = false;
     let held = cli.run_test(T0_MS + 60_000, true, |_| ran = true);
-    assert!(held.is_err_and(|left| left == gate::CONNECT_HOLD - Duration::from_secs(60)));
+    assert!(
+        matches!(held, Err(gate::Refused::Held(left)) if left == gate::CONNECT_HOLD - Duration::from_secs(60))
+    );
     assert!(!ran, "the CLI flipped during the service's connect hold");
     assert_eq!(
         cli.held_left(T0_MS + 60_000).unwrap(),
