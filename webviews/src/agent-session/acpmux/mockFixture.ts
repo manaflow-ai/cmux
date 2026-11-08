@@ -371,6 +371,45 @@ export const mockSessions: MockSession[] = [
     ],
   },
   {
+    // The person corrected the agent, and acpmux offered what it learned for the project's
+    // instructions file: the memory inbox card under that turn (conversation/MemoryOfferCard.tsx).
+    sessionId: "mock-session-memory",
+    title: "Run the webview tests",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9300,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Ran them with bun test from webviews/; all pass.",
+    history: (at) => [
+      { ago: at + 120_000, mux: "user_message", msg: { text: "Run the webview tests." } },
+      { ago: at + 120_000, mux: "turn_started" },
+      { ago: at + 110_000, update: text("Running npm test at the repository root.") },
+      { ago: at + 100_000, mux: "turn_result", msg: { status: "completed" } },
+      {
+        ago: at + 60_000,
+        mux: "user_message",
+        msg: { text: "No, we use bun here, and only from webviews/. Never npm." },
+      },
+      { ago: at + 60_000, mux: "turn_started" },
+      { ago: at + 20_000, update: text("Ran them with bun test from webviews/; all pass.") },
+      { ago: at + 20_000, mux: "turn_result", msg: { status: "completed" } },
+      {
+        ago: at + 19_000,
+        mux: "memory_offer",
+        msg: {
+          offerId: "mock-memory-1",
+          file: "CLAUDE.md",
+          facts: ["Use bun, never npm.", "Run webview tests from webviews/ with bun test."],
+          heading: "## Learned in chats",
+          created: false,
+        },
+      },
+    ],
+  },
+  {
     sessionId: "mock-typing-latency",
     title: "Measure typing latency in split panes",
     harness: "claude",

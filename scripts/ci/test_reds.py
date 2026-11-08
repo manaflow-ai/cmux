@@ -1102,6 +1102,15 @@ WEB_CHARGED = re.compile(r"^##\[(error|warning)\]" + WEB_FILE + r"(?: > (.+))?$"
 # timed out transcript-toggle-round-trip-browser) is the base's, never a cut-short head run; and only its verdict is
 # final. A replay with no such line (no head re-run) holds no run of the head at all.
 WEB_HEAD_RERUN = "re-running alone on the head:"
+# guards_new_reds.py's closing line of a compare: its charged-test verdict is whole only once this is printed. A
+# replay whose last compare (after its head re-run, or its only one) printed none ended before it judged anything:
+# its charged tests, or the head re-run's failures, are no verdict to compare with the base (review follow-up (1)
+# on #38380), so the replay is the head's own.
+# The whole line, anchored at both ends: a log cut off after "red on the base too" printed no verdict (review F1 on
+# #38434). A runner copied from before guards_new_reds.py counted flakes prints no flaky count.
+WEB_VERDICT = re.compile(r"^\d+ webview test steps red on this change, \d+ red on the base too, "
+                         r"(?:\d+ flaky on the base, )?\d+ fixed$")
+NO_WEB_VERDICT = "its replay printed no final charged-test verdict (guards_new_reds.py's closing line)"
 
 
 def web_head_part(log: str | None) -> str:
@@ -1160,6 +1169,8 @@ def web_failures(log: str | None) -> WebFailures:
     if any(WEB_CHARGED.match(text) for text in texts):
         # A base replay: only its head re-run, and the verdict after it, are the head's (web_head_part).
         rerun = max((n for n, text in enumerate(texts) if text == WEB_HEAD_RERUN), default=None)
+        if not any(WEB_VERDICT.match(text) for text in texts[(rerun or -1) + 1:]):
+            found.truncated.append(NO_WEB_VERDICT)
         if rerun is None:
             for text in texts:
                 if match := WEB_CHARGED.match(text):

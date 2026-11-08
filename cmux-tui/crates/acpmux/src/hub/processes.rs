@@ -17,7 +17,9 @@
 //!
 //! Claude Code writes each shell's output to a file it names
 //! (`output_file`), which `_acpmux/process/tail` reads. The agent host runs
-//! on this machine, so the daemon reads the file itself.
+//! on this machine, so the daemon reads the file itself. A running one's
+//! file is also where a dev server prints its URL: `process_preview.rs`
+//! finds it, and the record carries it as `preview`.
 
 use super::*;
 use serde::{Deserialize, Serialize};
@@ -92,9 +94,22 @@ pub(super) struct Process {
     /// The file Claude Code writes its output to (`output_file`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     output_file: Option<String>,
+    /// The loopback server it runs, found in its output (`process_preview.rs`);
+    /// only while it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    preview: Option<ProcessPreview>,
     /// Its latest state is in a logged `process_update`.
     #[serde(skip)]
     logged: bool,
+}
+
+/// The local URL a running process serves, as its output printed it and a
+/// loopback connect confirmed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ProcessPreview {
+    url: String,
+    port: u16,
 }
 
 /// A session's processes, in the order they started.
@@ -114,6 +129,8 @@ pub(super) struct ProcessTable {
     running: std::collections::BTreeSet<usize>,
     /// Processes a person asked to stop: their end is the person's.
     stopping: std::collections::HashSet<String>,
+    /// Processes whose output a preview watch reads (`process_preview.rs`): one each.
+    watching: std::collections::HashSet<String>,
 }
 
 #[cfg(test)]
@@ -127,6 +144,13 @@ mod process_active_tests;
 #[cfg(test)]
 #[path = "processes_page_tests.rs"]
 mod process_page_tests;
+
+#[path = "process_preview.rs"]
+mod preview;
+
+#[cfg(test)]
+#[path = "processes_preview_tests.rs"]
+mod process_preview_tests;
 
 impl ProcessTable {
     /// All appends go here, including records replayed from a logged process update.
@@ -201,6 +225,7 @@ impl ProcessTable {
                     origin: text("origin").unwrap_or("background").to_owned(),
                     output_bytes: None,
                     output_file: None,
+                    preview: None,
                     logged: false,
                 };
                 self.insert(process)
@@ -226,6 +251,8 @@ impl ProcessTable {
         let asked = self.stopping.remove(&p.id);
         p.state = state;
         p.ended_at = Some(at);
+        // An ended server serves nothing.
+        p.preview = None;
         p.reason = match state {
             ProcessState::Lost => Some(HARNESS_EXIT.into()),
             ProcessState::Killed if asked => Some("person".into()),
@@ -267,6 +294,12 @@ impl ProcessTable {
         {
             let new_tool = process.tool_call_id.clone();
             let live = process.state == ProcessState::Running;
+            // A preview found here outlives a record that names none, while it runs.
+            if !live {
+                process.preview = None;
+            } else if process.preview.is_none() {
+                process.preview = slot.preview.clone();
+            }
             let old_tool = std::mem::replace(slot, process).tool_call_id;
             if live {
                 self.running.insert(at);
@@ -345,6 +378,7 @@ impl ProcessTable {
             self.stopping.remove(&p.id);
             p.state = ProcessState::Lost;
             p.ended_at = Some(at);
+            p.preview = None;
             p.reason = Some(reason.to_owned());
             p.logged = logged;
             lost.push(p.clone());
@@ -527,8 +561,11 @@ impl Hub {
     /// Reads the session's processes from its log again: a daemon that
     /// adopted a running host lists them again (`hosts.rs`).
     pub(super) fn rebuild_processes(&self, session: &Session) {
-        let table = self.read_processes(session);
-        *session.processes.lock().unwrap_or_else(|e| e.into_inner()) = table;
+        let mut table = self.read_processes(session);
+        let mut slot = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        // The preview watches still run: they stay the only ones.
+        table.watching = std::mem::take(&mut slot.watching);
+        *slot = table;
     }
 
     /// A logged `background_task_update` (`tap.rs`), the session's own or a

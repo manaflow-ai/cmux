@@ -10,8 +10,9 @@ import { environmentReady, type Environment } from "./environments";
 import { postNative } from "./native";
 
 /// One machine of the account: its id, name and `CloudMachineStage` name (`ready`, `paused`,
-/// `requesting`, `creating`, `booting`, `connecting`, `failed`).
-export type CloudMachine = { id: string; name: string; stage: string };
+/// `requesting`, `creating`, `booting`, `connecting`, `failed`). `evictAt` (epoch ms) is when a
+/// machine left paused for 30 days is deleted unless it resumes; absent when the server does not say.
+export type CloudMachine = { id: string; name: string; stage: string; evictAt?: number };
 /// A Cloud machine as a row of the machine list: a Cloud environment carrying its machine.
 export type CloudMachineRow = Environment & { cloudMachine: CloudMachine };
 
@@ -70,9 +71,13 @@ export function cloudMachinesFromReply(reply: unknown): CloudMachine[] {
   if (value?.signedIn !== true || value.loaded !== true || !Array.isArray(value.machines)) return [];
   const machines: CloudMachine[] = [];
   for (const raw of value.machines.slice(0, MAX_ROWS)) {
-    const { id, name, stage } = (raw ?? {}) as Record<string, unknown>;
+    const { id, name, stage, evictAt } = (raw ?? {}) as Record<string, unknown>;
     if (typeof id !== "string" || !id || typeof name !== "string" || !name || typeof stage !== "string") continue;
-    machines.push({ id, name, stage });
+    machines.push(
+      typeof evictAt === "number" && Number.isFinite(evictAt) && evictAt > 0
+        ? { id, name, stage, evictAt }
+        : { id, name, stage },
+    );
   }
   return machines;
 }
