@@ -11,7 +11,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { McpCallDetails } from "./McpCallRows";
 import { paintFindHighlights } from "./chatFind";
-import { splitToolLabel } from "./ToolVerb";
+import { splitToolLabel } from "./toolVerbModel";
 import { ToolRows } from "./TurnRows";
 import { ToolRow } from "./ToolRow";
 import { ToolVerbColumn } from "./ToolVerb";

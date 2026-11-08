@@ -38,6 +38,7 @@ import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
 import { commandLabelLook } from "../agent-session/acpmux/conversation/commandLabel.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
+import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
@@ -65,6 +66,7 @@ import { composerPlusCommands } from "../agent-session/acpmux/composerPlusComman
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { composerDeeplinkLook } from "../agent-session/acpmux/composer/deeplinkLook.experiment";
 import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgentLook.experiment";
+import { sentPasteLook } from "../agent-session/acpmux/conversation/sentPasteLook.experiment";
 import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
@@ -88,6 +90,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   claudeTurnFold,
   commandLabelLook,
   turnFoldReplies,
+  turnFoldSteered,
   workedForMessages,
   threadMinimapLayout,
   threadMinimapHeight,
@@ -147,6 +150,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   promptSuggestionLook,
   composerDeeplinkLook,
   pastedAgentLook,
+  sentPasteLook,
   sentMessageLook,
   contextRingLook,
   contextRingMotion,

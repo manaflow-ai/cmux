@@ -17,10 +17,11 @@ import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
+import { toolRunSummary } from "./toolRunSummary";
 import { ToolRunSteps } from "./ToolRunSteps";
 import { visibleToolItems } from "./mcpPresentation";
 import { ThoughtRow } from "./ThoughtRow";
-import { groupId, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
+import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { RetryTargetContext, TurnActionsContext } from "./turnActions";
@@ -76,10 +77,23 @@ import { thoughtIds } from "./turnRowsModel";
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  if (row.previous !== undefined || row.durationMs === undefined) return workedLabel(t, row);
-  const key = row.status === "cancelled" ? "turn.stopped" : "turn.worked";
-  const messages = workedMessagesText(t, row);
-  return <TimedLabel text={(time) => t(key, { time }) + messages} time={row.durationMs} />;
+  // The `header` arm of turnFoldSteered names the work the line holds after its time.
+  const runs = row.workedRuns;
+  const work = useMemo(() => (runs?.length ? toolRunSummary(t, runs) : undefined), [t, runs]);
+  let label: ReactNode;
+  if (row.previous !== undefined || row.durationMs === undefined) label = workedLabel(t, row);
+  else {
+    const key = row.status === "cancelled" ? "turn.stopped" : "turn.worked";
+    const messages = workedMessagesText(t, row);
+    label = <TimedLabel text={(time) => t(key, { time }) + messages} time={row.durationMs} />;
+  }
+  if (!work) return label;
+  return (
+    <>
+      {label}
+      <span className="cv-worked__work">{` · ${work}`}</span>
+    </>
+  );
 }
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls. It says the time alone,
@@ -227,6 +241,8 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   const stretches = useMemo(() => runStretches({ foldRun }, groups), [foldRun, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
   const nodes = stretches.map((stretch) => {
+    // model.ts estimates the stretch from the same start (toolGroups.ts `stretchStart`).
+    const start = stretchStart(row, stretch);
     const drawn =
       !stretch.fold &&
       stretch.groups.map((group, offset) => {
@@ -237,7 +253,8 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
           row.id,
           row.at,
           row.live === true && at === groups.length - 1,
-          row.foldRun === true && !stretch.fold,
+          // A run line open from the start (`runOpen`) opens the groups it holds too.
+          start.groupsClosed,
           thoughts[at],
         );
       });
@@ -246,7 +263,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
     const first = stretch.items.find((item) => item.tool)?.tool?.id;
     const key = stretch.from === 0 ? `run:${row.id}` : `run:${row.id}:${first || stretch.from}`;
     return (
-      <ToolRun key={key} disclosureKey={key} items={stretch.items}>
+      <ToolRun key={key} disclosureKey={key} items={stretch.items} defaultOpen={start.lineOpen}>
         <ToolRunSteps items={stretch.items} rowId={row.id} thoughtsBefore={thoughts[stretch.from] ?? 0} />
       </ToolRun>
     );

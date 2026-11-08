@@ -532,7 +532,7 @@
   color: var(--agent-text);
 }
 
-/* A long prompt (PromptText.tsx, promptCollapse.ts): its first ten lines, the last one fading out
+/* A long prompt (PromptText.tsx, promptCollapse.ts): its first twenty lines, the last one fading out
    under a mask (the bubble's glass shows through, never a cover), with Show more under them: a plain
    text button whose hover brightens its text. model.ts estimates the same heights: change them together. */
 /* Drawn whole, the text is no box of its own: the bubble's padding alone insets it, as before. */
@@ -560,7 +560,7 @@
 }
 .cv-user__text.is-clamped {
   display: block;
-  max-height: calc(var(--cv-line-height) * 10);
+  max-height: calc(var(--cv-line-height) * 20);
   overflow: hidden;
 }
 .cv-user__text.is-faded {
@@ -669,6 +669,43 @@
 }
 .cv-user__paste-card[data-open] .cv-user__paste-chevron {
   transform: rotate(180deg);
+}
+/* A paste as one label row (sentPasteLook `row`): no card, no fill and no preview closed, so the
+   bubble draws no card inside it; open, the paste runs above the label. Closed it is
+   PASTE_ROW_HEIGHT (promptCollapse.ts): the 20px label with 4px above and below. */
+.cv-user__paste-block[data-look="row"] .cv-user__paste-card {
+  padding: 0;
+  background: none;
+}
+.cv-user__paste-block[data-look="row"] .cv-user__paste-card:not([data-open]) .cv-user__paste-text {
+  display: none;
+}
+.cv-user__paste-block[data-look="row"] .cv-user__paste {
+  margin-top: 0;
+}
+.cv-user__paste-block[data-look="row"] .cv-user__paste-card[data-open] .cv-user__paste {
+  margin-top: 4px;
+}
+/* A paste drawn as the bubble's own text (sentPasteLook `text`, the default): its own lines in the
+   bubble's ink, literal, no card. Another agent's paste keeps a muted "Pasted from" line over it,
+   PASTE_FROM_HEIGHT (promptCollapse.ts): a 20px line 4px over the text. */
+.cv-user__pasted {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cv-user__pasted-from {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  margin-bottom: 4px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: 20px;
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+  user-select: none;
 }
 /* A paste that reads as another agent's output (PromptText.tsx PasteChip, pastedAgentLook): its
    label names the agent. The rule arm adds an accent rule down the card's left edge, inside its
@@ -2378,6 +2415,18 @@ pre.cv-math-source {
 }
 .cv-worked__label {
   flex: none;
+}
+/* The work a steered turn's line names after its time (turnFoldSteered `header` arm): quieter than
+   the words, and the part that gives way first on a narrow pane. */
+.cv-worked__label:has(> .cv-worked__work) {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-worked__work {
+  color: var(--cv-text-dim);
 }
 /* A running turn's line (WorkingFor.tsx): the call in flight gives way first, its time stays. */
 .cv-worked__doing {
