@@ -94,13 +94,13 @@ struct NewTabSuccession {
 
     /// `snapshot` as `pane`'s strip shows it while a new tab of it is made. A tab the store made for a provisional one (Cmd-T's
     /// New Tab page shows before the store has its tab) takes the provisional tab's cell: the store swaps them in one step, so
-    /// one provisional tab leaving as one tab arrives is that pair. It was a shrink beside a grow on every Cmd-T.
+    /// one provisional tab leaving as one tab arrives is that pair when that tab is the stand-in's (F1 on #38085). It was a shrink beside a grow on every Cmd-T.
     static func order(_ snapshot: PaneController.Snapshot, in pane: PaneController) -> PaneController.Snapshot {
         let shown = Set(pane.stripModel.tabs.map(\.id)), listed = Set(snapshot.items.map(\.id))
         let left = shown.filter { ProvisionalTab.isProvisional($0.rawValue) && !listed.contains($0) }
         let arrived = snapshot.items.filter { !shown.contains($0.id) }, swapped = arrived.filter { pane.daemon.store.creations.tookAStandInsPlace(tab: $0.id.rawValue, in: pane.pane) }
         var handed: SurfaceID?
-        if left.count == 1, arrived.count == 1, let provisional = left.first {
+        if left.count == 1, arrived.count == 1, let provisional = left.first, pane.daemon.store.creations.handsOver(standIn: provisional.rawValue, to: arrived[0].id.rawValue, in: pane.pane) {
             pane.stripModel.successors[arrived[0].id] = provisional
             handed = pane.pane.tabs.first { $0.id == arrived[0].id.rawValue }?.surface
             // The selection goes with the cell, in the same apply: a selected stand-in never

@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
-import { browseFailureMessage } from "./BrowseFailure";
+import { browseFailureMessage } from "./browseFailureModel";
 import { ChevronIcon } from "./ComposerPickers";
-import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./AddProjectPanel";
+import { type BrowseRequest } from "./AddProjectPanel";
+import { BROWSE_BUSY, type BrowseResult } from "./addProjectPanelModel";
 import {
   SAVED_ENVIRONMENT_NAME_LIMIT,
   savedEnvironmentReady,
