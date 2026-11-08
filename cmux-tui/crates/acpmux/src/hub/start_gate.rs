@@ -218,7 +218,7 @@ impl Hub {
     /// (`hub/person.rs` (a)): `(sessionId, token)` from [`take_caller`],
     /// when the token is that session's on this run and the session is here.
     pub fn proven_caller(&self, (id, token): (String, String)) -> Option<String> {
-        let proves = caller_proves(&id, &token) || self.adopted_caller_proves(&id, &token);
+        let proves = self.caller_known(&id, &token);
         if proves && self.resolve(&id).is_ok_and(|s| s.id == id) { Some(id) } else { None }
     }
 
@@ -229,10 +229,26 @@ impl Hub {
     /// then, the call was refused as another chat's (bg tasks lost on 2026-11-01). Waits for
     /// nothing outside a restart; a token adoption does not know is still refused after it.
     pub(crate) async fn settle_caller(&self, session_id: &str, token: &str) {
-        if caller_proves(session_id, token) || self.adopted_caller_proves(session_id, token) {
+        if self.caller_known(session_id, token) {
             return;
         }
         let _ = self.adoption_ready.subscribe().wait_for(|ready| *ready).await;
+    }
+
+    /// Whether `token` proves session `session_id` to this run: its own token, the one the
+    /// adopted host's record kept, or one an earlier run gave out that the session still
+    /// accepts (`caller_registry.rs`), so an agent that outlived its daemon is known from the
+    /// first request, before or without its host's adoption.
+    fn caller_known(&self, session_id: &str, token: &str) -> bool {
+        caller_proves(session_id, token)
+            || self.adopted_caller_proves(session_id, token)
+            || self.caller_registry.proves(session_id, token)
+    }
+
+    /// This run gave session `session_id`'s token to a process other than its harness (a
+    /// workflow runner): a later run knows it too (`caller_registry.rs`).
+    pub(crate) fn caller_issued(&self, session_id: &str) {
+        self.caller_registry.issued(session_id, &caller_token(session_id));
     }
 
     /// Whether `token` is the caller token session `session_id`'s adopted
@@ -248,10 +264,18 @@ impl Hub {
     /// and the MCP servers it started keep the caller token from the host's
     /// record, so this run knows the session by that token too. A token of
     /// this run, a malformed one or none (a host of an older build) records
-    /// nothing. Answers whether the agent holds a token this run knows: false
-    /// asks for a restart between turns (`Hub::restart_unproven`).
-    pub(super) fn adopt_caller_token(&self, session_id: &str, token: Option<String>) -> bool {
-        let known = token.as_deref().is_some_and(valid_key);
+    /// nothing. Answers whether the agent holds a token this run knows (the
+    /// record's, or the one the registry kept for host `incarnation`,
+    /// `caller_registry.rs`): false asks for a restart between turns
+    /// (`Hub::restart_unproven`).
+    pub(super) fn adopt_caller_token(
+        &self,
+        session_id: &str,
+        token: Option<String>,
+        incarnation: &str,
+    ) -> bool {
+        let known = token.as_deref().is_some_and(valid_key)
+            || self.caller_registry.knows_host(session_id, incarnation);
         let mut adopted =
             adopted_callers().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match token.filter(|t| valid_key(t) && !caller_proves(session_id, t)) {
@@ -261,13 +285,15 @@ impl Hub {
         known
     }
 
-    /// A new host of session `session_id` started: its harness has this
-    /// run's token, and the adopted one's process group is gone.
-    pub(super) fn forget_adopted_caller(&self, session_id: &str) {
+    /// A new host `incarnation` of session `session_id` started: its harness
+    /// has this run's token, which the registry keeps for the next run
+    /// (`caller_registry.rs`), and the adopted one's process group is gone.
+    pub(super) fn forget_adopted_caller(&self, session_id: &str, incarnation: &str) {
         adopted_callers()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(session_id);
+        self.caller_registry.host_started(session_id, &caller_token(session_id), incarnation);
     }
 
     /// A `session/new` without the person (module docs, (a), (b)): a mode

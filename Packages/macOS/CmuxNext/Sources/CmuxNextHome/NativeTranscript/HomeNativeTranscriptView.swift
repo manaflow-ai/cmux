@@ -128,6 +128,9 @@ public final class HomeNativeTranscriptView: NSView {
     }
     /// A chosen sent-bubble colour (opt in); nil keeps the style's (iMessage blue, or the theme's accent).
     public var accentOverride: NSColor? { didSet { applyTheme() } }
+    /// Whether the chat leaves its background clear (the floating Chief's see-through styles): the theme's
+    /// background goes to no alpha, so the window behind shows between the bubbles.
+    public var clearsBackground = false { didSet { if clearsBackground != oldValue { applyTheme() } } }
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
     /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followBubbleStyle`).
     public var bubbleStyle: HomePalette.BubbleStyle = .iMessage { didSet { if bubbleStyle != oldValue { applyTheme() } } }
@@ -594,7 +597,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
         let accent = accentOverride, style = bubbleStyle, chosen = bubbleColors
-        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }.applying(chosen)
+        var active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }.applying(chosen)
+        if clearsBackground { active.background.alpha = 0 }
         // A chosen sent colour replaces MessagesLab's measured blue (and its white text).
         let measured = chosen.sent == nil && chosen.sentText == nil
             && performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
