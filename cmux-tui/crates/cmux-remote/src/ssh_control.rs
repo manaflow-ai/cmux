@@ -268,7 +268,9 @@ impl ControlMaster {
         let child = command.spawn().map_err(SshConnectionError::Io)?;
         live_masters::register(&child);
         let mut pending = PendingMaster(Some(child));
-        let child = pending.child();
+        let Some(child) = pending.0.as_mut() else {
+            return Err(SshConnectionError::Exited { status: None });
+        };
         let Some(stdout) = child.stdout.take() else {
             return Err(SshConnectionError::Io(std::io::Error::other(
                 "ssh stdout pipe is unavailable",
@@ -288,7 +290,10 @@ impl ControlMaster {
             };
             return Err(SshConnectionError::Exited { status });
         }
-        let child = pending.disarm();
+        // Disarm: from here the master's Drop owns ending ssh.
+        let Some(child) = pending.0.take() else {
+            return Err(SshConnectionError::Exited { status: None });
+        };
         let master = Self { child, socket, _directory: directory };
         if !socket_exists(&master.socket) {
             return Ok(None);
@@ -335,16 +340,6 @@ impl Drop for ControlMaster {
 /// An ssh that is not yet a ready master. Dropping it kills ssh; tokio
 /// reaps the child.
 struct PendingMaster(Option<Child>);
-
-impl PendingMaster {
-    fn child(&mut self) -> &mut Child {
-        self.0.as_mut().expect("a pending master holds its child until disarmed")
-    }
-
-    fn disarm(mut self) -> Child {
-        self.0.take().expect("a pending master holds its child until disarmed")
-    }
-}
 
 impl Drop for PendingMaster {
     fn drop(&mut self) {
