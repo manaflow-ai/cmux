@@ -22,6 +22,11 @@ use crate::AgentState;
 pub(super) struct ScreenEvidence {
     producer: String,
     state: String,
+    /// When the plugin saw it (`observed_at_ms`), so a late append never
+    /// replaces a newer observation and a turn's end is judged only by what
+    /// the screen showed during that turn.
+    #[serde(default)]
+    observed_at_ms: u64,
 }
 
 impl ScreenEvidence {
@@ -39,8 +44,9 @@ impl ScreenEvidence {
 pub(super) struct ScreenNote {
     /// It saw a blocker and now sees the agent working or idle.
     pub(super) cleared_blocker: bool,
-    /// It saw the agent working and now sees its own idle prompt.
-    pub(super) ended_turn: bool,
+    /// It saw the agent working, at this time, and now sees its own idle
+    /// prompt.
+    pub(super) ended_turn_seen_working_at: Option<u64>,
     /// It saw the agent and now sees its process gone.
     pub(super) saw_exit: bool,
 }
@@ -55,17 +61,25 @@ impl RosterEvent<'_> {
 }
 
 impl AgentRoster {
-    /// Record `producer`'s observation of `terminal_id` and say what it
-    /// proves next to the same producer's previous one ([`ScreenNote`]).
-    /// Repeated reports of the same state change nothing, so the plugin's
-    /// stable-blocker refreshes keep the record at `blocked`.
+    /// Record `producer`'s observation of `terminal_id`, seen at
+    /// `observed_at_ms`, and say what it proves next to the same producer's
+    /// previous one ([`ScreenNote`]). Repeated reports of the same state
+    /// change nothing, so the plugin's stable-blocker refreshes keep the
+    /// record at `blocked`. An observation older than the recorded one (a
+    /// late append) is neither recorded nor proves anything.
     pub(super) fn note_screen_evidence(
         &mut self,
         terminal_id: &str,
         producer: &str,
         state: AgentState,
         visible_idle: bool,
+        observed_at_ms: u64,
     ) -> ScreenNote {
+        if self.screen_evidence.get(terminal_id).is_some_and(|recorded| {
+            recorded.producer == producer && observed_at_ms < recorded.observed_at_ms
+        }) {
+            return ScreenNote::default();
+        }
         let previous = if state == AgentState::Done {
             self.screen_evidence.remove(terminal_id)
         } else {
@@ -74,6 +88,7 @@ impl AgentRoster {
                 ScreenEvidence {
                     producer: producer.to_string(),
                     state: state.as_str().to_string(),
+                    observed_at_ms,
                 },
             )
         };
@@ -83,9 +98,10 @@ impl AgentRoster {
         ScreenNote {
             cleared_blocker: matches!(state, AgentState::Working | AgentState::Idle)
                 && previous.state == AgentState::Blocked.as_str(),
-            ended_turn: state == AgentState::Idle
+            ended_turn_seen_working_at: (state == AgentState::Idle
                 && visible_idle
-                && previous.state == AgentState::Working.as_str(),
+                && previous.state == AgentState::Working.as_str())
+            .then_some(previous.observed_at_ms),
             saw_exit: state == AgentState::Done,
         }
     }
@@ -96,8 +112,9 @@ impl AgentRoster {
     /// the person interrupts the turn with Esc (manaflow-ai/cmux#36529), a
     /// `Stop` that ran can be lost on its way (#21229), and a killed harness
     /// sends no `SessionEnd` (#20874). The screen proves it, observed after
-    /// the hook's last report: the same plugin saw the turn run and now sees
-    /// the agent's own idle prompt (`ended_turn`), or saw the agent and now
+    /// the hook's last report: the same plugin saw this turn run (`working`
+    /// observed since the hook's row became `working`) and now sees the
+    /// agent's own idle prompt, or saw the agent and now
     /// sees its process gone (`saw_exit`; the detector confirms an exit
     /// over six scans). A plain screen `idle`, or an exit another producer
     /// reports, proves nothing.
@@ -108,7 +125,12 @@ impl AgentRoster {
         observed_at_ms: u64,
     ) -> bool {
         let ends = match state {
-            AgentState::Idle => note.ended_turn && existing.agent_state() == AgentState::Working,
+            AgentState::Idle => {
+                existing.agent_state() == AgentState::Working
+                    && note
+                        .ended_turn_seen_working_at
+                        .is_some_and(|seen_at| seen_at >= existing.since_ms())
+            }
             AgentState::Done => note.saw_exit,
             _ => false,
         };

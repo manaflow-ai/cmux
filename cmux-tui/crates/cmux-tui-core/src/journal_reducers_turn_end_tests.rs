@@ -257,3 +257,32 @@ fn an_exit_seen_before_the_hooks_report_does_not_remove_it() {
     rig.screen(10_900, "done");
     assert_eq!(rig.shown(), "working");
 }
+
+/// A working report the plugin saw before this turn's prompt, appended late,
+/// is not this turn running: the next prompt box does not end the turn.
+#[test]
+fn a_late_working_report_from_before_the_prompt_does_not_end_the_turn() {
+    let mut rig = Rig::new("claude");
+    rig.hook(10_000, "SessionStart");
+    rig.hook(12_000, "UserPromptSubmit");
+    rig.screen(11_500, "working");
+    rig.prompt(12_200);
+    assert_eq!(rig.shown(), "working");
+    // The screen then shows this turn run and end.
+    rig.screen(12_600, "working");
+    rig.prompt(14_000);
+    assert_eq!(rig.shown(), "idle");
+}
+
+/// A late append older than the recorded observation changes no evidence.
+#[test]
+fn an_older_observation_does_not_replace_newer_evidence() {
+    let mut rig = Rig::running_turn("claude");
+    rig.prompt(14_300);
+    assert_eq!(rig.shown(), "idle");
+    rig.hook(16_000, "UserPromptSubmit");
+    // A working report from the previous turn arrives late.
+    rig.screen(14_000, "working");
+    rig.prompt(16_200);
+    assert_eq!(rig.shown(), "working");
+}

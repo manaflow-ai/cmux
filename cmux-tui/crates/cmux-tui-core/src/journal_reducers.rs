@@ -693,8 +693,13 @@ impl AgentRoster {
             let agent = event.adapter_id().map(str::to_string);
             let state = if event_name == "session.ended" { AgentState::Done } else { state };
             let visible_idle = event.plugin_visible_idle();
-            screen_note =
-                self.note_screen_evidence(terminal_id, event.producer_id, state, visible_idle);
+            screen_note = self.note_screen_evidence(
+                terminal_id,
+                event.producer_id,
+                state,
+                visible_idle,
+                updated_at_ms,
+            );
             screen_cleared_blocker =
                 screen_note.cleared_blocker || (state == AgentState::Idle && visible_idle);
             (
