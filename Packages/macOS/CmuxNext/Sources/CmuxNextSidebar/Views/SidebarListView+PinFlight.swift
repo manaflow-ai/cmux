@@ -3,11 +3,11 @@ import CmuxNextDesign
 import QuartzCore
 import os
 
-let pinDiag = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar.pindiag")
+nonisolated let pinDiag = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar.pindiag")
 
 /// diag (not for merge): logs every animation add/remove on a pinned item's layer, with the caller's stack, for 150 ms
 /// after its flight starts (`armedAt`).
-final class PinDiagLayer: CALayer {
+nonisolated final class PinDiagLayer: CALayer {
     /// When the flight armed the log (a layer KVC value, so the layer keeps no extra stored state).
     static let armedKey = "pinDiagArmedAt"
 
