@@ -20,7 +20,9 @@ export function TextAttachmentCard({ text, label, wrap = false }: { text: string
       <span className="acpmux-text-card__lines" aria-hidden="true" dir="auto" data-wrap={wrap ? "" : undefined}>
         {textPreview(text, TEXT_CARD_LINES, wrap ? TEXT_CARD_WRAP_CHARS : TEXT_CARD_LINE_CHARS)}
       </span>
-      <span className="acpmux-text-card__label">{label}</span>
+      <span className="acpmux-text-card__foot">
+        <span className="acpmux-text-card__label">{label}</span>
+      </span>
     </>
   );
 }

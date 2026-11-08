@@ -686,6 +686,13 @@ button.acpmux-attachment-pasted-open:hover {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* The label's row, under the lines: the label never flexes into the lines' room. */
+.acpmux-text-card__foot {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  min-width: 0;
+}
 .acpmux-text-card__label {
   flex: 1;
   min-width: 0;
