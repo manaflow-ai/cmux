@@ -9,7 +9,7 @@
 import { createContext, useContext } from "react";
 import { useT } from "../i18n";
 import { SenderMark } from "./IncomingMessageCard";
-import { messagePreview } from "./AgentMessageRow";
+import { messagePreview } from "./agentMessageRowModel";
 import type { IncomingMessage } from "./incomingMessage";
 import type { InboxThread } from "./inboxNotice";
 import { withoutRelayLabelOfMessage } from "./relayEnvelope";

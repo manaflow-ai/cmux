@@ -48,7 +48,8 @@ import {
 } from "./subsessions";
 import { failedLineLook } from "./failedLine.experiment";
 import { Markdown } from "../conversation/Markdown";
-import { AgentMessageRow, messagePreview } from "../conversation/AgentMessageRow";
+import { AgentMessageRow } from "../conversation/AgentMessageRow";
+import { messagePreview } from "../conversation/agentMessageRowModel";
 import { doneReportLook } from "./doneReport.experiment";
 import { RetryAffordanceContext, DoneReportLookContext, doneReport, shortReason } from "./subagentDoneLineModel";
 

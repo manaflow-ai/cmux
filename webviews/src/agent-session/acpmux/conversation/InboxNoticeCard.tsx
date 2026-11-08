@@ -20,8 +20,10 @@ import { mentionedRepository } from "../../../githubReferences";
 import { CardCopy } from "./CardCopy";
 import { FindReveal, foldFind } from "./chatFind";
 import { ReceivedMark, SenderChip } from "./IncomingMessageCard";
-import { AgentMessageRow, messagePreview } from "./AgentMessageRow";
-import { groupSender, MessageGroupHead } from "./MessageGroupHead";
+import { AgentMessageRow } from "./AgentMessageRow";
+import { messagePreview } from "./agentMessageRowModel";
+import { MessageGroupHead } from "./MessageGroupHead";
+import { groupSender } from "./messageGroupHeadModel";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import type { IncomingMessage } from "./incomingMessage";
 import {

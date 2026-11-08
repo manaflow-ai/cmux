@@ -18,7 +18,7 @@
 // (useAnchoredCollapse.ts), and a caller that wants the fold to play says when (`animates`).
 import { useId, useRef, type ReactNode } from "react";
 import { ChevronRight } from "./icons";
-import { clipMessagePreview } from "./clipMessagePreview";
+
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import { AgentTag } from "./AgentTag";
 import { useMessageLineLook } from "./messageLineLook";
@@ -26,17 +26,6 @@ import { useMessageRowLook } from "./messageRowLook";
 import { UnverifiedMark } from "./UnverifiedMark";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import "./AgentMessageRow.css";
-
-/// The message's first line of text as it reads, its spaces collapsed and its Markdown marks (a
-/// heading's or quote's or list item's lead, emphasis, code ticks) dropped: the closed line's
-/// preview. The same reading as incomingMessage.ts gives a received message (#23727).
-export function messagePreview(text: string): string {
-  const line = text.split("\n").find((part) => part.trim()) ?? "";
-  return clipMessagePreview(
-    line.replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[[ xX]\]\s+)?)/, "").replace(/(\*\*|__|`)/g, ""),
-  );
-}
-
 export function AgentMessageRow({
   direction,
   icon,
