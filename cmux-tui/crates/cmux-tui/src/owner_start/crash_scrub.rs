@@ -14,8 +14,8 @@ const EMAIL: &str = "<redacted-email>";
 const USER: &str = "<redacted>";
 const URL_SECRET: &str = "<redacted-secret>@";
 
-/// The secret rules, `ScrubberDenylists.valuePatterns` without the card, IBAN and SSN rules (a
-/// panic message carries no payment data). `(?i)` where the Swift pattern is case-insensitive.
+/// The secret rules, `ScrubberDenylists.valuePatterns` in its order, card, IBAN and SSN included
+/// (a panic can carry pasted text). `(?i)` where the Swift pattern is case-insensitive.
 const SECRET_RULES: &[&str] = &[
     r"(?i)(Bearer\s+)[A-Za-z0-9\-._~+/]+=*",
     r"(?i)(Authorization:\s*\w+\s+)\S+",
@@ -31,6 +31,15 @@ const SECRET_RULES: &[&str] = &[
     r"\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+",
     r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b",
     r"(?i)-----BEGIN[A-Z ]+(?:PRIVATE|PUBLIC) KEY-----[\s\S]+?-----END[A-Z ]+(?:PRIVATE|PUBLIC) KEY-----",
+    r"\b(?:3[47]\d|4\d{3}|5[1-5]\d\d|65\d\d|6011)(?:[-\s]?\d){12}\b",
+    concat!(
+        r"\b(?:AT|AD|AE|AL|AZ|BA|BE|BG|BH|BR|BY|CH|CR|CY|CZ|DE|DK|DO|EE|EG|ES|FI|FO|FR|GB|GE|GI|GL|",
+        r"GR|GT|HR|HU|IE|IL|IQ|IS|IT|JO|KW|KZ|LB|LC|LI|LT|LU|LV|LY|MC|MD|ME|MK|MR|MT|MU|NL|NO|",
+        r"PK|PL|PS|PT|QA|RO|RU|RS|SA|SC|SE|SI|SK|SM|ST|SV|TL|TN|TR|UA|VA|VG|XK|DZ|AO|BJ|BF|BI|",
+        r"CV|CM|CF|TD|KM|CG|CI|DJ|GQ|GA|GW|HN|IR|MG|ML|MA|MZ|NI|NE|SN|TG)",
+        r"\d{2}[A-Za-z0-9]{11,29}\b"
+    ),
+    r"\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b",
 ];
 
 struct Rules {
