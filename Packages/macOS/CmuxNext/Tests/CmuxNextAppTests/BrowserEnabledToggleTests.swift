@@ -24,6 +24,12 @@ import Testing
             return (root["browser"] as? [String: Any])?["enabled"] as? Bool
         }
 
+        /// Whether cmux.json is there and parses as an object, so a missing or unreadable file never passes for "the key is absent".
+        func fileParses() -> Bool {
+            guard let data = try? Data(contentsOf: url), let root = try? JSONSerialization.jsonObject(with: data) else { return false }
+            return root is [String: Any]
+        }
+
         func tearDown() { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         /// Waits for `condition` up to a deadline: the settings write and reload run on other tasks.
@@ -79,7 +85,8 @@ import Testing
 
         // On is the default: the write removes the key (#38119), so cmux.json keeps no copy.
         _ = h.services.registry.perform("palette.enableBrowser")
-        await h.until { h.saved() == nil && h.hidden("palette.enableBrowser") }
+        await h.until { h.fileParses() && h.saved() == nil && h.hidden("palette.enableBrowser") }
+        #expect(h.fileParses(), "cmux.json is missing or does not parse")
         #expect(h.saved() == nil, "on is the default: browser.enabled leaves cmux.json")
         #expect(h.hidden("palette.enableBrowser"))
     }
