@@ -51,7 +51,7 @@ pub(super) async fn route(
 ) -> Option<Result<Value, RpcError>> {
     Some(match m {
         method::MUX_REVIEW_QUEUE => queue(hub, origin, params).await,
-        method::MUX_REVIEW_VERDICT => verdict(hub, origin, person, params),
+        method::MUX_REVIEW_VERDICT => verdict(hub, origin, person, params).await,
         method::MUX_AUDIT => audit(hub, origin, params).await,
         _ => return None,
     })
@@ -108,7 +108,7 @@ async fn queue(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<Value, 
     Ok(out)
 }
 
-fn verdict(
+async fn verdict(
     hub: &Arc<Hub>,
     origin: Origin,
     person: bool,
@@ -132,8 +132,15 @@ fn verdict(
         _ => return Err(RpcError::invalid_params("verdict must be accepted or changes")),
     };
     let session = hub.resolve(session_id)?;
-    let entry = hub.record_review_verdict(&session, url, accepted, origin == Origin::LocalApp)?;
-    Ok(json!({"recorded": true, "sessionId": session.id, "prUrl": url, "entry": entry}))
+    let sid = session.id.clone();
+    let (h, u, from_app) = (hub.clone(), url.to_owned(), origin == Origin::LocalApp);
+    // The verdict answers once its audit line is on disk.
+    let entry = tokio::task::spawn_blocking(move || {
+        h.record_review_verdict(&session, &u, accepted, from_app)
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))??;
+    Ok(json!({"recorded": true, "sessionId": sid, "prUrl": url, "entry": entry}))
 }
 
 async fn audit(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<Value, RpcError> {

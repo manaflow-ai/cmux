@@ -300,11 +300,14 @@ impl Row {
 }
 
 impl Hub {
-    /// `session` made from its meta: its pull requests join the index.
+    /// `session` made from its meta: its pull requests join the index at the time each was
+    /// opened, or (for one kept before times were) the session's creation, never its last
+    /// activity, so an old pull request does not come back into the window.
     pub(super) fn note_session_prs(&self, session: &Session) {
         let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         for url in &m.pull_requests {
-            self.review_index.note_pr(&session.id, url, m.updated_at);
+            let at = m.pull_request_times.get(url).copied().unwrap_or(m.created_at);
+            self.review_index.note_pr(&session.id, url, at);
         }
     }
 
@@ -404,7 +407,7 @@ impl Hub {
             }
             let row = self.review_row(&session);
             for pr in fresh {
-                if self.audit.reviewed(&pr.url) {
+                if self.audit.reviewed(&id, &pr.url) {
                     continue;
                 }
                 let mut item = row.item(

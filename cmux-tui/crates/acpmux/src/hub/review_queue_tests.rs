@@ -10,11 +10,14 @@ fn hub() -> Arc<Hub> {
     Hub::new(cfg, Box::new(crate::store::MemoryStore::default()))
 }
 
-fn meta(id: &str, status: &str, prs: &[&str], updated_at: u64) -> SessionMeta {
+/// A session last active `at`, whose pull requests `prs` were each opened `at`.
+fn meta(id: &str, status: &str, prs: &[&str], at: u64) -> SessionMeta {
+    let times: serde_json::Map<String, Value> =
+        prs.iter().map(|u| ((*u).to_owned(), json!(at))).collect();
     serde_json::from_value(json!({
         "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "claude",
         "family": "claude", "cwd": "/tmp", "status": status, "createdAt": 1,
-        "updatedAt": updated_at, "pullRequests": prs,
+        "updatedAt": at, "pullRequests": prs, "pullRequestTimes": times,
     }))
     .unwrap()
 }
@@ -121,7 +124,11 @@ async fn an_answer_writes_one_audit_entry_and_leaves_the_queue() {
     assert_eq!(all[0]["kind"], "approval");
     assert_eq!(all[0]["decision"], json!({"optionId": "ok", "kind": "allow"}));
     assert_eq!(all[0]["answeredBy"], json!({"person": true}));
-    assert!(!all[0]["ask"].as_str().unwrap().contains("aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS"), "{}", all[0]["ask"]);
+    assert!(
+        !all[0]["ask"].as_str().unwrap().contains("aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS"),
+        "{}",
+        all[0]["ask"]
+    );
     assert_eq!(all[1]["decision"]["kind"], "deny");
     assert_eq!(all[1]["prevHash"], all[0]["hash"]);
     assert_eq!(super::audit_log::verify(&all)["ok"], true);
@@ -171,6 +178,37 @@ async fn pull_requests_wait_for_a_verdict_while_their_turn_is_not_running() {
     let all = hub.audit.all().unwrap();
     assert_eq!((all[0]["kind"].clone(), all[0]["prUrl"].clone()), (json!("review"), json!(url)));
     assert_eq!(all[0]["answeredBy"], json!({"person": true, "via": "app"}));
+}
+
+#[tokio::test]
+async fn a_verdict_leaves_the_same_pull_request_of_another_session_queued() {
+    let hub = hub();
+    let now = now_ms();
+    let url = "https://github.com/o/r/pull/7";
+    let a = hub.insert_test_session(meta("a", "idle", &[url], now - 60_000));
+    hub.insert_test_session(meta("b", "idle", &[url], now - 60_000));
+    assert_eq!(hub.review_queue_local(now).0.len(), 2);
+    hub.record_review_verdict(&a, url, true, true).unwrap();
+    let (items, _) = hub.review_queue_local(now);
+    let sessions: Vec<_> = items.iter().map(|i| i["sessionId"].clone()).collect();
+    assert_eq!(sessions, vec![json!("b")]);
+}
+
+#[tokio::test]
+async fn a_restored_pull_request_keeps_the_time_it_was_opened() {
+    let hub = hub();
+    let now = now_ms();
+    let old = now - super::review_queue::PR_WINDOW_MS - 1;
+    // Opened long ago, though the session was active a minute ago.
+    let mut timed = meta("timed", "idle", &["https://github.com/o/r/pull/1"], old);
+    timed.updated_at = now - 60_000;
+    hub.insert_test_session(timed);
+    // Kept before times were: it counts from the session's creation, long ago.
+    let mut untimed = meta("untimed", "idle", &["https://github.com/o/r/pull/2"], now - 60_000);
+    untimed.pull_request_times.clear();
+    untimed.created_at = old;
+    hub.insert_test_session(untimed);
+    assert!(hub.review_queue_local(now).0.is_empty());
 }
 
 #[tokio::test]

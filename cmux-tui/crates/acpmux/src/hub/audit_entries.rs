@@ -128,7 +128,9 @@ impl Hub {
     }
 
     /// `_acpmux/review_verdict` from the person's connection: the pull request at `url`, one
-    /// `session` opened, is accepted or needs changes, and leaves the review queue.
+    /// `session` opened, is accepted or needs changes, and leaves that session's review queue.
+    /// Blocking: returns once the entry is on disk, and fails (the pull request stays queued)
+    /// when it could not be written.
     pub(crate) fn record_review_verdict(
         &self,
         session: &Session,
@@ -149,8 +151,9 @@ impl Hub {
         entry["decision"] = json!({"kind": if accepted { "accept" } else { "changes" }});
         entry["answeredBy"] =
             json!({"person": true, "via": if from_app { "app" } else { "local" }});
-        self.audit.record(entry.clone());
-        Ok(entry)
+        self.audit
+            .record_durable(entry)
+            .map_err(|e| RpcError::internal(format!("audit: the verdict was not recorded: {e}")))
     }
 }
 
