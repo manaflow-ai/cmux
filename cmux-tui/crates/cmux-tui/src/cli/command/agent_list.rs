@@ -6,14 +6,22 @@ use serde_json::{Map, Value};
 
 use super::{
     AgentRosterView, AgentSort, CommandPlan, Flags, Selectors, UsageError, request,
-    validate_one_of, validate_prefixed_id,
+    validate_one_of, validate_prefixed_id, validate_selector,
 };
 
 pub(super) fn parse(flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
+    // A full `term_` id stays `terminal_id`, which every daemon takes; any
+    // other terminal selector (a prefix, a bare or host id such as a raw
+    // `run` reply's `terminal_id`, a tab or pane id, a name) is the
+    // `terminal` field, which the daemon's one resolver reads (W5-P).
     if let Some(terminal) = flags.take("terminal") {
-        validate_prefixed_id("terminal", "term", &terminal)?;
-        params.insert("terminal_id".into(), Value::String(terminal));
+        if validate_prefixed_id("terminal", "term", &terminal).is_ok() {
+            params.insert("terminal_id".into(), Value::String(terminal));
+        } else {
+            validate_selector("terminal", "term", &terminal)?;
+            params.insert("terminal".into(), Value::String(terminal));
+        }
     }
     // `--state` takes the shared status words (`done` is a finished turn
     // nobody has viewed; `ended` a session that ended). The daemon filters by
@@ -119,6 +127,13 @@ mod tests {
         let needs_me = protocol(&["agent", "list", "--needs-me", "--terminal", TERMINAL]);
         assert_eq!(needs_me.params["state"], "blocked");
         assert_eq!(needs_me.params["terminal_id"], TERMINAL);
+        // W5-P: any other terminal selector is the `terminal` field the
+        // daemon resolves: a raw `run` reply's host id, a prefix, a name.
+        for selector in ["00000000000040008000000000000001", "term_5555", "pane_ab", "alpha"] {
+            let list = protocol(&["agent", "list", "--terminal", selector]);
+            assert_eq!(list.params["terminal"], selector);
+            assert_eq!(list.params.get("terminal_id"), None);
+        }
         let both = protocol(&["agent", "list", "--needs-me", "--state", "blocked"]);
         assert_eq!(both.params["state"], "blocked");
         let ResponseView::AgentRoster(view) = needs_me.view else { panic!("a roster") };

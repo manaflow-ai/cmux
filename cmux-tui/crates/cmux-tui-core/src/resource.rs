@@ -286,6 +286,8 @@ pub enum ResourceOperation {
     PaneNeighborGet,
     #[serde(rename = "pane.swap")]
     PaneSwap,
+    #[serde(rename = "pane.move")]
+    PaneMove,
     #[serde(rename = "pane.zoom")]
     PaneZoom,
     #[serde(rename = "pane.split_ratio.set")]
@@ -939,14 +941,21 @@ pub enum Selector {
 }
 
 impl Selector {
+    /// Parses one selector word. `current` and `focused` are the session's
+    /// focused object (the daemon has no caller; the CLI puts the caller's
+    /// ids in place of `current` itself). A full public id, a unique id
+    /// prefix (`pane_3f`) and a bare id (the 32 hex digits without the
+    /// prefix, or a terminal's host id) are ids: the resolver expands a
+    /// prefix and a bare id to the full id ([`id_prefix_parts`],
+    /// [`is_bare_id`]). `name:` forces a name.
     pub fn parse(value: &str) -> Result<Self, ResourceError> {
         if let Some(name) = value.strip_prefix("name:") {
             return Ok(Self::Name(name.to_string()));
         }
-        if value == "current" {
+        if value == "current" || value == "focused" {
             return Ok(Self::Current);
         }
-        if is_registered_public_id(value) {
+        if is_registered_public_id(value) || id_prefix_parts(value).is_some() || is_bare_id(value) {
             return Ok(Self::Id(value.to_string()));
         }
         if let Some(reason) = mistyped_id_reason(value) {
@@ -985,6 +994,33 @@ const PUBLIC_ID_PREFIXES: &[(&str, Option<&str>)] = &[
     ("sidebar_view", None),
     ("sidebar_plugin", None),
 ];
+
+/// The longest id payload: 32 lowercase hex digits.
+const ID_PAYLOAD_LEN: usize = 32;
+
+fn is_lower_hex(payload: &str) -> bool {
+    payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// `(prefix, payload)` of a unique-prefix selector: a public id prefix
+/// (`pane`, `term`, ...) and 1 to 31 lowercase hex digits (`pane_3f0a`).
+/// `None` for a full id, an empty or longer payload, or other characters.
+pub fn id_prefix_parts(value: &str) -> Option<(&str, &str)> {
+    let (prefix, payload) = value.rsplit_once('_')?;
+    (PUBLIC_ID_PREFIXES.iter().any(|(known, _)| *known == prefix)
+        && !payload.is_empty()
+        && payload.len() < ID_PAYLOAD_LEN
+        && is_lower_hex(payload))
+    .then_some((prefix, payload))
+}
+
+/// Whether `value` is a bare id: 32 lowercase hex digits with no prefix.
+/// It names the object whose public id has that payload (`pane_<value>`)
+/// or, for a terminal, the terminal whose host id it is (the raw protocol's
+/// `terminal_id`).
+pub fn is_bare_id(value: &str) -> bool {
+    value.len() == ID_PAYLOAD_LEN && is_lower_hex(value)
+}
 
 fn is_registered_public_id(value: &str) -> bool {
     let Some((prefix, payload)) = value.rsplit_once('_') else {
