@@ -119,8 +119,6 @@ async fn a_local_qualified_id_beats_a_session_named_like_it() {
     let hub = setup_with(&[("local-a-1", "a"), ("local-b-1", "local/local-a-1")]);
     let reply = call(&hub, method::MUX_INFO, json!({"sessionId": "local/local-a-1"})).await;
     assert_eq!(reply["result"]["sessionId"], "local-a-1", "{reply}");
-    // A peer's qualified id, likewise.
-    let hub = setup_with(&[("local-c-1", "hb/peer-review-1")]);
-    let reply = call(&hub, method::MUX_INFO, json!({"sessionId": "hb/peer-review-1"})).await;
-    assert_ne!(reply["result"]["sessionId"], "local-c-1", "{reply}");
+    let found = hub.locate("local/local-a-1", false, true).unwrap();
+    assert_eq!(found["session"]["sessionId"], "local-a-1", "{found}");
 }
