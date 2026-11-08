@@ -28,6 +28,12 @@ public protocol LayoutPaneContentProvider: AnyObject {
     /// The pane scrolled on screen, into the keep-alive band, or away (other
     /// screen, far scroll). Panes start `.hidden`.
     func panePresenceDidChange(_ pane: PaneID, presence: PanePresence)
+    /// Whether a zoom may cover this pane by paint only (ZOOM VARIANTS 9): its host stays unhidden at opacity 0, takes no
+    /// click and lists nothing to accessibility, and parks its subtree (``ParkingContainer``), so the unzoom's key turn
+    /// flips no `isHidden` (no AppKit hidden-ancestor walk, cursor-rect or drag-region rebuild). Only for content that
+    /// stops on parking as on a hide (a terminal, a ``ParkingObserver``); content that needs the hide itself (a page
+    /// window orders out on `viewDidHide`) answers false and hides as before.
+    func coversByPaint(_ pane: PaneID) -> Bool
 }
 
 extension LayoutPaneContentProvider {
@@ -35,6 +41,7 @@ extension LayoutPaneContentProvider {
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
     public func retainContentView(_ view: NSView, for pane: PaneID, retired: Bool) {}
     public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
+    public func coversByPaint(_ pane: PaneID) -> Bool { false }
 }
 
 /// Pasteboard type for tab drags the layout accepts through AppKit drag and
