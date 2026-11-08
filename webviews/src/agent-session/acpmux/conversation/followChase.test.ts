@@ -233,3 +233,63 @@ test("blocks: a reply's growth holds back a line; its landing frame moves the re
   chase.shift(node, -1.5 * line);
   expect(drawn()).toBeCloseTo(1.5 * line);
 });
+
+test("reader input while still followed (at the bottom, nothing scrolls) resumes the chase next frame", () => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  chase.shift(node, -40);
+  frame();
+  expect(drawn()).toBeGreaterThan(0);
+  // A wheel or key at the bottom: follow stays on and no later layout pass comes. The thread must
+  // not stay drawn away from its layout with no frame loop to bring it home.
+  chase.hold(() => true);
+  let frames = 0;
+  while (pending() > 0 && frames < 240) {
+    frame();
+    frames += 1;
+  }
+  expect(drawn()).toBe(0);
+  expect(chase.outstanding()).toBe(0);
+  expect(pending()).toBe(0);
+});
+
+test("reader input that parks the view keeps the chase held; a hold with nothing drawn clears at once", () => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  chase.shift(node, -40);
+  frame();
+  const held = drawn();
+  let following = true;
+  chase.hold(() => following);
+  // The scroll event that follows the input parks the reader before the next frame.
+  following = false;
+  frame();
+  expect(pending()).toBe(0);
+  expect(drawn()).toBe(held);
+  // Held at rest: nothing is drawn and nothing is asked for.
+  chase.stop();
+  chase.hold(() => true);
+  expect(drawn()).toBe(0);
+  expect(pending()).toBe(0);
+});
+
+test.each(["spring", "chunk", "linear", "blocks"] as FollowMotionArm[])(
+  "%s: a finite `below` after a send's rise is honoured",
+  (arm) => {
+    const chase = createFollowChase(arm);
+    const { node, frame, drawn } = fixture();
+    const line = currentChatMetrics().lineHeight;
+    // A send: the rows rise out from behind the composer (`below` unbounded).
+    chase.shift(node, -1.5 * line);
+    frame();
+    expect(drawn()).toBeGreaterThan(10);
+    // Streamed growth with 10 px under the bottom stack (the `blocks` arm keeps to it once Jump to
+    // latest held it; otherwise it may pass under the glass composer, by design).
+    const held = arm === "blocks";
+    chase.shift(node, -line, 10, held);
+    expect(drawn()).toBeLessThanOrEqual(10 + 1e-6);
+    // `fit` tightens it as well.
+    chase.fit(4);
+    expect(drawn()).toBeLessThanOrEqual(4 + 1e-6);
+  },
+);
