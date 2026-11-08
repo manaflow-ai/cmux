@@ -16,7 +16,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 
 await requireBrowserLane("other-session-message-actions-browser.test.ts", async () => {
-  const LINE = ".cv-received > .cv-disclosure__line";
+  const LINE = ".cv-received > .cv-agentmsg__line";
   const STATES = [
     { name: "waiting", entry: "agent-pane.hover-fade", variant: "received" },
     { name: "delivered", entry: "agent-pane.incoming-message", variant: "sender-hover" },

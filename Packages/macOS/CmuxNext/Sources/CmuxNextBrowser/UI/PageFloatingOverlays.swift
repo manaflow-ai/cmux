@@ -46,6 +46,9 @@ final class PageFloatingOverlays {
         var handle: OverlayHandle?
         /// Fading out: it no longer takes clicks (`release`).
         var isReleased = false
+        /// Presented but hidden while its tab does not have the keyboard (the cookie import card's
+        /// `waitsForFocus`): it takes no clicks, and shows again in place, with no new present.
+        var isWaiting = false
         /// Its size the last time it was presented: where a card taken off under a pane in front
         /// would show, without an Auto Layout pass of it on each frame of the motion.
         var lastSize: CGSize?
@@ -83,18 +86,22 @@ final class PageFloatingOverlays {
     func add(_ view: NSView, lift: CGFloat = 0, placement: Placement = .bottomCenter, passesThroughClicks: Bool = false) {
         guard !cards.contains(where: { $0.view === view }) else { return }
         view.translatesAutoresizingMaskIntoConstraints = false
+        // A pane in front cuts the card with a mask on its own layer (`cut`): the notice pill and the link status
+        // bubble have none of their own.
+        view.wantsLayer = true
         cards.append(Card(view: view, lift: lift, placement: placement, passesThroughClicks: passesThroughClicks))
         observePages()
     }
 
     /// `view`, added passing its clicks through while it is not drawn yet (the cookie import card
-    /// waits for its page to measure itself), takes clicks from now on; the next ``sync()``
-    /// presents it again with its mouse region.
+    /// waits for its page to measure itself), takes clicks from now on, where it is: presenting it
+    /// again moved its page to a new view, which drew a blank frame as it faded in (Leo
+    /// 2026-11-08: "the import cookies from google chrome card flickers sometimes").
     func startTakingClicks(_ view: NSView) {
         guard let index = cards.firstIndex(where: { $0.view === view }), cards[index].passesThroughClicks,
               !cards[index].isReleased else { return }
         cards[index].passesThroughClicks = false
-        dismiss(index)
+        if !cards[index].isWaiting { cards[index].handle?.startTakingMouse() }
     }
 
     /// `view` starts to fade out: from now on clicks pass through it to the
@@ -134,12 +141,15 @@ final class PageFloatingOverlays {
             let view = cards[index].view
             // A hidden card waits for its tab (one chrome per pane): off screen, it takes no clicks.
             // So does a card that a pane in front of the page covers whole: the page is cut there too.
-            if view.isHidden || (view as? BrowserCookieImportCard)?.waitsForFocus == true
-                || !shown.showsAny(of: placedRect(of: cards[index], in: clip))
-            {
+            if view.isHidden || !shown.showsAny(of: placedRect(of: cards[index], in: clip)) {
                 dismiss(index)
                 continue
             }
+            // Waiting for its tab's keyboard (focus moved to a terminal or chat beside it): hidden
+            // where it is. Each focus flip dismissed and presented it again, and its page drew a
+            // blank frame when it came back.
+            let waits = (view as? BrowserCookieImportCard)?.waitsForFocus == true
+            if waits, cards[index].handle == nil { continue }
             if view.themeScope !== scope { scope.root(view) }
             if let handle = cards[index].handle, !handle.isDismissed, view.window?.parent === window {
                 handle.update(paneClip: clip)
@@ -155,9 +165,16 @@ final class PageFloatingOverlays {
                 )
                 view.alphaValue = alpha
                 cards[index].handle = handle
+                cards[index].isWaiting = false
                 if let holder = view.superview { pin(view, in: holder, lift: cards[index].lift, placement: cards[index].placement) }
             }
             guard let holder = view.superview, let handle = cards[index].handle else { continue }
+            if waits != cards[index].isWaiting {
+                cards[index].isWaiting = waits
+                handle.setHiddenInPlace(waits)
+                if waits { handle.stopTakingMouse() }
+                else if !cards[index].isReleased, !cards[index].passesThroughClicks { handle.startTakingMouse() }
+            }
             holder.layoutSubtreeIfNeeded()
             let solved = view.frame
             cards[index].lastSize = solved.size
@@ -174,17 +191,19 @@ final class PageFloatingOverlays {
         var mouseRect: NSRect?
         if shown.shows(frame) {
             if view.layer?.mask is StripClipMaskLayer { view.layer?.mask = nil }
-        } else if let layer = view.layer {
+        } else {
             let visible = view.convert(frame.intersection(shown.visible), from: nil)
-            let cutouts = shown.cutouts.map { view.convert($0, from: nil) }
-            let mask = (layer.mask as? StripClipMaskLayer) ?? StripClipMaskLayer()
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            mask.place(visible, cutouts: cutouts, scale: view.window?.backingScaleFactor ?? 2)
-            CATransaction.commit()
-            if layer.mask !== mask { layer.mask = mask }
             // A hole in the card has no one rect to click in: none while a pane cuts into its middle.
             mouseRect = shown.cutouts.contains { $0.intersects(frame) } ? .zero : visible
+            if let layer = view.layer {
+                let cutouts = shown.cutouts.map { view.convert($0, from: nil) }
+                let mask = (layer.mask as? StripClipMaskLayer) ?? StripClipMaskLayer()
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                mask.place(visible, cutouts: cutouts, scale: view.window?.backingScaleFactor ?? 2)
+                CATransaction.commit()
+                if layer.mask !== mask { layer.mask = mask }
+            }
         }
         guard cards[index].mouseRect != mouseRect else { return }
         cards[index].mouseRect = mouseRect
@@ -277,6 +296,7 @@ final class PageFloatingOverlays {
     private func dismiss(_ index: Int) {
         let handle = cards[index].handle
         cards[index].handle = nil
+        cards[index].isWaiting = false
         cards[index].mouseRect = nil
         handle?.dismiss()
     }
