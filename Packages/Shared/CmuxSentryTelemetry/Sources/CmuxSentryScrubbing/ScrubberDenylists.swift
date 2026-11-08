@@ -170,18 +170,18 @@ public struct ScrubberDenylists: Sendable {
         // defense-in-depth for raw event messages / stack lines / breadcrumbs.
         // Quoted-value forms: redact through the matching closing quote.
         SentryRegexPattern(
-            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*")(?:[^"\\]|\\.)*"#
+            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*")(?:[^"\\]|\\[\s\S])*"#
         ),
         SentryRegexPattern(
-            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*')(?:[^'\\]|\\.)*"#
+            #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*')(?:[^'\\]|\\[\s\S])*"#
         ),
         // The bare `sid` session alias (`?sid=…`, `&sid=…`, `sid:…`) carries a
         // session credential but is too short to embed in the marker set above
         // without matching innocuous substrings (`inside=`, `aside=`). A `\b`
         // word boundary anchors it so only a standalone `sid` key is redacted.
         // Quoted-value form (same quote-context split as the marker rule above).
-        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*")(?:[^"\\]|\\.)*"#),
-        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*')(?:[^'\\]|\\.)*"#),
+        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*")(?:[^"\\]|\\[\s\S])*"#),
+        SentryRegexPattern(#"(\bsid["']?\s*[:=]\s*')(?:[^'\\]|\\[\s\S])*"#),
         // Unquoted-value form of the marker rule: delimiter-bounded value.
         SentryRegexPattern(
             #"([A-Za-z0-9.\-]*(?:access[_\-]?token|api[_\-]?key|access[_\-]?key|private[_\-]?key|session[_\-]?id|session|secret|token|password|passwd|pwd|credentials?|cookie|bearer|auth)[A-Za-z0-9.\-]*["']?\s*[:=]\s*)[^\s"'&,}]+"#
