@@ -418,7 +418,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(job["runs-on"].endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"))
         self.assertNotIn("blacksmith", job["runs-on"])
         self.assertNotIn("RUNNER_POOLS", job["runs-on"])
-        self.assertEqual(job["needs"], ["build-nightly-remote-daemon"])
+        # decide for its pipeline output, and build-nightly-app, which retains the assets in a sign run.
+        self.assertEqual(job["needs"], ["decide", "build-nightly-app", "build-nightly-remote-daemon"])
         self.assertGreaterEqual(int(mode_off_timeout(job["timeout-minutes"])), 65)
         # No consumer can put this advisory job back on the publication path,
         # directly or transitively. A budget wait must not delay the feed.

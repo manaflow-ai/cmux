@@ -15,7 +15,8 @@ export const DEEPLINK_CLASS = "acpmux-deeplink";
 
 export type DeeplinkLook = "link" | "chip" | "plain";
 
-const key = new PluginKey<DecorationSet>("acpmuxDeeplinks");
+export const deeplinksKey = new PluginKey<DecorationSet>("acpmuxDeeplinks");
+const key = deeplinksKey;
 
 /// The decorations of the deeplinks in the textblock at `pos`, the old ones there taken out first.
 function redecorate(set: DecorationSet, doc: ProseNode, block: ProseNode, pos: number, look: DeeplinkLook) {
@@ -30,10 +31,13 @@ function redecorate(set: DecorationSet, doc: ProseNode, block: ProseNode, pos: n
   return next.add(
     doc,
     found.map((link) =>
-      Decoration.inline(start + link.start, start + link.end, {
-        class: `${DEEPLINK_CLASS} is-${look}`,
-        "data-deeplink": link.href,
-      }),
+      Decoration.inline(
+        start + link.start,
+        start + link.end,
+        { class: `${DEEPLINK_CLASS} is-${look}`, "data-deeplink": link.href },
+        // Read by the titles plugin (deeplinkTitles.ts), which draws a known link as what it names.
+        { deeplink: link.href },
+      ),
     ),
   );
 }

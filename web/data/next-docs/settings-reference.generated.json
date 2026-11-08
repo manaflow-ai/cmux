@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 613,
+  "count": 615,
   "sections": [
     {
       "id": "general",
@@ -1906,9 +1906,11 @@
           "title": "Chat Interface Font",
           "help": "The font of the whole chat: replies, the composer, cards and menus.",
           "kind": "choice",
-          "default": "inter-tuned",
+          "default": "system-ui",
           "group": "Agent Chat",
           "values": [
+            "system-ui",
+            "system-ui-tight",
             "inter-tuned",
             "inter",
             "verdana",
@@ -1918,9 +1920,7 @@
             "geist",
             "cmux-sans",
             "hanken",
-            "atkinson",
-            "system-ui",
-            "system-ui-tight"
+            "atkinson"
           ]
         },
         {
@@ -5902,6 +5902,31 @@
             "auto",
             "local",
             "hosted"
+          ]
+        },
+        {
+          "key": "home.chiefPanel.seesScreen",
+          "title": "Chief Sees Your Screen When It Opens",
+          "help": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chief Dock"
+        },
+        {
+          "key": "home.chiefPanel.style",
+          "title": "Floating Chief Style",
+          "help": "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip.",
+          "kind": "choice",
+          "default": "composeBar",
+          "group": "Chief Dock",
+          "values": [
+            "composeBar",
+            "pill",
+            "card",
+            "panel",
+            "bubble",
+            "seeThrough",
+            "seeThroughBar"
           ]
         },
         {

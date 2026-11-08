@@ -2955,8 +2955,10 @@ jobs:
   attest-nightly-remote-daemon:
     # Provenance is advisory, as it was inside the app job. No publishing job
     # needs this job: a quota wait must not delay the feed.
-    needs: [build-nightly-remote-daemon]
-    if: inputs.nightly_next_unsigned_run == ''
+    # A pipelined push run (decide's pipeline) ends at dispatch-nightly-next-sign, so the sign run attests its
+    # daemon assets instead: there build-nightly-app retains them under the same name, from the push run.
+    needs: [decide, build-nightly-app, build-nightly-remote-daemon]
+    if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.pipeline != 'true' || inputs.nightly_next_sign_stage != ''
     # The owned nightly-only Mac pool first (the all-nightly reservation, as route-visual-gate-nightly),
     # then the nightly-only pool variable or label, never Blacksmith (nightlies never use Blacksmith). Its OIDC token only
     # writes provenance for these assets; the pool already builds the nightly app those assets ship in.
@@ -3165,7 +3167,9 @@ jobs:
   check-nightly-webviews:
     name: nightly webview checks
     needs: [decide, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.track == 'nightly-next' && needs.resolve-nightly-cmux-tui-client.outputs.build_sha != ''
+    # A pipelined push run (decide's pipeline) skips it: the sign run checks the same build commit before its
+    # publish-nightly, and the push run ends at dispatch-nightly-next-sign.
+    if: needs.decide.outputs.track == 'nightly-next' && needs.resolve-nightly-cmux-tui-client.outputs.build_sha != '' && needs.decide.outputs.pipeline != 'true'
     # route-visual-gate-nightly's route: the all-nightly reservation, then the Linux pool, then Blacksmith.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 140 || 20 }}
@@ -6317,10 +6321,17 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/dsyms-keep-on-r2.sh
 
   # nightly-next's dSYMs to Sentry, off the build's path (Sentry held it 10.8 and 19.7 min in
-  # runs 41471126151, 41466468306). Nothing needs it; it continues on error.
+  # runs 41471126151, 41466468306). Nothing needs it; it continues on error. It runs with the rest of the
+  # tail (run_tail: on nightly-next the dispatched tail run), outside the push group: in the loop run it held
+  # the push group until its hosted queue (39 min for the oldest job on 2026-11-08) and its upload were done,
+  # and in a pipelined push run (decide's pipeline) it held the group after dispatch-nightly-next-sign.
+  # It stays on GitHub-hosted Ubuntu: the Sentry token keeps it
+  # off the nightly mini's shared light runners, and on the trusted signing runner its 11-20 min upload would
+  # hold the whole Mac while the next run builds and signs there. The dSYMs come from the run that compiled the
+  # published binary, as keep-published-dsyms finds them.
   sentry-dsyms-nightly:
-    needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
-    if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.build_only != 'true'
+    needs: [published-build]
+    if: "!cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_build_sha != '' && needs.published-build.outputs.run_tail == 'true'"
     continue-on-error: true
     # The environment build-nightly-app gives its own in-job Sentry upload.
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
@@ -6329,13 +6340,25 @@ jobs:
       actions: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
     timeout-minutes: 45
+    env:
+      BUILD: ${{ needs.published-build.outputs.publish_build }}
+      BUILD_SHA: ${{ needs.published-build.outputs.publish_build_sha }}
     steps:
       - *checkout-publication-tooling-a
 
+      - name: Find the attempt that compiled the published build
+        id: producer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DSYMS_NAMES: nightly-next-dsyms nightly-next-cmux-tui-dsyms
+        run: bash .publish-tooling/scripts/ci/nightly-steps/dsyms-find-attempt.sh
+
       - name: Download the build's dSYMs
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          pattern: nightly-next-*dsyms-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          artifact-ids: ${{ steps.producer.outputs.artifacts }}
+          run-id: ${{ steps.producer.outputs.run }}
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/dsyms
 
       - name: Upload the build's dSYMs to Sentry

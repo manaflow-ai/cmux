@@ -167,6 +167,12 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_STATS {
         return stats::handle(hub, conn.origin, &params).await;
     }
+    // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
+    if let Some(reply) =
+        super::review_queue::route(hub, conn.origin, conn.auth, conn.is_person(), m, &params).await
+    {
+        return reply;
+    }
     // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
     if m == crate::rpc::method::MUX_LEDGER {
         return ledger::handle(hub, conn.origin, &params);

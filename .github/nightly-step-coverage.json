@@ -321,7 +321,8 @@
         "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Wipe this job's credentials and files from the owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"}},
       "sentry-dsyms-nightly": {
-        "Upload the build's dSYMs to Sentry": {"nightly_only": "uploads the build's dSYMs to Sentry with the Sentry token, off build-nightly-app's critical path"}},
+        "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and its dSYM artifacts; a pull request has no published nightly build"},
+        "Upload the build's dSYMs to Sentry": {"nightly_only": "uploads the published build's dSYMs to Sentry with the Sentry token, in the tail run outside the push group"}},
       "keep-published-dsyms": {
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},

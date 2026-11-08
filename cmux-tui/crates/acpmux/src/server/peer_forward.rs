@@ -88,6 +88,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
     "_acpmux/peer_status",
+    // This daemon's own queue and audit trail (`hub/review_queue.rs`, `hub/audit_log.rs`).
+    method::MUX_REVIEW_QUEUE,
+    method::MUX_REVIEW_VERDICT,
+    method::MUX_AUDIT,
     // Names a peer machine, never a session (`vm_host.rs`).
     "_acpmux/vm_host",
     // Every live chat on this daemon (`host_notice.rs`).

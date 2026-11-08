@@ -5,7 +5,7 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use cmux_app_host::{FatalReason, Limits, VmError};
+use cmux_app_host::{AppInfo, AppVm, FatalReason, InitParams, Limits, VmError};
 use common::{Harness, app};
 use serde_json::{Value, json};
 
@@ -13,6 +13,29 @@ use serde_json::{Value, json};
 /// every app platform test in the workspace.
 mod apps {
     use super::*;
+
+    /// A script that does not parse names its own file and line (`main.js:2:7`), not QuickJS's
+    /// `eval_script`, so the error a sidebar section shows points at the line to fix.
+    #[test]
+    fn a_syntax_error_names_the_script_file_and_line() {
+        let mut vm = AppVm::new(Limits::default()).expect("vm");
+        let error = vm
+            .init(InitParams {
+                app: AppInfo { id: "local/customize".into(), version: "1.0.0".into() },
+                settings: json!({}),
+                api_version: "1.0.0".into(),
+                ops: None,
+                known_ops: None,
+                locale: None,
+                strings: Value::Null,
+                main: "const ok = 1\nconst a b = 2\n".into(),
+                main_name: Some("main.js".into()),
+            })
+            .expect_err("a syntax error fails init");
+        let VmError::Init(message) = error else { panic!("not an init error: {error:?}") };
+        assert!(message.contains("main.js:2"), "{message}");
+        assert!(!message.contains("eval_script"), "{message}");
+    }
 
     #[test]
     fn initial_mount_emits_create_children_and_root_in_one_batch() {

@@ -33,6 +33,7 @@ use crate::probing;
 use crate::stream::WgStream;
 use crate::tcp_stack::{Accepted, TcpStack};
 use crate::timers::TimerSchedule;
+use crate::ultra::{UltraCounters, UltraMode, UltraStats, UltraUnderlay};
 use crate::underlay::{Origin, SocketPath, Underlay, is_transient};
 use crate::watchdog::Watchdog;
 use crate::wire::packet_source;
@@ -52,6 +53,7 @@ pub struct WgNet {
     addresses: Arc<[InterfaceAddress]>,
     max_datagram: usize,
     drops: Arc<DropCounters>,
+    ultra: Arc<UltraCounters>,
     driver: Option<JoinHandle<()>>,
 }
 
@@ -99,12 +101,23 @@ impl WgNet {
     /// [`crate::Multipath`]. The configured endpoint is ignored: the underlay
     /// owns addressing.
     pub fn start_with_underlay(config: WgConfig, underlay: impl Underlay) -> Result<Self, WgError> {
+        Self::start_with_ultra(config, underlay, UltraMode::from_env())
+    }
+
+    /// [`WgNet::start_with_underlay`] with ultra mode set by the caller
+    /// instead of `CMUX_WG_ULTRA`.
+    pub fn start_with_ultra(
+        config: WgConfig,
+        underlay: impl Underlay,
+        mode: UltraMode,
+    ) -> Result<Self, WgError> {
         let routes: Arc<[IpNetwork]> = config.allowed_ips.clone().into();
         let addresses: Arc<[InterfaceAddress]> = config.addresses.clone().into();
         let (commands_tx, commands_rx) = mpsc::channel(COMMAND_DEPTH);
         let wake = Arc::new(Notify::new());
         let max_datagram = usize::from(config.mtu).saturating_sub(datagram_ops::DATAGRAM_OVERHEAD);
-        let mut underlay: Box<dyn Underlay> = Box::new(underlay);
+        let ultra = Arc::new(UltraCounters::default());
+        let mut underlay = UltraUnderlay::new(Box::new(underlay), mode, Arc::clone(&ultra));
         underlay.set_max_datagram(max_datagram);
         let driver = Driver::new(config, underlay, commands_rx, Arc::clone(&wake))?;
         let wakeups = Arc::clone(&driver.wakeups);
@@ -112,7 +125,13 @@ impl WgNet {
         let handle = tokio::spawn(driver.run());
         let commands = commands_tx;
         let driver = Some(handle);
-        Ok(Self { commands, wake, wakeups, routes, addresses, max_datagram, drops, driver })
+        Ok(Self { commands, wake, wakeups, routes, addresses, max_datagram, drops, ultra, driver })
+    }
+
+    /// What ultra mode ([`crate::UltraMode`], `CMUX_WG_ULTRA`) sent and
+    /// rebuilt so far.
+    pub fn ultra_stats(&self) -> UltraStats {
+        self.ultra.snapshot()
     }
 
     /// How many times the driver task has woken since it started: datagrams,
@@ -279,7 +298,7 @@ enum Rebind {
 struct Driver {
     config: WgConfig,
     tunn: Tunn,
-    underlay: Box<dyn Underlay>,
+    underlay: UltraUnderlay,
     stack: TcpStack,
     commands: mpsc::Receiver<Command>,
     wake: Arc<Notify>,
@@ -313,7 +332,7 @@ enum Event {
 impl Driver {
     fn new(
         config: WgConfig,
-        underlay: Box<dyn Underlay>,
+        underlay: UltraUnderlay,
         commands: mpsc::Receiver<Command>,
         wake: Arc<Notify>,
     ) -> Result<Self, WgError> {
@@ -331,7 +350,10 @@ impl Driver {
         let keepalive = config.persistent_keepalive.is_some_and(|seconds| seconds > 0);
         let schedule = TimerSchedule::new(Instant::now(), keepalive);
         let probe_route = probing::probe_route(&config);
-        let stack = TcpStack::new(&config.addresses, config.mtu, Arc::clone(&wake), false)?;
+        let mut stack = TcpStack::new(&config.addresses, config.mtu, Arc::clone(&wake), false)?;
+        if crate::ultra::loss_blind_from_env() {
+            stack.congestion = smoltcp::socket::tcp::CongestionControl::None;
+        }
 
         Ok(Self {
             config,
@@ -476,7 +498,7 @@ impl Driver {
                     // A probe is answered here and is not activity.
                     if let Some(probe) = probing::decode(packet).filter(|_| allowed) {
                         let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
-                        probing::receive(tunn, &mut *self.underlay, scratch, probe, origin.path);
+                        probing::receive(tunn, &mut self.underlay, scratch, probe, origin.path);
                     } else if allowed
                         && let Some((source, destination, payload)) = crate::udp::parse(packet)
                     {
@@ -603,14 +625,14 @@ impl Driver {
             Command::Rebind { rebind, reply } => {
                 match rebind {
                     Rebind::Underlay(underlay) => {
-                        self.underlay = underlay;
+                        self.underlay.replace(underlay);
                         let max = usize::from(self.config.mtu)
                             .saturating_sub(datagram_ops::DATAGRAM_OVERHEAD);
                         self.underlay.set_max_datagram(max);
                     }
                     Rebind::Socket(socket) => {
                         let peer = self.underlay.peer_hint();
-                        self.underlay = Box::new(SocketPath::new(socket, peer));
+                        self.underlay.replace(Box::new(SocketPath::new(socket, peer)));
                     }
                     Rebind::Keep => {}
                 }

@@ -68,7 +68,7 @@ struct ClassicMigrationTests {
     }
 
     /// The first app launch on `mac`: restore and the launch's migration, then `after`.
-    private func launch(_ mac: Mac, state: String = "state", confirm: Bool = true,
+    private func launch(_ mac: Mac, state: String = "state", answer: ClassicImportAnswer = .accepted,
                         after: @MainActor (AppServices) async throws -> Void = { _ in }) async throws -> Tree {
         let binary = try #require(SameTreeDaemonBinary.url)
         let launcher = DaemonLauncher(
@@ -83,7 +83,7 @@ struct ClassicMigrationTests {
         services.onboarding.classicMigrationDirectory = mac.migration
         services.onboarding.classicMigrationAtLaunch = true
         services.onboarding.classicRunning = { false }
-        services.onboarding.classicMigrationConfirmation = { _ in confirm }
+        services.onboarding.classicMigrationConfirmation = { _ in answer }
         services.onboarding.classicChatPlan = { _, _ in nil }
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
@@ -123,7 +123,7 @@ struct ClassicMigrationTests {
     /// A later launch's run, on the same tree.
     @discardableResult
     private static func relaunch(_ services: AppServices) async throws -> ClassicMigrationOutcome {
-        try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic) { _ in true }
+        try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic) { _ in .accepted }
     }
 
     private static func read(_ services: AppServices) -> Tree {
@@ -149,12 +149,45 @@ struct ClassicMigrationTests {
 
     private static let classicNames = ["split api", "pinned one", "second window"]
 
-    @Test func launchMigrationRestoresNothingWhenThePreviewIsCancelled() async throws {
+    /// Cancel on the launch's preview makes nothing and is kept: a relaunch does not ask again, even after
+    /// classic saved again. Import Workspaces from Classic cmux still brings everything, and clears the No.
+    @Test func aCancelledLaunchPreviewIsKeptAndTheActionStillImports() async throws {
         let mac = try Mac()
-        let tree = try await launch(mac, confirm: false)
-        #expect(tree.names.allSatisfy { !Self.classicNames.contains($0) }, "\(tree.names)")
-        #expect(!FileManager.default.fileExists(atPath: mac.ledger.path))
-        #expect(!FileManager.default.fileExists(atPath: mac.migration.appendingPathComponent("backups").path))
+        let tree = try await launch(mac, answer: .declined) { services in
+            #expect(Self.read(services).names.allSatisfy { !Self.classicNames.contains($0) })
+            let declined = try JSONDecoder().decode(ClassicMigrationLedger.self, from: Data(contentsOf: mac.ledger))
+            #expect(declined.declinedAt != nil && declined.state == .completed && declined.runs == 0, "\(declined)")
+            // Only the Cloud VM workspace, which never comes over, is recorded.
+            #expect(declined.workspaces.values.allSatisfy { $0.stage == .skipped }, "\(declined.workspaces)")
+            #expect(!FileManager.default.fileExists(atPath: mac.migration.appendingPathComponent("backups").path))
+            #expect(services.onboarding.classicImportNotice == ClassicImportStrings.declined)
+            try mac.write { root in root["createdAt"] = 1_891_728_605.0 }
+            let again = try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic) { _ in
+                Issue.record("a declined preview was asked again")
+                return .accepted
+            }
+            #expect(again.decision == .skip(.declined) && again.opened.isEmpty, "\(again)")
+            let manual = try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.manual) { _ in .accepted }
+            #expect(manual.opened.count >= Self.classicNames.count, "\(manual)")
+        }
+        for name in Self.classicNames { #expect(tree.names.contains(name), "\(tree.names)") }
+        let imported = try JSONDecoder().decode(ClassicMigrationLedger.self, from: Data(contentsOf: mac.ledger))
+        #expect(imported.declinedAt == nil && imported.runs == 1, "\(imported)")
+    }
+
+    /// Nobody answered the launch's preview (its window closed under it): nothing comes over and no No is kept.
+    /// The next launch, whose tree now holds the first launch's New Tab page, asks again instead of only
+    /// recording classic's workspaces as seen.
+    @Test func anUnansweredLaunchPreviewAsksAgainNextLaunch() async throws {
+        let mac = try Mac()
+        let tree = try await launch(mac, answer: .unanswered) { services in
+            #expect(Self.read(services).names.allSatisfy { !Self.classicNames.contains($0) })
+            let first = try JSONDecoder().decode(ClassicMigrationLedger.self, from: Data(contentsOf: mac.ledger))
+            #expect(first.declinedAt == nil && first.source == nil && first.runs == 0 && first.workspaces.isEmpty, "\(first)")
+            let next = try await Self.relaunch(services)
+            #expect(next.decision == .merge && next.opened.count >= Self.classicNames.count, "\(next)")
+        }
+        for name in Self.classicNames { #expect(tree.names.contains(name), "\(tree.names)") }
     }
 
     /// First launch after the upgrade: every classic window comes back with its
@@ -211,8 +244,8 @@ struct ClassicMigrationTests {
     @Test func theClassicCardImportsAsAJobAndASecondRunOpensNothing() async throws {
         let mac = try Mac()
         let runs = CardRuns()
-        let tree = try await launch(mac, confirm: false) { services in
-            services.onboarding.classicMigrationConfirmation = { _ in true }
+        let tree = try await launch(mac, answer: .unanswered) { services in
+            services.onboarding.classicMigrationConfirmation = { _ in .accepted }
             let defaults = try #require(UserDefaults(testSuiteName: "cn-migrate-cards-\(UUID().uuidString)"))
             let center = ImportSuggestionsCenter(defaults: defaults, ledgerURL: mac.root.appendingPathComponent("import-jobs.json"))
             center.scanThisMac = { _ in [ImportFinding(id: "cmux.classic", kind: .cmuxClassic, name: "cmux Classic", count: 3)] }

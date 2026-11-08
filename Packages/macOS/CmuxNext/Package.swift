@@ -184,8 +184,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-87e106b429d0eb543c530bbd9943a868c69a257b/CCmuxAppFFI.xcframework.zip",
-    checksum: "74e6db0299e9957d400449dd56f95875d186636ddeafee7eb410fd19ba299cd5"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-d66737e4daffe147f662c40764cb2a2874302323/CCmuxAppFFI.xcframework.zip",
+    checksum: "47fb5f5d48c02a973f86bf5cfd2f36bad4685c732494249c136fef1fe94e317e"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -2110,6 +2110,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextTerminal",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // CCmuxAppFFI: the terminal selection rule (cmux-motion terminal_selection).
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextCopyMode",
                 "CmuxNextDesign",

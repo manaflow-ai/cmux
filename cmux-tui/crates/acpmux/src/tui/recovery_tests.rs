@@ -196,3 +196,40 @@ async fn reaching_the_top_pages_older_history_until_none_remain() {
     assert!(requests.try_recv().is_err());
     assert_eq!(app.status, "loaded all available history");
 }
+
+/// An error shown before an empty attach makes the session's transcript; the attach keeps it,
+/// so it must keep records and still page older history in.
+#[tokio::test]
+async fn an_error_before_an_empty_attach_still_pages_older_history() {
+    let (mut app, _requests) = super::interaction_tests::app().await;
+    let id = "test-session";
+    app.sessions = vec![json!({"sessionId": id})];
+    app.selected = app.drafts.len();
+    app.report_error("send failed".into());
+    app.on_msg(AppMsg::Attached {
+        id: id.into(),
+        detail: json!({"status": "idle"}),
+        events: vec![],
+        after_seq: None,
+        has_more: true,
+        last_seq: 0,
+    });
+    app.transcripts.get_mut(id).unwrap().apply_event(&older_user(20, "three"));
+    assert_eq!(app.transcripts[id].oldest_seq(), Some(20));
+    app.on_msg(AppMsg::Older {
+        id: id.into(),
+        events: vec![older_user(10, "one")],
+        has_more: false,
+    });
+    // The error row is not a daemon record, and the rebuild keeps it where it was shown.
+    let rows: Vec<_> = app.transcripts[id]
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            crate::transcript::Item::User { text, .. } => Some(format!("user {text}")),
+            crate::transcript::Item::Error { text } => Some(format!("error {text}")),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(rows, ["user one", "error send failed", "user three"]);
+}

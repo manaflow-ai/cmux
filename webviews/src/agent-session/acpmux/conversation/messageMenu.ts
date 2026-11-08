@@ -14,6 +14,7 @@ import { retryHelps, sendCause } from "../sendFailure";
 import { withoutSkillDollars } from "../slashCommands";
 import { currentLanguage } from "../i18n";
 import { replyMenuTime } from "./relativeTime";
+import { selectionText } from "./chipCopy";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
@@ -421,5 +422,6 @@ function selectionAt(doc: Document, target: Element | null): string | undefined 
   };
   if (endpointIsEditable(selection.anchorNode) || endpointIsEditable(selection.focusNode)) return undefined;
   if (!range.intersectsNode(target)) return undefined;
-  return selection.toString().trim() || undefined;
+  // A cmux link chip copies and quotes as its link (chipCopy.ts).
+  return selectionText(selection).trim() || undefined;
 }
