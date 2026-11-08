@@ -57,7 +57,7 @@ pub(in crate::cli) fn run(global: &GlobalArgs, words: &[String]) -> Option<i32> 
     }
 }
 
-fn usage(global: &GlobalArgs, error: &UsageError) -> i32 {
+pub(in crate::cli) fn usage(global: &GlobalArgs, error: &UsageError) -> i32 {
     super::app::failure("usage.invalid", &format!("cmux: {}", error.0), global.output, 2)
 }
 
@@ -179,7 +179,7 @@ pub(in crate::cli) struct StepFailure {
 }
 
 impl StepFailure {
-    fn usage(message: impl Into<String>) -> Self {
+    pub(in crate::cli) fn usage(message: impl Into<String>) -> Self {
         Self {
             error: json!({"code": "usage.invalid", "message": message.into(), "details": {},
                           "retryable": false}),
@@ -189,7 +189,12 @@ impl StepFailure {
 
     /// `failure` of `step`, naming the command key that retries the whole
     /// command and what the steps before it made.
-    fn step(failure: CallFailure, step: &str, command_key: &str, made: Value) -> Self {
+    pub(in crate::cli) fn step(
+        failure: CallFailure,
+        step: &str,
+        command_key: &str,
+        made: Value,
+    ) -> Self {
         let mut error = failure.error;
         if !error.get("details").is_some_and(Value::is_object) {
             error.set("details", json!({}));
@@ -203,8 +208,12 @@ impl StepFailure {
     }
 }
 
-/// The plan `words` make, with `key` when it is a mutation.
-fn plan(words: &[String], key: Option<String>) -> Result<RequestPlan, StepFailure> {
+/// The plan `words` make, with `key` when it is a mutation (pane_move.rs
+/// builds its steps with it too).
+pub(in crate::cli) fn plan(
+    words: &[String],
+    key: Option<String>,
+) -> Result<RequestPlan, StepFailure> {
     match command::parse(words, Surface::CmuxTui) {
         Ok(CommandPlan::Protocol(plan)) if plan.resolve.is_empty() => {
             let mut plan = *plan;
@@ -216,11 +225,12 @@ fn plan(words: &[String], key: Option<String>) -> Result<RequestPlan, StepFailur
     }
 }
 
-fn words(parts: &[&str]) -> Vec<String> {
+pub(in crate::cli) fn words(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| (*part).to_owned()).collect()
 }
 
-fn command_key(global: &GlobalArgs) -> Result<String, StepFailure> {
+/// The command's key: `--idempotency-key`, else a new random one.
+pub(in crate::cli) fn command_key(global: &GlobalArgs) -> Result<String, StepFailure> {
     match &global.idempotency_key {
         Some(key) => {
             cmux_tui_core::resource::validate_idempotency_key(key)
@@ -338,7 +348,7 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
     Ok(result)
 }
 
-fn finish(global: &GlobalArgs, outcome: Result<Value, StepFailure>) -> i32 {
+pub(in crate::cli) fn finish(global: &GlobalArgs, outcome: Result<Value, StepFailure>) -> i32 {
     match outcome {
         Ok(result) => wire::print_local_success(&result, global.output),
         Err(failure) => wire::print_local_error(&failure.error, global.output, failure.exit),

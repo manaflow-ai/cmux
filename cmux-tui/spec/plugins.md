@@ -177,7 +177,8 @@ the previous child instead of leaving stale detection active.
 Without an `agents.plugin` entry, the daemon supervises the screen detector
 that ships beside it: an executable file named `cmux-agent-screen-detection`
 in the directory of the daemon's own executable (symlinks resolved; the
-cmux-next app bundles it in `Contents/Resources/bin`). On Unix the file must be
+cmux-next app bundles it in `Contents/Resources/bin`, and the macOS and Linux npm
+packages and PyPI wheels ship it in `bin/` beside `cmux-tui`). On Unix the file must be
 executable. It runs with producer ID `cmux_screen_detection`, `command` set to
 that absolute path, no `cwd`, and a `revision` derived from the file's identity
 (device, inode, size, modification time), so an app update that replaces the

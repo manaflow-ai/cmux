@@ -77,7 +77,7 @@ async function line(id: string) {
       />,
     ),
   );
-  const toggle = () => host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!;
+  const toggle = () => host.querySelector<HTMLButtonElement>("button.cv-agentmsg__toggle")!;
   // The sender's name opens its chat (Leo, 2026-10-29: "Just click the left name thing"); no Open chat.
   return { opened, toggle, open: host.querySelector<HTMLButtonElement>("button.cv-received__from--open")! };
 }
@@ -98,7 +98,7 @@ for (const minimal of [false, true])
     expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
     expect(host.textContent).not.toContain("Received message from");
     expect(host.querySelector(".cv-received__text")).toBeNull();
-    expect(host.querySelector(".cv-disclosure__panel")).toBeNull();
+    expect(host.querySelector(".cv-agentmsg__card")).toBeNull();
     expect(toggle().tagName).toBe("BUTTON");
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
     expect(toggle().getAttribute("aria-label")).toBe(
@@ -116,8 +116,8 @@ for (const minimal of [false, true])
     expect(host.querySelector(".cv-received__text")?.textContent).toContain("The retry tests pass.");
     expect(host.querySelector(".cv-received__text")?.textContent).toContain("CI is green.");
     expect(host.querySelector(".cv-received__body, [data-cut], .cv-received__show")).toBeNull();
-    const panel = host.querySelector(".cv-disclosure__panel")!;
-    expect(toggle().getAttribute("aria-controls")).toBe(panel.parentElement!.id);
+    const panel = host.querySelector(".cv-agentmsg__card")!;
+    expect(toggle().getAttribute("aria-controls")).toBe(panel.id);
     // And closes it again (a page with no Web Animations closes at once); the line stays as it was.
     await act(async () => toggle().click());
     expect(toggle().getAttribute("aria-expanded")).toBe("false");

@@ -76,6 +76,7 @@
     "cloud.signInCancel": "cloud.signInCancel",
     "cloud.startChat": "cloud.startChat",
     "cloudMachine.attach": "cloudMachine.attach",
+    "cloudMachine.delete": "cloudMachine.delete",
     "cloudMachine.list": "cloudMachine.list",
     "cloudMachine.open": "cloudMachine.open",
     "cloudMachine.pause": "cloudMachine.pause",

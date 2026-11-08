@@ -91,6 +91,138 @@ html[data-cmux-page="changelog"] body {
   border-radius: 10px;
   box-shadow: 0 0 0 1px var(--page-separator);
 }
+/* A before/after pair (MediaCompare.tsx): both pictures in one box that keeps its ratio, the
+   after under the before, so no mode or position moves anything around the box. `cover` fills
+   the page's 7:4 frame from its top left like a lone picture; `contain` (the lightbox) lets the
+   after picture size the box, shown whole, and the before lies over it at the same size. */
+.cl-media-pair { position: relative; }
+.cl-compare { position: relative; display: grid; width: 100%; height: 100%; overflow: hidden; user-select: none; }
+.cl-compare-pane { position: relative; grid-area: 1 / 1; min-width: 0; min-height: 0; }
+.cl-compare-pane img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
+.cl-compare-pane[data-side="before"] { position: absolute; inset: 0; }
+.cl-compare[data-fit="contain"] { width: auto; height: auto; max-width: 100%; max-height: 100%; border-radius: var(--ds-radius-xl); box-shadow: 0 0 0 1px var(--page-separator); }
+.cl-compare[data-fit="contain"] .cl-compare-pane[data-side="after"] img { width: auto; height: auto; max-width: 100cqw; max-height: 100cqh; object-fit: contain; }
+.cl-lightbox-stage:has(.cl-compare) { container-type: size; }
+.cl-compare-tag {
+  position: absolute;
+  top: var(--ds-space-2);
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
+  background: var(--page-elevated);
+  box-shadow: 0 0 0 1px var(--page-separator);
+  color: var(--page-text);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
+  pointer-events: none;
+}
+.cl-compare-pane[data-side="before"] .cl-compare-tag { left: var(--ds-space-2); }
+.cl-compare-pane[data-side="after"] .cl-compare-tag { right: var(--ds-space-2); }
+/* Slider (default): the before shows left of the split, the after right of it; the split follows
+   the pointer or the arrow keys directly, so it has no transition to gate. */
+.cl-compare[data-mode="slider"] .cl-compare-pane[data-side="before"] { clip-path: inset(0 calc(100% - var(--cl-split)) 0 0); }
+.cl-compare-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--cl-split);
+  width: 2px;
+  translate: -50% 0;
+  background: var(--page-text);
+  box-shadow: var(--shadow-elevation-1);
+  pointer-events: none;
+}
+.cl-compare-handle svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  box-sizing: content-box;
+  padding: var(--ds-space-1);
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: var(--page-elevated);
+  box-shadow: 0 0 0 1px var(--page-separator), var(--shadow-elevation-1);
+  color: var(--page-text);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.cl-compare-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: ew-resize;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.cl-compare-range::-webkit-slider-thumb { -webkit-appearance: none; width: 32px; height: 100vh; }
+.cl-compare:has(.cl-compare-range:focus-visible) .cl-compare-handle svg { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+/* Side by side: each half its own picture, from its top left, under its label. */
+.cl-compare[data-mode="side"] { grid-template-columns: 1fr 1fr; gap: var(--ds-space-1); }
+.cl-compare[data-mode="side"] .cl-compare-pane[data-side="before"] { position: relative; inset: auto; grid-area: 1 / 1; }
+.cl-compare[data-mode="side"] .cl-compare-pane[data-side="after"] { grid-area: 1 / 2; }
+.cl-compare[data-mode="side"] .cl-compare-pane[data-side="after"] .cl-compare-tag { right: auto; left: var(--ds-space-2); }
+.cl-compare[data-mode="side"][data-fit="contain"] .cl-compare-pane img { width: 100%; max-width: 50cqw; max-height: 100cqh; object-fit: contain; }
+/* Toggle: Before / After at the bottom; the before fades over the after through the motion gate. */
+.cl-compare[data-mode="toggle"] .cl-compare-pane[data-side="before"] { opacity: 0; }
+.cl-compare[data-showing="before"] .cl-compare-pane[data-side="before"] { opacity: 1; }
+/* The fade exists only while motion is on: off or reduced (the gate, Reduce Motion) switch at once. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+    .cl-compare[data-mode="toggle"]
+    .cl-compare-pane[data-side="before"] {
+    transition: opacity var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+  }
+}
+.cl-compare-switch {
+  position: absolute;
+  bottom: var(--ds-space-2);
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  gap: 0;
+  margin: 0;
+  padding: var(--ds-space-1);
+  border: 0;
+  min-inline-size: 0;
+  border-radius: var(--ds-radius-md);
+}
+.cl-compare-switch button {
+  min-width: 64px;
+  height: var(--ds-control-compact);
+  padding-inline: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background: none;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+}
+.cl-compare-switch button[aria-pressed="true"] { background: var(--page-hover); color: var(--page-text); font-weight: 600; }
+.cl-compare-switch button:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }
+/* Enlarge, in the pair's corner: the frame itself is the compare control. */
+.cl-compare-enlarge {
+  position: absolute;
+  right: var(--ds-space-2);
+  bottom: var(--ds-space-2);
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  color: var(--page-text);
+  cursor: zoom-in;
+}
+.cl-compare-enlarge svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.cl-compare-enlarge:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+.cl-lightbox-stage .cl-compare-enlarge { display: none; }
 .cl-actions { display: flex; align-items: center; gap: var(--ds-space-3); margin: var(--ds-space-1) 0 var(--ds-space-2); }
 .cl-button {
   height: var(--ds-control-compact);
@@ -692,6 +824,23 @@ html[data-cmux-page="changelog"] {
 .cls-kind svg { stroke-width: 1.8; }
 /* Grid rows sit in two columns; only the first has a gutter. */
 .cls-grid .cls-kind { display: none; }
+/* A curated change's before/after pair, under its line, at a reading width. */
+.cls-row-media { max-width: 640px; margin: var(--ds-space-2) 0 var(--ds-space-3); }
+/* The change a click on the sidebar Updated card's list opened the page at (SheetPage
+   useFocusScroll): marked for a moment in the accent at low alpha, then faded back. The fade is
+   the only motion, so the page's motion gate turns it off only when motion is off. */
+.cls-row[data-focus],
+.cls-area[data-focus] {
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 14%, transparent);
+  border-radius: var(--ds-radius-sm, 6px);
+}
+.cls-row[data-focus] { margin-inline: calc(-1 * var(--ds-space-1, 4px)); padding-inline: var(--ds-space-1, 4px); }
+:root:not([data-cmux-motion="off"]) :is(.cls-row, .cls-area) {
+  transition: background-color var(--cmux-motion-large) var(--cmux-ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.cls-row, .cls-area) { transition: none; }
+}
 .cls-row-title { color: var(--page-text); }
 .cls-row-line { color: var(--page-text-2); }
 .cls-row-line { margin-inline-start: 0.6em; }
