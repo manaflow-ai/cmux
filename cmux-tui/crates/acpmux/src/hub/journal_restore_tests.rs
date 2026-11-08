@@ -868,7 +868,8 @@ async fn crashed_between_records(rules: u8) -> (u64, u64, bool, bool) {
     again["afterSeq"] = json!(said);
     hub.journal_restore(&again).await.unwrap();
     let events = hub.events(&id, cut, 10_000).unwrap();
-    let seqs: Vec<u64> = events.iter().map(|e| e.seq).collect();
+    // Through the copy's end: the prompt it queued may start its turn after the restore.
+    let seqs: Vec<u64> = events.iter().map(|e| e.seq).filter(|s| *s <= end + 2).collect();
     let whole = seqs == (cut + 1..=end + 2).collect::<Vec<_>>();
     let queued =
         events.iter().any(|e| e.kind == "queued" && e.msg.get("promptId") == Some(&json!("p2")));
