@@ -264,6 +264,8 @@ function GalleryPermissionCard({
               fullAccessMode={fullAccessMode}
               shortcuts={shortcuts}
               onAnswer={() => undefined}
+              // Keep planning's note field opens only where a deny can carry one, as in the pane.
+              onDenyWithFeedback={async () => true}
             />
           </ShortcutsContext>
         </div>
