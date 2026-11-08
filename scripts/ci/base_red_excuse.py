@@ -1169,6 +1169,10 @@ FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
 _spec = importlib.util.spec_from_file_location("app_ffi_pin", Path(__file__).with_name("app_ffi_pin.py"))
 app_ffi_pin = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(app_ffi_pin)
+_spec = importlib.util.spec_from_file_location("github_release_download",
+                                          Path(__file__).with_name("github_release_download.py"))
+release_download = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(release_download)
 
 
 def ffi_binary_target(manifest: str, repo: str, pin_file: str | None = None) -> tuple[str | None, str | None, str]:
@@ -1198,13 +1202,20 @@ def ffi_pin_file_at(repo: str, sha: str, github) -> str | None:
 
 def ffi_release_file(repo: str, tag: str, name: str) -> str | None:
     """File NAME of the published release TAG of REPO, read anonymously from its release download (no API quota), or
-    None when it is not published (404). Any other failure raises: an unread release is no answer."""
+    None when it is not published (404, or a release without it). A download that fails otherwise is read through
+    the release-assets API (github_release_download.py; 2026-11-08 every release download answered 503 or 504 and
+    every merge was held). Any other failure raises: an unread release is no answer."""
     import urllib.error
-    import urllib.request
     url = f"https://github.com/{repo}/releases/download/{tag}/{name}"
     try:
-        with urllib.request.urlopen(url, timeout=FFI_RELEASE_SECONDS) as answer:  # noqa: S310 (a fixed https URL)
-            return answer.read(1 << 16).decode("utf-8", "replace")
+        with tempfile.TemporaryDirectory(prefix="cmux-ffi-release-") as tmp:
+            out = Path(tmp) / name
+            release_download.download(url, out, FFI_RELEASE_SECONDS,
+                                      log=lambda message: print(f"base_red_excuse: {message}", file=sys.stderr))
+            with open(out, "rb") as answer:
+                return answer.read(1 << 16).decode("utf-8", "replace")
+    except release_download.NoAsset:
+        return None
     except urllib.error.HTTPError as error:
         if error.code == 404:
             return None

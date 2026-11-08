@@ -219,7 +219,44 @@ as asked."
     }}))
 }
 
-/// The hook process: reads the call on stdin, prints a deny or nothing, and always exits 0.
+/// The hook's mark on an `acpmux` command a Claude Code subagent runs, or None: the same call
+/// with `export ACPMUX_CALLER_SUBAGENT=TYPE:ID` on a line before it
+/// (`cli::sender::SUBAGENT_ENV`), so the send says which subagent of the session sent it.
+///
+/// A subagent runs in its lead's process with the lead's whole environment, the caller token
+/// too, so without the mark its every `acpmux send` was the lead's: the receiver answered the
+/// lead's chat instead of the subagent that asked (round-2 orchestration eval, 2026-11-08). Claude
+/// Code names the subagent only in the hook's input (`agent_id`, `agent_type`; absent for the
+/// lead's own calls). Only a command that names acpmux is changed, and it carries no permission
+/// decision: the call is allowed or asked as before.
+pub fn subagent_mark(input: &Value) -> Option<Value> {
+    if input.get("tool_name").and_then(Value::as_str) != Some("Bash") {
+        return None;
+    }
+    let id = input.get("agent_id").and_then(Value::as_str)?;
+    let kind = input
+        .get("agent_type")
+        .and_then(Value::as_str)
+        .filter(|k| crate::cli::sender::subagent_word(k))
+        .unwrap_or("subagent");
+    if !crate::cli::sender::subagent_word(id) {
+        return None;
+    }
+    let command = input.pointer("/tool_input/command")?.as_str()?;
+    let env = crate::cli::sender::SUBAGENT_ENV;
+    if !command.contains("acpmux") || command.contains(env) {
+        return None;
+    }
+    let mut tool_input = input.get("tool_input").filter(|t| t.is_object())?.clone();
+    tool_input.set("command", json!(format!("export {env}={kind}:{id}\n{command}")));
+    Some(json!({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "updatedInput": tool_input,
+    }}))
+}
+
+/// The hook process: reads the call on stdin, prints a deny, a subagent's mark
+/// ([`subagent_mark`]) or nothing, and always exits 0.
 /// `home` is the daemon's (`agent_tools::bg_hooks` passes it), where the chat's MCP config is.
 pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let mut text = String::new();
@@ -232,14 +269,19 @@ pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
         .ok()
         .and_then(|raw| serde_json::from_slice(&raw).ok())
         .and_then(|c: Value| route(&c));
-    let Some(answer) = decide(&input, route) else { return Ok(()) };
-    // The same call turned away just before runs as asked (the replacement may be unusable).
-    // Keyed by what the call runs, not its per-call ids.
-    let what = json!([input.get("cwd"), input.get("tool_input")]);
-    let key = crate::sha256::sha256_hex(what.to_string().as_bytes());
-    // Unrecorded, a repeat could not get through: then the call runs.
-    if first_time(&denied_path(&config), &key).unwrap_or(false) {
-        println!("{answer}");
+    if let Some(answer) = decide(&input, route) {
+        // The same call turned away just before runs as asked (the replacement may be unusable).
+        // Keyed by what the call runs, not its per-call ids.
+        let what = json!([input.get("cwd"), input.get("tool_input")]);
+        let key = crate::sha256::sha256_hex(what.to_string().as_bytes());
+        // Unrecorded, a repeat could not get through: then the call runs.
+        if first_time(&denied_path(&config), &key).unwrap_or(false) {
+            println!("{answer}");
+            return Ok(());
+        }
+    }
+    if let Some(mark) = subagent_mark(&input) {
+        println!("{mark}");
     }
     Ok(())
 }
@@ -425,6 +467,53 @@ mod tests {
             "echo 'open && swift build",
         ] {
             assert!(slow_reason(slow).is_some(), "{slow}");
+        }
+    }
+
+    mod agent_messaging {
+        use super::*;
+
+        /// Claude Code names a subagent only in the hook's input (`agent_id`, `agent_type`; read on
+        /// 2.1.319): its acpmux command gets the mark, with no permission decision, and the lead's
+        /// own calls and any other command run unchanged.
+        #[test]
+        fn a_subagents_acpmux_command_is_marked_and_nothing_else_is() {
+            let call = |command: &str, agent: Option<(&str, &str)>| {
+                let mut input = json!({"tool_name": "Bash", "cwd": "/w",
+                    "tool_input": {"command": command, "description": "ask beta", "timeout": 5000}});
+                if let Some((kind, id)) = agent {
+                    input.set("agent_type", json!(kind));
+                    input.set("agent_id", json!(id));
+                }
+                input
+            };
+            let sub = Some(("general-purpose", "a0a68e7af3df5967e"));
+            let mark = subagent_mark(&call("acpmux send beta --wait 'hi'", sub)).unwrap();
+            let out = &mark["hookSpecificOutput"];
+            assert_eq!(out["hookEventName"], "PreToolUse");
+            assert!(out.get("permissionDecision").is_none(), "asks or allows as before: {out}");
+            assert_eq!(
+                out["updatedInput"]["command"],
+                "export ACPMUX_CALLER_SUBAGENT=general-purpose:a0a68e7af3df5967e\nacpmux send beta --wait 'hi'"
+            );
+            assert_eq!(
+                out["updatedInput"]["description"], "ask beta",
+                "the rest of the call stays"
+            );
+            assert_eq!(out["updatedInput"]["timeout"], 5000);
+            // The lead's own call, another command, a marked one, an odd id: unchanged.
+            assert_eq!(subagent_mark(&call("acpmux send beta hi", None)), None);
+            assert_eq!(subagent_mark(&call("git status", sub)), None);
+            let again = "export ACPMUX_CALLER_SUBAGENT=x:y\nacpmux ls";
+            assert_eq!(subagent_mark(&call(again, sub)), None);
+            assert_eq!(subagent_mark(&call("acpmux ls", Some(("x", "a1;rm -rf /")))), None);
+            // A type that is no plain word is named `subagent`.
+            let odd = subagent_mark(&call("acpmux ls", Some(("my agent", "a1")))).unwrap();
+            let command = odd["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap();
+            assert!(
+                command.starts_with("export ACPMUX_CALLER_SUBAGENT=subagent:a1\n"),
+                "{command}"
+            );
         }
     }
 
