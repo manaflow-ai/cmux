@@ -53,6 +53,7 @@
     "_acpmux/queue_approve": "always",
     "_acpmux/btw": "always",
     "_acpmux/context_override": "always",
+    "_acpmux/memory_resolve": "always",
     "session/set_mode": "always",
     "session/set_config_option": "always",
     "acp.trust.set": "when_trusting",

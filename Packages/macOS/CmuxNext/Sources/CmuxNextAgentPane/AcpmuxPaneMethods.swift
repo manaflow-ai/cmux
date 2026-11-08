@@ -99,7 +99,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/offer_respond",
         // Accept or Dismiss on a chat's memory offer card (direct.ts resolveMemory, #38571): acpmux
         // adds the accepted facts to the offer's CLAUDE.md or AGENTS.md and records the answer. Only
-        // for a chat in scope; acpmux takes it only from the person's own connection.
+        // for a chat in scope, and only on a gesture (``gestureRules``).
         "_acpmux/memory_resolve",
         // Session Info's View Prompt (context/ContextScreen.tsx; acpmux server/requests/context.rs):
         // `_acpmux/context` reads the chat's prompt inventory, `_acpmux/context_override` saves the
@@ -361,6 +361,10 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/btw": .always,
         // A saved guidance edit reaches every new chat's agent.
         "_acpmux/context_override": .always,
+        // An accepted memory fact reaches every later chat's agent in that folder, and acpmux does not
+        // match the facts against its offer, so Accept and Dismiss go only on the person's click
+        // (direct.ts resolveMemory sends with no await before it).
+        "_acpmux/memory_resolve": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,
@@ -389,8 +393,6 @@ nonisolated enum AcpmuxPaneMethods {
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
-        // _acpmux/memory_resolve: no gesture, like offer_respond. It answers a card acpmux drew, with
-        // only the facts that offer holds, and acpmux refuses it from any connection but the person's.
         // _acpmux/retry: no gesture. It runs again only the turn or subagent that failed, which acpmux
         // retries on its own anyway; the click's grant stays for runRetry's fallback (the prompt
         // sent again, or the ask to the chat's agent, when the daemon lacks the method).
