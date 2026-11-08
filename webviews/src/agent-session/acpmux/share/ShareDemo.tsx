@@ -64,7 +64,10 @@ export function ShareDemo({ viewing, shares, open = false, toast, look }: ShareD
       id: "share.copied",
       duration: 0,
       title: toast === "public" ? "Public link copied" : "Invite link copied",
-      message: toast === "public" ? "Anyone with the link can view this chat." : "Only people with access can open it",
+      message:
+        toast === "public"
+          ? "Signed-in people can send messages; others can view."
+          : "Only people with access can open it",
       actions: [{ id: "manage", label: "Manage links" }],
     });
     return () => shareToasts.close(id);

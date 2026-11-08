@@ -65,7 +65,7 @@ export default componentEntry<ShareDemoProps>({
       props: { viewing: [], shares: [], open: true },
     },
     "dialog-shared": {
-      note: "Two people invited (one in the chat now) and Anyone with the link as a viewer. Shipped: the sheet role's glass, veil and 14 px corners; every control a 28 px shared button or field; Done the one solid button.",
+      note: "Two people invited (one in the chat now) and Anyone with the link, whose row says Can send: signed-in people can send messages, others can view (cmux#38102). Shipped: the sheet role's glass, veil and 14 px corners; every control a 28 px shared button or field; Done the one solid button.",
       props: { viewing, shares: [people, link], open: true },
     },
     "rows-restricted-back": {
