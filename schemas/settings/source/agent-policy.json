@@ -1507,6 +1507,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Spends about 2 to 3 times the data on every remote connection; only the person turns it on.",
+      "keys": [
+        "remote.ultraMode"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Changes how this Mac's Mac Screen streams leave the network; only the person sets it.",
       "keys": [
         "macScreen.debug.relayOnly"

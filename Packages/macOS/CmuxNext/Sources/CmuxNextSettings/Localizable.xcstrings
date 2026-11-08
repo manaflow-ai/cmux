@@ -216303,6 +216303,84 @@
         }
       }
     },
+    "settings.remote.ultraMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "وضع الاتصال الفائق"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ultra način veze"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Ultra-forbindelsestilstand"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Ultra-Verbindungsmodus"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Ultra Connection Mode"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Modo de conexión ultra"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Mode de connexion ultra"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Modalità connessione ultra"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ウルトラ接続モード"}},
+        "km": {"stringUnit": {"state": "translated", "value": "របៀបតភ្ជាប់អ៊ុលត្រា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "울트라 연결 모드"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Ultra-tilkoblingsmodus"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Tryb połączenia ultra"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Modo de conexão ultra"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Режим ультрасоединения"}},
+        "th": {"stringUnit": {"state": "translated", "value": "โหมดการเชื่อมต่ออัลตร้า"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ultra bağlantı modu"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Режим ультраз’єднання"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chế độ kết nối Ultra"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "超强连接模式"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "超強連線模式"}}
+      }
+    },
+    "settings.remote.ultraMode.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يرسل بيانات إصلاح مع كل اتصال بـ Cloud وأجهزتك الأخرى، فتبقى الشبكة التي تفقد الحزم سريعة. يستهلك نحو ضعفين إلى ثلاثة أضعاف البيانات. يُطبَّق على الاتصال التالي."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Šalje podatke za popravak uz svaku vezu prema Cloudu i vašim drugim računarima, pa mreža koja gubi pakete ostaje brza. Troši oko 2 do 3 puta više podataka. Primjenjuje se na sljedeću vezu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Sender reparationsdata med hver forbindelse til Cloud og dine andre maskiner, så et netværk, der taber pakker, forbliver hurtigt. Bruger cirka 2 til 3 gange så meget data. Gælder for den næste forbindelse."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Sendet bei jeder Verbindung zu Cloud und deinen anderen Rechnern Reparaturdaten mit, damit ein Netz, das Pakete verliert, schnell bleibt. Verbraucht etwa das 2- bis 3-Fache an Daten. Gilt ab der nächsten Verbindung."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Envía datos de reparación con cada conexión a Cloud y a tus otras máquinas, para que una red que pierde paquetes siga siendo rápida. Usa entre 2 y 3 veces más datos. Se aplica a la siguiente conexión."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Envoie des données de réparation avec chaque connexion à Cloud et à vos autres machines, pour qu’un réseau qui perd des paquets reste rapide. Utilise environ 2 à 3 fois plus de données. S’applique à la prochaine connexion."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Invia dati di riparazione con ogni connessione a Cloud e alle tue altre macchine, così una rete che perde pacchetti resta veloce. Usa circa da 2 a 3 volte i dati. Si applica alla connessione successiva."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud や他のマシンへの各接続で修復データを送り、パケットが失われるネットワークでも速さを保ちます。データ量は約 2〜3 倍になります。次の接続から適用されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ផ្ញើទិន្នន័យជួសជុលជាមួយការតភ្ជាប់នីមួយៗទៅ Cloud និងម៉ាស៊ីនផ្សេងទៀតរបស់អ្នក ដូច្នេះបណ្ដាញដែលបាត់កញ្ចប់ព័ត៌មាននៅតែលឿន។ ប្រើទិន្នន័យប្រហែល 2 ទៅ 3 ដង។ អនុវត្តចំពោះការតភ្ជាប់បន្ទាប់។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud와 다른 기기로의 모든 연결에 복구 데이터를 함께 보내, 패킷이 손실되는 네트워크에서도 빠르게 유지합니다. 데이터를 약 2~3배 사용합니다. 다음 연결부터 적용됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Sender reparasjonsdata med hver tilkobling til Cloud og de andre maskinene dine, slik at et nettverk som mister pakker, forblir raskt. Bruker omtrent 2 til 3 ganger så mye data. Gjelder fra neste tilkobling."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wysyła dane naprawcze z każdym połączeniem z Cloud i Twoimi innymi maszynami, więc sieć gubiąca pakiety pozostaje szybka. Zużywa około 2–3 razy więcej danych. Działa od następnego połączenia."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Envia dados de reparo em cada conexão com o Cloud e suas outras máquinas, para que uma rede que perde pacotes continue rápida. Usa cerca de 2 a 3 vezes mais dados. Vale a partir da próxima conexão."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Отправляет данные для восстановления с каждым подключением к Cloud и другим вашим машинам, чтобы сеть с потерей пакетов оставалась быстрой. Расходует примерно в 2–3 раза больше данных. Действует со следующего подключения."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ส่งข้อมูลกู้คืนไปกับทุกการเชื่อมต่อไปยัง Cloud และเครื่องอื่นของคุณ เพื่อให้เครือข่ายที่ทำแพ็กเก็ตหายยังคงเร็ว ใช้ข้อมูลประมาณ 2 ถึง 3 เท่า มีผลกับการเชื่อมต่อครั้งถัดไป"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Cloud’a ve diğer makinelerinize yapılan her bağlantıyla onarım verisi gönderir; böylece paket kaybeden bir ağ hızlı kalır. Yaklaşık 2 ila 3 kat veri kullanır. Bir sonraki bağlantıda geçerli olur."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Надсилає дані для відновлення з кожним з’єднанням із Cloud та іншими вашими машинами, щоб мережа із втратою пакетів залишалася швидкою. Використовує приблизно у 2–3 рази більше даних. Діє з наступного з’єднання."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Gửi dữ liệu sửa lỗi kèm mỗi kết nối tới Cloud và các máy khác của bạn, để mạng bị mất gói vẫn nhanh. Dùng khoảng 2 đến 3 lần dữ liệu. Áp dụng cho kết nối tiếp theo."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在每个连接到 Cloud 和你其他机器的连接中附带修复数据，让丢包的网络依然快速。数据用量约为 2 到 3 倍。从下一次连接开始生效。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在每個連到 Cloud 和你其他機器的連線中附帶修復資料，讓會掉封包的網路依然快速。資料用量約為 2 到 3 倍。從下一次連線開始生效。"}}
+      }
+    },
+    "settings.remote.ultraMode.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يستهلك بيانات أكثر ليبقى سريعًا على الشبكات غير المستقرة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Troši više podataka da ostane brz na mrežama s gubicima"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Bruger mere data for at forblive hurtig på ustabile netværk"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Verbraucht mehr Daten, um in verlustreichen Netzen schnell zu bleiben"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Uses more data to stay fast on lossy networks"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Usa más datos para seguir rápido en redes con pérdidas"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Utilise plus de données pour rester rapide sur les réseaux instables"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Usa più dati per restare veloce sulle reti con perdite"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "データを多く使い、不安定なネットワークでも速さを保ちます"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រើទិន្នន័យច្រើនជាងមុន ដើម្បីនៅតែលឿននៅលើបណ្ដាញដែលបាត់កញ្ចប់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "데이터를 더 사용해 손실이 많은 네트워크에서도 빠르게 유지"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bruker mer data for å holde seg rask på ustabile nettverk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zużywa więcej danych, by działać szybko w sieciach z utratą pakietów"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Usa mais dados para continuar rápido em redes instáveis"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Расходует больше данных, чтобы оставаться быстрым в сетях с потерями"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ใช้ข้อมูลมากขึ้นเพื่อให้ยังเร็วบนเครือข่ายที่สัญญาณไม่เสถียร"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Kayıplı ağlarda hızlı kalmak için daha fazla veri kullanır"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Використовує більше даних, щоб лишатися швидким у мережах із втратами"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Dùng nhiều dữ liệu hơn để vẫn nhanh trên mạng chập chờn"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "使用更多数据，在丢包的网络上保持快速"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "使用更多資料，在會掉封包的網路上保持快速"}}
+      }
+    },
     "settings.agentPane.display.statusVerbs": {
       "extractionState": "manual",
       "localizations": {
