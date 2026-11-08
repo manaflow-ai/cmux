@@ -25,19 +25,4 @@ pub static ACTIONS: &[Action] = &[
         waits_for_person: true,
         ..Action::DEFAULT
     },
-    Action {
-        id: "cloudRelayChat",
-        group: GROUP,
-        title: t("CloudSessionActions", "action.cloudRelayChat", "Chat on Cloud Machine via the Relay…"),
-        description: Some("Sends --prompt to --agent (claude, codex, ...) on a Cloud machine (--target machine:<id>) over the machine's relay and answers when the turn ends. A machine with no link yet gets this Mac's link and its owner check first, then the person's harness login, then the send. The answer carries session_id (the machine's acpmux session), reply, stop_reason, first_text_ms and total_ms. A turn still running after 35 s answers what came so far with ended: false and goes on in that session while the app runs. delivered: false means the prompt never reached the machine (no machine took it, or the relay refused it). --cwd is the folder there; --prompt-id makes a resend run once; --login pass|machine|none is the harness login the machine gets first, as cloud start-session takes it."),
-        keywords: &["vm", "cloud", "agent", "chat", "relay", "prompt", "claude", "codex"],
-        category: "cloud",
-        symbol: "bubble.left.and.text.bubble.right",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::AGENT_3, args::PROMPT, args::CWD_3.optional(), args::PROMPT_ID.optional(), args::LOGIN.optional()],
-        targets: &["machine"],
-        cli_name: "cloud relay-chat",
-        waits_for_result: true,
-        ..Action::DEFAULT
-    },
 ];

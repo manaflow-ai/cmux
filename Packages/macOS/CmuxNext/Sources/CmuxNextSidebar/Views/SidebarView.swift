@@ -159,6 +159,8 @@ public final class SidebarView: NSView {
         buildHierarchy()
         list.hoverOccluded = { [weak self] point in self?.updatedCardView.covers(windowPoint: point) == true }
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
+        // The tab row's New Tab + (Leo 2026-11-07: one size class for both, in the middle of the two).
+        newButton.drawsAddGlyph = true
         newWorkspaceOptionsButton.setAccessibilityLabel(Strings.newWorkspaceOptions)
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)
