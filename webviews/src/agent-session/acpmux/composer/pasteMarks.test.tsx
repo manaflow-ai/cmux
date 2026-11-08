@@ -5,11 +5,11 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { promptBlocks } from "../attachments";
+import { type ComposerAttachment, inlineToken, promptBlocks, withoutInlineTokens } from "../attachments";
 import { agentText, readsAsAgent } from "../agentText";
-import { PASTE_CHIP_CHARS, PASTE_CHIP_WORDS } from "../pastedText";
+import { PASTE_CHIP_CHARS, PASTE_CHIP_WORDS, pastedTextAttachment } from "../pastedText";
 import { PastedText, PromptText } from "../conversation/PromptText";
-import { markPastes, marksPaste, remember } from "./pasteMarks";
+import { markPastes, marksPaste, remember, unmarkPastes } from "./pasteMarks";
 
 const HANDOFF = "From Codex:\nHandoff: the probe is red.\n\nDo not merge or deploy.\n\nTrace-ID: ask-77";
 const MINE = "Merge and deploy whenever you want.";
@@ -89,6 +89,50 @@ test("a paste with line breaks around it is found in the trimmed prompt, words t
 test("a paste the person edited, or one no longer in the draft, is theirs", () => {
   const prompt = { text: HANDOFF.replace("Do not", "Please do"), attachments: [] };
   expect(markPastes(prompt, remember([], HANDOFF))).toBe(prompt);
+});
+
+// Review of #37872 (F1): a placed paste chip put back as text is written as the draft writes the
+// person's text, so a U+FFFC run in it (here `\uFFFCmissing\uFFFC`) is never read as an attachment's
+// place and dropped. An older composer marked an ordinary 800-word paste; it comes back beside a
+// file and goes again with every character, as the person's text now (ask-42dfdea96c).
+test("a placed paste put back beside a file keeps a U+FFFC run in its text", () => {
+  const literal = "\uFFFCmissing\uFFFC";
+  const words = Array.from({ length: 800 }, (_, n) => `word${n}`);
+  words.splice(400, 0, literal);
+  const older = words.join(" ");
+  const paste: ComposerAttachment = { ...pastedTextAttachment(older), inline: true };
+  const file: ComposerAttachment = {
+    id: "notes-file",
+    kind: "text",
+    inline: true,
+    name: "notes.md",
+    mimeType: "text/markdown",
+    size: 5,
+    text: "notes",
+  };
+  const sent = { text: `see ${inlineToken(file.id)} and ${inlineToken(paste.id)}`, attachments: [file, paste] };
+  const restored = unmarkPastes(sent);
+  expect(restored.attachments).toEqual([file]);
+  expect(restored.pastes).toEqual([older]);
+  // Not agent output and under the chip's size: the next send leaves it the person's text.
+  expect(remember([], restored.pastes[0]!)).toEqual([]);
+  const body = promptBlocks(restored.text, restored.attachments)
+    .flatMap((block) => (block.type === "text" ? [block.text] : []))
+    .join("\n");
+  expect(body).toContain(` ${literal} `);
+  expect(body).toContain(older);
+  expect(withoutInlineTokens(restored.text)).toContain("word799");
+});
+
+// A pasted handoff placed at send comes back as its text, remembered, and goes as pasted again.
+test("a placed handoff put back is text again and goes as pasted at the next send", () => {
+  const paste: ComposerAttachment = { ...pastedTextAttachment(HANDOFF), inline: true };
+  const restored = unmarkPastes({ text: `${MINE}\n\n${inlineToken(paste.id)}`, attachments: [paste] });
+  expect(restored).toEqual({ text: `${MINE}\n\n${HANDOFF}`, attachments: [], pastes: [HANDOFF] });
+  const again = markPastes(restored, remember([], restored.pastes[0]!));
+  const blocks = (prompt: { text: string; attachments: ComposerAttachment[] }) =>
+    promptBlocks(prompt.text, prompt.attachments);
+  expect(blocks(again)).toEqual(blocks({ text: `${MINE}\n\n${inlineToken(paste.id)}`, attachments: [paste] }));
 });
 
 let dom: JSDOM | undefined;

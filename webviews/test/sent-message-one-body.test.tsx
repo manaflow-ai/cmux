@@ -47,7 +47,8 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
-const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
+const { resetTranscriptDisclosure } =
+  await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
@@ -123,7 +124,8 @@ test("a sent message whose three pastes the composer placed reads as the draft d
 test("Find matches a sent text file's body behind its chip, and the match opens the chip", async () => {
   const { findMatches, FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
   const { foldFind } = await import("../src/find/fold");
-  const { useTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
+  const { useTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   const body = "notes.txt\n```\nzanzibar rollout plan\n```";
   const inlineParts = [
     { kind: "text", text: "See the notes" },

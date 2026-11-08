@@ -10,6 +10,7 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerEditCommand, ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import {
+  inlineToken,
   inlineTokenIds,
   promptBlocks,
   withoutInlineTokens,
@@ -311,40 +312,68 @@ test("a dictation-length paste stays inline text, never a Pasted text chip", asy
 });
 
 // Leo, 2026-11-08, of a ChatGPT dictation pasted into the composer: it came back as a "Pasted text ·
-// 1.2K characters" chip. The paste is text in the draft, and goes as a placed paste chip
-// (pasteMarks.ts) so the agent reads it as pasted; a prompt put back in the composer (a send
-// refused, a steer taken back, a queued prompt edited) has that paste as its text again, never a
-// chip, and sends it again as pasted.
-test("a 1,200-character dictation pasted, sent and put back stays inline text, never a chip", async () => {
-  const sentence = "So when I dictate a long thought into the composer it should just read as my message, not a card. ";
-  const dictation = sentence.repeat(13).slice(0, 1_200).trim();
-  expect(dictation.length).toBeGreaterThan(1_150);
-  expect(dictation).not.toContain("\n");
+// 1.2K characters" chip. A dictation is the person's words: pasted, it is text in the draft, and it
+// goes as their text, no chip and no pasted mark (pasteMarks.ts `marksPaste`, #37516).
+const DICTATION = "So when I dictate a long thought into the composer it should just read as my message, not a card. "
+  .repeat(13)
+  .slice(0, 1_200)
+  .trim();
+
+test("a 1,200-character dictation pasted and sent stays inline text and goes as the person's words", async () => {
+  expect(DICTATION.length).toBeGreaterThan(1_150);
+  expect(DICTATION).not.toContain("\n");
   const sent: Sent[] = [];
   const composer = await openComposer(sent);
   await typeDraft("one thing: ");
-  await paste(dictation);
+  await paste(DICTATION);
   expect(chips(composer)).toEqual([]);
   expect(placed()).toEqual([]);
+  expect(words()).toContain(DICTATION);
   await act(async () => {
     composer.current!.send();
   });
   expect(sent).toHaveLength(1);
-  expect(sent[0]!.attachments.map((chip) => chip.kind)).toEqual(["pasted"]);
-  await act(async () => composer.current!.restore(sent[0]!.text, sent[0]!.attachments));
+  expect(sent[0]!.attachments).toEqual([]);
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments)).toEqual([
+    { type: "text", text: `one thing: ${DICTATION}` },
+  ]);
+});
+
+// A prompt put back in the composer (a send refused, a steer taken back, a queued prompt edited)
+// with placed paste chips its send made (pasteMarks.ts `markPastes`): a dictation an older composer
+// marked, and a pasted handoff. Each is the draft's text again, never a chip; sent again, the
+// dictation goes as the person's words and the handoff as pasted, as it first went.
+test("a prompt put back with placed pastes has them as inline text, never a chip, and sends the handoff as pasted again", async () => {
+  const handoff = "From Codex:\nHandoff: the probe is red.\n\nDo not merge or deploy.\n\nTrace-ID: ask-77";
+  const dictated: ComposerAttachment = { ...pastedTextAttachment(DICTATION), inline: true };
+  const handed: ComposerAttachment = { ...pastedTextAttachment(handoff), inline: true };
+  const restored: Sent = {
+    text: `one thing: ${inlineToken(dictated.id)}\n\n${inlineToken(handed.id)}`,
+    attachments: [dictated, handed],
+  };
+  const sent: Sent[] = [];
+  const composer = await openComposer(sent);
+  await act(async () => composer.current!.restore(restored.text, restored.attachments));
   await settle();
   expect(chips(composer)).toEqual([]);
   expect(placed()).toEqual([]);
   expect(field().querySelector(".acpmux-text-card")).toBeNull();
   expect(field().textContent).not.toContain("characters");
-  expect(words()).toContain(dictation);
-  // Sent again, it still goes as the person's paste, marked, with the same words.
+  expect(words()).toContain(DICTATION);
+  expect(words()).toContain("Trace-ID: ask-77");
   await act(async () => {
     composer.current!.send();
   });
-  expect(sent).toHaveLength(2);
-  expect(sent[1]!.attachments.map((chip) => chip.kind)).toEqual(["pasted"]);
-  expect(promptBlocks(sent[1]!.text, sent[1]!.attachments)).toEqual(promptBlocks(sent[0]!.text, sent[0]!.attachments));
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments.map((chip) => chip.kind)).toEqual(["pasted"]);
+  expect(sent[0]!.attachments[0]!.text).toBe(handoff);
+  const blocks = promptBlocks(sent[0]!.text, sent[0]!.attachments).flatMap((block) =>
+    block.type === "text" ? [[block.text.trim(), Boolean(block._meta)]] : [],
+  );
+  expect(blocks).toEqual([
+    [`one thing: ${DICTATION}`, false],
+    [handoff, true],
+  ]);
 });
 
 test("Paste as Plain Text (⌘⇧V) keeps a large paste as raw text in the prompt", async () => {

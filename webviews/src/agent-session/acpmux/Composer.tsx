@@ -860,8 +860,8 @@ function ComposerFrame({
         const picks = pickedSkillsOf(restoredText, commandsNow.current);
         if (!(field.current?.value() ?? "").trim()) pickedSkills.current = picks;
         else for (const name of picks) pickedSkills.current.add(name);
-        // A dictation-length paste went as a placed paste chip (markPastes) and comes back as the
-        // text it was in the draft, remembered as a paste again; only a huge one stays a chip.
+        // A paste that went as a placed paste chip (markPastes) under the chip's size comes back as
+        // the text it was in the draft, remembered as a paste again; only a huge one stays a chip.
         const restored = unmarkPastes(
           bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments),
         );
