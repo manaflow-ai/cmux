@@ -82,7 +82,7 @@ struct AgentIncomingCard: View {
             // One sender, however many messages: its family's mark and its own badge, in the tone of
             // its session id (the Mac's), else its name.
             let one = incoming.oneSenderKey.flatMap { _ in incoming.messages.first }
-            AgentSenderIcon(harness: one.flatMap(harness(for:)), identity: one?.toneKey ?? "messages", size: 16)
+            AgentSenderIcon(harness: one.flatMap(harness(for:)), identity: one?.toneKey ?? "messages", assignedTone: one?.tone, size: 16)
             Group {
                 if incoming.messages.count != 1 {
                     Text("\(incoming.messages.count) messages")
@@ -130,7 +130,7 @@ struct AgentIncomingCard: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    AgentSenderIcon(harness: harness(for: message), identity: message.toneKey, size: 14)
+                    AgentSenderIcon(harness: harness(for: message), identity: message.toneKey, assignedTone: message.tone, size: 14)
                     Text(message.sender)
                         .font(.footnote.weight(.semibold))
                         .lineLimit(1)

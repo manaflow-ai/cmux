@@ -23,6 +23,10 @@ public struct AgentIncoming: Hashable, Sendable, Codable {
             self.senderID = senderID
         }
 
+        /// The tone the chat assigned the sender's session (`AgentTones`, set by the transcript), else
+        /// nil: its icon then takes `toneKey`'s hash.
+        public var tone: Int?
+
         /// The key the sender's icon tone comes from: its session id, else (an older payload) its name.
         public var toneKey: String { senderID ?? sender }
     }
@@ -88,15 +92,7 @@ extension AgentIncoming {
         // A local sender's own word for its harness is only its claim (`claimed.fromHarness`), still its mark.
         let harness = provenance?["fromHarness"]?.nonEmpty ?? provenance?["claimed"]?["fromHarness"]?.nonEmpty ?? fromHarness
         let kind = provenance?["kind"]?.stringValue
-        // The sending chat's session id, as the Mac reads it (incomingMessage.ts): a session kind's
-        // `from` is always one; another kind's only as `acp:<id>`. A Chief's turn is no chat.
-        let chief = provenance?["fromChief"]?.nonEmpty.map { Self.match($0, #"^agent_[A-Za-z0-9_-]{1,58}$"#) } ?? false
-        let senderID = chief ? nil : provenance?["from"]?.nonEmpty.flatMap { from -> String? in
-            if ["subsession_message", "session_message", "task_result", "lane_report"].contains(kind ?? "") {
-                return from.hasPrefix("acp:") ? Self.sessionID(from) : from
-            }
-            return Self.sessionID(from)
-        }
+        let senderID = senderSession(provenance)
         func one(_ name: String, _ words: String, id: String? = nil) -> AgentIncoming {
             // A message that signs itself (`[land-and-ci-c9] …`, `From lane-a: …`) names its sender
             // better than its envelope, unless the signature only repeats it (as the Mac's `agentSigned`).
@@ -138,10 +134,15 @@ extension AgentIncoming {
             return AgentIncoming(messages: messages, raw: text)
         case "agent_digest":
             var messages = digest(body)
-            // Each part's sending chat, from the provenance's list in the same order, when they line up.
+            // Each part's sending chat, from the provenance's list in the same order, when they line up:
+            // its own provenance's sender (hub/digest.rs `digest_provenance`; the part's `from` is its
+            // name), else a `from` that is a chat's address.
             let sent = provenance?["messages"]?.arrayValue ?? []
             if sent.count == messages.count {
-                for index in messages.indices { messages[index].senderID = sent[index]["from"]?.nonEmpty.flatMap(Self.sessionID) }
+                for index in messages.indices {
+                    messages[index].senderID = senderSession(sent[index]["provenance"])
+                        ?? sent[index]["from"]?.nonEmpty.flatMap(Self.sessionID)
+                }
             }
             if !messages.isEmpty { return AgentIncoming(messages: messages, harness: harness, raw: text) }
             // A digest whose parts don't read: one card from its senders, its text as sent (as the Mac).
@@ -252,6 +253,17 @@ extension AgentIncoming {
     static func signedMessage(_ sender: String, _ text: String) -> Message {
         let signed = signature(text.trimmed, sender: sender)
         return Message(sender: signed?.name ?? sender, text: signed?.text ?? text.trimmed)
+    }
+
+    /// The sending chat's session id in a provenance, as the Mac reads it (incomingMessage.ts): a
+    /// session kind's `from` is always one; another kind's only as `acp:<id>`. A Chief's turn is no chat.
+    static func senderSession(_ provenance: JSONValue?) -> String? {
+        guard let from = provenance?["from"]?.nonEmpty else { return nil }
+        if let chief = provenance?["fromChief"]?.nonEmpty, match(chief, #"^agent_[A-Za-z0-9_-]{1,58}$"#) { return nil }
+        if ["subsession_message", "session_message", "task_result", "lane_report"].contains(provenance?["kind"]?.stringValue ?? "") {
+            return from.hasPrefix("acp:") ? sessionID(from) : from
+        }
+        return sessionID(from)
     }
 
     /// The session id in a chat's address (`acp:<id>`), else nil (a named sender, a terminal agent, `cli`).
