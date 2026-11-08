@@ -95,7 +95,7 @@ afterAll(() => {
 async function client() {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  const prompts: { prompt: PromptBlock[]; meta: Record<string, unknown> }[] = [];
+  const prompts: { sessionId: string; prompt: PromptBlock[]; meta: Record<string, unknown> }[] = [];
   const intents: Record<string, unknown>[] = [];
   setNativeHost(async (method, params) => {
     if (method !== "transport.gesture") throw new Error("not in this test");
@@ -108,7 +108,7 @@ async function client() {
       const self = this as unknown as { answer: (method: string, params: Record<string, any>) => Promise<unknown> };
       const answer = self.answer.bind(this);
       self.answer = (method, params) => {
-        if (method === "session/prompt") prompts.push({ prompt: params.prompt, meta: params._meta });
+        if (method === "session/prompt") prompts.push({ sessionId: params.sessionId, prompt: params.prompt, meta: params._meta });
         return answer(method, params);
       };
     }
@@ -195,6 +195,29 @@ test("a send with files to upload whose ticket comes after its chat was left goe
     expect(await sending).not.toBe("sent");
     expect(uploaded.names).toEqual([]);
     expect(prompts.length).toBe(before);
+  } finally {
+    pane.close?.();
+  }
+});
+
+test("a text-only send whose ticket comes after its chat was left goes to its own chat, never the one shown", async () => {
+  const { pane, prompts } = await client();
+  try {
+    const sessionId = pane.selectedSession;
+    expect(sessionId).toBeTruthy();
+    let answer: (reply: { ticket: string }) => void = () => {};
+    setNativeHost(async (method) => {
+      if (method !== "transport.gesture") throw new Error("not in this test");
+      return new Promise((resolve) => (answer = resolve));
+    });
+    const before = prompts.length;
+    const sending = pane.send("just text").catch(() => undefined);
+    await Promise.resolve();
+    pane.leave();
+    answer({ ticket: "k-late" });
+    await sending;
+    expect(prompts.length).toBe(before + 1);
+    expect(prompts.at(-1)).toMatchObject({ sessionId, meta: expect.objectContaining({ cmuxGesture: "k-late" }) });
   } finally {
     pane.close?.();
   }

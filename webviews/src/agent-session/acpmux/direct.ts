@@ -8883,6 +8883,10 @@ export class AcpmuxDirectClient {
       ),
     );
     this.emit();
+    // A send with nothing to upload goes to its own chat however late its ticket comes: its row is
+    // already drawn there, the prompt names `sessionId`, and a bound ticket redeems only for that
+    // chat. Only an upload depends on the chat shown now (its stager saves there), so only a send
+    // with files to upload is refused when the selection moved (above).
     const gesture = await ticket;
     try {
       await this.request("session/prompt", {
