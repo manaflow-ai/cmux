@@ -338,7 +338,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         snapshotHidesStrip = snapshot.hidesStrip
         view.showStrip(hidden: snapshot.hidesStrip || presentsPage, vertical: presentsPage ? nil : snapshot.verticalTabs)
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }
-        if stripModel.zoomsSelected != snapshot.zoomed { stripModel.zoomsSelected = snapshot.zoomed }
+        if stripModel.zoomsSelected != snapshot.zoomed { stripModel.zoomsSelected = snapshot.zoomed; view.needsLayout = true } // the indicator (PaneContentView+ZoomIndicator)
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items {
             stripModel.tabs = snapshot.items

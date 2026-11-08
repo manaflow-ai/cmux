@@ -2083,6 +2083,54 @@ let package = Package(
 
 
 
+class ToolDownloadFallbackTests(unittest.TestCase):
+    """2026-11-08: every GitHub release download answered 504, so every PR's fast gates went red on fetching ast-grep,
+    while the release-assets API served the same bytes. The gate fetches a failed release download through that API;
+    the pinned sha256 still judges what it got."""
+
+    def test_a_release_download_that_fails_is_fetched_through_the_release_assets_api(self):
+        import hashlib, io, json as jsonlib, urllib.error, zipfile
+        gate = load_gate_tools()
+        payload = io.BytesIO()
+        with zipfile.ZipFile(payload, "w") as zf:
+            zf.writestr("tool-bin", "#!/bin/sh\necho ok\n")
+        archive = payload.getvalue()
+        url = "https://github.com/acme/tool/releases/download/1.2.3/tool-linux.zip"
+        tag = "https://api.github.com/repos/acme/tool/releases/tags/1.2.3"
+        asset = "https://api.github.com/repos/acme/tool/releases/assets/42"
+        asked = []
+
+        def urlopen(request, timeout=None):
+            target = request.full_url if hasattr(request, "full_url") else request
+            asked.append(target)
+            if target == url:
+                raise urllib.error.HTTPError(url, 504, "Gateway Time-out", {}, None)
+            if target == tag:
+                return io.BytesIO(jsonlib.dumps({"assets": [{"name": "other.zip", "url": asset + "0"},
+                                                            {"name": "tool-linux.zip", "url": asset}]}).encode())
+            if target == asset:
+                self.assertEqual(request.get_header("Accept"), "application/octet-stream")
+                return io.BytesIO(archive)
+            raise AssertionError(f"unexpected fetch {target}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / "lint-tools.lock"
+            lock.write_text(f"tool\t1.2.3\t{gate.platform_key()}\t{url}\t{hashlib.sha256(archive).hexdigest()}\ttool-bin\n")
+            old_dir, old_open = os.environ.get("CMUX_LINT_TOOLS_DIR"), gate.urllib.request.urlopen
+            os.environ["CMUX_LINT_TOOLS_DIR"] = str(Path(tmp) / "tools")
+            gate.urllib.request.urlopen = urlopen
+            try:
+                path = gate.ensure_tool(lock, "tool")
+            finally:
+                gate.urllib.request.urlopen = old_open
+                if old_dir is None:
+                    os.environ.pop("CMUX_LINT_TOOLS_DIR")
+                else:
+                    os.environ["CMUX_LINT_TOOLS_DIR"] = old_dir
+            self.assertTrue(path.is_file() and os.access(path, os.X_OK))
+            self.assertEqual(asked, [url, tag, asset])
+
+
 class StaleInstallTests(unittest.TestCase):
     """The check trees never take the pushed head's scripts/swift_source_mask.py on a hook run."""
 
