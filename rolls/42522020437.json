@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42522020437",
+  "recorded_at": "2026-11-08T20:55:59Z",
+  "reason": "cmux-tui 6175e7577ebd changes the image's cmux-tui (pinned 0bd5b279829b)",
+  "dry_run": false,
+  "cmux_tui": "6175e7577ebd38c318454874de1360d511716af7",
+  "fixes": [
+    {
+      "sha": "8a67df598b286964b0af25942a8247109e987dcb",
+      "mergedAt": "2026-11-08T20:31:32Z",
+      "subject": "acpmux tests: fake WebSocket peers skip non-text frames (session_control_peer_cli red) (#38845)"
+    },
+    {
+      "sha": "fc22f47b13c10db0012d365d6bbb244c63d02f0d",
+      "mergedAt": "2026-11-08T12:27:23-08:00",
+      "subject": "acpmux: route a subagent's lane replies to that subagent, not its lead (#38810)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T20:55:59Z",
+    "snapshot_id": "sh-77a2d65a56674d1f9a4b95317bdad688",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42522020437): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6b20b4b382b6e0ff6bbf7645e47f82abd9ba9c70",
+    "image": "cloud-native-auto-6175e757-42522020437-1",
+    "revision": "ci-42522020437-1",
+    "at": "2026-11-08T20:55:59Z"
+  },
+  "rolled_back": false
+}
