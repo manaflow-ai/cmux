@@ -223,6 +223,7 @@ import Testing
         step(list)
         let after = sample(list, flipped: flipped)
 
+        print("SidebarGroupFlicker ran \(label)")
         var failures: [String] = []
         func fail(_ index: Int, _ what: String) { failures.append("\(label), frame \(index): \(what)") }
         func monotonic(_ name: String, _ ys: [CGFloat], start: CGFloat, end: CGFloat) {
@@ -325,6 +326,7 @@ import Testing
             failures += Self.run(.memberGrows, intent: intent, then: .insertBelow, log: &log)
         }
         print("SidebarGroupFlicker log:\n" + log.joined(separator: "\n"))
+        for failure in failures { print("GRPFAIL \(failure)") }
         #expect(failures.isEmpty, "\(failures.count) failures:\n\(failures.prefix(60).joined(separator: "\n"))")
     }
 
@@ -357,6 +359,7 @@ import Testing
             step(list)
             frames.append(("frame \(index)", sample(list, flipped: flipped, group: fresh, members: freshMembers)))
         }
+        print("SidebarGroupFlicker ran \(label)")
         var failures: [String] = []
         var header: ObjectIdentifier?
         var lastAlpha: Float = 0
@@ -394,6 +397,7 @@ import Testing
         DesignSettings.shared.enabledAnimations.insert(.newWorkspace)
         failures += (Self.runNewGroup(then: false, log: &log) + Self.runNewGroup(then: true, log: &log)).map { "[newWorkspace motion] " + $0 }
         print("SidebarGroupFlicker new group log:\n" + log.joined(separator: "\n"))
+        for failure in failures { print("GRPFAIL \(failure)") }
         #expect(failures.isEmpty, "\(failures.count) failures:\n\(failures.prefix(60).joined(separator: "\n"))")
     }
 }
