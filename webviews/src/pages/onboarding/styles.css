@@ -300,8 +300,19 @@
   gap: var(--ds-space-2);
   height: 100%;
 }
-.onb-import-main > :not(.onb-import-list) {
+.onb-import-main > :not(.onb-import-shelf) {
   flex: none;
+}
+.onb-import-shelf {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.onb-import-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
 }
 /* The summary under the list: at most three lines (its whole text is the tooltip), so the list, the
    kinds and the links keep their places whatever it says. */
@@ -410,7 +421,8 @@
   width: var(--ds-icon-20);
   justify-items: center;
 }
-.onb-import-box {
+.onb-import-box,
+.onb-import-box input {
   margin: 0;
 }
 .onb-import-glyph {
@@ -453,6 +465,308 @@
 }
 .onb-links.is-hidden {
   visibility: hidden;
+}
+
+/* The import looks (ImportLook). Every look but plain: the browsers' shelf keeps four rows' room, so
+   the kinds never move as browsers arrive; the checkboxes are drawn (one shape, one accent, the same
+   in every row) instead of WebKit's; the other sources sit in the footer. */
+.onb-import:not([data-look="plain"]) {
+  /* Four rows and the card's rim fit the 520 high window over the kinds card and a two-line summary. */
+  --onb-shelf: calc(4 * var(--onb-import-row) + 2px);
+}
+.onb-import:not([data-look="plain"]) .onb-import-shelf {
+  height: var(--onb-shelf);
+}
+.onb-import:not([data-look="plain"]) .onb-status {
+  height: calc(2 * var(--text-caption--line-height));
+  -webkit-line-clamp: 2;
+}
+.onb-import:not([data-look="plain"]) .onb-sync[data-off] {
+  color: var(--page-text-3);
+}
+/* A row whose trailing control is a button (Open System Settings, Allow Access…) ends it where the
+   other rows' checkboxes end. */
+.onb-import:not([data-look="plain"]) .onb-import-row:is([data-access], [data-state="awaiting"]) .onb-import-state {
+  display: none;
+}
+.onb-import:not([data-look="plain"]) .onb-import-list {
+  height: auto;
+  max-height: 100%;
+  min-height: 0;
+  margin-inline: 0;
+}
+.onb-import:not([data-look="plain"]) .onb-import-list[data-empty] {
+  visibility: hidden;
+}
+.onb-import:not([data-look="plain"]) input[type="checkbox"] {
+  flex: none;
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--page-text) 35%, transparent);
+  border-radius: var(--ds-radius-sm);
+  background: color-mix(in srgb, var(--page-text) 6%, transparent);
+  appearance: none;
+  transition:
+    background-color var(--cmux-motion-quick) var(--cmux-ease-out),
+    border-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.onb-import:not([data-look="plain"]) input[type="checkbox"]:checked {
+  border-color: var(--ds-color-accent);
+  background: var(--ds-color-accent);
+}
+.onb-box {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+}
+.onb-box > * {
+  grid-area: 1 / 1;
+}
+.onb-box-mark {
+  display: none;
+}
+.onb-import:not([data-look="plain"]) .onb-box-mark {
+  display: block;
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  fill: none;
+  stroke: var(--ds-color-on-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.onb-import:not([data-look="plain"]) input:checked + .onb-box-mark {
+  opacity: 1;
+}
+.onb-import:not([data-look="plain"]) input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--ds-color-focus);
+  outline-offset: 1px;
+}
+.onb-import:not([data-look="plain"]) input[type="checkbox"]:disabled {
+  opacity: 0.5;
+}
+.onb-import:not([data-look="plain"]) .onb-import-row[data-access] .onb-import-sub {
+  color: var(--ds-color-attention);
+}
+.onb-import:not([data-look="plain"]) .onb-import-row[data-dimmed] {
+  opacity: 1;
+}
+.onb-import:not([data-look="plain"]) .onb-import-row[data-dimmed] :is(.onb-import-icons, .onb-import-names) {
+  opacity: 0.6;
+}
+.onb-import:not([data-look="plain"]) .onb-import-name {
+  font-weight: var(--weight-emphasis);
+}
+/* While browsers are looked for, the slots are quiet placeholders: an icon square and a name bar. */
+.onb-import:not([data-look="plain"]) .onb-import-row[data-state="slot"] :is(.onb-slot-icon, .onb-slot-bar) {
+  display: block;
+  flex: none;
+  border-radius: var(--ds-radius-md);
+  background: color-mix(in srgb, var(--page-text) 8%, transparent);
+}
+.onb-import .onb-import-row[data-state="slot"] :is(.onb-slot-icon, .onb-slot-bar) {
+  display: none;
+}
+.onb-import:not([data-look="plain"]) .onb-slot-icon {
+  width: var(--onb-import-icon);
+  height: var(--onb-import-icon);
+}
+.onb-import:not([data-look="plain"]) .onb-slot-bar {
+  width: 30%;
+  height: var(--ds-space-2);
+}
+
+/* Grouped: the browsers in one card, hairlines between, and the kinds in a second card, two to a
+   line (Settings' lists; the agents step's list look). */
+/* The cards are frosted glass of their own: the surface color at 62% over a blur, so a busy wallpaper
+   behind the window's glass never fights the rows' text (the plain look's 5% tint did). Never opaque. */
+.onb-import:is([data-look="grouped"], [data-look="tiles"]) {
+  --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) 62%, transparent);
+}
+.onb-import[data-look="grouped"] .onb-import-list,
+.onb-import[data-look="grouped"] .onb-import-options {
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-xl);
+  background: var(--onb-card-glass);
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
+}
+.onb-import[data-look="grouped"] .onb-import-list {
+  gap: 0;
+}
+.onb-import[data-look="grouped"] .onb-import-row {
+  padding-inline: var(--ds-space-3);
+  border-radius: 0;
+}
+.onb-import[data-look="grouped"] .onb-import-row + .onb-import-row {
+  box-shadow: inset 0 1px 0 var(--page-separator);
+}
+.onb-import[data-look="grouped"] .onb-import-options {
+  margin-top: var(--ds-space-2);
+  padding: var(--ds-space-3);
+}
+.onb-import[data-look="grouped"] .onb-import-row {
+  padding-inline: var(--ds-space-3);
+}
+.onb-import[data-look="grouped"] .onb-kinds {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  row-gap: var(--ds-space-2);
+}
+
+
+/* Chips: compact rows on the glass with hairlines, the kinds as toggle pills. */
+.onb-import[data-look="chips"] {
+  --onb-import-row: 44px;
+}
+.onb-import[data-look="chips"] .onb-import-list {
+  gap: 0;
+}
+.onb-import[data-look="chips"] .onb-import-row {
+  padding-inline: var(--ds-space-1);
+  border-radius: 0;
+}
+.onb-import[data-look="chips"] .onb-import-row + .onb-import-row {
+  box-shadow: inset 0 1px 0 var(--page-separator);
+}
+.onb-import[data-look="chips"] .onb-import-options {
+  margin-top: var(--ds-space-3);
+}
+.onb-import[data-look="chips"] .onb-kinds {
+  gap: var(--ds-space-2);
+}
+fieldset.onb-kinds {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.onb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-height: var(--ds-control-compact);
+  padding-inline: var(--ds-space-3);
+  border: 1px solid var(--onb-card-rim);
+  border-radius: 999px;
+  background: var(--onb-card-fill);
+  color: var(--page-text-2);
+  font: inherit;
+  transition:
+    background-color var(--cmux-motion-quick) var(--cmux-ease-out),
+    border-color var(--cmux-motion-quick) var(--cmux-ease-out),
+    color var(--cmux-motion-quick) var(--cmux-ease-out),
+    transform var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.onb-chip-mark {
+  width: var(--ds-space-2);
+  height: var(--ds-space-2);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+}
+.onb-chip[aria-pressed="true"] {
+  border-color: var(--ds-color-accent);
+  background: color-mix(in srgb, var(--ds-color-accent) 18%, transparent);
+  color: var(--page-text);
+}
+.onb-chip[aria-pressed="true"] .onb-chip-mark {
+  border-color: var(--ds-color-accent);
+  background: var(--ds-color-accent);
+}
+.onb-chip:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.onb-chip:disabled {
+  opacity: 0.5;
+}
+.onb-chip:focus-visible {
+  outline: 2px solid var(--ds-color-focus);
+  outline-offset: 1px;
+}
+@media (hover: hover) {
+  .onb-chip:hover:not(:disabled, [aria-pressed="true"]) {
+    background: var(--ds-color-hover);
+  }
+}
+
+/* Tiles: a tile per browser, two to a line; the checkbox in the tile's corner. */
+.onb-import[data-look="tiles"] {
+  --onb-tile: calc(2 * var(--onb-import-row) - var(--ds-space-2) / 2);
+}
+.onb-import[data-look="tiles"] .onb-import-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: var(--onb-tile);
+  gap: var(--ds-space-2);
+}
+.onb-import[data-look="tiles"] .onb-import-row {
+  position: relative;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--ds-space-2);
+  height: auto;
+  padding: var(--ds-space-3);
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-xl);
+  background: var(--onb-card-glass);
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
+}
+.onb-import[data-look="tiles"] .onb-import-row[data-state="slot"] {
+  flex-direction: column;
+}
+.onb-import[data-look="tiles"] .onb-import-names {
+  width: 100%;
+}
+.onb-import[data-look="tiles"] .onb-import-trailing {
+  position: absolute;
+  inset-block-start: var(--ds-space-3);
+  inset-inline-end: var(--ds-space-3);
+  max-width: 55%;
+}
+/* A tile has no room for Open System Settings: the whole tile opens it, and its line says why. */
+.onb-import[data-look="tiles"] .onb-import-row[data-access] .onb-import-trailing {
+  display: none;
+}
+.onb-import[data-look="tiles"] .onb-import-row:has(input:checked) {
+  border-color: color-mix(in srgb, var(--ds-color-accent) 60%, transparent);
+}
+.onb-import[data-look="tiles"] .onb-import-options {
+  margin-top: var(--ds-space-3);
+}
+.onb-import[data-look="tiles"] .onb-import-detail {
+  display: none;
+}
+
+/* The other sources, at the footer's leading edge (every look but plain). */
+.onb-footer-sources {
+  display: flex;
+  min-width: 0;
+  margin-inline-end: auto;
+}
+.onb-footer-sources.is-hidden {
+  visibility: hidden;
+}
+.onb-sources-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border: 0;
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: default;
+}
+.onb-sources-chevron {
+  width: var(--ds-space-2);
+  height: var(--ds-space-2);
+  border-inline-end: 1.5px solid currentColor;
+  border-block-start: 1.5px solid currentColor;
+  transform: translateY(1px) rotate(-45deg);
 }
 
 /* The explainers: in the list's place, a bar for how far the flow is, then the words. */
@@ -608,11 +922,12 @@
 }
 
 /* A row's fill and a control's opacity follow the motion switch (WebTheme's data-cmux-motion). */
-:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is(.onb-import-row, .onb-progress-bar) {
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  :is(.onb-import-row, .onb-progress-bar, .onb-chip, .onb-import input[type="checkbox"], .onb-box-mark) {
   transition: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  :is(.onb-import-row, .onb-progress-bar) {
+  :is(.onb-import-row, .onb-progress-bar, .onb-chip, .onb-import input[type="checkbox"], .onb-box-mark) {
     transition: none;
   }
 }

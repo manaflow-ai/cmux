@@ -62,5 +62,5 @@ test("the other sources sit in the footer, beside Skip and Import, and act once"
 test("the footer's other sources step aside while an explainer shows", async () => {
   const { root } = await mount("consent");
   const sources = root.querySelector<HTMLElement>(".onb-footer .onb-footer-sources");
-  expect(sources == null || sources.inert).toBe(true);
+  expect(sources == null || sources.hasAttribute("inert")).toBe(true);
 });
