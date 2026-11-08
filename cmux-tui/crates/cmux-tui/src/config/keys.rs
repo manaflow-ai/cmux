@@ -188,6 +188,8 @@ impl Default for Keys {
                 bind(KeyCode::Char('r'), Action::BrowserReload),
                 bind(KeyCode::Char('u'), Action::BrowserEditUrl),
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
+                bind(KeyCode::Char('a'), Action::NextAttention),
+                bind(KeyCode::Char('A'), Action::AttentionList),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
             action_by_chord: HashMap::new(),

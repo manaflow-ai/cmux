@@ -650,6 +650,8 @@ cat > node_modules/.bin/vp <<'VP'
             "plans/cmux-next/actions.md",
             "plans/cmux-next/action-surfaces.json",
             "schemas/settings/settings-schema.json",
+            # The docs reference that follows the schema: 13 conflicts in a week.
+            "web/data/next-docs/settings-reference.generated.json",
             "docs/mdm/com.manaflow.cmux.plist",
             "Packages/macOS/CmuxNext/ci-target-graph.json",
             "cmux-tui/bindings/go/raw/generated_types.go",

@@ -124,8 +124,15 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
   if (row.durationMs === undefined) return toolCalls(t, row.toolCount) + workedMessagesText(t, row);
   const time = formatDuration(row.durationMs);
   return (
-    (row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time })) + workedMessagesText(t, row)
+    (row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time })) +
+    workedCallsText(t, row) +
+    workedMessagesText(t, row)
   );
+}
+
+/// " · 14 tool calls" after a finished turn's time when its family counts them (`workedCalls`), else "".
+export function workedCallsText(t: Translate, row: AcpmuxRow): string {
+  return row.workedCalls ? t("turn.workedCalls", { calls: toolCalls(t, row.workedCalls) }) : "";
 }
 
 /// ", sent a message, received 2 messages" after a "Worked for" that names the messages between
@@ -1421,6 +1428,9 @@ function shapeTurn(
         status: summary.status,
         toolCount,
         ...(named && { workedMessages: messages }),
+        // The turn's one outer count, over the runs that each count their own (Leo, 2026-11-07: "do you
+        // think we should distinguish the absolute top level one versus the inner ones").
+        ...(style.countsCalls && (summary.toolCount ?? 0) > 0 ? { workedCalls: summary.toolCount } : {}),
         // It stands for the prompt it folds as the turn's start, open or closed, so the minimap keeps
         // the turn's tick where the closed fold draws no prompt (threadMinimap/model.ts minimapTurns).
         ...(foldsPrompt && { foldedPrompt: user }),

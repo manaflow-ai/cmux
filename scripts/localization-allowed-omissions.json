@@ -14,6 +14,17 @@
       }
     }
   },
+  "settings.choice.groupGradientAurora": {
+    "source": "Aurora",
+    "identityLocales": {
+      "es": {
+        "reason": "Aurora is the standard Spanish word for the dawn and the polar lights, the gradient's name.",
+        "values": [
+          "Aurora"
+        ]
+      }
+    }
+  },
   "settings.choice.agentChatPresentationMessages": {
     "source": "Messages",
     "identityLocales": {
