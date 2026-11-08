@@ -31,11 +31,7 @@ export function showsFirstRunStarters(
   }: { allChats: boolean; chatsPending?: boolean; deviceChats?: number },
 ): boolean {
   return (
-    !allChats &&
-    !chatsPending &&
-    deviceChats === 0 &&
-    snapshot.catalog.length > 0 &&
-    snapshot.sessions.length === 0
+    !allChats && !chatsPending && deviceChats === 0 && snapshot.catalog.length > 0 && snapshot.sessions.length === 0
   );
 }
 

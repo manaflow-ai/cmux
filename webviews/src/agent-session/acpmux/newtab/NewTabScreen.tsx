@@ -2222,12 +2222,10 @@ export function NewTabScreen(props: Props) {
     });
   };
   const starters = showsFirstRunStarters(snapshot, {
-      allChats,
-      chatsPending: props.chatsPending === true,
-      deviceChats: pushed.length,
-    }) && (
-    <FirstRunStarters {...(props.starterLook ? { look: props.starterLook } : {})} onPick={pickStarter} />
-  );
+    allChats,
+    chatsPending: props.chatsPending === true,
+    deviceChats: pushed.length,
+  }) && <FirstRunStarters {...(props.starterLook ? { look: props.starterLook } : {})} onPick={pickStarter} />;
   // The stage's widgets, in the user's order (`tabs.newTabWidgets.order`): Projects and Quick
   // Actions are cards (cards next to each other share a column), Recent Chats is the player and the
   // lists, as before the order; with Recent Chats off the player and the other lists come last.

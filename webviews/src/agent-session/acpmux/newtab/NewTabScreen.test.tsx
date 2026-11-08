@@ -433,7 +433,9 @@ test("a starter picked in shell mode leaves shell mode, so Return asks the agent
 test("a first-run starter fills the composer, sends nothing, and the rows stay while it is edited", async () => {
   let asked = 0;
   await act(async () => {
-    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onAsk={() => void asked++} />);
+    root!.render(
+      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onAsk={() => void asked++} />,
+    );
   });
   const field = await promptField();
   const rows = [...container.querySelectorAll<HTMLButtonElement>(".nt-starters .nt-starter")];
@@ -451,7 +453,9 @@ test("a first-run starter fills the composer, sends nothing, and the rows stay w
 
 test("with a chat on this Mac, New Tab draws no starters", async () => {
   await act(async () => {
-    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([session({ sessionId: "s1" })])} />);
+    root!.render(
+      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([session({ sessionId: "s1" })])} />,
+    );
   });
   await promptField();
   expect(container.querySelector(".nt-starters")).toBeNull();
