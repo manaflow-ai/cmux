@@ -117,7 +117,7 @@ final class PageFloatingOverlays {
         for index in cards.indices {
             let view = cards[index].view
             // A hidden card waits for its tab (one chrome per pane): off screen, it takes no clicks.
-            if view.isHidden {
+            if view.isHidden || (view as? BrowserCookieImportCard)?.waitsForFocus == true {
                 dismiss(index)
                 continue
             }
