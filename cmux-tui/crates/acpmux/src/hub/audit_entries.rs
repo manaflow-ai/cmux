@@ -111,18 +111,21 @@ impl Hub {
     }
 
     /// `session` is being purged: its audit entries leave the log (`audit_log.rs`), waited for
-    /// up to [`AUDIT_PURGE_WAIT`].
-    pub(super) async fn audit_purge(&self, session_id: &str) {
+    /// up to [`AUDIT_PURGE_WAIT`]. An error fails the purge (`Hub::kill`), so the chat is not
+    /// reported deleted while its history is still on disk.
+    pub(super) async fn audit_purge(&self, session_id: &str) -> Result<(), RpcError> {
+        let fail = |why: &str| {
+            tracing::warn!(session = %session_id, "audit: purge failed: {why}");
+            Err(RpcError::internal(format!("audit: the chat's entries were not removed: {why}")))
+        };
         let Some(done) = self.audit.purge(session_id) else {
-            tracing::warn!(session = %session_id, "audit: the writer is gone; nothing purged");
-            return;
+            return fail("the audit writer is gone");
         };
         match tokio::time::timeout(AUDIT_PURGE_WAIT, done).await {
-            Ok(Ok(Ok(_))) => {}
-            Ok(Ok(Err(why))) => {
-                tracing::warn!(session = %session_id, "audit: purge failed: {why}");
-            }
-            _ => tracing::warn!(session = %session_id, "audit: purge did not finish in time"),
+            Ok(Ok(Ok(_))) => Ok(()),
+            Ok(Ok(Err(why))) => fail(&why),
+            Ok(Err(_)) => fail("the audit writer is gone"),
+            Err(_) => fail("the rewrite did not finish in time"),
         }
     }
 

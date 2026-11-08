@@ -428,7 +428,8 @@ impl Hub {
             if matches!(session.status(), SessionStatus::Running | SessionStatus::Waiting) {
                 continue;
             }
-            let row = self.review_row(&session);
+            let mut row = self.review_row(&session);
+            row.weight.subsessions = self.width_used(&session.id);
             for pr in fresh {
                 if self.audit.reviewed(&id, &pr.url) {
                     continue;
