@@ -1,6 +1,8 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+@testable import CmuxNextApp
+import CmuxNextDesign
 @testable import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextTestSupport
@@ -143,4 +145,20 @@ import Testing
         for _ in 0..<100_000 where started.isEmpty { await Task.yield() }
         #expect(started == ["a7"])
     }
+
+    #if DEBUG
+    /// The DEBUG fixture page (`debug.home_native_fixture.open`) registers each transcript it shows, so its queued
+    /// pills keep the menu's Start now (review of #38595 at 231883bb: only the playground registered).
+    @Test func theDebugFixturePageKeepsStartNowInItsMenu() async throws {
+        let homes = HomeChiefHomes()
+        let page = DebugHomeNativeFixture(openPanel: MadeAheadOpenPanel(), homes: homes)
+        let container = page.makeView(for: "fixture", in: nil)
+        defer { page.tabClosed("fixture") }
+        func transcript(in view: NSView) -> HomeNativeTranscriptView? {
+            view as? HomeNativeTranscriptView ?? view.subviews.lazy.compactMap(transcript(in:)).first
+        }
+        for _ in 0..<100_000 where transcript(in: container)?.startAgentMenuItem == nil { await Task.yield() }
+        #expect(transcript(in: container)?.startAgentMenuItem != nil)
+    }
+    #endif
 }
