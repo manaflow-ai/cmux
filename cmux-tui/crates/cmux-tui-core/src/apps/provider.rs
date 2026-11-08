@@ -64,6 +64,9 @@ pub const FAMILIES: &[&str] = &[
     // The Agent Memory app's search (`memory.search`), answered on the Mac
     // from the agent memory index (`optchat-chief agent-memory`).
     "memory",
+    // The agent chats the Mac app's sidebar shows (`agent_chat.list`), for
+    // a customize section's own thread list; read from the app's acpmux lanes.
+    "agent_chat",
     "credential",
     // `toast.show` (`cmux.toast`), shown by the Mac app's toast presenter.
     "toast",
