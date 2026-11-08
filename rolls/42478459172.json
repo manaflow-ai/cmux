@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42478459172",
+  "recorded_at": "2026-11-08T12:10:38Z",
+  "reason": "cmux-tui 92575dcdcd84 changes the image's cmux-tui (pinned 5826cf0df5c5)",
+  "dry_run": false,
+  "cmux_tui": "92575dcdcd84976f86fa85dcd1526b93f0da8b62",
+  "fixes": [
+    {
+      "sha": "92575dcdcd84976f86fa85dcd1526b93f0da8b62",
+      "mergedAt": "2026-11-08T11:48:36Z",
+      "subject": "composer: Remote, and Cloud's Environment chip with a drop-up (behind CLOUD_ENVIRONMENTS_ENABLED) (#37772)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T12:10:38Z",
+    "snapshot_id": "sh-43f6f3e2de3a4eea9401bb6b99e2750e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42478459172): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "fda988325fad908eaaccb47002e2fe0892ac9552",
+    "image": "cloud-native-auto-92575dcd-42478459172-1",
+    "revision": "ci-42478459172-1",
+    "at": "2026-11-08T12:10:38Z"
+  },
+  "rolled_back": false
+}
