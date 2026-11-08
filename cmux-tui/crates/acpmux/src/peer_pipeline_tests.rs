@@ -15,11 +15,22 @@ const RTT: Duration = Duration::from_millis(40);
 struct Hello {
     origin: &'static str,
     features: Vec<&'static str>,
+    /// How long after it arrives `initialize` is answered.
+    initialize_after: Duration,
+    /// Set: right after its watch reply the peer asks for a GitHub action, as a machine this
+    /// Mac lends GitHub does once its watch is answered (`hub/github_owner.rs`), and the answer
+    /// it gets is sent here.
+    github: Option<mpsc::UnboundedSender<Value>>,
 }
 
 impl Hello {
     fn pipelines() -> Self {
-        Self { origin: "peer", features: vec![HANDSHAKE_PIPELINE_FEATURE] }
+        Self {
+            origin: "peer",
+            features: vec![HANDSHAKE_PIPELINE_FEATURE],
+            initialize_after: RTT,
+            github: None,
+        }
     }
 }
 
@@ -46,6 +57,13 @@ fn distant_peer(
             let Frame::Text(text) = frame else { continue };
             let msg: Value = serde_json::from_str(&text).unwrap();
             let Some(id) = msg.get("id").cloned() else { continue };
+            // An answer to the peer's own GitHub action.
+            if msg.get("method").is_none() {
+                if let Some(github) = &hello.github {
+                    let _ = github.send(msg);
+                }
+                continue;
+            }
             let m = msg["method"].as_str().unwrap_or_default().to_owned();
             // The handshake's own requests (a health read may follow it).
             if matches!(m.as_str(), method::INITIALIZE | method::MUX_WATCH | method::MUX_ATTACH) {
@@ -62,10 +80,18 @@ fn distant_peer(
                 _ => json!({}),
             };
             let line = Message::ok(id, result).to_line().trim_end().to_owned();
+            let ask = (m == method::MUX_WATCH && hello.github.is_some()).then(|| {
+                let ask = Message::request(json!("gh-1"), method::MUX_GITHUB_ACTION, json!({}));
+                ask.to_line().trim_end().to_owned()
+            });
+            let after = if m == method::INITIALIZE { hello.initialize_after } else { RTT };
             let out = out_tx.clone();
             tokio::spawn(async move {
-                tokio::time::sleep(RTT).await;
+                tokio::time::sleep(after).await;
                 let _ = out.send(line);
+                if let Some(ask) = ask {
+                    let _ = out.send(ask);
+                }
             });
         }
         drop(out_tx);
@@ -81,6 +107,18 @@ async fn link_once(
     notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>,
     hello: Hello,
 ) -> (Duration, Vec<String>, Vec<Vec<String>>, mpsc::Receiver<Outbound>) {
+    link_once_then(peer, out_rx, notices, hello, None).await.0
+}
+
+/// [`link_once`], and once the link is ready, before it is dropped, the first message `then`
+/// receives.
+async fn link_once_then(
+    peer: &Arc<Peer>,
+    out_rx: mpsc::Receiver<Outbound>,
+    notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>,
+    hello: Hello,
+    then: Option<&mut mpsc::UnboundedReceiver<Value>>,
+) -> ((Duration, Vec<String>, Vec<Vec<String>>, mpsc::Receiver<Outbound>), Option<Value>) {
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
@@ -110,6 +148,15 @@ async fn link_once(
         }
     }
     let took = started.elapsed();
+    let received = match then {
+        Some(rx) => Some(
+            tokio::time::timeout(Duration::from_secs(30), rx.recv())
+                .await
+                .expect("an answer comes")
+                .expect("the peer stays open"),
+        ),
+        None => None,
+    };
     fake.abort();
     let out_rx = serving.await.unwrap();
     peer.finish_link(Err("dropped".to_owned()), &mut Backoff::default());
@@ -117,7 +164,7 @@ async fn link_once(
     while let Ok(m) = asked.try_recv() {
         methods.push(m);
     }
-    (took, methods, lists, out_rx)
+    ((took, methods, lists, out_rx), received)
 }
 
 fn round_trips(took: Duration) -> f64 {
@@ -147,7 +194,7 @@ async fn a_reconnect_sends_its_watch_with_initialize() {
 async fn a_peer_that_does_not_pipeline_is_asked_in_turn() {
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("old", "ws://127.0.0.1:9", None, None, tx);
-    let older = Hello { origin: "peer", features: vec![] };
+    let older = Hello { features: vec![], ..Hello::pipelines() };
     let out_rx = peer.out_rx.lock().await.take().unwrap();
     let (_, _, _, out_rx) = link_once(&peer, out_rx, &mut notices, older.clone()).await;
     let (again, asked, _, _) = link_once(&peer, out_rx, &mut notices, older).await;
@@ -163,7 +210,7 @@ async fn a_pipelined_watch_the_initialize_reply_rules_out_is_not_published() {
     let peer = Peer::new("moved", "ws://127.0.0.1:9", None, None, tx);
     let out_rx = peer.out_rx.lock().await.take().unwrap();
     let (_, _, _, out_rx) = link_once(&peer, out_rx, &mut notices, Hello::pipelines()).await;
-    let web = Hello { origin: "remote", features: vec![HANDSHAKE_PIPELINE_FEATURE] };
+    let web = Hello { origin: "remote", ..Hello::pipelines() };
     let (_, asked, lists, _) = link_once(&peer, out_rx, &mut notices, web).await;
     assert_eq!(asked, [method::INITIALIZE, method::MUX_WATCH, method::MUX_WATCH]);
     assert_eq!(lists, [vec!["w2".to_owned()]], "only the list asked for after initialize");
@@ -189,4 +236,30 @@ async fn a_reconnect_replays_its_chats_at_once() {
         again < RTT * 3,
         "the watch goes with initialize and the 8 replays take one round trip, took {again:?}"
     );
+}
+
+/// Review of #38298 at 7d865c96 (F1): a machine this Mac lends GitHub asks for an action as soon
+/// as it has sent its watch answer. Over a pipelined watch that answer is held until the
+/// `initialize` reply settles it, and the action, read meanwhile, was refused with "this Mac
+/// does not lend its GitHub login". It waits for the watch instead, and is let in.
+#[tokio::test(start_paused = true)]
+async fn a_github_action_asked_after_a_held_pipelined_watch_waits_for_it() {
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = Peer::new("lends", "ws://127.0.0.1:9", None, None, tx);
+    peer.set_github_broker(true);
+    let out_rx = peer.out_rx.lock().await.take().unwrap();
+    let (_, _, _, out_rx) = link_once(&peer, out_rx, &mut notices, Hello::pipelines()).await;
+    let (github_tx, mut github_rx) = mpsc::unbounded_channel();
+    // The watch's reply, and the action after it, arrive before the `initialize` reply.
+    let slow = Hello { initialize_after: RTT * 3, github: Some(github_tx), ..Hello::pipelines() };
+    let ((_, asked, lists, _), answer) =
+        link_once_then(&peer, out_rx, &mut notices, slow, Some(&mut github_rx)).await;
+    assert_eq!(asked, [method::INITIALIZE, method::MUX_WATCH], "the watch went with initialize");
+    assert_eq!(lists, [vec!["w1".to_owned()]], "the pipelined watch was kept");
+    let answer = answer.unwrap();
+    assert_eq!(answer["id"], "gh-1");
+    assert_ne!(answer.pointer("/error/data/reason"), Some(&json!("github.denied")), "{answer}");
+    // Let in: the broker read the (empty) action itself.
+    let message = answer.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
+    assert!(message.contains("invalid GitHub action"), "{answer}");
 }
