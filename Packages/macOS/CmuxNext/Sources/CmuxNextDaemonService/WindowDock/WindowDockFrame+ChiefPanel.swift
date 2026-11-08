@@ -68,6 +68,16 @@ public extension WindowDockFrame {
         return true
     }
 
+    /// Undock Chief (cmux#37372): a docked panel floats again and shows, also when the person had hidden it, so
+    /// the action always has a visible result. False when it was not docked.
+    @discardableResult
+    func undockChiefPanel() -> Bool {
+        guard frameChiefPanel.dockedEdge != nil else { return false }
+        frameChiefPanel.openFloating()
+        frameChiefPanelDidChange()
+        return true
+    }
+
     /// The panel's Dock/Float button: Float when docked, else Dock at `edge`.
     func toggleChiefPanelDock(edge: DockEdge) {
         if !floatChiefPanel() { dockChiefPanel(at: edge) }
