@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42476616841",
+  "recorded_at": "2026-11-08T11:49:27Z",
+  "reason": "cmux-tui f2262beec1ac changes the image's cmux-tui (pinned ef1b22048369)",
+  "dry_run": false,
+  "cmux_tui": "f2262beec1acacd2c61781de24a81f06e908eca6",
+  "fixes": [
+    {
+      "sha": "f2262beec1acacd2c61781de24a81f06e908eca6",
+      "mergedAt": "2026-11-08T03:22:59-08:00",
+      "subject": "cmux-tui test: the Codex shim's SessionStart hook prints the agent's cmux context (#38369)"
+    },
+    {
+      "sha": "5a6c3e53f42b543078880dca1c844b191b11a962",
+      "mergedAt": "2026-11-08T03:22:54-08:00",
+      "subject": "cmux-agent-pane-policy: _acpmux/kill and acp.session.fork take Fork Conversation's cancel params, as the macOS host does (#38368)"
+    },
+    {
+      "sha": "8f6bbfb8ae46f18147826f504b73d3d7e9153f71",
+      "mergedAt": "2026-11-08T11:07:29Z",
+      "subject": "cmux-host: report the running session host's build, not the bake's, after a restart (#38397)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T11:49:27Z",
+    "snapshot_id": "sh-91789ac37fdf4787a1fbbb7358ca3043",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42476616841): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ad8bc37bad87dc965e0d9ec2397b2a8234bfca88",
+    "image": "cloud-native-auto-f2262bee-42476616841-1",
+    "revision": "ci-42476616841-1",
+    "at": "2026-11-08T11:49:27Z"
+  },
+  "rolled_back": false
+}
