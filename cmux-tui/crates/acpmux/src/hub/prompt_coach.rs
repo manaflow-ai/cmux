@@ -17,6 +17,53 @@ const MAX_TOKENS: u32 = 1024;
 /// What writes the rewrite in place of the small model (tests).
 pub type CoachRewriter = Arc<dyn Fn(String) -> Option<String> + Send + Sync>;
 
+/// What the chat's log says about offer `id`.
+struct LogRead {
+    /// The person's first prompt with text: never an agent's or a peer's, never an empty one.
+    first: Option<String>,
+    /// The chat's corrections and the offer, rebuilt for an offer an earlier daemon run logged
+    /// whose rewrite was not made yet.
+    restored: Option<prompt_coach::Coach>,
+}
+
+/// The text of a person's prompt record: one with no provenance (`prompt_provenance::marked`),
+/// with text in it.
+fn person_text(msg: &Value) -> Option<&str> {
+    if msg.pointer("/_meta/provenance").is_some() {
+        return None;
+    }
+    msg.get("text").and_then(Value::as_str).filter(|t| !t.trim().is_empty())
+}
+
+/// One read of chat `sid`'s prompts and coach records, off the async threads.
+fn read_log(hub: &Hub, sid: &str, id: &str) -> LogRead {
+    let mut first = None;
+    let mut replay = prompt_coach::Coach::default();
+    let (mut offered, mut made) = (false, false);
+    let kinds = ["user_message", "coach_offer", "coach"];
+    let _ = hub.store.scan_kinds(sid, &kinds, &mut |e| {
+        let this = e.msg.get("coachId").and_then(Value::as_str) == Some(id);
+        match e.kind.as_str() {
+            "user_message" => {
+                if let Some(text) = person_text(&e.msg) {
+                    first.get_or_insert_with(|| text.to_owned());
+                    if !offered {
+                        replay.prompt(text);
+                    }
+                }
+            }
+            "coach_offer" if this => {
+                offered = true;
+                replay.offer(id.to_owned());
+            }
+            "coach" if this => made = true,
+            _ => {}
+        }
+        !made
+    });
+    LogRead { first, restored: (offered && !made).then_some(replay) }
+}
+
 impl Hub {
     /// A person's prompt to `session` (`server/requests.rs`), checked once as it is sent.
     pub(crate) fn coach_prompt(&self, session: &Session, text: &str) {
@@ -74,23 +121,38 @@ impl Hub {
         coach_id: &str,
     ) -> Result<Value, RpcError> {
         let ask = session.coach.lock().unwrap_or_else(|e| e.into_inner()).take_ask(coach_id);
-        let Some((corrections, count)) = ask else { return Ok(json!({"made": false})) };
-        let first = {
+        let read = {
             let hub = self.clone();
             let sid = session.id.clone();
-            tokio::task::spawn_blocking(move || {
-                let mut first = None;
-                let _ = hub.store.scan_kinds(&sid, &["user_message"], &mut |e| {
-                    first = e.msg.get("text").and_then(Value::as_str).map(str::to_owned);
-                    first.is_none()
-                });
-                first
-            })
-            .await
-            .ok()
-            .flatten()
+            let id = coach_id.to_owned();
+            tokio::task::spawn_blocking(move || read_log(&hub, &sid, &id)).await.ok()
         };
-        let Some(first) = first.filter(|f| !f.trim().is_empty()) else {
+        let Some(read) = read else {
+            if ask.is_some() {
+                session.coach.lock().unwrap_or_else(|e| e.into_inner()).ask_failed();
+            }
+            return Ok(json!({"made": false}));
+        };
+        let ask = match ask {
+            Some(ask) => Some(ask),
+            // An offer an earlier daemon run logged: its corrections are rebuilt from the log,
+            // unless its rewrite was made already or another request rebuilt it meanwhile.
+            None => match read.restored {
+                Some(restored) => {
+                    let mut coach = session.coach.lock().unwrap_or_else(|e| e.into_inner());
+                    if coach.offered() == Some(coach_id) {
+                        None
+                    } else {
+                        *coach = restored;
+                        coach.take_ask(coach_id)
+                    }
+                }
+                None => None,
+            },
+        };
+        let Some((corrections, count)) = ask else { return Ok(json!({"made": false})) };
+        let Some(first) = read.first else {
+            session.coach.lock().unwrap_or_else(|e| e.into_inner()).ask_failed();
             return Ok(json!({"made": false}));
         };
         let prompt = prompt_coach::rewrite_prompt(&first, &corrections);
@@ -127,9 +189,36 @@ impl Hub {
         Ok(json!({"made": true}))
     }
 
+    /// Forgets `id`'s coach state, as a daemon restart does (tests).
+    #[doc(hidden)]
+    pub fn forget_coach(&self, id: &str) {
+        if let Ok(session) = self.resolve(id) {
+            *session.coach.lock().unwrap_or_else(|e| e.into_inner()) = Default::default();
+        }
+    }
+
     /// Writes prompt coach rewrites with `rewriter` instead of the small model (tests).
     #[doc(hidden)]
     pub fn set_coach_rewriter(&self, rewriter: Option<CoachRewriter>) {
         *self.coach_rewriter.lock().unwrap_or_else(|e| e.into_inner()) = rewriter;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::person_text;
+    use serde_json::json;
+
+    /// The rewrite starts from the person's first prompt with text: an agent's or a peer's
+    /// message (it has a provenance) and an empty, attachment-only prompt are skipped.
+    #[test]
+    fn only_a_persons_prompt_with_text_counts() {
+        assert_eq!(person_text(&json!({"text": "add a toggle"})), Some("add a toggle"));
+        let person = json!({"text": "hi", "_meta": {"origin": {"actor": "person"}}});
+        assert_eq!(person_text(&person), Some("hi"));
+        let agent = json!({"text": "do X", "_meta": {"provenance": {"kind": "agent"}}});
+        assert_eq!(person_text(&agent), None);
+        assert_eq!(person_text(&json!({"text": "  "})), None);
+        assert_eq!(person_text(&json!({"images": []})), None);
     }
 }

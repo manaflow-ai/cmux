@@ -78,6 +78,11 @@ impl Coach {
         Some((self.corrections.clone(), self.count))
     }
 
+    /// The offer logged, if any.
+    pub fn offered(&self) -> Option<&str> {
+        self.offered.as_deref()
+    }
+
     /// Every correction counted.
     pub fn count(&self) -> usize {
         self.count

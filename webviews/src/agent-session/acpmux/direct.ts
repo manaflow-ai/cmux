@@ -7183,12 +7183,13 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "coach") {
         // The rewrite acpmux wrote for a `coach_offer` (conversation/PromptCoachCard.tsx): one card,
         // whole, under the turn it lands in. Never asked for again, drawn or not. A replay draws it
-        // too (it has no capabilities; only a daemon that serves the coach logs one); the setting off
-        // or a chat whose card the person dismissed on this device draws nothing.
+        // too (it has no capabilities; only a daemon that serves the coach logs one). A guest's fed
+        // page draws none, and keeps no row for it: the card is the owner's own feedback. The setting
+        // off or a chat whose card the person dismissed on this device draws nothing.
         const coachId = coachIdOf(msg);
         if (coachId) this.coachMade.add(coachId);
         const sessionId = this.selectedSessionId ?? "";
-        const draws = this.supportsPromptCoach || this.replayThrough !== undefined || this.fedMode;
+        const draws = !this.fedMode && (this.supportsPromptCoach || this.replayThrough !== undefined);
         const coach = draws ? promptCoachFromRecord(msg, sessionId) : undefined;
         if (coach && promptCoachEnabled() && !promptCoachDismissed(sessionId)) {
           const id = coachRowId(coach.coachId);

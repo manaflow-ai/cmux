@@ -168,3 +168,21 @@ test("a dismissed chat draws no card and asks nothing; × remembers the chat", a
     second.client.close?.();
   }
 });
+
+test("a guest's fed page keeps no coach row, so no blank gap is reserved", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  let rows: Row[] = [];
+  const client = AcpmuxDirectClient.fed("guest-chat", (snapshot) => {
+    rows = snapshot.rows as Row[];
+  });
+  client.feed(
+    [
+      { seq: 1, at: 1, dir: "mux", kind: "user_message", msg: { text: "Add a toggle." } },
+      { seq: 2, at: 2, dir: "mux", kind: "coach_offer", msg: OFFER.msg },
+      { seq: 3, at: 3, dir: "mux", kind: "coach", msg: COACH.msg },
+    ],
+    "snapshot",
+  );
+  expect(rows.length).toBeGreaterThan(0);
+  expect(rows.filter((row) => row.kind === "promptCoach")).toHaveLength(0);
+});
