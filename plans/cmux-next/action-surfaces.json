@@ -13087,6 +13087,37 @@
 
       ],
       "cli" : "ownerVerb",
+      "cli_name" : "remote stop-screen-session",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.stopScreenSession",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "cmux Remote: End Screen Sharing Session",
+      "title_key" : "action.remote.stopScreenSession",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "ownerVerb",
       "cli_name" : "remote share-this-mac",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -26268,6 +26299,126 @@
     {
       "args" : [
         {
+          "kind" : "int",
+          "max" : 99,
+          "min" : 1,
+          "name" : "index",
+          "required" : true
+        }
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action browser-profile-move",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browserProfile.move",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Browser Profile to Position…",
+      "title_key" : "action.browserProfile.move",
+      "title_table" : "BrowserProfileActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "enum",
+          "name" : "scheme",
+          "required" : true,
+          "values" : [
+            "socks5",
+            "http",
+            "https"
+          ]
+        },
+        {
+          "kind" : "string",
+          "name" : "host",
+          "required" : true
+        },
+        {
+          "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
+          "name" : "port",
+          "required" : true
+        }
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action browser-profile-set-proxy",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browserProfile.setProxy",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Browser Profile Proxy…",
+      "title_key" : "action.browserProfile.setProxy",
+      "title_table" : "BrowserProfileActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action browser-profile-clear-proxy",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browserProfile.clearProxy",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Remove Browser Profile Proxy",
+      "title_key" : "action.browserProfile.clearProxy",
+      "title_table" : "BrowserProfileActions"
+    },
+    {
+      "args" : [
+        {
           "kind" : "target",
           "name" : "browserProfile",
           "required" : true,
@@ -28126,6 +28277,37 @@
       "palette_suggested" : null,
       "title" : "Notification Banners",
       "title_key" : "action.notifications.toggleBanners",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action notifications-allow-desktop",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "notifications.allowDesktop",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Allow cmux Notifications",
+      "title_key" : "action.notifications.allowDesktop",
       "title_table" : "ActionCatalog"
     },
     {
@@ -37116,6 +37298,37 @@
       "palette_suggested" : null,
       "title" : "Upgrade to cmux Pro",
       "title_key" : "action.palette.pro.upgrade",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action billing-open-portal",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "billing.openPortal",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Manage Billing",
+      "title_key" : "action.billing.openPortal",
       "title_table" : "ActionCatalog"
     },
     {
@@ -46906,7 +47119,12 @@
     },
     {
       "args" : [
-
+        {
+          "kind" : "target",
+          "name" : "machine",
+          "required" : true,
+          "target_kind" : "machine"
+        }
       ],
       "cli" : "guiOnly",
       "cli_name" : "action machine-joined-rotate",
@@ -46922,7 +47140,7 @@
       "id" : "machine.joined.rotate",
       "main_menu" : null,
       "mcp" : "guiOnly",
-      "palette" : "guiOnly",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.remote",
         "order" : 111,
@@ -46937,7 +47155,12 @@
     },
     {
       "args" : [
-
+        {
+          "kind" : "target",
+          "name" : "machine",
+          "required" : true,
+          "target_kind" : "machine"
+        }
       ],
       "cli" : "guiOnly",
       "cli_name" : "action machine-joined-revoke",
@@ -46953,7 +47176,7 @@
       "id" : "machine.joined.revoke",
       "main_menu" : null,
       "mcp" : "guiOnly",
-      "palette" : "guiOnly",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.remote",
         "order" : 111,
