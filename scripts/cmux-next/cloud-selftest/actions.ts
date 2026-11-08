@@ -50,6 +50,8 @@ export type ActionDef = {
   /** This runner's own action (fixtures, stub, local gateway, an exec-built probe). */
   harness?: (a: Args, ctx: RunCtx, actor: Actor) => Promise<ActionResult>;
   timeoutMs?: number;
+  /** The part of a successful answer steps match, the same for the verb and its route (e.g. `.gateway`). */
+  answer?: (json: any) => any;
 };
 
 export type Resolution = { kind: "cli" | "api" | "harness"; argv?: string[] } | { kind: "pending"; lane: Lane; why: string } | { kind: "skip"; why: string };
@@ -66,21 +68,26 @@ export function resolve(def: ActionDef, a: Args, ctx: RunCtx, actor: Actor, has:
 }
 
 export async function runAction(def: ActionDef, a: Args, ctx: RunCtx, actor: Actor, how: Resolution): Promise<ActionResult> {
-  switch (how.kind) {
-    case "harness":
-      return def.harness!(a, ctx, actor);
-    case "api":
-      return def.api!(a, ctx, actor);
-    case "cli":
-      return runCli(ctx.cmux!, actor, how.argv!, def.timeoutMs ?? 180_000);
-    default:
-      throw new Error(`not runnable: ${how.kind}`);
-  }
+  const r = await (async () => {
+    switch (how.kind) {
+      case "harness":
+        return def.harness!(a, ctx, actor);
+      case "api":
+        return def.api!(a, ctx, actor);
+      case "cli":
+        return runCli(ctx.cmux!, actor, how.argv!, def.timeoutMs ?? 180_000);
+      default:
+        throw new Error(`not runnable: ${how.kind}`);
+    }
+  })();
+  return r.ok && def.answer ? { ...r, json: def.answer(r.json) } : r;
 }
 
 const ok = (json: any, transport: ActionResult["transport"] = "harness"): ActionResult => ({ ok: true, json, transport });
 const fail = (code: string, message: string, json: any = null, transport: ActionResult["transport"] = "harness"): ActionResult => ({ ok: false, code, message, json, transport });
 const key = (ctx: RunCtx, what: string) => `${ctx.run}-${what}-${randomBytes(4).toString("hex")}`;
+/** The team gateway route, or the owner's personal one (lane B: platform-forward's personal route). */
+const gatewayRoute = (a: Args) => (a.personal ? "/v1/cloud/inference-gateway/personal" : "/v1/cloud/inference-gateway");
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE, cloud-journey.ts GUEST). */
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
@@ -144,6 +151,9 @@ async function execJson(ctx: RunCtx, actor: Actor, machine: string, command: str
 
 /** A turn error's stable code, from the harness's error text (gateway, provider, auth). */
 export function turnErrorCode(text: string): string {
+  // The daemon's own classification of the failed turn wins over words in the agent's message.
+  const kind = /"errorKind"\s*:\s*"([a-z][a-z0-9_]*\.[a-z0-9_.]+)"/.exec(text);
+  if (kind) return kind[1]!;
   const m = /\b(inference\.[a-z_]+)\b/.exec(text);
   if (m) return m[1]!;
   if (/rate[_ ]?limit|429/i.test(text)) return "provider.rate_limited";
@@ -173,7 +183,19 @@ for f in ["/etc/cmux/model-plane.env", str(home/".config/cmux/model-plane.env")]
 names = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY"]
 placeholder = lambda v: (not v) or v.startswith("cmux-") or "placeholder" in v.lower() or v in ("x", "dummy", "unused")
 real = [n for n in names if not placeholder(env.get(n, ""))]
-print("@@json " + json.dumps({"ok": True, "files": files, "real_env": real,
+present = [n for n in names if env.get(n)]
+# What the agents really get: the agent daemon's own environment (its children inherit it), names only.
+daemon = {}
+try:
+    import re
+    out = subprocess.run(["bash", "-lc", 'c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; "$c" acp --json daemon status'], capture_output=True, text=True, timeout=15).stdout
+    m = re.search(r'"pid":\s*(\d+)', out)
+    if m:
+        daemon = dict(kv.split("=", 1) for kv in open(f"/proc/{m.group(1)}/environ", "rb").read().decode(errors="replace").split("\0") if "=" in kv)
+except Exception:
+    pass
+print("@@json " + json.dumps({"ok": True, "files": files, "real_env": real, "auth_env": present,
+      "daemon_seen": bool(daemon), "daemon_auth_env": [n for n in names if daemon.get(n)], "daemon_anthropic_base_url": daemon.get("ANTHROPIC_BASE_URL", ""),
       "anthropic_base_url": env.get("ANTHROPIC_BASE_URL", ""), "openai_base_url": env.get("OPENAI_BASE_URL", "")}))
 PY`;
 
@@ -306,7 +328,7 @@ export const ACTIONS: Record<string, ActionDef> = {
         `set -e; mkdir -p ${d}; echo ${stub} | base64 -d > ${d}/stub.py; echo ${script} | base64 -d > ${d}/script.json; ` +
         `rm -f ${d}/ready; (nohup python3 ${d}/stub.py --port 0 --script ${d}/script.json --nonce ${shq(nonce)} --log ${d}/log.jsonl --ready-file ${d}/ready >${d}/out 2>&1 &); ` +
         `for i in $(seq 50); do [ -s ${d}/ready ] && break; sleep 0.2; done; port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${d}/ready); ` +
-        `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(c))\nprint('@@json ' + json.dumps({'ok': True, 'port': int(sys.argv[1])}))\nPY`;
+        `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\ne = c.setdefault('env', {}); e['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]; e['ANTHROPIC_AUTH_TOKEN'] = 'selftest-stub-placeholder'\np.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(c))\nprint('@@json ' + json.dumps({'ok': True, 'port': int(sys.argv[1])}))\nPY`;
       return execJson(ctx, actor, a.machine, cmd, 90_000);
     },
   },
@@ -430,12 +452,23 @@ export const ACTIONS: Record<string, ActionDef> = {
     summary: "the team's (or owner's) gateway mode and whether one is online",
     verb: ["inference", "gateway", "status"],
     cli: (a) => ["--json", "inference", "gateway", "status", ...(a.personal ? ["--personal"] : [])],
-    api: (_a, _ctx, actor) => actor.request("GET", "/v1/cloud/inference-gateway"),
+    // Both answer {ok, [scope,] gateway: {mode, machine, online, kind, connected_at}}; steps match the gateway itself.
+    api: (a, _ctx, actor) => actor.request("GET", gatewayRoute(a)),
+    answer: (j) => j?.gateway ?? j,
   },
   "gateway.mode": {
-    lane: "base",
-    summary: "set the team's gateway mode (gateway | off)",
-    api: (a, _ctx, actor) => actor.request("PUT", "/v1/cloud/inference-gateway", { mode: a.mode, machine: a.machine ?? null }),
+    lane: "B",
+    summary: "set the team's (or with personal, the owner's own) gateway mode (gateway | off)",
+    verb: ["inference", "gateway", "mode"],
+    cli: (a) => ["--json", "inference", "gateway", "mode", String(a.mode), ...(a.personal ? ["--personal"] : []), ...(a.machine ? ["--gateway-machine", String(a.machine)] : [])],
+    api: (a, _ctx, actor) => actor.request("PUT", gatewayRoute(a), { mode: a.mode, machine: a.machine ?? null }),
+    answer: (j) => j?.gateway ?? j,
+  },
+  "gateway.route": {
+    lane: "B",
+    summary: "which route a machine's next model call takes (team_key | owner_key | owner_gateway | team_gateway), asked from the machine",
+    verb: ["inference", "route"],
+    cli: (a) => ["--json", "inference", "route", "--machine", String(a.machine), "--agent", String(a.agent ?? "claude")],
   },
   "gateway.start": {
     lane: "base",

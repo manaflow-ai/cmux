@@ -91,7 +91,8 @@ export function apiResult(status: number, text: string): ActionResult {
   } catch {
     json = { raw: text.slice(0, 300) };
   }
-  const error = json?.error ?? json?.value?.error;
+  // `{error: {code}}`, `{ok:false, value:{error}}`, or a tagged error with its code at the top (the auth layer).
+  const error = json?.error ?? json?.value?.error ?? (status >= 400 && typeof json?.code === "string" ? json : undefined);
   if (status < 200 || status >= 300 || json?.ok === false) {
     const code = typeof error?.code === "string" ? error.code : typeof error === "string" ? error : `http.${status}`;
     return { ok: false, code, message: typeof error?.message === "string" ? error.message : `HTTP ${status}`, json, transport: "api" };

@@ -21,12 +21,20 @@ const listed = (role: string) => ({ teams: { $contains: { id: "${team}", role } 
 /** The chat address of C5: cloud:<team>/<vm>/<session>. */
 const CHAT = "cloud:${team}/${vm}/${session}";
 /** A machine and an agent session on it, with the model stub on its loopback, as the owner. */
+/** The stub's reply names the prompt's `[st-N]` tag, so a step can tell which turn answered. */
+const ECHO = { version: 1, steps: [{ text: "Stub reply {{nonce}}: {{prompt~(\\[st-[^\\]]+\\])}}" }] };
 const machineWithChat = (script?: unknown): Step[] => [
   s("owner", "machine.create", {}, { ok: true, json: { machine_id: { $exists: true } } }, { save: { vm: "machine_id" } }),
   s("owner", "machine.get", { machine: "${vm}" }, { json: { status: "running" }, within_ms: 300_000, every_ms: 3_000 }, { label: "owner: machine running" }),
-  s("owner", "vm.stub", { machine: "${vm}", script: script ?? { version: 1, steps: [{ text: "Stub reply {{nonce}}: {{prompt~(\\[st-[^\\]]+\\])}}" }] } }),
+  s("owner", "vm.stub", { machine: "${vm}", script: script ?? ECHO }),
   s("owner", "chat.start", { machine: "${vm}", session: "${session}" }),
 ];
+/**
+ * A gateway turn needs the machine's agents pointed at the model edge (the login-free VM's base URLs, lane A). Without
+ * it Claude Code reports "Not logged in" (auth.signed_out) and the gateway is never asked, so say that first. Read from
+ * the agent daemon's own environment (what its agents inherit), after the chat starts it.
+ */
+const edgeRouted = s("owner", "vm.credentials", { machine: "${vm}" }, { json: { daemon_seen: true, daemon_anthropic_base_url: { $re: "^https?://" }, daemon_auth_env: { $contains: { $oneOf: ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"] } } } }, { label: "owner: the machine's agents reach models at the edge (login-free VM, lane A)" });
 const deleteVm: Step[] = [s("owner", "machine.delete", { machine: "${vm}" }, { ok: true }, { label: "owner: delete the machine (cleanup)" })];
 
 export const SCENARIOS: Scenario[] = [
@@ -131,7 +139,7 @@ export const SCENARIOS: Scenario[] = [
       s("owner", "machine.get", { machine: "${vm}" }, { json: { status: { $oneOf: ["paused", "suspended", "stopped"] } }, within_ms: 180_000, every_ms: 3_000 }),
       s("owner", "machine.resume", { machine: "${vm}" }),
       s("owner", "machine.get", { machine: "${vm}" }, { json: { status: "running" }, within_ms: 300_000, every_ms: 3_000 }),
-      s("owner", "vm.stub", { machine: "${vm}" }, { ok: true }, { label: "owner: the stub again (processes do not survive a pause)" }),
+      s("owner", "vm.stub", { machine: "${vm}", script: ECHO }, { ok: true }, { label: "owner: the stub again (processes do not survive a pause)" }),
       s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-2] after wake" }),
       s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { json: { reply: { $re: "\\[st-2\\]" } } }),
       s("owner", "chat.history", { machine: "${vm}", session: "${session}" }, { json: { count: 2, turns: [{ prompt: { $re: "^\\[st-1\\]" } }, { prompt: { $re: "^\\[st-2\\]" } }] } }),
@@ -188,6 +196,7 @@ export const SCENARIOS: Scenario[] = [
       s("owner", "machine.create", {}, { json: { machine_id: { $exists: true } } }, { save: { vm: "machine_id" } }),
       s("owner", "machine.get", { machine: "${vm}" }, { json: { status: "running" }, within_ms: 300_000, every_ms: 3_000 }),
       s("owner", "chat.start", { machine: "${vm}", session: "${session}" }),
+      edgeRouted,
       s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-off] no gateway" }),
       s("owner", "chat.wait", { machine: "${vm}", session: "${session}", timeout_ms: 240_000 }, { error: "inference.gateway_offline" }),
       s("owner", "gateway.start", { id: "g1" }),
@@ -201,6 +210,24 @@ export const SCENARIOS: Scenario[] = [
       s("owner", "stub.calls", {}, { json: { count: { $gte: 1 } } }),
     ],
     finally: [s("owner", "gateway.stop", { id: "g1" }), s("owner", "gateway.mode", { mode: "off" }), ...deleteVm],
+  },
+  {
+    name: "gateway.route_order",
+    summary: "a machine's route follows the documented order: the owner's personal gateway before the team's",
+    covers: ["team shared keys (route order)", "two gateways for one owner"],
+    tags: ["gateway", "machine"],
+    actors: [OWNER],
+    needs: ["machine"],
+    steps: [
+      s("owner", "machine.create", {}, { json: { machine_id: { $exists: true } } }, { save: { vm: "machine_id" } }),
+      s("owner", "machine.get", { machine: "${vm}" }, { json: { status: "running" }, within_ms: 300_000, every_ms: 3_000 }),
+      s("owner", "gateway.mode", { mode: "gateway" }, { ok: true }),
+      s("owner", "gateway.route", { machine: "${vm}" }, { json: { route: "team_gateway" } }),
+      s("owner", "gateway.mode", { mode: "gateway", personal: true }, { ok: true }),
+      s("owner", "gateway.status", { personal: true }, { json: { mode: "gateway" } }),
+      s("owner", "gateway.route", { machine: "${vm}" }, { json: { route: "owner_gateway" } }),
+    ],
+    finally: [s("owner", "gateway.mode", { mode: "off", personal: true }), s("owner", "gateway.mode", { mode: "off" }), ...deleteVm],
   },
   {
     name: "gateway.two_gateways",
@@ -217,6 +244,7 @@ export const SCENARIOS: Scenario[] = [
       s("owner", "machine.create", {}, { json: { machine_id: { $exists: true } } }, { save: { vm: "machine_id" } }),
       s("owner", "machine.get", { machine: "${vm}" }, { json: { status: "running" }, within_ms: 300_000, every_ms: 3_000 }),
       s("owner", "chat.start", { machine: "${vm}", session: "${session}" }),
+      edgeRouted,
       s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-2g-1] both up" }),
       s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { json: { reply: { $re: "\\[st-2g-1\\]" } } }),
       s("owner", "gateway.stop", { id: "a" }),
@@ -239,6 +267,7 @@ export const SCENARIOS: Scenario[] = [
       s("owner", "machine.create", {}, { json: { machine_id: { $exists: true } } }, { save: { vm: "machine_id" } }),
       s("owner", "machine.get", { machine: "${vm}" }, { json: { status: "running" }, within_ms: 300_000, every_ms: 3_000 }),
       s("owner", "chat.start", { machine: "${vm}", session: "${session}" }),
+      edgeRouted,
       s("harness", "stub.fault", { faults: [{ status: 429, type: "rate_limit_error", message: "rate limited", retry_after: 1, count: 20 }] }),
       s("owner", "chat.send", { machine: "${vm}", session: "${session}", text: "[st-429] limited" }),
       s("owner", "chat.wait", { machine: "${vm}", session: "${session}" }, { error: "provider.rate_limited" }),

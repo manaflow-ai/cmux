@@ -102,6 +102,8 @@ describe("matching", () => {
     expect(apiResult(403, JSON.stringify({ ok: false, error: { code: "team.not_member", message: "not a member" } }))).toMatchObject({ ok: false, code: "team.not_member" });
     expect(apiResult(200, JSON.stringify({ ok: false, error: { code: "auth.forbidden" } })).code).toBe("auth.forbidden");
     expect(apiResult(500, "boom").code).toBe("http.500");
+    // The auth layer's refusal is the tagged error itself, its code at the top (live dev answer, 2026-11-07).
+    expect(apiResult(401, JSON.stringify({ _tag: "Unauthenticated", code: "auth.unauthenticated", message: "missing or invalid bearer token" }))).toMatchObject({ ok: false, code: "auth.unauthenticated", message: "missing or invalid bearer token" });
     expect(cliJson('status line\n{"a":1}\n')).toEqual({ a: 1 });
     expect(cliErrorCode({ error: { code: "share.revoked" } }, "", 1)).toBe("share.revoked");
     expect(cliErrorCode(null, "error: cloud.app_not_running: start cmux", 1)).toBe("cloud.app_not_running");
@@ -109,6 +111,8 @@ describe("matching", () => {
     expect(turnErrorCode('{"kind":"turn_error","error":"inference.gateway_offline: Your model gateway is offline"}')).toBe("inference.gateway_offline");
     expect(turnErrorCode("API Error: 429 rate_limit_error")).toBe("provider.rate_limited");
     expect(turnErrorCode("401 authentication_error")).toBe("provider.auth");
+    // The daemon's classification wins over words elsewhere in the failure (a live dev turn, 2026-11-07).
+    expect(turnErrorCode('{"error":"overloaded? no: Not logged in · Please run /login","errorKind":"auth.signed_out"}')).toBe("auth.signed_out");
   });
 
   test("a verb is present only when its own help names it (an unknown verb gets the noun's overview, exit 0)", () => {
