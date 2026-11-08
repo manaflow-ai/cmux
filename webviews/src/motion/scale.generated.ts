@@ -25,3 +25,6 @@ export const MOTION_SPRING = "linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0
 
 /** The step the spring runs over (`MOTION_MS[MOTION_SPRING_STEP]`). */
 export const MOTION_SPRING_STEP: MotionStep = "large";
+
+/** One turn of every spinner (ms, `--cmux-spinner-period`); a loop, not a step of the scale. */
+export const SPINNER_PERIOD_MS = 2000;

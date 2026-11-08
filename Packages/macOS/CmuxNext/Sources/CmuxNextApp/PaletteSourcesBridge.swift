@@ -21,6 +21,9 @@ enum PaletteSourcesBridge {
         ]
         // A typed path or web address: Open it, or Ask Agent about it (Cmd-P, Cmd-Shift-P and Search).
         sources.goTo = AppPaletteGoToSource(services: services)
+        // A browser profile argument typed with a name no profile has: Create Browser Profile “name”,
+        // then the action runs on it (New Tab with Browser Profile…).
+        sources.targetCreators[.browserProfile] = BrowserProfileTargetSource.creator(services: services)
         // cmux.json `palette.scopes.<id>.prefix`, read on every open.
         sources.scopePrefixes = { [weak services] in
             let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]

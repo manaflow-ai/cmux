@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture documents and links, not shipped UI.
 // Session Info's Outputs (Claude Code desktop's): each artifact the chat produced by its title with an
 // Artifact tag, opening in the side panel beside the chat; the gallery; the files, each opening its
-// diff; the links with a Link tag. Every row opens what it names.
+// diff. Never the links its replies gave: those are not things it made. Every row opens what it names.
 // Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
 // session-info-compact-default.test.tsx's.
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -12,16 +12,22 @@ import type { Artifact } from "../src/agent-session/acpmux/conversation/artifact
 import { renderId } from "../src/agent-session/acpmux/conversation/renderCall";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { resetSessionInfoState, setSessionInfoMore } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import {
+  DEFAULT_SECTIONS,
+  resetSessionInfoState,
+  setSessionInfoMore,
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { OutputsSection } from "../src/agent-session/acpmux/session-info/OutputsSection";
 import {
   OUTPUTS_SHOWN,
-  OutputsSection,
   outputArtifacts,
   outputLinks,
-} from "../src/agent-session/acpmux/session-info/OutputsSection";
+} from "../src/agent-session/acpmux/session-info/outputsSectionModel";
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
 import type { SessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { setChipHost } from "../src/agent-session/acpmux/chips/host";
+import { resetLinkStore } from "../src/agent-session/acpmux/chips/linkStore";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -98,68 +104,97 @@ test("the chat's artifacts: each render card once by its title, then each docume
   expect(found[2]!.artifact.render).toBeUndefined();
 });
 
-test("every Outputs row opens what it names: artifacts in the side panel, files their diff; links are tagged", async () => {
+test("every Outputs row opens what it names: artifacts in the side panel, made files through the host; no code edits, no links", async () => {
   const container = installDom();
   const opened: Artifact[] = [];
-  const files: string[] = [];
+  const host: Array<[string, Record<string, unknown>]> = [];
+  setChipHost(async (method, params) => void host.push([method, params]));
   const base = chat(rows);
-  await act(async () => {
-    root = createRoot(container);
-    root.render(
-      <SessionInfo
-        summary={base.summary}
-        machineName="cosmic-gray"
-        rows={rows}
-        documents={outputArtifacts(rows)}
-        links={outputLinks(rows)}
-        made={{
-          outputs: [
-            { path: "/src/a.ts", displayPath: "src/a.ts", edits: [], additions: 2, deletions: 1, created: false },
-          ],
-          pullRequests: [],
-          scheduled: [],
-        }}
-        onOpenDocument={(artifact) => opened.push(artifact)}
-        onOpenOutput={(path) => files.push(path)}
-      />,
-    );
-  });
-  const outputs = container.querySelector<HTMLElement>('ul[data-section="outputs"]')!;
-  const buttons = [...outputs.querySelectorAll<HTMLButtonElement>("button.acpmux-session-info-row")];
-  const artifactTag = translate("sessionInfo.outputs.artifact");
-  expect(buttons.slice(0, 3).map((button) => button.textContent)).toEqual([
-    `Leo's Asks Ledger${artifactTag}`,
-    `Chart${artifactTag}`,
-    `Session Info rollout${artifactTag}`,
-  ]);
-  await act(async () => buttons[0]!.click());
-  await act(async () => buttons[2]!.click());
-  expect(opened.map((artifact) => artifact.kind)).toEqual(["html", "markdown"]);
-  expect(opened[0]!.code).toContain("v2");
-
-  await act(async () => buttons[3]!.click());
-  expect(files).toEqual(["/src/a.ts"]);
-
-  const link = outputs.querySelector<HTMLAnchorElement>("a.acpmux-session-info-row")!;
-  expect(link.getAttribute("href")).toBe("https://cmux.com/docs/session-info");
-  expect(link.textContent).toBe(`cmux.com/docs/session-info${translate("sessionInfo.outputs.link")}`);
+  // A shell command made the PDF; the reply links it (the Codex app's rule: a linked document).
+  const made = [...rows, assistant("I created the PDF at [hello-world.pdf](/tmp/hello-pdf/hello-world.pdf).", 9)];
+  try {
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <SessionInfo
+          summary={base.summary}
+          machineName="cosmic-gray"
+          rows={made}
+          documents={outputArtifacts(made)}
+          onOpenDocument={(artifact) => opened.push(artifact)}
+          sections={{ ...DEFAULT_SECTIONS, outputs: true }}
+        />,
+      );
+    });
+    const outputs = container.querySelector<HTMLElement>('ul[data-section="outputs"]')!;
+    const buttons = [...outputs.querySelectorAll<HTMLButtonElement>("button.acpmux-session-info-row")];
+    const artifactTag = translate("sessionInfo.outputs.artifact");
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      `Leo's Asks Ledger${artifactTag}`,
+      `Chart${artifactTag}`,
+      `Session Info rollout${artifactTag}`,
+      "hello-world.pdf/tmp/hello-pdf",
+    ]);
+    await act(async () => buttons[0]!.click());
+    await act(async () => buttons[2]!.click());
+    expect(opened.map((artifact) => artifact.kind)).toEqual(["html", "markdown"]);
+    expect(opened[0]!.code).toContain("v2");
+    await act(async () => buttons[3]!.click());
+    expect(host.filter(([method]) => method === "link.openPath")).toEqual([
+      ["link.openPath", { path: "/tmp/hello-pdf/hello-world.pdf" }],
+    ]);
+    // The links the replies gave are not outputs.
+    expect(outputs.querySelector("a")).toBeNull();
+  } finally {
+    setChipHost(undefined);
+  }
 });
 
-test("without a diff opener, changed files stay readable plain output rows", async () => {
+test("a file the agent made, then deleted, drops off Outputs", async () => {
+  const container = installDom();
+  resetLinkStore();
+  setChipHost(async (method, params) => {
+    if (method !== "link.inspect") return undefined;
+    const asked = (params.paths ?? []) as string[];
+    return {
+      paths: Object.fromEntries(
+        asked.map((path) => [path, { place: path.endsWith("gone.pdf") ? "missing" : "root", folder: false }]),
+      ),
+    };
+  });
+  const base = chat([]);
+  try {
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <SessionInfo
+          summary={base.summary}
+          rows={[assistant("Made `/tmp/kept.pdf` and `/tmp/gone.pdf`.", 1)]}
+          sections={{ ...DEFAULT_SECTIONS, outputs: true }}
+        />,
+      );
+    });
+    // The host answers once the batch flushes.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const outputs = container.querySelector<HTMLElement>('ul[data-section="outputs"]')!;
+    expect(outputs.textContent).toContain("kept.pdf");
+    expect(outputs.textContent).not.toContain("gone.pdf");
+  } finally {
+    setChipHost(undefined);
+    resetLinkStore();
+  }
+});
+
+test("a chat on another machine lists its made files as plain rows", async () => {
   const container = installDom();
   const base = chat([]);
   await act(async () => {
     root = createRoot(container);
     root.render(
       <SessionInfo
-        summary={base.summary}
-        made={{
-          outputs: [
-            { path: "/src/a.ts", displayPath: "src/a.ts", edits: [], additions: 2, deletions: 1, created: false },
-          ],
-          pullRequests: [],
-          scheduled: [],
-        }}
+        summary={{ ...base.summary!, peer: "build-box" }}
+        rows={[assistant("Report: [q3.xlsx](/home/me/q3.xlsx)", 1)]}
+        sections={{ ...DEFAULT_SECTIONS, outputs: true }}
       />,
     );
   });
@@ -167,8 +202,7 @@ test("without a diff opener, changed files stay readable plain output rows", asy
   expect(outputs.querySelector("button")).toBeNull();
   const row = outputs.querySelector<HTMLElement>(".acpmux-session-info-row")!;
   expect(row.tagName).toBe("DIV");
-  expect(row.hasAttribute("disabled")).toBe(false);
-  expect(row.textContent).toContain("a.ts");
+  expect(row.textContent).toContain("q3.xlsx");
 });
 
 test("without a side panel (Quick Chat) the artifacts are not listed", async () => {
@@ -211,20 +245,24 @@ test("SummaryBody does not re-add checkpoint files outside the project", async (
 
 // Leo (ask-fd0730a919): show more / show less per thing, Changes, Outputs, subagents, the whole row
 // clickable with no pill, as Claude Code desktop's.
-test("five Outputs show, then a whole-row Show more opens the rest and Show less folds them again", async () => {
+test("five Outputs show, then a whole-row Show 3 more opens the rest and Show less folds them again", async () => {
   const container = installDom();
-  const links = Array.from({ length: 8 }, (_, index) => ({
-    url: `https://example.com/${index}`,
-    label: `example.com/${index}`,
+  const files = Array.from({ length: 8 }, (_, index) => ({
+    path: `/src/f${index}.ts`,
+    displayPath: `src/f${index}.ts`,
+    edits: [],
+    additions: 1,
+    deletions: 0,
+    created: false,
   }));
   await act(async () => {
     root = createRoot(container);
-    root.render(<OutputsSection files={[]} links={links} artifacts={0} />);
+    root.render(<OutputsSection files={files} artifacts={0} />);
   });
   const shown = () => container.querySelectorAll('ul[data-section="outputs"] > li').length;
   const fold = () => container.querySelector<HTMLButtonElement>("button.acpmux-session-info-fold");
   expect(shown()).toBe(OUTPUTS_SHOWN);
-  expect(fold()?.textContent).toBe(translate("sessionInfo.outputs.showMore"));
+  expect(fold()?.textContent).toBe(translate("sessionInfo.list.showMore", { n: 3 }));
   expect(fold()?.getAttribute("aria-expanded")).toBe("false");
   await act(async () => fold()!.click());
   expect(shown()).toBe(8);
@@ -232,46 +270,28 @@ test("five Outputs show, then a whole-row Show more opens the rest and Show less
   await act(async () => fold()!.click());
   expect(shown()).toBe(OUTPUTS_SHOWN);
 
-  // Five or fewer: no fold at all.
-  await act(async () =>
-    root!.render(<OutputsSection files={[]} links={links.slice(0, OUTPUTS_SHOWN)} artifacts={0} />),
-  );
-  expect(shown()).toBe(OUTPUTS_SHOWN);
+  // Six or fewer: no fold at all ("Show 1 more" would cost the row it saves).
+  await act(async () => root!.render(<OutputsSection files={files.slice(0, OUTPUTS_SHOWN + 1)} artifacts={0} />));
+  expect(shown()).toBe(OUTPUTS_SHOWN + 1);
   expect(fold()).toBeNull();
 });
 
-// An Outputs link to a local page opens where a Sources link or a pull request opens: in the pane
-// beside the chat (onOpenUrl, cmux #28544). The host's preview opens only loopback pages
-// (URL.isAgentPanePreview), so any other link, and a modified click (⌘, ⌃, ⇧), keeps the link's own
-// behaviour instead of being swallowed.
-test("an Outputs link to a local page opens beside the chat; an external link or a modified click is the link's own", async () => {
+// Outputs lists what the chat made, never the links its replies gave (Lucas, 2026-11-05: "outputs
+// should be images, files, ect generate directly through that chat").
+test("a chat whose replies only gave links has no Outputs", async () => {
   const container = installDom();
-  const beside: string[] = [];
-  const links = [
-    { url: "http://localhost:3000/", label: "localhost:3000" },
-    { url: "https://cmux.com/docs/session-info", label: "cmux.com/docs/session-info" },
-  ];
+  const base = chat(rows);
   await act(async () => {
     root = createRoot(container);
-    root.render(<OutputsSection files={[]} links={links} artifacts={0} onOpenBeside={(url) => beside.push(url)} />);
+    root.render(
+      <SessionInfo
+        summary={base.summary}
+        rows={rows}
+        made={{ outputs: [], pullRequests: [], scheduled: [] }}
+        sections={{ ...DEFAULT_SECTIONS, outputs: true }}
+      />,
+    );
   });
-  const anchors = container.querySelectorAll<HTMLAnchorElement>('ul[data-section="outputs"] a.acpmux-session-info-row');
-  const click = (link: HTMLAnchorElement, init: MouseEventInit = {}) => {
-    const event = new dom!.window.MouseEvent("click", { bubbles: true, cancelable: true, ...init });
-    link.dispatchEvent(event);
-    return event.defaultPrevented;
-  };
-  let prevented = false;
-  await act(async () => {
-    prevented = click(anchors[0]!);
-  });
-  expect({ beside, prevented }).toEqual({ beside: ["http://localhost:3000/"], prevented: true });
-  await act(async () => {
-    prevented = click(anchors[0]!, { metaKey: true });
-  });
-  expect({ beside, prevented }).toEqual({ beside: ["http://localhost:3000/"], prevented: false });
-  await act(async () => {
-    prevented = click(anchors[1]!);
-  });
-  expect({ beside, prevented }).toEqual({ beside: ["http://localhost:3000/"], prevented: false });
+  expect(outputLinks(rows).length).toBeGreaterThan(0);
+  expect(container.querySelector('[data-section="outputs"]')).toBeNull();
 });

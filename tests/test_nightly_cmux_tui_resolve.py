@@ -114,8 +114,13 @@ exempt = {"republish-nightly-next", "attest-nightly-remote-daemon", "decide", RE
 # publish-nightly checks out the build it selected: this run's resolved build
 # commit, or a recovered earlier build's own build commit.
 SELECTED_SHA = "${{ steps.source.outputs.build_sha }}"
+# The jobs after the feed run in the dispatched post-publish run too, which has no resolver: they read the
+# resolver's build_sha (and publish-nightly's selected one) from published-build, which needs the resolver in the
+# run that published and carries the same fields to the dispatched run (scripts/ci/nightly_published_build.py).
+PUBLISHED_BUILD = "published-build"
+TAIL_BUILD_SHA = "${{ needs.published-build.outputs.resolve_build_sha }}"
 # publish-nightly-next-github copies that same selected build to the GitHub release.
-PUBLISHED_SHA = "${{ needs.publish-nightly.outputs.build_sha }}"
+PUBLISHED_SHA = "${{ needs.published-build.outputs.publish_build_sha }}"
 
 def tooling_checkout(body: str) -> "tuple[int, int] | None":
     """The publication-tooling checkout of a job: `ref: github.sha` into .publish-tooling whose
@@ -180,21 +185,30 @@ for name in shipping:
     if tooling and body.count("actions/checkout@") == 1:
         continue
     if name == "published-in":
-        # It runs in its own dispatched run (nightly_next_post_publish), which has no resolver: the push run's
-        # dispatch-published-in hands it the resolver's build_sha as head_sha, the commit it checks out.
+        # It reads the build commit from published-build, which records the resolver's build_sha from its own
+        # needs in the run that published; a loop run's dispatched tail reads it from the record that run's
+        # dispatch-published-in packed from the same needs.
         dispatch = blocks.get("dispatch-published-in", "")
         dispatch_needs = re.search(r"^    needs: (.*)$", dispatch, re.MULTILINE)
         check(bool(dispatch_needs) and RESOLVE in dispatch_needs.group(1), f"dispatch-published-in must need {RESOLVE}")
-        check('"head_sha":"{2}"' in dispatch and BUILD_SHA.removeprefix("${{ ").removesuffix(" }}") in dispatch,
-              "dispatch-published-in must pass the resolved build commit as head_sha")
+        check("nightly_published_build.py pack" in dispatch and "NEEDS: ${{ toJSON(needs) }}" in dispatch,
+              "dispatch-published-in must record the resolved build commit")
+        source = blocks.get("published-build", "")
+        source_needs = re.search(r"^    needs: (.*)$", source, re.MULTILINE)
+        check(bool(source_needs) and RESOLVE in source_needs.group(1), f"published-build must need {RESOLVE}")
+        packer = (ROOT / "scripts" / "ci" / "nightly_published_build.py").read_text()
+        check("NEEDS: ${{ toJSON(needs) }}" in source
+              and '"resolve-nightly-cmux-tui-client": ("resolve_", ("build_sha",))' in packer,
+              "published-build must record the resolved build commit")
         for ref in re.findall(r"^\s+ref: (.*)$", body, re.MULTILINE):
-            check(ref.strip() == "${{ fromJSON(inputs.nightly_next_post_publish).head_sha }}",
-                  f"published-in checks out {ref.strip()}, not the dispatched build commit")
+            check(ref.strip() == TAIL_BUILD_SHA, f"published-in checks out {ref.strip()}, not the published build commit")
         continue
     needs = re.search(r"^    needs: (.*)$", body, re.MULTILINE)
-    check(bool(needs) and RESOLVE in needs.group(1), f"{name} must need {RESOLVE}")
+    tail = bool(needs) and PUBLISHED_BUILD in needs.group(1) and name != PUBLISHED_BUILD
+    check(bool(needs) and (RESOLVE in needs.group(1) or tail), f"{name} must need {RESOLVE}")
+    build_sha = TAIL_BUILD_SHA if tail else BUILD_SHA
     allowed = ({BUILD_SHA, SELECTED_SHA} if name == "publish-nightly"
-               else {BUILD_SHA, PUBLISHED_SHA} if name == "publish-nightly-next-github" else {BUILD_SHA})
+               else {build_sha, PUBLISHED_SHA} if name == "publish-nightly-next-github" else {build_sha})
     # The publication tooling (not shipped source) comes from the workflow's own
     # commit, so a recovered older build runs this workflow's scripts. It is a
     # sparse checkout of scripts into .publish-tooling, never the build tree.
@@ -234,10 +248,13 @@ for name in shipping:
         if "needs.decide.outputs.head_sha" in line or "needs.decide.outputs.short_sha" in line:
             check("|| needs.decide.outputs.head_sha" in line,
                   f"{name} still uses the tip outside a cache key: {line.strip()}")
-# published-in exists, checks out source, and pins exactly one ref: the commit its dispatch hands it.
+published_build_needs = re.search(r"^    needs: (.*)$", blocks.get(PUBLISHED_BUILD, ""), re.MULTILINE)
+check(bool(published_build_needs) and RESOLVE in published_build_needs.group(1),
+      f"{PUBLISHED_BUILD} must need {RESOLVE}: it carries the resolved build commit to the jobs after the feed")
+# published-in exists, checks out source, and pins exactly one ref: the checked record's build commit.
 published_refs = re.findall(r"^\s+ref: (.*)$", blocks.get("published-in", ""), re.MULTILINE)
-check([ref.strip() for ref in published_refs] == ["${{ fromJSON(inputs.nightly_next_post_publish).head_sha }}"],
-      f"published-in must check out exactly the dispatched build commit, not {published_refs}")
+check([ref.strip() for ref in published_refs] == [TAIL_BUILD_SHA],
+      f"published-in must check out exactly the published build commit, not {published_refs}")
 check("published-in" in shipping, "published-in must check out the source (guard setup)")
 check(not re.search(r"^    if: .*build_only", blocks.get(RESOLVE, ""), re.MULTILINE),
       "the resolver must run for build_only too, so every app build has a build commit")

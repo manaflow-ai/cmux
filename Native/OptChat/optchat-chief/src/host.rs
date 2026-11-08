@@ -257,7 +257,7 @@ pub fn turn_preset(
         BTreeMap::new()
     };
     if family == Family::Claude {
-        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+        env.extend(session_dir::claude_session_env());
     }
     // Only acpmux's cmux MCP server (cx-4a5w2), as acpmux's built-in turn
     // presets set it for a Chief that sends no env.
@@ -392,7 +392,7 @@ pub fn subagent_preset(
     };
     env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
     if family == Family::Claude {
-        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+        env.extend(session_dir::claude_session_env());
     }
     // Subagents' cmux calls reach the same app daemon as the Chief's.
     env.extend(pinned.clone());
@@ -1659,6 +1659,18 @@ fn start(
                 &crate::paths::home_id(home),
             )),
             peers,
+            fork: Some(Arc::new(crate::migrate_fork::ForkPeer::new(
+                home.to_path_buf(),
+                {
+                    let tx = Mutex::new(tx.clone());
+                    Arc::new(move |text| {
+                        tx.lock()
+                            .expect("fork tx")
+                            .send(Input::PeerChiefNote { text })
+                            .is_ok()
+                    })
+                },
+            ))),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
@@ -2281,7 +2293,8 @@ pub fn probe_until_ready(
 /// `deadline_exceeded` error) or Chief's own wait on its `session/new`. Any
 /// other request that went unanswered is not a start, and stays a fault.
 /// A harness acpmux saw stop working says "did no work", which is not this:
-/// it is a fault the person hears of. A loaded or
+/// no wait cures it, though a fresh harness may start (`turn::is_hung_start`:
+/// the reply ledger tries again, with no cuts). A loaded or
 /// memory-starved machine (2026-11-04: swap full, the harness in page-in
 /// waits) is a wait, never a fault to post: the start works when it can.
 pub fn start_stall(error: &str) -> bool {

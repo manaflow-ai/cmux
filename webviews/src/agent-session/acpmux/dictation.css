@@ -118,3 +118,83 @@
     display: none;
   }
 }
+
+/* The app the mic dictates with (DictationButton, `agentPane.dictationSource`): its icon in the
+   mic's place, at the glyph's size, so the button keeps its footprint. */
+.acpmux-mic-app-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* Another app's dictation (outsideDictation.ts), when the host cannot meter it (no microphone
+   permission, which cmux never asks for here): three thin bars drawn in the mic's own place, rising
+   and falling slowly. Only `transform` moves (one
+   compositor layer), the button keeps its size, and motion-off settings hold the bars still
+   (styles.css `data-agent-motion="off"`). */
+.acpmux-mic-outside {
+  display: flex;
+  align-items: center;
+  justify-content: space-evenly;
+  width: 16px;
+  aspect-ratio: 1;
+  pointer-events: none;
+}
+.acpmux-mic-outside > span {
+  width: 2px;
+  height: 75%;
+  background: var(--agent-soft);
+  transform: scaleY(0.35);
+  transform-origin: center;
+  /* The app's shared breathing clock (conversation.css), so it moves with the other live marks. */
+  animation: acpmux-mic-outside var(--cmux-breath-period, 2.4s) var(--cmux-ease-out) infinite;
+}
+.acpmux-mic-outside > span:nth-child(2) { animation-delay: calc(var(--cmux-breath-period, 2.4s) / -3); }
+.acpmux-mic-outside > span:nth-child(3) { animation-delay: calc(var(--cmux-breath-period, 2.4s) * -2 / 3); }
+@keyframes acpmux-mic-outside {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+/* Static status indicators, the agent's or the app's motion off or reduced, or Reduce Motion: the bars hold still at three heights. */
+:root:is([data-status-indicators="static"], [data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-mic-outside > span {
+  animation: none;
+}
+:root:is([data-status-indicators="static"], [data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-mic-outside > span:nth-child(2) {
+  transform: scaleY(0.8);
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-mic-outside > span { animation: none; }
+  .acpmux-mic-outside > span:nth-child(2) { transform: scaleY(0.8); }
+}
+/* The same, metered (`metered: true`): the waveform's bars (.acpmux-dictation-wave) at the glyph's
+   size, each one's --level the measured input level, newest on the right. They are information,
+   not decoration, so motion-off settings and Reduce Motion keep the level and drop only the
+   transition. */
+.acpmux-mic-level {
+  display: flex;
+  align-items: center;
+  justify-content: space-evenly;
+  width: 16px;
+  aspect-ratio: 1;
+  color: var(--acpmux-composer-dim, var(--agent-muted));
+  pointer-events: none;
+}
+.acpmux-mic-level > [data-bar] {
+  width: 2px;
+  /* A dot (2 of 16) at 0, the mic's full height at 1; scaled, so only `transform` moves. */
+  height: 100%;
+  background: currentColor;
+  transform: scaleY(calc(0.125 + var(--level, 0) * 0.875));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-mic-level > [data-bar] {
+    transition: transform var(--agent-motion-hover) var(--agent-ease-out);
+  }
+}
+:root:is([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-mic-level > [data-bar] {
+  transition: none;
+}
+/* The wave takes the glyph's place; the glyph stays in the tree so the button never re-lays out. */
+.acpmux-mic[data-outside] > :is(svg, img) { display: none; }

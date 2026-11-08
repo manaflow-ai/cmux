@@ -331,15 +331,18 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertEqual(self.ratchet_calls(), [["--repo", str(self.repo.resolve()), "--clippy-json", str(out)]])
 
 
-def clippy_jsonl(hits: int, finished: bool = True, lint: str = "indexing_slicing") -> str:
-    """A ratchet clippy run of the `acpmux` crate with `hits` hits of `lint` (each on its own line)."""
+def clippy_jsonl(hits: int, finished: bool = True, lint: str = "indexing_slicing",
+                 file_name: str = "crates/acpmux/src/lib.rs", extra: tuple[str, ...] = ()) -> str:
+    """A ratchet clippy run of the `acpmux` crate with `hits` hits of `lint` in `file_name` (each on
+    its own line), plus one more in each file of `extra`."""
     lines = [{"reason": "compiler-artifact", "package_id": "path+file:///w/cmux-tui/crates/acpmux#0.1.0",
               "target": {"kind": ["lib"]}}]
+    spans = [(file_name, line) for line in range(1, hits + 1)] + [(name, 1) for name in extra]
     lines += [{"reason": "compiler-message", "package_id": "path+file:///w/cmux-tui/crates/acpmux#0.1.0",
                "target": {"kind": ["lib"]},
                "message": {"code": {"code": f"clippy::{lint}"},
-                           "spans": [{"is_primary": True, "file_name": "crates/acpmux/src/lib.rs",
-                                      "line_start": line, "column_start": 1}]}} for line in range(1, hits + 1)]
+                           "spans": [{"is_primary": True, "file_name": name,
+                                      "line_start": line, "column_start": 1}]}} for name, line in spans]
     lines.append({"reason": "build-finished", "success": finished})
     return "".join(json.dumps(line) + "\n" for line in lines)
 
@@ -389,6 +392,14 @@ class RatchetAgainstBaseTests(unittest.TestCase):
         result = self.judge(clippy_jsonl(700), clippy_jsonl(700, finished=False))
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("base clippy run did not finish", result.stderr)
+
+    def test_a_red_names_the_file_the_change_grew_before_the_bases_hits(self) -> None:
+        # #37778's shape: one new hit in a file that sorts after 693 old ones; the list named only
+        # the first 20 old ones, since a CI merge checkout has no origin/feat-cmux-next to diff.
+        result = self.judge(clippy_jsonl(693, extra=("crates/acpmux/src/zz.rs",)), clippy_jsonl(693))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        listed = [line.strip() for line in result.stderr.splitlines() if line.strip().startswith("crates/")]
+        self.assertEqual(listed[0], "crates/acpmux/src/zz.rs:1:1", result.stderr)
 
     def test_without_a_base_run_every_count_over_the_row_is_red(self) -> None:
         self.assertEqual(self.judge(clippy_jsonl(700)).returncode, 1)

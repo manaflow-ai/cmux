@@ -84,7 +84,8 @@ const PAGE = [
 /// Draws a render card under `theme`, runs it, and returns what the card hands its frame.
 async function frameMessage(theme: typeof LIGHT, html: string): Promise<{ html: string; css: string }> {
   const { createRoot } = await import("react-dom/client");
-  const { RenderCard, ranRenders } = await import("../src/agent-session/acpmux/conversation/RenderCard");
+  const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
+  const { ranRenders } = await import("../src/agent-session/acpmux/conversation/renderCardModel");
   const { applyAgentTheme } = await import("../src/agent-session/shared/theme");
   applyAgentTheme(theme as never);
   ranRenders.clear();

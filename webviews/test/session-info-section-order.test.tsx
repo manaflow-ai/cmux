@@ -72,7 +72,8 @@ afterAll(() => {
 });
 setPaneLanguage("en");
 
-const full = gallery.variants.full!.props as SessionInfoProps;
+// Show more open: every section drawn, the line among them.
+const full = { ...(gallery.variants.full!.props as SessionInfoProps), more: true };
 
 beforeEach(() => {
   dom.window.localStorage.clear();
@@ -88,19 +89,14 @@ async function mount(props: SessionInfoProps = full) {
   return { container, root };
 }
 
-/// The runs of one block's sections, in the order drawn: a new run starts at each hairline.
-const layout = (container: HTMLElement) => {
-  const runs: { group: string; sections: string[] }[] = [];
-  for (const slot of container.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > [data-slot]")) {
-    const id = slot.querySelector<HTMLElement>(":scope > section[data-section]")!.dataset.section!;
+/// The slots in the order drawn: each section's id, and `more` for the Show more line.
+const order = (container: HTMLElement) =>
+  [...container.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > [data-slot]")].map((slot) => {
+    const id = slot.querySelector<HTMLElement>(":scope > section[data-section]")?.dataset.section ?? "more";
     expect(slot.dataset.slot).toBe(id);
-    if (runs.length === 0 || slot.hasAttribute("data-run-start"))
-      runs.push({ group: slot.dataset.group!, sections: [] });
-    runs[runs.length - 1]!.sections.push(id);
-  }
-  return runs;
-};
-const order = (container: HTMLElement) => layout(container).flatMap((run) => run.sections);
+    return id;
+  });
+const layout = order;
 
 const handle = (container: HTMLElement, id: string) =>
   container.querySelector<HTMLButtonElement>(`section[data-section="${id}"] > .acpmux-session-info-section__handle`)!;
@@ -108,8 +104,10 @@ const slotOf = (container: HTMLElement, id: string) => container.querySelector<H
 
 /// Lays the sections out top to bottom at the given heights, in the order drawn (jsdom has no layout).
 function stack(container: HTMLElement, heights: Record<string, number>) {
-  for (const [id, height] of Object.entries(heights))
-    Object.defineProperty(slotOf(container, id), "offsetHeight", { configurable: true, get: () => height });
+  for (const [id, height] of Object.entries(heights)) {
+    const slot = container.querySelector<HTMLElement>(`[data-slot="${id}"]`);
+    if (slot) Object.defineProperty(slot, "offsetHeight", { configurable: true, get: () => height });
+  }
   for (const slot of container.querySelectorAll<HTMLElement>("[data-slot]"))
     Object.defineProperty(slot, "offsetTop", {
       configurable: true,
@@ -130,14 +128,22 @@ const pointer = (type: string, clientY: number) =>
   new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY });
 
 // Leo, 2026-11-03: "1. Machines showing up so I know if it's cloud or not 2. context 3.
-// Subagents/background tasks running 4. Sources". Usage stays after Context; the rest follow Sources.
+// Subagents/background tasks running 4. Sources". Then Outputs, the Show more line, and under it the
+// pull requests, Usage and Connectors (Lucas, 2026-11-05, Session Info lab).
 const DEFAULT = [
-  { group: "about", sections: ["environment", "context", "usage"] },
-  { group: "running", sections: ["subagents", "tasks"] },
-  { group: "made", sections: ["sources", "changes", "outputs"] },
-  { group: "about", sections: ["connectors"] },
+  "environment",
+  "context",
+  "subagents",
+  "tasks",
+  "sources",
+  "outputs",
+  "more",
+  "changes",
+  "usage",
+  "connectors",
 ];
 const HEIGHTS = {
+  more: 28,
   environment: 100,
   context: 28,
   usage: 28,
@@ -152,8 +158,13 @@ const HEIGHTS = {
 test("the default layout: the machine, Context, what it runs, then Sources, in order", async () => {
   const { container, root } = await mount();
   expect(layout(container)).toEqual(DEFAULT);
-  // A handle is the only thing each section gained, first in it, and it takes no text.
+  // Environment is pinned first and has no handle (sectionOrder.ts PINNED_TOP): its rows start with
+  // their own icons, and a grip beside them read as a stray icon.
+  const environment = container.querySelector<HTMLElement>('section[data-section="environment"]')!;
+  expect(environment.querySelector(".acpmux-session-info-section__handle")).toBeNull();
+  // A handle is the only thing each other section gained, first in it, and it takes no text.
   for (const section of container.querySelectorAll<HTMLElement>("section[data-section]")) {
+    if (section.dataset.section === "environment") continue;
     const first = section.firstElementChild as HTMLElement;
     expect(first.className).toBe("acpmux-session-info-section__handle");
     expect(first.textContent).toBe("");
@@ -165,45 +176,37 @@ test("the default layout: the machine, Context, what it runs, then Sources, in o
   await act(async () => root.unmount());
 });
 
-test("a section drags into another block, lifted while held, and the order stays", async () => {
+test("a section drags anywhere, lifted while held, and the order stays", async () => {
   const { container, root } = await mount();
   stack(container, HEIGHTS);
-  // Grab Outputs (top 516) and carry it up past Context's middle (114) into where it runs.
-  await act(async () => handle(container, "outputs").dispatchEvent(pointer("pointerdown", 560)));
+  // Tops: environment 0, context 100, subagents 128, tasks 218, sources 288, outputs 368. Grab Outputs
+  // and carry its top to 140: past Subagents' middle (173), not Context's (114).
+  await act(async () => handle(container, "outputs").dispatchEvent(pointer("pointerdown", 380)));
   expect(slotOf(container, "outputs").hasAttribute("data-lifted")).toBe(true);
   expect(container.querySelector('section[data-section="outputs"]')!.hasAttribute("data-dragging")).toBe(true);
-  // Its place is set by its top, the edge it leads with (`heldPlace`): 516 - 396 = 120, past Usage's middle (142)
-  // but not Context's (114).
-  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 164)));
+  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 152)));
   expect(order(container)).toEqual([
     "environment",
     "context",
     "outputs",
-    "usage",
     "subagents",
     "tasks",
     "sources",
+    "more",
     "changes",
+    "usage",
     "connectors",
   ]);
-  // Its block shows by the hairlines around it; nothing is saved until the drop.
-  expect(layout(container)).toEqual([
-    { group: "about", sections: ["environment", "context"] },
-    { group: "made", sections: ["outputs"] },
-    { group: "about", sections: ["usage"] },
-    { group: "running", sections: ["subagents", "tasks"] },
-    { group: "made", sections: ["sources", "changes"] },
-    { group: "about", sections: ["connectors"] },
-  ]);
+  // Nothing is saved until the drop.
   expect(dom.window.localStorage.getItem(ORDER_KEY)).toBeNull();
-  // The section is drawn under the pointer, whatever its place: 516 + (164 - 560) - its new top 128.
-  expect(slotOf(container, "outputs").style.transform).toBe("translateY(-8px)");
-  await act(async () => dom.window.dispatchEvent(pointer("pointerup", 164)));
+  // The section is drawn under the pointer, whatever its place: 368 + (152 - 380) - its new top 128.
+  expect(slotOf(container, "outputs").style.transform).toBe("translateY(12px)");
+  await act(async () => dom.window.dispatchEvent(pointer("pointerup", 152)));
   expect(container.querySelector("[data-lifted]")).toBeNull();
   expect(container.querySelector("[data-dragging]")).toBeNull();
   expect(slotOf(container, "outputs").style.transform).toBe("");
-  // The saved order is the drawn one, with Progress (no plan here) and Also working here (no other chat
-  // here) in their slots, neither drawn.
+  // The saved order is the drawn one, the line included, with Progress (no plan here) and Also working
+  // here (no other chat here) in their slots, neither drawn.
   expect(
     (JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).filter(
       (id) => id !== "progress" && id !== "alsoHere",
@@ -214,16 +217,32 @@ test("a section drags into another block, lifted while held, and the order stays
   // A fresh page reads the saved order.
   resetSectionOrderForTests();
   const again = await mount();
-  expect(order(again.container).slice(0, 5)).toEqual(["environment", "context", "outputs", "usage", "subagents"]);
+  expect(order(again.container).slice(0, 4)).toEqual(["environment", "context", "outputs", "subagents"]);
   await act(async () => again.root.unmount());
+});
+
+test("a section dragged under a closed Show more line folds away on the drop", async () => {
+  const { container, root } = await mount({ ...full, more: false });
+  expect(order(container)).toEqual(DEFAULT.slice(0, DEFAULT.indexOf("more") + 1));
+  stack(container, HEIGHTS);
+  // Outputs (top 368) carried down past the line's middle (442): it is drawn while held, then tucks.
+  await act(async () => handle(container, "outputs").dispatchEvent(pointer("pointerdown", 380)));
+  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 430)));
+  expect(order(container).slice(-2)).toEqual(["more", "outputs"]);
+  await act(async () => dom.window.dispatchEvent(pointer("pointerup", 430)));
+  expect(order(container)).not.toContain("outputs");
+  const saved = JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[];
+  expect(saved.indexOf("outputs")).toBeGreaterThan(saved.indexOf("more"));
+  await act(async () => root.unmount());
 });
 
 test("Escape during a drag puts the section back and saves nothing", async () => {
   const { container, root } = await mount();
   stack(container, HEIGHTS);
-  await act(async () => handle(container, "tasks").dispatchEvent(pointer("pointerdown", 260)));
+  await act(async () => handle(container, "tasks").dispatchEvent(pointer("pointerdown", 230)));
   await act(async () => dom.window.dispatchEvent(pointer("pointermove", 10)));
-  expect(order(container)[0]).toBe("tasks");
+  // Carried above Environment, it lands right under it: Environment stays first.
+  expect(order(container).slice(0, 2)).toEqual(["environment", "tasks"]);
   await act(async () => {
     dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
@@ -236,23 +255,26 @@ test("Escape during a drag puts the section back and saves nothing", async () =>
   await act(async () => root.unmount());
 });
 
-test("a section taller than the panel still drags above the first one", async () => {
+test("a section taller than the panel still drags to the first place under Environment", async () => {
   const { container, root } = await mount();
   // Sources expanded far past the panel's height: its middle can never reach the top.
   stack(container, { ...HEIGHTS, sources: 2000 });
-  // Sources' top is 316; the pointer goes from its handle to the panel's top edge.
-  await act(async () => handle(container, "sources").dispatchEvent(pointer("pointerdown", 330)));
+  // Sources' top is 288; the pointer goes from its handle to the panel's top edge.
+  await act(async () => handle(container, "sources").dispatchEvent(pointer("pointerdown", 300)));
   await act(async () => dom.window.dispatchEvent(pointer("pointermove", 14)));
-  expect(order(container)[0]).toBe("sources");
+  expect(order(container).slice(0, 2)).toEqual(["environment", "sources"]);
   await act(async () => dom.window.dispatchEvent(pointer("pointerup", 14)));
-  expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!)[0]).toBe("sources");
+  expect((JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).slice(0, 2)).toEqual([
+    "environment",
+    "sources",
+  ]);
   await act(async () => root.unmount());
 });
 
 test("an arrow key during a pointer drag changes nothing, so Escape still restores the order", async () => {
   const { container, root } = await mount();
   stack(container, HEIGHTS);
-  await act(async () => handle(container, "tasks").dispatchEvent(pointer("pointerdown", 260)));
+  await act(async () => handle(container, "tasks").dispatchEvent(pointer("pointerdown", 230)));
   await act(async () => {
     const up = new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true });
     handle(container, "tasks").dispatchEvent(up);
@@ -266,7 +288,7 @@ test("an arrow key during a pointer drag changes nothing, so Escape still restor
   await act(async () => root.unmount());
 });
 
-test("Up and Down Arrow on a handle move the section one place, across a block's edge, keeping focus", async () => {
+test("Up and Down Arrow on a handle move the section one place, across the Show more line, keeping focus", async () => {
   const { container, root } = await mount();
   const key = (id: string, name: string) =>
     act(async () => {
@@ -274,12 +296,17 @@ test("Up and Down Arrow on a handle move the section one place, across a block's
     });
   handle(container, "subagents").focus();
   await key("subagents", "ArrowUp");
-  expect(order(container).slice(1, 4)).toEqual(["context", "subagents", "usage"]);
+  expect(order(container).slice(0, 3)).toEqual(["environment", "subagents", "context"]);
   expect(dom.window.document.activeElement).toBe(handle(container, "subagents"));
   await key("subagents", "ArrowDown");
   expect(layout(container)).toEqual(DEFAULT);
-  // Already first or last: it stays.
-  await key("environment", "ArrowUp");
+  // Outputs steps under the line, and back.
+  await key("outputs", "ArrowDown");
+  expect(order(container).slice(5, 7)).toEqual(["more", "outputs"]);
+  await key("outputs", "ArrowUp");
+  expect(layout(container)).toEqual(DEFAULT);
+  // Already first under the pinned Environment, or last: it stays.
+  await key("context", "ArrowUp");
   await key("connectors", "ArrowDown");
   expect(layout(container)).toEqual(DEFAULT);
   await act(async () => root.unmount());
@@ -291,12 +318,20 @@ test("the per-block order #27291 saved is read as one order, nothing lost", asyn
     JSON.stringify({ about: ["context", "environment", "connectors"], made: ["outputs", "changes"] }),
   );
   const { container, root } = await mount();
+  // The blocks one after another (Usage after Context, Sources after Changes, as they follow by
+  // default); then, saved before the line, the less-used sections go under it in that order.
+  // Environment is pinned first; the rest keep the saved order.
   expect(layout(container)).toEqual([
-    // Usage and Sources, missing, take their places after the sections they follow by default:
-    // Usage after Context, Sources after Changes.
-    { group: "about", sections: ["context", "usage", "environment", "connectors"] },
-    { group: "made", sections: ["outputs", "changes", "sources"] },
-    { group: "running", sections: ["subagents", "tasks"] },
+    "environment",
+    "context",
+    "outputs",
+    "sources",
+    "subagents",
+    "tasks",
+    "more",
+    "usage",
+    "connectors",
+    "changes",
   ]);
   // Unchanged storage until the person moves something; then the one order.
   expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!)).toHaveProperty("about");
@@ -306,17 +341,18 @@ test("the per-block order #27291 saved is read as one order, nothing lost", asyn
     );
   });
   expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!)).toEqual([
-    "context",
-    "usage",
     "environment",
-    "connectors",
+    "context",
     "outputs",
-    "changes",
     "sources",
     "progress",
     "tasks",
     "subagents",
     "alsoHere",
+    "more",
+    "usage",
+    "connectors",
+    "changes",
   ]);
   await act(async () => root.unmount());
 });
@@ -348,18 +384,20 @@ test("another pane's drag reaches this one", async () => {
   await act(async () => {
     dom.window.dispatchEvent(new dom.window.StorageEvent("storage", { key: ORDER_KEY, newValue: value }));
   });
-  // A section the saved order lacks takes the place after the one it follows by default: Connectors
-  // after Outputs, Context after Environment, Usage after Context, Subagents after Usage.
+  // A section the saved order lacks takes the place after the one it follows by default: Context after
+  // Environment, Subagents after Context (Progress, not drawn, between), the line's sections after it.
+  // Environment is pinned first, so Outputs lands right under it.
   expect(order(container)).toEqual([
-    "outputs",
-    "connectors",
     "environment",
+    "outputs",
     "context",
-    "usage",
     "subagents",
     "tasks",
     "sources",
+    "more",
     "changes",
+    "usage",
+    "connectors",
   ]);
   await act(async () => root.unmount());
 });
@@ -369,15 +407,16 @@ test("a panel closed while another pane reorders shows that order when it opens 
   await act(async () => first.root.unmount());
   // Another pane's drag, while no panel here listens.
   const moved = [
-    "tasks",
     "environment",
+    "tasks",
     "context",
-    "usage",
-    "connectors",
-    "changes",
     "sources",
     "outputs",
     "subagents",
+    "more",
+    "usage",
+    "connectors",
+    "changes",
   ];
   dom.window.localStorage.setItem(ORDER_KEY, JSON.stringify(moved));
   const again = await mount();
@@ -397,10 +436,10 @@ test("an order storage refused stays when the panel opens again", async () => {
         new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
       );
     });
-    expect(order(first.container).slice(3, 5)).toEqual(["tasks", "subagents"]);
+    expect(order(first.container).slice(2, 4)).toEqual(["tasks", "subagents"]);
     await act(async () => first.root.unmount());
     const again = await mount();
-    expect(order(again.container).slice(3, 5)).toEqual(["tasks", "subagents"]);
+    expect(order(again.container).slice(2, 4)).toEqual(["tasks", "subagents"]);
     await act(async () => again.root.unmount());
   } finally {
     dom.window.Storage.prototype.setItem = setItem;
@@ -426,15 +465,16 @@ test("a hidden section keeps its slot when the shown ones move", async () => {
   // Background tasks, hidden, keeps its slot after the place Subagents left.
   expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!)).toEqual([
     "environment",
-    "context",
     "subagents",
     "progress",
-    "usage",
+    "context",
     "tasks",
-    "alsoHere",
     "sources",
-    "changes",
     "outputs",
+    "alsoHere",
+    "more",
+    "changes",
+    "usage",
     "connectors",
   ]);
   await act(async () => root.unmount());

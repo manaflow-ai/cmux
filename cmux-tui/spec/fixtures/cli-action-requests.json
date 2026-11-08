@@ -7,6 +7,7 @@
         "args": {
           "agent": "claude",
           "cwd": "/home/cmux/w",
+          "login": "none",
           "prompt": "What is 2+2?",
           "promptId": "p-1"
         },
@@ -1055,6 +1056,19 @@
     },
     {
       "params": {
+        "action": "chat channel create",
+        "args": {
+          "chief": "/tmp/contract",
+          "members": "/tmp/contract",
+          "title": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux chat channel create --title /tmp/contract --members /tmp/contract --chief /tmp/contract"
+    },
+    {
+      "params": {
         "action": "chat replies",
         "args": {
           "conversation": "/tmp/contract",
@@ -1879,6 +1893,18 @@
     },
     {
       "params": {
+        "action": "browser-profile open-link-in-new",
+        "args": {
+          "name": "/tmp/contract",
+          "url": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux browser-profile open-link-in-new --url /tmp/contract --name /tmp/contract"
+    },
+    {
+      "params": {
         "action": "browser-profile set-workspace-default",
         "args": {
           "browserProfile": "browser-profile:contract-1"
@@ -2301,6 +2327,7 @@
         "args": {
           "bootstrap": "/tmp/contract",
           "bootstrapScript": "/tmp/contract",
+          "environment": "/tmp/contract",
           "machineConfig": "/tmp/contract",
           "name": "/tmp/contract",
           "persistent": true,
@@ -2310,7 +2337,7 @@
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud new-machine --name /tmp/contract --size /tmp/contract --persistent --bootstrap /tmp/contract --bootstrap-script /tmp/contract --machine-config /tmp/contract --repo /tmp/contract"
+      "source": "cmux cloud new-machine --name /tmp/contract --size /tmp/contract --persistent --bootstrap /tmp/contract --bootstrap-script /tmp/contract --machine-config /tmp/contract --repo /tmp/contract --environment /tmp/contract"
     },
     {
       "params": {
@@ -2543,12 +2570,12 @@
       "params": {
         "action": "cloud open-desktop",
         "args": {
-          "viewer": "web"
+          "viewer": "rd"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud open-desktop --viewer web"
+      "source": "cmux cloud open-desktop --viewer rd"
     },
     {
       "params": {
@@ -2560,18 +2587,6 @@
         "wait": true
       },
       "source": "cmux cloud rename-machine --name /tmp/contract"
-    },
-    {
-      "params": {
-        "action": "cloud share-machine",
-        "args": {
-          "revoke": true,
-          "teammate": "/tmp/contract"
-        },
-        "cli": true,
-        "wait": true
-      },
-      "source": "cmux cloud share-machine --teammate /tmp/contract --revoke"
     },
     {
       "params": {
@@ -2902,13 +2917,14 @@
         "args": {
           "agent": "/tmp/contract",
           "cwd": "/tmp/contract",
+          "login": "/tmp/contract",
           "prompt": "/tmp/contract",
           "promptId": "/tmp/contract"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud relay-chat --agent /tmp/contract --prompt /tmp/contract --cwd /tmp/contract --prompt-id /tmp/contract"
+      "source": "cmux cloud relay-chat --agent /tmp/contract --prompt /tmp/contract --cwd /tmp/contract --prompt-id /tmp/contract --login /tmp/contract"
     },
     {
       "params": {

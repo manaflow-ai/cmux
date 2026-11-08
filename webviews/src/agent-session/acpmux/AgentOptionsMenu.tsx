@@ -1,7 +1,8 @@
 import React, { useContext, useEffect, useState } from "react";
 import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { type ConfigOption, optionValueName } from "./agentOptions";
-import { ChevronIcon, unrestricted } from "./ComposerPickers";
+import { ChevronIcon } from "./ComposerPickers";
+import { unrestricted } from "./composerPickerModel";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";

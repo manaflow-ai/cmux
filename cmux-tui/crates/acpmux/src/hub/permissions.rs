@@ -45,6 +45,7 @@ pub(super) mod settled;
 mod display;
 pub(crate) use display::{ChildTags, drop_display_lines};
 
+pub(super) mod external;
 mod pending;
 
 #[cfg(test)]
@@ -571,7 +572,15 @@ impl Hub {
             return;
         }
         if m == method::SESSION_REQUEST_PERMISSION {
-            let params = params.unwrap_or(Value::Null);
+            let mut params = params.unwrap_or(Value::Null);
+            // Gemini's plan approval names its plan file only: its card carries the plan
+            // (`gemini_plan.rs`).
+            if let Some(call) = params.get_mut("toolCall")
+                && super::gemini_plan::names_plan(call)
+            {
+                let cwd = session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
+                super::gemini_plan::with_plan(call, &cwd, &super::gemini_plan::gemini_homes());
+            }
             let result = self
                 .handle_permission_for(
                     &session,
@@ -724,8 +733,9 @@ impl Hub {
                     {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}
                 ]
             });
-            denied =
-                !outcome_allows(&self.handle_permission(session, request, epoch, turn_id).await);
+            denied = !outcome_allows(
+                &self.handle_permission(session, request, epoch, turn_id.clone()).await,
+            );
         }
         if denied {
             return Err(RpcError::new(
@@ -733,19 +743,18 @@ impl Hub {
                 format!("read of {} rejected by the acpmux permission policy", path.display()),
             ));
         }
-        let read =
-            |e: std::io::Error| RpcError::new(-32000, format!("read {}: {e}", path.display()));
-        let text = match target {
-            Some(Some(t)) => {
-                use std::io::Read;
-                let mut text = String::new();
-                let mut file = super::remote_floor::open_read_target(&t).map_err(read)?;
-                file.read_to_string(&mut text).map_err(read)?;
-                text
-            }
-            Some(None) => return Err(read(std::io::Error::other("the path cannot be resolved"))),
-            None => std::fs::read_to_string(&path).map_err(read)?,
-        };
+        let text = self
+            .read_with_external_access(session, &path, epoch, turn_id, || match &target {
+                Some(Some(t)) => {
+                    use std::io::Read;
+                    let mut text = String::new();
+                    super::remote_floor::open_read_target(t)?.read_to_string(&mut text)?;
+                    Ok(text)
+                }
+                Some(None) => Err(std::io::Error::other("the path cannot be resolved")),
+                None => std::fs::read_to_string(&path),
+            })
+            .await?;
         let line = params.get("line").and_then(Value::as_u64).map(|l| l.max(1) as usize);
         let limit = params.get("limit").and_then(Value::as_u64).map(|l| l as usize);
         let content = match (line, limit) {
@@ -821,6 +830,7 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
+        external::strip_forged(&mut request);
         // Native tools can mutate the repository even when their request has
         // no location or kind. Only known read-only kinds skip the barrier;
         // moves and unclassified/MCP tools wait before automatic approval too.
@@ -842,7 +852,8 @@ impl Hub {
         // A person-readable line for a tool whose name and JSON mean nothing
         // to a person (permissions/display.rs), before anything shows the request.
         self.stamp_permission_display(session, &mut request);
-        let needs_person = super::questions::needs_person(&request);
+        let needs_person =
+            super::questions::needs_person(&request) || external::is_external(&request);
         // A shell command that only reads (`shell_readonly.rs`), judged before the lock and off
         // the async workers: its git reads look at the repositories on disk.
         // Only under approve-reads: approve-edits writes files unasked, so a command's own

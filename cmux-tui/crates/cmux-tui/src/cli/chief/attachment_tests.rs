@@ -29,6 +29,9 @@ fn upload(
     let socket = dir.path().join("daemon.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     let peer = std::thread::spawn(move || {
+        // The link's cmux.protocol/2 connection comes first; the upload's
+        // command lines use the second.
+        let _protocol = listener.accept().unwrap();
         let (mut writer, _) = listener.accept().unwrap();
         writer.set_read_timeout(Some(std::time::Duration::from_secs(15))).unwrap();
         let mut reader = BufReader::new(writer.try_clone().unwrap());

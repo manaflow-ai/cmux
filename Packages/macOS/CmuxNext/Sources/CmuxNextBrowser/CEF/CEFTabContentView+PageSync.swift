@@ -2,32 +2,28 @@ import AppKit
 
 /// Why a tab container's page windows wait for their frame at each new pane size (``CEFTabContentView/pageSyncReasons``).
 nonisolated enum CEFPageSyncReason: Hashable, Sendable {
-    /// A person drags a divider or edge of the pane (`dragResize` at `resizeSync`, or S5 on).
+    /// A person drags a divider or edge of the pane.
     case drag
-    /// A key resize's spring moves the pane (S5 on: the page follows its pane in every frame).
+    /// A key resize's spring moves the pane: the page follows its pane in every frame.
     case keyResize
+    /// A split's, close's or zoom's spring resizes the pane (``CEFTabContentView`` as ``PaneMotionTargeting``): the page
+    /// follows its pane in every frame, as in a key resize.
+    case paneSpring
 }
 
 /// Page sync (fork API 27): every page window over this pane waits, up to a bounded deadline, for Chromium's frame at each
 /// new pane size, so the page shows that size in the same commit as its pane (`CEFLayerHosting.paneResizeDrag`).
 ///
-/// FRAME OWNER REFACTOR S5 (`motion.frameOwner.pages`, cmux-ad m14): in a key resize and in a divider drag the page never
+/// FRAME OWNER REFACTOR S5 (cmux-ad m14, the only path since 2026-11-06): in a key resize and in a divider drag the page never
 /// keeps an old size (no hold, no anchored old frame). Its host view takes the pane's page area in every frame and the
 /// page is hosted in the window's own layer tree (fork API 26, ``CEFLayerHosting``), so the page window's resize goes to
 /// Chromium in the same turn and its frame at that size lands through the hosted context as soon as the GPU draws it.
 /// The main thread never waits for it: Chromium's resize wait (`CATransactionCoordinator`) runs on its UI thread, which is
-/// the main thread, so S5's deadline is `motion.frameOwner.pagesWait`, 0 by default (`CEFLayerHosting.waitMs`). Until the
+/// the main thread, so the deadline is 0 (``CEFLayerHosting``'s default). Until the
 /// frame comes the page shows its last frame inside its pane, unscaled; the next frame catches up.
 ///
 /// A drag and a key resize can overlap (a key press during a drag): the shares last while either runs and end with the last.
 extension CEFTabContentView {
-    /// S5 is on: Chromium pages follow their pane in every frame of a key resize and of a drag. Read when each resize
-    /// begins, so a flip applies from the next one and one build films both.
-    static var pagesOwnedByCommit: Bool { BrowserResizeTunables.framesOwnedByCommit.value }
-
-    /// A divider drag lays the page out live with page sync: S5 on, or `browserResize.dragResize` at `resizeSync`.
-    static var syncsDragResize: Bool { pagesOwnedByCommit || BrowserResizeTunables.dragResize.value == .resizeSync }
-
     /// A resize for `reason` began: the page windows over this pane wait for their frame at each size until it ends.
     func beginPageSync(_ reason: CEFPageSyncReason) {
         pageSyncReasons.insert(reason)
@@ -44,12 +40,15 @@ extension CEFTabContentView {
     /// The container moves to another superview in the same window (its tab moved to another pane: `BrowserPageArea.show`
     /// adds it there, so no window change is sent) or out of one: the resize of the pane it leaves is not its resize any
     /// more. Its wait shares end and its held size (a drag hold or a key hold) drops; the new pane's chrome holds it
-    /// again only if that pane is in a key resize itself (`BrowserChromeView.attach`). A move into the first superview,
-    /// or to the same one, keeps all.
+    /// again only if that pane is in a key resize itself (`BrowserChromeView.attach`). Its page window comes back too: no
+    /// end of the old pane's motion reaches it any more, and a detached window takes no click. A move into the first
+    /// superview, or to the same one, keeps all.
     func leavePaneResize(for newSuperview: NSView?) {
-        guard let superview, newSuperview !== superview, heldPageSize != nil || pageMotionHold != nil || !pageSyncReasons.isEmpty else { return }
+        guard let superview, newSuperview !== superview,
+              heldPageSize != nil || pageMotionHold != nil || !pageSyncReasons.isEmpty || motionHosting != nil else { return }
         dropHold()
         endAllPageSync()
+        paneMotion(active: false)
     }
 
     /// The container left its window mid-resize: it may never hear the resize's end, so every wait ends now.

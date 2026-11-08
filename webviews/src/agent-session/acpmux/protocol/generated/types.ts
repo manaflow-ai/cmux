@@ -10,11 +10,17 @@ export interface AcpmuxRequestMeta {
   author?: unknown;
   beforePromptId?: unknown;
   callerSession?: unknown;
+  cancelToken?: unknown;
+  class?: unknown;
   cliHost?: unknown;
+  compression?: unknown;
   context?: unknown;
+  createdBy?: unknown;
   cwd?: unknown;
   decisionNonce?: unknown;
+  disallowedTools?: unknown;
   dispatchSource?: unknown;
+  effort?: unknown;
   env?: unknown;
   ephemeral?: unknown;
   forceAdmit?: unknown;
@@ -62,13 +68,16 @@ export interface AcpmuxRequestMeta {
   steerOnly?: unknown;
   supersede?: unknown;
   surface?: unknown;
+  tags?: unknown;
   teamMessage?: unknown;
   throughSeq?: unknown;
+  topic?: unknown;
   via?: unknown;
   vmBoundary?: unknown;
   waitStart?: unknown;
   workflowAllowedTools?: unknown;
   workspaceId?: unknown;
+  worktree?: unknown;
 }
 
 export interface AgentHoldParams {
@@ -283,6 +292,23 @@ export interface ChatRouteSetParams {
 
 export type CoverageLabel = "acp_requests_only";
 
+/**
+ * Who created a session (`hub/created_by.rs`), the shape cmux-tui's
+ * `workspace.create {created_by}` takes.
+ */
+export type CreatedBy = {
+  kind: CreatorKind;
+  /** The acpmux session whose agent created it; only for `agent`. */
+  session?: (string | null);
+  /**
+   * The cmux workspace it was created from (lowercase UUID): the agent session's
+   * workspace for an agent, else the one the create named.
+   */
+  workspace?: (string | null);
+} & Record<string, unknown>;
+
+export type CreatorKind = ("person" | "agent" | "script");
+
 export type DeliveryReceipt = {
   messageId: string;
   recipient: string;
@@ -360,6 +386,11 @@ export interface EventsParams {
    */
   promptIndex?: (boolean | null);
   sessionId: string;
+  /**
+   * Only this subagent's own records: the updates acpmux tagged with it and those that start
+   * or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.
+   */
+  subagent?: (string | null);
 }
 
 export type EventsResult = {
@@ -387,6 +418,11 @@ export interface ForkParams {
   _meta?: unknown;
   /** Recorded prompt identity, nonempty and at most 512 UTF-8 bytes. Claude/Codex only. */
   beforePromptId?: (string | null);
+  /**
+   * The caller's name for this fork while it is made, at most 128 bytes: `_acpmux/kill` with
+   * `cancelFork` and this token stops it, or takes it back once made (`hub/fork_cancel.rs`).
+   */
+  cancelToken?: (string | null);
   live?: (boolean | null);
   /** Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source. */
   requestId?: (string | null);
@@ -486,6 +522,8 @@ export type Isolation = "unverified";
 
 export interface KillParams {
   _meta?: RequestMeta;
+  cancelFork?: unknown;
+  cancelToken?: unknown;
   purge?: unknown;
   sessionId?: unknown;
 }
@@ -974,7 +1012,12 @@ export interface QueueRemoveParams {
 
 /** The person who queued a prompt in a shared chat. */
 export type QueuedAuthor = {
-  /** `tailnet:<login>` or `user_…`. */
+  /**
+   * Their profile picture (`_meta.provenance` `fromAvatar`, an `https://` URL), left out when
+   * they have none (and from an older acpmux).
+   */
+  avatar?: (string | null);
+  /** `tailnet:<login>`, `user_…` or `guest:<share>.<guest>`. */
   id: string;
   name: string;
 } & Record<string, unknown>;
@@ -1041,8 +1084,23 @@ export type QueuedPromptSummary = {
   heldByStop: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
   images: QueuedImage[];
+  /**
+   * acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,
+   * `hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the
+   * messages it carries and never as the person's queued prompt, also when it has not read
+   * its `queued` record (a chat reopened on a recent page). Null for any other prompt, and
+   * once edited (an edit drops the provenance).
+   */
+  inboxNotice: unknown;
   prompt: string;
   promptId: string;
+  /**
+   * Its `_meta.provenance` when it names a sender that is no agent's to act on: another agent's
+   * message the person edited (`editedBy`, still that agent's words to read) or a prompt no
+   * proof attributes (`unverified`). An app draws its card from it while `fromAgent` is null.
+   * Null otherwise. Display only, never authority.
+   */
+  provenance: unknown;
   queuedAt: number;
   /** Its version for the owner's approval: 0 when queued, one more at each edit by its author. */
   revision: number;
@@ -1105,10 +1163,11 @@ export interface RetryParams {
 
 /**
  * Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
- * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the
- * agent process died mid-turn.
+ * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the
+ * agent process died mid-turn, or the chat outgrew its model's context window (`context`: it
+ * is compacted, then continued at once).
  */
-export type RetryReason = "capacity" | "transport" | "agent_exited";
+export type RetryReason = "capacity" | "transport" | "agent_exited" | "context";
 
 /**
  * What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
@@ -1253,6 +1312,13 @@ export type SessionDetail = {
   children: number;
   configOptions?: unknown;
   createdAt: number;
+  /**
+   * Who created it (`hub/created_by.rs`): `{kind: "person"|"agent"|"script", workspace?,
+   * session?}`, decided by the daemon from the connection, never from a request value.
+   * Null for a fork, a moved-in session and one saved before it existed; absent from a
+   * peer on an older acpmux.
+   */
+  createdBy?: (CreatedBy | null);
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;
@@ -1531,6 +1597,13 @@ export type SessionSummary = {
   /** Its sub-sessions that are not closed. */
   children: number;
   createdAt: number;
+  /**
+   * Who created it (`hub/created_by.rs`): `{kind: "person"|"agent"|"script", workspace?,
+   * session?}`, decided by the daemon from the connection, never from a request value.
+   * Null for a fork, a moved-in session and one saved before it existed; absent from a
+   * peer on an older acpmux.
+   */
+  createdBy?: (CreatedBy | null);
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;

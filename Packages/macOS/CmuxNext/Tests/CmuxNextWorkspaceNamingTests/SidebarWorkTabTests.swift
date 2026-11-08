@@ -41,15 +41,15 @@ struct SidebarWorkTabTests {
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "workspace-3",
                                                                         screens: [ScreenSnapshot(id: 1, layout: layout, panes: panes)])]))
         let workspace = try #require(store.workspaces.first)
-        #expect(SidebarMapping.shared.workTab(workspace, selectedTab: { _ in nil })?.title == "a")
+        #expect(SidebarMapping.shared.faceTabs(workspace, selectedTab: { _ in nil }).work?.title == "a")
     }
 
     @Test func aPageInASplitYieldsToTheLastFocusedWork() throws {
         let laterB = try Self.workspace(a: 1, b: 2, page: 3)
-        #expect(SidebarMapping.shared.frontTab(laterB, selectedTab: { _ in nil })?.kind == .browser)
-        #expect(SidebarMapping.shared.workTab(laterB, selectedTab: { _ in nil })?.title == "b")
+        #expect(SidebarMapping.shared.faceTabs(laterB, selectedTab: { _ in nil }).front?.kind == .browser)
+        #expect(SidebarMapping.shared.faceTabs(laterB, selectedTab: { _ in nil }).work?.title == "b")
         let laterA = try Self.workspace(a: 2, b: 1, page: 3)
-        #expect(SidebarMapping.shared.workTab(laterA, selectedTab: { _ in nil })?.title == "a")
+        #expect(SidebarMapping.shared.faceTabs(laterA, selectedTab: { _ in nil }).work?.title == "a")
     }
 }
 

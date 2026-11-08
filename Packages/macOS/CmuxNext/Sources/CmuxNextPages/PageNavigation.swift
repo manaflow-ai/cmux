@@ -96,13 +96,19 @@ public nonisolated struct PageEngineOptions: Sendable, Equatable {
     /// not opt in (``PageDescriptor/acceptsFirstMouse``): a page in the window's chrome, such as
     /// the sidebar's Updated card, while a Chromium page's own window holds the key. Off by default.
     public var acceptsFirstMouse: Bool
+    /// The page keeps the web update it loaded with until it closes: a newer one never reloads it in place
+    /// (``WebBundleServedViews/keepLoadedTree(_:)``). For a small page always in sight, such as the sidebar's
+    /// Updated card, which a reload blanked for a few frames at every merge (Leo 2026-11-07: "this updated to
+    /// nightly thing also sometimes flickers"). Off by default.
+    public var keepsLoadedWeb: Bool
 
     public init(fullFrameRate: Bool = false, requiresWebKit: PageWebKitReason? = nil, chromiumAgentChat: Bool = false,
-                acceptsFirstMouse: Bool = false) {
+                acceptsFirstMouse: Bool = false, keepsLoadedWeb: Bool = false) {
         self.fullFrameRate = fullFrameRate
         self.requiresWebKit = requiresWebKit
         self.chromiumAgentChat = chromiumAgentChat
         self.acceptsFirstMouse = acceptsFirstMouse
+        self.keepsLoadedWeb = keepsLoadedWeb
     }
 
     public static let standard = PageEngineOptions()

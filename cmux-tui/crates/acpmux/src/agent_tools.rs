@@ -114,7 +114,7 @@ pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_workspace_select,agents_terminal_split,agents_terminal_focus,agents_tab_select,\
     agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render,\
     agents_terminal_list,agents_terminal_send,agents_chat_send,agents_chat_read,\
-    agents_chat_state,acpmux_send,acpmux_ls,acpmux_last,acpmux_info,\
+    agents_chat_state,acpmux_send,acpmux_send_status,acpmux_ls,acpmux_last,acpmux_info,\
     acpmux_inbox_read,acpmux_inbox_reply";
 /// What every agent chat is told about asking the person, in the cmux MCP
 /// server's `instructions` (`cmux mcp serve`, both modes). Chats start in
@@ -127,7 +127,11 @@ pub const ASKING_RULE: &str = "Asking the person: Full access already permits ha
 
 /// The small cmux-owned coordination block sent once as hidden first-turn context.
 /// Keep it canonical so the Context viewer shows and edits exactly what new sessions receive.
-pub const CONCURRENT_WORK_RULE: &str = "Read relevant instructions and likely source files early. Batch independent reads and searches into parallel tool calls; sequence dependent work. Start long-running builds, tests, and waits in the background when the tools support it, then continue useful independent work. Rejoin and inspect the results before relying on them. Keep reports concise: explain the outcome, verification, and remaining blockers.";
+/// It says only what the harnesses leave weak: models often fetch the reads a task implies
+/// (rather than names) one per turn, and the "list what you need, then request every
+/// independent item in this one response" step is the published fix for that. Concise
+/// reporting is left to the harness prompt and the recap guidance (`agent_guidance.rs`).
+pub const CONCURRENT_WORK_RULE: &str = "Before each tool step, privately list what you need next, then request every read, search and command that does not depend on another's result in that one response, starting with the first: the files and instructions the task names or implies. Run long builds, tests and waits in the background when the tool allows it, and check the result before relying on it.";
 
 /// cmux's own rules for its computer use server (`cmux-cua`), which `cmux
 /// mcp serve` puts before that server's `initialize` instructions on each
@@ -224,6 +228,8 @@ const SKILL_FILES: &[(&str, &str)] = &[
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
     // How the chat draws a plan, sub-sessions, links and a recap (`agent_guidance.rs`).
     ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
+    // When and how to ask for one root command (`request_elevation`, `hub/elevation.rs`).
+    ("cmux-sudo/SKILL.md", include_str!("../skills/cmux-sudo/SKILL.md")),
 ];
 
 /// One stdio MCP server.
