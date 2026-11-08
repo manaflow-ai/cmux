@@ -224,14 +224,18 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
             const footer = document.querySelector<HTMLElement>(selector)!;
             const actions = footer.querySelector<HTMLElement>(".cv-turn-actions")!.getBoundingClientRect();
             const box = footer.getBoundingClientRect();
-            const above = [...document.querySelectorAll<HTMLElement>("article.acpmux-row")]
+            const aboveRow = [...document.querySelectorAll<HTMLElement>("article.acpmux-row")]
               .filter((row) => row !== footer && row.getBoundingClientRect().height > 0)
-              .map((row) => row.getBoundingClientRect())
-              .filter((rect) => rect.bottom <= box.top + 0.5)
-              .sort((a, b) => b.bottom - a.bottom)[0]!;
+              .filter((row) => row.getBoundingClientRect().bottom <= box.top + 0.5)
+              .sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom)[0]!;
+            const above = aboveRow.getBoundingClientRect();
+            // Under a closed "Worked for" line the row's own room under its rule stands in for the 8,
+            // so the stack adds none (transcriptGrid.ts MARK_WORKED, #37727).
+            const worked = aboveRow.querySelector(".cv-worked.has-divider") !== null;
             return {
               gap: actions.top - above.bottom,
-              footerGap: length("--grid-gap-footer"),
+              footerGap: worked ? 0 : length("--grid-gap-footer"),
+              worked,
               rowHeight: box.height,
               actionsHeight: actions.height,
               control: length("--grid-transcript-footer-control"),
