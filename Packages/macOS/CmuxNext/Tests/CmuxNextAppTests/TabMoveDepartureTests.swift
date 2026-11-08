@@ -18,6 +18,19 @@ import Testing
 
     /// Two panes side by side, one tab each.
     private static let sideBySide = LayoutNode.split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(1), b: .leaf(2))
+    /// Three panes side by side, A (1), B (2) and C (3).
+    private static let threeAcross = LayoutNode.split(id: nil, resourceID: nil, direction: .right, ratio: 0.33, a: .leaf(1),
+                                                      b: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(2), b: .leaf(3)))
+
+    /// One move of `TabMoves.move` in its turn, as it shows with no daemon (these tests have no
+    /// connection, so `intendNow` would show nothing): the departure and the move's intent in the
+    /// store. No strip syncs in between, as in one action batch or two moves in one turn.
+    @discardableResult
+    private func moveNow(_ tab: TabModel, from source: PaneController, to target: PaneController, _ shown: PaneCloseControllerTests.Shown) -> TabMoves.Completion {
+        let finish = TabMoves.depart(tab, into: target.pane, from: source, closesPane: true, services: shown.services) { _ in }
+        shown.services.daemon.store.intend(.moveTab(surface: tab.surface, toPane: target.pane.handle, index: target.pane.tabs.count), transaction: .generate())
+        return finish
+    }
 
     /// A strip on screen with the structural `newTab` switch on: the case where a move used to play
     /// a close. Runs `body` with every override in place (synchronous: the overrides are process-wide).
@@ -118,5 +131,36 @@ import Testing
         source.move(StripTabID(tab.id), toPane: target, index: 1)
         #expect(!shown.content.layoutModel.isClosing(source.layoutPaneID), "a pane with a tab left closed")
         #expect(source.stripModel.departures.contains(StripTabID(tab.id)))
+    }
+
+    /// Router review F1 (#37735): in one turn A's tab moves into B, then B's own tab into C. B's
+    /// strip still shows only its own tab, but B holds A's tab: B stays, and A leaves.
+    @Test func aPaneAnEarlierMoveFilledStays() throws {
+        let shown = try PaneCloseControllerTests.Shown(tree: PaneCloseControllerTests.splitTree(Self.threeAcross))
+        defer { shown.end() }
+        let a = try shown.controller(1), b = try shown.controller(2), c = try shown.controller(3)
+        let tabA = try #require(a.pane.tabs.first), tabB = try #require(b.pane.tabs.first)
+        moveNow(tabA, from: a, to: b, shown)
+        moveNow(tabB, from: b, to: c, shown)
+        #expect(shown.content.layoutModel.isClosing(a.layoutPaneID), "the pane the first move emptied waited for the daemon's tree")
+        #expect(!shown.content.layoutModel.isClosing(b.layoutPaneID), "the pane holding the first move's tab left")
+        #expect(shown.content.layoutModel.screens.first?.layout.contains(b.layoutPaneID) == true, "the pane holding the first move's tab is hidden")
+        #expect(shown.content.focus.state.topology.pane(try shown.key(2))?.tab(tabA.id) != nil, "the first move's tab left the focus topology")
+    }
+
+    /// The mirror: B's two tabs leave by two moves in one turn, one into A and one into C. The
+    /// second empties B, so B leaves, and both tabs stay in the focus topology at their destinations.
+    @Test func twoMovesThatEmptyAPaneCloseIt() throws {
+        let shown = try PaneCloseControllerTests.Shown(tree: PaneCloseControllerTests.splitTree(Self.threeAcross, tabs: [2: 2]))
+        defer { shown.end() }
+        let a = try shown.controller(1), b = try shown.controller(2), c = try shown.controller(3)
+        let first = b.pane.tabs[0], second = b.pane.tabs[1]
+        moveNow(first, from: b, to: a, shown)
+        #expect(!shown.content.layoutModel.isClosing(b.layoutPaneID), "a pane that keeps a tab left")
+        moveNow(second, from: b, to: c, shown)
+        #expect(shown.content.layoutModel.isClosing(b.layoutPaneID), "the pane the second move emptied waited for the daemon's tree")
+        let topology = shown.content.focus.state.topology
+        #expect(topology.pane(try shown.key(1))?.tab(first.id) != nil, "the first move's tab left the focus topology")
+        #expect(topology.pane(try shown.key(3))?.tab(second.id) != nil, "the second move's tab left the focus topology")
     }
 }
