@@ -9,7 +9,7 @@ import { useT } from "../i18n";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { toolLabel } from "../toolPaths";
 import { Clock } from "./icons";
-import { ROW_ICON } from "./MessageActions";
+import { ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext } from "./turnActions";
 import { isEmptyFooter } from "./turns";
 import { waterfall, WATERFALL_FIRST, type WaterfallSpan, type WaterfallTone } from "./waterfallSpans";

@@ -13,6 +13,12 @@
 // the page paints: still translucent over the sidebar's glass (the composer's fill at the popover
 // level's share, never near opaque), with the composer's edge and rim, and still no `.ui-glass`, no
 // blur of its own in the sidebar and no html fill.
+//
+// Lawrence 2026-11-07, on that card's hover preview: "this ui transparency looks bad now". The open
+// preview grows up over the sidebar's rows, and the page's blur never reaches them (the native rows
+// are under the WebKit view, not in its document), so the translucent tint left every row legible
+// through the list. While the preview is open (and while it closes) the card paints the composer's
+// solid surface, in light, dark and over a see-through window.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
@@ -45,6 +51,10 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
   // window's page color (WebTheme: the surface at alpha 1 when panes paint the background).
   const bootstrap = "html{background:var(--cmux-surface-background) !important}body{background:transparent !important}";
   const theme = "--cmux-surface-background:#1e1e1e;--cmux-surface-solid:#1e1e1e;--cmux-text:#ddd";
+  const themes = {
+    dark: `color-scheme:dark;${theme}`,
+    light: "color-scheme:light;--cmux-surface-background:#ffffff;--cmux-surface-solid:#ffffff;--cmux-text:#24292f",
+  };
 
   // Inside webviews/ so the bundle resolves react from its node_modules.
   const dir = fs.mkdtempSync(path.join(import.meta.dir, ".updated-card-glass-"));
@@ -57,11 +67,12 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
      import { UpdatedCard } from ${JSON.stringify(path.join(source, "pages/changelog/UpdateSurfaces.tsx"))};
      import { createStrings } from ${JSON.stringify(path.join(source, "pages/shared/i18n.ts"))};
      import table from ${JSON.stringify(path.join(source, "pages/changelog/generated/strings.json"))};
-     (window as any).mount = (glass: boolean | undefined, data: unknown) => {
+     (window as any).mount = (glass: boolean | undefined, data: unknown, previewOpen?: boolean) => {
        const strings = createStrings(table);
        const root = createRoot(document.getElementById("root")!);
        const props: any = { data, strings, actions: { openChangelog() {}, dismiss() {} }, closeButton: false };
        if (glass !== undefined) props.glass = glass;
+       if (previewOpen !== undefined) props.previewOpen = previewOpen;
        flushSync(() => root.render(createElement(UpdatedCard, props)));
      };`,
   );
@@ -95,15 +106,25 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
       });
       afterAll(async () => browser?.close());
 
-      async function open(surface: string | null, glassMode: string, glass: boolean | undefined): Promise<Page> {
+      async function open(
+        surface: string | null,
+        glassMode: string,
+        glass: boolean | undefined,
+        {
+          previewOpen,
+          look,
+          seeThrough,
+        }: { previewOpen?: boolean; look?: "light" | "dark"; seeThrough?: boolean } = {},
+      ): Promise<Page> {
         const page = await browser.newPage({ viewport: { width: 300, height: 300 } });
-        const attrs = `${surface ? ` data-surface="${surface}"` : ""} data-glass="${glassMode}"`;
+        const attrs = `${surface ? ` data-surface="${surface}"` : ""} data-glass="${glassMode}"${seeThrough ? " data-cmux-see-through" : ""}`;
+        const style = look ? themes[look] : theme;
         await page.setContent(
-          `<!doctype html><html${attrs} style="${theme}"><head><style>${css}</style><style id="cmux-theme">${bootstrap}</style></head>` +
+          `<!doctype html><html${attrs} style="${style}"><head><style>${css}</style><style id="cmux-theme">${bootstrap}</style></head>` +
             `<body><div id="root"></div></body></html>`,
         );
         await page.addScriptTag({ content: script });
-        await page.evaluate(([g, d]) => (window as any).mount(g, d), [glass, data] as const);
+        await page.evaluate(([g, d, p]) => (window as any).mount(g, d, p), [glass, data, previewOpen] as const);
         return page;
       }
 
@@ -139,6 +160,27 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
           expect(await page.locator(".wn-card").innerText()).toContain("What's New");
           await page.close();
         });
+      }
+
+      for (const look of ["light", "dark"] as const) {
+        for (const seeThrough of [false, true]) {
+          const where = `${look}${seeThrough ? ", see-through window" : ""}`;
+          test(`the open hover preview hides the sidebar rows under it (${where})`, async () => {
+            const page = await open("updated", "plain", false, { previewOpen: true, look, seeThrough });
+            await page.waitForSelector('.wn-updated[data-preview="open"]');
+            const got = await paint(page);
+            // Nothing frosts what is under the WebKit view: only an opaque fill keeps the rows unread.
+            expect(got.backdrop).toBe("none");
+            expect(alpha(got.card)).toBe(1);
+            expect(await page.locator(".wn-preview").innerText()).toContain("Tables scroll");
+            await page.close();
+          });
+          test(`the resting card keeps the composer's translucent material (${where})`, async () => {
+            const page = await open("updated", "plain", false, { previewOpen: false, look, seeThrough });
+            expect(alpha((await paint(page)).card)).toBeLessThan(0.9);
+            await page.close();
+          });
+        }
       }
     });
   }

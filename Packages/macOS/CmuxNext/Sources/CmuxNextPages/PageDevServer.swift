@@ -43,6 +43,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.group-editor",
         "cmux.history",
         "cmux.home-channels",
+        "cmux.home-chat-colors",
         "cmux.home-messages",
         "cmux.icon-picker",
         "cmux.import-history",

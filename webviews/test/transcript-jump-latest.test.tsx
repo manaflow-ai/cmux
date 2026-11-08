@@ -58,7 +58,7 @@ dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
-const { FOLLOW_BOTTOM_DEADBAND_PX } = await import("../src/agent-session/acpmux/VirtualTranscript");
+const { FOLLOW_BOTTOM_DEADBAND_PX } = await import("../src/agent-session/acpmux/virtualTranscriptModel");
 
 afterAll(() => {
   dom.window.close();

@@ -72,6 +72,7 @@ enum FirstPartyPageSchemes {
         .groupEditor,
         .history,
         .homeChannels,
+        .homeChatColors,
         .homeMessages,
         .iconPicker,
         .importHistory,
