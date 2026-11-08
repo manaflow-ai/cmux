@@ -39,7 +39,7 @@ extension MobileFeedbackStamp {
         #endif
     }
 
-    private static var osVersion: String {
+    @MainActor private static var osVersion: String {
         #if canImport(UIKit)
         let device = UIDevice.current
         return "\(device.systemName) \(device.systemVersion)"
@@ -52,7 +52,7 @@ extension MobileFeedbackStamp {
     /// The hardware machine identifier (e.g. `"iPhone16,2"`), which is more
     /// useful for triage than the marketing model name. Falls back to
     /// `UIDevice.model` when the sysctl is empty (e.g. simulator).
-    private static var deviceModel: String {
+    @MainActor private static var deviceModel: String {
         var systemInfo = utsname()
         uname(&systemInfo)
         let machine = withUnsafeBytes(of: &systemInfo.machine) { raw -> String in

@@ -8,7 +8,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     func testCmdDConfirmsCloseWhenClosingLastWorkspaceClosesWindow() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         // Force a confirmation alert when closing the current workspace so we can validate Cmd+D.
         app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launch()
@@ -28,7 +28,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     func testCmdWClosingLastTabKeepsWorkspaceWindowOpen() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let keyequivPath = "/tmp/cmux-ui-test-keyequiv-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: keyequivPath)
         app.launchEnvironment["CMUX_UI_TEST_KEYEQUIV_PATH"] = keyequivPath
@@ -57,7 +57,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     func testCmdNOpensNewWindowWhenNoWindowsOpen() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launch()
         app.activate()
@@ -85,7 +85,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testChildExitInHorizontalSplitClosesOnlyExitedPane() {
         let attempts = 8
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-split-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
 
@@ -123,7 +123,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     func testCtrlDFromKeyboardInHorizontalSplitClosesOnlyFocusedPane() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
         app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -178,8 +178,110 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
     }
 
+    func testCtrlDOnOnlyTerminalCancelRespawnsThenQuitExitsApp() {
+        let app = XCUIApplication.cmuxTestApplication()
+        let readyPath = "/tmp/cmux-ui-last-terminal-ready-\(UUID().uuidString)"
+        let recoveredPath = "/tmp/cmux-ui-last-terminal-recovered-\(UUID().uuidString)"
+        try? FileManager.default.removeItem(atPath: readyPath)
+        try? FileManager.default.removeItem(atPath: recoveredPath)
+        defer {
+            try? FileManager.default.removeItem(atPath: readyPath)
+            try? FileManager.default.removeItem(atPath: recoveredPath)
+            if app.state != .notRunning {
+                app.terminate()
+            }
+        }
+
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(waitForWindowCount(app: app, toBe: 1, timeout: 8.0))
+        let terminal = app.textViews.firstMatch
+        XCTAssertTrue(terminal.waitForExistence(timeout: 8.0), "Expected the sole terminal text area")
+        terminal.click()
+        app.typeText("touch \(readyPath)\n")
+        XCTAssertTrue(waitForFile(atPath: readyPath, timeout: 8.0), "Expected the initial shell to accept input")
+
+        app.typeText("export CMUX_LAST_TERMINAL_TEST_STATE=old; printf 'OLD_SCROLLBACK_MARKER\\n'\n")
+        app.typeKey("d", modifierFlags: [.control])
+
+        XCTAssertTrue(waitForQuitCmuxAlert(app: app, timeout: 8.0))
+        app.buttons["Cancel"].firstMatch.click()
+        XCTAssertTrue(waitForQuitCmuxAlertToDisappear(app: app, timeout: 8.0))
+        XCTAssertTrue(waitForWindowCount(app: app, toBe: 1, timeout: 8.0))
+
+        let replacementTerminal = app.textViews.firstMatch
+        XCTAssertTrue(replacementTerminal.waitForExistence(timeout: 8.0), "Expected a replacement terminal")
+        replacementTerminal.click()
+        app.typeText(
+            "if [ -z \"${CMUX_LAST_TERMINAL_TEST_STATE+x}\" ]; then touch \(recoveredPath); fi\n"
+        )
+        XCTAssertTrue(
+            waitForFile(atPath: recoveredPath, timeout: 8.0),
+            "Expected a fresh focused shell without the exited shell's environment"
+        )
+
+        app.typeKey("d", modifierFlags: [.control])
+        XCTAssertTrue(waitForQuitCmuxAlert(app: app, timeout: 8.0))
+        app.buttons["Quit"].firstMatch.click()
+        XCTAssertTrue(
+            waitForNoWindowsOrAppNotRunningForeground(app: app, timeout: 8.0),
+            "Expected Quit to exit cmux completely"
+        )
+    }
+
+
+    func testExitOnOnlyTerminalDontWarnAgainSuppressesNextQuitPrompt() throws {
+        let app = XCUIApplication.cmuxTestApplication()
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-quit-pref-\(UUID().uuidString)", isDirectory: true)
+        let configHome = home.appendingPathComponent(".config", isDirectory: true)
+        try FileManager.default.createDirectory(at: configHome, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: home)
+            if app.state != .notRunning {
+                app.terminate()
+            }
+        }
+
+        app.launchEnvironment["CFFIXED_USER_HOME"] = home.path
+        app.launchEnvironment["XDG_CONFIG_HOME"] = configHome.path
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(waitForWindowCount(app: app, toBe: 1, timeout: 8.0))
+        let terminal = app.textViews.firstMatch
+        XCTAssertTrue(terminal.waitForExistence(timeout: 8.0), "Expected the sole terminal text area")
+        terminal.click()
+        app.typeText("exit\n")
+
+        XCTAssertTrue(waitForQuitCmuxAlert(app: app, timeout: 8.0))
+        let suppression = app.checkBoxes["Don't warn again for Cmd+Q"].firstMatch
+        XCTAssertTrue(
+            suppression.waitForExistence(timeout: 2.0),
+            "Expected the quit alert suppression checkbox"
+        )
+        suppression.click()
+        app.buttons["Cancel"].firstMatch.click()
+
+        XCTAssertTrue(waitForQuitCmuxAlertToDisappear(app: app, timeout: 8.0))
+        XCTAssertTrue(waitForWindowCount(app: app, toBe: 1, timeout: 8.0))
+        let replacementTerminal = app.textViews.firstMatch
+        XCTAssertTrue(
+            replacementTerminal.waitForExistence(timeout: 8.0),
+            "Expected a replacement terminal after cancelling quit"
+        )
+        replacementTerminal.click()
+        app.typeText("exit\n")
+
+        XCTAssertTrue(
+            waitForNoWindowsOrAppNotRunningForeground(app: app, timeout: 8.0),
+            "Expected the stored never preference to suppress the next last-terminal quit prompt"
+        )
+    }
+
     func testCtrlDFromKeyboardInThreePaneLayoutClosesOnlyFocusedPane() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-tree-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
         app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -238,7 +340,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         // any single bad close routing/focus cycle.
         let attempts = 8
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-2x2-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -311,7 +413,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testCtrlDAfterClosingBottomRowIn2x2KeepsWorkspaceOpen() {
         let attempts = 8
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-2x2-bottom-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -384,7 +486,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testCtrlDFromRealKeyboardAfterClosingRightColumnIn2x2KeepsWorkspaceOpen() {
         let attempts = 8
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-2x2-realkey-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -464,7 +566,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testCtrlDFromRealKeyboardInHorizontalSplitKeepsWindowOpen() {
         let attempts = 12
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-lr-realkey-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -544,7 +646,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testCtrlDEarlyDuringSplitStartupKeepsWindowOpen() {
         let attempts = 12
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-lr-early-ctrl-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -609,6 +711,36 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 app.dialogs.containing(.staticText, identifier: "Close workspace?").firstMatch.exists ||
                 app.alerts.containing(.staticText, identifier: "Close workspace?").firstMatch.exists ||
                 app.staticTexts["Close workspace?"].exists
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForQuitCmuxAlert(app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.staticTexts["Quit cmux?"].exists
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForQuitCmuxAlertToDisappear(app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                !app.staticTexts["Quit cmux?"].exists
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForFile(atPath path: String, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                FileManager.default.fileExists(atPath: path)
             },
             object: NSObject()
         )

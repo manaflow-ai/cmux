@@ -1,4 +1,6 @@
 import CoreGraphics
+import AppKit
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -80,5 +82,78 @@ import Testing
         let metrics = BrowserChromeMetrics(tabBarFontSize: value)
         #expect(metrics.scale == 1)
         #expect(metrics.buttonIconSize == Self.legacy.buttonIconSize)
+    }
+
+    @Test
+    func browserToolbarAndDockTextUseSurfaceAuthorityAcrossAppearanceAndFocus() {
+        let cases: [(surface: ColorScheme, app: ColorScheme)] = [
+            (.light, .light),
+            (.light, .dark),
+            (.dark, .light),
+            (.dark, .dark),
+        ]
+
+        for testCase in cases {
+            let unfocusedScheme = resolvedBrowserChromeColorScheme(
+                for: testCase.surface,
+                ambientColorScheme: testCase.app
+            )
+            // A focus/hosting transition can expose the opposite inherited
+            // scheme even though the browser surface did not change.
+            let focusedAmbient = testCase.app == .dark ? ColorScheme.light : .dark
+            let focusedScheme = resolvedBrowserChromeColorScheme(
+                for: testCase.surface,
+                ambientColorScheme: focusedAmbient
+            )
+
+            #expect(
+                unfocusedScheme == testCase.surface,
+                "Browser toolbar authority changed while unfocused for surface=\(testCase.surface) app=\(testCase.app)"
+            )
+            #expect(
+                focusedScheme == testCase.surface,
+                "Browser toolbar authority changed while focused for surface=\(testCase.surface) app=\(testCase.app)"
+            )
+            #expect(
+                focusedScheme == unfocusedScheme,
+                "Browser toolbar scheme flipped across focus for surface=\(testCase.surface) app=\(testCase.app)"
+            )
+
+            let dockText = SidebarAppearanceColorResolver().activeForegroundColor(
+                opacity: 1,
+                for: testCase.surface
+            )
+            let expectedTextIsWhite = testCase.surface == .dark
+            let resolvedDockText = dockText.usingColorSpace(.sRGB) ?? dockText
+            var red: CGFloat = 0
+            var green: CGFloat = 0
+            var blue: CGFloat = 0
+            var alpha: CGFloat = 0
+            resolvedDockText.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+
+            #expect((red > 0.99) == expectedTextIsWhite)
+            #expect((green > 0.99) == expectedTextIsWhite)
+            #expect((blue > 0.99) == expectedTextIsWhite)
+            #expect(alpha == 1)
+        }
+    }
+
+    @Test
+    func inheritedAppearanceOnlyChangeKeepsBrowserChromeStableForWebKitRefresh() {
+        let surfaceScheme: ColorScheme = .light
+        let beforeRefresh = resolvedBrowserChromeColorScheme(
+            for: surfaceScheme,
+            ambientColorScheme: .dark
+        )
+        let afterRefresh = resolvedBrowserChromeColorScheme(
+            for: surfaceScheme,
+            ambientColorScheme: .light
+        )
+
+        // `BrowserPanelView` refreshes WebKit when this inherited value
+        // changes, while the toolbar authority must remain unchanged.
+        #expect(beforeRefresh == surfaceScheme)
+        #expect(afterRefresh == surfaceScheme)
+        #expect(afterRefresh == beforeRefresh)
     }
 }

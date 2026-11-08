@@ -1,6 +1,21 @@
 import Foundation
 
 extension AppDelegate {
+    /// Starts the per-pane runaway-memory guardrail and the central
+    /// memory-pressure monitor. The pane guardrail keeps its existing
+    /// process-tree accounting timer; global pressure is handled through
+    /// responder registration. Aggregate pressure is intentionally isolated to
+    /// its idle-agent-hibernation responder. Resource diagnostics never enter
+    /// the user notification pipeline.
+    func startPaneMemoryGuardrailIfNeeded() {
+        let guardrail = PaneMemoryGuardrail.shared
+        guardrail.paneProvider = { [weak self] in
+            self?.paneMemoryGuardrailDescriptors() ?? []
+        }
+        guardrail.start()
+        startMemoryPressureMonitorIfNeeded()
+    }
+
     func paneMemoryGuardrailDescriptors() -> [PaneMemoryDescriptor] {
         paneMemoryGuardrailTabManagers().flatMap { manager in
             manager.tabs.flatMap { workspace in
@@ -9,14 +24,74 @@ extension AppDelegate {
         }
     }
 
-    func discardHiddenBrowserWebViewsForSystemMemoryPressure() {
-        let now = Date()
-        let discardedCount = paneMemoryGuardrailTabManagers().reduce(0) { count, manager in
-            count + manager.discardHiddenBrowserWebViewsForSystemMemoryPressure(now: now)
+    func startMemoryPressureMonitorIfNeeded() {
+        let monitor = MemoryPressureMonitor.shared
+        monitor.registry.register(
+            RendererRealizationMemoryPressureResponder(
+                controller: RendererRealizationController.shared
+            )
+        )
+        monitor.registry.register(
+            BrowserHiddenWebViewMemoryPressureResponder { [weak self] in
+                self?.allLiveBrowserPanels() ?? []
+            }
+        )
+        monitor.registry.register(
+            AggregateMemoryPressureResponder(
+                controller: AgentHibernationController.shared,
+                isAggregatePressureActive: { [weak monitor] in
+                    guard let aggregate = monitor?.aggregateMemoryPressure else { return false }
+                    return aggregate.isActionable && aggregate.severity >= .warning
+                }
+            )
+        )
+        monitor.registry.register(
+            AgentHibernationMemoryPressureResponder(
+                controller: AgentHibernationController.shared,
+                isPressureCritical: { [weak monitor] in
+                    monitor?.currentSeverity == .critical
+                }
+            )
+        )
+        if let notificationStore {
+            monitor.registry.register(
+                NotificationCacheMemoryPressureResponder(store: notificationStore)
+            )
         }
-#if DEBUG
-        cmuxDebugLog("browser.memoryPressure.discardHidden count=\(discardedCount)")
-#endif
+        monitor.onAggregatePressureCleared = {
+            AgentHibernationController.shared.clearAggregateMemoryPressureConfirmations()
+        }
+        let browserMemoryBudget = BrowserHiddenWebViewMemoryBudgetCoordinator { [weak self] in
+            self?.allLiveBrowserPanels() ?? []
+        }
+        monitor.onSampleApplied = { sampledAt in
+            browserMemoryBudget.enforceBudget(now: sampledAt)
+        }
+        monitor.start()
+    }
+
+    /// Every live browser panel, each once: workspace panes plus the panes of
+    /// workspace and window Docks.
+    func allLiveBrowserPanels() -> [BrowserPanel] {
+        var panels: [BrowserPanel] = []
+        var seen: Set<ObjectIdentifier> = []
+
+        func append(_ panel: any Panel) {
+            guard let browserPanel = panel as? BrowserPanel,
+                  seen.insert(ObjectIdentifier(browserPanel)).inserted else { return }
+            panels.append(browserPanel)
+        }
+
+        for manager in paneMemoryGuardrailTabManagers() {
+            for workspace in manager.tabs {
+                workspace.panels.values.forEach(append)
+                workspace._dockSplit?.forEachPanel { _, panel in append(panel) }
+            }
+        }
+        for dock in existingWindowDocks {
+            dock.forEachPanel { _, panel in append(panel) }
+        }
+        return panels
     }
 
     private func paneMemoryGuardrailTabManagers() -> [TabManager] {

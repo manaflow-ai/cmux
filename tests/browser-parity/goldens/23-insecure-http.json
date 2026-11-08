@@ -1,0 +1,8 @@
+{
+  "oracle": {
+    "goto-title": "ARIA Fixture",
+    "open-title": "Dynamic Fixture",
+    "link-title": "Files Fixture"
+  },
+  "cmux": {}
+}

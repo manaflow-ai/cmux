@@ -13,7 +13,9 @@ import Foundation
 /// caller should `exit` afterwards; this must run before any AppKit/SwiftUI
 /// initialization in the re-exec case.
 public func runSidebarInterpreterWorker() {
-    let channel = LengthPrefixedMessageChannel(readFD: 0, writeFD: 1)
+    guard let channel = try? LengthPrefixedMessageChannel(readFD: 0, writeFD: 1) else {
+        exit(1)
+    }
     let runner = RenderInterpreterRunner()
     let decoder = JSONDecoder()
     let encoder = JSONEncoder()

@@ -8,7 +8,9 @@ import Foundation
 enum TranscriptJSONValue: Sendable, Equatable, Codable {
     /// A JSON string.
     case string(String)
-    /// A JSON number (integers are represented as their double value).
+    /// A JSON integer represented without losing its full `Int` range.
+    case integer(Int)
+    /// A non-integral JSON number.
     case number(Double)
     /// A JSON boolean.
     case bool(Bool)
@@ -39,6 +41,8 @@ enum TranscriptJSONValue: Sendable, Equatable, Codable {
             self = .null
         } else if let bool = try? container.decode(Bool.self) {
             self = .bool(bool)
+        } else if let integer = try? container.decode(Int.self) {
+            self = .integer(integer)
         } else if let number = try? container.decode(Double.self) {
             self = .number(number)
         } else if let string = try? container.decode(String.self) {
@@ -62,6 +66,7 @@ enum TranscriptJSONValue: Sendable, Equatable, Codable {
         var container = encoder.singleValueContainer()
         switch self {
         case .string(let value): try container.encode(value)
+        case .integer(let value): try container.encode(value)
         case .number(let value): try container.encode(value)
         case .bool(let value): try container.encode(value)
         case .object(let value): try container.encode(value)
@@ -84,14 +89,29 @@ enum TranscriptJSONValue: Sendable, Equatable, Codable {
 
     /// The numeric payload, or `nil` when this is not a number.
     var double: Double? {
-        if case .number(let value) = self { return value }
-        return nil
+        switch self {
+        case .integer(let value): return Double(value)
+        case .number(let value): return value
+        default: return nil
+        }
     }
 
-    /// The numeric payload as an integer, or `nil` when not a number.
+    /// The numeric payload as an integer, or `nil` when not a number and
+    /// when a number cannot be one.
+    ///
+    /// Truncates toward zero, and answers `nil` rather than trapping for a
+    /// value no `Int` can hold. Transcripts are written by remote and cloud
+    /// hosts, so `1e30` in a count field is untrusted input and must not
+    /// take the process down.
     var int: Int? {
-        guard let double else { return nil }
-        return Int(double)
+        switch self {
+        case .integer(let value):
+            return value
+        case .number(let value):
+            return Int(exactly: value.rounded(.towardZero))
+        default:
+            return nil
+        }
     }
 
     /// The object payload, or `nil` when this is not an object.

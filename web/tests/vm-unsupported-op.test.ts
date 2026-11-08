@@ -1,0 +1,225 @@
+import { describe, expect, test } from "bun:test";
+
+import { getProvider, vmCapabilitiesFor } from "../services/vms/drivers";
+import { VmOperationUnsupportedError, VmProviderOperationError } from "../services/vms/errors";
+import { isOperatorFaultVmError } from "../services/vms/observability";
+import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
+import { vmRequestLocale, vmUnsupportedCopy } from "../services/vms/vmErrorMessages";
+import { locales } from "../i18n/routing";
+import { parseCmuxTuiManifest } from "../services/vms/drivers/cmuxTuiDaemon";
+
+// A driver that cannot perform an operation raises VmOperationUnsupportedError.
+// Before this mapping it surfaced as 502 vm_cloud_service_unavailable
+// retryable:true, telling users to retry an operation the provider will never
+// perform. `fork` is the live case today: no driver implements it; the port
+// capability uses the same contract for older deployments.
+describe("unsupported provider operations", () => {
+  test("missing hook artifacts return localized setup guidance without manifest diagnostics", async () => {
+    let cause: unknown;
+    try {
+      parseCmuxTuiManifest("https://private.example/artifacts/manifest.json", {
+        commit: "a".repeat(40),
+        binaries: { "cmux-tui-x86_64-unknown-linux-musl": "b".repeat(64) },
+      });
+    } catch (error) {
+      cause = error;
+    }
+    expect(cause).toBeDefined();
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "create",
+      cause,
+    }), { locale: "ja" });
+    const payload = await response!.json() as Record<string, unknown>;
+    expect(response!.status).toBe(503);
+    expect(payload.error).toBe("vm_artifact_unavailable");
+    expect(payload.message).toBe("Cloud VM のセットアップを一時的に利用できません。");
+    expect(JSON.stringify(payload)).not.toMatch(/private\.example|cmux-tui|freestyle|manifest/);
+  });
+
+  test("the structured driver error maps to an honest non-retryable 501", async () => {
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "snapshot",
+      cause: new VmOperationUnsupportedError({ provider: "freestyle", operation: "snapshot" }),
+    }));
+    expect(response).not.toBeNull();
+    expect(response!.status).toBe(501);
+    expect(response!.headers.get("retry-after")).toBeNull();
+    const payload = await response!.json() as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      error: "vm_operation_unsupported",
+      retryable: false,
+      phase: "snapshot",
+      details: {
+        operation: "snapshot",
+        retryable: false,
+        providerCode: "provider_operation_unsupported",
+      },
+      ui: {
+        title: "Cloud VM operation unavailable",
+        retryable: false,
+        severity: "error",
+      },
+    });
+    const raw = JSON.stringify(payload);
+    // No provider or implementation leaks, and the copy must not invite a retry.
+    expect(raw).not.toMatch(/freestyle|not implemented|NotImplemented/i);
+    expect(String(payload.action)).toMatch(/^Do not retry/);
+  });
+
+  test("restore gets restore-phase copy", async () => {
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "restore",
+      cause: new VmOperationUnsupportedError({ provider: "freestyle", operation: "restore" }),
+    }));
+    expect(response!.status).toBe(501);
+    const payload = await response!.json() as { error: string; phase: string; message: string };
+    expect(payload.error).toBe("vm_operation_unsupported");
+    expect(payload.phase).toBe("restore");
+    expect(payload.message).toContain("restoring");
+  });
+
+  test("unsupported openPort is a non-retryable 501 with port-specific guidance", async () => {
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "openPort",
+      cause: new VmOperationUnsupportedError({ provider: "freestyle", operation: "openPort" }),
+    }));
+    expect(response).not.toBeNull();
+    expect(response!.status).toBe(501);
+    expect(response!.headers.get("retry-after")).toBeNull();
+    const payload = await response!.json() as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      error: "vm_operation_unsupported",
+      retryable: false,
+      details: { operation: "openPort", retryable: false },
+      ui: { retryable: false, severity: "error" },
+    });
+    expect(String(payload.message)).toContain("preview URLs");
+    expect(String(payload.action)).toContain("cmux vm exec");
+  });
+
+  test("pause and resume on a provider without the verb answer verb-specific 501 copy", async () => {
+    // `cmux vm pause` / `cmux vm resume` (POST /api/vm/[id]/pause|resume) raise
+    // the unsupported error directly from the workflow; the CLI keys off 501.
+    const pause = await vmWorkflowErrorResponse(new VmOperationUnsupportedError({ provider: "freestyle", operation: "pause" }));
+    expect(pause!.status).toBe(501);
+    const pausePayload = await pause!.json() as Record<string, unknown>;
+    expect(pausePayload).toMatchObject({
+      error: "vm_operation_unsupported",
+      retryable: false,
+      details: { operation: "pause", retryable: false },
+    });
+    expect(String(pausePayload.message)).toContain("cannot be paused");
+    expect(String(pausePayload.action)).toContain("cmux vm rm");
+
+    const resume = await vmWorkflowErrorResponse(new VmOperationUnsupportedError({ provider: "freestyle", operation: "resume" }));
+    expect(resume!.status).toBe(501);
+    const resumePayload = await resume!.json() as Record<string, unknown>;
+    expect(resumePayload).toMatchObject({ error: "vm_operation_unsupported", phase: "resume", details: { operation: "resume" } });
+    expect(String(resumePayload.message)).toContain("cannot be resumed");
+  });
+
+  test("a provider message containing the capability phrase stays retryable", async () => {
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "snapshot",
+      cause: new Error("Cloud VM snapshots are not supported by this provider gateway"),
+    }));
+    expect(response!.status).toBe(502);
+    const payload = await response!.json() as { error: string; retryable: boolean };
+    expect(payload.error).toBe("vm_cloud_service_unavailable");
+    expect(payload.retryable).toBe(true);
+  });
+
+  test("a driver without fork reports the capability as false, so clients hide the verb", () => {
+    // vmCapabilitiesFor derives `fork` from the method's existence; the gateway
+    // raises VmOperationUnsupportedError when a caller asks anyway.
+    for (const provider of ["freestyle"] as const) {
+      const capabilities = vmCapabilitiesFor(provider);
+      expect(capabilities.fork).toBe(typeof getProvider(provider).fork === "function");
+      expect(capabilities.snapshot).toBe(true);
+      expect(capabilities.restore).toBe(true);
+      expect(capabilities.ports).toBe(typeof getProvider(provider).openPort === "function");
+    }
+  });
+
+  test("transient provider failures keep the retryable 502 path", async () => {
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "snapshot",
+      cause: new Error("INTERNAL_ERROR: Internal server error"),
+    }));
+    expect(response!.status).toBe(502);
+    const payload = await response!.json() as { error: string; retryable: boolean };
+    expect(payload.error).toBe("vm_cloud_service_unavailable");
+    expect(payload.retryable).toBe(true);
+  });
+
+  test("hides upstream provider detail from the public response", async () => {
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "create",
+      cause: new Error("INTERNAL_ERROR: private upstream details from https://api.freestyle.test/v5/vms"),
+    }));
+    const payload = await response!.json() as Record<string, unknown>;
+    const raw = JSON.stringify(payload);
+    expect(response!.status).toBe(502);
+    expect(payload.details).toMatchObject({ operation: "create", retryable: true });
+    // The sanitizer collapses the upstream text to a category, so neither the
+    // provider name, its endpoint, nor the upstream body reaches the client.
+    expect(payload.details).toMatchObject({ providerMessage: "internal service error" });
+    expect(raw).not.toContain("freestyle");
+    expect(raw).not.toContain("api.freestyle.test");
+    expect(raw).not.toContain("private upstream details");
+  });
+
+  test("resolves unsupported-operation copy from the requested locale", async () => {
+    const response = await vmWorkflowErrorResponse(
+      new VmProviderOperationError({
+        provider: "freestyle",
+        operation: "restore",
+        cause: new VmOperationUnsupportedError({ provider: "freestyle", operation: "restore" }),
+      }),
+      { locale: "ja" },
+    );
+    const payload = await response!.json() as Record<string, unknown>;
+    expect(payload.message).toContain("保存済み状態");
+    expect(payload.action).toContain("再試行しても解決しません");
+    expect(payload.ui).toMatchObject({ title: "Cloud VM 操作を利用できません" });
+  });
+
+  test("renders operation-specific unsupported copy in every supported locale", async () => {
+    for (const locale of locales) {
+      for (const phase of ["default", "fork", "openPort", "restore", "snapshot", "sizing", "persistentHome", "pause", "resume"] as const) {
+        const copy = await vmUnsupportedCopy(phase, locale);
+        expect(copy.title.length).toBeGreaterThan(0);
+        expect(copy.reason.length).toBeGreaterThan(0);
+        expect(copy.message.length).toBeGreaterThan(0);
+        expect(copy.action.length).toBeGreaterThan(0);
+        expect(JSON.stringify(copy)).not.toContain("vmErrors.unsupported");
+        if (phase === "sizing") expect(copy.action).toContain("`memoryMb`");
+        if (phase === "persistentHome") expect(copy.action).toContain("`persistentHome`");
+        if (locale === "ja") expect(copy.message).toMatch(/[\u3040-\u30ff]/);
+      }
+    }
+  });
+
+  test("negotiates the VM response locale from request headers", () => {
+    expect(vmRequestLocale(new Request("https://cmux.com/api/vm", {
+      headers: { "accept-language": "ja-JP,ja;q=0.9,en;q=0.8" },
+    }))).toBe("ja");
+    expect(vmRequestLocale(new Request("https://cmux.com/api/vm", {
+      headers: { "x-next-intl-locale": "de", "accept-language": "ja" },
+    }))).toBe("de");
+  });
+
+  test("vm_operation_unsupported is a product limitation, not an operator fault", () => {
+    expect(isOperatorFaultVmError({ error: "vm_operation_unsupported", status: 501 })).toBe(false);
+    // Every other 5xx stays an incident.
+    expect(isOperatorFaultVmError({ error: "vm_internal_error", status: 500 })).toBe(true);
+    expect(isOperatorFaultVmError({ error: "vm_cloud_service_unavailable", status: 502 })).toBe(true);
+  });
+});

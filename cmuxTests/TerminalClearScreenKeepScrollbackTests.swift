@@ -87,7 +87,10 @@ struct TerminalClearScreenKeepScrollbackTests {
         let hosted = try makeHostedTerminalWindow(
             initialCommand: "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path))"
         )
-        defer { hosted.window.orderOut(nil) }
+        defer {
+            hosted.surface.releaseHostedSurfaceForTesting()
+            hosted.window.orderOut(nil)
+        }
 
         // Headless CI runners can fail to initialize a Metal-backed Ghostty surface.
         // Without a live surface there is nothing to deliver input to, so skip the

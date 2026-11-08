@@ -241,26 +241,37 @@ async function firstWriteEpochEntry(
  * tombstone record, adds the rev-ordered `synctomb:` index entry for GC, and
  * returns the delta. A no-op if the record is already a tombstone (idempotent on
  * a double prune). */
-export async function tombstoneRecord(
+export async function tombstoneRecord<T extends object = Record<string, never>>(
   storage: SyncStorage,
   collection: string,
   id: string,
   nowMs: number,
-): Promise<SyncWriteResult<Record<string, never>>> {
+  options?: {
+    createIfMissing?: boolean;
+    /** Collection-typed tombstone body (default `{}`). A collection whose
+     * writes carry a source freshness clock keeps it on the tombstone so a
+     * late older upsert for the deleted id can still be rejected. */
+    payload?: T;
+  },
+): Promise<SyncWriteResult<T>> {
   const head = await readHead(storage, collection);
   const stored = await readRecord(storage, collection, id);
-  if (stored === undefined || stored.deleted) {
+  if ((stored === undefined && options?.createIfMissing !== true) || stored?.deleted) {
     // Nothing to delete, or already a tombstone: idempotent no-op.
     return { delta: null, head };
   }
   const rev = head + 1;
-  const tomb = makeTombstone(id, rev, nowMs);
+  const tomb: SyncRecord<T> = {
+    ...makeTombstone(id, rev, nowMs),
+    payload: options?.payload ?? ({} as T),
+  };
   // Atomic: tombstone record + head + rev-ordered GC index commit together, so
   // the GC index can never reference a head that does not include the tombstone.
   await storage.put({
     [recordKey(collection, id)]: tomb,
     [headKey(collection)]: rev,
     [tombKey(collection, rev)]: id,
+    ...(await firstWriteEpochEntry(storage, collection, head, nowMs)),
   });
   return { delta: buildDelta(collection, rev, [tomb]), head: rev };
 }

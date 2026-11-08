@@ -67,7 +67,7 @@ Sidebar hiển thị nhánh git, trạng thái/số PR liên kết, thư mục l
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> tạo workspace cho máy từ xa. Các pane trình duyệt định tuyến qua mạng từ xa nên localhost hoạt động bình thường. Kéo ảnh vào phiên từ xa để upload qua scp.
+<code>cmux ssh user@remote</code> tạo workspace cho máy từ xa. Truyền <code>--command 'omp "investigate auth"'</code> để chạy một lệnh khởi đầu một lần trong terminal từ xa đầu tiên của nó. Các pane trình duyệt định tuyến qua mạng từ xa nên localhost hoạt động bình thường. Kéo ảnh vào phiên từ xa để upload qua scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -118,6 +118,25 @@ brew upgrade --cask cmux
 
 Lần mở đầu tiên, macOS có thể yêu cầu bạn xác nhận mở app từ nhà phát triển được xác định. Nhấn **Open** để tiếp tục.
 
+### Tự động hoàn thành shell
+
+Cask Homebrew cài đặt tự động hoàn thành cho zsh, bash và fish. Hãy mở một shell mới sau khi cài. Nếu nó không được nạp, hãy kiểm tra xem các thư mục tự động hoàn thành của Homebrew đã được nối vào shell của bạn chưa (xem [tài liệu tự động hoàn thành shell của Homebrew](https://docs.brew.sh/Shell-Completion)).
+
+Nếu bạn cài cmux theo cách khác, hãy thêm dòng tương ứng vào tệp khởi động shell của bạn, rồi mở một shell mới:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## Vì sao cmux?
 
 Tôi chạy rất nhiều phiên Claude Code và Codex song song. Tôi từng dùng Ghostty với nhiều pane chia, và dựa vào thông báo macOS gốc để biết khi nào một agent cần tôi. Nhưng nội dung thông báo của Claude Code luôn chỉ là "Claude is waiting for your input" mà không có ngữ cảnh, và khi mở đủ nhiều tab thì tôi thậm chí không đọc được tiêu đề nữa.
@@ -150,7 +169,9 @@ Trao cho một triệu developer những nguyên thủy có thể ghép, và h�
 
 | Phím tắt | Hành động |
 |----------|--------|
-| ⌘ N | Workspace mới |
+| ⌘ N | Workspace cục bộ mới |
+| ⌘ Y | Workspace Cloud mới trong ngữ cảnh Cloud dùng được gần nhất; mở New Cloud Machine khi không có |
+| ⌘ ⇧ Y | Máy Cloud mới |
 | ⌘ 1–8 | Nhảy đến workspace 1–8 |
 | ⌘ 9 | Nhảy đến workspace cuối |
 | ⌃ ⌘ ] | Workspace tiếp theo |
@@ -361,19 +382,19 @@ Có, cmux miễn phí để dùng. Mã nguồn có sẵn trên [GitHub](https://
 
 ### Tôi có thể hỗ trợ cmux như thế nào?
 
-cmux miễn phí và mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muốn ủng hộ việc phát triển và có quyền truy cập sớm vào những thứ sắp tới, gồm cmux AI, app iOS, và Cloud VMs, hãy xem [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux miễn phí và mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muốn ủng hộ việc phát triển và có quyền truy cập sớm vào những thứ sắp tới, gồm cmux AI, app iOS, và Cloud VMs, hãy xem [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
 
 ### Tôi có yêu cầu tính năng hoặc tìm thấy lỗi?
 
-Chúng tôi rất muốn nghe. Mở một [issue](https://github.com/manaflow-ai/cmux/issues) hoặc [pull request](https://github.com/manaflow-ai/cmux/pulls) trên GitHub, hoặc [gửi email cho chúng tôi](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Chúng tôi rất muốn nghe. Mở một [issue](https://github.com/manaflow-ai/cmux/issues) hoặc [pull request](https://github.com/manaflow-ai/cmux/pulls) trên GitHub, hoặc [gửi email cho chúng tôi](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Lịch sử sao
 
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+<a href="https://www.star-history.com/?repos=manaflow-ai%2Fcmux&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Biểu đồ lịch sử sao" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&theme=dark&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <img alt="Biểu đồ lịch sử sao" src="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
  </picture>
 </a>
 
@@ -389,27 +410,26 @@ Cách tham gia:
 ## Cộng đồng
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
-## Founder's Edition
+<p>
+  <strong>WeChat:</strong> Quét mã QR để tham gia cộng đồng.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="Mã QR WeChat để tham gia cộng đồng cmux" width="240" />
+</p>
+
+## cmux Pro
 
 cmux miễn phí, mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muốn hỗ trợ phát triển và có quyền truy cập sớm vào những thứ sắp tới:
 
-**[Lấy Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Ưu tiên yêu cầu tính năng/sửa lỗi**
-- **Truy cập sớm: cmux AI cung cấp ngữ cảnh cho mọi workspace, tab và panel**
-- **Truy cập sớm: ứng dụng iOS với terminal đồng bộ giữa desktop và điện thoại**
-- **Truy cập sớm: Cloud VM**
-- **Truy cập sớm: Voice mode**
-- **iMessage/WhatsApp cá nhân của tôi**
+**[Lấy cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## Giấy phép
 
-cmux là mã nguồn mở theo [GPL-3.0-or-later](LICENSE).
+cmux là mã nguồn mở theo [GPL-3.0-or-later](LICENSE). Phần mềm máy chủ của cmux (`web/`, các Cloudflare worker và các dịch vụ relay liệt kê trong [LICENSE](LICENSE)) thay vào đó dùng [Business Source License 1.1](web/LICENSE): bạn có thể đọc, sửa đổi và chạy cho mục đích không phải production; sử dụng production hoặc tự host cần giấy phép thương mại.
 
-Nếu tổ chức của bạn không thể tuân thủ GPL, giấy phép thương mại có sẵn. Liên hệ [founders@manaflow.com](mailto:founders@manaflow.com) để biết chi tiết.
+Nếu tổ chức của bạn không thể tuân thủ GPL, giấy phép thương mại có sẵn. Liên hệ [founders@cmux.com](mailto:founders@cmux.com) để biết chi tiết.

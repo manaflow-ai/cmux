@@ -40,8 +40,10 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            // Not gated on `isSpinnerFrameOnly`; see the matching observer in
+            // ContentView for why a spinner-bearing title can be a real change.
             let changedWorkspaceId = GhosttyTitleChange(notification: notification)?.tabId
-            Task { @MainActor [weak self, changedWorkspaceId] in
+            MainActor.assumeIsolated { [weak self] in
                 guard let self,
                       self.tabManager?.shouldScheduleRawTitleRefresh(forWorkspaceId: changedWorkspaceId) == true else { return }
                 self.scheduleFocusedCommandTextUpdate()
@@ -53,9 +55,14 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             object: tabManager,
             queue: .main
         ) { [weak self] notification in
-            let changedWorkspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID
-            Task { @MainActor [weak self, changedWorkspaceId] in
-                guard let self, changedWorkspaceId == self.tabManager?.selectedTabId, self.tabManager?.shouldScheduleRawTitleRefresh(forWorkspaceId: changedWorkspaceId) == false else { return }
+            // Extract Sendable values where the notification is delivered; the
+            // non-Sendable Notification must not cross the Task boundary.
+            let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID
+            let surfaceSourced = notification.userInfo?[GhosttyNotificationKey.surfaceId] != nil
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.tabManager?.shouldRefreshTitleChrome(tabId: tabId, surfaceSourced: surfaceSourced) == true
+                else { return }
                 self.scheduleFocusedCommandTextUpdate()
             }
         })
@@ -106,11 +113,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             }
         })
 
-        observers.append(center.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        observers.append(center.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.updateToolbarVisibilityIfNeeded()
             }
@@ -167,6 +170,9 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
     private func attach(to window: NSWindow) {
         guard window.toolbar == nil else { return }
+        // The Cloud welcome is a glass card, not a workspace window: a toolbar
+        // would turn its titlebar into a toolbar band and outline the card.
+        guard window.identifier?.rawValue != "cmux.cloud.welcome" else { return }
         guard !WorkspacePresentationModeSettings.isMinimal() else { return }
         let toolbar = NSToolbar(identifier: NSToolbar.Identifier("cmux.toolbar"))
         toolbar.delegate = self

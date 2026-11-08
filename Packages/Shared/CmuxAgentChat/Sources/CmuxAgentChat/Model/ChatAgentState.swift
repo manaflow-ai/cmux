@@ -21,6 +21,15 @@ public enum ChatAgentState: Sendable, Equatable {
         if case .needsInput = self { return true }
         return false
     }
+
+    /// Returns the state after accepted user input reaches the agent terminal.
+    /// Hook events remain authoritative for subsequent transitions.
+    public func afterExplicitInput(at: Date) -> Self {
+        if case .needsInput = self {
+            return .working(since: at)
+        }
+        return self
+    }
 }
 
 extension ChatAgentState: Codable {

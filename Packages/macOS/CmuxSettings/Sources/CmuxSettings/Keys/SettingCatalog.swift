@@ -27,10 +27,18 @@ public struct SettingCatalog: SettingCatalogSection {
     public let notifications = NotificationsCatalogSection()
     public let sidebar = SidebarCatalogSection()
     public let sidebarAppearance = SidebarAppearanceCatalogSection()
+    /// Settings for cmux pane divider and focused-pane chrome.
+    public let paneChrome = PaneChromeCatalogSection()
     public let workspaceColors = WorkspaceColorsCatalogSection()
     /// Settings for sidebar workspace groups (the `workspaceGroups.*` keys).
     public let workspaceGroups = WorkspaceGroupsCatalogSection()
     public let automation = AutomationCatalogSection()
+    /// The app-wide switch for agent messages (the `agentMessages.*` keys).
+    public let agentMessages = AgentMessagesCatalogSection()
+    /// Settings for Chief, the Home agent (the `chief.*` keys).
+    public let chief = ChiefCatalogSection()
+    /// Settings for the local computer-use MCP integration and its menu-bar UI.
+    public let computerUse = ComputerUseCatalogSection()
     public let browser = BrowserCatalogSection()
     /// Settings for the built-in markdown viewer (the `markdown.*` keys).
     public let markdown = MarkdownCatalogSection()
@@ -40,12 +48,16 @@ public struct SettingCatalog: SettingCatalogSection {
     public let fileEditor = FileEditorCatalogSection()
     /// Settings for Mobile pairing and sync.
     public let mobile = MobileCatalogSection()
+    /// Discovery and privacy controls for My Devices.
+    public let devices = DevicesCatalogSection()
     public let betaFeatures = BetaFeaturesCatalogSection()
     /// Settings for custom (user/agent-authored) sidebars (the `customSidebars.*` keys).
     public let customSidebars = CustomSidebarsCatalogSection()
     public let shortcuts = KeyboardShortcutsCatalogSection()
     public let integrations = IntegrationsCatalogSection()
     public let account = AccountCatalogSection()
+    /// Appearance and scene options for Sleepy Mode.
+    public let sleepyMode = SleepyModeCatalogSection()
 
     public init() {}
 }

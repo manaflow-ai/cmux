@@ -2,6 +2,12 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./icons";
 import type { DiffViewerLabelResolver, DiffViewerLabelKey } from "./labels";
+import type { DiffTransport } from "./diff/transport";
+import type {
+  BranchListResult,
+  BranchPickerGroup,
+  BranchPickerRow,
+} from "./diff/generated/protocol";
 
 /**
  * Searchable, uncapped branch base picker. Renders a heavy toolbar button that
@@ -13,6 +19,8 @@ import type { DiffViewerLabelResolver, DiffViewerLabelKey } from "./labels";
 
 export type BranchPickerPayload = {
   repoRoot: string;
+  groupId?: string;
+  capabilityToken?: string;
   headRef: string;
   currentRef: string;
   currentReason: string;
@@ -22,23 +30,9 @@ export type BranchPickerPayload = {
   regenerateURLTemplate: string;
 };
 
-type BranchPickerRow = {
-  ref: string;
-  label: string;
-  secondary?: string;
-  reason?: string;
-  confidence?: "high" | "low";
-  current?: boolean;
-  worktreeDir?: string;
-};
-
-type BranchPickerGroup = {
-  id: string;
-  label: string;
-  rows: BranchPickerRow[];
-};
-
-type RefsResponse = { groups: BranchPickerGroup[] };
+export function branchPickerStateKey(picker: BranchPickerPayload): string {
+  return `${picker.repoRoot}\u0000${picker.capabilityToken ?? ""}\u0000${picker.currentRef}`;
+}
 
 // Strip a leading `scheme://host[:port]` so the URL becomes root-relative and
 // resolves against the CURRENT document origin. The persisted diff HTML embeds
@@ -152,11 +146,15 @@ function computePopoverStyle(rect: DOMRect): PopoverStyle {
 export function BranchBasePicker({
   label,
   onNavigate,
+  onSelectBranchBase,
   picker,
+  transport = null,
 }: {
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
+  onSelectBranchBase?: (baseRef: string) => void;
   picker: BranchPickerPayload;
+  transport?: DiffTransport | null;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -164,6 +162,7 @@ export function BranchBasePicker({
   const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("idle");
   const [highlight, setHighlight] = useState(0);
   const [generatingRef, setGeneratingRef] = useState<string | null>(null);
+  const [regenerationFailed, setRegenerationFailed] = useState(false);
   // Inline position for the viewport-anchored (position: fixed) popover. Null
   // until the first measurement after open, so the popover is not painted at a
   // stale 0,0 for a frame. Recomputed on open, resize, and ancestor scroll.
@@ -194,7 +193,7 @@ export function BranchBasePicker({
     setHighlight(0);
     if (groups == null && loadState !== "loading") {
       setLoadState("loading");
-      fetchRefs(toCurrentOriginRelative(picker.refsURL))
+      loadRefs(picker, transport)
         .then((response) => {
           setGroups(response.groups);
           setLoadState("idle");
@@ -216,11 +215,47 @@ export function BranchBasePicker({
     if (trimmed === "") {
       return;
     }
+    if (trimmed === picker.currentRef) {
+      closePopover();
+      setGeneratingRef(null);
+      return;
+    }
     setGeneratingRef(trimmed);
+    setRegenerationFailed(false);
     setOpen(false);
-    onNavigate(
-      toCurrentOriginRelative(picker.regenerateURLTemplate).replace("{ref}", encodeURIComponent(trimmed)),
-    );
+    if (onSelectBranchBase) {
+      onSelectBranchBase(trimmed);
+      setGeneratingRef(null);
+      return;
+    }
+    if (transport && picker.groupId && picker.capabilityToken) {
+      transport.request({
+        method: "branchChange",
+        params: {
+          groupId: picker.groupId,
+          repoRoot: picker.repoRoot,
+          baseRef: trimmed,
+          capabilityToken: picker.capabilityToken,
+        },
+      }).then((result) => {
+        if (result.type !== "navigation") {
+          throw new Error("branch change response missing navigation");
+        }
+        onNavigate(result.value.url);
+      }).catch((error) => {
+        console.warn("cmux diff branch picker regeneration failed", error);
+        setGeneratingRef(null);
+        setRegenerationFailed(true);
+        setLoadState("idle");
+        setQuery("");
+        setHighlight(0);
+        // Reopen the cached picker. Its callback-ref focuses the filter input,
+        // while the localized error explains why navigation did not happen.
+        setOpen(true);
+      });
+      return;
+    }
+    onNavigate(toCurrentOriginRelative(picker.regenerateURLTemplate).replace("{ref}", encodeURIComponent(trimmed)));
   };
 
   // Outside-click dismissal while open. Isolated to one effect with a narrow
@@ -372,6 +407,11 @@ export function BranchBasePicker({
               onKeyDown={onInputKeyDown}
             />
           </div>
+          {regenerationFailed ? (
+            <output className="base-picker-status base-picker-status-error">
+              {label("branchPickerGenerateFailed")}
+            </output>
+          ) : null}
           {/* Searchable command-palette listbox; a native select/datalist cannot
               render grouped rows with secondaries, pills, and matched bolding. */}
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
@@ -664,14 +704,35 @@ function fuzzyMatchSpan(text: string, query: string): [number, number] | null {
   return firstHit >= 0 ? [firstHit, firstHit + 1] : null;
 }
 
-async function fetchRefs(refsURL: string): Promise<RefsResponse> {
+async function fetchRefs(refsURL: string): Promise<BranchListResult> {
   const response = await fetch(refsURL, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`refs request failed (${response.status})`);
   }
-  const data = (await response.json()) as RefsResponse;
+  const data = (await response.json()) as BranchListResult;
   if (!data || !Array.isArray(data.groups)) {
     throw new Error("refs response missing groups");
   }
   return data;
+}
+
+async function loadRefs(picker: BranchPickerPayload, transport: DiffTransport | null): Promise<BranchListResult> {
+  if (transport && picker.capabilityToken) {
+    const result = await transport.request({
+      method: "branchList",
+      params: {
+        repoRoot: picker.repoRoot,
+        capabilityToken: picker.capabilityToken,
+        selectedBase: picker.currentRef,
+      },
+    });
+    if (result.type !== "branches") {
+      throw new Error("branch list response missing groups");
+    }
+    if (!Array.isArray(result.value.groups)) {
+      throw new Error("branch list response missing groups");
+    }
+    return result.value;
+  }
+  return fetchRefs(toCurrentOriginRelative(picker.refsURL));
 }

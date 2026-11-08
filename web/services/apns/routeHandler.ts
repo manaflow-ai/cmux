@@ -1,3 +1,5 @@
+import { trace } from "@opentelemetry/api";
+import type { PushSendSummary } from "./response";
 import { recordSpanError, withApiRouteSpan, type MaybeAttributes } from "../telemetry";
 
 export async function withApnsApiRoute(
@@ -26,4 +28,38 @@ export async function withApnsApiRoute(
       }
     },
   );
+}
+
+/** Records aggregate delivery evidence without tokens, payload text, or APNs reasons. */
+export function recordApnsRouteOutcome(
+  summary: PushSendSummary,
+  correlationId: string,
+): void {
+  trace.getActiveSpan()?.setAttributes({
+    "cmux.push.correlation_id": correlationId,
+    "cmux.apns.devices": summary.devices,
+    "cmux.apns.sent": summary.sent,
+    "cmux.apns.pruned": summary.pruned,
+    "cmux.apns.transient_failures": summary.transientFailures,
+    "cmux.apns.permanent_failures": summary.permanentFailures,
+  });
+}
+
+/** Correlates a safe expected-failure stage without payload or device data. */
+export function recordApnsEncryptionKeyRejection(): void {
+  trace.getActiveSpan()?.setAttributes({
+    "cmux.apns.failure_stage": "push_e2e_key_missing_or_invalid",
+    "cmux.push.protocol": "notification-e2e-v1",
+  });
+}
+
+/** Correlates a safe expected-failure stage without payload or device data. */
+export function recordApnsRouteFailure(
+  correlationId: string,
+  stage: string,
+): void {
+  trace.getActiveSpan()?.setAttributes({
+    "cmux.push.correlation_id": correlationId,
+    "cmux.apns.failure_stage": stage,
+  });
 }

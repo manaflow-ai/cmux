@@ -10,7 +10,7 @@ Usage: submit-cmux-profile --profile <dir> [--target-name <name>] [--target-pid 
                            [--note <text>|--note-file <path>] [--skip-dialog] [--send]
                            [--package-only] [--dry-run]
 
-Package a cmux profiling directory and submit it to founders@manaflow.com with
+Package a cmux profiling directory and submit it to founders@cmux.com with
 the archive attached.
 USAGE
 }
@@ -28,7 +28,7 @@ skip_dialog="false"
 send_message="false"
 package_only="false"
 dry_run="false"
-recipient="${CMUX_PROFILE_FEEDBACK_EMAIL:-founders@manaflow.com}"
+recipient="${CMUX_PROFILE_FEEDBACK_EMAIL:-founders@cmux.com}"
 osascript_bin="${CMUX_PROFILE_OSASCRIPT:-/usr/bin/osascript}"
 open_bin="${CMUX_PROFILE_OPEN:-/usr/bin/open}"
 ditto_bin="${CMUX_PROFILE_DITTO:-/usr/bin/ditto}"

@@ -47,6 +47,9 @@ public final class TerminalAccessoryConfiguration {
     // forward-migrate an upgrading user's existing arrangement.
     private static let legacyV1OrderDefaultsKey = "cmux.terminal.accessory.displayOrder.v1"
     private static let legacyV1EnabledDefaultsKey = "cmux.terminal.accessory.enabled.v1"
+    /// One-time migration that makes the floating chip the primary gallery
+    /// signifier while preserving `.files` as a user-configurable action.
+    private static let artifactChipPrimaryDefaultsKey = "cmux.terminal.toolbar.artifactChipPrimary.v1"
 
     /// The configurable items in the order the user has arranged them, as unified
     /// identifiers (built-ins and custom actions together).
@@ -84,8 +87,8 @@ public final class TerminalAccessoryConfiguration {
         //   else v2 present → widen to v3 (force-enable the now-configurable
         //                     modifier/zoom/paste built-ins at their old spots).
         //   else v1 present → relabel v1→ids, then widen to v3 the same way.
-        //   else fresh install → empty saved + nil enabled ⇒ default layout,
-        //                        which already includes modifiers/zoom/paste.
+        //   else fresh install → empty saved + nil enabled ⇒ default layout;
+        //                        the chip migration then hides the optional Files copy.
         let savedOrder: [ToolbarItemID]
         let savedEnabled: [ToolbarItemID]?
         if let v3Order = defaults.array(forKey: Self.orderDefaultsKey) as? [String] {
@@ -135,7 +138,15 @@ public final class TerminalAccessoryConfiguration {
             savedEnabled = nil
         }
 
-        let layout = reducer.load(savedOrder: savedOrder, savedEnabled: savedEnabled)
+        var layout = reducer.load(savedOrder: savedOrder, savedEnabled: savedEnabled)
+        if !defaults.bool(forKey: Self.artifactChipPrimaryDefaultsKey) {
+            layout = reducer.setEnabled(
+                TerminalInputAccessoryAction.files.itemID,
+                false,
+                in: layout
+            )
+            defaults.set(true, forKey: Self.artifactChipPrimaryDefaultsKey)
+        }
         self.displayOrder = layout.order
         self.enabledSet = layout.enabled
         // Persist the normalized (and possibly migrated) layout under the v3 keys
@@ -231,6 +242,15 @@ public final class TerminalAccessoryConfiguration {
         persistAndNotify()
     }
 
+    /// Reorder the configurable items using a complete desired order.
+    ///
+    /// Unknown identifiers are dropped and any omitted current/configurable ids
+    /// are appended by the reducer load path, matching launch-time normalization.
+    public func reorderItems(_ orderedIDs: [ToolbarItemID]) {
+        apply(reducer.load(savedOrder: orderedIDs, savedEnabled: Array(enabledSet)))
+        persistAndNotify()
+    }
+
     /// Append a new custom action, shown at the end of the configurable region.
     public func addCustomAction(_ action: CustomToolbarAction) {
         customActions.append(action)
@@ -260,10 +280,14 @@ public final class TerminalAccessoryConfiguration {
         persistAndNotify()
     }
 
-    /// Restore the default arrangement (canonical order, every item shown).
-    /// Custom actions are kept (appended after the built-ins), not deleted.
+    /// Restore the default arrangement, with the secondary Files copy hidden.
+    /// Custom actions are kept (appended after the built-ins), not deleted or hidden.
     public func resetToDefaults() {
-        apply(reducer.defaultLayout())
+        apply(reducer.setEnabled(
+            TerminalInputAccessoryAction.files.itemID,
+            false,
+            in: reducer.defaultLayout()
+        ))
         persistAndNotify()
     }
 

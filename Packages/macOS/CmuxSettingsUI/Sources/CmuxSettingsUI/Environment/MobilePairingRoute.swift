@@ -21,7 +21,8 @@ public struct MobilePairingRoute: Sendable, Equatable, Identifiable {
     /// The host or IP address the phone connects to.
     public let host: String
 
-    /// The TCP port the phone connects to.
+    /// The port the phone connects to (TCP for listener routes, UDP for Iroh
+    /// direct addresses).
     public let port: Int
 
     /// Creates a pairing-route descriptor.
@@ -30,7 +31,7 @@ public struct MobilePairingRoute: Sendable, Equatable, Identifiable {
     ///   - id: Stable identifier used as the list identity.
     ///   - kindLabel: Localized transport label.
     ///   - host: Host or IP address the phone connects to.
-    ///   - port: TCP port the phone connects to.
+    ///   - port: Port the phone connects to.
     public init(id: String, kindLabel: String, host: String, port: Int) {
         self.id = id
         self.kindLabel = kindLabel

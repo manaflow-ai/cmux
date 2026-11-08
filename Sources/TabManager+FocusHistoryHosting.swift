@@ -8,14 +8,17 @@ import Foundation
 /// `tabs.first(where:)` reads, so a gone workspace/panel makes every read
 /// `false`/`nil` and every mutation a no-op.
 ///
-/// `selectedWorkspaceId`, `workspaceExists(_:)`, and
-/// `panelExists(workspaceId:panelId:)` are already witnessed by the
-/// NotificationDismissalHosting/SidebarGitHosting conformances; one
-/// declaration satisfies all seams. `focusSelectedWorkspacePanel()` and
+/// `workspaceExists(_:)` and `panelExists(workspaceId:panelId:)` are already
+/// witnessed by the SidebarGitHosting conformance; one declaration satisfies
+/// both seams. `focusSelectedWorkspacePanel()` and
 /// `focusHistoryRevisionDidChange()` live in `TabManager.swift` because
 /// they touch `private` members (`focusSelectedTabPanel`,
 /// `focusHistoryRevision`).
 extension TabManager: FocusHistoryHosting {
+    var selectedWorkspaceId: UUID? {
+        selectedTabId
+    }
+
     func workspaceTitle(_ workspaceId: UUID) -> String? {
         tabs.first(where: { $0.id == workspaceId })?.title
     }

@@ -17,6 +17,11 @@ import {
   CODEX_SUBMIT_BUTTON,
 } from "../shared/codexClassNames";
 import { CODEX_FOLDER_ICON_PATH } from "../shared/codexIconPaths";
+import {
+  commandText,
+  ComposerCommandSubmissionGate,
+  composerCommandRoute,
+} from "../shared/commandRouting";
 import { shouldUseSingleLineComposer } from "../shared/composerLayout";
 import {
   computeFooterCollapse,
@@ -24,7 +29,7 @@ import {
   initialFooterCollapseState,
   type FooterCollapseState,
 } from "../shared/footerCollapse";
-import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
+import { renderMarkdownFragment, renderPlainTextHTML } from "../shared/markdown";
 import { promptTextWithAttachments } from "../shared/promptAttachments";
 import { promptTextWithAutoContext } from "../shared/promptMentions";
 import { promptTextWithPlanMode } from "../shared/promptModes";
@@ -287,7 +292,9 @@ function SessionSurface({
   const canStart = canStartProvider(state);
   const canStop = canStopProvider(state);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const canSend = state.status === "running" && (state.input.length > 0 || attachments.length > 0);
+  const canSend =
+    (state.status === "running" && (state.input.length > 0 || attachments.length > 0)) ||
+    (attachments.length === 0 && composerCommandRoute(state.input) !== null);
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const canConfigurePermissions = provider?.id === "codex";
@@ -320,6 +327,10 @@ function SessionSurface({
     ? { hideControl: false, hideLabel: false }
     : (footerCollapse.state["ide-context"] ?? { hideControl: false, hideLabel: false });
   const editorRef = useRef<PromptEditorHandle | null>(null);
+  const commandSubmissionGateRef = useRef(new ComposerCommandSubmissionGate());
+  const inputRevisionRef = useRef(0);
+  const latestStateRef = useRef(state);
+  latestStateRef.current = state;
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
   const [menuQuery, setMenuQuery] = useState("");
   const [menuIndex, setMenuIndex] = useState(0);
@@ -331,14 +342,51 @@ function SessionSurface({
   const [permissionsMenuOpen, setPermissionsMenuOpen] = useState(false);
   const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
   const highlightedMenuIndex = menuItems.length === 0 ? -1 : Math.min(menuIndex, menuItems.length - 1);
+  const submitRoutedCommand = (currentInput: string): boolean => {
+    if (attachments.length !== 0 || composerCommandRoute(currentInput) === null) {
+      return false;
+    }
+
+    const gate = commandSubmissionGateRef.current;
+    const submittedRevision = inputRevisionRef.current;
+    if (!gate.begin(submittedRevision)) {
+      return true;
+    }
+
+    const submittedInput = currentInput;
+    void callNative("terminal.runCommand", { command: commandText(submittedInput) })
+      .then(() => {
+        const shouldClear = gate.complete(submittedRevision, inputRevisionRef.current);
+        const currentEditorInput = editorRef.current?.getText() ?? latestStateRef.current.input;
+        if (shouldClear && currentEditorInput === submittedInput) {
+          dispatch({ type: "setInput", input: "" });
+        }
+      })
+      .catch((error) => {
+        if (gate.fail(submittedRevision)) {
+          dispatch({
+            type: "failed",
+            message: messageForError(error, latestStateRef.current),
+          });
+        }
+      });
+    return true;
+  };
+
   const submit = () => {
     const currentInput = editorRef.current?.getText() ?? state.input;
-    const canSubmit = state.status === "running" && (currentInput.length > 0 || attachments.length > 0);
+    const canSubmit =
+      (state.status === "running" && (currentInput.length > 0 || attachments.length > 0)) ||
+      (attachments.length === 0 && composerCommandRoute(currentInput) !== null);
     if (!canSubmit) {
       return;
     }
     if (currentInput !== state.input) {
+      inputRevisionRef.current += 1;
       dispatch({ type: "setInput", input: currentInput });
+    }
+    if (submitRoutedCommand(currentInput)) {
+      return;
     }
     setMenuKind(null);
     setMenuQuery("");
@@ -607,7 +655,10 @@ function SessionSurface({
     onAutocompleteChange: updateComposerAutocomplete,
     onAutocompleteKeyDown: handleComposerAutocompleteKey,
     onPlanModeShortcut: togglePlanMode,
-    onTextChange: (input: string) => dispatch({ type: "setInput", input }),
+    onTextChange: (input: string) => {
+      inputRevisionRef.current += 1;
+      dispatch({ type: "setInput", input });
+    },
     onSubmit: submit,
     onTriggerToken: (token: "@" | "$") => {
       setMenuKind(token === "@" ? "mention" : "skill");
@@ -1034,14 +1085,7 @@ const TranscriptTurn = React.memo(function TranscriptTurn({
       return h(
         "div",
         { className: "codex-assistant-turn group flex min-w-0 flex-col" },
-        h(
-          "div",
-          {
-            className:
-              "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)] [&>*:last-child]:mb-0 [&>ol:first-child]:mt-0 [&>ul:first-child]:mt-0",
-            dangerouslySetInnerHTML: { __html: renderMarkdownHTML(entry.text) },
-          },
-        ),
+        h(AssistantMarkdown, { text: entry.text }),
         entry.text.trim().length > 0
           ? h(AssistantMessageActions, { copy, sentAtMs: entry.sentAtMs, text: entry.text })
           : null,
@@ -1059,6 +1103,22 @@ const TranscriptTurn = React.memo(function TranscriptTurn({
       return h(ToolActivityTurn, { copy, entry });
   }
 });
+
+/// Inserts sanitized markdown as DOM nodes so the sanitized tree is never
+/// re-serialized and re-parsed by the live document.
+function AssistantMarkdown({ text }: { text: string }) {
+  const attachMarkdown = useCallback(
+    (element: HTMLDivElement | null) => {
+      element?.replaceChildren(renderMarkdownFragment(text, element.ownerDocument));
+    },
+    [text],
+  );
+  return h("div", {
+    className:
+      "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)] [&>*:last-child]:mb-0 [&>ol:first-child]:mt-0 [&>ul:first-child]:mt-0",
+    ref: attachMarkdown,
+  });
+}
 
 function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: TranscriptEntry }) {
   "use no memo";

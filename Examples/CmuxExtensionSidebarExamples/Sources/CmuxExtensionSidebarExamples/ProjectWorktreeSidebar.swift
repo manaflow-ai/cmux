@@ -23,7 +23,7 @@ public struct ProjectWorktreeSidebar: CmuxSidebarProvider {
                 projectRootPath: nil,
                 workspaces: snapshot.workspaces.filter(\.isPinned)
             )
-            .render(subtitle: branchSubtitle)
+            .render(subtitle: rowSubtitle)
         )
 
         var grouped: [String: [CmuxSidebarProviderWorkspace]] = [:]
@@ -51,14 +51,17 @@ public struct ProjectWorktreeSidebar: CmuxSidebarProvider {
                     projectRootPath: root == "no-folder" ? nil : root,
                     workspaces: grouped[root] ?? []
                 )
-                .render(subtitle: branchSubtitle)
+                .render(subtitle: rowSubtitle)
             )
         }
 
         return renderModel(providerId: descriptor.id, snapshot: snapshot, sections: sections)
     }
 
-    private func branchSubtitle(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? {
-        trimmed(workspace.branchSummary).map(CmuxSidebarProviderText.plain)
+    private func rowSubtitle(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? {
+        if let description = trimmed(workspace.customDescription) {
+            return .plain(description)
+        }
+        return trimmed(workspace.branchSummary).map(CmuxSidebarProviderText.plain)
     }
 }

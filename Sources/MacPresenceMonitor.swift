@@ -82,7 +82,7 @@ struct MacPresenceMonitor {
             return .awayScreensaverRunning
         }
         guard let idle = signals.secondsSinceLastHardwareInput,
-              idle <= recentHardwareInputThreshold
+              idle < recentHardwareInputThreshold
         else {
             return .awayNoRecentHardwareInput(
                 secondsSinceLastHardwareInput: signals.secondsSinceLastHardwareInput

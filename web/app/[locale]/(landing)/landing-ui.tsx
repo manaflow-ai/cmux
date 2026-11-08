@@ -1,6 +1,6 @@
 import { useTranslations } from "next-intl";
-import { DownloadButton } from "../components/download-button";
-import { GitHubButton } from "../components/github-button";
+import { DownloadButton } from "@/app/[locale]/components/download-button";
+import { GitHubButton } from "@/app/[locale]/components/github-button";
 import { TrackedLink } from "./tracked-link";
 
 /** Comparison/spec table. First cell of each row is rendered bold. */

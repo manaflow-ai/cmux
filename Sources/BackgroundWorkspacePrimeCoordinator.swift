@@ -2,107 +2,107 @@ import Foundation
 import Combine
 import CmuxTerminal
 
+// Swift 6.0 cannot mark nested type declarations `nonisolated`. File scope
+// keeps these concurrency helpers outside the coordinator's main-actor domain.
+private enum PrimeCompletionReason: String {
+    case alreadyCleared = "already_cleared"
+    case cancelled
+    case noSurfaceWork = "no_surface_work"
+    case surfaceReady = "surface_ready"
+    case timeout
+    case workspaceRemoved = "workspace_removed"
+}
+
+private enum PrimeState {
+    case pending
+    case completed(reason: PrimeCompletionReason)
+}
+
+private enum Policy {
+    static let timeoutSeconds: TimeInterval = 2.0
+}
+
+private final class Waiter: @unchecked Sendable {
+    // Cancellation handlers cannot await an actor hop; this lock keeps continuation
+    // and cleanup state synchronous across task cancellation and readiness callbacks.
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<PrimeCompletionReason, Never>?
+    private var cleanupActions: [() -> Void] = []
+    private var resolvedReason: PrimeCompletionReason?
+
+    var isResolved: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return resolvedReason != nil
+    }
+
+    deinit {
+        finish(reason: .cancelled)
+    }
+
+    func start(continuation: CheckedContinuation<PrimeCompletionReason, Never>) {
+        let reason: PrimeCompletionReason?
+        lock.lock()
+        reason = resolvedReason
+        if reason == nil {
+            self.continuation = continuation
+        }
+        lock.unlock()
+        if let reason {
+            continuation.resume(returning: reason)
+        }
+    }
+
+    func addObserver(_ observer: NSObjectProtocol) {
+        addCleanup { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    func addCancellable(_ cancellable: AnyCancellable) {
+        addCleanup { cancellable.cancel() }
+    }
+
+    func addTask(_ task: Task<Void, Never>) {
+        addCleanup { task.cancel() }
+    }
+
+    func finish(reason: PrimeCompletionReason) {
+        let drained: (CheckedContinuation<PrimeCompletionReason, Never>?, [() -> Void])?
+        lock.lock()
+        if resolvedReason == nil {
+            resolvedReason = reason
+            drained = (continuation, cleanupActions)
+            continuation = nil
+            cleanupActions.removeAll()
+        } else {
+            drained = nil
+        }
+        lock.unlock()
+
+        guard let (continuation, cleanupActions) = drained else { return }
+        cleanupActions.forEach { $0() }
+        continuation?.resume(returning: reason)
+    }
+
+    private func addCleanup(_ action: @escaping () -> Void) {
+        lock.lock()
+        guard resolvedReason == nil else {
+            lock.unlock()
+            action()
+            return
+        }
+        cleanupActions.append(action)
+        lock.unlock()
+    }
+}
+
 @MainActor
 final class BackgroundWorkspacePrimeCoordinator {
-    private nonisolated enum PrimeCompletionReason: String {
-        case alreadyCleared = "already_cleared"
-        case cancelled
-        case noSurfaceWork = "no_surface_work"
-        case surfaceReady = "surface_ready"
-        case timeout
-        case workspaceRemoved = "workspace_removed"
-    }
-
-    private nonisolated enum PrimeState {
-        case pending
-        case completed(reason: PrimeCompletionReason)
-    }
-
-    private nonisolated enum Policy {
-        static let timeoutSeconds: TimeInterval = 2.0
-    }
-
-    private nonisolated final class Waiter: @unchecked Sendable {
-        // Cancellation handlers cannot await an actor hop; this lock keeps continuation
-        // and cleanup state synchronous across task cancellation and readiness callbacks.
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<PrimeCompletionReason, Never>?
-        private var cleanupActions: [() -> Void] = []
-        private var resolvedReason: PrimeCompletionReason?
-
-        var isResolved: Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            return resolvedReason != nil
-        }
-
-        deinit {
-            finish(reason: .cancelled)
-        }
-
-        func start(continuation: CheckedContinuation<PrimeCompletionReason, Never>) {
-            let reason: PrimeCompletionReason?
-            lock.lock()
-            reason = resolvedReason
-            if reason == nil {
-                self.continuation = continuation
-            }
-            lock.unlock()
-            if let reason {
-                continuation.resume(returning: reason)
-            }
-        }
-
-        func addObserver(_ observer: NSObjectProtocol) {
-            addCleanup { NotificationCenter.default.removeObserver(observer) }
-        }
-
-        func addCancellable(_ cancellable: AnyCancellable) {
-            addCleanup { cancellable.cancel() }
-        }
-
-        func addTask(_ task: Task<Void, Never>) {
-            addCleanup { task.cancel() }
-        }
-
-        func finish(reason: PrimeCompletionReason) {
-            let drained: (CheckedContinuation<PrimeCompletionReason, Never>?, [() -> Void])?
-            lock.lock()
-            if resolvedReason == nil {
-                resolvedReason = reason
-                drained = (continuation, cleanupActions)
-                continuation = nil
-                cleanupActions.removeAll()
-            } else {
-                drained = nil
-            }
-            lock.unlock()
-
-            guard let (continuation, cleanupActions) = drained else { return }
-            cleanupActions.forEach { $0() }
-            continuation?.resume(returning: reason)
-        }
-
-        private func addCleanup(_ action: @escaping () -> Void) {
-            lock.lock()
-            guard resolvedReason == nil else {
-                lock.unlock()
-                action()
-                return
-            }
-            cleanupActions.append(action)
-            lock.unlock()
-        }
-    }
-
     deinit {
         // Explicit for the required_deinit lint; per-prime resources live on Waiter.
     }
 
-    func taskKey(for tabManager: TabManager) -> [String] {
-        tabManager.pendingBackgroundWorkspaceLoadIds
-            .map(\.uuidString)
-            .sorted()
+    func taskKey(for tabManager: TabManager) -> Bool {
+        !tabManager.pendingBackgroundWorkspaceLoadIds.isEmpty
     }
 
     func primePendingBackgroundWorkspaces(tabManager: TabManager) async {

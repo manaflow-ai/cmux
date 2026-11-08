@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CtlSnapshotComplete",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "rev",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "type": "integer",
+      "description": "control-plane protocol version, 1"
+    },
+    "type": {
+      "const": "snapshot_complete"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "issuedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "server freshness re-stamp; when a hello's haveRev already matches head this frame alone re-arms the directory trust lease without resending the body"
+        }
+      }
+    },
+    "rev": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "monotonic account route revision this fact reflects"
+    }
+  }
+}

@@ -29,7 +29,8 @@ extension FileExplorerPanelView.Coordinator {
 
     func openNode(in outlineView: NSOutlineView, at row: Int) {
         guard row >= 0,
-              let node = outlineView.item(atRow: row) as? FileExplorerNode else { return }
+              let node = outlineView.item(atRow: row) as? FileExplorerNode,
+              node.resourceContextID == nil || node.resourceContextID == store.resourceContextID else { return }
 
         if node.isDirectory {
             if outlineView.isItemExpanded(node) {
@@ -78,7 +79,8 @@ extension FileExplorerSearchField {
 @MainActor
 extension NSEvent {
     func isFileExplorerOpenSelectionShortcut(in placement: FileExplorerPanelPlacement) -> Bool {
-        isFileExplorerOpenSelectionShortcut(in: placement.openSelectionShortcutContext(for: self))
+        guard type == .keyDown else { return false }
+        return isFileExplorerOpenSelectionShortcut(in: placement.openSelectionShortcutContext(for: self))
     }
 
     func isFileExplorerOpenSelectionShortcut(in context: ShortcutContext) -> Bool {

@@ -12,41 +12,57 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let hookEventName: HookEventName
     public let source: String
     public let workspaceId: String?
+    public let surfaceId: String?
+    public let transcriptPath: String?
     public let cwd: String?
     public let toolName: String?
     public let toolInputJSON: String?
+    /// Whether a completed tool reported failure.
+    public let isError: Bool?
     public let context: WorkstreamContext?
     public let requestId: String?
     public let ppid: Int?
     public let receivedAt: Date
     public let extraFieldsJSON: String?
+    /// Whether this notification is the provider's structured idle reminder.
+    /// The marker is extracted while decoding the socket frame so main-actor
+    /// lifecycle reducers do not parse arbitrary agent JSON.
+    public let isIdleReminder: Bool
 
     public init(
         sessionId: String,
         hookEventName: HookEventName,
         source: String,
         workspaceId: String? = nil,
+        surfaceId: String? = nil,
+        transcriptPath: String? = nil,
         cwd: String? = nil,
         toolName: String? = nil,
         toolInputJSON: String? = nil,
+        isError: Bool? = nil,
         context: WorkstreamContext? = nil,
         requestId: String? = nil,
         ppid: Int? = nil,
         receivedAt: Date = Date(),
-        extraFieldsJSON: String? = nil
+        extraFieldsJSON: String? = nil,
+        isIdleReminder: Bool = false
     ) {
         self.sessionId = sessionId
         self.hookEventName = hookEventName
         self.source = source
         self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
+        self.transcriptPath = transcriptPath
         self.cwd = cwd
         self.toolName = toolName
         self.toolInputJSON = toolInputJSON
+        self.isError = isError
         self.context = context
         self.requestId = requestId
         self.ppid = ppid
         self.receivedAt = receivedAt
         self.extraFieldsJSON = extraFieldsJSON
+        self.isIdleReminder = isIdleReminder
     }
 
     /// Hook event discriminator. Values match the strings Vibe Island and
@@ -58,6 +74,8 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case userPromptSubmit = "UserPromptSubmit"
         case preToolUse = "PreToolUse"
         case postToolUse = "PostToolUse"
+        /// A tool execution failed, timed out, or was denied.
+        case postToolUseFailure = "PostToolUseFailure"
         /// Codex compaction is about to start.
         case preCompact = "PreCompact"
         /// Codex compaction completed.
@@ -78,13 +96,17 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case hookEventName = "hook_event_name"
         case source = "_source"
         case workspaceId = "workspace_id"
+        case surfaceId = "surface_id"
+        case transcriptPath = "transcript_path"
         case cwd
         case toolName = "tool_name"
         case toolInputJSON = "tool_input"
+        case isError = "is_error"
         case context
         case requestId = "_opencode_request_id"
         case ppid = "_ppid"
         case receivedAt = "_received_at"
+        case isIdleReminder = "_is_idle_reminder"
     }
 
     public init(from decoder: Decoder) throws {
@@ -93,8 +115,11 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.hookEventName = try c.decode(HookEventName.self, forKey: .hookEventName)
         self.source = try c.decode(String.self, forKey: .source)
         self.workspaceId = try c.decodeIfPresent(String.self, forKey: .workspaceId)
+        self.surfaceId = try c.decodeIfPresent(String.self, forKey: .surfaceId)
+        self.transcriptPath = try c.decodeIfPresent(String.self, forKey: .transcriptPath)
         self.cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
         self.toolName = try c.decodeIfPresent(String.self, forKey: .toolName)
+        self.isError = try c.decodeIfPresent(Bool.self, forKey: .isError)
         self.context = try c.decodeIfPresent(WorkstreamContext.self, forKey: .context)
         self.requestId = try c.decodeIfPresent(String.self, forKey: .requestId)
         self.ppid = try c.decodeIfPresent(Int.self, forKey: .ppid)
@@ -106,6 +131,9 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
             extra[key.stringValue] = try dynamic.decode(AnyJSON.self, forKey: key)
         }
         self.extraFieldsJSON = extra.isEmpty ? nil : AnyJSON.object(extra).asJSONString
+        let encodedIdleReminder = try c.decodeIfPresent(Bool.self, forKey: .isIdleReminder) ?? false
+        self.isIdleReminder = encodedIdleReminder || (hookEventName == .notification
+            && Self.containsStructuredIdleReminder(in: extra))
         // tool_input can be any JSON shape (object, array, scalar, string).
         // We normalize to a string: incoming objects/arrays are re-serialized
         // via JSONSerialization; incoming strings are stored verbatim so
@@ -123,12 +151,18 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         try c.encode(hookEventName, forKey: .hookEventName)
         try c.encode(source, forKey: .source)
         try c.encodeIfPresent(workspaceId, forKey: .workspaceId)
+        try c.encodeIfPresent(surfaceId, forKey: .surfaceId)
+        try c.encodeIfPresent(transcriptPath, forKey: .transcriptPath)
         try c.encodeIfPresent(cwd, forKey: .cwd)
         try c.encodeIfPresent(toolName, forKey: .toolName)
+        try c.encodeIfPresent(isError, forKey: .isError)
         try c.encodeIfPresent(context, forKey: .context)
         try c.encodeIfPresent(requestId, forKey: .requestId)
         try c.encodeIfPresent(ppid, forKey: .ppid)
         try c.encode(receivedAt, forKey: .receivedAt)
+        if isIdleReminder {
+            try c.encode(true, forKey: .isIdleReminder)
+        }
         if let extraFieldsJSON,
            case .object(let extra) = AnyJSON(jsonString: extraFieldsJSON) {
             let knownKeys = Set(CodingKeys.allCases.map(\.stringValue))
@@ -141,6 +175,19 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         if let toolInputJSON {
             let raw = AnyJSON(jsonString: toolInputJSON) ?? .string(toolInputJSON)
             try c.encode(raw, forKey: .toolInputJSON)
+        }
+    }
+
+    private static func containsStructuredIdleReminder(in extra: [String: AnyJSON]) -> Bool {
+        let candidates = [extra] + ["notification", "data", "extra"].compactMap { key in
+            guard case .object(let nested) = extra[key] else { return nil }
+            return nested
+        }
+        return candidates.contains { candidate in
+            ["notification_type", "notificationType", "reason"].contains { key in
+                guard case .string(let value) = candidate[key] else { return false }
+                return value.caseInsensitiveCompare("idle_prompt") == .orderedSame
+            }
         }
     }
 }

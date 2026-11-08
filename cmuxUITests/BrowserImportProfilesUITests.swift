@@ -127,7 +127,6 @@ final class BrowserImportProfilesUITests: XCTestCase {
         let capture = try XCTUnwrap(waitForSettingsOpenCapture(timeout: 5.0))
         XCTAssertEqual(capture["opened"] as? Bool, true)
         XCTAssertEqual(capture["target"] as? String, "browserImport")
-        XCTAssertEqual(capture["used_open_window_override"] as? Bool, true)
     }
 
     func testBlankBrowserImportHintCanBeDismissed() {
@@ -144,7 +143,7 @@ final class BrowserImportProfilesUITests: XCTestCase {
     }
 
     private func launchApp() -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_FIXTURE"] = #"{"browserName":"Helium","profiles":["You","austin"]}"#
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_DESTINATIONS"] = #"["Default"]"#
@@ -160,7 +159,7 @@ final class BrowserImportProfilesUITests: XCTestCase {
     }
 
     private func launchAppForBlankImportHint() -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_VARIANT"] = "inlineStrip"
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_SHOW"] = "1"

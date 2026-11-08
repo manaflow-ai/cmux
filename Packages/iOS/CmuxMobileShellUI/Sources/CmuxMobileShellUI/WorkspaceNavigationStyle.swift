@@ -1,6 +1,6 @@
 /// How a workspace row navigates: pushed onto a compact stack, or selected in a
 /// split-view sidebar.
-enum WorkspaceNavigationStyle {
+enum WorkspaceNavigationStyle: Equatable {
     case push
     case sidebar
 }

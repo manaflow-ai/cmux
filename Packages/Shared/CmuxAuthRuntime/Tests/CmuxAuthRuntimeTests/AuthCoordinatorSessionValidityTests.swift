@@ -14,6 +14,46 @@ import Testing
 /// would sign out a valid user).
 @MainActor
 @Suite struct AuthCoordinatorSessionValidityTests {
+    @Test func concurrentRevalidationJoinsTheActiveValidation() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(
+                keyValueStore: store,
+                key: "selected_team"
+            ),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        let baseline = await client.observedCurrentUserStartCount()
+        let completion = AuthRevalidationCompletionRecorder()
+        await client.armValidationGate()
+
+        let first = Task { await coordinator.revalidateSession() }
+        await client.validationDidPark()
+        let second = Task {
+            await coordinator.revalidateSession()
+            await completion.record()
+        }
+        for _ in 0 ..< 20 { await Task.yield() }
+
+        #expect(!(await completion.didComplete()))
+        #expect(await client.observedCurrentUserStartCount() == baseline + 1)
+
+        await client.releaseParkedValidation()
+        await first.value
+        await second.value
+
+        #expect(await completion.didComplete())
+        #expect(await client.observedCurrentUserStartCount() == baseline + 1)
+    }
+
     private func makeCoordinator(
         client: FakeAuthClient,
         launch: AuthLaunchOptions = .plain(),
@@ -187,4 +227,11 @@ import Testing
         #expect(coordinator.currentUser == user)
         #expect(store.bool(forKey: "has_tokens") == true)
     }
+}
+
+private actor AuthRevalidationCompletionRecorder {
+    private var completed = false
+
+    func record() { completed = true }
+    func didComplete() -> Bool { completed }
 }

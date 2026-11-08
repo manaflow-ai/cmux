@@ -15,6 +15,32 @@ public struct JSONCSanitizer: Sendable {
     /// (with optional BOM), UTF-16 and UTF-32 input.
     public init() {}
 
+    /// Decodes JSONC bytes without changing their source text.
+    ///
+    /// Mutation code uses this after syntax validation so it can edit the
+    /// original authoring text instead of reserializing the parsed object.
+    func sourceText(from data: Data) throws -> String {
+        try decode(data: data)
+    }
+
+    /// Re-encodes an edited document with the original byte order and BOM.
+    func encodedSource(_ source: String, preserving original: Data?) throws -> Data {
+        let original = original ?? Data()
+        let encoding = detectedEncoding(for: original) ?? .utf8
+        let markers: [[UInt8]] = [
+            [0x00, 0x00, 0xFE, 0xFF], [0xFF, 0xFE, 0x00, 0x00],
+            [0xFE, 0xFF], [0xFF, 0xFE], [0xEF, 0xBB, 0xBF],
+        ]
+        let marker = markers.first { original.starts(with: $0) } ?? []
+        // Foundation may consume the decoded BOM depending on the encoding.
+        // Preserve exactly the marker read from disk, without introducing one.
+        let content = source.hasPrefix("\u{feff}") ? String(source.dropFirst()) : source
+        guard let payload = content.data(using: encoding) else {
+            throw Failure.invalidTextEncoding
+        }
+        return Data(marker) + payload
+    }
+
     /// Strips JSONC extensions from ``data`` and returns strict JSON bytes.
     ///
     /// - Parameter data: JSONC-encoded payload.

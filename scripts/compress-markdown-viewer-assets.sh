@@ -19,10 +19,13 @@ import zlib
 
 root = pathlib.Path(sys.argv[1])
 
-for path in sorted(root.glob("*.js")):
+for path in sorted(root.rglob("*")):
+    if path.suffix not in {".js", ".mjs"}:
+        continue
+    if path.name.endswith(".deflate"):
+        continue
     raw = path.read_bytes()
-    compressor = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS)
-    compressed = compressor.compress(raw) + compressor.flush()
+    compressed = zlib.compress(raw, level=9)
     output = path.with_name(path.name + ".deflate")
     output.write_bytes(compressed)
     path.unlink()

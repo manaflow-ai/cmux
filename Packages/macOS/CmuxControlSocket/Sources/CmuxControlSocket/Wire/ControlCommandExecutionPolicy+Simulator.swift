@@ -1,0 +1,37 @@
+extension ControlCommandExecutionPolicy {
+    /// Simulator calls wait for correlated replies from the isolated worker,
+    /// so none may block the main actor. The app also publishes this set from
+    /// `system.capabilities`, keeping execution policy and discovery aligned.
+    public static let simulatorMethods: Set<String> = [
+        "simulator.type",
+        "simulator.web_inspector.targets",
+        "simulator.web_inspector.attach",
+        "simulator.web_inspector.send",
+        "simulator.web_inspector.highlight",
+        "simulator.web_inspector.release",
+        "simulator.context",
+        "simulator.prepare_screenshot",
+        "simulator.select_device",
+        "simulator.recover",
+        "simulator.gesture",
+        "simulator.multi_touch",
+        "simulator.tap",
+        "simulator.swipe",
+        "simulator.button",
+        "simulator.rotate",
+        "simulator.core_animation",
+        "simulator.memory_warning",
+        "simulator.event_log",
+        "simulator.tools",
+        "simulator.camera.configure",
+        "simulator.camera.switch",
+        "simulator.camera.mirror",
+        "simulator.camera.status",
+        "simulator.permissions.read",
+        "simulator.permissions.set",
+        "simulator.ui.status",
+        "simulator.ui.set",
+        "simulator.accessibility",
+        "simulator.foreground",
+    ]
+}

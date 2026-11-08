@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CRATE_DIR="${ROOT}/Native/CommandPaletteNucleoFFI"
 LIB_NAME="libcmux_command_palette_nucleo_ffi.dylib"
 BUILD_OUTPUT_DIR="${TARGET_BUILD_DIR:-${CRATE_DIR}/target}/cmux-nucleo-ffi"
+# shellcheck source=scripts/build-phase-caller-path.sh
+. "${ROOT}/scripts/build-phase-caller-path.sh"
 
 if ! command -v cargo >/dev/null 2>&1; then
   case "${CMUX_NUCLEO_FFI_REQUIRE_CARGO:-${CI:-0}}" in

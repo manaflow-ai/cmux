@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import Foundation
 import Testing
 
 @testable import CmuxMobileShellModel
@@ -30,7 +31,12 @@ import Testing
         let irohPeer = try CmxAttachRoute(
             id: CmxAttachTransportKind.iroh.rawValue,
             kind: .iroh,
-            endpoint: .peer(id: "peer-1", relayHint: nil, directAddrs: [], relayURL: nil),
+            endpoint: .peer(
+                id: String(repeating: "f", count: 64),
+                relayHint: nil,
+                directAddrs: [],
+                relayURL: nil
+            ),
             priority: 0
         )
 
@@ -43,9 +49,14 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(irohPeer))
     }
 
-    @Test func allowsStackAuthOnlyForEncryptedOrLoopbackRoutes() throws {
+    @Test func allowsStackAuthOnlyForLoopbackRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+        let tailscaleIPv6 = try hostPortRoute(
+            kind: .tailscale,
+            host: "fd7a:115c:a1e0::1234",
+            port: CmxMobileDefaults.defaultHostPort
+        )
         let lanIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
         let localDNS = try hostPortRoute(kind: .tailscale, host: "devbox.local", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleMagicDNS = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
@@ -53,29 +64,56 @@ import Testing
         let irohPeer = try CmxAttachRoute(
             id: CmxAttachTransportKind.iroh.rawValue,
             kind: .iroh,
-            endpoint: .peer(id: "peer-1", relayHint: nil, directAddrs: [], relayURL: nil),
+            endpoint: .peer(
+                identity: try CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "f", count: 64)
+                ),
+                pathHints: [
+                    try CmxIrohPathHint(
+                        kind: .directAddress,
+                        value: "100.71.210.41:49152",
+                        source: .tailscale,
+                        privacyScope: .privateNetwork,
+                        observedAt: Date(timeIntervalSince1970: 1_999_999_940),
+                        expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
+                        networkProfile: CmxIrohNetworkProfileKey(
+                            source: .tailscale,
+                            profileID: String(repeating: "a", count: 64)
+                        )
+                    ),
+                ]
+            ),
             priority: 0
         )
-
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
 
-        // Encrypted / loopback channels may carry the Stack bearer token.
+        // Loopback never leaves the device and may carry the Stack bearer token.
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
+
+        // A numeric Tailscale address and an anonymous utun path do not prove
+        // which VPN owns that path or which peer accepted plaintext TCP.
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIPv6))
+
+        // Iroh's session context authenticates RPC out of band. The Stack
+        // bearer token must never be sent to the peer or any path hint.
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
 
         // Plaintext-TCP routes must NOT carry the Stack bearer token: a `.tailscale`
         // route to a private-LAN IP or a `.local`/Bonjour host is dialed over
         // unencrypted TCP, so it is excluded from the Stack-auth-allowed set.
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
+        // MagicDNS text is not a transport proof. The connection factory must
+        // receive a canonical numeric Tailscale peer so DNS substitution cannot
+        // redirect the plaintext bearer before the Mac authenticates.
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
 
         #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))
-        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
-        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
+        #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
+        #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("192.168.1.77"))
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
     }

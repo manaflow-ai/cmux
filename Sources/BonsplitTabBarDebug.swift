@@ -105,9 +105,10 @@ enum BonsplitTabBarDebugSettings {
     }
 
     static func copyCurrentTuningToPasteboard(defaults: UserDefaults = .standard) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(currentTuningDescription(defaults: defaults), forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            currentTuningDescription(defaults: defaults),
+            to: .general
+        )
     }
 }
 

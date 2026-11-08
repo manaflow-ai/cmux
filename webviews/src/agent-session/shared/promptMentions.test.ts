@@ -6,8 +6,8 @@ test("prompt mention serialization matches Codex markdown links", () => {
     kind: "at",
     label: "cmux",
     name: "cmux",
-    path: "/Users/lawrence/fun/cmuxterm-hq",
-  })).toBe("[cmux](/Users/lawrence/fun/cmuxterm-hq)");
+    path: "/Users/dev/project",
+  })).toBe("[cmux](/Users/dev/project)");
 
   expect(promptMentionMarkdown({
     displayName: "Codex",
@@ -37,12 +37,12 @@ test("auto context prepends the workspace mention only when enabled and absent",
     kind: "at" as const,
     label: "cmux",
     name: "cmux",
-    path: "/Users/lawrence/fun/cmuxterm-hq",
+    path: "/Users/dev/project",
   };
 
   expect(promptTextWithAutoContext("fix ui", mention, true))
-    .toBe("[cmux](/Users/lawrence/fun/cmuxterm-hq)\n\nfix ui");
+    .toBe("[cmux](/Users/dev/project)\n\nfix ui");
   expect(promptTextWithAutoContext("fix ui", mention, false)).toBe("fix ui");
-  expect(promptTextWithAutoContext("[cmux](/Users/lawrence/fun/cmuxterm-hq)\n\nfix ui", mention, true))
-    .toBe("[cmux](/Users/lawrence/fun/cmuxterm-hq)\n\nfix ui");
+  expect(promptTextWithAutoContext("[cmux](/Users/dev/project)\n\nfix ui", mention, true))
+    .toBe("[cmux](/Users/dev/project)\n\nfix ui");
 });

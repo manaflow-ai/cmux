@@ -1,7 +1,7 @@
 import Foundation
 import CmuxSettings
 
-nonisolated enum PanelTitleUpdateCoalescingSettings {
+enum PanelTitleUpdateCoalescingSettings {
     private nonisolated static let terminalSettings = SettingCatalog().terminal
     nonisolated static let defaultDelay: TimeInterval = 1.0 / 30.0
     nonisolated static let minimumDelayMilliseconds = 33

@@ -59,6 +59,9 @@ public enum TokenStoreInit: Sendable {
 /// own actor serialization.
 public final class TokenStoreRegistry: @unchecked Sendable {
     public static let shared = TokenStoreRegistry()
+    // The existing store registry owns cross-client refresh identity. APIClient
+    // injects this owner; independent stores never block one another.
+    let refreshCoordinator = TokenRefreshCoordinator()
     
     private let lock = NSLock()
     

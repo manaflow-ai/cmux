@@ -34,7 +34,7 @@ final class SidebarPullRequestInteractivityUITests: XCTestCase {
         clickabilityOverride: Bool?,
         expectsPlainText: Bool
     ) throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         defer { app.terminate() }
         app.launchArguments += [
             "-AppleLanguages", "(en)",

@@ -1,0 +1,1 @@
+터미널,코딩에이전트,AI,claude,codex,ssh,개발자,devops,원격,cli,자동화,cmux

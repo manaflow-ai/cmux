@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "type": "publish_hint",
+  "payload": {
+    "endpointId": "0fbffe130b96",
+    "homeRelayUrl": "https://usw1.relay.cmux.dev/",
+    "proof": {
+      "bindingId": "611ffbbb-9f60-4601-ba39-4c241b900497",
+      "timestamp": "2026-08-27T03:05:47Z",
+      "signature": "sig64=="
+    }
+  }
+}

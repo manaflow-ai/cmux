@@ -69,7 +69,7 @@ Bočna traka prikazuje git granu, status/broj povezanog PR-a, radni direktorij, 
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> kreira radni prostor za udaljenu mašinu. Paneli preglednika se usmjeravaju kroz udaljenu mrežu tako da localhost jednostavno radi. Prevucite sliku u udaljenu sesiju za upload putem scp.
+<code>cmux ssh user@remote</code> kreira radni prostor za udaljenu mašinu. Proslijedite <code>--command 'omp "investigate auth"'</code> da jednom pokrenete početnu komandu u njenom prvom udaljenom terminalu. Paneli preglednika se usmjeravaju kroz udaljenu mrežu tako da localhost jednostavno radi. Prevucite sliku u udaljenu sesiju za upload putem scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 Pri prvom pokretanju, macOS vas može zamoliti da potvrdite otvaranje aplikacije od identificiranog programera. Kliknite **Otvori** da nastavite.
 
+### Dovršavanje u shellu
+
+Homebrew cask instalira dovršavanje za zsh, bash i fish. Pokrenite novi shell nakon instalacije. Ako se ne učita, provjerite da su Homebrewovi direktoriji za dovršavanje povezani s vašim shellom (pogledajte [Homebrew dokumentaciju o dovršavanju u shellu](https://docs.brew.sh/Shell-Completion)).
+
+Ako ste cmux instalirali na drugi način, dodajte odgovarajuću liniju u startnu datoteku svog shella, pa pokrenite novi shell:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## Zašto cmux?
 
 Pokrećem mnogo Claude Code i Codex sesija paralelno. Koristio sam Ghostty sa gomilom podijeljenih panela i oslanjao se na nativna macOS obavještenja da znam kada agent treba mene. Ali tijelo obavještenja Claude Code je uvijek samo „Claude is waiting for your input" bez konteksta, a sa dovoljno otvorenih tabova nisam mogao ni pročitati naslove.
@@ -152,7 +171,9 @@ Za više informacija o konfiguraciji cmux, posjetite [našu dokumentaciju](https
 
 | Prečica | Akcija |
 |----------|--------|
-| ⌘ N | Novi radni prostor |
+| ⌘ N | Novi lokalni radni prostor |
+| ⌘ Y | Novi Cloud workspace na posljednjem dostupnom Cloud kontekstu; otvara New Cloud Machine kada ga nema |
+| ⌘ ⇧ Y | Nova Cloud mašina |
 | ⌘ 1–8 | Skoči na radni prostor 1–8 |
 | ⌘ 9 | Skoči na posljednji radni prostor |
 | ⌃ ⌘ ] | Sljedeći radni prostor |
@@ -363,19 +384,19 @@ Da, cmux je besplatan za korištenje. Izvorni kod je dostupan na [GitHub-u](http
 
 ### Kako mogu podržati cmux?
 
-cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što slijedi, uključujući cmux AI, iOS aplikaciju i Cloud VMs, pogledajte [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što slijedi, uključujući cmux AI, iOS aplikaciju i Cloud VMs, pogledajte [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
 
 ### Imam zahtjev za funkciju ili sam pronašao grešku?
 
-Želimo to čuti. Otvorite [issue](https://github.com/manaflow-ai/cmux/issues) ili [pull request](https://github.com/manaflow-ai/cmux/pulls) na GitHub-u, ili nam [pošaljite email](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Želimo to čuti. Otvorite [issue](https://github.com/manaflow-ai/cmux/issues) ili [pull request](https://github.com/manaflow-ai/cmux/pulls) na GitHub-u, ili nam [pošaljite email](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Historija zvjezdica
 
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+<a href="https://www.star-history.com/?repos=manaflow-ai%2Fcmux&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&theme=dark&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
  </picture>
 </a>
 
@@ -391,27 +412,26 @@ Načini da se uključite:
 ## Zajednica
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
-## Osnivačko izdanje
+<p>
+  <strong>WeChat:</strong> Skenirajte QR kod da se pridružite zajednici.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR kod za pridruživanje cmux zajednici" width="240" />
+</p>
+
+## cmux Pro
 
 cmux je besplatan, otvorenog koda i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što dolazi:
 
-**[Nabavite Osnivačko izdanje](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Prioritetni zahtjevi za funkcije/ispravke grešaka**
-- **Rani pristup: cmux AI koji vam daje kontekst o svakom radnom prostoru, tabu i panelu**
-- **Rani pristup: iOS aplikacija sa terminalima sinhroniziranim između desktopa i telefona**
-- **Rani pristup: Cloud VM-ovi**
-- **Rani pristup: Glasovni režim**
-- **Moj lični iMessage/WhatsApp**
+**[Nabavite cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## Licenca
 
-cmux je otvorenog koda pod [GPL-3.0-or-later](LICENSE) licencom.
+cmux je otvorenog koda pod [GPL-3.0-or-later](LICENSE) licencom. Serverski softver cmux (`web/`, Cloudflare workeri i relej servisi navedeni u [LICENSE](LICENSE)) umjesto toga koristi [Business Source License 1.1](web/LICENSE): možete ga čitati, mijenjati i pokretati za neprodukcijsku upotrebu, a produkcijska upotreba ili samostalno hostovanje zahtijevaju komercijalnu licencu.
 
-Ako vaša organizacija ne može ispuniti uslove GPL-a, dostupna je komercijalna licenca. Kontaktirajte [founders@manaflow.com](mailto:founders@manaflow.com) za detalje.
+Ako vaša organizacija ne može ispuniti uslove GPL-a, dostupna je komercijalna licenca. Kontaktirajte [founders@cmux.com](mailto:founders@cmux.com) za detalje.

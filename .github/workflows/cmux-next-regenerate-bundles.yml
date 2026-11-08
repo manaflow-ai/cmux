@@ -1,0 +1,27 @@
+name: cmux-next regenerate bundles
+
+# The implementation lives on feat-cmux-next. GitHub dispatches only a
+# workflow the default branch registers, so this inert copy lets lanes run:
+#
+#   gh workflow run cmux-next-regenerate-bundles.yml -R manaflow-ai/cmux \
+#     --ref feat-cmux-next -f branch=<branch>
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to regenerate the bundles for (not main or feat-cmux-next)
+        required: true
+        type: string
+      sha:
+        description: Commit to build (default the branch head); the push needs the branch still there
+        required: false
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: echo "cmux-next regenerate bundles is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"

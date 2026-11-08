@@ -9,6 +9,8 @@ private enum PDFPreviewChromeDebugAction {
     case zoomToFit
     case rotateLeft
     case rotateRight
+    case refresh
+    case share
 
     var title: String {
         switch self {
@@ -24,6 +26,10 @@ private enum PDFPreviewChromeDebugAction {
             String(localized: "filePreview.pdf.rotateLeft", defaultValue: "Rotate Left")
         case .rotateRight:
             String(localized: "filePreview.pdf.rotateRight", defaultValue: "Rotate Right")
+        case .refresh:
+            String(localized: "filePreview.refresh", defaultValue: "Refresh")
+        case .share:
+            String(localized: "filePreview.share", defaultValue: "Share")
         }
     }
 
@@ -41,6 +47,10 @@ private enum PDFPreviewChromeDebugAction {
             "rotate.left"
         case .rotateRight:
             "rotate.right"
+        case .refresh:
+            "arrow.clockwise"
+        case .share:
+            "square.and.arrow.up"
         }
     }
 }
@@ -206,9 +216,10 @@ private struct PDFPreviewChromeDebugView: View {
 
     private func copyConfig() {
         let payload = "\(FilePreviewPDFChromeStyleVariant.defaultsKey)=\(currentVariant.rawValue)"
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(payload, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            payload,
+            to: .general
+        )
     }
 }
 
@@ -225,7 +236,9 @@ private struct PDFPreviewChromeDebugSample: View {
             zoomIn: { model.record(.zoomIn) },
             zoomToFit: { model.record(.zoomToFit) },
             rotateLeft: { model.record(.rotateLeft) },
-            rotateRight: { model.record(.rotateRight) }
+            rotateRight: { model.record(.rotateRight) },
+            refresh: { model.record(.refresh) },
+            share: { _, _ in model.record(.share) }
         )
     }
 }

@@ -1,0 +1,751 @@
+#!/bin/bash
+# cmux Hermes Agent wrapper - installs native Hermes hooks before session launches.
+#
+# A per-surface `hermes` shim routes here. Interactive launches idempotently
+# install cmux's lifecycle hooks and first-use consent approvals, then exec the
+# real Hermes binary unchanged. A private TMPDIR watcher bridges the TUI's
+# authoritative active-session file, while a scoped Python bootstrap registers
+# turn hooks inside the fresh gateway processes that own the actual agent work.
+#
+# Deliberately no `set -e`/`set -u`: hook setup is best-effort and must never
+# prevent the user's Hermes executable from starting.
+
+cmux_hermes_wrapper_is_self_or_shim() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    if [[ -e "$candidate" && "$candidate" -ef "$0" ]]; then
+        return 0
+    fi
+    if [[ -n "${CMUX_HERMES_AGENT_WRAPPER_SHIM:-}" &&
+          -e "$candidate" &&
+          -e "$CMUX_HERMES_AGENT_WRAPPER_SHIM" &&
+          "$candidate" -ef "$CMUX_HERMES_AGENT_WRAPPER_SHIM" ]]; then
+        return 0
+    fi
+    if [[ -n "${CMUX_HERMES_AGENT_WRAPPER_SHIM_ROOT:-}" &&
+          "$candidate" == "${CMUX_HERMES_AGENT_WRAPPER_SHIM_ROOT%/}/hermes" ]]; then
+        return 0
+    fi
+    case "$candidate" in
+        */cmux-cli-shims/*/hermes|*/cmux-cli-shims/hermes)
+            return 0
+            ;;
+        */Contents/Resources/bin/hermes|*/Resources/bin/hermes)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+find_real_hermes() {
+    local custom="${CMUX_CUSTOM_HERMES_AGENT_PATH:-}"
+    custom="${custom#"${custom%%[![:space:]]*}"}"
+    custom="${custom%"${custom##*[![:space:]]}"}"
+    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]] &&
+       ! cmux_hermes_wrapper_is_self_or_shim "$custom"; then
+        printf '%s' "$custom"
+        return 0
+    fi
+
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local path_entries=()
+    local IFS=:
+    read -r -a path_entries <<< "${PATH:-}"
+    local directory candidate
+    for directory in "${path_entries[@]}"; do
+        [[ -n "$directory" && "$directory" != "$self_dir" ]] || continue
+        candidate="$directory/hermes"
+        cmux_hermes_wrapper_is_self_or_shim "$candidate" && continue
+        if [[ -f "$candidate" && -x "$candidate" ]]; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+strip_cmux_hermes_shims_from_path() {
+    local path_entries=()
+    local filtered_entries=()
+    local shim_root="${CMUX_HERMES_AGENT_WRAPPER_SHIM_ROOT:-}"
+    local IFS=:
+    read -r -a path_entries <<< "${PATH:-}"
+
+    local directory
+    for directory in "${path_entries[@]}"; do
+        if [[ -n "$shim_root" && "$directory" == "$shim_root" ]]; then
+            continue
+        fi
+        case "$directory" in
+            */cmux-cli-shims/*|*/cmux-cli-shims)
+                continue
+                ;;
+        esac
+        filtered_entries+=("$directory")
+    done
+
+    PATH="${filtered_entries[*]}"
+    export PATH
+}
+
+resolve_cmux_cli() {
+    local candidate="${CMUX_BUNDLED_CLI_PATH:-}"
+    if [[ -n "$candidate" ]]; then
+        if [[ -f "$candidate" && -x "$candidate" ]]; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+        # A tagged app supplies its exact CLI. If that build disappeared, do
+        # not leak installation or lifecycle traffic to another cmux on PATH.
+        return 1
+    fi
+
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    candidate="$self_dir/cmux"
+    if [[ -f "$candidate" && -x "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return 0
+    fi
+
+    candidate="$(command -v cmux 2>/dev/null || true)"
+    if [[ -n "$candidate" && -f "$candidate" && -x "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return 0
+    fi
+    return 1
+}
+
+# Run hook setup behind a hard process deadline. Hermes startup must not wait on
+# a wedged CLI or filesystem operation. macOS ships /usr/bin/perl; if it is ever
+# unavailable, skip best-effort setup instead of risking an unbounded launch.
+run_hermes_hook_installer() {
+    local timeout_seconds="${CMUX_HERMES_AGENT_HOOK_INSTALL_TIMEOUT_SECONDS:-2}"
+    if [[ ! "$timeout_seconds" =~ ^[0-9]+([.][0-9]+)?$ || ! -x /usr/bin/perl ]]; then
+        return 0
+    fi
+    # alarm(0) removes the deadline, so non-positive values skip best-effort setup.
+    if [[ "$timeout_seconds" =~ ^0+([.]0+)?$ ]]; then
+        return 0
+    fi
+
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC="$timeout_seconds" \
+        /usr/bin/perl -MTime::HiRes=alarm -e '
+            use strict;
+            use warnings;
+
+            my $timeout = shift @ARGV;
+            my $pid = fork();
+            exit 125 unless defined $pid;
+            if ($pid == 0) {
+                exec { $ARGV[0] } @ARGV;
+                exit 127;
+            }
+
+            local $SIG{ALRM} = sub {
+                kill "TERM", $pid;
+                kill "KILL", $pid;
+            };
+            alarm($timeout);
+            my $waited;
+            do {
+                $waited = waitpid($pid, 0);
+            } while ($waited == -1 && $!{EINTR});
+            alarm(0);
+            exit 125 if $waited == -1;
+            exit(($? & 127) ? 128 + ($? & 127) : $? >> 8);
+        ' "$timeout_seconds" "$@"
+}
+
+hermes_tui_session_id_is_valid() {
+    [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]
+}
+
+CMUX_HERMES_TUI_ACTIVE_SESSION_FILE_RESULT=""
+hermes_tui_active_session_file() {
+    local directory="$1"
+    local files=()
+    local nullglob_was_set=0
+    shopt -q nullglob && nullglob_was_set=1
+    shopt -s nullglob
+    files=("$directory"/hermes-tui-active-session-*.json)
+    (( nullglob_was_set == 1 )) || shopt -u nullglob
+
+    if (( ${#files[@]} == 0 )); then
+        return 1
+    fi
+    if (( ${#files[@]} != 1 )); then
+        return 2
+    fi
+    [[ -f "${files[0]}" && ! -L "${files[0]}" ]] || return 2
+    CMUX_HERMES_TUI_ACTIVE_SESSION_FILE_RESULT="${files[0]}"
+}
+
+hermes_tui_read_session_id() {
+    local active_session_file="$1"
+    local session_id
+    [[ -x /usr/bin/plutil ]] || return 1
+    session_id="$(
+        /usr/bin/plutil -extract session_id raw -expect string -o - \
+            "$active_session_file" 2>/dev/null
+    )" || return 1
+    hermes_tui_session_id_is_valid "$session_id" || return 1
+    printf '%s' "$session_id"
+}
+
+emit_hermes_tui_lifecycle_event() {
+    local cli="$1"
+    local subcommand="$2"
+    local hook_event_name="$3"
+    local session_id="$4"
+    local cwd="${CMUX_AGENT_LAUNCH_CWD:-$PWD}"
+    local payload_file="$TMPDIR/.cmux-hermes-tui-event.plist"
+    /bin/rm -f -- "$payload_file" 2>/dev/null || true
+    /usr/bin/plutil -create xml1 "$payload_file" >/dev/null 2>&1 &&
+        /bin/chmod 600 "$payload_file" >/dev/null 2>&1 &&
+        /usr/bin/plutil -insert cwd -string "$cwd" "$payload_file" >/dev/null 2>&1 &&
+        /usr/bin/plutil -insert hook_event_name -string "$hook_event_name" \
+            "$payload_file" >/dev/null 2>&1 &&
+        /usr/bin/plutil -insert platform -string "tui" "$payload_file" >/dev/null 2>&1 &&
+        /usr/bin/plutil -insert session_id -string "$session_id" \
+            "$payload_file" >/dev/null 2>&1 || {
+        /bin/rm -f -- "$payload_file" 2>/dev/null || true
+        return 0
+    }
+
+    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+        /usr/bin/plutil -convert json -o - "$payload_file" 2>/dev/null |
+            run_hermes_hook_installer "$cli" --socket "$CMUX_SOCKET_PATH" \
+                hooks hermes-agent "$subcommand" >/dev/null 2>&1 || true
+    else
+        /usr/bin/plutil -convert json -o - "$payload_file" 2>/dev/null |
+            run_hermes_hook_installer "$cli" \
+                hooks hermes-agent "$subcommand" >/dev/null 2>&1 || true
+    fi
+    /bin/rm -f -- "$payload_file" 2>/dev/null || true
+}
+
+cleanup_hermes_tui_watcher_directory() {
+    local directory="$1"
+    local files=()
+    local nullglob_was_set=0
+    shopt -q nullglob && nullglob_was_set=1
+    shopt -s nullglob
+    files=("$directory"/hermes-tui-active-session-*.json)
+    (( nullglob_was_set == 1 )) || shopt -u nullglob
+
+    local file
+    for file in "${files[@]}"; do
+        /bin/rm -f -- "$file" 2>/dev/null || true
+    done
+    /bin/rm -f -- "$directory/.cmux-hermes-tui-event.plist" 2>/dev/null || true
+    /bin/rm -f -- "$directory/sitecustomize.py" 2>/dev/null || true
+    /bin/rm -f -- "$directory"/.cmux-hermes-sitecustomize.* 2>/dev/null || true
+    /bin/rmdir "$directory" 2>/dev/null || true
+}
+
+run_hermes_tui_tick_source() {
+    /usr/bin/perl -MTime::HiRes=usleep -e '
+        use strict;
+        use warnings;
+
+        $SIG{HUP} = "IGNORE";
+        $SIG{INT} = "IGNORE";
+        $SIG{TERM} = "IGNORE";
+        $| = 1;
+        while (1) {
+            usleep(100_000);
+            print "\n" or exit 0;
+        }
+    '
+}
+
+run_hermes_tui_watcher() {
+    local parent_pid="${CMUX_HERMES_TUI_WATCHER_PARENT_PID:-}"
+    local directory="${CMUX_HERMES_TUI_WATCHER_TMPDIR:-}"
+    local cli="${CMUX_HERMES_TUI_WATCHER_CLI:-}"
+    [[ "$parent_pid" =~ ^[1-9][0-9]*$ ]] || return 0
+    [[ "$directory" == */cmux-hermes-tui.?????? &&
+       -d "$directory" &&
+       -x "$cli" ]] || return 0
+    unset CMUX_HERMES_AGENT_INTERNAL_MODE
+    unset CMUX_HERMES_TUI_WATCHER_PARENT_PID
+    unset CMUX_HERMES_TUI_WATCHER_TMPDIR
+    unset CMUX_HERMES_TUI_WATCHER_CLI
+
+    trap '' HUP INT TERM
+    # macOS ships Bash 3.2, whose `read -t` accepts only whole seconds. Keep one
+    # low-overhead ticker process instead of busy-looping or spawning `sleep` on
+    # every poll. The anonymous pipe also removes FIFO initialization races from
+    # Hermes's now-live TMPDIR.
+    if ! exec 9< <(run_hermes_tui_tick_source); then
+        return 0
+    fi
+
+    local last_session_id=""
+    local last_active_session_file=""
+    local last_active_session_contents=""
+    local ambiguous=0
+    local active_session_file active_session_contents
+    local session_id file_status hook_event_name watcher_tick
+
+    while true; do
+        if (( ambiguous == 0 )); then
+            CMUX_HERMES_TUI_ACTIVE_SESSION_FILE_RESULT=""
+            hermes_tui_active_session_file "$directory"
+            file_status=$?
+            if (( file_status == 2 )); then
+                ambiguous=1
+            elif (( file_status == 0 )); then
+                active_session_file="$CMUX_HERMES_TUI_ACTIVE_SESSION_FILE_RESULT"
+                active_session_contents=""
+                IFS= read -r active_session_contents < "$active_session_file" || true
+                if [[ "$active_session_file" != "$last_active_session_file" ||
+                      "$active_session_contents" != "$last_active_session_contents" ]]; then
+                    last_active_session_file="$active_session_file"
+                    last_active_session_contents="$active_session_contents"
+                    session_id="$(hermes_tui_read_session_id "$active_session_file")"
+                    if [[ -n "$session_id" && "$session_id" != "$last_session_id" ]]; then
+                        hook_event_name="on_session_start"
+                        [[ -n "$last_session_id" ]] && hook_event_name="on_session_reset"
+                        emit_hermes_tui_lifecycle_event \
+                            "$cli" "session-start" "$hook_event_name" "$session_id"
+                        last_session_id="$session_id"
+                    fi
+                fi
+            else
+                last_active_session_file=""
+                last_active_session_contents=""
+            fi
+        fi
+
+        if [[ "$PPID" != "$parent_pid" ]] ||
+           ! kill -0 "$parent_pid" 2>/dev/null; then
+            break
+        fi
+        if ! IFS= read -r -u 9 watcher_tick; then
+            # A failed ticker must never delete the TMPDIR out from under live
+            # Hermes. Fall back to a low-frequency parent liveness wait, then
+            # finalize and clean up only after Hermes has actually exited.
+            while [[ "$PPID" == "$parent_pid" ]] &&
+                  kill -0 "$parent_pid" 2>/dev/null; do
+                /bin/sleep 1 || return 0
+            done
+            break
+        fi
+    done
+
+    exec 9<&-
+    if [[ -n "$last_session_id" ]]; then
+        emit_hermes_tui_lifecycle_event \
+            "$cli" "session-finalize" "on_session_finalize" "$last_session_id"
+    fi
+    cleanup_hermes_tui_watcher_directory "$directory"
+}
+
+should_watch_hermes_tui() {
+    local argument
+    local explicitly_tui=0
+    for argument in "$@"; do
+        case "$argument" in
+            --cli)
+                return 1
+                ;;
+            --tui)
+                explicitly_tui=1
+                ;;
+            --)
+                break
+                ;;
+        esac
+    done
+    (( explicitly_tui == 1 )) && return 0
+    [[ -t 0 && -t 1 ]]
+}
+
+hermes_tui_python_bridge_value_is_wrapper() {
+    [[ "${1##*/}" == "cmux-hermes-python-wrapper" ]]
+}
+
+sanitize_hermes_tui_python_bridge_environment() {
+    local variable value
+    for variable in HERMES_PYTHON CMUX_HERMES_TUI_REAL_PYTHON; do
+        value="${!variable:-}"
+        if [[ -n "$value" ]] && hermes_tui_python_bridge_value_is_wrapper "$value"; then
+            unset "$variable"
+        fi
+    done
+}
+
+configure_hermes_tui_python_bridge() {
+    local self_dir python_wrapper sitecustomize configured resolved
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 0
+    python_wrapper="$self_dir/cmux-hermes-python-wrapper"
+    sitecustomize="$self_dir/cmux-hermes-sitecustomize.py"
+    [[ -f "$python_wrapper" && -x "$python_wrapper" && ! -L "$python_wrapper" &&
+       -f "$sitecustomize" && ! -L "$sitecustomize" ]] || return 0
+
+    unset CMUX_HERMES_TUI_REAL_PYTHON
+    configured="${HERMES_PYTHON:-}"
+    if [[ -n "$configured" ]]; then
+        resolved="$configured"
+        if [[ "$resolved" != */* ]]; then
+            resolved="$(command -v "$resolved" 2>/dev/null || true)"
+        fi
+        # A restored terminal can retain HERMES_PYTHON from an older tagged
+        # cmux build. That path is another bootstrap wrapper, not Hermes's real
+        # interpreter; chaining through it can recurse into a deleted build or
+        # wedge gateway startup. Let the fresh wrapper recover the interpreter
+        # from the live launcher process instead.
+        if [[ -n "$resolved" && -f "$resolved" && -x "$resolved" ]] &&
+           ! hermes_tui_python_bridge_value_is_wrapper "$resolved" &&
+           ! [[ "$resolved" -ef "$python_wrapper" ]]; then
+            export CMUX_HERMES_TUI_REAL_PYTHON="$resolved"
+        fi
+    fi
+    export HERMES_PYTHON="$python_wrapper"
+}
+
+start_hermes_tui_watcher() {
+    local cli="$1"
+    local temp_root watcher_directory watcher_pid
+    [[ -x /usr/bin/perl ]] || return 0
+    temp_root="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P)" || temp_root="/tmp"
+    watcher_directory="$(
+        /usr/bin/mktemp -d "$temp_root/cmux-hermes-tui.XXXXXX" 2>/dev/null
+    )" || {
+        [[ "$temp_root" != "/tmp" ]] || return 0
+        temp_root="/tmp"
+        watcher_directory="$(
+            /usr/bin/mktemp -d "$temp_root/cmux-hermes-tui.XXXXXX" 2>/dev/null
+        )" || return 0
+    }
+    /bin/chmod 700 "$watcher_directory" 2>/dev/null || {
+        /bin/rmdir "$watcher_directory" 2>/dev/null || true
+        return 0
+    }
+
+    local original_tmpdir="${TMPDIR-}"
+    local original_tmpdir_was_set=0
+    [[ "${TMPDIR+x}" == "x" ]] && original_tmpdir_was_set=1
+    export TMPDIR="$watcher_directory"
+    CMUX_HERMES_AGENT_INTERNAL_MODE="tui-watcher" \
+        CMUX_HERMES_TUI_WATCHER_PARENT_PID="$$" \
+        CMUX_HERMES_TUI_WATCHER_TMPDIR="$watcher_directory" \
+        CMUX_HERMES_TUI_WATCHER_CLI="$cli" \
+        "$0" </dev/null >/dev/null 2>&1 &
+    watcher_pid=$!
+    if ! kill -0 "$watcher_pid" 2>/dev/null; then
+        /bin/rmdir "$watcher_directory" 2>/dev/null || true
+        if (( original_tmpdir_was_set == 1 )); then
+            export TMPDIR="$original_tmpdir"
+        else
+            unset TMPDIR
+        fi
+    else
+        configure_hermes_tui_python_bridge
+    fi
+}
+
+if [[ "${CMUX_HERMES_AGENT_INTERNAL_MODE:-}" == "tui-watcher" &&
+      -n "${CMUX_HERMES_TUI_WATCHER_PARENT_PID:-}" &&
+      -n "${CMUX_HERMES_TUI_WATCHER_TMPDIR:-}" &&
+      -n "${CMUX_HERMES_TUI_WATCHER_CLI:-}" ]]; then
+    run_hermes_tui_watcher
+    exit 0
+fi
+unset CMUX_HERMES_AGENT_INTERNAL_MODE
+unset CMUX_HERMES_TUI_WATCHER_PARENT_PID
+unset CMUX_HERMES_TUI_WATCHER_TMPDIR
+unset CMUX_HERMES_TUI_WATCHER_CLI
+
+hermes_option_consumes_value() {
+    case "$1" in
+        --usage-file|-m|--model|--provider|--reasoning|-t|--toolsets|--skills|-s|-p|--profile)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+hermes_explicit_profile() {
+    local argument
+    while (( $# > 0 )); do
+        argument="$1"
+        shift
+        case "$argument" in
+            -p|--profile)
+                (( $# > 0 )) || return 1
+                [[ "$1" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] || return 1
+                printf '%s' "$1"
+                return 0
+                ;;
+            --profile=*)
+                argument="${argument#*=}"
+                [[ "$argument" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] || return 1
+                printf '%s' "$argument"
+                return 0
+                ;;
+            -z|--oneshot|-m|--model|--provider|--reasoning|-t|--toolsets|\
+            -r|--resume|-s|--skills|--usage-file)
+                (( $# > 0 )) && shift
+                ;;
+            -c|--continue)
+                if (( $# > 0 )) && [[ "$1" != -* ]]; then
+                    shift
+                fi
+                ;;
+            --)
+                break
+                ;;
+        esac
+    done
+    return 1
+}
+
+hermes_canonical_directory() {
+    local directory="$1"
+    if [[ -d "$directory" ]]; then
+        (cd "$directory" 2>/dev/null && pwd -P) || printf '%s' "$directory"
+    else
+        printf '%s' "$directory"
+    fi
+}
+
+# Mirrors Hermes's get_default_hermes_root(): profile selection is anchored to
+# ~/.hermes for standard installs and to HERMES_HOME for custom deployments.
+hermes_default_root() {
+    local configured="${HERMES_HOME:-}"
+    configured="${configured#"${configured%%[![:space:]]*}"}"
+    configured="${configured%"${configured##*[![:space:]]}"}"
+
+    local native=""
+    if [[ -n "${HOME:-}" ]]; then
+        native="${HOME%/}/.hermes"
+    fi
+    if [[ -z "$configured" ]]; then
+        [[ -n "$native" ]] || return 1
+        printf '%s' "$native"
+        return 0
+    fi
+
+    if [[ -n "$native" ]]; then
+        local canonical_native canonical_configured
+        canonical_native="$(hermes_canonical_directory "$native")"
+        canonical_configured="$(hermes_canonical_directory "$configured")"
+        case "$canonical_configured" in
+            "$canonical_native"|"$canonical_native"/*)
+                printf '%s' "$native"
+                return 0
+                ;;
+        esac
+    fi
+
+    local parent
+    parent="$(dirname "$configured")"
+    if [[ "${parent##*/}" == "profiles" ]]; then
+        dirname "$parent"
+    else
+        printf '%s' "$configured"
+    fi
+}
+
+# Resolve only the installer target. The original environment and argv still
+# reach Hermes unchanged, and Hermes remains authoritative for invalid profiles.
+effective_hermes_home() {
+    local root profile candidate configured parent active
+    root="$(hermes_default_root)" || return 1
+
+    if profile="$(hermes_explicit_profile "$@")"; then
+        if [[ "$profile" == "default" ]]; then
+            printf '%s' "$root"
+            return 0
+        fi
+        candidate="${root%/}/profiles/$profile"
+        [[ -d "$candidate" ]] || return 1
+        printf '%s' "$candidate"
+        return 0
+    fi
+
+    configured="${HERMES_HOME:-}"
+    configured="${configured#"${configured%%[![:space:]]*}"}"
+    configured="${configured%"${configured##*[![:space:]]}"}"
+    if [[ -n "$configured" ]]; then
+        parent="$(dirname "$configured")"
+        if [[ "${parent##*/}" == "profiles" ]]; then
+            printf '%s' "$configured"
+            return 0
+        fi
+    fi
+
+    active=""
+    if [[ -f "${root%/}/active_profile" ]]; then
+        active="$(<"${root%/}/active_profile")"
+        active="${active#"${active%%[![:space:]]*}"}"
+        active="${active%"${active##*[![:space:]]}"}"
+    fi
+    if [[ -z "$active" || "$active" == "default" ]]; then
+        printf '%s' "$root"
+        return 0
+    fi
+    [[ "$active" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] || return 1
+    candidate="${root%/}/profiles/$active"
+    [[ -d "$candidate" ]] || return 1
+    printf '%s' "$candidate"
+}
+
+# Returns success for entrypoints that create or resume an agent session. Any
+# other positional command passes through without touching config; Hermes owns
+# validation of current and future administrative subcommands.
+should_activate_hermes_hooks() {
+    (( $# == 0 )) && return 0
+
+    local argument
+    local command=""
+    while (( $# > 0 )); do
+        argument="$1"
+        shift
+        if [[ "$command" == "chat" ]]; then
+            case "$argument" in
+                -h|--help|-V|--version)
+                    return 1
+                    ;;
+                -q|--query|-q?*|--query=*)
+                    return 1
+                    ;;
+                --)
+                    return 0
+                    ;;
+            esac
+            continue
+        fi
+        case "$argument" in
+            -h|--help|-V|--version)
+                return 1
+                ;;
+            -z|--oneshot|-z?*|--oneshot=*)
+                return 1
+                ;;
+            -r|--resume)
+                (( $# > 0 )) && shift
+                continue
+                ;;
+            -c|--continue)
+                if (( $# > 0 )) && [[ "$1" != -* ]]; then
+                    shift
+                fi
+                continue
+                ;;
+            -r?*|-c?*|--resume=*|--continue=*|--tui|--cli)
+                continue
+                ;;
+            --)
+                return 0
+                ;;
+            -*=*)
+                continue
+                ;;
+            -*)
+                if hermes_option_consumes_value "$argument"; then
+                    (( $# > 0 )) && shift
+                fi
+                continue
+                ;;
+            chat)
+                command="chat"
+                continue
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    done
+    return 0
+}
+
+IN_CMUX=0
+if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
+    IN_CMUX=1
+fi
+
+REAL_HERMES="$(find_real_hermes)" || {
+    echo "Error: hermes not found in PATH" >&2
+    exit 127
+}
+
+exec_real_hermes_passthrough() {
+    # Administrative commands can persist command -v hermes into generated
+    # profile aliases. Never let that resolve to a per-surface temporary shim.
+    strip_cmux_hermes_shims_from_path
+    unset CMUX_AGENT_RESTORE_LAUNCH
+    unset CMUX_AGENT_RESUME_LAUNCH
+    if [[ "$IN_CMUX" == "1" ]]; then
+        local cmux_key
+        for cmux_key in "${!CMUX_@}"; do
+            unset "$cmux_key"
+        done
+        unset TERMINFO
+    fi
+    exec "$REAL_HERMES" "$@"
+}
+
+if [[ "$IN_CMUX" == "0" || "${CMUX_HERMES_AGENT_HOOKS_DISABLED:-}" == "1" ]]; then
+    exec_real_hermes_passthrough "$@"
+fi
+
+if ! should_activate_hermes_hooks "$@"; then
+    exec_real_hermes_passthrough "$@"
+fi
+
+# Installation is idempotent, merges rather than replaces user configuration,
+# and records approvals in Hermes's own consent allowlist. Suppress all output
+# and ignore every failure so this integration can never break Hermes startup.
+if CMUX_HERMES_INSTALL_CLI="$(resolve_cmux_cli)" &&
+   CMUX_HERMES_INSTALL_HOME="$(effective_hermes_home "$@")"; then
+    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+        HERMES_HOME="$CMUX_HERMES_INSTALL_HOME" \
+            run_hermes_hook_installer "$CMUX_HERMES_INSTALL_CLI" --socket "$CMUX_SOCKET_PATH" \
+            hooks hermes-agent install --yes </dev/null >/dev/null 2>&1 || true
+    else
+        HERMES_HOME="$CMUX_HERMES_INSTALL_HOME" \
+            run_hermes_hook_installer "$CMUX_HERMES_INSTALL_CLI" \
+            hooks hermes-agent install --yes </dev/null >/dev/null 2>&1 || true
+    fi
+fi
+unset CMUX_HERMES_INSTALL_CLI
+unset CMUX_HERMES_INSTALL_HOME
+
+export CMUX_HERMES_AGENT_PID=$$
+export CMUX_AGENT_LAUNCH_KIND="hermes-agent"
+export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_HERMES"
+export CMUX_AGENT_LAUNCH_CWD="$PWD"
+{
+    cmux_hermes_argv_b64="$(
+        {
+            printf '%s\0' "$REAL_HERMES"
+            if (( $# > 0 )); then
+                printf '%s\0' "$@"
+            fi
+        } | base64 | tr -d '\n'
+    )"
+    [[ -n "$cmux_hermes_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_hermes_argv_b64"
+}
+
+# A restore authorization is valid only for this wrapper pass. The actual
+# session identity comes from Hermes's on_session_start payload.
+unset CMUX_AGENT_RESTORE_LAUNCH
+unset CMUX_AGENT_RESUME_LAUNCH
+
+if should_watch_hermes_tui "$@"; then
+    # A retired bridge must never prevent Hermes itself from launching. Clean
+    # it before the best-effort watcher setup because setup can be unavailable
+    # or fail before configure_hermes_tui_python_bridge gets a chance to run.
+    sanitize_hermes_tui_python_bridge_environment
+    if CMUX_HERMES_TUI_CLI="$(resolve_cmux_cli)"; then
+        start_hermes_tui_watcher "$CMUX_HERMES_TUI_CLI"
+    fi
+fi
+unset CMUX_HERMES_TUI_CLI
+
+exec "$REAL_HERMES" "$@"

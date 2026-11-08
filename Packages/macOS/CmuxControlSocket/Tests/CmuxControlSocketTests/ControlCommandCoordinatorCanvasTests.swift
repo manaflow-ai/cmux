@@ -439,6 +439,18 @@ struct ControlCommandCoordinatorCanvasTests {
         #expect(context.lastNewPaneType == "browser")
     }
 
+    @Test func newPanePassesSimulatorTypeThroughSeam() {
+        let (coordinator, context) = makeCoordinator()
+        context.actionResolution = .created(mode: "canvas", surfaceID: UUID())
+        guard case .ok = coordinator.handle(
+            request("canvas.new_pane", ["type": .string("simulator")])
+        ) else {
+            Issue.record("expected ok")
+            return
+        }
+        #expect(context.lastNewPaneType == "simulator")
+    }
+
     @Test func notCanvasModeMapsToInvalidState() {
         let (coordinator, context) = makeCoordinator()
         context.actionResolution = .notCanvasMode

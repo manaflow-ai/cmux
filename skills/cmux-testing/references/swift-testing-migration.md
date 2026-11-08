@@ -1,10 +1,8 @@
 # Swift Testing Migration
 
-Use Swift Testing for unit and integration tests. XCTest remains for UI tests.
+Swift Testing for unit and integration tests; XCTest stays for UI tests under `cmuxUITests/` (Swift Testing has no `XCUIApplication` support).
 
 ## New tests
-
-New unit and integration tests should:
 
 ```swift
 import Testing
@@ -20,27 +18,22 @@ struct ExampleTests {
 
 Use `try #require(...)` when a value must be unwrapped before continuing.
 
-## XCTest conversion
+## XCTest conversion mapping
 
-When touching an existing XCTest unit test, convert in place if the edit naturally crosses that code.
+Convert in place only when an edit naturally crosses the file; do not bulk-rewrite untouched tests.
 
-Mapping:
-
-- `XCTestCase` subclass -> `@Suite struct` or `@Suite final class`
-- `func testFoo()` -> `@Test func foo()`
-- `XCTAssertEqual(a, b)` -> `#expect(a == b)`
-- `XCTAssertTrue(condition)` -> `#expect(condition)`
-- `XCTUnwrap(value)` -> `try #require(value)`
-- `XCTFail("message")` -> `Issue.record("message")`
-- `setUp()` -> `init()`
-- `tearDown()` -> `deinit`
-- async setup -> `async init()`
-
-Do not bulk-rewrite untouched tests just to migrate them.
+| XCTest | Swift Testing |
+|---|---|
+| `XCTestCase` subclass | `@Suite struct` (or `@Suite final class` for a reference type) |
+| `func testFoo()` | `@Test func foo()` |
+| `XCTAssertEqual(a, b)` | `#expect(a == b)` |
+| `XCTAssertTrue(cond)` | `#expect(cond)` |
+| `XCTUnwrap(x)` | `try #require(x)` |
+| `XCTFail("msg")` | `Issue.record("msg")` |
+| `setUp()` | `init()` (async setup: `async init()`) |
+| `tearDown()` | `deinit` |
 
 ## Parameterized tests
-
-Prefer:
 
 ```swift
 @Test(arguments: [
@@ -52,19 +45,6 @@ func formats(input: String, expected: String) {
 }
 ```
 
-This is clearer than duplicating test methods with copy/paste assertions.
-
 ## Parallel execution
 
-Swift Testing runs tests in parallel by default, including across suites. If a suite genuinely needs ordering or guards shared mutable state, use `.serialized`:
-
-```swift
-@Suite(.serialized)
-struct FileBackedTests { ... }
-```
-
-Prefer isolated temp directories and injected dependencies over serialization when practical.
-
-## UI tests
-
-Files under `cmuxUITests/` stay on XCTest/XCUITest. Swift Testing does not support `XCUIApplication` UI testing.
+Tests run in parallel by default, including across suites. Prefer isolated temp directories and injected dependencies; use `@Suite(.serialized)` only when a suite genuinely needs ordering or guards shared mutable state.

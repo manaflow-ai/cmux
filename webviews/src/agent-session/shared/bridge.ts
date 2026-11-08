@@ -14,13 +14,6 @@ declare global {
       applyTheme(theme: AgentSessionTheme): void;
       receive(event: AgentEvent): void;
     };
-    webkit?: {
-      messageHandlers?: {
-        agentSession?: {
-          postMessage(message: unknown): Promise<NativeReply<unknown>>;
-        };
-      };
-    };
   }
 }
 

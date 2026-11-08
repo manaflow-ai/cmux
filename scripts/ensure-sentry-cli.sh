@@ -9,7 +9,12 @@ mkdir -p "$INSTALL_DIR"
 DOWNLOAD_PATH="${RUNNER_TEMP:-/tmp}/${SENTRY_CLI_ASSET}-${SENTRY_CLI_VERSION}"
 
 echo "Installing sentry-cli $SENTRY_CLI_VERSION into $INSTALL_DIR" >&2
+# This download runs on a release runner after a 40-minute build, and a DNS blip
+# there killed release run 34851108495 (curl: (6) Could not resolve host: github.com).
+# --retry alone only covers transient HTTP codes; --retry-all-errors also retries
+# resolution and connection failures, with a bounded delay between attempts.
 curl -fsSL --connect-timeout 20 --max-time 120 \
+  --retry 5 --retry-delay 5 --retry-all-errors --retry-connrefused \
   "https://github.com/getsentry/sentry-cli/releases/download/${SENTRY_CLI_VERSION}/${SENTRY_CLI_ASSET}" \
   --output "$DOWNLOAD_PATH"
 ACTUAL_SHA256="$(shasum -a 256 "$DOWNLOAD_PATH" | awk '{ print $1 }')"

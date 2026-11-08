@@ -77,10 +77,14 @@ struct CanvasPaneTitleBarView: View {
         .clipped()
         .coordinateSpace(name: "canvasTabBar")
         .onPreferenceChange(CanvasTabFramesKey.self) { regions in
-            onHitRegionsChanged(regions)
+            MainActor.assumeIsolated {
+                onHitRegionsChanged(regions)
+            }
         }
         .onPreferenceChange(CanvasTabContentWidthKey.self) { width in
-            onContentWidthChanged(width)
+            MainActor.assumeIsolated {
+                onContentWidthChanged(width)
+            }
         }
     }
 }

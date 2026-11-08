@@ -38,6 +38,13 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
     /// Timestamp of the most recent transcript or hook activity.
     public let lastActivityAt: Date?
 
+    /// Monotonic per-session revision, bumped by the host on every change to
+    /// this session. The client reconciles best-effort pushes against
+    /// authoritative pulls by this number: apply a push only when its version
+    /// is strictly greater than the last applied, and replace wholesale from a
+    /// snapshot pull. A missed or duplicated push self-heals on the next pull.
+    public var version: Int = 0
+
     /// Creates a session descriptor.
     ///
     /// - Parameters:
@@ -86,7 +93,8 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         terminalID: String? = nil,
         workingDirectory: String? = nil,
         state: ChatAgentState = .idle,
-        lastActivityAt: Date? = nil
+        lastActivityAt: Date? = nil,
+        version: Int = 0
     ) {
         self.id = id
         self.agentKind = agentKind
@@ -97,6 +105,7 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         self.workingDirectory = workingDirectory
         self.state = state
         self.lastActivityAt = lastActivityAt
+        self.version = version
     }
 
     /// A copy with a new live state, leaving identity and bindings intact.
@@ -115,7 +124,8 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
             terminalID: terminalID,
             workingDirectory: workingDirectory,
             state: newState,
-            lastActivityAt: lastActivityAt
+            lastActivityAt: lastActivityAt,
+            version: version
         )
     }
 
@@ -129,6 +139,7 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         case workingDirectory = "cwd"
         case state
         case lastActivityAt = "last_activity_at"
+        case version
     }
 
     // Custom Codable so `kind` decodes with a `.agent` default when absent
@@ -145,6 +156,7 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         workingDirectory = try container.decodeIfPresent(String.self, forKey: .workingDirectory)
         state = try container.decode(ChatAgentState.self, forKey: .state)
         lastActivityAt = try container.decodeIfPresent(Date.self, forKey: .lastActivityAt)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 0
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -158,5 +170,6 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         try container.encodeIfPresent(workingDirectory, forKey: .workingDirectory)
         try container.encode(state, forKey: .state)
         try container.encodeIfPresent(lastActivityAt, forKey: .lastActivityAt)
+        try container.encode(version, forKey: .version)
     }
 }

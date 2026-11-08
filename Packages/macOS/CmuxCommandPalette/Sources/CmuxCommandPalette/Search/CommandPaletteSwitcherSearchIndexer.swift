@@ -99,8 +99,12 @@ public struct CommandPaletteSwitcherSearchIndexer: Sendable {
         case .workspace:
             return [trimmed]
         case .surface:
+            // Index the branch short name (after the last "/") as one whole token, the way a
+            // directory basename is, so "cmd-palette-indexing" matches "feature/cmd-palette-indexing"
+            // even though "-" is a token delimiter.
+            let shortName = trimmed.components(separatedBy: "/").last ?? trimmed
             let components = trimmed.components(separatedBy: metadataDelimiters).filter { !$0.isEmpty }
-            return uniqueNormalizedPreservingOrder([trimmed] + components)
+            return uniqueNormalizedPreservingOrder([trimmed, shortName] + components)
         }
     }
 

@@ -119,7 +119,7 @@ final class UntrackedAgentSessionMonitor {
     /// name, then evaluate on main using the cached, non-blocking hook lookup.
     func refresh() {
         Task.detached(priority: .utility) {
-            let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+            let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
             // One agent process per pane (lowest pid is the stable identity).
             var byPane: [PanelKey: (kind: RestorableAgentKind, pid: Int)] = [:]
             for process in snapshot.cmuxScopedProcesses() {

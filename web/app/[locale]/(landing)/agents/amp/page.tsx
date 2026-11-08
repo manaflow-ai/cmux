@@ -1,16 +1,27 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "../../../../../i18n/seo";
+import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { LandingCTA } from "../../landing-ui";
 import { LandingFaq, LandingSchema } from "../../landing-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "landing.amp" });
+  const alternates = buildAlternates(locale, "/agents/amp");
+  const title = t("metaTitle");
+  const description = seoDescription(locale, t("metaDescription"));
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/agents/amp"),
+    title,
+    description,
+    alternates,
+    openGraph: {
+      ...openGraphDefaults(locale, "website"),
+      title,
+      description,
+      url: alternates.canonical,
+    },
+    twitter: twitterSummary(locale, title, description),
   };
 }
 
@@ -20,6 +31,9 @@ export default function AmpPage() {
   const code = (chunks: React.ReactNode) => <code>{chunks}</code>;
   return (
     <>
+      <SiteHeader section={tl("amp")} />
+      <main className="w-full max-w-3xl mx-auto px-6 py-12">
+        <div className="docs-content text-[15px]">
       <LandingSchema namespace="landing.amp" path="/agents/amp" />
       <h1>{t("title")}</h1>
       <p>{t.rich("intro", { code })}</p>
@@ -46,6 +60,8 @@ export default function AmpPage() {
           { href: "/docs/notifications", label: tl("notifications") },
         ]}
       />
+        </div>
+      </main>
     </>
   );
 }

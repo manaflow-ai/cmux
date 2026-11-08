@@ -9,7 +9,7 @@ import CmuxCanvas
 struct CanvasViewportZoomTests {
     @Test func discreteZoomOutAnimatesThenCommitsAroundCurrentCenter() throws {
         let root = makeRoot()
-        root.shouldReduceMotionForDiscreteZoom = { false }
+        root.shouldReduceMotion = { false }
         root.setViewport(center: CGPoint(x: 420, y: 180), magnification: 1, notifySettled: false)
         let centerBefore = root.currentCenterInCanvas
 
@@ -26,7 +26,7 @@ struct CanvasViewportZoomTests {
 
     @Test func reduceMotionZoomAppliesImmediately() throws {
         let root = makeRoot()
-        root.shouldReduceMotionForDiscreteZoom = { true }
+        root.shouldReduceMotion = { true }
         root.setViewport(center: CGPoint(x: 420, y: 180), magnification: 1, notifySettled: false)
         let centerBefore = root.currentCenterInCanvas
 
@@ -40,7 +40,7 @@ struct CanvasViewportZoomTests {
 
     @Test func repeatedDiscreteZoomOutClampsAtMinimumWithoutStackingAnimations() throws {
         let root = makeRoot()
-        root.shouldReduceMotionForDiscreteZoom = { false }
+        root.shouldReduceMotion = { false }
         root.setViewport(center: CGPoint(x: 420, y: 180), magnification: 1, notifySettled: false)
 
         for _ in 0..<12 {
@@ -53,7 +53,7 @@ struct CanvasViewportZoomTests {
 
     @Test func overviewCancelsPendingDiscreteZoomCompletion() throws {
         let root = makeRoot()
-        root.shouldReduceMotionForDiscreteZoom = { false }
+        root.shouldReduceMotion = { false }
         root.setViewport(center: CGPoint(x: 420, y: 180), magnification: 1, notifySettled: false)
 
         root.zoom(by: 0.8)
@@ -77,7 +77,7 @@ struct CanvasViewportZoomTests {
             (panelA, CGRect(x: 0, y: 0, width: 640, height: 360)),
             (panelB, CGRect(x: 1_600, y: 0, width: 640, height: 360)),
         ])
-        root.shouldReduceMotionForDiscreteZoom = { false }
+        root.shouldReduceMotion = { false }
         root.setViewport(center: CGPoint(x: 320, y: 180), magnification: 1, notifySettled: false)
 
         root.zoom(by: 0.8)

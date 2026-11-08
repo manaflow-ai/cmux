@@ -1,4 +1,3 @@
-public import CoreText
 public import Darwin
 public import GhosttyKit
 
@@ -45,20 +44,16 @@ public struct GhosttySurfaceRuntimeProbe {
     /// The current runtime font size of a live surface, in points.
     ///
     /// - Parameter surface: The runtime surface to read.
-    /// - Returns: The QuickLook font size in points, or nil when the surface
-    ///   pointer is stale or the runtime reports no font.
+    /// - Returns: The live app-thread-owned font size in points, or nil when
+    ///   the surface pointer is stale or the runtime reports no font.
+    @MainActor
     public static func currentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
         guard surfacePointerAppearsLive(surface) else {
             return nil
         }
 
-        guard let quicklookFont = ghostty_surface_quicklook_font(surface) else {
-            return nil
-        }
-
-        let ctFont = Unmanaged<CTFont>.fromOpaque(quicklookFont).takeUnretainedValue()
-        let points = Float(CTFontGetSize(ctFont))
-        guard points > 0 else { return nil }
+        let points = ghostty_surface_font_size(surface)
+        guard points.isFinite, points > 0 else { return nil }
         return points
     }
 

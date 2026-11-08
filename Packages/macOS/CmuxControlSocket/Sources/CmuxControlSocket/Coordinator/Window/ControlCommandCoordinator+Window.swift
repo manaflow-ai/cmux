@@ -11,17 +11,20 @@ extension ControlCommandCoordinator {
     func handleWindow(_ request: ControlRequest) -> ControlCallResult? {
         switch request.method {
         case "window.list":
-            return windowList()
+            // Worker-lane resolution read (tranche D): the nonisolated body is
+            // shared with the socket dispatcher's worker lane; from this
+            // main-actor dispatch its hop collapses inline.
+            return windowList(context: context)
         case "window.current":
-            return windowCurrent(request.params)
+            return windowCurrent(request.params, context: context)
         case "window.focus":
             return windowFocus(request.params)
         case "window.create":
-            return windowCreate()
+            return windowCreate(request.params)
         case "window.close":
             return windowClose(request.params)
         case "window.displays":
-            return windowDisplays()
+            return windowDisplays(context: context)
         case "window.display":
             return windowDisplay(request.params)
         default:
@@ -29,37 +32,90 @@ extension ControlCommandCoordinator {
         }
     }
 
+    /// The per-row refs of one `window.list` item (parallel to the summaries;
+    /// minted in the payload's literal order: window, then selected
+    /// workspace).
+    private struct WindowListRowRefs: Sendable {
+        let windowRef: JSONValue
+        let selectedWorkspaceRef: JSONValue
+    }
+
+    /// The `window.list` hop outcome.
+    private struct WindowListHopOutcome: Sendable {
+        let windows: [ControlWindowSummary]
+        let refs: [WindowListRowRefs]
+    }
+
     /// `window.list` — every main window, in order.
-    func windowList() -> ControlCallResult {
-        let windows = context?.controlWindowSummaries() ?? []
-        let payload: [JSONValue] = windows.enumerated().map { index, item in
+    ///
+    /// Worker-lane resolution read (tranche D of issue #5757): the NSWindow
+    /// summary witness and ref minting take ONE `controlResolveOnMain` hop
+    /// (which refreshes known refs first, exactly like the main-lane dispatch
+    /// preamble); the row build and reply encode run on the calling
+    /// socket-worker thread.
+    nonisolated func windowList(context: (any ControlCommandContext)?) -> ControlCallResult {
+        let hop: WindowListHopOutcome = context.map { ctx in
+            ctx.controlResolveOnMain { seam in
+                let windows = seam.controlWindowSummaries()
+                let refs = windows.map { item in
+                    WindowListRowRefs(
+                        windowRef: self.ref(.window, item.windowID),
+                        selectedWorkspaceRef: self.ref(.workspace, item.selectedWorkspaceID)
+                    )
+                }
+                return WindowListHopOutcome(windows: windows, refs: refs)
+            }
+        } ?? WindowListHopOutcome(windows: [], refs: [])
+        let payload: [JSONValue] = hop.windows.enumerated().map { index, item in
             .object([
                 "id": .string(item.windowID.uuidString),
-                "ref": ref(.window, item.windowID),
+                "ref": hop.refs[index].windowRef,
                 "index": .int(Int64(index)),
                 "key": .bool(item.isKeyWindow),
                 "visible": .bool(item.isVisible),
                 "workspace_count": .int(Int64(item.workspaceCount)),
                 "selected_workspace_id": orNull(item.selectedWorkspaceID?.uuidString),
-                "selected_workspace_ref": ref(.workspace, item.selectedWorkspaceID),
+                "selected_workspace_ref": hop.refs[index].selectedWorkspaceRef,
             ])
         }
         return .ok(.object(["windows": .array(payload)]))
     }
 
+    /// The `window.current` hop outcome.
+    private enum WindowCurrentHopOutcome: Sendable {
+        case tabManagerUnavailable
+        case windowNotFound
+        case resolved(windowID: UUID, windowRef: JSONValue)
+    }
+
     /// `window.current` — the window resolved from the routing selectors.
-    func windowCurrent(_ params: [String: JSONValue]) -> ControlCallResult {
-        let resolution = context?.controlResolveCurrentWindow(routing: routingSelectors(params))
-            ?? .tabManagerUnavailable
-        switch resolution {
+    /// Worker-lane resolution read; see ``windowList(context:)``.
+    nonisolated func windowCurrent(
+        _ params: [String: JSONValue],
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
+        guard let context else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let outcome: WindowCurrentHopOutcome = context.controlResolveOnMain { seam in
+            switch seam.controlResolveCurrentWindow(routing: self.routingSelectors(params)) {
+            case .tabManagerUnavailable:
+                return .tabManagerUnavailable
+            case .windowNotFound:
+                return .windowNotFound
+            case .resolved(let windowID):
+                return .resolved(windowID: windowID, windowRef: self.ref(.window, windowID))
+            }
+        }
+        switch outcome {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         case .windowNotFound:
             return .err(code: "not_found", message: "Current window not found", data: nil)
-        case .resolved(let windowID):
+        case let .resolved(windowID, windowRef):
             return .ok(.object([
                 "window_id": .string(windowID.uuidString),
-                "window_ref": ref(.window, windowID),
+                "window_ref": windowRef,
             ]))
         }
     }
@@ -80,8 +136,8 @@ extension ControlCommandCoordinator {
     }
 
     /// `window.create` — create a window and make it active.
-    func windowCreate() -> ControlCallResult {
-        guard let windowID = context?.controlCreateWindowAndActivate() else {
+    func windowCreate(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let windowID = context?.controlCreateWindowAndActivate(title: string(params, "title")) else {
             return .err(code: "internal_error", message: "Failed to create window", data: nil)
         }
         return .ok(.object([
@@ -95,19 +151,40 @@ extension ControlCommandCoordinator {
         guard let windowID = uuid(params, "window_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
         }
-        let ok = context?.controlCloseWindow(id: windowID) ?? false
         let identity: JSONValue = .object([
             "window_id": .string(windowID.uuidString),
             "window_ref": ref(.window, windowID),
         ])
-        return ok
-            ? .ok(identity)
-            : .err(code: "not_found", message: "Window not found", data: identity)
+        let force = bool(params, "force") ?? false
+        switch context?.controlCloseWindow(id: windowID, force: force) ?? .notFound {
+        case .resolved:
+            return .ok(identity)
+        case .notFound:
+            return .err(code: "not_found", message: "Window not found", data: identity)
+        case .confirmationRequired(let workspaceIDs):
+            var data: [String: JSONValue] = [
+                "window_id": .string(windowID.uuidString),
+                "window_ref": ref(.window, windowID),
+            ]
+            data["workspace_ids"] = .array(workspaceIDs.map { .string($0.uuidString) })
+            return .err(
+                code: "confirmation_required",
+                message: context?.controlWindowCloseStrings().confirmationRequired
+                    ?? "One or more workspaces or Dock surfaces have a running process; retry with --force",
+                data: .object(data)
+            )
+        }
     }
 
     /// `window.displays` — every connected display.
-    func windowDisplays() -> ControlCallResult {
-        let displays = context?.controlAvailableDisplays() ?? []
+    ///
+    /// Worker-lane resolution read: the NSScreen witness takes the single
+    /// `controlResolveOnMain` hop (no refs in this payload); the payload map
+    /// and encode run on the calling socket-worker thread.
+    nonisolated func windowDisplays(context: (any ControlCommandContext)?) -> ControlCallResult {
+        let displays: [ControlDisplayInfo] = context.map { ctx in
+            ctx.controlResolveOnMain { seam in seam.controlAvailableDisplays() }
+        } ?? []
         let payload: [JSONValue] = displays.map { display in
             .object([
                 "name": .string(display.name),

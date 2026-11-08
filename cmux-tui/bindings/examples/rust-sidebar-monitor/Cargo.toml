@@ -1,0 +1,24 @@
+[package]
+name = "cmux-sidebar-monitor-example"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+cmux-sdk = { version = "=1.0.0", path = "../../rust" }
+cmux-sidebar = { version = "1.0.0", path = "../../rust-sidebar" }
+crossterm = "0.29"
+ratatui = "0.30"
+
+[dev-dependencies]
+base64 = "0.22"
+serde_json = "1"
+
+[workspace]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }

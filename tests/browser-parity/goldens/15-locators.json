@@ -1,0 +1,50 @@
+{
+  "oracle": {
+    "role-tabs": 2,
+    "role-tab-selected": "First",
+    "by-text": 1,
+    "by-label": "prefilled",
+    "labelledby": 1,
+    "heading-3": "Level three",
+    "by-title": 1,
+    "nth": "Described",
+    "first-last": [
+      "Name",
+      "Score"
+    ],
+    "filter": 2,
+    "and-or": [
+      1,
+      2
+    ],
+    "visible": [
+      false,
+      true
+    ],
+    "states": [
+      true,
+      true,
+      true
+    ],
+    "attr": "page",
+    "all-text": [
+      "Ada",
+      "9"
+    ],
+    "inner-text": "Heads up",
+    "eval-all": [
+      "Name",
+      "Score"
+    ],
+    "$$eval": [
+      "Ada",
+      "9"
+    ],
+    "evaluate-arg": 42,
+    "locator-evaluate": "ARIA roles!",
+    "count-all": 3,
+    "strict": true,
+    "timeout": "TimeoutError"
+  },
+  "cmux": {}
+}

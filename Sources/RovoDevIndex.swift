@@ -18,7 +18,7 @@ extension SessionIndexStore {
             sessionsRoot: sessionsRoot
         )
         for error in result.errors {
-            errorBag.add(error)
+            errorBag.addSafe(diagnostic: "Rovo Dev index failure: \(error)")
         }
         return result.sessions.map { session in
             SessionEntry(

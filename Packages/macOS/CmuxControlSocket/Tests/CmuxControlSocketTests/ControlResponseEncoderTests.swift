@@ -97,6 +97,22 @@ struct ControlResponseEncoderTests {
         ] as NSDictionary)
     }
 
+    @Test func unsupportedTargetAliasResponseEchoesRequestDetails() throws {
+        let line = encoder.response(
+            for: .unsupportedTargetAlias(
+                id: .string("req-7"),
+                supplied: "surfaceId",
+                canonical: "surface_id"
+            )
+        )
+        let decoded = try decode(line)
+        #expect(decoded["id"] as? String == "req-7")
+        #expect(decoded["ok"] as? Bool == false)
+        let error = try #require(decoded["error"] as? NSDictionary)
+        #expect(error["code"] as? String == "invalid_params")
+        #expect(error["message"] as? String == "Unsupported parameter 'surfaceId'; use 'surface_id'")
+    }
+
     @Test func encodeFailureResponseIsTheLegacyConstant() {
         #expect(ControlResponseEncoder.encodeFailureResponse ==
             "{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"Failed to encode JSON\"}}")

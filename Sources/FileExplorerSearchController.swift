@@ -184,7 +184,14 @@ protocol FileSearchControlling: AnyObject {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)? { get set }
 
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int)
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int)
     func cancel(clear: Bool)
+}
+
+extension FileSearchControlling {
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int) {
+        search(query: rawQuery, rootPath: rootPath, isLocal: scope == .local, contentRevision: contentRevision)
+    }
 }
 
 struct FileSearchPipelineUpdate: Sendable {
@@ -418,10 +425,10 @@ private enum FileSearchPipeReader {
 
 @MainActor
 final class FileSearchController: FileSearchControlling {
-    private struct Request: Equatable {
+    struct Request: Equatable {
         let query: String
         let rootPath: String
-        let isLocal: Bool
+        let scope: FileSearchScope
         let contentRevision: Int
     }
 
@@ -441,22 +448,26 @@ final class FileSearchController: FileSearchControlling {
         "!DerivedData/**",
         "!**/DerivedData/**",
     ]
-    private var process: Process?
-    private var generation = 0
-    private var request: Request?
-    private var results: [FileSearchResult] = []
+    var process: Process?
+    var generation = 0
+    var request: Request?
+    var results: [FileSearchResult] = []
     private var pipeline: FileSearchOutputPipeline?
-    private var searchTask: Task<Void, Never>?
-
+    var searchTask: Task<Void, Never>?
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int = 0) {
+        search(query: rawQuery, rootPath: rootPath, scope: isLocal ? .local : .unsupported, contentRevision: contentRevision)
+    }
+
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int = 0) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         let nextRequest = Request(
             query: query,
             rootPath: rootPath,
-            isLocal: isLocal,
+            scope: scope,
             contentRevision: contentRevision
         )
-        if nextRequest == request, process?.isRunning == true {
+        if (nextRequest == request && process?.isRunning == true) ||
+            (nextRequest == request && searchTask != nil) {
             return
         }
         request = nextRequest
@@ -468,12 +479,16 @@ final class FileSearchController: FileSearchControlling {
             emit(status: .idle, isSearching: false)
             return
         }
-        guard isLocal else {
-            emit(status: .unsupported, isSearching: false)
-            return
-        }
         guard !rootPath.isEmpty else {
             emit(status: .noMatches, isSearching: false)
+            return
+        }
+        if case .remoteCloud(let provider) = scope {
+            startRemoteSearch(provider: provider, query: query, rootPath: rootPath)
+            return
+        }
+        guard scope == .local else {
+            emit(status: .unsupported, isSearching: false)
             return
         }
         let resolution = RipgrepExecutableResolver.resolution()
@@ -511,14 +526,19 @@ final class FileSearchController: FileSearchControlling {
             "--max-columns-preview",
             "--color", "never",
             "--hidden",
+            // Process converts arguments to decomposed Unicode, which would turn a Hangul
+            // or accented query into a pattern that never matches precomposed file text.
+            // Passing the pattern on stdin keeps the query's exact UTF-8 bytes.
+            "--file", "-",
         ] + excludedSearchGlobs.flatMap { ["--glob", $0] } + [
             "--",
-            query,
             rootPath,
         ]
 
+        let stdin = Pipe()
         let stdout = Pipe()
         let stderr = Pipe()
+        process.standardInput = stdin
         process.standardOutput = stdout
         process.standardError = stderr
         let pipeline = FileSearchOutputPipeline(
@@ -539,6 +559,10 @@ final class FileSearchController: FileSearchControlling {
         do {
             try process.run()
             self.process = process
+            let patternHandle = stdin.fileHandleForWriting
+            _ = fcntl(patternHandle.fileDescriptor, F_SETNOSIGPIPE, 1)
+            try? patternHandle.write(contentsOf: Data((query + "\n").utf8))
+            try? patternHandle.close()
             let stdoutReadHandle = FileSearchReadHandle(stdout.fileHandleForReading)
             let stderrReadHandle = FileSearchReadHandle(stderr.fileHandleForReading)
             searchTask = Task.detached(priority: .userInitiated) { [weak self, pipeline, terminationSignal, stdoutReadHandle, stderrReadHandle] in
@@ -572,19 +596,11 @@ final class FileSearchController: FileSearchControlling {
                 await self?.finish(generation: searchGeneration, update: update)
             }
         } catch {
+            process.standardInput = nil
             process.standardOutput = nil
             process.standardError = nil
             self.pipeline = nil
             emit(status: .failed(error.localizedDescription), isSearching: false)
-        }
-    }
-
-    func cancel(clear: Bool) {
-        request = nil
-        stopAndAdvanceGeneration()
-        if clear {
-            results.removeAll()
-            emit(status: .idle, isSearching: false)
         }
     }
 
@@ -606,7 +622,7 @@ final class FileSearchController: FileSearchControlling {
         emit(status: update.status, isSearching: update.isSearching)
     }
 
-    private func emit(status: FileSearchSnapshot.Status, isSearching: Bool) {
+    func emit(status: FileSearchSnapshot.Status, isSearching: Bool) {
         onSnapshotChanged?(FileSearchSnapshot(
             query: request?.query ?? "",
             results: results,
@@ -615,20 +631,8 @@ final class FileSearchController: FileSearchControlling {
         ))
     }
 
-    private func stopAndAdvanceGeneration() {
-        generation += 1
-        stopCurrentProcess()
-    }
-
-    private func stopCurrentProcess() {
-        guard let process else { return }
-        self.process = nil
-        searchTask?.cancel()
-        searchTask = nil
+    func clearPipelineForLifecycle() {
         pipeline = nil
-        if process.isRunning {
-            _ = Darwin.kill(process.processIdentifier, SIGTERM)
-        }
     }
 
     private nonisolated static func streamStdout(

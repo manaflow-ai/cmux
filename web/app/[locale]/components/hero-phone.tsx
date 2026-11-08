@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useRef, useState } from "react";
 import { Link } from "../../../i18n/navigation";
-import phoneImage from "../assets/landing-iphone.png";
+import phoneImage from "@/app/[locale]/(landing)/assets/landing-iphone.png";
 
 // Baked placement over the bottom-right of the Mac hero (percent offsets).
 // To retune, open the page with ?drag and drag the phone: the badge shows the

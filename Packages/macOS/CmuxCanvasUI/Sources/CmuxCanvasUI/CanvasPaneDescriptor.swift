@@ -10,6 +10,12 @@ public import AppKit
 public struct CanvasPaneDescriptor: Identifiable {
     /// The panel id.
     public let id: UUID
+    /// The identity of the panel object that owns the mounted content.
+    ///
+    /// A restore may replace a lightweight panel with its live counterpart while
+    /// preserving ``id``. The canvas uses this value to rebuild that panel's mount
+    /// without remounting descriptors whose owning object is unchanged.
+    public let contentIdentity: ObjectIdentifier?
     /// The panel's tab chrome (title + icon).
     public let tab: CanvasTabChrome
     /// Whether this panel has keyboard focus.
@@ -26,6 +32,7 @@ public struct CanvasPaneDescriptor: Identifiable {
 
     public init(
         id: UUID,
+        contentIdentity: ObjectIdentifier? = nil,
         tab: CanvasTabChrome,
         isFocused: Bool,
         closeActionLabel: String,
@@ -33,6 +40,7 @@ public struct CanvasPaneDescriptor: Identifiable {
         updateMount: @escaping (any CanvasPaneContentMounting) -> Void = { _ in }
     ) {
         self.id = id
+        self.contentIdentity = contentIdentity
         self.tab = tab
         self.isFocused = isFocused
         self.closeActionLabel = closeActionLabel

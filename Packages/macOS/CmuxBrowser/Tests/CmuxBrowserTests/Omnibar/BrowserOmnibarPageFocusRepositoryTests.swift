@@ -87,33 +87,17 @@ private struct StubError: Error {}
         let evaluator = FakeScriptEvaluator()
         evaluator.queuedResults = [("not_focused", nil)]
         let repo = BrowserOmnibarPageFocusRepository(evaluator: evaluator)
-        var outcome: Bool?
-        repo.restoreIfNeeded(panelDebugID: "abcde") { outcome = $0 }
-        // Bump generation before the scheduled 0.0s retry runs.
-        repo.invalidateRestoreAttempts(panelDebugID: "abcde")
-        // Drain the main queue until the scheduled asyncAfter block fires its
-        // completion. The stale-generation guard inside that block reports
-        // false, so `outcome` becoming non-nil is the real completion signal;
-        // wait on it rather than on wall-clock time.
-        await Self.drainUntil(deadlineSeconds: 2.0) { outcome != nil }
+        // The scheduled 0.0s retry runs as a main-queue work item; its
+        // stale-generation guard reports false. Await that completion itself
+        // rather than polling a wall-clock deadline a loaded runner can miss.
+        let outcome = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            repo.restoreIfNeeded(panelDebugID: "abcde") { continuation.resume(returning: $0) }
+            // Bump generation before the scheduled retry runs.
+            repo.invalidateRestoreAttempts(panelDebugID: "abcde")
+        }
         #expect(outcome == false)
         // Only the initial attempt ran; the stale retry was dropped.
         #expect(evaluator.evaluatedScripts.count == 1)
-    }
-
-    /// Pumps the main run loop until `predicate` holds, returning the instant it
-    /// does. The scheduled retry runs as a `DispatchQueue.main.asyncAfter` work
-    /// item, so yielding lets the main queue drain it; this resolves as soon as
-    /// the completion fires and only fails at the generous deadline.
-    private static func drainUntil(
-        deadlineSeconds: Double,
-        _ predicate: @MainActor () -> Bool
-    ) async {
-        let deadline = Date().addingTimeInterval(deadlineSeconds)
-        while !predicate() {
-            if Date() >= deadline { break }
-            await Task.yield()
-        }
     }
 
     @Test func restoreReportsFalseOnEvaluationError() {

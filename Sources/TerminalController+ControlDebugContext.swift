@@ -74,6 +74,20 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugActivateApp() -> String { activateApp() }
 
+    func controlDebugRequestWorkspaceTodoChecklistAddField() -> UUID? {
+        guard let workspace = tabManager?.selectedWorkspace else { return nil }
+        WorkspaceTodoActions.requestChecklistAddField(workspaceId: workspace.id)
+        return workspace.id
+    }
+
+    func controlDebugShowProWelcomeChecklist() {
+        ProWelcomeChecklistPresenter.present()
+    }
+
+    func controlDebugShowNativePricing() {
+        ProUpgradePresenter.presentNativePricingPreview()
+    }
+
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
         isTerminalFocused(surfaceArgument)
     }
@@ -104,13 +118,31 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugResetFlashCounts() -> String { resetFlashCounts() }
 
+    func controlDebugBrowserDiscard(arguments: String) -> String {
+        let parts = arguments.split(separator: " ").map(String.init)
+        guard let raw = parts.first, let id = UUID(uuidString: raw) else {
+            return "ERROR: usage: browser_discard <surface-uuid> [force]"
+        }
+        let force = parts.dropFirst().contains("force")
+        var result = "ERROR: Browser surface not found"
+        v2MainSync {
+            guard let app = AppDelegate.shared else { return }
+            for context in app.mainWindowContexts.values {
+                for workspace in context.tabManager.tabs {
+                    guard let panel = workspace.panels[id] as? BrowserPanel else { continue }
+                    result = panel.debugDiscardForTesting(force: force)
+                    return
+                }
+            }
+        }
+        return result
+    }
+
     func controlDebugPanelSnapshot(arguments: String) -> String { panelSnapshot(arguments) }
 
     func controlDebugPanelSnapshotReset(surfaceArgument: String) -> String {
         panelSnapshotReset(surfaceArgument)
     }
-
-    func controlDebugCaptureScreenshot(label: String) -> String { captureScreenshot(label) }
 
     func controlDebugShowCanvasCommandScrollHint(
         routing: ControlRoutingSelectors
@@ -215,8 +247,8 @@ extension TerminalController: ControlDebugContext {
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
         }
-        let state = textView.debugInteract(action: action)
-        // `debugInteract` emits String/Bool/Int leaves only, so the bridge
+        let state = textView.performControlInteraction(action: action)
+        // `performControlInteraction` emits String/Bool/Int leaves only, so the bridge
         // cannot fail; the empty-object fallback keeps the conversion total.
         return ControlDebugTextBoxInteraction(
             surfaceID: panel.id,
@@ -319,11 +351,11 @@ extension TerminalController: ControlDebugContext {
         // the legacy `[String: Any]` params are reconstructed exactly
         // (`foundationObject` is the inverse of the dispatcher's bridging) and
         // the favicon body runs verbatim.
-        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { _, ws, surfaceId, browserPanel in
+        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { workspaceId, surfaceId, browserPanel in
             let pngData = browserPanel.faviconPNGData
             return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "has_favicon": pngData != nil,
@@ -426,6 +458,10 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugPortalStats() -> JSONValue? {
         JSONValue(foundationObject: TerminalWindowPortalRegistry.debugPortalStats())
+    }
+
+    func controlDebugRemoteTmuxSizingSettled() -> JSONValue? {
+        JSONValue(foundationObject: remoteTmuxSizingSettlementPayload())
     }
 #endif
 }

@@ -31,7 +31,7 @@ export function diffCommentsBridgeAvailable(): boolean {
   return diffCommentsHandler() != null;
 }
 
-async function callDiffComments<T>(method: string, params: Record<string, unknown>): Promise<T> {
+export async function callDiffComments<T>(method: string, params: Record<string, unknown>): Promise<T> {
   const handler = diffCommentsHandler();
   if (handler == null) {
     throw new DiffCommentsBridgeError("Diff comments bridge is unavailable.");

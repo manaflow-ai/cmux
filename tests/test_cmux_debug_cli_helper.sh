@@ -118,4 +118,12 @@ reject_prefix "CMUX_PANEL_ID"
 reject_prefix "CMUXD_UNIX_PATH"
 reject_prefix "CMUX_DEBUG_LOG"
 
+# A build restored by publish-hq lives in the HQ Tag Opener cache, not DerivedData.
+CACHED_CLI_DIR="$FAKE_HOME/Library/Application Support/cmux/tag-app-cache/cmux-${TAG_SLUG}/cmux DEV ${TAG_SLUG}.app/Contents/Resources/bin"
+mkdir -p "$CACHED_CLI_DIR"
+cp "$FAKE_CLI" "$CACHED_CLI_DIR/cmux"
+rm -rf "$FAKE_HOME/Library/Developer/Xcode/DerivedData"
+OUTPUT="$(HOME="$FAKE_HOME" CMUX_TAG="$TAG" "$ROOT_DIR/scripts/cmux-debug-cli.sh" env)"
+require_line "CMUX_BUNDLED_CLI_PATH=$CACHED_CLI_DIR/cmux"
+
 echo "PASS: cmux-debug-cli.sh routes through the tagged CLI/socket and scrubs ambient cmux env"

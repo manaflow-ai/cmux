@@ -10,7 +10,7 @@ extension RemoteSessionCoordinator {
     func scheduleReconnectLocked(baseDelay: TimeInterval) -> RetrySchedule {
         let retryNumber = reconnectRetryCount + 1
         let retryDelay = Self.retryDelay(baseDelay: baseDelay, retry: retryNumber)
-        guard !isStopping, !reconnectSuspended else {
+        guard !isStopping, !reconnectSuspended, !isSystemSleeping else {
             return RetrySchedule(retry: retryNumber, delay: retryDelay)
         }
         cancelReconnectRetryLocked()
@@ -41,9 +41,9 @@ extension RemoteSessionCoordinator {
         guard reconnectToken == token else { return }
         reconnectTask = nil
         reconnectToken = nil
-        guard !isStopping else { return }
+        guard !isStopping, !isSystemSleeping else { return }
         guard proxyLease == nil else { return }
-        beginConnectionAttemptLocked()
+        requestConnectionAttemptLocked()
     }
 
     func cancelReconnectRetryLocked() {
@@ -79,7 +79,7 @@ extension RemoteSessionCoordinator {
         generation: UInt64
     ) {
         guard generation == reachabilityProbeGeneration else { return }
-        guard !isStopping, !reconnectSuspended else { return }
+        guard !isStopping, !reconnectSuspended, !isSystemSleeping else { return }
         // The probe only judges a still-pending retry; if the retry resolved
         // while the probe ran, the connected/stopped paths own the state.
         guard reconnectToken != nil else { return }
@@ -104,15 +104,12 @@ extension RemoteSessionCoordinator {
     /// and the `workspace.remote.reconnect` socket command) replaces this
     /// coordinator, which resets the policy state.
     func suspendAutoReconnectLocked() {
-        cancelReconnectRetryLocked()
-        reconnectSuspended = true
         debugLog(
             "remote.session.reconnect.suspended afterUnreachableProbes=\(consecutiveUnreachableProbeCount) " +
             debugConfigSummary()
         )
         let detail = String(format: strings.suspendedDetailFormat, configuration.displayTarget)
-        publishDaemonStatus(.unavailable, detail: detail)
-        publishState(.suspended, detail: detail)
+        parkSessionLocked(cause: .hostUnreachable, daemonState: .unavailable, detail: detail)
     }
 
     static func debugDescription(for outcome: RemoteHostProbeOutcome) -> String {

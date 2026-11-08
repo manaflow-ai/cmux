@@ -5,6 +5,7 @@ internal import CmuxRemoteWorkspace
 /// Lifted one-for-one from the legacy controller's nested type.
 struct PendingPTYBridgeStart {
     let sessionID: String
+    let lifecycleID: String
     let attachmentID: String
     let command: String?
     let requireExisting: Bool

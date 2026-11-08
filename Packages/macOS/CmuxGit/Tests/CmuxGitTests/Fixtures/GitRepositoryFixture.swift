@@ -61,6 +61,23 @@ final class GitRepositoryFixture {
         try fixture.data().write(to: gitDirectory.appendingPathComponent("index"))
     }
 
+    /// Writes only a valid index header plus trailer with a caller-supplied
+    /// declared entry count. Tests use this to cross header-only safety limits
+    /// without allocating hundreds of thousands of fixture entries.
+    func writeDeclaredIndex(entryCount: Int) throws {
+        var bytes: [UInt8] = []
+        bytes.append(contentsOf: Array("DIRC".utf8))
+        bytes.append(contentsOf: GitIndexFixture.bigEndianUInt32(2))
+        bytes.append(contentsOf: GitIndexFixture.bigEndianUInt32(UInt32(entryCount)))
+        bytes.append(contentsOf: Array(repeating: 0xAB, count: 20))
+        try Data(bytes).write(to: gitDirectory.appendingPathComponent("index"))
+    }
+
+    /// Writes arbitrary index bytes for malformed-index watch-plan coverage.
+    func writeRawIndex(_ data: Data) throws {
+        try data.write(to: gitDirectory.appendingPathComponent("index"))
+    }
+
     /// Creates a tracked working-tree file and returns its `stat`-derived index
     /// entry so a matching (clean) index can be built.
     @discardableResult

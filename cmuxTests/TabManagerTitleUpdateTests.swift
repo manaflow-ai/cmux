@@ -1,3 +1,5 @@
+import CmuxCore
+import CmuxFoundation
 import Foundation
 import Testing
 import CmuxSettings
@@ -11,6 +13,61 @@ import CmuxSettings
 @MainActor
 @Suite(.serialized)
 struct TabManagerTitleUpdateTests {
+    @Test
+    func focusedPanelCustomTitleRefreshesWorkspaceTitleObservers() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        let fallbackTitle = try #require(workspace.panelTitle(panelId: focusedPanelId))
+        #expect(workspace.customTitle == nil)
+
+        var notifiedWorkspaceIds: [UUID] = []
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            if let workspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID {
+                notifiedWorkspaceIds.append(workspaceId)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        #expect(workspace.setPanelCustomTitle(panelId: focusedPanelId, title: "Friendly session"))
+        #expect(workspace.title == "Friendly session")
+        #expect(manager.resolvedWorkspaceDisplayTitle(for: workspace) == "Friendly session")
+        #expect(notifiedWorkspaceIds == [workspace.id])
+
+        #expect(workspace.setPanelCustomTitle(panelId: focusedPanelId, title: nil))
+        #expect(workspace.title == fallbackTitle)
+        #expect(manager.resolvedWorkspaceDisplayTitle(for: workspace) == fallbackTitle)
+        #expect(notifiedWorkspaceIds == [workspace.id, workspace.id])
+    }
+
+    @Test
+    func focusedPanelCustomTitleDoesNotNotifyWhenWorkspaceCustomTitleWins() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        #expect(manager.setCustomTitle(tabId: workspace.id, title: "Pinned workspace"))
+
+        var notificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: manager,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        #expect(workspace.setPanelCustomTitle(panelId: focusedPanelId, title: "Friendly session"))
+        #expect(workspace.processTitle == "Friendly session")
+        #expect(workspace.title == "Pinned workspace")
+        #expect(manager.resolvedWorkspaceDisplayTitle(for: workspace) == "Pinned workspace")
+        #expect(notificationCount == 0)
+    }
+
     @Test
     func coalescerReschedulesWhenDelayChangesMidBurst() async {
         let scheduler = ManualCoalescerScheduler()
@@ -397,7 +454,7 @@ struct TabManagerTitleUpdateTests {
     }
 
     @Test
-    func rawTitleRefreshGateKeepsDefaultBehaviorUntilCoalescingIsEnabled() throws {
+    func rawTitleRefreshGateIsClosedByDefaultAndCanBeExplicitlyDisabled() throws {
         let suiteName = "TabManagerTitleRawRefreshGate.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -409,18 +466,18 @@ struct TabManagerTitleUpdateTests {
         let workspace = try #require(manager.selectedWorkspace)
 
         settings.set(1_000, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
-        #expect(manager.shouldScheduleRawTitleRefresh(forWorkspaceId: workspace.id))
-        #expect(!manager.shouldScheduleRawTitleRefresh(forWorkspaceId: UUID()))
-
-        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
         #expect(!manager.shouldScheduleRawTitleRefresh(forWorkspaceId: workspace.id))
+        #expect(!manager.shouldScheduleRawTitleRefresh(forWorkspaceId: UUID()))
 
         settings.set(false, for: catalog.terminal.titleUpdateCoalescingEnabled)
         #expect(manager.shouldScheduleRawTitleRefresh(forWorkspaceId: workspace.id))
+
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        #expect(!manager.shouldScheduleRawTitleRefresh(forWorkspaceId: workspace.id))
     }
 
     @Test
-    func titleCoalescingDelayIsDefaultOffAndClampedWhenEnabled() throws {
+    func titleCoalescingDelayIsDefaultOnAndClampedWhenEnabled() throws {
         let suiteName = "TabManagerTitleCoalescingClamp.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -429,15 +486,13 @@ struct TabManagerTitleUpdateTests {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let catalog = SettingCatalog()
 
-        settings.set(1_000, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
         #expect(
             abs(
                 PanelTitleUpdateCoalescingSettings.delay(settings: settings) -
-                    PanelTitleUpdateCoalescingSettings.defaultDelay
+                    1.0
             ) < 0.000_1
         )
 
-        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
         settings.set(1, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
         #expect(abs(PanelTitleUpdateCoalescingSettings.delay(settings: settings) - 0.033) < 0.000_1)
 
@@ -484,5 +539,67 @@ struct TabManagerTitleUpdateTests {
             guard pendingFlushes.indices.contains(index), !pendingFlushes[index].isCancelled else { return }
             pendingFlushes[index].action()
         }
+    }
+}
+
+extension TabManagerTitleUpdateTests {
+    @Test("SSH workspaces show their host after the title and refresh title chrome when it changes")
+    func sshWorkspaceWindowTitleCarriesHost() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        #expect(manager.setCustomTitle(tabId: workspace.id, title: "build"))
+        #expect(workspace.hostLabel == .local)
+        #expect(manager.resolvedWorkspaceWindowTitle(for: workspace) == "build")
+
+        var notifiedWorkspaceIds: [UUID] = []
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            if let workspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID {
+                notifiedWorkspaceIds.append(workspaceId)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        workspace.remoteConfiguration = Self.hostLabelTestConfiguration(destination: "leo@big-red", relayPort: nil)
+        #expect(workspace.hostLabel.kind == .ssh)
+        #expect(workspace.hostLabel.label == "big-red")
+        #expect(manager.resolvedWorkspaceWindowTitle(for: workspace) == "build · big-red")
+        #expect(manager.resolvedWorkspaceDisplayTitle(for: workspace) == "build")
+        #expect(notifiedWorkspaceIds == [workspace.id])
+
+        // A relay or lease change keeps the host, so title chrome is left alone.
+        workspace.remoteConfiguration = Self.hostLabelTestConfiguration(destination: "leo@big-red", relayPort: 64_010)
+        #expect(notifiedWorkspaceIds == [workspace.id])
+
+        workspace.remoteConfiguration = nil
+        #expect(manager.resolvedWorkspaceWindowTitle(for: workspace) == "build")
+        #expect(notifiedWorkspaceIds == [workspace.id, workspace.id])
+    }
+
+    @Test("a title that already names the host is not repeated")
+    func titleNamingHostIsNotRepeated() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        #expect(manager.setCustomTitle(tabId: workspace.id, title: "agents @big-red"))
+        workspace.remoteConfiguration = Self.hostLabelTestConfiguration(destination: "big-red", relayPort: nil)
+        #expect(manager.resolvedWorkspaceWindowTitle(for: workspace) == "agents @big-red")
+    }
+
+    private static func hostLabelTestConfiguration(destination: String, relayPort: Int?) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: destination,
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: relayPort,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
     }
 }

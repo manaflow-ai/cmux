@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "type": "relay_passes",
+  "rev": 42,
+  "payload": {
+    "endpointId": "0fbffe130b96",
+    "passes": [
+      {
+        "relayUrl": "https://usw1.relay.cmux.dev/",
+        "token": "eyJ...",
+        "expiresAt": "2026-08-27T03:10:48Z",
+        "generation": 7,
+        "refreshAfter": "2026-08-27T03:09:48Z"
+      }
+    ]
+  }
+}

@@ -1,4 +1,34 @@
 import AppKit
+import CmuxBrowser
+import CmuxTerminal
+
+extension NSEvent {
+    var cmuxIsUndoRedoCommandEquivalent: Bool {
+        cmuxIsUndoRedoCommandEquivalent(
+            layoutCharacterProvider: KeyboardLayout.character(forKeyCode:modifierFlags:)
+        )
+    }
+
+    /// Matches the Undo menu equivalent using the active keyboard layout.
+    func cmuxIsUndoRedoCommandEquivalent(
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String?
+    ) -> Bool {
+        let normalizedFlags = modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard type == .keyDown,
+              normalizedFlags == [.command] || normalizedFlags == [.command, .shift] else {
+            return false
+        }
+        // Match AppKit's Command table, including Dvorak - QWERTY Command.
+        // charactersIgnoringModifiers describes the unmodified layout instead.
+        if let character = layoutCharacterProvider(keyCode, normalizedFlags),
+           !character.isEmpty, character.allSatisfy(\.isASCII) {
+            return character.lowercased() == "z"
+        }
+        return KeyboardLayout.normalizedCharacters(for: self) == "z"
+    }
+}
 
 /// Identity of a key event currently being force-dispatched into a responder's
 /// `keyDown(with:)` by `NSWindow.cmux_performKeyEquivalent(with:)`.
@@ -22,6 +52,14 @@ private struct CmuxForceDispatchedKeyEventIdentity: Hashable {
     let keyCode: UInt16
     let modifierFlags: UInt
     let timestamp: TimeInterval
+
+    init(_ event: NSEvent, windowNumber: Int) {
+        self.windowNumber = windowNumber
+        eventType = event.type.rawValue
+        keyCode = event.keyCode
+        modifierFlags = event.modifierFlags.rawValue
+        timestamp = event.timestamp
+    }
 }
 
 /// Events whose force-dispatch is currently on the main-thread stack.
@@ -31,7 +69,110 @@ private struct CmuxForceDispatchedKeyEventIdentity: Hashable {
 /// dispatch has fully unwound) is still force-dispatched normally.
 private var cmuxInFlightForceDispatchedKeyEventIdentities = Set<CmuxForceDispatchedKeyEventIdentity>()
 
+extension NSApplication {
+    /// Routes undo and redo before AppKit can invoke the shared window undo
+    /// manager, whose registrations may belong to a view that was closed.
+    func cmuxRouteApplicationUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
+        let window = event.window
+            ?? AppDelegate.shared?.shortcutRoutingActiveWindow
+            ?? keyWindow
+            ?? mainWindow
+        return window?.cmuxRouteApplicationUndoRedoCommandEquivalent(event) == true
+    }
+}
+
 extension NSWindow {
+    /// Identifies synchronous replay of the exact key this window is forwarding.
+    func cmuxIsForceDispatchingKeyDown(_ event: NSEvent) -> Bool {
+        cmuxInFlightForceDispatchedKeyEventIdentities.contains(
+            CmuxForceDispatchedKeyEventIdentity(event, windowNumber: windowNumber)
+        )
+    }
+
+    /// Routes an application undo or redo command through the focused cmux
+    /// surface, keeping AppKit's shared window undo stack out of the path.
+    func cmuxRouteApplicationUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
+        guard event.cmuxIsUndoRedoCommandEquivalent else { return false }
+
+        let terminalView = firstResponder.cmuxTerminalKeyEquivalentOwningGhosttyView()
+        let webView = firstResponder.flatMap {
+            NSWindow.cmuxOwningWebViewForKeyRouting(for: $0, in: self, event: event)
+        } ?? firstResponder.flatMap { cmuxOwningUndoableWebView(for: $0) }
+        return cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
+            event,
+            terminalView: terminalView,
+            webView: webView,
+            webKitKeyDownReentry: webView?.browserNativeInputDeliveryOwner.isDispatchActive ?? false
+        )
+    }
+
+    func cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
+        _ event: NSEvent,
+        terminalView: GhosttyNSView?,
+        webView: CmuxUndoableWebView?,
+        webKitKeyDownReentry: Bool
+    ) -> Bool {
+        guard event.cmuxIsUndoRedoCommandEquivalent,
+              !cmuxFirstResponderPreservesLocalUndoRedo,
+              !cmuxIsLikelyWebInspectorResponder(firstResponder) else {
+            return false
+        }
+        if let terminalView {
+            if terminalView.performKeyEquivalentAfterMenuMiss(with: event) {
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo routed to terminal before AppKit menu")
+#endif
+                return true
+            }
+            if cmuxForceDispatchKeyDownOnce(event, to: terminalView, reason: "terminal undo/redo") {
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo keyDown fallback routed to terminal")
+#endif
+                return true
+            }
+            return true
+        }
+        if let webView {
+            if webKitKeyDownReentry {
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo browser reentry suppressed before AppKit menu")
+#endif
+                return true
+            }
+            if webView.performKeyEquivalent(with: event) {
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo routed to browser before AppKit menu")
+#endif
+                return true
+            }
+            if cmuxForceDispatchKeyDownOnce(event, to: webView, reason: "browser undo/redo") {
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo keyDown fallback routed to browser")
+#endif
+                return true
+            }
+            // Do not fall through to AppKit Undo from generic browser focus:
+            // that is the stale NSUndoManager path this router avoids. Focused
+            // editable AppKit responders and Web Inspector are exempted above.
+            return true
+        }
+        // No cmux surface owns an application-level undo operation here. Do
+        // not expose the shared window stack to an unknown target: it can
+        // contain an edit command whose view was already torn down.
+        return true
+    }
+
+    private var cmuxFirstResponderPreservesLocalUndoRedo: Bool {
+        guard let responder = firstResponder else { return false }
+        if let textView = responder as? NSTextView {
+            return textView.isEditable || textView.isFieldEditor
+        }
+        if let textField = responder as? NSTextField {
+            return textField.isEditable
+        }
+        return false
+    }
+
     /// Single chokepoint for every direct `keyDown(with:)` force-dispatch made
     /// by `cmux_performKeyEquivalent(with:)`.
     ///
@@ -47,13 +188,7 @@ extension NSWindow {
         to target: NSResponder,
         reason: @autoclosure () -> String
     ) -> Bool {
-        let identity = CmuxForceDispatchedKeyEventIdentity(
-            windowNumber: self.windowNumber,
-            eventType: event.type.rawValue,
-            keyCode: event.keyCode,
-            modifierFlags: event.modifierFlags.rawValue,
-            timestamp: event.timestamp
-        )
+        let identity = CmuxForceDispatchedKeyEventIdentity(event, windowNumber: windowNumber)
         guard !cmuxInFlightForceDispatchedKeyEventIdentities.contains(identity) else {
 #if DEBUG
             cmuxDebugLog("  → \(reason()) reentry; declining force-dispatch of in-flight key event")

@@ -1,0 +1,19 @@
+{
+  "jobs": [
+    {
+      "name": "setup",
+      "argv": ["/usr/bin/env", "python3", "-c", "print('CMUX_SETUP_READY')"],
+      "ready_pattern": "CMUX_SETUP_READY"
+    },
+    {
+      "name": "build",
+      "argv": ["/usr/bin/env", "python3", "-c", "print('CMUX_BUILD_OK')"],
+      "ready_pattern": "CMUX_BUILD_OK"
+    },
+    {
+      "name": "tests",
+      "argv": ["/usr/bin/env", "python3", "-c", "print('CMUX_TESTS_OK')"],
+      "ready_pattern": "CMUX_TESTS_OK"
+    }
+  ]
+}

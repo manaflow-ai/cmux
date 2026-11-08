@@ -27,9 +27,16 @@ public enum GetUserOr: Sendable {
     case anonymous
 }
 
+/// Whether OAuth browser sessions may reuse Safari cookies.
+public enum OAuthBrowserSessionPrivacy: Equatable, Sendable {
+    case shared
+    case ephemeral
+}
+
 /// The main Stack Auth client
 public actor StackClientApp {
     public let projectId: String
+    public let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy
     
     let client: APIClient
     private let baseUrl: String
@@ -41,10 +48,12 @@ public actor StackClientApp {
         publishableClientKey: String,
         baseUrl: String = "https://api.stack-auth.com",
         tokenStore: TokenStoreInit = .keychain,
-        noAutomaticPrefetch: Bool = false
+        noAutomaticPrefetch: Bool = false,
+        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared
     ) {
         self.projectId = projectId
         self.baseUrl = baseUrl
+        self.oauthBrowserSessionPrivacy = oauthBrowserSessionPrivacy
         
         let store: any TokenStoreProtocol
         var hasDefault = true
@@ -85,10 +94,12 @@ public actor StackClientApp {
         publishableClientKey: String,
         baseUrl: String = "https://api.stack-auth.com",
         tokenStore: TokenStoreInit = .memory,
-        noAutomaticPrefetch: Bool = false
+        noAutomaticPrefetch: Bool = false,
+        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared
     ) {
         self.projectId = projectId
         self.baseUrl = baseUrl
+        self.oauthBrowserSessionPrivacy = oauthBrowserSessionPrivacy
         
         let store: any TokenStoreProtocol
         var hasDefault = true
@@ -276,6 +287,9 @@ public actor StackClientApp {
             return
         }
 
+        // Stack authorizes this exact redirect protocol. AuthenticationServices
+        // scopes its callback to the initiating session even when installed apps
+        // share the protocol; the ephemeral browser session isolates cookies.
         let callbackScheme = "stack-auth-mobile-oauth-url"
         let oauth = try await getOAuthUrl(
             provider: provider,
@@ -285,6 +299,8 @@ public actor StackClientApp {
         let providerAuthorizationUrl = try await getOAuthProviderAuthorizationUrl(oauth.url)
         let sessionHolder = WebAuthenticationSessionHolder()
         let gate = AuthFlowCancellationGate<URL>()
+        let prefersEphemeralWebBrowserSession =
+            oauthBrowserSessionPrivacy == .ephemeral
 
         // The continuation resumes with the provider's callback URL only; the
         // token exchange runs AFTER it, structured in this task, so a cancel
@@ -328,7 +344,8 @@ public actor StackClientApp {
                     gate.resume(returning: callbackUrl)
                 }
 
-                session.prefersEphemeralWebBrowserSession = false
+                session.prefersEphemeralWebBrowserSession =
+                    prefersEphemeralWebBrowserSession
 
                 #if os(iOS) || os(macOS)
                 if let provider = presentationContextProvider {
@@ -483,11 +500,11 @@ public actor StackClientApp {
         request.httpMethod = "POST"
         request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
-        request.setValue("client", forHTTPHeaderField: "x-stack-access-type")
+        request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
+        request.setValue("client", forHTTPHeaderField: "x-hexclave-access-type")
         
         let publishableKey = client.publishableClientKey
-        request.setValue(publishableKey, forHTTPHeaderField: "x-stack-publishable-client-key")
+        request.setValue(publishableKey, forHTTPHeaderField: "x-hexclave-publishable-client-key")
         
         let body = ["id_token": identityToken]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -557,7 +574,7 @@ public actor StackClientApp {
         request.httpMethod = "POST"
         request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
+        request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
         
         let publishableKey = client.publishableClientKey
         let body = [
@@ -863,6 +880,11 @@ public actor StackClientApp {
             
             return user
             
+        } catch let error as StackAuthError where error.code == "RATE_LIMITED" {
+            // A 429 says nothing about the session. Reporting it as "no
+            // user" made sign-in fail as a generic server error and could
+            // read as signed out to callers that pass `.returnNull`.
+            throw error
         } catch {
             return try handleNoUser(or: or)
         }

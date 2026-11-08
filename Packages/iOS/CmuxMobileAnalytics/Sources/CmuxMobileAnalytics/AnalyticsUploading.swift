@@ -26,6 +26,16 @@ public protocol AnalyticsUploading: Sendable {
         anonymousID: String?,
         properties: [String: any Sendable]
     ) async -> AnalyticsUploadResult
+
+    /// Updates transport consent. Disabling cancels in-flight requests and
+    /// prevents a send-time race from starting new requests until re-enabled.
+    func setUploadsEnabled(_ isEnabled: Bool)
+}
+
+/// Default request-lifecycle behavior for uploaders without a live transport.
+public extension AnalyticsUploading {
+    /// Uploaders without a live transport have no request lifecycle to update.
+    func setUploadsEnabled(_: Bool) {}
 }
 
 /// The outcome of an upload attempt.

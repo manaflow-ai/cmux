@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Identifies a remote host whose tmux server cmux mirrors over SSH.
@@ -7,7 +8,28 @@ import Foundation
 /// every operation against the host (discovery commands, the `tmux -CC`
 /// control client, and one-shot mutations) over a single SSH ControlMaster
 /// socket derived from the destination, so authentication happens once.
+/// The ssh binary every remote-tmux spawn uses. DEBUG builds honor
+/// `CMUX_REMOTE_TMUX_SSH_FOR_TESTING` so end-to-end tests can substitute a
+/// shim that strips the ssh framing and execs the remote command locally —
+/// the full mirror stack then runs hermetically (no sshd, no network).
 struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
+    /// The ssh executable used when the caller doesn't inject one (the
+    /// connection and transport inits both take `sshExecutablePath`).
+    ///
+    /// DEBUG builds honor `CMUX_REMOTE_TMUX_SSH_FOR_TESTING` because the
+    /// sizing UI tests exercise the REAL app process, and a launch
+    /// environment variable is the only injection channel that crosses the
+    /// XCUITest process boundary — the same seam `CMUX_SOCKET_PATH` uses.
+    static func defaultSSHExecutablePath() -> String {
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["CMUX_REMOTE_TMUX_SSH_FOR_TESTING"],
+           !override.isEmpty {
+            return override
+        }
+        #endif
+        return "/usr/bin/ssh"
+    }
+
     /// The SSH destination: a `~/.ssh/config` alias or `user@host`.
     let destination: String
 
@@ -24,10 +46,62 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// ``RemoteTmuxController`` keys its per-endpoint state.
     var id: String { connectionHash }
 
-    init(destination: String, port: Int? = nil, identityFile: String? = nil) {
+    /// Which transport carries this host's control stream.
+    ///
+    /// Part of the host rather than a global setting, because it is a property of the
+    /// endpoint: one host may be reachable over a session-preserving transport while
+    /// another is plain ssh. Defaults to ssh, so an unspecified host behaves exactly as
+    /// before.
+    let transport: RemoteTmuxTransportKind
+
+    /// The port of a non-ssh transport, when it differs from ssh's.
+    ///
+    /// Separate from ``port`` because the two are genuinely different endpoints on the same
+    /// host: one-shot discovery and mutation commands keep riding ssh even when the control
+    /// stream does not, so folding both into one field points ssh at the other transport's
+    /// port and every one-shot fails with `kex_exchange_identification`.
+    let transportPort: Int?
+
+    /// The wrapper that fronts the transport client, for a host that is not directly reachable.
+    ///
+    /// Set when reaching this host means going through a broker that resolves the route — a
+    /// tunnel, an agent socket, a short-lived credential — and then launches the client itself.
+    /// It is deliberately absent from ``connectionHash``: it describes how to reach the endpoint,
+    /// not which endpoint it is, so a host reached directly and the same host reached through a
+    /// broker are one endpoint that should share one connection rather than two competing ones.
+    let transportBroker: RemoteTmuxTransportBroker?
+
+    /// Optional transport-owned helper path. This is unset by default so the
+    /// remote transport can use its own environment-based discovery. It is a
+    /// launch setting; changing it on a live endpoint requires detaching first.
+    let transportHelperPath: String?
+
+    init(
+        destination: String,
+        port: Int? = nil,
+        identityFile: String? = nil,
+        transport: RemoteTmuxTransportKind = .ssh,
+        transportPort: Int? = nil,
+        transportBroker: RemoteTmuxTransportBroker? = nil,
+        transportHelperPath: String? = nil
+    ) {
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
+        self.transport = transport
+        self.transportPort = transportPort
+        self.transportBroker = transportBroker
+        self.transportHelperPath = transportHelperPath
+    }
+
+    /// Resolve launch options together so dedicated and shared connections cannot
+    /// accidentally omit an explicit host override.
+    var transportProfile: RemoteTmuxTransportProfile {
+        transport.profile(
+            port: transportPort,
+            broker: transportBroker,
+            transportHelperPath: transportHelperPath
+        )
     }
 
     /// A human-readable (but lossy) slug for the destination, used only for
@@ -47,10 +121,12 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         return mapped.isEmpty ? "host" : String(mapped)
     }
 
-    /// A stable, deterministic, collision-resistant hex digest of this host's full
-    /// **connection identity** — the case-sensitive ``destination`` plus the
-    /// explicit ``port`` and ``identityFile`` — over a unit-separated fingerprint
-    /// (FNV-1a/64).
+    /// A stable, deterministic, collision-resistant hex digest of this host's endpoint identity —
+    /// the case-sensitive ``destination`` plus the explicit ``port``, ``identityFile``, transport,
+    /// and resolved transport port — over a unit-separated fingerprint (FNV-1a/64). Launch-only
+    /// route settings such as ``transportBroker`` and ``transportHelperPath`` are intentionally
+    /// excluded; a live endpoint has one route, and a conflicting launch setting is rejected
+    /// instead of creating a second connection.
     ///
     /// Two hosts that share a lossy ``slug`` (e.g. `alice@host` vs `alice.host`),
     /// *or* the same destination reached on a different port or with a different
@@ -60,9 +136,34 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// distinct endpoints must never collapse onto one socket and risk routing a
     /// command to the wrong server.
     var connectionHash: String {
-        let fingerprint = "\(destination)\u{1f}\(port.map(String.init) ?? "")\u{1f}\(identityFile ?? "")"
+        // The transport and its port belong in the fingerprint because they decide what the
+        // control stream actually is. Everything keyed by this hash — the attach single-flight,
+        // the transport registry, matching a mirror to a host — would otherwise treat an ssh
+        // host and an et host at the same destination as one endpoint, and hand an attach a
+        // cached connection whose profile or port is wrong. Two et hosts on different
+        // etserver ports collide the same way.
+        //
+        // Only appended for a non-default transport, so a plain ssh host keeps the hash it has
+        // today: it names the shared master's socket path and persisted mirror state, and
+        // changing it for existing hosts would orphan both.
+        var fingerprint = "\(destination)\u{1f}\(port.map(String.init) ?? "")\u{1f}\(identityFile ?? "")"
+        // Normalized, so two spellings of one endpoint are one key. An unset et port and an
+        // explicit 2022 both resolve to 2022 in `RemoteTmuxTransportKind.profile(port:)`, and ssh
+        // ignores a transport port entirely — hashing the spelling instead of the meaning gave the
+        // controller two keys for the same host, which bypasses mirror de-duplication and lets one
+        // host be mirrored twice.
+        if transport != .ssh {
+            fingerprint += "\u{1f}\(transport.rawValue)\u{1f}\(transport.resolvedTransportPort(transportPort))"
+        }
+        return Self.fnv1a64Hex(fingerprint)
+    }
+
+    /// FNV-1a 64-bit hex digest — a stable, dependency-free short hash used to derive
+    /// collision-resistant identifiers from a string (the host ``connectionHash`` and
+    /// the multiplexed view-session owner hash both build on it).
+    static func fnv1a64Hex(_ string: String) -> String {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV offset basis
-        for byte in fingerprint.utf8 {
+        for byte in string.utf8 {
             hash ^= UInt64(byte)
             hash = hash &* 0x0000_0100_0000_01b3 // FNV prime
         }
@@ -73,7 +174,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///
     /// Namespaced under `~/.cmux/ssh/`. The filename combines the lossy
     /// human-readable ``slug`` with the collision-resistant ``connectionHash`` of
-    /// the exact connection identity (destination + port + identity file), so two
+    /// the exact endpoint identity (destination + port + identity file + transport), so two
     /// distinct endpoints never collide on one socket (which would otherwise route
     /// commands — including the destructive `kill-session` — to the wrong host
     /// through a shared master).
@@ -181,7 +282,11 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///   `tmux -CC` control client; interactive prompts are handled only by
     ///   ``interactiveAuthInvocation()`` running in the user's terminal.
     func sshControlArguments(controlPersistSeconds: Int, batchMode: Bool) -> [String] {
-        var args = [
+        // Every ssh-tmux invocation supplies its own remote command (`true`,
+        // `tmux -CC …`, one-shot discovery), which OpenSSH refuses while a
+        // host-configured RemoteCommand is in effect (issue #7246).
+        var args = SSHHostConfiguredRemoteCommand().overrideArguments
+        args += [
             "-o", "ControlMaster=auto",
             "-o", "ControlPath=\(controlSocketPath)",
             "-o", "ControlPersist=\(controlPersistSeconds)",
@@ -220,14 +325,29 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// TOFU prompt), and ssh's default `ask` already prompts to confirm a new
     /// fingerprint on this controlling tty.
     ///
-    /// `-f` makes ssh go to background **after authentication** (just before the
-    /// remote `true`): the password / host-key / MFA prompt and any auth error
-    /// ("Permission denied") still appear on the controlling tty first, and the
-    /// CLI's foreground ssh exits promptly — but the persistent ControlMaster that
-    /// `ControlPersist` leaves running then has its standard fds detached, so it no
-    /// longer holds the terminal's pty open. Without `-f` the backgrounded master
-    /// keeps the terminal's stdout/stderr, freezing window/app close until the
-    /// master gives up (~`ServerAliveInterval`×`ServerAliveCountMax` seconds).
+    /// Critically, this opens the master in the **foreground** (no `-f`): ssh
+    /// authenticates, opens the master, runs the remote `true`, and exits only once
+    /// the control socket has served that session. So by the time the CLI's
+    /// foreground ssh returns, the master is provably *serving* — the post-auth
+    /// retry rides it deterministically, with no `ssh -O check` readiness poll.
+    ///
+    /// `-f` (background-after-auth) is deliberately NOT used: it returns before the
+    /// backgrounded master binds its control socket, racing the immediate retry. The
+    /// historical worry that a foreground master would keep the terminal's
+    /// stdout/stderr and freeze window/app close does not apply: when `ControlPersist`
+    /// backgrounds the master, OpenSSH's `control_persist_detach()` redirects the
+    /// master's std fds to `/dev/null` (`stdfd_devnull(1, 1, …)` in `ssh.c`, identical
+    /// across OpenSSH 9.6/9.8/9.9/10.2 — the versions macOS 14/15/26 ship), and forces
+    /// that detach independent of `-f`. So the foreground ssh exits cleanly and the
+    /// detached master never pins the tty.
+    ///
+    /// `-n` is kept explicitly: `-f` *implied* `-n` (stdin from `/dev/null`), and
+    /// dropping `-f` would otherwise leave the controlling terminal as the remote
+    /// command's stdin. With the trivial `true` that's usually harmless, but a host
+    /// `ForceCommand` / forced wrapper, or noninteractive shell startup that reads
+    /// stdin, could consume the user's terminal input or block. `-n` preserves the
+    /// stdin-null behavior without backgrounding; auth prompts are unaffected (ssh
+    /// reads them from the controlling tty, not stdin).
     ///
     /// - Parameter sshExecutablePath: the local `ssh` binary the CLI will exec.
     /// - Parameter controlPersistSeconds: idle lifetime of the opened master.
@@ -235,18 +355,33 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///   end-of-options guard precedes the destination so a dash-prefixed
     ///   destination can never be parsed as an ssh option.
     func interactiveAuthInvocation(
-        sshExecutablePath: String = "/usr/bin/ssh",
+        sshExecutablePath: String = RemoteTmuxHost.defaultSSHExecutablePath(),
         controlPersistSeconds: Int = 180
     ) -> [String] {
         [sshExecutablePath]
             + sshControlArguments(controlPersistSeconds: controlPersistSeconds, batchMode: false)
-            + ["-o", "BatchMode=no", "-f", "-T", "--", destination, "true"]
+            + ["-o", "BatchMode=no", "-n", "-T", "--", destination, "true"]
     }
 
     /// Single-quotes a value for safe interpolation into a `/bin/sh` command.
     static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
+
+    /// Builds a remote shell command that resolves `tmux` before executing it.
+    ///
+    /// OpenSSH runs remote commands under the account's shell, but not as an
+    /// interactive/login shell. On macOS that often means zsh starts with only
+    /// `/usr/bin:/bin:/usr/sbin:/sbin`, so Homebrew's `tmux` is invisible even
+    /// though it works in the user's normal terminal. Resolve the binary in a
+    /// tiny `/bin/sh` wrapper, then `exec` it with the original arguments so both
+    /// one-shot probes and `tmux -CC` use the same path behavior.
+    static func tmuxRemoteCommand(arguments: [String]) -> String {
+        RemoteTmuxCommandBuilder(arguments: arguments).remoteShellCommand
+    }
+
+    /// Stable stderr marker the resolver emits with exit 127 when no tmux binary is usable.
+    static let tmuxNotFoundSentinel = RemoteTmuxCommandBuilder.notFoundSentinel
 
     /// Returns a non-empty tmux control-mode command argument, or `nil` when the
     /// value could break the line-oriented control stream. Shell quoting is not
@@ -279,10 +414,10 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///
     /// - Parameters:
     ///   - sessionName: the tmux session to attach to (or create).
-    ///   - createIfMissing: `new-session -A -s` (attach or create) vs `attach-session -t`.
+    ///   - mode: which tmux command opens the session — see ``RemoteTmuxControlAttachMode``.
     func controlModeArguments(
         sessionName: String,
-        createIfMissing: Bool,
+        mode: RemoteTmuxControlAttachMode,
         controlPersistSeconds: Int = 180
     ) -> [String] {
         var args = ["-tt"]
@@ -290,10 +425,8 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
             controlPersistSeconds: controlPersistSeconds,
             batchMode: true
         ))
-        let quotedName = Self.shellSingleQuoted(sessionName)
-        let remoteCommand = createIfMissing
-            ? "tmux -CC new-session -A -s \(quotedName)"
-            : "tmux -CC attach-session -t \(quotedName)"
+        let remoteCommand = Self.tmuxRemoteCommand(
+            arguments: mode.tmuxArguments(sessionName: sessionName))
         args.append(contentsOf: ["--", destination, remoteCommand])
         return args
     }

@@ -1,0 +1,164 @@
+import Foundation
+import Testing
+
+/// Assertion adapter for mechanically migrated Swift Testing suites.
+///
+/// Keeping the adapter value-scoped lets large behavior suites migrate without
+/// retaining an XCTest dependency or obscuring failures behind source rewrites.
+struct SwiftTestingAssertions {
+    /// Resolves a test source file from its module-relative identity.
+    static func sourceURL(_ file: StaticString = #fileID) -> URL {
+        let fileID = String(describing: file)
+        let environment = ProcessInfo.processInfo.environment
+        var roots: [URL] = []
+        for key in ["CMUX_CI_RUNTIME_SOURCE_ROOT", "TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT"] {
+            if let runtimeRoot = environment[key], !runtimeRoot.isEmpty {
+                roots.append(URL(fileURLWithPath: runtimeRoot, isDirectory: true)
+                    .appendingPathComponent("src", isDirectory: true))
+            }
+        }
+        roots.append(
+            URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+        )
+        roots.append(URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true))
+        // #fileID is "<module>/<file>"; the module name matches the repo directory.
+        let candidates = roots.map { $0.appendingPathComponent(fileID) }
+        return candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) ?? candidates[0]
+    }
+
+
+    func equal<T: Equatable>(
+        _ expression1: @autoclosure () throws -> T,
+        _ expression2: @autoclosure () throws -> T,
+        _ message: @autoclosure () -> String = "",
+        file _: StaticString = #filePath,
+        line _: UInt = #line,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        do {
+            let value1 = try expression1()
+            let value2 = try expression2()
+            #expect(
+                value1 == value2,
+                comment(message()),
+                sourceLocation: sourceLocation
+            )
+        } catch {
+            Issue.record(error, sourceLocation: sourceLocation)
+        }
+    }
+
+    func notEqual<T: Equatable>(
+        _ expression1: @autoclosure () throws -> T,
+        _ expression2: @autoclosure () throws -> T,
+        _ message: @autoclosure () -> String = "",
+        file _: StaticString = #filePath,
+        line _: UInt = #line,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        do {
+            let value1 = try expression1()
+            let value2 = try expression2()
+            #expect(
+                value1 != value2,
+                comment(message()),
+                sourceLocation: sourceLocation
+            )
+        } catch {
+            Issue.record(error, sourceLocation: sourceLocation)
+        }
+    }
+
+    func isTrue(
+        _ expression: @autoclosure () throws -> Bool,
+        _ message: @autoclosure () -> String = "",
+        file _: StaticString = #filePath,
+        line _: UInt = #line,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        do {
+            #expect(
+                try expression(),
+                comment(message()),
+                sourceLocation: sourceLocation
+            )
+        } catch {
+            Issue.record(error, sourceLocation: sourceLocation)
+        }
+    }
+
+    func isFalse(
+        _ expression: @autoclosure () throws -> Bool,
+        _ message: @autoclosure () -> String = "",
+        file _: StaticString = #filePath,
+        line _: UInt = #line,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        do {
+            #expect(
+                try !expression(),
+                comment(message()),
+                sourceLocation: sourceLocation
+            )
+        } catch {
+            Issue.record(error, sourceLocation: sourceLocation)
+        }
+    }
+
+    func isNil<T>(
+        _ expression: @autoclosure () throws -> T?,
+        _ message: @autoclosure () -> String = "",
+        file _: StaticString = #filePath,
+        line _: UInt = #line,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        do {
+            #expect(
+                try expression() == nil,
+                comment(message()),
+                sourceLocation: sourceLocation
+            )
+        } catch {
+            Issue.record(error, sourceLocation: sourceLocation)
+        }
+    }
+
+    func isNotNil<T>(
+        _ expression: @autoclosure () throws -> T?,
+        _ message: @autoclosure () -> String = "",
+        file _: StaticString = #filePath,
+        line _: UInt = #line,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        do {
+            #expect(
+                try expression() != nil,
+                comment(message()),
+                sourceLocation: sourceLocation
+            )
+        } catch {
+            Issue.record(error, sourceLocation: sourceLocation)
+        }
+    }
+
+    func require<T>(
+        _ expression: @autoclosure () throws -> T?,
+        _ message: @autoclosure () -> String = "",
+        file _: StaticString = #filePath,
+        line _: UInt = #line,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) throws -> T {
+        let value = try expression()
+        return try #require(
+            value,
+            comment(message()),
+            sourceLocation: sourceLocation
+        )
+    }
+
+    private func comment(_ message: String) -> Comment? {
+        message.isEmpty ? nil : Comment(rawValue: message)
+    }
+}

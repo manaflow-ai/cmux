@@ -3,7 +3,7 @@
 ///
 /// ``DiagnosticEvent`` carries only integer payloads (no allocated strings), so
 /// the first-responder *class* is encoded as one of these small raw values and
-/// decoded back to a human-readable name by `scripts/decode-ios-diagnostic.py`.
+/// decoded by ``DiagnosticEventPresentation`` when a report is produced.
 /// The composer-dock instrumentation stamps this into the payload slots of the
 /// ``DiagnosticEventCode/composerActiveTransition`` and
 /// ``DiagnosticEventCode/composerKeyboardToggleWhilePresented`` events so a
@@ -21,8 +21,6 @@ public enum InputResponderIdentity: Int, Sendable, Codable, CaseIterable {
     case uiTextField = 3
     /// A `UITextView`.
     case uiTextView = 4
-    /// Some other `UIResponder` subclass not in this list. The decoder pairs this
-    /// with the human-readable class name carried in the companion string log
-    /// (`anchormux`) for the same event.
+    /// Some other `UIResponder` subclass not in this list.
     case other = 9
 }

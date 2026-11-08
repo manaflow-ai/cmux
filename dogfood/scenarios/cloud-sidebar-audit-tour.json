@@ -1,0 +1,28 @@
+{
+  "launch": {"args": ["-fileExplorer.isVisible", "YES"]},
+  "paths": [
+    "Sources/Cloud/*",
+    "Packages/macOS/CmuxCloud/*",
+    "Sources/RightSidebar*",
+    "Sources/Surfaces/CloudWorkspace*"
+  ],
+  "steps": [
+    {"wait": 1.5},
+    {"click": "RightSidebarModeButton.files"},
+    {"wait": 0.8},
+    {"shot": "10-right-sidebar-files"},
+    {"tree": "10-right-sidebar-files"},
+    {"click": "RightSidebarModeButton.sessions"},
+    {"wait": 0.8},
+    {"shot": "11-right-sidebar-vault"},
+    {"tree": "11-right-sidebar-vault"},
+    {"click": "RightSidebarModeButton.machines"},
+    {"wait": 1.2},
+    {"shot": "12-right-sidebar-cloud"},
+    {"tree": "12-right-sidebar-cloud"},
+    {"menu": ["Help", "Cloud Sidebar Spacing Lab…"]},
+    {"wait": 1.5},
+    {"shot": "20-cloud-spacing-lab", "screen": true},
+    {"tree": "20-cloud-spacing-lab"}
+  ]
+}

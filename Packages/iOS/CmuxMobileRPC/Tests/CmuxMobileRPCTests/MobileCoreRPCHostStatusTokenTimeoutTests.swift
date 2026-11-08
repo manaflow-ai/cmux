@@ -49,15 +49,13 @@ import Testing
     }
 
     @Test func hostStatusProbeTimeoutCoversStatusStackTokenFallback() async throws {
-        let tokenStarted = AsyncFlag()
+        let tokenProvider = ReleasableStatusTokenProvider()
         let transport = QueuedCancellationProbeTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59130)
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
             stackAccessTokenForStatusProvider: {
-                await tokenStarted.set()
-                try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
-                return Task.isCancelled ? nil : "late-status-token"
+                await tokenProvider.token()
             },
             rpcRequestTimeoutNanoseconds: 10_000_000
         )
@@ -90,7 +88,181 @@ import Testing
             Issue.record("Expected requestTimedOut, got \(error)")
         }
 
-        #expect(await tokenStarted.isSet())
+        #expect(await tokenProvider.didStart())
         #expect(try await transport.sentRequests().isEmpty)
+        await tokenProvider.release()
+    }
+
+    @Test func separateHostStatusRequestDoesNotReuseImplicitAuthorizationState() async throws {
+        let statusTokenProviderStarted = AsyncFlag()
+        let transport = ImmediateResponseRecordingTransport()
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59131)
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: ImmediateResponseRecordingTransportFactory(transport: transport),
+            stackAccessTokenProvider: { "workspace-token" },
+            stackAccessTokenForStatusProvider: {
+                await statusTokenProviderStarted.set()
+                return "status-token"
+            },
+            rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "workspace.list",
+                params: ["workspace_id": "workspace-main"],
+                id: "workspace"
+            )
+        )
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                id: "status"
+            )
+        )
+
+        let sent = try await transport.sentRequests()
+        #expect(sent.map(\.method) == ["workspace.list", "mobile.host.status"])
+        #expect(sent.map(\.stackAccessToken) == ["workspace-token", "status-token"])
+        #expect(await statusTokenProviderStarted.isSet())
+    }
+
+    @Test func explicitHostStatusUsesTheSuccessfulAuthorizedRequestToken() async throws {
+        let statusTokenProviderStarted = AsyncFlag()
+        let transport = ImmediateResponseRecordingTransport()
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59132)
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: ImmediateResponseRecordingTransportFactory(transport: transport),
+            stackAccessTokenProvider: { "workspace-token" },
+            stackAccessTokenForStatusProvider: {
+                await statusTokenProviderStarted.set()
+                return "different-status-token"
+            },
+            rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+
+        _ = try await client.sendRequestAndAuthenticatedHostStatus(
+            MobileCoreRPCClient.requestData(
+                method: "workspace.list",
+                params: ["workspace_id": "workspace-main"],
+                id: "workspace"
+            ),
+            hostStatusTimeoutNanoseconds: { 60 * 1_000_000_000 }
+        )
+
+        let sent = try await transport.sentRequests()
+        #expect(sent.map(\.method) == ["workspace.list", "mobile.host.status"])
+        #expect(sent.map(\.stackAccessToken) == ["workspace-token", "workspace-token"])
+        #expect(!(await statusTokenProviderStarted.isSet()))
+    }
+}
+
+private actor ReleasableStatusTokenProvider {
+    private var continuation: CheckedContinuation<String?, Never>?
+    private var started = false
+
+    func token() async -> String? {
+        started = true
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func didStart() -> Bool {
+        started
+    }
+
+    func release() {
+        continuation?.resume(returning: nil)
+        continuation = nil
+    }
+}
+
+private actor ImmediateResponseRecordingTransport: CmxByteTransport {
+    private var sentPayloads: [Data] = []
+    private var queuedResponses: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var isClosed = false
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        guard !isClosed else { return nil }
+        if !queuedResponses.isEmpty {
+            return queuedResponses.removeFirst()
+        }
+        return await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
+    }
+
+    func send(_ data: Data) async throws {
+        var buffer = data
+        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+        sentPayloads.append(contentsOf: payloads)
+        for payload in payloads {
+            let request = try recordedRPCRequest(from: payload)
+            let response = try JSONSerialization.data(withJSONObject: [
+                "id": request.id ?? "",
+                "ok": true,
+                "result": ["status": "ok"],
+            ])
+            let frame = try MobileSyncFrameCodec.encodeFrame(response)
+            if let waiter = receiveWaiters.first {
+                receiveWaiters.removeFirst()
+                waiter.resume(returning: frame)
+            } else {
+                queuedResponses.append(frame)
+            }
+        }
+    }
+
+    func close() async {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+    }
+
+    func sentRequests() throws -> [RecordedRPCRequest] {
+        try sentPayloads.map(recordedRPCRequest(from:))
+    }
+}
+
+private struct ImmediateResponseRecordingTransportFactory: CmxByteTransportFactory {
+    let transport: ImmediateResponseRecordingTransport
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        transport
     }
 }

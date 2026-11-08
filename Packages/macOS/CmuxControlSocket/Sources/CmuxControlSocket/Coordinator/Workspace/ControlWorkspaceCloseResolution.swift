@@ -11,10 +11,16 @@ public enum ControlWorkspaceCloseResolution: Sendable, Equatable {
     /// `protected`). Carries the owning window id (may be absent); the localized
     /// message is supplied via ``ControlWorkspaceStrings``.
     case protected(windowID: UUID?)
+    /// The workspace contains a live foreground process. Callers may retry
+    /// with `force: true` after deciding to terminate it.
+    case confirmationRequired
     /// The workspace was not in the resolved TabManager (legacy `not_found` /
     /// "Workspace not found"). The legacy failure payload carries only the
     /// workspace identity.
     case notFound
+    /// The workspace resolved and was eligible to close, but local teardown did
+    /// not complete. Carries the owning window id (may be absent).
+    case closeFailed(windowID: UUID?)
     /// The workspace was closed. Carries the owning window id (may be absent).
     case resolved(windowID: UUID?)
 }

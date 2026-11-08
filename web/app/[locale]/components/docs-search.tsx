@@ -2,13 +2,19 @@
 
 import { useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { Link, useRouter } from "../../../i18n/navigation";
+import { useRouter } from "../../../i18n/navigation";
 import {
   nextDocsSearchIndex,
   normalizeDocsSearchResult,
   type DocsSearchResult,
   type PagefindResultData,
 } from "./docs-search-utils";
+import { DocsLink } from "./docs-link";
+import { useDocsChannel } from "./docs-channel-context";
+import {
+  docsChannelUrl,
+  docsPathAvailableInChannel,
+} from "@/app/lib/docs-channel";
 
 type PagefindModule = {
   init: () => Promise<void> | void;
@@ -29,20 +35,20 @@ type PagefindModule = {
   ) => Promise<null | { results: Array<{ data: () => Promise<PagefindResultData> }> }>;
 };
 
-const pagefindBundlePath = "/pagefind/pagefind.js";
 let pagefindPromise: Promise<PagefindModule> | null = null;
 let pagefindConfigurePromise: Promise<PagefindModule> | null = null;
 
-function importPagefind() {
+function importPagefind(channel: "release" | "nightly") {
+  const pagefindBundlePath = `/_docs-search/${channel}/pagefind.js`;
   return import(
     /* webpackIgnore: true */
     pagefindBundlePath
   ) as Promise<PagefindModule>;
 }
 
-async function loadPagefind() {
+async function loadPagefind(channel: "release" | "nightly") {
   if (!pagefindPromise) {
-    pagefindPromise = importPagefind().catch((error) => {
+    pagefindPromise = importPagefind(channel).catch((error) => {
       pagefindPromise = null;
       throw error;
     });
@@ -77,10 +83,12 @@ async function loadPagefind() {
 
 type SearchStatus = "idle" | "loading" | "ready" | "error";
 
+/** Search input and results, shown inside the Cmd+K dialog. */
 export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
   const t = useTranslations("docs.search");
   const locale = useLocale();
   const router = useRouter();
+  const channel = useDocsChannel();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<SearchStatus>("idle");
   const [results, setResults] = useState<DocsSearchResult[]>([]);
@@ -103,7 +111,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
     setStatus("loading");
 
     try {
-      const pagefind = await loadPagefind();
+      const pagefind = await loadPagefind(channel);
       const searchResult = await pagefind.debouncedSearch(
         trimmedQuery,
         { filters: { locale } },
@@ -112,11 +120,14 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
       if (requestIdRef.current !== requestId || searchResult === null) return;
 
       const pageData = await Promise.all(
-        searchResult.results.slice(0, 8).map((result) => result.data()),
+        searchResult.results.slice(0, 12).map((result) => result.data()),
       );
       if (requestIdRef.current !== requestId) return;
 
-      const normalizedResults = pageData.map(normalizeDocsSearchResult);
+      const normalizedResults = pageData
+        .map(normalizeDocsSearchResult)
+        .filter((result) => docsPathAvailableInChannel(channel, result.href))
+        .slice(0, 8);
       setResults(normalizedResults);
       setActiveIndex(normalizedResults.length ? 0 : -1);
       setStatus("ready");
@@ -137,7 +148,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   function preloadPagefind() {
-    void loadPagefind().catch(() => {});
+    void loadPagefind(channel).catch(() => {});
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -186,7 +197,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
       event.preventDefault();
       const result = results[activeIndex];
       if (!result) return;
-      router.push(result.href);
+      router.push(docsChannelUrl(channel, result.href));
       clearAndNavigate();
     }
   }
@@ -201,12 +212,12 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
         : null;
 
   return (
-    <div className="pb-4" data-pagefind-ignore="all">
-      <div className="relative">
-        <div className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted/40">
+    <div data-pagefind-ignore="all">
+      <div className="relative border-b border-border">
+        <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted">
           <svg
-            width="14"
-            height="14"
+            width="16"
+            height="16"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -233,8 +244,12 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
           aria-activedescendant={
             activeIndex >= 0 ? `docs-search-result-${activeIndex}` : undefined
           }
-          className="w-full rounded-md border border-transparent bg-code-bg/60 py-1.5 pl-8 pr-3 text-[13px] transition-colors placeholder:text-muted/40 hover:bg-code-bg focus:border-border focus:bg-code-bg focus:outline-none"
+          autoFocus
+          className="h-14 w-full bg-transparent pl-11 pr-16 text-[15px] text-foreground placeholder:text-muted focus:outline-none"
         />
+        <kbd className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 rounded-md border border-border px-1.5 py-0.5 font-mono text-[11px] text-muted">
+          Esc
+        </kbd>
       </div>
 
       {showResults && (
@@ -242,20 +257,20 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
           id="docs-search-results"
           role="listbox"
           aria-label={t("resultsLabel")}
-          className="pt-2"
+          className="max-h-[min(60vh,28rem)] overflow-y-auto p-2"
           aria-live="polite"
         >
           {statusMessage ? (
-            <div className="rounded-md bg-code-bg/35 px-2 py-2 text-[12px] text-muted/60">
+            <div className="px-3 py-8 text-center text-[13px] text-muted">
               {statusMessage}
             </div>
           ) : (
-            <div className="space-y-1 rounded-md bg-code-bg/35 p-1">
-              <div className="px-1 pb-1 text-[11px] text-muted/50">
+            <div className="space-y-0.5">
+              <div className="px-3 pb-1 pt-1 text-[12px] font-medium text-muted">
                 {t("resultsCount", { count: results.length })}
               </div>
               {results.map((result, index) => (
-                <Link
+                <DocsLink
                   id={`docs-search-result-${index}`}
                   key={`${result.href}-${index}`}
                   href={result.href}
@@ -263,25 +278,40 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
                   aria-selected={index === activeIndex}
                   onClick={clearAndNavigate}
                   onMouseEnter={() => setActiveIndex(index)}
-                  className={`block rounded-md px-2 py-2 transition-colors ${
+                  className={`flex gap-3 rounded-xl px-3 py-2.5 transition-colors ${
                     index === activeIndex
-                      ? "bg-background/80 text-foreground"
-                      : "text-muted hover:bg-background/60 hover:text-foreground"
+                      ? "bg-foreground/[0.05] text-foreground"
+                      : "text-foreground"
                   }`}
                 >
-                  <div className="truncate text-[13px] font-medium">
-                    {result.title}
-                  </div>
-                  {result.excerptHtml && (
-                    <div
-                      className="docs-search-excerpt mt-1 line-clamp-2 text-[12px] leading-5 text-muted/80"
-                      dangerouslySetInnerHTML={{ __html: result.excerptHtml }}
-                    />
-                  )}
-                  <div className="mt-1 truncate text-[11px] text-muted/45">
-                    {result.href.replace(/^\/[a-z]{2}(?:-[A-Z]{2})?\//, "/")}
-                  </div>
-                </Link>
+                  <span
+                    className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border ${
+                      index === activeIndex
+                        ? "border-foreground/20 text-foreground"
+                        : "border-border text-muted"
+                    }`}
+                    aria-hidden="true"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                      <path d="M14 2v6h6" />
+                    </svg>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[14px] font-medium">
+                      {result.title}
+                    </span>
+                    {result.excerptHtml && (
+                      <span
+                        className="docs-search-excerpt mt-0.5 line-clamp-2 text-[12.5px] leading-5 text-muted"
+                        dangerouslySetInnerHTML={{ __html: result.excerptHtml }}
+                      />
+                    )}
+                    <span className="mt-0.5 block truncate text-[11px] text-muted">
+                      {result.href.replace(/^\/[a-z]{2}(?:-[A-Z]{2})?\//, "/")}
+                    </span>
+                  </span>
+                </DocsLink>
               ))}
             </div>
           )}

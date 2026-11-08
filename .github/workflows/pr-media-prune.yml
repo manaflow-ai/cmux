@@ -1,0 +1,52 @@
+name: Prune PR media
+
+# pr-media.yml and scripts/pr-media.py add screenshots and GIFs to the
+# pr-media branch on every app push, and every default clone fetches that
+# branch. This bounds unreferenced open-PR revisions and drops folders of PRs closed over 30 days ago, then
+# squashes the branch to one commit so their files leave history too (see
+# scripts/ci/prune_pr_media.py). It is a dry run unless a dispatch asks to
+# apply or the repository variable CI_PR_MEDIA_PRUNE_APPLY is 1.
+on:
+  schedule:
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Rewrite the branch. Unchecked reports what would be dropped.
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: pr-media-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Prune obsolete pull request media
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/main' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: scripts/ci/prune_pr_media.py
+          sparse-checkout-cone-mode: false
+
+      - name: Prune
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PRUNE_APPLY: ${{ (inputs.apply || vars.CI_PR_MEDIA_PRUNE_APPLY == '1') && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          args=()
+          if [ "$PRUNE_APPLY" = true ]; then args+=(--apply); fi
+          python3 scripts/ci/prune_pr_media.py "${args[@]}"

@@ -132,6 +132,50 @@ enum UnixSocketFixture {
         return (reader: fds[0], writer: fds[1])
     }
 
+    /// Reads `fd` until the peer closes, returning everything received and
+    /// whether EOF was actually observed.
+    ///
+    /// The bounded poll runs on a GCD thread that the caller awaits. A test
+    /// that polled on the main thread would hold every test double that hops
+    /// to the main queue, and through them the cooperative-pool threads the
+    /// code under test needs to answer; on a 6-core runner that stalled the
+    /// whole package run (#13397). The poll returns the instant the peer
+    /// closes; the bound only stops a broken peer from hanging the suite.
+    static func readUntilEOF(_ fd: Int32, timeout: TimeInterval = 30) async -> (text: String, sawEOF: Bool) {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: blockingReadUntilEOF(fd, timeout: timeout))
+            }
+        }
+    }
+
+    private static func blockingReadUntilEOF(_ fd: Int32, timeout: TimeInterval) -> (text: String, sawEOF: Bool) {
+        var collected = [UInt8]()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            var descriptor = pollfd(fd: fd, events: Int16(POLLIN | POLLHUP), revents: 0)
+            let remaining = max(0, Int(deadline.timeIntervalSinceNow * 1_000))
+            guard poll(&descriptor, 1, Int32(min(remaining, 100))) > 0 else { continue }
+            let count = buffer.withUnsafeMutableBufferPointer { raw in
+                Darwin.read(fd, raw.baseAddress, raw.count)
+            }
+            if count > 0 {
+                collected.append(contentsOf: buffer[0..<count])
+                continue
+            }
+            if count == 0 {
+                return (String(decoding: collected, as: UTF8.self), true)
+            }
+            // A read error (ECONNRESET, EIO) is an abrupt disconnect, not a
+            // clean close.
+            if errno != EAGAIN, errno != EINTR {
+                return (String(decoding: collected, as: UTF8.self), false)
+            }
+        }
+        return (String(decoding: collected, as: UTF8.self), false)
+    }
+
     /// Applies a send timeout so a blocked write fails instead of hanging.
     static func configureSendTimeout(_ fd: Int32, timeout: TimeInterval) throws {
         let seconds = floor(max(timeout, 0))

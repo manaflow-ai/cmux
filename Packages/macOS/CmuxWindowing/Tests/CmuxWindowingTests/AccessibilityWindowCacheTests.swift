@@ -13,6 +13,7 @@ struct AccessibilityWindowCacheTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         return window
     }
 
@@ -33,6 +34,13 @@ struct AccessibilityWindowCacheTests {
         guard actualWindows.count == expected.count else { return }
         for (lhs, rhs) in zip(actualWindows, expected) {
             #expect(lhs === rhs, sourceLocation: sourceLocation)
+        }
+    }
+
+    private func prime(_ cache: AccessibilityWindowCache, with window: NSWindow) {
+        let state = AccessibilityWindowCache.StateToken(windows: [window])
+        _ = cache.value(for: .windows, stateToken: state) {
+            .init(windows: [window])
         }
     }
 
@@ -90,12 +98,31 @@ struct AccessibilityWindowCacheTests {
         #expect(buildCount == 2, "Expected the cache to rebuild once after the hierarchy token changes")
     }
 
+    @Test("cached snapshots do not retain windows after an unobserved close")
+    func cachedSnapshotsDoNotRetainWindowsAfterUnobservedClose() {
+        let cache = AccessibilityWindowCache(notificationCenter: NotificationCenter())
+        weak var transientWindow: NSWindow?
+
+        autoreleasepool {
+            let window = makeWindow()
+            transientWindow = window
+            prime(cache, with: window)
+            window.close()
+        }
+
+        #expect(
+            transientWindow == nil,
+            "A cached AXWindows snapshot must not extend an NSWindow's lifetime"
+        )
+    }
+
     @Test("non-.windows attributes stay passthrough")
     func nonWindowsAttributesStayPassthrough() {
         let cache = AccessibilityWindowCache()
+        let application = NSApplication.shared
 
         for attribute: NSAccessibility.Attribute in [.children, .visibleChildren, .mainWindow, .focusedWindow] {
-            switch cache.resolve(attribute: attribute, application: NSApp) {
+            switch cache.resolve(attribute: attribute, application: application) {
             case .passthrough:
                 break
             case .handled:

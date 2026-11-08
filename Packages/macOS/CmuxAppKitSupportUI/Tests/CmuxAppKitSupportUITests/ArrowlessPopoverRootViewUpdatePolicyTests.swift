@@ -5,25 +5,67 @@ import Testing
 
 @Suite struct ArrowlessPopoverRootViewUpdatePolicyTests {
     @Test func hiddenClosedPopoverDoesNotNeedHostedRootRefresh() {
-        #expect(ArrowlessPopoverRootViewUpdatePolicy.shouldUpdateRootView(
+        #expect(ArrowlessPopoverRootViewUpdatePolicy.rootViewUpdateStrategy(
             isPresented: false,
             popoverIsShown: false
-        ) == false)
+        ) == .none)
     }
 
-    @Test func presentedOrVisiblePopoverKeepsHostedRootFresh() {
-        #expect(ArrowlessPopoverRootViewUpdatePolicy.shouldUpdateRootView(
+    @Test func firstPresentationUpdatesHostedRootSynchronously() {
+        #expect(ArrowlessPopoverRootViewUpdatePolicy.rootViewUpdateStrategy(
             isPresented: true,
             popoverIsShown: false
-        ))
-        #expect(ArrowlessPopoverRootViewUpdatePolicy.shouldUpdateRootView(
+        ) == .immediate)
+    }
+
+    @Test func visiblePopoverDefersHostedRootRefreshOutsideRepresentableUpdate() {
+        #expect(ArrowlessPopoverRootViewUpdatePolicy.rootViewUpdateStrategy(
             isPresented: false,
             popoverIsShown: true
-        ))
-        #expect(ArrowlessPopoverRootViewUpdatePolicy.shouldUpdateRootView(
+        ) == .deferredVisible)
+        #expect(ArrowlessPopoverRootViewUpdatePolicy.rootViewUpdateStrategy(
             isPresented: true,
             popoverIsShown: true
-        ))
+        ) == .deferredVisible)
+    }
+}
+
+@MainActor
+@Suite struct CmuxPopoverVisibleUpdateSchedulerTests {
+    @Test func visibleUpdatesRunAfterCurrentMainActorTurnAndCoalesce() async {
+        let scheduler = CmuxPopoverVisibleUpdateScheduler()
+        var applied: [String] = []
+
+        scheduler.schedule { applied.append("first") }
+        scheduler.schedule { applied.append("second") }
+
+        #expect(applied.isEmpty)
+        await Task.yield()
+        #expect(applied == ["second"])
+    }
+
+    @Test func cancellationDropsPendingVisibleUpdate() async {
+        let scheduler = CmuxPopoverVisibleUpdateScheduler()
+        var applied = false
+
+        scheduler.schedule { applied = true }
+        scheduler.cancel()
+
+        await Task.yield()
+        #expect(applied == false)
+    }
+
+    @Test func cancelledTaskDoesNotClearRescheduledVisibleUpdate() async {
+        let scheduler = CmuxPopoverVisibleUpdateScheduler()
+        var applied: [String] = []
+
+        scheduler.schedule { applied.append("cancelled") }
+        scheduler.cancel()
+        scheduler.schedule { applied.append("rescheduled") }
+
+        await Task.yield()
+        await Task.yield()
+        #expect(applied == ["rescheduled"])
     }
 }
 

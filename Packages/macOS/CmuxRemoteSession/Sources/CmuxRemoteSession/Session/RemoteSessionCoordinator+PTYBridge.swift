@@ -26,14 +26,141 @@ extension RemoteSessionCoordinator {
     /// Closes one persistent PTY session by ID; same blocking contract as
     /// ``listPTYSessions(timeout:)``.
     public func closePTYSession(sessionID: String, timeout: TimeInterval = 8.0) throws {
+        let deadline = DispatchTime.now() + max(0, timeout)
         try runOnControllerQueue(timeout: timeout) {
-            guard self.daemonReady, self.proxyLease != nil else {
-                throw NSError(domain: "cmux.remote.pty", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon is not ready",
-                ])
-            }
-            try self.proxyBroker.closePTY(configuration: self.configuration, sessionID: sessionID)
+            try self.closePTYSessionLocked(
+                sessionID: sessionID,
+                deadline: deadline
+            )
         }
+    }
+
+    /// Closes one persistent PTY session without blocking the caller's
+    /// Swift-concurrency worker. The coordinator queue performs the legacy
+    /// synchronous RPC and resumes this operation when it completes.
+    ///
+    /// - Parameters:
+    ///   - sessionID: Persistent PTY session to terminate.
+    ///   - timeout: Maximum duration granted to the daemon-side close.
+    /// - Throws: The same readiness or daemon error as
+    ///   ``closePTYSession(sessionID:timeout:)``.
+    public func closePTYSessionAsync(
+        sessionID: String,
+        timeout: TimeInterval = 8.0
+    ) async throws {
+        let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let timeoutMilliseconds = Self.ptyCloseTimeoutMilliseconds(timeout)
+        let gate = RemotePTYAsyncCloseOperationGate()
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, any Error>) in
+            queue.async { [self] in
+                guard gate.begin() else { return }
+                let deadline = DispatchTime.now() + max(0, timeout)
+                do {
+                    try closePTYSessionLocked(
+                        sessionID: normalizedSessionID,
+                        deadline: deadline
+                    )
+                    if gate.complete() {
+                        continuation.resume()
+                    }
+                } catch {
+                    if gate.complete() {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+            Task { [clock, gate] in
+                guard (try? await clock.sleep(forMilliseconds: timeoutMilliseconds)) != nil else {
+                    return
+                }
+                guard gate.timeoutBeforeStart() else { return }
+                continuation.resume(throwing: Self.ptyQueueHandoffTimedOutError())
+            }
+        }
+    }
+
+    private static func ptyCloseTimeoutMilliseconds(_ timeout: TimeInterval) -> Int {
+        guard timeout.isFinite else { return Int.max }
+        let milliseconds = max(0, timeout * 1_000).rounded(.up)
+        guard milliseconds < Double(Int.max) else { return Int.max }
+        return Int(milliseconds)
+    }
+
+    private static func ptyQueueHandoffTimedOutError() -> NSError {
+        NSError(domain: "cmux.remote.pty", code: 8, userInfo: [
+            // Reuse the existing localized PTY-timeout wording; code 8 is the
+            // distinct machine-readable queue-handoff classification.
+            NSLocalizedDescriptionKey: "timed out waiting for remote PTY operation",
+        ])
+    }
+
+    private func closePTYSessionLocked(
+        sessionID: String,
+        deadline: DispatchTime
+    ) throws {
+        guard daemonReady, proxyLease != nil else {
+            throw NSError(domain: "cmux.remote.pty", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon is not ready",
+            ])
+        }
+        try proxyBroker.closePTY(
+            configuration: configuration,
+            sessionID: sessionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            deadline: deadline
+        )
+    }
+
+    /// Returns the serialized lifecycle decision for one persistent PTY session.
+    ///
+    /// Callers use this after bridge EOF to distinguish transport loss from an
+    /// explicit cleanup serialized by the shared tunnel owner.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: Stable logical generation shared across reconnects.
+    ///   - timeout: Maximum time to wait behind an in-flight PTY operation.
+    /// - Returns: The shared tunnel-owned generation lifecycle.
+    public func ptySessionLifecycle(
+        sessionID: String,
+        lifecycleID: String,
+        timeout: TimeInterval = 10.0
+    ) throws -> RemotePTYSessionLifecycle {
+        try runOnControllerQueue(timeout: timeout) {
+            try self.proxyBroker.ptySessionLifecycle(
+                configuration: self.configuration,
+                sessionID: sessionID,
+                lifecycleID: lifecycleID
+            )
+        }
+    }
+
+    /// Retires one logical attach generation after CLI reconciliation.
+    public func acknowledgePTYLifecycle(
+        sessionID: String,
+        lifecycleID: String,
+        timeout: TimeInterval = 10.0
+    ) throws {
+        try runOnControllerQueue(timeout: timeout) {
+            try self.proxyBroker.acknowledgePTYLifecycle(
+                configuration: self.configuration,
+                sessionID: sessionID,
+                lifecycleID: lifecycleID
+            )
+        }
+    }
+
+    /// Claims a generation through the shared owner and enqueues its retirement,
+    /// even after this coordinator starts stopping.
+    @discardableResult
+    public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool {
+        let sessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lifecycleID = lifecycleID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sessionID.isEmpty, !lifecycleID.isEmpty else { return false }
+        return proxyBroker.acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        )
     }
 
     /// Starts a loopback PTY bridge for a persistent session, optionally
@@ -41,6 +168,7 @@ extension RemoteSessionCoordinator {
     /// (`waitForReady`); returns the bridge's loopback endpoint.
     public func startPTYBridge(
         sessionID: String,
+        lifecycleID: String,
         attachmentID: String,
         command: String?,
         requireExisting: Bool,
@@ -50,6 +178,7 @@ extension RemoteSessionCoordinator {
         if waitForReady {
             return try startPTYBridgeWhenReady(
                 sessionID: sessionID,
+                lifecycleID: lifecycleID,
                 attachmentID: attachmentID,
                 command: command,
                 requireExisting: requireExisting,
@@ -59,6 +188,7 @@ extension RemoteSessionCoordinator {
         return try runOnControllerQueue(timeout: timeout) {
             try self.startPTYBridgeLocked(
                 sessionID: sessionID,
+                lifecycleID: lifecycleID,
                 attachmentID: attachmentID,
                 command: command,
                 requireExisting: requireExisting
@@ -68,6 +198,7 @@ extension RemoteSessionCoordinator {
 
     private func startPTYBridgeWhenReady(
         sessionID: String,
+        lifecycleID: String,
         attachmentID: String,
         command: String?,
         requireExisting: Bool,
@@ -76,6 +207,7 @@ extension RemoteSessionCoordinator {
         if DispatchQueue.getSpecific(key: queueKey) != nil {
             return try startPTYBridgeLocked(
                 sessionID: sessionID,
+                lifecycleID: lifecycleID,
                 attachmentID: attachmentID,
                 command: command,
                 requireExisting: requireExisting
@@ -113,6 +245,7 @@ extension RemoteSessionCoordinator {
                 complete(Result {
                     try self.startPTYBridgeLocked(
                         sessionID: sessionID,
+                        lifecycleID: lifecycleID,
                         attachmentID: attachmentID,
                         command: command,
                         requireExisting: requireExisting
@@ -120,9 +253,20 @@ extension RemoteSessionCoordinator {
                 })
                 return
             }
+            if let parkedState = self.parkedState {
+                // Nothing makes a parked session ready, so parking this
+                // request would only hold it until its timeout.
+                complete(.failure(self.parkedBridgeStartErrorLocked(
+                    parkedState,
+                    sessionID: sessionID,
+                    lifecycleID: lifecycleID
+                )))
+                return
+            }
             guard !isCancelled() else { return }
             self.pendingPTYBridgeStarts[waiterID] = PendingPTYBridgeStart(
                 sessionID: sessionID,
+                lifecycleID: lifecycleID,
                 attachmentID: attachmentID,
                 command: command,
                 requireExisting: requireExisting,
@@ -160,22 +304,28 @@ extension RemoteSessionCoordinator {
 
     private func startPTYBridgeLocked(
         sessionID: String,
+        lifecycleID: String,
         attachmentID: String,
         command: String?,
         requireExisting: Bool
     ) throws -> RemotePTYBridgeServer.Endpoint {
         guard canStartPTYBridgeLocked else {
+            if let parkedState {
+                throw parkedBridgeStartErrorLocked(parkedState, sessionID: sessionID, lifecycleID: lifecycleID)
+            }
             throw NSError(domain: "cmux.remote.pty", code: 5, userInfo: [
                 NSLocalizedDescriptionKey: "remote daemon is not ready",
             ])
         }
-        return try proxyBroker.startPTYBridge(
+        let endpoint = try proxyBroker.startPTYBridge(
             configuration: configuration,
-            sessionID: sessionID,
+            sessionID: sessionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            lifecycleID: lifecycleID,
             attachmentID: attachmentID,
             command: command,
             requireExisting: requireExisting
         )
+        return endpoint
     }
 
     func fulfillPendingPTYBridgeStartsLocked() {
@@ -187,6 +337,7 @@ extension RemoteSessionCoordinator {
             request.completion(Result {
                 try startPTYBridgeLocked(
                     sessionID: request.sessionID,
+                    lifecycleID: request.lifecycleID,
                     attachmentID: request.attachmentID,
                     command: request.command,
                     requireExisting: request.requireExisting
@@ -196,15 +347,49 @@ extension RemoteSessionCoordinator {
     }
 
     func failPendingPTYBridgeStartsLocked(_ message: String) {
+        failPendingPTYBridgeStartsLocked(error: NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
+            NSLocalizedDescriptionKey: message,
+        ]))
+    }
+
+    /// Releases every request parked on readiness with `error`.
+    func failPendingPTYBridgeStartsLocked(error: any Error) {
+        failPendingPTYBridgeStartsLocked { _ in error }
+    }
+
+    /// Releases every request parked on readiness with its own error.
+    func failPendingPTYBridgeStartsLocked(makeError: (PendingPTYBridgeStart) -> any Error) {
         guard !pendingPTYBridgeStarts.isEmpty else { return }
         let pending = pendingPTYBridgeStarts
         pendingPTYBridgeStarts.removeAll(keepingCapacity: false)
-        let error = NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
-            NSLocalizedDescriptionKey: message,
-        ])
         for request in pending.values {
-            request.completion(.failure(error))
+            request.completion(.failure(makeError(request)))
         }
+    }
+
+    /// The error for a bridge start that meets a parked session.
+    ///
+    /// An explicit cleanup outranks the parked verdict. A generation the user
+    /// already closed must end its attach the way it does on any other
+    /// failure (`pty_lifecycle_closed`, which the CLI reconciles into a clean
+    /// exit), not report a connection problem and wait for Reconnect to
+    /// reattach it. The lifecycle lives in the broker's registry, so this
+    /// needs no daemon; when the broker holds no entry for the transport
+    /// there is no recorded cleanup to honor.
+    func parkedBridgeStartErrorLocked(
+        _ parkedState: RemoteSessionParkedState,
+        sessionID: String,
+        lifecycleID: String
+    ) -> any Error {
+        let lifecycle = try? proxyBroker.ptySessionLifecycle(
+            configuration: configuration,
+            sessionID: sessionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            lifecycleID: lifecycleID
+        )
+        if let lifecycle, lifecycle != .active {
+            return RemotePTYLifecycleError.intentionallyClosed
+        }
+        return RemoteSessionParkedError(detail: parkedState.detail)
     }
 
     /// Resizes a persistent PTY attachment; same blocking contract as

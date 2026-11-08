@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CtlPublishHint",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "type": "integer",
+      "description": "control-plane protocol version, 1"
+    },
+    "type": {
+      "const": "publish_hint"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "endpointId",
+        "homeRelayUrl"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "endpointId": {
+          "type": "string"
+        },
+        "homeRelayUrl": {
+          "type": "string"
+        },
+        "proof": {
+          "type": "object",
+          "description": "Optional signed identity assertion (reserved for the source-of-truth migration; phase A authorizes via the bearer-authenticated socket and confirms hints by re-fetching discovery)",
+          "required": [
+            "bindingId",
+            "timestamp",
+            "signature"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "bindingId": {
+              "type": "string"
+            },
+            "timestamp": {
+              "type": "string",
+              "description": "RFC3339 issue time; server enforces freshness window"
+            },
+            "signature": {
+              "type": "string",
+              "description": "base64 Ed25519 signature by the endpoint key"
+            }
+          }
+        }
+      }
+    }
+  }
+}

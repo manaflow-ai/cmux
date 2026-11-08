@@ -13,6 +13,25 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let rank: Int
         let title: String
         let searchableTexts: [String]
+        /// Normalized title, as the engine prepares it.
+        let titleNormalizedText: String
+        /// Normalized title word text excluding symbol-only segments, which is
+        /// the text the engine's title-word ranking term is keyed on.
+        let titleSearchWordText: String
+
+        /// Prepares the title texts once, outside the benchmark timing loops,
+        /// so the reference pipeline can model the engine's title-word term
+        /// without the preparation cost landing on the timed comparison.
+        init(id: String, rank: Int, title: String, searchableTexts: [String]) {
+            self.id = id
+            self.rank = rank
+            self.title = title
+            self.searchableTexts = searchableTexts
+            self.titleNormalizedText = CommandPaletteFuzzyMatcher.normalizeForSearch(title)
+            self.titleSearchWordText = CommandPaletteSearchCorpusEntry(
+                payload: id, rank: rank, title: title, searchableTexts: searchableTexts
+            ).normalizedTitleSearchWordText
+        }
     }
 
     private struct FixtureResult: Equatable {
@@ -213,6 +232,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         query: String
     ) -> [FixtureResult] {
         let queryIsEmpty = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
         let results: [FixtureResult] = queryIsEmpty
             ? entries.map { entry in
                 FixtureResult(id: entry.id, rank: entry.rank, title: entry.title, score: 0, titleMatchIndices: [])
@@ -220,6 +240,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             : entries.compactMap { entry in
                 guard let fuzzyScore = weightedReferenceScore(
                     query: query,
+                    preparedQuery: preparedQuery,
                     entry: entry
                 ) else {
                     return nil
@@ -260,6 +281,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
     private func weightedReferenceScore(
         query: String,
+        preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
         entry: FixtureEntry
     ) -> Int? {
         guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
@@ -274,7 +296,36 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         ) else {
             return fuzzyScore
         }
-        return max(fuzzyScore, titleScore + 2000)
+        return max(
+            fuzzyScore,
+            titleScore + 2000,
+            referenceTitleWordScore(preparedQuery: preparedQuery, entry: entry) ?? Int.min
+        )
+    }
+
+    /// Independently models the engine's title-word ranking term: a query that
+    /// is, or prefixes, a title's search words outranks the same query matched
+    /// fuzzily anywhere in the entry. Reimplemented here rather than called
+    /// through, because a reference pipeline that shared the engine's
+    /// implementation would assert nothing about it.
+    private func referenceTitleWordScore(
+        preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
+        entry: FixtureEntry
+    ) -> Int? {
+        guard !preparedQuery.isEmpty,
+              entry.titleSearchWordText != entry.titleNormalizedText else {
+            return nil
+        }
+        let scaledTitleMatchBonus = 2000 * max(1, preparedQuery.tokens.count)
+        if entry.titleSearchWordText == preparedQuery.normalizedTokenText {
+            return preparedQuery.tokens.reduce(0) { $0 + $1.scoreUpperBound } + scaledTitleMatchBonus
+        }
+        guard entry.titleSearchWordText.hasPrefix(preparedQuery.normalizedTokenText) else {
+            return nil
+        }
+        return preparedQuery.tokens.reduce(0) {
+            $0 + $1.scoreUpperBoundWithoutExactMatch
+        } + scaledTitleMatchBonus
     }
 
     private func benchmarkElapsedMs(operation: () -> Void) -> Double {
@@ -303,6 +354,21 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         Array(repeating: baseQueries, count: repetitions).flatMap { $0 }
     }
 
+    /// Wall-clock search benchmarks do not belong in the sharded app-host unit
+    /// suite; see `skipUnlessCommandPaletteSearchBenchmarksAreEnabled()` in
+    /// `CommandPaletteNucleoFixtures.swift` for the gate and how to run them.
+    ///
+    /// Correctness of the benchmarked code paths remains in the unit suite:
+    /// `testOptimizedSearchMatchesReferencePipeline` and
+    /// `testBenchmarkCorporaMatchReferencePipelineOnSmallFixture` assert result
+    /// parity between the optimized engine and the legacy reference pipeline on
+    /// the same corpora and queries the benchmarks time, and
+    /// `testLimitedSearchReturnsSameTopResultsAsFullSearch` covers the capped /
+    /// preview paths the fast-typing benchmark times.
+    private func skipUnlessSearchBenchmarksAreEnabled() throws {
+        try skipUnlessCommandPaletteSearchBenchmarksAreEnabled()
+    }
+
     func testOptimizedSearchMatchesReferencePipeline() {
         let commandEntries = makeCommandEntries(count: 96)
         let switcherEntries = makeSwitcherEntries(count: 64)
@@ -328,6 +394,62 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 optimizedResults(entries: switcherEntries, query: query),
                 referenceResults(entries: switcherEntries, query: query),
                 "Switcher corpus mismatch for query \(query)"
+            )
+        }
+    }
+
+    /// Correctness half of the env-gated search benchmarks: the benchmarks time
+    /// the optimized engine against the legacy reference pipeline on the switcher
+    /// and large-workspace corpora, and the fast-typing benchmark times the
+    /// capped and visible-candidate preview paths over typed prefixes. This test
+    /// keeps the *result* contract for exactly those corpora, queries and paths
+    /// in the unit suite on small fixtures, so a behavior regression is still
+    /// caught when the timing runs are skipped.
+    func testBenchmarkCorporaMatchReferencePipelineOnSmallFixture() {
+        let switcherEntries = makeSwitcherEntries(count: 32)
+        let switcherQueries = ["workspace 12", "phoenix", "feature-18", "rename-tab", "3007", "9202", "switch", "worktrees"]
+        for query in switcherQueries {
+            XCTAssertEqual(
+                optimizedResults(entries: switcherEntries, query: query),
+                referenceResults(entries: switcherEntries, query: query),
+                "Switcher benchmark corpus mismatch for query \(query)"
+            )
+        }
+
+        let largeEntries = makeLargeWorkspaceSwitcherEntries(count: 32)
+        let largeQueries = [
+            "workspace 31",
+            "palette latency",
+            "feature 21",
+            "cmd-p-search",
+            "project-17",
+            "4207",
+            "9204",
+            "Window 3",
+        ]
+        for query in largeQueries {
+            XCTAssertEqual(
+                optimizedResults(entries: largeEntries, query: query),
+                referenceResults(entries: largeEntries, query: query),
+                "Large workspace benchmark corpus mismatch for query \(query)"
+            )
+        }
+
+        // Fast-typing paths: the capped full-corpus search and the
+        // visible-candidate preview search must return the same ordered results
+        // (and highlights) the uncapped search would show for that corpus.
+        let previewEntries = Array(largeEntries.prefix(16))
+        for query in fastTypingPrefixes("cmd-p-search").suffix(6) {
+            let fullResults = optimizedResults(entries: largeEntries, query: query)
+            XCTAssertEqual(
+                optimizedResults(entries: largeEntries, query: query, resultLimit: 8),
+                Array(fullResults.prefix(8)),
+                "Capped full-corpus search diverged from full search for prefix \(query)"
+            )
+            XCTAssertEqual(
+                optimizedResults(entries: previewEntries, query: query, resultLimit: 8),
+                Array(optimizedResults(entries: previewEntries, query: query).prefix(8)),
+                "Visible-candidate preview search diverged from full search for prefix \(query)"
             )
         }
     }
@@ -362,8 +484,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let mobileConnect = FixtureEntry(
             id: "palette.mobileConnect",
             rank: 0,
-            title: "Connect iPhone/iPad",
-            searchableTexts: ["Connect iPhone/iPad", "Mobile"]
+            title: "Open Mobile Pairing",
+            searchableTexts: ["Open Mobile Pairing", "Mobile"]
                 + ContentView.commandPaletteMobileConnectKeywords
         )
         // Dense, realistic decoy corpus so the assertion exercises ranking, not a
@@ -378,11 +500,11 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
         let corpus = [mobileConnect] + decoys
 
-        for query in ["ios", "ipados", "iphone", "ipad", "pair", "mobile", "phone", "connect"] {
+        for query in ["ios", "ipados", "iphone", "ipad", "pair", "mobile", "phone", "connect", "tailscale", "iroh"] {
             XCTAssertEqual(
                 optimizedResults(entries: corpus, query: query).first?.id,
                 "palette.mobileConnect",
-                "Expected Connect iPhone/iPad to be the top command palette result for query \"\(query)\""
+                "Expected Open Mobile Pairing to be the top command palette result for query \"\(query)\""
             )
         }
     }
@@ -571,7 +693,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
-                fallbackSnapshot: nil
+                fallbackSnapshot: nil, allowsAgentContinuation: true
             )
         )
         XCTAssertTrue(
@@ -579,7 +701,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
-                fallbackSnapshot: nil
+                fallbackSnapshot: nil, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -587,7 +709,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: UUID(),
                 supportedPanelKeys: [supportedKey],
-                fallbackSnapshot: nil
+                fallbackSnapshot: nil, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -595,7 +717,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: UUID(),
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
-                fallbackSnapshot: nil
+                fallbackSnapshot: nil, allowsAgentContinuation: true
             )
         )
     }
@@ -615,7 +737,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: false],
                 fallbackSnapshot: nil,
-                isRemoteTerminal: false
+                isRemoteTerminal: false, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -625,7 +747,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: false],
                 fallbackSnapshot: nil,
-                isRemoteTerminal: true
+                isRemoteTerminal: true, allowsAgentContinuation: true
             )
         )
         XCTAssertTrue(
@@ -635,7 +757,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: true],
                 fallbackSnapshot: nil,
-                isRemoteTerminal: true
+                isRemoteTerminal: true, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -645,7 +767,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: true],
                 fallbackSnapshot: nil,
-                isRemoteTerminal: false
+                isRemoteTerminal: false, allowsAgentContinuation: true
             )
         )
     }
@@ -697,7 +819,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
-                fallbackSnapshot: codex
+                fallbackSnapshot: codex, allowsAgentContinuation: true
             )
         )
         XCTAssertTrue(
@@ -706,7 +828,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: false],
-                fallbackSnapshot: codex
+                fallbackSnapshot: codex, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -714,7 +836,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
-                fallbackSnapshot: directOpenCode
+                fallbackSnapshot: directOpenCode, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -723,7 +845,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [],
                 fallbackSnapshot: directOpenCode,
-                isRemoteTerminal: true
+                isRemoteTerminal: true, allowsAgentContinuation: true
             )
         )
         XCTAssertTrue(
@@ -733,7 +855,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: true],
                 fallbackSnapshot: directOpenCode,
-                isRemoteTerminal: true
+                isRemoteTerminal: true, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -741,7 +863,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
-                fallbackSnapshot: omoOpenCode
+                fallbackSnapshot: omoOpenCode, allowsAgentContinuation: true
             )
         )
         XCTAssertTrue(
@@ -750,7 +872,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: false],
-                fallbackSnapshot: omoOpenCode
+                fallbackSnapshot: omoOpenCode, allowsAgentContinuation: true
             )
         )
     }
@@ -791,7 +913,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
-                fallbackSnapshot: snapshot
+                fallbackSnapshot: snapshot, allowsAgentContinuation: true
             )
         )
         XCTAssertTrue(
@@ -800,7 +922,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
                 supportedRemoteContextsByPanelKey: [supportedKey: false],
-                fallbackSnapshot: snapshot
+                fallbackSnapshot: snapshot, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -809,7 +931,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [],
                 fallbackSnapshot: snapshot,
-                isRemoteTerminal: true
+                isRemoteTerminal: true, allowsAgentContinuation: true
             )
         )
         XCTAssertFalse(
@@ -818,7 +940,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
                 fallbackSnapshot: snapshot,
-                isRemoteTerminal: true
+                isRemoteTerminal: true, allowsAgentContinuation: true
             )
         )
     }
@@ -842,7 +964,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
-                fallbackSnapshot: unsupported
+                fallbackSnapshot: unsupported, allowsAgentContinuation: true
             )
         )
     }
@@ -880,7 +1002,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
-                fallbackSnapshot: snapshot
+                fallbackSnapshot: snapshot, allowsAgentContinuation: true
             )
         )
     }
@@ -903,7 +1025,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             supportedRemoteContextsByPanelKey: [:],
             snapshotFingerprintsByPanelKey: [:],
             fallbackSnapshot: fallback,
-            cachedSnapshot: nil
+            cachedSnapshot: nil, allowsAgentContinuation: true
         )
 
         XCTAssertNil(snapshot)
@@ -946,7 +1068,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             supportedRemoteContextsByPanelKey: [panelKey: false],
             snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
             fallbackSnapshot: fallback,
-            cachedSnapshot: cached
+            cachedSnapshot: cached, allowsAgentContinuation: true
         )
 
         XCTAssertEqual(selection?.snapshot.sessionId, cached.sessionId)
@@ -996,7 +1118,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             supportedRemoteContextsByPanelKey: [panelKey: false],
             snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
             fallbackSnapshot: fallback,
-            cachedSnapshot: nil
+            cachedSnapshot: nil, allowsAgentContinuation: true
         )
 
         XCTAssertEqual(selection?.snapshot.sessionId, fallback.sessionId)
@@ -1048,7 +1170,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             supportedRemoteContextsByPanelKey: [panelKey: false],
             snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
             fallbackSnapshot: fallback,
-            cachedSnapshot: cached
+            cachedSnapshot: cached, allowsAgentContinuation: true
         )
 
         XCTAssertEqual(selection?.snapshot.sessionId, cached.sessionId)
@@ -1085,7 +1207,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             supportedRemoteContextsByPanelKey: [panelKey: false],
             snapshotFingerprintsByPanelKey: [panelKey: "stale-fingerprint"],
             fallbackSnapshot: fallback,
-            cachedSnapshot: nil
+            cachedSnapshot: nil, allowsAgentContinuation: true
         )
 
         XCTAssertNil(snapshot)
@@ -1106,6 +1228,21 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
         XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalSplitRight"))
         XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalFocusTextBoxInput"))
+    }
+
+    func testPaneFocusCommandsDismissPaletteBeforeRunning() {
+        let paneFocusCommandIds = [
+            "palette.focusPaneLeft",
+            "palette.focusPaneRight",
+            "palette.focusPaneUp",
+            "palette.focusPaneDown",
+            "palette.focusPreviousPane",
+            "palette.focusNextPane"
+        ]
+
+        for commandId in paneFocusCommandIds {
+            XCTAssertTrue(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: commandId))
+        }
     }
 
     func testForkableAgentCacheKeepsVerifiedOpenCodeVisible() {
@@ -1135,7 +1272,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
-                fallbackSnapshot: directOpenCode
+                fallbackSnapshot: directOpenCode, allowsAgentContinuation: true
             )
         )
     }
@@ -1299,21 +1436,14 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelChanged: false
             )
         )
-        XCTAssertFalse(
-            ContentView.commandPaletteShouldReuseForkableAgentProbeResult(
-                panelKey: panelKey,
-                supportedPanelKeys: [panelKey],
-                supportedRemoteContextsByPanelKey: [panelKey: false],
-                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
-                expectedSnapshotFingerprint: nil,
-                isRemoteTerminal: false,
-                cachedResultHadFallback: true,
-                panelChanged: false
-            )
-        )
     }
 
-    func testForkableAgentProbeResultClearBeforeProbeClearsFallbackBackedCache() {
+    // A fallback-backed cache used to be refused here outright. That is no longer this
+    // helper's job: reuse is gated on TTL freshness, and the fallback case is re-verified
+    // against SharedLiveAgentIndex at the call site. Both directions of the freshness gate
+    // are covered by commandPaletteFallbackProbeResultReusesUntilValidationTTL in
+    // WorkspaceForkConversationContextMenuTests, so there is nothing to assert twice.
+    func testForkableAgentProbeResultClearBeforeProbeClearsStaleCache() {
         let workspaceId = UUID()
         let panelId = UUID()
         let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
@@ -1331,18 +1461,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 expectedSnapshotFingerprint: fingerprint,
                 isRemoteTerminal: false,
                 cachedResultHadFallback: false,
-                panelChanged: false
-            )
-        )
-        XCTAssertTrue(
-            ContentView.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
-                panelKey: panelKey,
-                supportedPanelKeys: [panelKey],
-                supportedRemoteContextsByPanelKey: [panelKey: false],
-                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
-                expectedSnapshotFingerprint: fingerprint,
-                isRemoteTerminal: false,
-                cachedResultHadFallback: true,
                 panelChanged: false
             )
         )
@@ -2278,7 +2396,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertNotEqual(base, changedSurfaceKind)
     }
 
-    func testCommandSearchBenchmarkBeatsLegacyPipeline() {
+    func testCommandSearchBenchmarkBeatsLegacyPipeline() throws {
+        try skipUnlessSearchBenchmarksAreEnabled()
         let entries = makeCommandEntries(count: 900)
         let corpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
@@ -2319,7 +2438,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testSwitcherSearchBenchmarkBeatsLegacyPipeline() {
+    func testSwitcherSearchBenchmarkBeatsLegacyPipeline() throws {
+        try skipUnlessSearchBenchmarksAreEnabled()
         let entries = makeSwitcherEntries(count: 400)
         let corpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
@@ -2360,7 +2480,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testLargeWorkspaceSwitcherSearchBenchmarkAvoidsPerQueryPreparationCost() {
+    func testLargeWorkspaceSwitcherSearchBenchmarkAvoidsPerQueryPreparationCost() throws {
+        try skipUnlessSearchBenchmarksAreEnabled()
         let entries = makeLargeWorkspaceSwitcherEntries(count: 800)
         let corpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
@@ -2410,7 +2531,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testFastTypingPreviewSearchBenchmarkReportsEstimatedDroppedFrames() {
+    func testFastTypingPreviewSearchBenchmarkReportsEstimatedDroppedFrames() throws {
+        try skipUnlessSearchBenchmarksAreEnabled()
         let entries = makeLargeWorkspaceSwitcherEntries(count: 800)
         let corpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(

@@ -16,6 +16,8 @@ public enum ControlPaneFocusResolution: Sendable, Equatable {
     /// The pane id did not match any pane in the workspace (legacy `not_found` /
     /// "Pane not found", `data: {"pane_id": …}`). Carries the unresolved id.
     case paneNotFound(UUID)
+    /// The pane belongs to a live window Dock that could not be revealed.
+    case dockUnavailable(message: String)
     /// The pane was focused. Carries the echoed identity (window may be absent;
     /// workspace and pane are present).
     case focused(windowID: UUID?, workspaceID: UUID, paneID: UUID)

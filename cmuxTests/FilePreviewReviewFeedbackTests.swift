@@ -1,8 +1,9 @@
 import AppKit
 import Bonsplit
 import Carbon.HIToolbox
+import Foundation
 import Quartz
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -11,74 +12,100 @@ import XCTest
 #endif
 
 @MainActor
-final class FilePreviewReviewFeedbackTests: XCTestCase {
-    func testAppBundleExportsFilePreviewDragType() {
+private final class FilePreviewTabMetadataTestHost: FilePreviewTabMetadataHost {
+    let bonsplitController: BonsplitController
+    let panelId: UUID
+    let tabId: TabID
+
+    init(
+        bonsplitController: BonsplitController,
+        panelId: UUID,
+        tabId: TabID
+    ) {
+        self.bonsplitController = bonsplitController
+        self.panelId = panelId
+        self.tabId = tabId
+    }
+
+    func filePreviewTabId(forPanelId panelId: UUID) -> TabID? {
+        panelId == self.panelId ? tabId : nil
+    }
+
+    func filePreviewTabTitlePresentation(
+        for metadata: FilePreviewTabMetadata,
+        panelId _: UUID,
+        existingTab _: Bonsplit.Tab
+    ) -> (title: String?, hasCustomTitle: Bool?) {
+        (metadata.title, false)
+    }
+}
+
+@MainActor
+@Suite(.serialized)
+struct FilePreviewReviewFeedbackTests {
+    @Test
+    func tabMetadataBindingReplacesItsHostAndUnbindStopsProjection() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            startFileWatcher: false,
+            modeResolver: { _ in .text }
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        let firstHost = try makeTabMetadataHost(for: panel.id)
+        let secondHost = try makeTabMetadataHost(for: panel.id)
+        panel.bindTabMetadata(to: firstHost)
+        panel.bindTabMetadata(to: secondHost)
+        panel.updateTextContent("edited")
+
+        #expect(firstHost.bonsplitController.tab(firstHost.tabId)?.isDirty == false)
+        #expect(secondHost.bonsplitController.tab(secondHost.tabId)?.isDirty == true)
+
+        panel.unbindTabMetadata()
+        panel.updateTextContent("original")
+
+        #expect(secondHost.bonsplitController.tab(secondHost.tabId)?.isDirty == true)
+    }
+
+    @Test
+    func appBundleExportsFilePreviewDragType() {
         let declarations = (Bundle(for: AppDelegate.self).object(forInfoDictionaryKey: "UTExportedTypeDeclarations") as? [[String: Any]]) ?? []
         let exported = Set(declarations.compactMap { $0["UTTypeIdentifier"] as? String })
 
-        XCTAssertTrue(
+        #expect(
             exported.contains("com.cmux.filepreview.transfer"),
             "Expected app bundle to export file-preview transfer type, got \(exported)"
         )
     }
 
-    func testSavingTextViewUsesChordedSaveShortcut() async throws {
-        KeyboardShortcutSettings.resetAll()
-        defer { KeyboardShortcutSettings.resetAll() }
-
-        KeyboardShortcutSettings.setShortcut(
-            StoredShortcut(
-                first: ShortcutStroke(key: "k", command: true, shift: false, option: false, control: false, keyCode: UInt16(kVK_ANSI_K)),
-                second: ShortcutStroke(key: "s", command: true, shift: false, option: false, control: false, keyCode: UInt16(kVK_ANSI_S))
-            ),
-            for: .saveFilePreview
-        )
-
-        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
-        defer { panel.close() }
-        await panel.loadTextContent().value
-
-        let textView = SavingTextView()
-        textView.string = "saved by chord"
-        textView.panel = panel
-        panel.attachTextView(textView)
-        panel.updateTextContent(textView.string)
-
-        let prefixEvent = try XCTUnwrap(keyEvent(key: "k", keyCode: UInt16(kVK_ANSI_K)))
-        let suffixEvent = try XCTUnwrap(keyEvent(key: "s", keyCode: UInt16(kVK_ANSI_S)))
-
-        XCTAssertTrue(textView.performKeyEquivalent(with: prefixEvent))
-        XCTAssertFalse(panel.isSaving)
-        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "original")
-        XCTAssertTrue(textView.performKeyEquivalent(with: suffixEvent))
-        await waitForPanelSave(panel)
-        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "saved by chord")
-    }
-
-    func testExtensionlessUTF16TextWithBOMResolvesAsTextAfterSniffing() throws {
+    @Test
+    func extensionlessUTF16TextWithBOMResolvesAsTextAfterSniffing() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }
         try "hello".write(to: url, atomically: true, encoding: .utf16)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
-        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+        #expect(FilePreviewKindResolver.initialMode(for: url) == .quickLook)
+        #expect(FilePreviewKindResolver.mode(for: url) == .text)
     }
 
-    func testExtensionlessANSITextResolvesAsTextAfterSniffing() throws {
+    @Test
+    func extensionlessANSITextResolvesAsTextAfterSniffing() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }
         try "\u{001B}[31mred\u{001B}[0m\n".write(to: url, atomically: true, encoding: .utf8)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
-        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+        #expect(FilePreviewKindResolver.initialMode(for: url) == .quickLook)
+        #expect(FilePreviewKindResolver.mode(for: url) == .text)
     }
 
-    func testTypeScriptFileResolvesAsTextInsteadOfTransportStreamMedia() throws {
+    @Test
+    func typeScriptFileResolvesAsTextInsteadOfTransportStreamMedia() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("ts")
@@ -89,11 +116,12 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         console.log(answer);
         """.write(to: url, atomically: true, encoding: .utf8)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
-        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+        #expect(FilePreviewKindResolver.initialMode(for: url) == .text)
+        #expect(FilePreviewKindResolver.mode(for: url) == .text)
     }
 
-    func testUTF8BOMTypeScriptFileResolvesAsText() throws {
+    @Test
+    func utf8BOMTypeScriptFileResolvesAsText() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("ts")
@@ -103,11 +131,12 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data.append(Data("export const answer: number = 42;\n".utf8))
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
-        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+        #expect(FilePreviewKindResolver.initialMode(for: url) == .text)
+        #expect(FilePreviewKindResolver.mode(for: url) == .text)
     }
 
-    func testTypeScriptFileWithNULBytesDoesNotResolveAsText() throws {
+    @Test
+    func typeScriptFileWithNULBytesDoesNotResolveAsText() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("ts")
@@ -117,11 +146,12 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data.append(contentsOf: [0x00, 0x00])
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
-        XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
+        #expect(FilePreviewKindResolver.initialMode(for: url) == .text)
+        #expect(FilePreviewKindResolver.mode(for: url) != .text)
     }
 
-    func testTypeScriptTextWinsOverTransportStreamSyncBytePattern() throws {
+    @Test
+    func typeScriptTextWinsOverTransportStreamSyncBytePattern() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("ts")
@@ -134,11 +164,12 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             + "\nexport const answer: number = 42;\n"
         try source.write(to: url, atomically: true, encoding: .utf8)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
-        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+        #expect(FilePreviewKindResolver.initialMode(for: url) == .text)
+        #expect(FilePreviewKindResolver.mode(for: url) == .text)
     }
 
-    func testBinaryTransportStreamFileKeepsMediaPreview() throws {
+    @Test
+    func binaryTransportStreamFileKeepsMediaPreview() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("ts")
@@ -155,11 +186,12 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data[191] = 0x10
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
-        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
+        #expect(FilePreviewKindResolver.initialMode(for: url) == .text)
+        #expect(FilePreviewKindResolver.mode(for: url) == .media)
     }
 
-    func testM2TSTransportStreamFileKeepsMediaPreview() throws {
+    @Test
+    func m2tsTransportStreamFileKeepsMediaPreview() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("ts")
@@ -176,42 +208,52 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data[199] = 0x10
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
-        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
+        #expect(FilePreviewKindResolver.initialMode(for: url) == .text)
+        #expect(FilePreviewKindResolver.mode(for: url) == .media)
     }
 
-    func testQuickLookSessionCloseDoesNotDeactivateMountedRepresentableView() throws {
+    @Test
+    func quickLookSessionCloseDoesNotReadoptDismantledRepresentableView() throws {
         let url = try temporaryBinaryFile()
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
         defer { panel.close() }
-        XCTAssertEqual(panel.previewMode, .quickLook)
+        #expect(panel.previewMode == .quickLook)
 
         let view = panel.nativeViewSessions.quickLook.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
         )
-        guard let previewView = view as? QLPreviewView else {
-            return XCTFail("Expected Quick Look to vend a QLPreviewView")
-        }
-        XCTAssertNotNil(previewView.previewItem)
+        let container = try #require(
+            view as? FilePreviewQuickLookContainerView,
+            "Expected Quick Look to vend a preview host"
+        )
+        let previewView = try #require(
+            container.livePreviewView(),
+            "Expected Quick Look to vend an active preview"
+        )
+        #expect(previewView.previewItem != nil)
 
         panel.nativeViewSessions.quickLook.close()
 
         panel.nativeViewSessions.quickLook.update(
             view,
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
         )
-        XCTAssertNil(previewView.previewItem)
+        #expect(previewView.previewItem == nil)
+        #expect(container.livePreviewView() == nil)
     }
 
-    func testQuickLookSessionDismantlingRetiredViewDoesNotResetActivePreviewItem() throws {
+    @Test
+    func quickLookSessionDismantlingRetiredViewDoesNotResetActivePreviewItem() throws {
         let url = try temporaryBinaryFile()
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -219,69 +261,80 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         defer { panel.close() }
         let retiredView = panel.nativeViewSessions.quickLook.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
         )
-        guard retiredView is QLPreviewView else {
-            return XCTFail("Expected Quick Look to vend a QLPreviewView")
-        }
+        try #require(
+            retiredView is FilePreviewQuickLookContainerView,
+            "Expected Quick Look to vend a preview host"
+        )
 
         panel.nativeViewSessions.quickLook.close()
 
         let activeView = panel.nativeViewSessions.quickLook.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
         )
-        guard let activePreviewView = activeView as? QLPreviewView else {
-            return XCTFail("Expected Quick Look to vend a QLPreviewView")
-        }
-        let activeItem = try XCTUnwrap(activePreviewView.previewItem as AnyObject?)
+        let activeContainer = try #require(
+            activeView as? FilePreviewQuickLookContainerView,
+            "Expected Quick Look to vend a preview host"
+        )
+        let activePreviewView = try #require(
+            activeContainer.livePreviewView(),
+            "Expected Quick Look to vend an active preview"
+        )
+        let activeItem = try #require(activePreviewView.previewItem as AnyObject?)
 
         panel.nativeViewSessions.quickLook.dismantle(retiredView)
         panel.nativeViewSessions.quickLook.update(
             activeView,
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
         )
 
-        let updatedItem = try XCTUnwrap(activePreviewView.previewItem as AnyObject?)
-        XCTAssertTrue(updatedItem === activeItem)
+        let updatedItem = try #require(activePreviewView.previewItem as AnyObject?)
+        #expect(updatedItem === activeItem)
     }
 
-    func testNativeViewSessionDismantlesRetiredViewAfterClose() {
+    @Test
+    func nativeViewSessionDismantlesRetiredViewAfterClose() {
         let view = NSView()
         var closeCount = 0
         var dismantleCount = 0
         let session = PanelOwnedNativeViewSession<NSView>(
             makeView: { view },
             closeView: {
-                XCTAssertTrue($0 === view)
+                #expect($0 === view)
                 closeCount += 1
             },
             dismantleView: {
-                XCTAssertTrue($0 === view)
+                #expect($0 === view)
                 dismantleCount += 1
             }
         )
 
-        XCTAssertTrue(session.view(configure: { _ in }) === view)
+        #expect(session.view(configure: { _ in }) === view)
         session.close()
-        XCTAssertEqual(closeCount, 1)
-        XCTAssertEqual(dismantleCount, 0)
+        #expect(closeCount == 1)
+        #expect(dismantleCount == 0)
 
-        XCTAssertFalse(session.dismantle(view))
-        XCTAssertEqual(dismantleCount, 1)
+        #expect(!session.dismantle(view))
+        #expect(dismantleCount == 1)
 
-        XCTAssertFalse(session.dismantle(view))
-        XCTAssertEqual(dismantleCount, 1)
+        #expect(!session.dismantle(view))
+        #expect(dismantleCount == 1)
     }
 
-    func testTextLoaderRejectsOversizedTextFiles() throws {
+    @Test
+    func textLoaderRejectsOversizedTextFiles() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("txt")
@@ -292,20 +345,29 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         try handle.truncate(atOffset: FilePreviewTextLoader.maximumLoadedTextBytes + 1)
         try handle.close()
 
-        guard case .unavailable = FilePreviewTextLoader.loadSynchronously(url: url) else {
-            XCTFail("Expected oversized text file to be unavailable")
-            return
+        let result = FilePreviewTextLoader.loadSynchronously(url: url)
+        let isUnavailable: Bool
+        if case .unavailable = result {
+            isUnavailable = true
+        } else {
+            isUnavailable = false
         }
+        #expect(isUnavailable, "Expected oversized text file to be unavailable")
     }
 
-    func testFocusCoordinatorKeepsPendingFocusUntilEndpointHasWindow() {
+    @Test
+    func focusCoordinatorKeepsPendingFocusUntilEndpointHasWindow() {
         let textView = FilePreviewReviewFocusTestView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
         let coordinator = FilePreviewFocusCoordinator(preferredIntent: .textEditor)
         coordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
 
-        XCTAssertFalse(coordinator.focus(.textEditor))
+        #expect(!coordinator.focus(.textEditor))
 
         let window = NSWindow(contentRect: textView.bounds, styleMask: [], backing: .buffered, defer: false)
+        // AppKit releases a closed window unless the owner opts out, and callers close
+        // this window. Without this the close over-releases and kills the test host,
+        // losing this suite's verdict and its shard-mates' along with it.
+        window.isReleasedWhenClosed = false
         defer {
             window.contentView = nil
             window.close()
@@ -313,10 +375,11 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         window.contentView = textView
         coordinator.fulfillPendingFocusIfNeeded()
 
-        XCTAssertTrue(window.firstResponder === textView)
+        #expect(window.firstResponder === textView)
     }
 
-    func testFileOpenHonorsExplicitPaneDestinationInsteadOfReusingExistingPreview() throws {
+    @Test
+    func fileOpenHonorsExplicitPaneDestinationInsteadOfReusingExistingPreview() throws {
         let originalURL = try temporaryTextFile(contents: "original", encoding: .utf8)
         let placeholderURL = try temporaryTextFile(contents: "placeholder", encoding: .utf8)
         defer {
@@ -328,19 +391,19 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
         defer { workspace.teardownAllPanels() }
-        let firstPane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
-        let existingPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+        let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let existingPanel = try #require(workspace.newFilePreviewSurface(
             inPane: firstPane,
             filePath: originalURL.path,
             focus: false
         ))
-        let placeholderPanel = try XCTUnwrap(workspace.splitPaneWithFilePreview(
+        let placeholderPanel = try #require(workspace.splitPaneWithFilePreview(
             targetPane: firstPane,
             orientation: .horizontal,
             insertFirst: false,
             filePath: placeholderURL.path
         ))
-        let targetPane = try XCTUnwrap(workspace.paneId(forPanelId: placeholderPanel.id))
+        let targetPane = try #require(workspace.paneId(forPanelId: placeholderPanel.id))
         let startingTargetTabs = workspace.bonsplitController.tabs(inPane: targetPane).count
         TerminalController.shared.setActiveTabManager(manager)
 
@@ -355,14 +418,17 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
               let payload = rawPayload as? [String: Any],
               let openedPanelIdString = payload["surface_id"] as? String,
               let openedPanelId = UUID(uuidString: openedPanelIdString) else {
-            XCTFail("Expected file.open to succeed, got \(result)")
+            Issue.record("Expected file.open to succeed, got \(result)")
             return
         }
 
-        XCTAssertNotEqual(openedPanelId, existingPanel.id)
-        XCTAssertEqual(payload["pane_id"] as? String, targetPane.id.uuidString)
-        XCTAssertEqual(workspace.paneId(forPanelId: openedPanelId)?.id, targetPane.id)
-        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: targetPane).count, startingTargetTabs + 1)
+        #expect(openedPanelId != existingPanel.id)
+        #expect(payload["pane_id"] as? String == targetPane.id.uuidString)
+        #expect(workspace.paneId(forPanelId: openedPanelId)?.id == targetPane.id)
+        #expect(
+            workspace.bonsplitController.tabs(inPane: targetPane).count
+                == startingTargetTabs + 1
+        )
     }
 
     private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
@@ -371,6 +437,24 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             .appendingPathExtension("txt")
         try contents.write(to: url, atomically: true, encoding: encoding)
         return url
+    }
+
+    private func makeTabMetadataHost(
+        for panelId: UUID
+    ) throws -> FilePreviewTabMetadataTestHost {
+        let controller = BonsplitController()
+        let paneId = try #require(controller.allPaneIds.first)
+        let tabId = try #require(
+            controller.createTab(
+                title: "Unbound preview",
+                inPane: paneId
+            )
+        )
+        return FilePreviewTabMetadataTestHost(
+            bonsplitController: controller,
+            panelId: panelId,
+            tabId: tabId
+        )
     }
 
     private func temporaryBinaryFile() throws -> URL {
@@ -399,7 +483,8 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
     // Regression test for manaflow-ai/cmux#4576: drag-selecting deep into a large file pegged the
     // main thread because TextKit 2's `NSTextSelectionNavigation` hit-tests are O(N) in line
     // fragments. Selection hit-testing near the bottom of a large file must stay responsive.
-    func testLargeFileSelectionHitTestStaysResponsive() {
+    @Test
+    func largeFileSelectionHitTestStaysResponsive() {
         let lineCount = 60_000
         let text = (0..<lineCount)
             .map { "  \"row_\($0)\": { \"id\": \($0), \"value\": \"item-\($0)-payload\" }," }
@@ -417,12 +502,9 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         // headless layout left the view collapsed, `bottomY` would sit at the top where even
         // TextKit 2 is cheap, turning this into a silent false negative. Fail loudly instead.
         let documentHeight = textView.bounds.height
-        XCTAssertGreaterThan(
-            documentHeight,
-            100_000,
-            "Test precondition failed: a \(lineCount)-line document laid out to only "
-                + "\(documentHeight)pt, so hit-tests would not reach the bottom. The timing "
-                + "assertion below would be meaningless."
+        #expect(
+            documentHeight > 100_000,
+            "Test precondition failed: a \(lineCount)-line document laid out to only \(documentHeight)pt, so hit-tests would not reach the bottom and the timing assertion would be meaningless."
         )
 
         let bottomY = max(documentHeight - 5, 1)
@@ -434,27 +516,126 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
 
         // TextKit 2 takes several seconds here; TextKit 1 + non-contiguous layout takes a few ms.
         // The 1.0s ceiling sits far from both, so it is a clean, non-flaky regression signal.
-        XCTAssertLessThan(
-            elapsed,
-            1.0,
-            "Selection hit-testing near the bottom of a \(lineCount)-line file took \(elapsed)s. "
-                + "File Preview likely regressed to TextKit 2 O(N) selection navigation (see "
-                + "manaflow-ai/cmux#4576)."
+        #expect(
+            elapsed < 1.0,
+            "Selection hit-testing near the bottom of a \(lineCount)-line file took \(elapsed)s. File Preview likely regressed to TextKit 2 O(N) selection navigation (see https://github.com/manaflow-ai/cmux/issues/4576)."
+        )
+    }
+}
+
+@MainActor
+@Suite(.serialized)
+struct FilePreviewSaveShortcutTests {
+    @Test
+    func savingTextViewUsesChordedSaveShortcut() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("txt")
+        try "original".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let saveRecorder = FilePreviewSaveRecorder()
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            startFileWatcher: false,
+            textSaver: { content, _, _ in
+                await saveRecorder.record(content)
+                return .saved
+            }
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = "saved by chord"
+        textView.panel = panel
+        panel.attachTextView(textView)
+        panel.updateTextContent(textView.string)
+
+        let prefixEvent = try #require(
+            keyEvent(key: "k", keyCode: UInt16(kVK_ANSI_K))
+        )
+        let suffixEvent = try #require(
+            keyEvent(key: "s", keyCode: UInt16(kVK_ANSI_S))
+        )
+
+        let saveAction = KeyboardShortcutSettings.Action.saveFilePreview
+        let hadPersistedSaveShortcut =
+            UserDefaults.standard.object(forKey: saveAction.defaultsKey) != nil
+        let originalSaveShortcut = KeyboardShortcutSettings.shortcut(for: saveAction)
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                first: ShortcutStroke(
+                    key: "k",
+                    command: true,
+                    shift: false,
+                    option: false,
+                    control: false,
+                    keyCode: UInt16(kVK_ANSI_K)
+                ),
+                second: ShortcutStroke(
+                    key: "s",
+                    command: true,
+                    shift: false,
+                    option: false,
+                    control: false,
+                    keyCode: UInt16(kVK_ANSI_S)
+                )
+            ),
+            for: saveAction
+        )
+        let handledPrefix = textView.performKeyEquivalent(with: prefixEvent)
+        #expect(handledPrefix)
+        #expect(!panel.isSaving)
+        #expect((try? String(contentsOf: url, encoding: .utf8)) == "original")
+
+        let handledSuffix = textView.performKeyEquivalent(with: suffixEvent)
+        if hadPersistedSaveShortcut {
+            KeyboardShortcutSettings.setShortcut(originalSaveShortcut, for: saveAction)
+        } else {
+            KeyboardShortcutSettings.resetShortcut(for: saveAction)
+        }
+        #expect(handledSuffix)
+        let savedContent = await waitForSavedContent(in: saveRecorder)
+        #expect(savedContent == "saved by chord")
+    }
+
+    private func keyEvent(key: String, keyCode: UInt16) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: key,
+            charactersIgnoringModifiers: key,
+            isARepeat: false,
+            keyCode: keyCode
         )
     }
 
-    private func waitForPanelSave(
-        _ panel: FilePreviewPanel,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) async {
-        let deadline = Date().addingTimeInterval(2)
-        while panel.isSaving, Date() < deadline {
+    private func waitForSavedContent(
+        in recorder: FilePreviewSaveRecorder
+    ) async -> String? {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if let content = await recorder.content {
+                return content
+            }
             await Task.yield()
         }
-        if panel.isSaving {
-            XCTFail("Timed out waiting for panel save", file: file, line: line)
-        }
+        return await recorder.content
+    }
+}
+
+private actor FilePreviewSaveRecorder {
+    private(set) var content: String?
+
+    func record(_ content: String) {
+        self.content = content
     }
 }
 

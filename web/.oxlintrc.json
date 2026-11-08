@@ -1,0 +1,6 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "rules": {
+    "complexity": ["error", { "max": 20, "variant": "classic" }]
+  }
+}

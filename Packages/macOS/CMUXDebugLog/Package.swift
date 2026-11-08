@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CMUXDebugLog",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     products: [
         .library(
@@ -13,9 +13,15 @@ let package = Package(
             targets: ["CMUXDebugLog"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxFoundation"),
+    ],
     targets: [
         .target(
             name: "CMUXDebugLog",
+            dependencies: [
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+            ],
             path: "Sources/CMUXDebugLog"
         ),
         .testTarget(

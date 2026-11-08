@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# cmux Amp wrapper - automatic session-extension refresh and launch capture.
+#
+# Every failure in the cmux integration is best-effort: the wrapper still execs
+# the real Amp binary with the user's original arguments and credentials.
+
+# Deliberately avoid `set -e`/`set -u`; integration failures must never prevent
+# Amp from launching.
+
+cmux_amp_is_self_or_shim() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    if [[ -e "$candidate" && "$candidate" -ef "$0" ]]; then
+        return 0
+    fi
+    if [[ -n "${CMUX_AMP_WRAPPER_SHIM:-}" &&
+          -e "$candidate" &&
+          -e "$CMUX_AMP_WRAPPER_SHIM" &&
+          "$candidate" -ef "$CMUX_AMP_WRAPPER_SHIM" ]]; then
+        return 0
+    fi
+    if [[ -n "${CMUX_AMP_WRAPPER_SHIM_ROOT:-}" &&
+          "$candidate" == "${CMUX_AMP_WRAPPER_SHIM_ROOT%/}/amp" ]]; then
+        return 0
+    fi
+    case "$candidate" in
+        */cmux-cli-shims/*/amp|*/cmux-cli-shims/amp|*/Contents/Resources/bin/amp|*/Resources/bin/amp)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+find_real_amp() {
+    local custom="${CMUX_CUSTOM_AMP_PATH:-}"
+    custom="${custom#"${custom%%[![:space:]]*}"}"
+    custom="${custom%"${custom##*[![:space:]]}"}"
+    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
+        if ! cmux_amp_is_self_or_shim "$custom"; then
+            printf '%s' "$custom"
+            return 0
+        fi
+    fi
+
+    local search_path="${PATH:-}"
+    local old_ifs="$IFS"
+    local globbing_was_disabled=0
+    local directory candidate
+    case "$-" in
+        *f*) globbing_was_disabled=1 ;;
+        *) set -f ;;
+    esac
+    IFS=:
+    for directory in $search_path; do
+        [[ -n "$directory" ]] || directory="."
+        candidate="$directory/amp"
+        cmux_amp_is_self_or_shim "$candidate" && continue
+        if [[ -f "$candidate" && -x "$candidate" ]]; then
+            IFS="$old_ifs"
+            if [[ "$globbing_was_disabled" == 0 ]]; then
+                set +f
+            fi
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+    IFS="$old_ifs"
+    if [[ "$globbing_was_disabled" == 0 ]]; then
+        set +f
+    fi
+    return 1
+}
+
+resolve_cmux_cli() {
+    local candidate="${CMUX_BUNDLED_CLI_PATH:-}"
+    if [[ -n "$candidate" && -f "$candidate" && -x "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return 0
+    fi
+
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+    candidate="$self_dir/cmux"
+    if [[ -f "$candidate" && -x "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return 0
+    fi
+
+    candidate="$(command -v cmux 2>/dev/null || true)"
+    if [[ -n "$candidate" && -f "$candidate" && -x "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return 0
+    fi
+    return 1
+}
+
+run_amp_extension_installer() {
+    local timeout_seconds="${CMUX_AMP_HOOK_INSTALL_TIMEOUT_SECONDS:-3}"
+    case "$timeout_seconds" in
+        ''|*[!0-9]*) timeout_seconds=3 ;;
+    esac
+    [[ "$timeout_seconds" -gt 0 ]] 2>/dev/null || timeout_seconds=3
+    [[ "$timeout_seconds" -le 30 ]] 2>/dev/null || timeout_seconds=3
+
+    # The alarm survives Perl's exec and bounds a stuck CLI. Amp credentials
+    # are removed only from this child; the real Amp process keeps them.
+    /usr/bin/env -u AMP_API_KEY /usr/bin/perl -e '
+        my $timeout = shift @ARGV;
+        $SIG{ALRM} = sub { exit 124 };
+        alarm($timeout);
+        exec {$ARGV[0]} @ARGV;
+        exit 127;
+    ' "$timeout_seconds" "$@"
+}
+
+REAL_AMP="$(find_real_amp)" || {
+    echo "Unable to start the configured agent. Check that it is installed and available." >&2
+    exit 127
+}
+
+if [[ ( -n "${CMUX_SURFACE_ID:-}" || -n "${CMUX_WORKSPACE_ID:-}" ) && "${CMUX_AMP_HOOKS_DISABLED:-}" != "1" ]]; then
+    if CMUX_AMP_INSTALL_CLI="$(resolve_cmux_cli)"; then
+        if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+            run_amp_extension_installer "$CMUX_AMP_INSTALL_CLI" --socket "$CMUX_SOCKET_PATH" \
+                hooks amp install --yes </dev/null >/dev/null 2>&1 || true
+        else
+            run_amp_extension_installer "$CMUX_AMP_INSTALL_CLI" \
+                hooks amp install --yes </dev/null >/dev/null 2>&1 || true
+        fi
+    fi
+    unset CMUX_AMP_INSTALL_CLI
+fi
+
+export CMUX_AMP_PID=$$
+export CMUX_AGENT_LAUNCH_KIND="amp"
+export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_AMP"
+export CMUX_AGENT_LAUNCH_CWD="$(pwd -P 2>/dev/null || pwd)"
+cmux_amp_argv_b64="$(
+    {
+        printf '%s\0' "$REAL_AMP"
+        if (( $# > 0 )); then
+            printf '%s\0' "$@"
+        fi
+    } | base64 | tr -d '\n'
+)"
+if [[ -n "$cmux_amp_argv_b64" ]]; then
+    export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_amp_argv_b64"
+fi
+unset cmux_amp_argv_b64
+
+# Restore authorization is valid only for this wrapper pass. The extension's
+# thread lifecycle events remain the source of truth for the live thread id.
+unset CMUX_AGENT_RESTORE_LAUNCH
+unset CMUX_AGENT_RESUME_LAUNCH
+
+exec "$REAL_AMP" "$@"

@@ -14,10 +14,17 @@ enum CmuxSocketEventMapper {
         guard command.hasPrefix("{"),
               let requestData = command.data(using: .utf8),
               let request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any],
-              let method = request["method"] as? String else {
+              let rawMethod = request["method"] as? String else {
             return false
         }
-        guard method != "events.stream" else { return true }
+        // ControlRequestParser trims method names before dispatch. Keep event
+        // classification on the same canonical value so a whitespace-wrapped
+        // handoff can never enter a normal event path.
+        let method = rawMethod.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard method != "events.stream",
+              method != "coderouter.handoff.complete" else {
+            return true
+        }
         guard let mapping = domainEventMapping(forV2Method: method) else {
             return true
         }
@@ -37,7 +44,7 @@ enum CmuxSocketEventMapper {
         let params = request["params"] as? [String: Any] ?? [:]
         let result = responseObject["result"] as? [String: Any] ?? [:]
         publishResult(
-            name: mapping.name,
+            name: mapping.resolvedName(using: result),
             category: mapping.category,
             method: method,
             params: mappedParams(params, using: mapping.params),
@@ -48,8 +55,28 @@ enum CmuxSocketEventMapper {
 
     private struct DomainEventMapping {
         let name: String
+        let remoteName: String?
         let category: String
         let params: ParameterMapping
+
+        init(
+            name: String,
+            remoteName: String? = nil,
+            category: String,
+            params: ParameterMapping
+        ) {
+            self.name = name
+            self.remoteName = remoteName
+            self.category = category
+            self.params = params
+        }
+
+        func resolvedName(using result: [String: Any]) -> String {
+            if result["remote"] as? Bool == true, let remoteName {
+                return remoteName
+            }
+            return name
+        }
     }
 
     private enum ParameterMapping {
@@ -79,7 +106,12 @@ enum CmuxSocketEventMapper {
         case "surface.send_key":
             return DomainEventMapping(name: "surface.key_sent", category: "surface", params: .unchanged)
         case "pane.resize":
-            return DomainEventMapping(name: "pane.resized", category: "pane", params: .unchanged)
+            return DomainEventMapping(
+                name: "pane.resized",
+                remoteName: "pane.resize_requested",
+                category: "pane",
+                params: .unchanged
+            )
         case "pane.swap":
             return DomainEventMapping(name: "pane.swapped", category: "pane", params: .unchanged)
         case "pane.break":
@@ -98,6 +130,8 @@ enum CmuxSocketEventMapper {
             return DomainEventMapping(name: "notification.open_requested", category: "notification", params: .unchanged)
         case "notification.jump_to_unread":
             return DomainEventMapping(name: "notification.jump_to_unread_requested", category: "notification", params: .unchanged)
+        case "surface.jump_to_last_prompt":
+            return DomainEventMapping(name: "surface.jump_to_last_prompt_requested", category: "surface", params: .unchanged)
         case "feed.permission.reply", "feed.question.reply", "feed.exit_plan.reply":
             return DomainEventMapping(name: "feed.item.resolved", category: "feed", params: .unchanged)
         case "app.focus_override.set":
@@ -135,7 +169,7 @@ enum CmuxSocketEventMapper {
         let payload: [String: Any] = ["command": name, "args": redactedV1Args(name: name, args: args)]
 
         switch name {
-        case "new_window", "focus_window", "close_window":
+        case "new_window", "focus_window", "close_window", "resize_window":
             break
         case "new_workspace", "select_workspace", "close_workspace", "new_split", "new_pane", "new_surface", "open_browser":
             break

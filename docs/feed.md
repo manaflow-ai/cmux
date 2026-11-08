@@ -77,15 +77,19 @@ Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook int
 | Claude Code  | wrapper-injected                          | PermissionRequest        |
 | Codex        | `~/.codex/hooks.json`                     | PreToolUse / PermissionRequest telemetry |
 | Grok         | `~/.grok/hooks/cmux-session.json`         | PreToolUse               |
+| Hermes Agent | `~/.hermes/config.yaml` or `$HERMES_HOME/config.yaml` | pre_tool_call / post_tool_call / pre_approval_request / post_approval_response |
 | OpenCode     | `~/.config/opencode/plugins/cmux-feed.js` | plugin event bus         |
 | Cursor CLI   | `~/.cursor/hooks.json`                    | beforeShellExecution     |
 | Gemini       | `~/.gemini/settings.json`                 | PreToolUse               |
-| Copilot      | `~/.copilot/config.json`                  | PreToolUse               |
+| Kiro CLI     | `~/.kiro/agents/cmux.json` or `$KIRO_HOME/agents/cmux.json`, active when you run `kiro-cli --agent cmux`. `cmux hooks setup kiro --global` adds lifecycle and agent-message hooks for Kiro CLI V3 and no Feed trigger. | preToolUse / postToolUse |
+| Copilot      | `~/.copilot/hooks/cmux.json` or `$COPILOT_HOME/hooks/cmux.json` | preToolUse               |
 | CodeBuddy    | `~/.codebuddy/settings.json`              | PreToolUse               |
 | Factory      | `~/.factory/settings.json`                | PreToolUse               |
 | Qoder        | `~/.qoder/settings.json`                  | PreToolUse               |
-| Pi           | `~/.pi/agent/extensions/cmux-session.ts`  | lifecycle only           |
+| Kimi Code    | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | PreToolUse / PostToolUse |
+| Pi           | `~/.pi/agent/extensions/cmux-session.ts`  | tool_execution_start / tool_execution_end telemetry |
 | OMP          | `~/.omp/agent/extensions/cmux-omp-session.ts` or `$PI_CODING_AGENT_DIR/extensions/cmux-omp-session.ts` | lifecycle only           |
+| Campfire     | `~/.campfire/agent/extensions/cmux-campfire-session.ts` or `$CAMPFIRE_CODING_AGENT_DIR/extensions/cmux-campfire-session.ts` | lifecycle + collaborative notifications |
 | Rovo Dev     | `~/.rovodev/config.yml`                   | lifecycle only           |
 
 Individual agents:
@@ -99,7 +103,7 @@ cmux hooks <agent> uninstall
 
 Agents without a binary on `PATH` are skipped at install time, and `cmux hooks setup` prints a summary line naming the ones it skipped. Use `cmux hooks setup --agent <name>` or `cmux hooks setup <name>` to install one integration, and `cmux hooks uninstall --agent <name>` or `cmux hooks uninstall <name>` to remove one. Rovo Dev accepts either `rovodev` or `rovo`.
 
-Pi, OMP, and Rovo Dev provide lifecycle and session-restore hooks only; they do not install a Feed permission bridge.
+Pi provides lifecycle and session-restore hooks plus Feed telemetry for `tool_execution_start` and `tool_execution_end` events. OMP, Campfire, and Rovo Dev provide lifecycle and session-restore hooks only; they do not install a Feed permission bridge. Campfire additionally surfaces collaborative moments (a joiner waiting in the lobby, a capability ask awaiting the driver) as cmux notifications.
 
 ## Decision semantics
 
@@ -144,7 +148,8 @@ Per-event timeout inside agent hook configs is raised to roughly 120 to 125 seco
 |-----------------------------------|------------------------------------------------------------|
 | `~/.cmuxterm/workstream.jsonl`    | Append-only audit log of every Feed event.                 |
 | `~/.cmuxterm/<agent>-hook-sessions.json` | Session-to-workspace mapping used by `feed.jump`.   |
-| `~/.config/cmux/cmux.sock`        | V2 socket the hooks/plugin talk to.                        |
+| `~/.config/cmux/cmux.sock`        | V2 socket used by the bundled OpenCode plugin when `CMUX_SOCKET_PATH` is unset. |
+| `~/.local/state/cmux/cmux.sock`   | CLI's implicit V2 socket default; the CLI also auto-discovers tagged/debug sockets. |
 | `~/.config/opencode/plugins/cmux-feed.js` | OpenCode plugin emitted by `cmux hooks opencode install`. |
 
 To reset history:
@@ -164,7 +169,7 @@ Double-click a Feed row and cmux focuses the cmux workspace + surface where the 
 
 **Codex plan-mode question stays in the terminal.** Codex `request_user_input` is not a hook event in the stock TUI path. Feed only sees Codex permission hooks today.
 
-**Agent hangs on a permission request.** Feed never blocks the agent longer than 120 seconds; if you see a longer hang, the hook failed to reach the socket. Verify `$CMUX_SOCKET_PATH` matches the running app (default is `~/.config/cmux/cmux.sock`).
+**Agent hangs on a permission request.** Feed never blocks the agent longer than 120 seconds; if you see a longer hang, the hook failed to reach the socket. Verify `$CMUX_SOCKET_PATH` matches the running app. When it is unset, the cmux CLI defaults to `~/.local/state/cmux/cmux.sock` and auto-discovers tagged/debug sockets; the bundled OpenCode plugin defaults to `~/.config/cmux/cmux.sock`.
 
 **Notifications aren't showing inline buttons.** The three Feed categories (`CMUXFeedPermission`, `CMUXFeedExitPlan`, `CMUXFeedQuestion`) are registered at app launch. On first Feed use, macOS may prompt for notification authorization; if authorization is denied, Feed rows still appear in the sidebar but no native banner is delivered.
 

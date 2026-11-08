@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A coalescing, back-pressured queue of pending terminal input.
 ///
@@ -19,6 +19,8 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         public var terminalID: MobileTerminalPreview.ID
         /// The accumulated text for this chunk.
         public var text: String
+        /// The newest Return-terminated send represented by this chunk.
+        public var sendStatusOperationID: UUID?
 
         /// Creates a pending-input chunk.
         /// - Parameters:
@@ -28,11 +30,13 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         public init(
             workspaceID: MobileWorkspacePreview.ID,
             terminalID: MobileTerminalPreview.ID,
-            text: String
+            text: String,
+            sendStatusOperationID: UUID? = nil
         ) {
             self.workspaceID = workspaceID
             self.terminalID = terminalID
             self.text = text
+            self.sendStatusOperationID = sendStatusOperationID
         }
     }
 
@@ -56,7 +60,8 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
     public mutating func enqueue(
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
+        terminalID: MobileTerminalPreview.ID,
+        sendStatusOperationID: UUID? = nil
     ) -> MobileTerminalInputEnqueueResult {
         guard !text.isEmpty else { return .queued }
         let byteCount = text.utf8.count
@@ -67,13 +72,17 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
            last.workspaceID == workspaceID,
            last.terminalID == terminalID {
             last.text += text
+            if let sendStatusOperationID {
+                last.sendStatusOperationID = sendStatusOperationID
+            }
             pendingChunks[pendingChunks.count - 1] = last
         } else {
             pendingChunks.append(
                 Chunk(
                     workspaceID: workspaceID,
                     terminalID: terminalID,
-                    text: text
+                    text: text,
+                    sendStatusOperationID: sendStatusOperationID
                 )
             )
         }
@@ -83,13 +92,48 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         return .startDraining
     }
 
-    /// Removes and returns the next pending chunk, or clears the draining flag
-    /// and returns `nil` when the buffer is empty.
+    /// Removes and returns the next pending chunk, optionally splitting an
+    /// oversized head chunk at a Unicode-scalar boundary.
+    /// - Parameter maximumByteCount: The maximum UTF-8 bytes to return, or `nil` for no cap.
     /// - Returns: The next chunk to deliver, or `nil` when nothing is pending.
-    public mutating func nextBatch() -> Chunk? {
+    public mutating func nextBatch(maximumByteCount: Int? = nil) -> Chunk? {
         guard !pendingChunks.isEmpty else {
             isDraining = false
             return nil
+        }
+        if let maximumByteCount,
+           pendingChunks[0].text.utf8.count > maximumByteCount {
+            precondition(maximumByteCount > 0)
+            let text = pendingChunks[0].text
+            var prefixByteCount = 0
+            var splitIndex = text.unicodeScalars.startIndex
+            while splitIndex < text.unicodeScalars.endIndex {
+                let scalarByteCount = UTF8.width(text.unicodeScalars[splitIndex])
+                guard prefixByteCount + scalarByteCount <= maximumByteCount else {
+                    break
+                }
+                prefixByteCount += scalarByteCount
+                splitIndex = text.unicodeScalars.index(after: splitIndex)
+            }
+            if splitIndex == text.unicodeScalars.startIndex {
+                // A cap narrower than the first scalar (< 4 bytes) cannot be
+                // honored at a scalar boundary; emit that scalar whole so the
+                // drain always makes progress instead of trapping. Production
+                // caps are KiB-scale, so this branch is pathological-only.
+                prefixByteCount = UTF8.width(text.unicodeScalars[splitIndex])
+                splitIndex = text.unicodeScalars.index(after: splitIndex)
+            }
+            let prefix = String(text.unicodeScalars[..<splitIndex])
+            pendingChunks[0].text = String(text.unicodeScalars[splitIndex...])
+            pendingByteCount = max(0, pendingByteCount - prefixByteCount)
+            return Chunk(
+                workspaceID: pendingChunks[0].workspaceID,
+                terminalID: pendingChunks[0].terminalID,
+                text: prefix,
+                // Settle only after the final piece of a split chunk has been
+                // handed to the transport.
+                sendStatusOperationID: nil
+            )
         }
         let chunk = pendingChunks.removeFirst()
         pendingByteCount = max(0, pendingByteCount - chunk.text.utf8.count)

@@ -36,7 +36,7 @@ struct AgentSessionWebTheme: Equatable {
         ]
     }
 
-    static func resolve(appearance: PanelAppearance) -> AgentSessionWebTheme {
+    static func resolve(appearance: PanelAppearance, accent accentColor: CmuxAccentColor = CmuxAccentColor()) -> AgentSessionWebTheme {
         let base = appearance.backgroundColor.markdownOpaqueSRGB
         let isDark = !base.isLightColor
         let overlay: NSColor = isDark ? .white : .black
@@ -67,7 +67,7 @@ struct AgentSessionWebTheme: Equatable {
             .withAlphaComponent(inputAlpha)
             ?? base.withAlphaComponent(inputAlpha)
         let foreground = appearance.foregroundColor
-        let accent = cmuxAccentNSColor()
+        let accent = accentColor.nsColor(isDark: isDark)
         let danger = (NSColor(hex: isDark ? "#FF8D7E" : "#B3261E") ?? .systemRed)
         return AgentSessionWebTheme(
             isDark: isDark,

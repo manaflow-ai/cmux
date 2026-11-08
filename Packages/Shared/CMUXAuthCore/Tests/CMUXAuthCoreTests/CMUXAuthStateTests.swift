@@ -91,6 +91,7 @@ struct CMUXAuthStateTests {
             "CMUX_UITEST_AUTH_USER_ID": "fixture-user",
             "CMUX_UITEST_AUTH_EMAIL": "fixture@example.com",
             "CMUX_UITEST_AUTH_NAME": "Fixture User",
+            "CMUX_UITEST_AUTH_PROFILE_IMAGE_URL": "https://example.com/fixture-avatar.png",
         ]
 
         #expect(
@@ -101,7 +102,8 @@ struct CMUXAuthStateTests {
             ) == CMUXAuthUser(
                 id: "fixture-user",
                 primaryEmail: "fixture@example.com",
-                displayName: "Fixture User"
+                displayName: "Fixture User",
+                profileImageURL: "https://example.com/fixture-avatar.png"
             )
         )
         #expect(
@@ -120,9 +122,14 @@ struct CMUXAuthStateTests {
         )
     }
 
-    @Test("Primed state authenticates cached user while validating tokens")
-    func primedStateAuthenticatesCachedUserWhileValidatingTokens() {
-        let user = CMUXAuthUser(id: "user_123", primaryEmail: "user@example.com", displayName: "Test User")
+    @Test("Primed cached user remains restoring while validating tokens")
+    func primedCachedUserRemainsRestoringWhileValidatingTokens() {
+        let user = CMUXAuthUser(
+            id: "user_123",
+            primaryEmail: "user@example.com",
+            displayName: "Test User",
+            profileImageURL: "https://example.com/avatar.png"
+        )
         let state = CMUXAuthState.primed(
             clearAuthRequested: false,
             mockDataEnabled: false,
@@ -135,7 +142,7 @@ struct CMUXAuthStateTests {
 
         #expect(state.isAuthenticated)
         #expect(state.currentUser == user)
-        #expect(!state.isRestoringSession)
+        #expect(state.isRestoringSession)
     }
 
     @Test("Primed state restores when tokens exist without a cached user")
@@ -188,7 +195,7 @@ struct CMUXAuthStateTests {
 
         #expect(state.isAuthenticated)
         #expect(state.currentUser == user)
-        #expect(!state.isRestoringSession)
+        #expect(state.isRestoringSession)
     }
 
     @Test("Primed state does not authenticate from cached user alone")

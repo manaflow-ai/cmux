@@ -27,35 +27,29 @@ extension Workspace {
     }
 
     @discardableResult
-    func performPortalPaneDrop(
+    func performPortalSurfaceDrop(
         tabId: UUID,
         sourcePaneId: UUID,
         targetPane paneId: PaneID,
         zone: DropZone
     ) -> Bool {
+        let transfer = PaneDragTransfer(
+            tabId: tabId, sourcePaneId: sourcePaneId,
+            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
+        )
+        guard canPerformPortalSurfaceDrop(transfer) else { return false }
         let sourcePane = PaneID(id: sourcePaneId)
         if zone == .center, sourcePane == paneId {
             return true
         }
 
-        let destination: BonsplitController.ExternalTabDropRequest.Destination
-        switch zone {
-        case .center:
-            destination = .insert(targetPane: paneId, targetIndex: nil)
-        case .left:
-            destination = .split(targetPane: paneId, orientation: .horizontal, insertFirst: true)
-        case .right:
-            destination = .split(targetPane: paneId, orientation: .horizontal, insertFirst: false)
-        case .top:
-            destination = .split(targetPane: paneId, orientation: .vertical, insertFirst: true)
-        case .bottom:
-            destination = .split(targetPane: paneId, orientation: .vertical, insertFirst: false)
-        }
-
         return handleExternalTabDrop(BonsplitController.ExternalTabDropRequest(
             tabId: TabID(uuid: tabId),
             sourcePaneId: sourcePane,
-            destination: destination
+            destination: PaneDropRouting.destination(
+                targetPane: paneId,
+                zone: zone
+            )
         ))
     }
 }

@@ -1,0 +1,11 @@
+cmux przenosi Twoje agenty kodujące na telefon. Sparuj go z komputerem Mac z aplikacją cmux i obserwuj, jak agenty AI pracują w czasie rzeczywistym – otrzymuj powiadomienia push w chwili, gdy agent potrzebuje Twojej uwagi lub kończy zadanie, oraz odpowiadaj i uruchamiaj polecenia z dowolnego miejsca.
+
+cmux to terminal stworzony dla agentów kodujących: pionowe karty, pierścienie powiadomień gdy agent czeka na dane wejściowe, podzielone panele, wbudowana przeglądarka i skryptowalne CLI na komputerze. Aplikacja iOS to pilot do tego wszystkiego.
+
+- Terminal na żywo: strumieniuj przestrzenie robocze i terminale z Maca na telefon
+- Powiadomienia agentów: push w chwili, gdy agent zadaje pytanie lub kończy pracę
+- Odpowiadaj w drodze: wysyłaj dane wejściowe, uruchamiaj polecenia i przełączaj przestrzenie robocze z telefonu
+- Mowa na tekst: dyktuj do pola wiadomości
+- Bezpieczne parowanie: połącz się z własnym Makiem przez sieć lokalną lub przekaźnik
+
+Darmowe i open source. Wymaga Maca z aplikacją cmux (bezpłatnie na cmux.com).

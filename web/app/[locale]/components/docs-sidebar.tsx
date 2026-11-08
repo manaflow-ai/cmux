@@ -1,65 +1,88 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { Link, usePathname } from "../../../i18n/navigation";
-import { navItemsForLocale, isSection, type NavLink } from "./docs-nav-items";
-import { DocsSearch } from "./docs-search";
+import { usePathname } from "../../../i18n/navigation";
+import {
+  navItemsForLocale,
+  isSection,
+  type NavLink,
+} from "./docs-nav-items";
+import { DocsSearchTrigger } from "./docs-search-dialog";
+import { ContentLocaleLink } from "./content-locale-link";
+import { DocsVersionPicker } from "./docs-version-picker";
+import { docsChannelUrl, type DocsChannel } from "@/app/lib/docs-channel";
 
 function SidebarLink({
   item,
+  locale,
+  channel,
   pathname,
   onNavigate,
-  indent,
   t,
 }: {
   item: NavLink;
+  locale: string;
+  channel: DocsChannel;
   pathname: string;
   onNavigate?: () => void;
-  indent?: boolean;
   t: (key: string) => string;
 }) {
-  const active = pathname === item.href;
+  const active = docsChannelUrl("release", pathname) === item.href;
   return (
-    <Link
-      href={item.href}
+    <ContentLocaleLink
+      href={docsChannelUrl(channel, item.href)}
+      currentLocale={locale}
+      contentLocales={item.contentLocales}
       onClick={onNavigate}
-      className={`block py-1.5 text-[14px] rounded-md transition-colors ${
-        indent ? "px-5" : "px-3"
-      } ${
+      aria-current={active ? "page" : undefined}
+      className={`mb-px block rounded-xl py-1.5 pl-4 pr-3 text-[14px] leading-5 transition-colors ${
         active
-          ? "text-foreground font-medium bg-code-bg"
-          : "text-muted hover:text-foreground"
+          ? "bg-foreground/[0.06] font-medium text-foreground dark:bg-foreground/[0.09]"
+          : "text-foreground/70 hover:bg-foreground/[0.03] hover:text-foreground"
       }`}
     >
       {t(item.titleKey)}
-    </Link>
+    </ContentLocaleLink>
   );
 }
 
-export function DocsSidebar({ onNavigate }: { onNavigate?: () => void }) {
+export function DocsSidebar({
+  onNavigate,
+  onOpenSearch,
+  channel,
+}: {
+  onNavigate?: () => void;
+  onOpenSearch: () => void;
+  channel: "release" | "nightly";
+}) {
   const pathname = usePathname();
   const locale = useLocale();
   const t = useTranslations("docs.navItems");
-  const navItems = navItemsForLocale(locale);
+  const navItems = navItemsForLocale(locale, channel);
+  const releaseLabel = useTranslations("docs.api")("release");
+  const nightlyLabel = useTranslations("footer")("nightly");
 
   return (
     <>
-      <DocsSearch onNavigate={onNavigate} />
-      <nav className="space-y-0.5" data-pagefind-ignore="all">
+      <div className="pb-6">
+        <DocsSearchTrigger onOpen={onOpenSearch} />
+      </div>
+      <nav data-pagefind-ignore="all">
         {navItems.map((entry) => {
           if (isSection(entry)) {
             return (
-              <div key={entry.sectionKey} className="pt-5 pb-2 first:pt-0">
-                <div className="px-3 pb-1 text-[12px] font-medium text-muted tracking-wider">
+              <div key={entry.sectionKey} className="pt-8 first:pt-0">
+                <div className="pb-2.5 pl-4 text-[12px] font-semibold leading-4 text-foreground">
                   {t(entry.sectionKey)}
                 </div>
                 {entry.children.map((child) => (
                   <SidebarLink
                     key={child.href}
                     item={child}
+                    locale={locale}
+                    channel={channel}
                     pathname={pathname}
                     onNavigate={onNavigate}
-                    indent
                     t={t}
                   />
                 ))}
@@ -70,6 +93,8 @@ export function DocsSidebar({ onNavigate }: { onNavigate?: () => void }) {
             <SidebarLink
               key={entry.href}
               item={entry}
+              locale={locale}
+              channel={channel}
               pathname={pathname}
               onNavigate={onNavigate}
               t={t}
@@ -77,6 +102,11 @@ export function DocsSidebar({ onNavigate }: { onNavigate?: () => void }) {
           );
         })}
       </nav>
+      <DocsVersionPicker
+        channel={channel}
+        releaseLabel={releaseLabel}
+        nightlyLabel={nightlyLabel}
+      />
     </>
   );
 }

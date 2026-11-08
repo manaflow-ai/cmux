@@ -22,6 +22,9 @@ public struct StackAuthError: StackAuthErrorProtocol {
         self.message = message
         self.details = details
     }
+
+    /// `details` key holding a 429 response's `Retry-After`, in seconds.
+    public static let retryAfterSecondsKey = "retry_after_seconds"
 }
 
 // MARK: - Specific Error Types
@@ -35,9 +38,17 @@ public struct EmailPasswordMismatchError: StackAuthErrorProtocol {
 
 public struct UserWithEmailAlreadyExistsError: StackAuthErrorProtocol {
     public let code = "USER_EMAIL_ALREADY_EXISTS"
-    public let message = "A user with this email address already exists."
-    public let details: [String: Any]? = nil
+    public let message: String
+    public let details: [String: Any]?
     public var description: String { "UserWithEmailAlreadyExistsError: \(message)" }
+
+    public init(
+        message: String = "A user with this email address already exists.",
+        details: [String: Any]? = nil
+    ) {
+        self.message = message
+        self.details = details
+    }
 }
 
 public struct PasswordRequirementsNotMetError: StackAuthErrorProtocol {
@@ -149,7 +160,7 @@ extension StackAuthError {
         case "EMAIL_PASSWORD_MISMATCH":
             return EmailPasswordMismatchError()
         case "USER_EMAIL_ALREADY_EXISTS":
-            return UserWithEmailAlreadyExistsError()
+            return UserWithEmailAlreadyExistsError(message: message, details: details)
         case "PASSWORD_REQUIREMENTS_NOT_MET":
             return PasswordRequirementsNotMetError()
         case "USER_NOT_FOUND":

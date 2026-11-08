@@ -69,4 +69,52 @@ import Testing
         #expect(first !== second)
         #expect(second.id == .init(rawValue: "surface-2"))
     }
+
+    // MARK: - "On iPhone" streamed tabs
+
+    @Test func onDeviceTabRestoresThePhonePageNotTheMacTabURL() {
+        let store = makeStore()
+        let mac = URL(string: "http://localhost:8765/")
+        let first = store.openOnDevice(for: "ws-1", panelID: "panel-1", url: mac)
+        #expect(first.linkedStreamPanelID == "panel-1")
+        #expect(first.consumeLoadRequest() == mac)
+        // The phone navigates on its own.
+        first.currentURL = URL(string: "https://example.com/")
+        #expect(store.prefersOnDevice(panelID: "panel-1"))
+
+        // Leaving for a terminal closes the pane; coming back reveals the
+        // same surface, whose page is the phone's, and loads nothing new.
+        store.closeBrowser(for: "ws-1")
+        let again = store.openOnDevice(for: "ws-1", panelID: "panel-1", url: mac)
+        #expect(again === first)
+        #expect(again.consumeLoadRequest() == nil)
+        #expect(again.currentURL?.absoluteString == "https://example.com/")
+        #expect(store.activeBrowser(for: "ws-1") === first)
+    }
+
+    @Test func onDeviceSurfacesAreScopedPerStreamedTab() {
+        let store = makeStore()
+        let a = store.openOnDevice(for: "ws-1", panelID: "panel-a", url: URL(string: "https://a.test/"))
+        let b = store.openOnDevice(for: "ws-1", panelID: "panel-b", url: URL(string: "https://b.test/"))
+        #expect(a !== b)
+        #expect(store.activeBrowser(for: "ws-1") === b)
+        #expect(store.openOnDevice(for: "ws-1", panelID: "panel-a", url: nil) === a)
+    }
+
+    @Test func forgettingOnDeviceStartsOverFromTheMacTab() {
+        let store = makeStore()
+        let first = store.openOnDevice(for: "ws-1", panelID: "panel-1", url: URL(string: "https://mac.test/"))
+        store.forgetOnDevice(panelID: "panel-1")
+        store.closeBrowser(for: "ws-1")
+        #expect(store.prefersOnDevice(panelID: "panel-1") == false)
+        let next = store.openOnDevice(for: "ws-1", panelID: "panel-1", url: URL(string: "https://mac.test/b"))
+        #expect(next !== first)
+        #expect(next.consumeLoadRequest()?.absoluteString == "https://mac.test/b")
+    }
+
+    @Test func onDeviceTabWithoutAWebPageLoadsTheDefault() {
+        let store = makeStore()
+        let surface = store.openOnDevice(for: "ws-1", panelID: "panel-1", url: URL(string: "about:blank"))
+        #expect(surface.consumeLoadRequest()?.absoluteString == "https://duckduckgo.com/")
+    }
 }

@@ -21,6 +21,9 @@ public protocol NotificationNavigationStoreReading: AnyObject {
     /// Mirrors `notificationStore.workspaceUnreadIndicatorIds`.
     var workspaceUnreadIndicatorIds: Set<UUID> { get }
 
+    /// Surface-scoped unread targets owned by per-window Docks.
+    var windowDockUnreadTargets: [WindowDockUnreadTarget] { get }
+
     /// Whether the workspace carries a manually-set unread indicator.
     func hasManualUnread(forTabId tabId: UUID) -> Bool
 
@@ -29,4 +32,7 @@ public protocol NotificationNavigationStoreReading: AnyObject {
 
     /// Marks the single notification read after a successful open.
     func markRead(id: UUID)
+
+    /// Clears only the opened per-window Dock surface's manual unread state.
+    func clearWindowDockUnread(_ target: WindowDockUnreadTarget)
 }

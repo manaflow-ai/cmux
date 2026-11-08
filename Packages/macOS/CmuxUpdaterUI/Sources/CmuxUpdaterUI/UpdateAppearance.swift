@@ -27,11 +27,11 @@ public struct UpdateAppearance: Sendable {
             return .secondary
         case .permissionRequest:
             return .white
-        case .checking:
+        case .preparingCheck, .checking:
             return .secondary
         case .updateAvailable:
             return accent
-        case .downloading, .extracting, .installing:
+        case .startingDownload, .downloading, .extracting, .installing:
             return .secondary
         case .notFound:
             return .secondary

@@ -1,0 +1,57 @@
+id = "cursor"
+version = "2026.08.03.1"
+min_engine_version = 1
+updated_at = "2026-08-03T01:08:04Z"
+aliases = ["cursor-agent"]
+
+[[rules]]
+id = "write_file_approval"
+state = "blocked"
+priority = 320
+region = "bottom_non_empty_lines(8)"
+visible_blocker = true
+contains = ["write to this file?", "proceed (y)"]
+any = [
+  { contains = ["reject & propose changes"] },
+  { contains = ["esc or n or p"] },
+  { contains = ["add write("] },
+]
+
+[[rules]]
+id = "approval_prompt"
+state = "blocked"
+priority = 300
+region = "whole_recent"
+visible_blocker = true
+any = [
+  { contains = ["waiting for approval", "run this command?"], any = [{ contains = ["run (once) (y)"] }, { contains = ["skip (esc or n)"] }] },
+  { contains = ["(y) (enter)"] },
+  { line_regex = ['(?i)^\s*allow .*\(y\)'] },
+  { contains = ["keep (n)"] },
+  { contains = ["skip (esc or n)"] },
+  { line_regex = ['(?i)^\s*(?:→\s*)?run .*\(y\)'] },
+]
+
+[[rules]]
+id = "stop_hint_working"
+state = "working"
+priority = 100
+region = "bottom_non_empty_lines(6)"
+visible_working = true
+contains = ["ctrl+c to stop"]
+
+[[rules]]
+id = "background_task_status_working"
+state = "working"
+priority = 95
+region = "bottom_non_empty_lines(5)"
+visible_working = true
+line_regex = ['(?i)\b[1-9][0-9]*\s+background\s+tasks?\b']
+
+[[rules]]
+id = "spinner_working"
+state = "working"
+priority = 90
+region = "bottom_non_empty_lines(8)"
+visible_working = true
+line_regex = ['^\s*(⬡|⬢|[\u2800-\u28FF]+)\s+\p{Alphabetic}+\w*ing\b']

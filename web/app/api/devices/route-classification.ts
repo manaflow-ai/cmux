@@ -195,49 +195,43 @@ export function routesContainLoopback(routes: unknown[]): boolean {
 }
 
 /**
- * Whether `host` is a Tailscale address a signed-in phone can authenticate to:
- * a CGNAT `100.64.0.0/10` IP or a `*.ts.net` MagicDNS name. Mirrors the native
- * `MobileShellRouteAuthPolicy` (and the CLI's `RemoteRouteSpec.isTailscaleAttachable`).
- * iOS only sends the Stack token over a `.tailscale` route whose host matches
- * this, so any other host registers but fails to attach (`insecureManualRoute`).
+ * Whether `host` is a numeric Tailscale peer address a signed-in phone can
+ * authenticate to. MagicDNS is deliberately excluded: the macOS add boundary
+ * must bind a `*.ts.net` input to one exact local Tailscale status record and
+ * submit its numeric address. This keeps DNS out of the bearer transport and
+ * makes direct API submissions fail closed.
  */
 export function hostIsTailscaleAttachable(rawHost: string): boolean {
   const host = rawHost.trim().toLowerCase();
-  // A *.ts.net MagicDNS name, but only when the whole string is a syntactically
-  // valid DNS hostname (labels of letters/digits/hyphens, dot-separated, no
-  // scheme, spaces, port, or path). A loose suffix check would accept junk like
-  // "bad host.ts.net" or "https://mac.ts.net" that the phone cannot dial.
-  if (host.endsWith(".ts.net") && isValidDnsHostname(host)) return true;
   const parts = host.split(".");
-  if (parts.length !== 4) return false;
-  const octets: number[] = [];
-  for (const part of parts) {
-    // Canonical dotted decimal only: a single 0, or a non-zero leading digit.
-    // Rejects leading-zero spellings like `0100` that inet_aton would read as
-    // octal (so a route this gate marks Tailscale-safe could dial elsewhere
-    // while the phone still sends the Stack token).
-    if (!/^(0|[1-9][0-9]*)$/.test(part)) return false;
-    const value = Number(part);
-    if (value < 0 || value > 255) return false;
-    octets.push(value);
+  if (parts.length === 4) {
+    const octets: number[] = [];
+    for (const part of parts) {
+      // Canonical dotted decimal only: a single 0, or a non-zero leading digit.
+      if (!/^(0|[1-9][0-9]*)$/.test(part)) return false;
+      const value = Number(part);
+      if (value < 0 || value > 255) return false;
+      octets.push(value);
+    }
+    if (octets[0] !== 100 || octets[1] < 64 || octets[1] > 127) return false;
+    // Tailscale-reserved local service and test ranges are not peer nodes.
+    if (octets[1] === 100 && (octets[2] === 0 || octets[2] === 100)) return false;
+    if (octets[1] === 115 && (octets[2] === 92 || octets[2] === 93)) return false;
+    return true;
   }
-  return octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127;
-}
 
-/** A syntactically valid DNS hostname: 1-253 chars, dot-separated labels of
- * 1-63 chars using letters/digits/hyphens, no leading/trailing hyphen per label. */
-function isValidDnsHostname(host: string): boolean {
-  if (host.length === 0 || host.length > 253) return false;
-  const labels = host.split(".");
-  for (const label of labels) {
-    if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) return false;
-  }
-  return true;
+  const ipv6 = parseIPv6Bytes(host);
+  if (!ipv6) return false;
+  const tailscalePrefix = [0xfd, 0x7a, 0x11, 0x5c, 0xa1, 0xe0];
+  if (!tailscalePrefix.every((byte, index) => ipv6[index] === byte)) return false;
+  // `fd7a:115c:a1e0::53` is the local MagicDNS service, not a peer.
+  const isMagicDNS = ipv6.slice(6, 15).every((byte) => byte === 0) && ipv6[15] === 0x53;
+  return !isMagicDNS;
 }
 
 /**
  * Whether any host:port route has a host that is NOT attachable from the phone
- * (not a Tailscale CGNAT/`*.ts.net` host). The server-side guard for manual
+ * (not a numeric Tailscale IPv4/IPv6 peer). The server-side guard for manual
  * remotes so a direct API caller cannot register a remote that shows in the
  * device list but deterministically fails to attach, matching the CLI/app check.
  * Non-host routes (peer/url) and routes without a host are ignored here; the
@@ -256,7 +250,7 @@ export function routesContainNonAttachableHost(routes: unknown[]): boolean {
 /**
  * Whether `routes` is a valid set of manual attach routes: a non-empty array
  * where every entry is a `tailscale` host:port route with a 1-65535 port and a
- * Tailscale-attachable host. The full server-side schema check for the manual
+ * numeric Tailscale peer host. The full server-side schema check for the manual
  * (`cmux remotes add`) path, mirroring the CLI's `RemoteRouteSpec`. Without it a
  * direct API caller could POST `manual: true` with an empty array or a `port: 0`
  * / wrong-kind route that stores but cannot be used, reintroducing the

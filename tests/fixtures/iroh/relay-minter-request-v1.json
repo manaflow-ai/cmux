@@ -1,0 +1,6 @@
+{
+  "path": "/api/relay-token",
+  "timestamp": "1783641600",
+  "body": "{\"endpointId\":\"a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0\",\"lifetimeSeconds\":86400}",
+  "signature": "U7P9cSbpQMrtmshYTTuBALTsDhGwxWqTG4mIdlqgX4c"
+}

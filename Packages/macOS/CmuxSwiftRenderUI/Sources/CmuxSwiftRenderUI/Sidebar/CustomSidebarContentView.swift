@@ -19,6 +19,7 @@ public struct CustomSidebarContentView: View {
     private let hasRenderedSwift: Bool
     private let dispatch: SidebarActionDispatch
     private let contentInsets: CustomSidebarContentInsets
+    private let dataContext: [String: SwiftValue]
 
     /// Creates the sidebar presentation for a loaded file state.
     ///
@@ -36,13 +37,15 @@ public struct CustomSidebarContentView: View {
         swiftRender: RenderNode?,
         hasRenderedSwift: Bool,
         dispatch: SidebarActionDispatch,
-        contentInsets: CustomSidebarContentInsets
+        contentInsets: CustomSidebarContentInsets,
+        dataContext: [String: SwiftValue] = [:]
     ) {
         self.state = state
         self.swiftRender = swiftRender
         self.hasRenderedSwift = hasRenderedSwift
         self.dispatch = dispatch
         self.contentInsets = contentInsets
+        self.dataContext = dataContext
     }
 
     public var body: some View {
@@ -86,6 +89,11 @@ public struct CustomSidebarContentView: View {
                 // the error state before the interpreter has answered.
                 scrollWrap(Color.clear.frame(height: 1))
             }
+        case let .jsSource(source):
+            // The reactive JS runtime: program runs once, data flows as
+            // per-key diffs, and rows keep stable identity (so the
+            // Reorderable drag survives live data updates).
+            scrollWrap(JSSidebarHostView(source: source, dataContext: dataContext, dispatch: dispatch))
         case let .failed(message):
             scrollWrap(errorView(message))
         }
@@ -102,7 +110,9 @@ public struct CustomSidebarContentView: View {
         ScrollView {
             view
                 .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(.horizontal, 12)
+                // Narrow gutter so rows run nearly edge to edge (the native
+                // sidebar look); authors add their own inner padding.
+                .padding(.horizontal, 6)
                 .padding(.top, 8)
                 .padding(.bottom, 16)
         }

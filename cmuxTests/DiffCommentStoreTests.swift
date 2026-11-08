@@ -1,3 +1,4 @@
+import CmuxDiffComments
 import Foundation
 import XCTest
 

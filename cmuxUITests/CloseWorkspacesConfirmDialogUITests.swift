@@ -24,8 +24,8 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
         super.tearDown()
     }
 
-    func testCommandPaletteCloseOtherWorkspacesShowsSingleSummaryDialog() {
-        let app = XCUIApplication()
+    func testCommandPaletteCloseOtherWorkspacesKeepsControlsVisibleAndScrollsDetails() {
+        let app = XCUIApplication.cmuxTestApplication()
         configureSocketLaunchEnvironment(app)
         app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launch()
@@ -38,11 +38,13 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
             "Expected control socket to respond at \(socketPath). diagnostics=\(loadJSON(atPath: diagnosticsPath) ?? [:])"
         )
 
-        XCTAssertEqual(socketCommand("new_workspace")?.prefix(2), "OK")
-        XCTAssertEqual(socketCommand("new_workspace")?.prefix(2), "OK")
+        let workspaceCount = 48
+        for _ in 1..<workspaceCount {
+            XCTAssertEqual(socketCommand("new_workspace")?.prefix(2), "OK")
+        }
         XCTAssertTrue(
-            waitForWorkspaceCount(3, timeout: 5.0),
-            "Expected 3 workspaces before running the close-other-workspaces command. list=\(socketCommand("list_workspaces") ?? "<nil>")"
+            waitForWorkspaceCount(workspaceCount, timeout: 12.0),
+            "Expected \(workspaceCount) workspaces before running the close-other-workspaces command. list=\(socketCommand("list_workspaces") ?? "<nil>")"
         )
         XCTAssertEqual(socketCommand("select_workspace 1"), "OK")
 
@@ -64,6 +66,10 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
             waitForCloseWorkspacesAlert(app: app, timeout: 5.0),
             "Expected a single aggregated close-workspaces alert"
         )
+        let dialog = closeWorkspacesDialog(app: app)
+        XCTAssertTrue(dialog.scrollViews["CmuxAlertScrollableDetails"].waitForExistence(timeout: 3.0))
+        XCTAssertTrue(dialog.buttons["Close"].isHittable, "Close must remain visible above the screen edge")
+        XCTAssertTrue(dialog.buttons["Cancel"].isHittable, "Cancel must remain visible above the screen edge")
 
         clickCancelOnCloseWorkspacesAlert(app: app)
 
@@ -72,13 +78,13 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
             "Expected aggregated close-workspaces alert to dismiss after clicking Cancel"
         )
         XCTAssertTrue(
-            waitForWorkspaceCount(3, timeout: 5.0),
+            waitForWorkspaceCount(workspaceCount, timeout: 5.0),
             "Expected all workspaces to remain after cancelling multi-close. list=\(socketCommand("list_workspaces") ?? "<nil>")"
         )
     }
 
     func testCmdShiftWUsesSidebarMultiSelectionSummaryDialog() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureSocketLaunchEnvironment(app)
         app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SIDEBAR_SELECTED_WORKSPACE_INDICES"] = "0,1"
@@ -118,7 +124,7 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
     }
 
     func testCmdShiftWCloseWorkspacesPromptIsWindowModalSheet() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let recorderPath = "/tmp/cmux-ui-test-close-workspaces-presentation-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: recorderPath)
         configureSocketLaunchEnvironment(app)

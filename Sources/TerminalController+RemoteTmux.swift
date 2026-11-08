@@ -1,4 +1,7 @@
+import CmuxCloud
 import Foundation
+import CmuxControlSocket
+import os
 
 /// Socket/CLI handlers for the remote-tmux (`ssh … tmux -CC`) beta feature.
 ///
@@ -12,10 +15,16 @@ extension TerminalController {
     /// Params: `host` (required SSH destination/alias), optional `port` (Int),
     /// optional `identity_file` (String).
     nonisolated func v2RemoteTmuxSessions(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
         guard let host = Self.remoteTmuxHost(from: params) else {
+            if let brokerFailure = Self.remoteTmuxBrokerFailureMessage(from: params) {
+                return v2Error(id: id, code: "invalid_params", message: brokerFailure)
+            }
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
         return v2VmCall(id: id, timeoutSeconds: 30) {
@@ -23,7 +32,21 @@ extension TerminalController {
             else {
                 throw RemoteTmuxError.unreachable("app not ready")
             }
-            let sessions = try await controller.listSessions(host: host)
+            let sessions: [RemoteTmuxSession]
+            do {
+                sessions = try await controller.listSessions(host: host)
+            } catch let error as RemoteTmuxError {
+                if case .commandFailed(_, let stderr) = error,
+                   RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr),
+                   host.transportProfile.authenticationIsSSHShaped {
+                    return [
+                        "host": host.destination,
+                        "auth_required": true,
+                        "ssh_argv": host.interactiveAuthInvocation(),
+                    ]
+                }
+                throw error
+            }
             return [
                 "host": host.destination,
                 "sessions": sessions.map { Self.sessionPayload($0) },
@@ -38,7 +61,12 @@ extension TerminalController {
     /// destination is never a legitimate SSH alias/`user@host`, and refusing it
     /// at the trust boundary is defense in depth against ssh option injection
     /// (`-oProxyCommand=…` → local command execution).
-    nonisolated static func remoteTmuxHost(from params: [String: Any]) -> RemoteTmuxHost? {
+    nonisolated static func remoteTmuxHost(
+        from params: [String: Any],
+        selectBroker: (String?) -> RemoteTmuxBrokerSelection = {
+            RemoteTmuxBrokerSnapshot.shared.select(requestedName: $0)
+        }
+    ) -> RemoteTmuxHost? {
         guard let destination = (params["host"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !destination.isEmpty,
@@ -54,11 +82,138 @@ extension TerminalController {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let identityFile, identityFile.hasPrefix("-") { return nil }
         if let identityFile, Self.remoteTmuxValueHasHiddenCharacter(identityFile) { return nil }
+        // A closed set, so an unknown transport is refused here rather than producing a
+        // host nothing can spawn.
+        guard let transport = RemoteTmuxTransportKind.parse(params["transport"] as? String) else {
+            return nil
+        }
+        // The transport's own port, kept apart from ssh's: one-shots still ride ssh.
+        let transportPort = params["transport_port"] as? Int
+        if let transportPort, !(1...65535).contains(transportPort) { return nil }
+        guard remoteTmuxHelperPathFailureMessage(from: params) == nil else { return nil }
+        let transportHelperPath = params["transport_helper_path"] as? String
+        // A broker is chosen BY NAME from what the user declared under `remoteTmux.brokers`, never
+        // described inline here. The socket is reachable by anything running as the user, so taking
+        // an executable and its arguments from a parameter would be a wider local-execution surface
+        // than the `-oProxyCommand=…` injection the checks above exist to refuse.
+        //
+        // A name that cannot be resolved refuses the host. Falling back to a direct connection would
+        // reach the host by a route the user did not ask for, and the eventual failure would point at
+        // the network instead of at the typo. ``remoteTmuxBrokerFailureMessage(from:)`` turns that
+        // refusal into an error that says which of the three things went wrong.
+        let broker: RemoteTmuxTransportBroker?
+        switch selectBroker(params["transport_broker"] as? String) {
+        case .none:
+            broker = nil
+        case .resolved(let resolved):
+            // A broker only means anything to a transport that uses one. ssh deliberately ignores it
+            // (ssh_config already has ProxyCommand/ProxyJump), so accepting the request here would
+            // connect straight to the host — the exact "route the user did not choose" this boundary
+            // refuses two paragraphs up, just arrived at by agreeing instead of by defaulting. And
+            // since `transport` defaults to ssh, `--broker <name>` with no `--transport et` would hit
+            // it. Refuse instead, and say which part disagreed.
+            guard transport.usesTransportBroker, transportHelperPath == nil else { return nil }
+            broker = resolved
+        case .unknown, .unusable, .malformed:
+            return nil
+        }
         return RemoteTmuxHost(
             destination: destination,
             port: port,
-            identityFile: (identityFile?.isEmpty == false) ? identityFile : nil
+            identityFile: (identityFile?.isEmpty == false) ? identityFile : nil,
+            transport: transport,
+            transportPort: transportPort,
+            transportBroker: broker,
+            transportHelperPath: transportHelperPath
         )
+    }
+
+    /// Why a broker request was refused, or nil when none was made or it resolved.
+    ///
+    /// Three refusals with three different fixes, so they get three different messages: a name
+    /// nobody declared is a typo or a missing entry, a declared-but-unusable one is a path to
+    /// correct, and a name carrying hidden characters never could have matched a config key.
+    /// Collapsing them into "host is required" sent people looking at the wrong parameter.
+    nonisolated static func remoteTmuxBrokerFailureMessage(
+        from params: [String: Any],
+        selectBroker: (String?) -> RemoteTmuxBrokerSelection = {
+            RemoteTmuxBrokerSnapshot.shared.select(requestedName: $0)
+        }
+    ) -> String? {
+        // Two refusals that are not about a broker reach the caller the same way, as a host that
+        // could not be built. Without a message of their own they were reported as a missing host.
+        if let requested = params["transport"] as? String, RemoteTmuxTransportKind.parse(requested) == nil {
+            return String(
+                localized: "socket.remoteTmux.transportUnknown",
+                defaultValue: "transport is not one cmux knows; use ssh or et"
+            )
+        }
+        if let transportPort = params["transport_port"] as? Int, !(1...65535).contains(transportPort) {
+            return String(
+                localized: "socket.remoteTmux.transportPortOutOfRange",
+                defaultValue: "transport_port must be between 1 and 65535"
+            )
+        }
+        if let failure = remoteTmuxHelperPathFailureMessage(from: params) { return failure }
+        switch selectBroker(params["transport_broker"] as? String) {
+        case .none:
+            return nil
+        case .resolved:
+            // The name resolved, but a transport that ignores brokers must not accept one silently —
+            // see the refusal in `remoteTmuxHost(from:)`. Naming the transport is the useful part of
+            // the message: the likeliest cause is `--broker` without `--transport et`.
+            guard let transport = RemoteTmuxTransportKind.parse(params["transport"] as? String) else {
+                return nil
+            }
+            if transport.usesTransportBroker, params["transport_helper_path"] != nil {
+                return String(
+                    localized: "socket.remoteTmux.transportHelperPathBrokerConflict",
+                    defaultValue: "transport_helper_path cannot be used with a broker; the broker supplies the remote helper"
+                )
+            }
+            guard !transport.usesTransportBroker else { return nil }
+            return String(
+                localized: "socket.remoteTmux.brokerNotUsedByTransport",
+                defaultValue: "the '\(transport.rawValue)' transport does not use a broker; pass --transport et to connect through one"
+            )
+        case .unknown(let name):
+            return String(
+                localized: "socket.remoteTmux.brokerUnknown",
+                defaultValue: "no broker named '\(name)' is declared under remoteTmux.brokers in cmux.json"
+            )
+        case .unusable(let name, let reason):
+            return String(
+                localized: "socket.remoteTmux.brokerUnusable",
+                defaultValue: "broker '\(name)' is declared but cannot be used: \(reason)"
+            )
+        case .malformed(let reason):
+            return String(
+                localized: "socket.remoteTmux.brokerMalformed",
+                defaultValue: "transport_broker is not a usable name: \(reason)"
+            )
+        }
+    }
+
+    /// Validate the transport helper once for every socket entrypoint, preserving
+    /// the exact path instead of silently trimming a meaningful filename space.
+    nonisolated static func remoteTmuxHelperPathFailureMessage(from params: [String: Any]) -> String? {
+        guard let rawPath = params["transport_helper_path"] else { return nil }
+        guard let path = rawPath as? String,
+              path.hasPrefix("/"),
+              !RemoteTmuxBrokerRegistry.hasHiddenCharacter(path)
+        else {
+            return String(
+                localized: "socket.remoteTmux.transportHelperPathInvalid",
+                defaultValue: "transport_helper_path must be an absolute path without control or hidden characters"
+            )
+        }
+        guard RemoteTmuxTransportKind.parse(params["transport"] as? String)?.supportsTransportHelperPath == true else {
+            return String(
+                localized: "socket.remoteTmux.transportHelperPathUnsupported",
+                defaultValue: "transport_helper_path is not supported by the selected transport"
+            )
+        }
+        return nil
     }
 
     /// Rejects control / format / separator scalars in an SSH destination or
@@ -83,16 +238,26 @@ extension TerminalController {
     /// Params: `host` (required), `session` (required tmux session name),
     /// optional `create` (Bool — attach-or-create). Returns the control surface id.
     nonisolated func v2RemoteTmuxAttach(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
         guard let host = Self.remoteTmuxHost(from: params) else {
+            if let brokerFailure = Self.remoteTmuxBrokerFailureMessage(from: params) {
+                return v2Error(id: id, code: "invalid_params", message: brokerFailure)
+            }
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
-        guard let session = Self.remoteTmuxSessionName(from: params) else {
+        let createIfMissing = (params["create"] as? Bool) ?? false
+        guard let session = Self.remoteTmuxSessionName(
+            from: params,
+            transport: host.transport,
+            mode: .forCreateIfMissing(createIfMissing)
+        ) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.sessionRequired", defaultValue: "session is required"))
         }
-        let createIfMissing = (params["create"] as? Bool) ?? false
         return v2VmCall(id: id, timeoutSeconds: 60) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController }) else {
                 throw RemoteTmuxError.unreachable("app not ready")
@@ -117,61 +282,52 @@ extension TerminalController {
         }
     }
 
-    /// `remote.tmux.mirror` — mirror every tmux session on a host as its own
-    /// sidebar workspace (windows become tabs). Params: `host` (required).
+    /// `remote.tmux.mirror` — mirror tmux sessions on a host as sidebar workspaces
+    /// in the resolved window. Params: `host` (required), optional `session` for
+    /// one exact session, `port`, `identity_file`, `activate`, `workspace_name`,
+    /// and routing selectors.
     nonisolated func v2RemoteTmuxMirror(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
         guard let host = Self.remoteTmuxHost(from: params) else {
+            if let brokerFailure = Self.remoteTmuxBrokerFailureMessage(from: params) {
+                return v2Error(id: id, code: "invalid_params", message: brokerFailure)
+            }
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
-        return v2VmCall(id: id, timeoutSeconds: 30) {
+        let activate = Self.remoteTmuxActivate(from: params)
+        let workspaceName = Self.remoteTmuxWorkspaceName(from: params)
+        let sessionName = Self.remoteTmuxSessionName(from: params, transport: host.transport)
+        if params["session"] != nil, sessionName == nil {
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.sessionRequired", defaultValue: "session is required"))
+        }
+        let routing = remoteTmuxRouting(from: params)
+        return v2VmCall(id: id, timeoutSeconds: RemoteTmuxController.attachSocketTimeoutSeconds) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
             else {
                 throw RemoteTmuxError.unreachable("app not ready")
             }
-            try await controller.mirrorHost(host: host)
-            return ["host": host.destination, "mirrored": true]
-        }
-    }
-
-    /// `remote.tmux.window` — open a dedicated cmux window mirroring every tmux
-    /// session on a host (the `cmux ssh-tmux` CLI entry point).
-    ///
-    /// Params: `host` (required), optional `port` (Int), optional `identity_file`
-    /// (String), optional `activate` (Bool, default `true`).
-    ///
-    /// Returns `{mirrored: true, window_id}` on success, or
-    /// `{auth_required: true, ssh_argv: […]}` when the host needs interactive
-    /// authentication. cmux's control client uses plain pipes and cannot prompt,
-    /// so the CLI runs `ssh_argv` in the user's terminal (where the tty makes
-    /// password / host-key / MFA / FIDO prompts work) to open the shared
-    /// ControlMaster, then re-issues this command — which now succeeds by
-    /// multiplexing over the authenticated master.
-    nonisolated func v2RemoteTmuxWindow(id: Any?, params: [String: Any]) -> String {
-        guard RemoteTmuxController.isEnabled else {
-            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
-        }
-        guard let host = Self.remoteTmuxHost(from: params) else {
-            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
-        }
-        let activate = (params["activate"] as? Bool) ?? true
-        // 60s (the CLI waits longer still) so a slow-but-valid BatchMode probe
-        // completes instead of the app timing out first and turning an
-        // auth-required result into an opaque timeout error.
-        return v2VmCall(id: id, timeoutSeconds: 60) {
-            guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
-            else {
-                throw RemoteTmuxError.unreachable("app not ready")
+            let windowTarget = await MainActor.run {
+                self.remoteTmuxAttachWindowTarget(routing: routing)
             }
-            let outcome = try await controller.mirrorHostInNewWindow(host: host, activateWindow: activate)
+            let outcome = try await controller.attachHost(
+                host: host,
+                windowTarget: windowTarget,
+                activate: activate,
+                workspaceName: workspaceName,
+                sessionName: sessionName
+            )
             switch outcome {
-            case .mirrored(let windowId):
+            case .mirrored(let windowId, let workspaceIds):
                 return [
                     "host": host.destination,
                     "mirrored": true,
                     "window_id": windowId.uuidString,
+                    "workspace_ids": workspaceIds.map(\.uuidString),
                 ]
             case .authRequired(let sshArgv):
                 return [
@@ -183,14 +339,113 @@ extension TerminalController {
         }
     }
 
-    /// `remote.tmux.detach` — detach a control client (leaves the remote session alive).
+    /// `remote.tmux.window` — mirror every tmux session on a host into a
+    /// dedicated new window. Params: `host` (required), optional `port`,
+    /// `identity_file`, `activate`, and `workspace_name`.
+    nonisolated func v2RemoteTmuxWindow(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
+        guard RemoteTmuxController.isEnabled else {
+            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+        }
+        guard let host = Self.remoteTmuxHost(from: params) else {
+            if let brokerFailure = Self.remoteTmuxBrokerFailureMessage(from: params) {
+                return v2Error(id: id, code: "invalid_params", message: brokerFailure)
+            }
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
+        }
+        let activate = Self.remoteTmuxActivate(from: params)
+        let workspaceName = Self.remoteTmuxWorkspaceName(from: params)
+        let sessionName = Self.remoteTmuxSessionName(from: params, transport: host.transport)
+        if params["session"] != nil, sessionName == nil {
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.sessionRequired", defaultValue: "session is required"))
+        }
+        return v2VmCall(id: id, timeoutSeconds: RemoteTmuxController.attachSocketTimeoutSeconds) {
+            guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
+            else {
+                throw RemoteTmuxError.unreachable("app not ready")
+            }
+            let outcome = try await controller.attachHost(
+                host: host,
+                windowTarget: .dedicatedNewWindow,
+                activate: activate,
+                workspaceName: workspaceName,
+                sessionName: sessionName
+            )
+            switch outcome {
+            case .mirrored(let windowId, let workspaceIds):
+                return [
+                    "host": host.destination,
+                    "mirrored": true,
+                    "window_id": windowId.uuidString,
+                    "workspace_ids": workspaceIds.map(\.uuidString),
+                ]
+            case .authRequired(let sshArgv):
+                return [
+                    "host": host.destination,
+                    "auth_required": true,
+                    "ssh_argv": sshArgv,
+                ]
+            }
+        }
+    }
+
+    nonisolated func remoteTmuxRouting(from params: [String: Any]) -> ControlRoutingSelectors {
+        ControlRoutingSelectors(
+            hasWindowIDParam: v2HasNonNullParam(params, "window_id"),
+            windowID: v2UUID(params, "window_id"),
+            groupID: v2UUID(params, "group_id"),
+            workspaceID: v2UUID(params, "workspace_id"),
+            surfaceID: v2UUID(params, "surface_id")
+                ?? v2UUID(params, "terminal_id")
+                ?? v2UUID(params, "tab_id"),
+            paneID: v2UUID(params, "pane_id")
+        )
+    }
+
+    private nonisolated static func remoteTmuxActivate(from params: [String: Any]) -> Bool {
+        (params["activate"] as? Bool) ?? false
+    }
+
+    /// `cmux ssh-tmux --name`; see
+    /// ``RemoteTmuxController/mirrorSession(host:sessionName:sessionId:into:customTitle:)``
+    /// for the cosmetic-only rationale.
+    private nonisolated static func remoteTmuxWorkspaceName(from params: [String: Any]) -> String? {
+        guard let raw = (params["workspace_name"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty
+        else { return nil }
+        return raw
+    }
+
+    @MainActor
+    func remoteTmuxAttachWindowTarget(
+        routing: ControlRoutingSelectors
+    ) -> RemoteTmuxAttachWindowTarget {
+        if routing.hasWindowIDParam {
+            return routing.windowID.map(RemoteTmuxAttachWindowTarget.explicitWindow)
+                ?? .unresolvedExplicitWindow
+        }
+        let preferredWindowID = resolveTabManager(routing: routing)
+            .flatMap { AppDelegate.shared?.windowId(for: $0) }
+        return .contextualWindow(preferredWindowID)
+    }
+
+    /// `remote.tmux.detach` — detach a control client and remove its mirror workspace;
+    /// leaves the remote session alive.
     nonisolated func v2RemoteTmuxDetach(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
         guard let host = Self.remoteTmuxHost(from: params),
               let session = Self.remoteTmuxSessionName(from: params)
         else {
+            if let brokerFailure = Self.remoteTmuxBrokerFailureMessage(from: params) {
+                return v2Error(id: id, code: "invalid_params", message: brokerFailure)
+            }
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostAndSessionRequired", defaultValue: "host and session are required"))
         }
         return v2VmCall(id: id, timeoutSeconds: 10) {
@@ -208,12 +463,18 @@ extension TerminalController {
     ///
     /// Diagnostics surface for verifying the ghostty → cmux event pipe end to end.
     nonisolated func v2RemoteTmuxState(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
         guard let host = Self.remoteTmuxHost(from: params),
               let session = Self.remoteTmuxSessionName(from: params)
         else {
+            if let brokerFailure = Self.remoteTmuxBrokerFailureMessage(from: params) {
+                return v2Error(id: id, code: "invalid_params", message: brokerFailure)
+            }
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostAndSessionRequired", defaultValue: "host and session are required"))
         }
         return v2VmCall(id: id, timeoutSeconds: 10) {
@@ -249,12 +510,223 @@ extension TerminalController {
         }
     }
 
+    /// `remote.tmux.attach_progress` — where a host's attach over the shared connection stands.
+    ///
+    /// `cmux ssh-tmux` asks this while its attach request is waiting, so a long login shows as a
+    /// login that is still running instead of a command that looks hung. Read-only, and it
+    /// reports only the phase and how long the transport has been quiet for the host the caller
+    /// names: nothing the transport printed, and no session or window names.
+    /// Result: `attaching` false when the host has no attach in progress, else `phase`
+    /// (`logging_in` or `in_tmux`), `quiet_seconds` and `quiet_limit_seconds`.
+    nonisolated func v2RemoteTmuxAttachProgress(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
+        guard RemoteTmuxController.isEnabled else {
+            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+        }
+        guard let host = Self.remoteTmuxHost(from: params) else {
+            if let brokerFailure = Self.remoteTmuxBrokerFailureMessage(from: params) {
+                return v2Error(id: id, code: "invalid_params", message: brokerFailure)
+            }
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
+        }
+        return v2VmCall(id: id, timeoutSeconds: 10) {
+            let report: (progress: RemoteTmuxAttachProgress, limits: RemoteTmuxAttachProgress.QuietLimits)? =
+                await MainActor.run {
+                    guard let view = AppDelegate.shared?.remoteTmuxController
+                        .multiplexedViewsByHost[host.connectionHash],
+                        view.workspaces.isEmpty,
+                        let progress = view.connection?.attachProgress()
+                    else { return nil }
+                    return (progress, view.attachQuietLimits)
+                }
+            guard let report else {
+                return ["host": host.destination, "attaching": false]
+            }
+            let limit = report.progress.phase == .loggingIn ? report.limits.loggingIn : report.limits.inTmux
+            return [
+                "host": host.destination,
+                "attaching": true,
+                "phase": report.progress.phase == .loggingIn ? "logging_in" : "in_tmux",
+                "quiet_seconds": Int(report.progress.quietFor.components.seconds),
+                "quiet_limit_seconds": Int(limit.components.seconds),
+            ]
+        }
+    }
+
+    /// `remote.tmux.pane_surfaces` — the tmux pane id → cmux surface id map for
+    /// EVERY mirrored window, single-pane windows included.
+    ///
+    /// Content oracles need this. Reading "the focused surface" cannot verify a
+    /// named pane: cmux does not follow tmux's active pane or current window
+    /// (see handleActivePaneChanged, and %session-window-changed is only
+    /// recorded), so a harness that runs `select-pane` and then reads the
+    /// focused surface silently reads whatever pane the app already showed —
+    /// and passes only when the two panes happen to share dimensions. With this
+    /// map a harness reads the exact pane's surface (`surface.read_text` with
+    /// `surface_id`) and compares it against that pane's `capture-pane`.
+    ///
+    /// Params: `host` (required), `session` (required).
+    nonisolated func v2RemoteTmuxPaneSurfaces(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
+        guard RemoteTmuxController.isEnabled else {
+            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+        }
+        guard let host = Self.remoteTmuxHost(from: params),
+              let session = Self.remoteTmuxSessionName(from: params)
+        else {
+            if let brokerFailure = Self.remoteTmuxBrokerFailureMessage(from: params) {
+                return v2Error(id: id, code: "invalid_params", message: brokerFailure)
+            }
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostAndSessionRequired", defaultValue: "host and session are required"))
+        }
+        return v2VmCall(id: id, timeoutSeconds: 10) {
+            let entries: [[String: Any]]? = await MainActor.run {
+                guard let mirror = AppDelegate.shared?.remoteTmuxController
+                    .sessionMirror(host: host, sessionName: session) else { return nil }
+                return mirror.paneSurfaceEntries()
+            }
+            guard let entries else {
+                return ["host": host.destination, "session": session, "mirrored": false]
+            }
+            return [
+                "host": host.destination,
+                "session": session,
+                "mirrored": true,
+                "panes": entries,
+            ]
+        }
+    }
+
+    /// `remote.tmux.pane_grids` — per mirrored window, each pane's
+    /// tmux-assigned dims (from the layout tree) next to the grid its ghostty
+    /// surface actually renders, plus the sizing state they converge toward
+    /// (summed grid, last requested client size, structure/correction
+    /// versions, remaining correction budget).
+    ///
+    /// Verification surface: a harness asserts renders match the assigned sizes through
+    /// this instead of reading pixels off screenshots. Params: `host`
+    /// (required), `session` (required).
+    nonisolated func v2RemoteTmuxPaneGrids(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
+        guard RemoteTmuxController.isEnabled else {
+            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+        }
+        guard let host = Self.remoteTmuxHost(from: params),
+              let session = Self.remoteTmuxSessionName(from: params)
+        else {
+            if let brokerFailure = Self.remoteTmuxBrokerFailureMessage(from: params) {
+                return v2Error(id: id, code: "invalid_params", message: brokerFailure)
+            }
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostAndSessionRequired", defaultValue: "host and session are required"))
+        }
+        return v2VmCall(id: id, timeoutSeconds: 10) {
+            let snapshots: [RemoteTmuxWindowMirror.SizingSnapshot]? = await MainActor.run {
+                AppDelegate.shared?.remoteTmuxController
+                    .sessionMirror(host: host, sessionName: session)?
+                    .sizingSnapshots()
+            }
+            guard let snapshots else {
+                return ["host": host.destination, "session": session, "mirrored": false]
+            }
+            return [
+                "host": host.destination,
+                "session": session,
+                "mirrored": true,
+                "windows": snapshots.map { Self.sizingSnapshotPayload($0) },
+            ]
+        }
+    }
+
+
+    /// Serializes one window's ``RemoteTmuxWindowMirror/SizingSnapshot`` for the
+    /// socket response. Per pane, `match` is present once the surface has a live
+    /// grid: true iff rendered == assigned in both dimensions.
+    nonisolated static func sizingSnapshotPayload(
+        _ snapshot: RemoteTmuxWindowMirror.SizingSnapshot
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "window_id": "@\(snapshot.windowId)",
+            "structure_version": snapshot.structureVersion,
+            "zoomed": snapshot.zoomed,
+            "base": ["cols": snapshot.baseCols, "rows": snapshot.baseRows],
+            "panes": snapshot.panes.map { pane -> [String: Any] in
+                var entry: [String: Any] = [
+                    "pane_id": "%\(pane.paneId)",
+                    "assigned": ["cols": pane.assignedCols, "rows": pane.assignedRows],
+                    "has_panel": pane.hasPanel,
+                ]
+                if let inWindow = pane.viewInWindow { entry["view_in_window"] = inWindow }
+                if let live = pane.surfaceLive { entry["surface_live"] = live }
+                if let cols = pane.renderedCols, let rows = pane.renderedRows {
+                    entry["rendered"] = ["cols": cols, "rows": rows]
+                    // The render contract: exact on the enclosing split's
+                    // axis, fill (>=, never smaller) on the cross axis —
+                    // a smaller render means lost content, a larger one is
+                    // background beyond the PTY.
+                    let colsOk = pane.exactCols ? cols == pane.assignedCols : cols >= pane.assignedCols
+                    let rowsOk = pane.exactRows ? rows == pane.assignedRows : rows >= pane.assignedRows
+                    entry["match"] = colsOk && rowsOk
+                }
+                if let sample = pane.calibration {
+                    var calibration: [String: Any] = [
+                        "grid": ["cols": sample.columns, "rows": sample.rows],
+                        "cell_px": ["w": sample.cellWidthPx, "h": sample.cellHeightPx],
+                        "surface_px": ["w": sample.surfaceWidthPx, "h": sample.surfaceHeightPx],
+                    ]
+                    if let bounds = sample.viewBoundsPt {
+                        calibration["view_pt"] = ["w": Double(bounds.width), "h": Double(bounds.height)]
+                    }
+                    if let scale = sample.backingScale {
+                        calibration["scale"] = Double(scale)
+                    }
+                    entry["calibration"] = calibration
+                }
+                return entry
+            },
+        ]
+        if let cols = snapshot.pushedColumns, let rows = snapshot.pushedRows {
+            payload["pushed"] = ["cols": cols, "rows": rows]
+        }
+        payload["visible_for_sizing"] = snapshot.visibleForSizing
+        if let container = snapshot.containerPt {
+            payload["container_pt"] = ["w": Double(container.width), "h": Double(container.height)]
+        }
+        if let cols = snapshot.currentFCols, let rows = snapshot.currentFRows {
+            payload["current_f"] = ["cols": cols, "rows": rows]
+        }
+        return payload
+    }
+
     /// Extracts a required tmux session name from socket params.
-    nonisolated static func remoteTmuxSessionName(from params: [String: Any]) -> String? {
+    ///
+    /// - Parameter mode: the attach mode this name will really be spawned with. It decides the
+    ///   length bound, because the bound is derived from the command that gets sent and the
+    ///   modes spell out different commands. Checking `.attach` for a request that then builds
+    ///   `new-session -A -s` let an 890-byte name through the boundary and fail later in
+    ///   `spawnProcess` as `launchFailed` at 929 bytes against a 928-byte budget.
+    nonisolated static func remoteTmuxSessionName(
+        from params: [String: Any],
+        transport: RemoteTmuxTransportKind = .ssh,
+        mode: RemoteTmuxControlAttachMode = .attach
+    ) -> String? {
         guard let session = (params["session"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !session.isEmpty
         else { return nil }
+        // Rejected here rather than discovered as a timeout. et types its command into a pty, so a
+        // name long enough to push the line past MAX_CANON is never delivered: the shell runs
+        // nothing and the attach dies with nothing to explain it. tmux happily accepts names of
+        // ~1000 bytes, so this is reachable with a real session rather than only by abuse.
+        if transport == .et,
+           session.utf8.count > RemoteTmuxETTransportProfile.maxSessionNameBytes(mode: mode) {
+            return nil
+        }
         return session
     }
 

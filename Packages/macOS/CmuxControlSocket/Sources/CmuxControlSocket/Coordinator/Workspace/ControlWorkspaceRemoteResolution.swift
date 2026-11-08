@@ -22,6 +22,9 @@ public enum ControlWorkspaceRemoteResolution: Sendable, Equatable {
     /// "Remote workspace is not configured", `reconnect` only). Carries the
     /// resolved workspace id for that payload.
     case notConfigured(workspaceID: UUID)
+    /// The requested ownership handoff could not be acquired without
+    /// disrupting another live cmux process.
+    case unavailable(workspaceID: UUID, message: String)
     /// The mutation succeeded. Carries the owning window id (may be absent), the
     /// resolved workspace id, and the bridged `remoteStatusPayload()`.
     case resolved(windowID: UUID?, workspaceID: UUID, remoteStatus: JSONValue)

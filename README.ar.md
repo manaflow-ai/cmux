@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> ينشئ مساحة عمل لجهاز بعيد. تُوجَّه أجزاء المتصفح عبر الشبكة البعيدة بحيث يعمل localhost مباشرة. اسحب صورة إلى جلسة بعيدة لرفعها عبر scp.
+<code>cmux ssh user@remote</code> ينشئ مساحة عمل لجهاز بعيد. مرّر <code>--command 'omp "investigate auth"'</code> لتشغيل أمر أولي مرة واحدة في أول طرفية بعيدة لها. تُوجَّه أجزاء المتصفح عبر الشبكة البعيدة بحيث يعمل localhost مباشرة. اسحب صورة إلى جلسة بعيدة لرفعها عبر scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 عند التشغيل الأول، قد يطلب منك macOS تأكيد فتح تطبيق من مطور معروف. انقر **فتح** للمتابعة.
 
+### الإكمال التلقائي في الصدفة
+
+تثبّت حزمة Homebrew الإكمال التلقائي لـ zsh وbash وfish. ابدأ صدفة جديدة بعد التثبيت. إذا لم يعمل، فتأكد من أن أدلة الإكمال الخاصة بـ Homebrew مضبوطة في صدفتك (راجع [توثيق الإكمال التلقائي في Homebrew](https://docs.brew.sh/Shell-Completion)).
+
+إذا ثبّت cmux بطريقة أخرى، فأضف السطر المناسب إلى ملف بدء تشغيل صدفتك، ثم ابدأ صدفة جديدة:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## لماذا cmux؟
 
 أقوم بتشغيل الكثير من جلسات Claude Code وCodex بالتوازي. كنت أستخدم Ghostty مع مجموعة من الأجزاء المقسمة، وأعتمد على إشعارات macOS الأصلية لمعرفة متى يحتاجني وكيل ما. لكن نص إشعار Claude Code يكون دائمًا مجرد "Claude is waiting for your input" بدون أي سياق، ومع فتح عدد كافٍ من علامات التبويب لم أعد قادرًا حتى على قراءة العناوين.
@@ -152,7 +171,9 @@ cmux هو لبنة أساسية وليس حلًا جاهزًا. يمنحك طر�
 
 | الاختصار | الإجراء |
 |----------|--------|
-| ⌘ N | مساحة عمل جديدة |
+| ⌘ N | مساحة عمل محلية جديدة |
+| ⌘ Y | مساحة عمل Cloud جديدة على آخر سياق Cloud صالح؛ يفتح New Cloud Machine عند عدم توفره |
+| ⌘ ⇧ Y | جهاز Cloud جديد |
 | ⌘ 1–8 | الانتقال إلى مساحة العمل 1–8 |
 | ⌘ 9 | الانتقال إلى آخر مساحة عمل |
 | ⌃ ⌘ ] | مساحة العمل التالية |
@@ -363,19 +384,19 @@ tmux هو مُضاعِف طرفية يعمل داخل أي طرفية. أما cm
 
 ### كيف يمكنني دعم cmux؟
 
-cmux مجاني ومفتوح المصدر، وسيظل كذلك دائمًا. إذا كنت ترغب في دعم التطوير والحصول على وصول مبكر لما هو قادم، بما في ذلك cmux AI وتطبيق iOS وCloud VMs، فاطّلع على [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux مجاني ومفتوح المصدر، وسيظل كذلك دائمًا. إذا كنت ترغب في دعم التطوير والحصول على وصول مبكر لما هو قادم، بما في ذلك cmux AI وتطبيق iOS وCloud VMs، فاطّلع على [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
 
 ### لدي طلب ميزة أو وجدت خطأ؟
 
-نريد أن نسمعه. افتح [issue](https://github.com/manaflow-ai/cmux/issues) أو [pull request](https://github.com/manaflow-ai/cmux/pulls) على GitHub، أو [راسلنا عبر البريد الإلكتروني](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+نريد أن نسمعه. افتح [issue](https://github.com/manaflow-ai/cmux/issues) أو [pull request](https://github.com/manaflow-ai/cmux/pulls) على GitHub، أو [راسلنا عبر البريد الإلكتروني](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## تاريخ النجوم
 
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+<a href="https://www.star-history.com/?repos=manaflow-ai%2Fcmux&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&theme=dark&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
  </picture>
 </a>
 
@@ -391,27 +412,26 @@ cmux مجاني ومفتوح المصدر، وسيظل كذلك دائمًا. إ
 ## المجتمع
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
-## إصدار المؤسسين
+<p>
+  <strong>WeChat:</strong> امسح رمز QR للانضمام إلى المجتمع.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="رمز QR على WeChat للانضمام إلى مجتمع cmux" width="240" />
+</p>
+
+## cmux Pro
 
 cmux مجاني ومفتوح المصدر وسيظل كذلك دائمًا. إذا كنت ترغب في دعم التطوير والحصول على وصول مبكر لما هو قادم:
 
-**[احصل على إصدار المؤسسين](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **أولوية لطلبات الميزات/إصلاح الأخطاء**
-- **وصول مبكر: ذكاء اصطناعي لـ cmux يمنحك سياقًا عن كل مساحة عمل وعلامة تبويب ولوحة**
-- **وصول مبكر: تطبيق iOS مع مزامنة الطرفيات بين سطح المكتب والهاتف**
-- **وصول مبكر: أجهزة افتراضية سحابية**
-- **وصول مبكر: وضع الصوت**
-- **iMessage/WhatsApp الشخصي الخاص بي**
+**[احصل على cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## الرخصة
 
-cmux مفتوح المصدر بموجب [GPL-3.0-or-later](LICENSE).
+cmux مفتوح المصدر بموجب [GPL-3.0-or-later](LICENSE). برنامج خادم cmux (`web/` وعمّال Cloudflare وخدمات الترحيل المذكورة في [LICENSE](LICENSE)) يخضع بدلاً من ذلك لـ [Business Source License 1.1](web/LICENSE): يمكنك قراءته وتعديله وتشغيله للاستخدام غير الإنتاجي، أما الاستخدام الإنتاجي أو الاستضافة الذاتية فيتطلبان ترخيصاً تجارياً.
 
-إذا لم تستطع مؤسستك الامتثال لـ GPL، فهناك ترخيص تجاري متاح. تواصل مع [founders@manaflow.com](mailto:founders@manaflow.com) للتفاصيل.
+إذا لم تستطع مؤسستك الامتثال لـ GPL، فهناك ترخيص تجاري متاح. تواصل مع [founders@cmux.com](mailto:founders@cmux.com) للتفاصيل.

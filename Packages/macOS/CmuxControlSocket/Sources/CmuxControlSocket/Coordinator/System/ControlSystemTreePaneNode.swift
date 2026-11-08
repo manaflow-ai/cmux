@@ -15,6 +15,8 @@ public struct ControlSystemTreePaneNode: Sendable, Equatable {
     public let selectedSurfaceID: UUID?
     /// The pane's surface nodes, pre-sorted by `indexInPane ?? index`.
     public let surfaces: [ControlSystemTreeSurfaceNode]
+    /// The Dock container scope for Dock-hosted panes, else `nil`.
+    public let dockScopeRawValue: String?
 
     /// Creates a pane node.
     ///
@@ -25,13 +27,15 @@ public struct ControlSystemTreePaneNode: Sendable, Equatable {
     ///   - surfaceIDs: The pane's surfaces in tab order.
     ///   - selectedSurfaceID: The selected tab's panel identifier.
     ///   - surfaces: The pane's surface nodes.
+    ///   - dockScopeRawValue: The Dock scope for a Dock-hosted pane.
     public init(
         paneID: UUID,
         index: Int,
         isFocused: Bool,
         surfaceIDs: [UUID],
         selectedSurfaceID: UUID?,
-        surfaces: [ControlSystemTreeSurfaceNode]
+        surfaces: [ControlSystemTreeSurfaceNode],
+        dockScopeRawValue: String? = nil
     ) {
         self.paneID = paneID
         self.index = index
@@ -39,5 +43,6 @@ public struct ControlSystemTreePaneNode: Sendable, Equatable {
         self.surfaceIDs = surfaceIDs
         self.selectedSurfaceID = selectedSurfaceID
         self.surfaces = surfaces
+        self.dockScopeRawValue = dockScopeRawValue
     }
 }

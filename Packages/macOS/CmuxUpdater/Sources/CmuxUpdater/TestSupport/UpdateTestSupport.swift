@@ -26,7 +26,17 @@ public struct UpdateTestSupport {
         if let detectedVersion = env["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"],
            !detectedVersion.isEmpty {
             if let item = Self.makeAppcastItem(displayVersion: detectedVersion) {
-                model.recordDetectedUpdate(item)
+                let delayMilliseconds = Int(env["CMUX_UI_TEST_DETECTED_UPDATE_DELAY_MS"] ?? "") ?? 0
+                if delayMilliseconds > 0 {
+                    let model = self.model
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(delayMilliseconds))
+                        guard !Task.isCancelled else { return }
+                        model.recordDetectedUpdate(item)
+                    }
+                } else {
+                    model.recordDetectedUpdate(item)
+                }
             } else {
                 model.debugSetDetectedVersion(UpdateStateModel.normalizedDetectedUpdateVersion(from: detectedVersion))
             }

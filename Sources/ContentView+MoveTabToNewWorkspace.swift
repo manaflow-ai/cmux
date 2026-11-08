@@ -30,6 +30,7 @@ extension ContentView {
     }
 }
 
+@MainActor
 struct SidebarBonsplitTabNewWorkspaceDropOverlay: NSViewRepresentable {
     let tabManager: TabManager
     @Binding var selectedTabIds: Set<UUID>
@@ -75,6 +76,7 @@ struct SidebarBonsplitTabNewWorkspaceDropOverlay: NSViewRepresentable {
     }
 }
 
+@MainActor
 final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
     private static let pasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
 
@@ -118,7 +120,13 @@ final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         defer { setDropActive(false) }
         guard let transfer = acceptedTransfer(sender) else { return false }
-        return performMove(transfer)
+        let moved = performMove(transfer)
+        if moved {
+            AppDelegate.shared?.finishAcceptedBonsplitTabDrop(
+                from: sender.draggingPasteboard
+            )
+        }
+        return moved
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
@@ -137,7 +145,10 @@ final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
     private func acceptedTransfer(_ sender: any NSDraggingInfo) -> BonsplitTabDragPayload.Transfer? {
         let pasteboard = sender.draggingPasteboard
         guard pasteboard.types?.contains(Self.pasteboardType) == true,
-              let transfer = BonsplitTabDragPayload.transfer(from: pasteboard),
+              let transfer = BonsplitTabDragPayload.transfer(
+                  from: pasteboard,
+                  registry: AppDelegate.shared?.tabDragTransferRegistry
+              ),
               isValidTransfer(transfer) else {
             return nil
         }
@@ -149,9 +160,10 @@ final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
         guard WindowInputRoutingContext.allowsWorkspaceDropOverlayHitTesting(eventType: eventType) else {
             return false
         }
-        guard BonsplitTabDragPayload.canRouteWorkspaceDrop(
-            pasteboardTypes: NSPasteboard(name: .drag).types
-        ) else { return false }
+        guard BonsplitTabDragPayload.transfer(
+            from: NSPasteboard(name: .drag),
+            registry: AppDelegate.shared?.tabDragTransferRegistry
+        ) != nil else { return false }
         return true
     }
 }

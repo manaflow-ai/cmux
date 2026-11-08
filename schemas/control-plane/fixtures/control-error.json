@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "error",
+  "payload": {
+    "code": "mint_upstream_unavailable",
+    "message": "relay token mint failed upstream",
+    "retryable": true
+  }
+}

@@ -1,0 +1,50 @@
+<!doctype html><html><head><title>Visibility Fixture</title>
+<style>
+.collapsed { height: 0; overflow: hidden; }
+.cv { content-visibility: hidden; }
+/* MediaWiki collapses navbox rows this way. */
+.mw-collapsible [hidden="until-found"] { display: block; position: absolute; width: 0 !important; height: 0 !important; overflow: hidden; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style></head><body>
+<h1>Visibility</h1>
+<details><summary>Closed details</summary><p>Details body text</p><button>Details button</button></details>
+<table class="navbox mw-collapsible">
+  <tr><th colspan="2"><button aria-expanded="false">[show]</button> Navbox title</th></tr>
+  <tr hidden="until-found"><th>Group</th><td><a href="/group-a">Hidden navbox link</a> · <a href="/group-b">Another hidden link</a></td></tr>
+</table>
+<div class="cv"><p>Content-visibility text</p><a href="/cv">Content-visibility link</a></div>
+<div class="collapsed"><a href="/zero">Zero-size link</a> Zero-size text</div>
+<div inert><button>Inert button</button> Inert text</div>
+<div aria-hidden="true"><button>Aria-hidden button</button> Aria-hidden text</div>
+<div style="display:none"><button>Display-none button</button></div>
+<div style="visibility:hidden">Hidden parent text <span style="visibility:visible">Visible child text</span></div>
+<span class="sr-only">Screen reader text</span>
+<h2>Names</h2>
+<table>
+  <caption>Scores</caption>
+  <thead><tr><th>Name</th><th>Score</th></tr></thead>
+  <tbody>
+    <tr><td>Ada</td><td>9</td></tr>
+    <tr><td>Linus</td><td><a href="/linus">Profile</a> and notes</td></tr>
+  </tbody>
+</table>
+<ul>
+  <li><a href="/card"><h3>Card title</h3><p>Card body text that describes the card.</p></a></li>
+  <li><a href="/plain">Single link item</a></li>
+  <li>Plain item</li>
+  <li><a href="/two-a">First of two</a> <a href="/two-b">Second of two</a></li>
+</ul>
+<ul></ul>
+<p><a href="/long">A link whose text runs long: Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor.</a></p>
+<h2>Layout table</h2>
+<table border="0" cellpadding="0" cellspacing="0" id="layout">
+  <tr><td><a href="/">Site</a> | <a href="/new">new</a></td></tr>
+  <tr><td>
+    <table border="0">
+      <tr><td>1.</td><td><a href="/up1">upvote</a></td><td><a href="/story1">Story one</a> (example.com)</td></tr>
+      <tr><td colspan="2"></td><td>10 points by <a href="/user/ada">ada</a> | <a href="/item1">3 comments</a></td></tr>
+      <tr><td>2.</td><td><a href="/up2">upvote</a></td><td><a href="/story2">Story two</a></td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>

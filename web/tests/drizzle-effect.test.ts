@@ -48,7 +48,7 @@ describe("Drizzle Effect integration", () => {
       )
       values (
         'user-drizzle-effect',
-        'e2b',
+        'freestyle',
         'effect-provider-vm-1',
         'cmuxd-ws:test',
         '2026-04-25.1',

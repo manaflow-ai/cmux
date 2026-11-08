@@ -65,6 +65,46 @@ public actor WorkstreamPersistence {
         try loadPage(endingBefore: nil, limit: limit).items
     }
 
+    /// Loads the newest durable version of each event. Mutations are written
+    /// as additional JSONL rows, so startup must collapse those rows before
+    /// publishing state or an old status could overwrite a reply/resolution.
+    public func loadLatest(limit: Int) throws -> [WorkstreamItem] {
+        guard limit > 0,
+              FileManager.default.fileExists(atPath: fileURL.path) else {
+            return []
+        }
+        let data = try Data(contentsOf: fileURL)
+        var latestByID: [UUID: (sequence: Int, item: WorkstreamItem)] = [:]
+        for (sequence, line) in data.split(separator: 0x0A).enumerated() {
+            guard let item = try? decoder.decode(WorkstreamItem.self, from: Data(line)) else {
+                continue
+            }
+            latestByID[item.id] = (sequence, item)
+        }
+        return latestByID.values
+            .sorted { $0.sequence < $1.sequence }
+            .map(\.item)
+            .suffix(limit)
+            .map { $0 }
+    }
+
+    /// Returns a durable generation for the append-only log. The mobile Feed
+    /// uses this as its cache validator, so a Mac restart cannot reset the
+    /// revision below the phone's last-known snapshot and hide a reply or
+    /// resolution behind a stale `feed.changed` event.
+    public func loadRevision() throws -> Int {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return 0 }
+        let data = try Data(contentsOf: fileURL)
+        var revision = 0
+        for line in data.split(separator: 0x0A) {
+            guard (try? decoder.decode(WorkstreamItem.self, from: Data(line))) != nil else {
+                continue
+            }
+            revision += 1
+        }
+        return revision
+    }
+
     /// Loads up to `limit` items ending before `endOffset`. Order in the
     /// returned array is oldest-first. `startOffset` can be passed back
     /// as `endOffset` to page older history without depending on line

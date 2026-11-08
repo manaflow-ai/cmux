@@ -24,6 +24,13 @@ turndown.addRule("decorativeListDash", {
     node.parentNode?.nodeName.toLowerCase() === "li",
   replacement: () => "",
 });
+// Page chrome (heading anchors, page actions, pager, footer) is marked for
+// the search indexer to skip; agents should skip it too.
+turndown.addRule("pagefindIgnored", {
+  filter: (node) =>
+    (node as Element).getAttribute?.("data-pagefind-ignore") === "all",
+  replacement: () => "",
+});
 turndown.addRule("ariaHidden", {
   filter: (node) => {
     const element = node as Element;
@@ -96,8 +103,28 @@ export function markdownFromHtml({
     parts.push(body);
   }
   parts.push(`Canonical: ${sourceUrl}`);
+  parts.push(`Documentation index: ${new URL("/llms.txt", sourceUrl).toString()}`);
 
   return `${parts.join("\n\n")}\n`;
+}
+
+/**
+ * The page's own `<link rel="canonical">`. Docs render in a separate zone
+ * behind a rewrite, so the fetched URL names the zone host, not the public one.
+ */
+export function canonicalUrlFromHtml(html: string): string | null {
+  for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
+    if (!/\brel=["']canonical["']/i.test(tag)) continue;
+    const href = tag.match(/\bhref=["']([^"']+)["']/i)?.[1];
+    if (!href) return null;
+    try {
+      const url = new URL(decodeHtmlEntities(href));
+      return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export function plainTextFromMarkdown(markdown: string): string {

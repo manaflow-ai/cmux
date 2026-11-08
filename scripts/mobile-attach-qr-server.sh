@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Tiny HTTP server that regenerates the mobile attach QR on every page hit
 # so the QR you see is always linked to the currently-running Mac instance.
-# Defaults to 127.0.0.1:17321 to match the existing tools/cmux-tag-opener
-# pattern. Stop with Ctrl-C.
+# Each tagged lane binds its own ephemeral localhost port by default. Set PORT
+# explicitly only when a caller owns that port. Stop with Ctrl-C.
 
 set -euo pipefail
 
-PORT="${PORT:-17321}"
+PORT="${PORT:-0}"
 TAG="${CMUX_TAG:-mobile}"
 IOS_TAG="${CMUX_IOS_TAG:-$TAG}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,11 +30,8 @@ import threading
 import time
 
 PORT = int(sys.argv[1])
-# The tags this server launched with. They are the fallback when no marker file
-# exists yet; once a reload script writes the marker, the live tags below track
-# it so the QR always pairs against the freshest build.
-INITIAL_TAG = os.environ["TAG"]
-INITIAL_IOS_TAG = os.environ["IOS_TAG"]
+TAG = os.environ["TAG"]
+IOS_TAG = os.environ["IOS_TAG"]
 SCRIPT_DIR = os.environ["SCRIPT_DIR"]
 PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
 # `ios/scripts/reload.sh` builds + installs + launches the tagged iOS app on
@@ -47,64 +44,9 @@ IOS_TEAM = os.environ.get("CMUX_IOS_TEAM", "7WLXT3NR37")
 IOS_BUILD_TIMEOUT_SECONDS = 600
 QR_SCRIPT = os.path.join(SCRIPT_DIR, "mobile-attach-qr.sh")
 TMP_ROOT = os.environ.get("TMPDIR", "/tmp").rstrip("/") or "/tmp"
-
-# Marker the reload scripts write so this server tracks the freshest build
-# without being restarted. `ios/scripts/reload.sh --tag Y` writes ios_tag=Y.
-# The server reads it on every request (see `refresh_tags`), so the QR, the
-# Open button, and the bundle id always reflect whatever was last reloaded.
-# FIXED `/tmp` path (not TMPDIR-derived): the reload script and this server run
-# in different shells/sessions whose per-session `TMPDIR` differ, so the
-# rendezvous file must live at a machine-shared location both can find.
-TAG_MARKER_PATH = "/tmp/cmux-mobile-attach-qr-tags.json"
-
-# Live tags + their derived paths. `refresh_tags` keeps these in sync with the
-# marker; everything downstream reads these globals, never the INITIAL_* ones.
-TAG = INITIAL_TAG
-IOS_TAG = INITIAL_IOS_TAG
-OUT_DIR = ""
-IOS_TAG_SLUG = ""
-IOS_BUNDLE_ID = ""
-
-
-def _ios_slug(tag: str) -> str:
-    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", tag.lower())).strip("-") or "dev"
-
-
-def _apply_tags(mac_tag: str, ios_tag: str) -> None:
-    """Set the live tag globals and recompute everything derived from them."""
-    global TAG, IOS_TAG, OUT_DIR, IOS_TAG_SLUG, IOS_BUNDLE_ID
-    TAG = mac_tag
-    IOS_TAG = ios_tag
-    OUT_DIR = os.path.join(TMP_ROOT, f"cmux-mobile-attach-qr-{TAG}")
-    IOS_TAG_SLUG = _ios_slug(IOS_TAG)
-    IOS_BUNDLE_ID = f"dev.cmux.ios.{IOS_TAG_SLUG}"
-
-
-def refresh_tags() -> None:
-    """Re-read the reload-written marker so the server tracks the freshest
-    build. Falls back to the launch-time tag for any key the marker omits, so a
-    half-written or partial marker can never blank a tag."""
-    mac_tag, ios_tag = INITIAL_TAG, INITIAL_IOS_TAG
-    try:
-        with open(TAG_MARKER_PATH, "r") as fh:
-            data = json.load(fh)
-        if isinstance(data, dict):
-            if isinstance(data.get("mac_tag"), str) and data["mac_tag"]:
-                mac_tag = data["mac_tag"]
-            if isinstance(data.get("ios_tag"), str) and data["ios_tag"]:
-                ios_tag = data["ios_tag"]
-    except (FileNotFoundError, ValueError, OSError):
-        pass
-    if mac_tag != TAG or ios_tag != IOS_TAG or not OUT_DIR:
-        _apply_tags(mac_tag, ios_tag)
-        # Tag changed → the cached QR points at the old OUT_DIR. Force the next
-        # page hit to regenerate against the new tag's socket and out-dir.
-        global _LAST_GEN_TS
-        _LAST_GEN_TS = 0.0
-
-
-_apply_tags(INITIAL_TAG, INITIAL_IOS_TAG)
-refresh_tags()
+OUT_DIR = os.path.join(TMP_ROOT, f"cmux-mobile-attach-qr-{TAG}")
+IOS_TAG_SLUG = re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", IOS_TAG.lower())).strip("-") or "dev"
+IOS_BUNDLE_ID = f"dev.cmux.ios.{IOS_TAG_SLUG}"
 
 _LOCK = threading.Lock()
 _LAST_GEN_TS = 0.0
@@ -200,7 +142,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return
 
     def do_GET(self):
-        refresh_tags()
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
             self._serve_qr_page()
@@ -220,7 +161,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._send(404, "text/plain", b"not found")
 
     def do_POST(self):
-        refresh_tags()
         # Mirror /open-tag so a `fetch('/open-tag', {method:'POST'})` works too.
         if self.path.split("?", 1)[0] == "/open-tag":
             self._open_tag()
@@ -450,10 +390,11 @@ class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 regenerate(force=True)
 
 with ThreadingServer(("127.0.0.1", PORT), Handler) as httpd:
-    print(f"mobile QR server: http://127.0.0.1:{PORT}/  (tag={TAG}, ios_tag={IOS_TAG})")
-    print(f"  health:  http://127.0.0.1:{PORT}/healthz")
-    print(f"  ticket:  http://127.0.0.1:{PORT}/ticket.json")
-    print("Ctrl-C to stop.")
+    bound_port = httpd.server_address[1]
+    print(f"mobile QR server: http://127.0.0.1:{bound_port}/  (tag={TAG}, ios_tag={IOS_TAG})", flush=True)
+    print(f"  health:  http://127.0.0.1:{bound_port}/healthz", flush=True)
+    print(f"  ticket:  http://127.0.0.1:{bound_port}/ticket.json", flush=True)
+    print("Ctrl-C to stop.", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

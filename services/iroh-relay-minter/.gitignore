@@ -1,0 +1,4 @@
+/target/
+/.vercel/
+/.env*
+!/.env.example

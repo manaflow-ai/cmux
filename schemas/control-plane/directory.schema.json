@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CtlDirectory",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "rev",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "type": "integer",
+      "description": "control-plane protocol version, 1"
+    },
+    "type": {
+      "const": "directory"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "routeContractVersion",
+        "bindings",
+        "relayFleet",
+        "grantVerificationKeys",
+        "issuedAt",
+        "ttlSeconds"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "routeContractVersion": {
+          "type": "integer"
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "bindingId",
+              "endpointId",
+              "clientNamespace",
+              "revoked"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "bindingId": {
+                "type": "string"
+              },
+              "endpointId": {
+                "type": "string"
+              },
+              "deviceId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "instanceTag": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "clientNamespace": {
+                "type": "string"
+              },
+              "homeRelayUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updatedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "seeded",
+                  "stale",
+                  "retired",
+                  "suspended",
+                  "pending",
+                  "superseded"
+                ],
+                "description": "device lifecycle state from the account overlay; a binding never confirmed by its own hello stays seeded"
+              },
+              "revoked": {
+                "type": "boolean",
+                "default": false,
+                "description": "authorization kill switch, orthogonal to status; peers must deny P2P admission to a revoked device"
+              },
+              "appVersion": {
+                "type": "string"
+              },
+              "releaseTrack": {
+                "type": "string",
+                "enum": [
+                  "nightly",
+                  "stable",
+                  "internal",
+                  "beta",
+                  "appstore",
+                  "dev"
+                ]
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "lastConfirmedAt": {
+                "type": "string",
+                "format": "date-time",
+                "description": "when this device last confirmed itself over its own control-plane hello"
+              }
+            }
+          }
+        },
+        "relayFleet": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "grantVerificationKeys": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "keyId",
+              "alg",
+              "publicKey"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "keyId": {
+                "type": "string"
+              },
+              "alg": {
+                "type": "string"
+              },
+              "publicKey": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "issuedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "server stamp when this directory was issued; anchor of the trust lease"
+        },
+        "ttlSeconds": {
+          "type": "integer",
+          "description": "trust lease duration; clients treat the directory as stale once issuedAt + ttlSeconds passes without a re-stamp"
+        },
+        "minimumSupportedVersion": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "per-platform app-version floors; clients below the floor must update before participating",
+          "properties": {
+            "mac": {
+              "type": "string"
+            },
+            "ios": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "rev": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "monotonic account route revision this fact reflects"
+    }
+  }
+}

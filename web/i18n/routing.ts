@@ -52,4 +52,8 @@ export const routing = defineRouting({
   locales,
   defaultLocale: "en",
   localePrefix: "as-needed",
+  // Route-level metadata owns hreflang because some pages intentionally support
+  // only a subset of locales. A global Link header advertises localized URLs
+  // that return 404 for those pages.
+  alternateLinks: false,
 });

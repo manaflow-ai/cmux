@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> でリモートマシン用のワークスペースを作成。ブラウザペインはリモートネットワーク経由でルーティングされるため、localhostがそのまま動作します。リモートセッションに画像をドラッグするとscpでアップロードされます。
+<code>cmux ssh user@remote</code> でリモートマシン用のワークスペースを作成。<code>--command 'omp "investigate auth"'</code> を渡すと、最初のリモートターミナルで初期コマンドを一度だけ実行します。ブラウザペインはリモートネットワーク経由でルーティングされるため、localhostがそのまま動作します。リモートセッションに画像をドラッグするとscpでアップロードされます。
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 初回起動時、macOSが確認済みの開発者からのアプリを開くことの確認を求める場合があります。**開く**をクリックして続行してください。
 
+### シェル補完
+
+Homebrewのcaskはzsh、bash、fish用の補完をインストールします。インストール後に新しいシェルを起動してください。読み込まれない場合は、Homebrewの補完ディレクトリがシェルに設定されているか確認してください（[Homebrewのシェル補完ドキュメント](https://docs.brew.sh/Shell-Completion)を参照）。
+
+他の方法でcmuxをインストールした場合は、該当する行をシェルの起動ファイルに追加し、新しいシェルを起動してください：
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## なぜcmux？
 
 私はClaude CodeとCodexのセッションを多数並列で実行しています。Ghosttyで大量の分割ペインを使い、エージェントが私を必要としているときを知るためにmacOSのネイティブ通知に頼っていました。しかし、Claude Codeの通知本文はいつも「Claude is waiting for your input」というコンテキストのないものばかりで、タブを十分に開くとタイトルすら読めなくなっていました。
@@ -152,7 +171,9 @@ cmuxの設定方法の詳細は、[ドキュメントをご覧ください](http
 
 | ショートカット | アクション |
 |----------|--------|
-| ⌘ N | 新規ワークスペース |
+| ⌘ N | 新規ローカルワークスペース |
+| ⌘ Y | 最後に利用できた Cloud コンテキストに新しい Cloud ワークスペースを作成し、利用できなければ New Cloud Machine を開く |
+| ⌘ ⇧ Y | 新規 Cloud マシン |
 | ⌘ 1–8 | ワークスペース1–8にジャンプ |
 | ⌘ 9 | 最後のワークスペースにジャンプ |
 | ⌃ ⌘ ] | 次のワークスペース |
@@ -363,19 +384,19 @@ tmuxは任意のターミナル内で動くターミナルマルチプレクサ�
 
 ### cmuxをどうやって支援できますか？
 
-cmuxは無料でオープンソースであり、今後もそうあり続けます。開発を後押しし、cmux AI、iOSアプリ、Cloud VMsなど次に来るものへの早期アクセスを得たい方は、[cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)をご覧ください。
+cmuxは無料でオープンソースであり、今後もそうあり続けます。開発を後押しし、cmux AI、iOSアプリ、Cloud VMsなど次に来るものへの早期アクセスを得たい方は、[cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)をご覧ください。
 
 ### 機能リクエストがある、またはバグを見つけました？
 
-ぜひお聞かせください。GitHubで[issue](https://github.com/manaflow-ai/cmux/issues)や[プルリクエスト](https://github.com/manaflow-ai/cmux/pulls)を開くか、[メールでご連絡ください](mailto:founders@manaflow.com?subject=cmux%20feature%20request)。
+ぜひお聞かせください。GitHubで[issue](https://github.com/manaflow-ai/cmux/issues)や[プルリクエスト](https://github.com/manaflow-ai/cmux/pulls)を開くか、[メールでご連絡ください](mailto:founders@cmux.com?subject=cmux%20feature%20request)。
 
 ## Star History
 
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+<a href="https://www.star-history.com/?repos=manaflow-ai%2Fcmux&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&theme=dark&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
  </picture>
 </a>
 
@@ -391,27 +412,26 @@ cmuxは無料でオープンソースであり、今後もそうあり続けま�
 ## コミュニティ
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
-## Founder's Edition
+<p>
+  <strong>WeChat:</strong> QRコードをスキャンしてコミュニティに参加してください。<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="cmuxコミュニティに参加するためのWeChat QRコード" width="240" />
+</p>
+
+## cmux Pro
 
 cmuxは無料でオープンソースであり、今後もそうあり続けます。開発をサポートし、次に来る機能への早期アクセスを得たい方へ：
 
-**[Founder's Editionを入手](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **機能リクエスト/バグ修正の優先対応**
-- **早期アクセス：すべてのワークスペース、タブ、パネルのコンテキストを提供するcmux AI**
-- **早期アクセス：デスクトップと携帯電話間でターミナルを同期するiOSアプリ**
-- **早期アクセス：クラウドVM**
-- **早期アクセス：ボイスモード**
-- **私の個人的なiMessage/WhatsApp**
+**[cmux Proを入手](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## ライセンス
 
-cmuxは[GPL-3.0-or-later](LICENSE)の下でオープンソースです。
+cmuxは[GPL-3.0-or-later](LICENSE)の下でオープンソースです。cmuxのサーバーソフトウェア（`web/`、Cloudflare Worker、および[LICENSE](LICENSE)に記載されたリレーサービス）は、代わりに[Business Source License 1.1](web/LICENSE)で提供されます。非本番用途での閲覧・改変・実行は可能ですが、本番利用やセルフホスティングには商用ライセンスが必要です。
 
-GPLに準拠できない組織向けに、商用ライセンスもご用意しています。詳細は[founders@manaflow.com](mailto:founders@manaflow.com)までお問い合わせください。
+GPLに準拠できない組織向けに、商用ライセンスもご用意しています。詳細は[founders@cmux.com](mailto:founders@cmux.com)までお問い合わせください。

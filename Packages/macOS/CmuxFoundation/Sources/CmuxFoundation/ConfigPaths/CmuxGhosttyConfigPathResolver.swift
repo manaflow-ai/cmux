@@ -11,9 +11,9 @@ public import Foundation
 /// an instantiated, dependency-injected resolver is deferred to the engine lift.
 public struct CmuxGhosttyConfigPathResolver {
     /// The bundle identifier of the released cmux app, used as the canonical
-    /// config location and the fallback for dev/nightly/staging channels.
+    /// config location and the fallback for dev/nightly/rc/staging channels.
     public static let releaseBundleIdentifier = "com.cmuxterm.app"
-    private static let releaseFallbackChannelSuffixes = ["debug", "nightly", "staging"]
+    private static let releaseFallbackChannelSuffixes = ["debug", "nightly", "rc", "staging"]
 
     public init() {}
 

@@ -50,6 +50,67 @@ import Testing
         ))
     }
 
+    @Test func signInOwnsScreenWhileSignedOut() {
+        // Every user signs in before using the app: the removed signed-out
+        // SSH shell no longer bypasses this gate (saved SSH computers or
+        // not), so an unauthenticated launch always lands on sign-in.
+        #expect(MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: false,
+            attachTicketAuthenticated: false,
+            isRestoringSession: false
+        ))
+        #expect(MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: false,
+            attachTicketAuthenticated: false,
+            isRestoringSession: true
+        ))
+        #expect(!MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            isRestoringSession: false
+        ))
+        // A live attach ticket proceeds to the shell to complete the attach.
+        #expect(!MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: false,
+            attachTicketAuthenticated: true,
+            isRestoringSession: true,
+            onboardingPending: true
+        ))
+    }
+
+    @Test func keepsSignInVisibleWhileRestoringWithOnboardingPending() {
+        // Onboarding must not present for a cached identity that may still be
+        // rejected, and the pre-onboarding shell would flash the add-device
+        // surface, so that narrow restoring launch stays on sign-in.
+        #expect(MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            isRestoringSession: true,
+            onboardingPending: true
+        ))
+        // Once validation settles, onboarding (not sign-in) owns the screen.
+        #expect(!MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            isRestoringSession: false,
+            onboardingPending: true
+        ))
+    }
+
+    @Test func launchWithPrimedCachedSessionMountsShellNotSignIn() {
+        // Regression for "loading sign-up screen on every launch": a returning
+        // user's cached session primes authenticated while launch validation is
+        // still in flight, and the root must mount the authenticated shell
+        // immediately (its restoring inputs cover the validation window)
+        // instead of parking every launch on the sign-in surface until the
+        // network validation resolves.
+        #expect(!MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            isRestoringSession: true
+        ))
+    }
+
     @Test func clearsOnlyStaleTemporaryAttachAuthentication() {
         #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
             pairingResult: .failed,
@@ -84,17 +145,88 @@ import Testing
         #expect(MobileRootAuthGate.shouldReconnectStoredMac(
             stackAuthenticated: true,
             attachTicketAuthenticated: false,
+            didFinishAuthBootstrap: true,
+            isRestoringSession: false,
             connectionState: .disconnected
         ))
         #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
             stackAuthenticated: true,
             attachTicketAuthenticated: true,
+            didFinishAuthBootstrap: true,
+            isRestoringSession: false,
             connectionState: .disconnected
         ))
         #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
             stackAuthenticated: false,
             attachTicketAuthenticated: true,
+            didFinishAuthBootstrap: true,
+            isRestoringSession: false,
             connectionState: .disconnected
+        ))
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            didFinishAuthBootstrap: true,
+            isRestoringSession: true,
+            connectionState: .disconnected
+        ))
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            didFinishAuthBootstrap: false,
+            isRestoringSession: false,
+            connectionState: .disconnected
+        ))
+    }
+
+    /// A primed session dials the saved Mac while its token and teams are
+    /// still being confirmed, so a relay-only launch does not wait for the
+    /// serial auth bootstrap before its first dial.
+    @Test func reconnectsStoredMacDuringPrimedAuthRestore() {
+        #expect(MobileRootAuthGate.shouldReconnectStoredMacDuringRestore(
+            stackAuthenticated: true,
+            isRestoringSession: true,
+            attachTicketAuthenticated: false,
+            hasLaunchConnectionRoute: false,
+            connectionState: .disconnected
+        ))
+        // No primed session: nothing to dial as.
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMacDuringRestore(
+            stackAuthenticated: false,
+            isRestoringSession: true,
+            attachTicketAuthenticated: false,
+            hasLaunchConnectionRoute: false,
+            connectionState: .disconnected
+        ))
+        // Restore already finished: the normal post-bootstrap path owns it.
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMacDuringRestore(
+            stackAuthenticated: true,
+            isRestoringSession: false,
+            attachTicketAuthenticated: false,
+            hasLaunchConnectionRoute: false,
+            connectionState: .disconnected
+        ))
+        // An attach ticket or a launch attach route owns the first connection.
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMacDuringRestore(
+            stackAuthenticated: true,
+            isRestoringSession: true,
+            attachTicketAuthenticated: true,
+            hasLaunchConnectionRoute: false,
+            connectionState: .disconnected
+        ))
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMacDuringRestore(
+            stackAuthenticated: true,
+            isRestoringSession: true,
+            attachTicketAuthenticated: false,
+            hasLaunchConnectionRoute: true,
+            connectionState: .disconnected
+        ))
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMacDuringRestore(
+            stackAuthenticated: true,
+            isRestoringSession: true,
+            attachTicketAuthenticated: false,
+            hasLaunchConnectionRoute: false,
+            connectionState: .connected
         ))
     }
 
@@ -141,6 +273,17 @@ import Testing
             authenticated: true,
             connectionState: .disconnected,
             isReconnectingStoredMac: false,
+            hasKnownPairedMac: true,
+            pairedMacHintUndetermined: false,
+            didFinishStoredMacReconnectAttempt: true
+        ))
+        // A later runtime redial must keep the established workspace shell
+        // mounted. Re-entering the launch-only restoring branch destroys the
+        // shell's compact navigation path and returns the user to the list.
+        #expect(!MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: true,
+            connectionState: .disconnected,
+            isReconnectingStoredMac: true,
             hasKnownPairedMac: true,
             pairedMacHintUndetermined: false,
             didFinishStoredMacReconnectAttempt: true

@@ -29,6 +29,7 @@ extension AppDelegate {
     func debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: Bool = true) {
         clearConfiguredShortcutChordState()
         shortcutEventFocusContextCache = nil
+        shortcutEventAlternateScreenCache = nil
         debugShortcutRoutingFocusedWindowOverrideForTesting.keyRepairFirstResponder = nil
         debugFocusedTerminalKeyRepairObserverForTesting = nil
         if clearFocusedWindowOverride {
@@ -39,6 +40,7 @@ extension AppDelegate {
     func debugSetShortcutRoutingFocusedWindowForTesting(_ window: NSWindow?) {
         debugShortcutRoutingFocusedWindowOverrideForTesting.window = window
         shortcutEventFocusContextCache = nil
+        shortcutEventAlternateScreenCache = nil
     }
 
     func debugSetShortcutRoutingKeyRepairFirstResponderForTesting(_ responder: NSResponder?) {

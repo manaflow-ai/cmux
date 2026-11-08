@@ -243,7 +243,10 @@ final class RenderWorkerCoordinator {
                 swiftRender = nil
                 hasRendered = true
             }
-        case .json:
+        case .json, .jsSource:
+            // Both render through the shared content view; the JS runtime
+            // lives inside this worker process and gets data via the
+            // dataContext the content view passes down.
             lastGoodState = model.state
             lastGoodRender = nil
         case .missing, .failed:
@@ -265,7 +268,8 @@ final class RenderWorkerCoordinator {
                 swiftRender: swiftRender,
                 hasRenderedSwift: hasRendered,
                 dispatch: dispatch,
-                contentInsets: insets
+                contentInsets: insets,
+                dataContext: dataState
             ),
             onTapTargetsChange: { [weak self] targets in
                 self?.tapTargets = targets

@@ -21,6 +21,14 @@ public enum ControlNotificationTargetedDeliveryResolution: Sendable, Equatable {
     /// "Surface not found", `data: {"surface_id": …}`). Carries the surface id.
     case surfaceNotFound(UUID)
     /// The notification was delivered. Carries the resolved workspace id, the
-    /// target surface id, and the resolved window id (which may be absent).
-    case delivered(workspaceID: UUID, surfaceID: UUID, windowID: UUID?)
+    /// target surface id, the resolved window id (which may be absent), and the
+    /// stable notification id when the notification is synchronously stored.
+    /// The id is omitted while asynchronous policy evaluation is pending or
+    /// when policy suppresses persistence.
+    case delivered(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        windowID: UUID?,
+        notificationID: UUID?
+    )
 }

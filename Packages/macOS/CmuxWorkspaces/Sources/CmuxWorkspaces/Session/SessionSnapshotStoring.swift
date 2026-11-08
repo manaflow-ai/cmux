@@ -38,8 +38,9 @@ public protocol SessionSnapshotStoring<SnapshotValue>: Sendable {
     /// recovery path.
     func syncManualRestoreSnapshotCache()
 
-    /// Loads the startup snapshot: the primary when usable, otherwise the
-    /// manual-restore backup when the primary exists but cannot be restored.
+    /// Loads the startup snapshot: the primary when usable, otherwise, when
+    /// the primary exists but cannot be restored, the manual-restore backup
+    /// or the newest restorable history snapshot.
     func loadStartupSnapshot() -> SnapshotValue?
 
     /// Location of the primary snapshot file, or nil when Application
@@ -49,4 +50,93 @@ public protocol SessionSnapshotStoring<SnapshotValue>: Sendable {
     /// Location of the manual-restore backup snapshot file, or nil when
     /// Application Support cannot be resolved.
     func manualRestoreSnapshotFileURL() -> URL?
+
+    /// Location of another install's primary snapshot file (same user
+    /// Application Support, `session-<bundleIdentifier>.json`), or nil when
+    /// Application Support cannot be resolved.
+    func snapshotFileURL(bundleIdentifier: String) -> URL?
+
+    /// Reads and validates the snapshot at `fileURL` for import, reporting
+    /// why it cannot be restored (missing, unreadable, not a snapshot,
+    /// newer or older schema version, no windows, or this install's own live
+    /// snapshot). Never writes.
+    func importableSnapshot(
+        fileURL: URL
+    ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError>
+
+    /// Reads and validates another install's snapshot for import: its
+    /// primary file, falling back to its `-previous` backup like startup
+    /// restore does. Refuses this install's own bundle identifier. Never
+    /// writes either file.
+    func importableSnapshot(
+        bundleIdentifier: String
+    ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError>
+
+    /// Copies this install's saved snapshot (the primary when usable,
+    /// otherwise the backup) to `destination` after validating it.
+    ///
+    /// - Returns: The snapshot file that was copied.
+    func exportSnapshot(to destination: URL, overwrite: Bool) -> Result<URL, SessionSnapshotExportError>
+
+    /// When the file at `fileURL` holds a snapshot from a newer schema
+    /// version, copies it to a `.schema-v<N>.json` side file so a later save
+    /// at the current schema does not destroy it.
+    ///
+    /// - Returns: The side file, or nil when nothing needed preserving.
+    @discardableResult
+    func preserveNewerSchemaSnapshot(fileURL: URL) -> URL?
+
+    /// Preserves a newer-schema snapshot at `fileURL` like
+    /// ``preserveNewerSchemaSnapshot(fileURL:)``.
+    ///
+    /// - Returns: Whether `fileURL` may now be overwritten or removed: true
+    ///   when nothing needed preserving or the side file was written, false
+    ///   when a newer-schema snapshot could not be copied aside.
+    func preserveNewerSchemaSnapshotBeforeReplacing(fileURL: URL) -> Bool
+
+    /// When the file at `fileURL` exists but cannot be restored (and was not
+    /// written by a newer schema), copies it to an `.unusable.json` side file
+    /// so a later save does not destroy it.
+    ///
+    /// - Returns: The side file, or nil when nothing needed preserving.
+    @discardableResult
+    func preserveUnusableSnapshot(fileURL: URL) -> URL?
+
+    /// Copies the snapshot file at `fileURL` into the rotated history
+    /// directory, then prunes history to its retention limit. Skips the copy
+    /// when the newest history entry holds identical bytes. Returns the new
+    /// entry, or nil when nothing was archived.
+    @discardableResult
+    func archiveSnapshotToHistory(
+        fileURL: URL,
+        richness: SessionSnapshotRichness,
+        archivedAt: Date
+    ) -> SessionSnapshotHistoryEntry?
+
+    /// Archived snapshots, newest first.
+    func historyEntries() -> [SessionSnapshotHistoryEntry]
+}
+
+extension SessionSnapshotStoring {
+    /// The newest archived snapshot this build can restore, skipping archives
+    /// it cannot read. Startup falls back on it when the primary exists but
+    /// neither it nor the backup can be restored.
+    public func newestRestorableHistorySnapshot() -> SnapshotValue? {
+        newestRestorableHistorySnapshot { $0 }
+    }
+
+    /// Like ``newestRestorableHistorySnapshot()``, but `restorable` may
+    /// reject or reshape each decoded archive (the app prunes crash-diagnostic
+    /// windows); a rejected archive moves the search to the next older one.
+    public func newestRestorableHistorySnapshot<Restored>(
+        _ restorable: (SnapshotValue) -> Restored?
+    ) -> Restored? {
+        for entry in historyEntries() {
+            if case .loaded(let snapshot) = loadOutcome(fileURL: entry.fileURL),
+               let restored = restorable(snapshot) {
+                return restored
+            }
+        }
+        return nil
+    }
 }

@@ -231,13 +231,23 @@ public struct FeedbackComposerClient {
         return "\(baseName.isEmpty ? "feedback-image" : baseName).jpg"
     }
 
+    /// Strips characters that would break out of the quoted multipart
+    /// `filename` parameter: quotes, and CR/LF or other control characters
+    /// that could inject extra part headers.
+    static func multipartFileName(_ fileName: String) -> String {
+        fileName
+            .components(separatedBy: .controlCharacters)
+            .joined()
+            .replacingOccurrences(of: "\"", with: "")
+    }
+
     private func appendFile(
         named fieldName: String,
         attachment: PreparedFeedbackComposerAttachment,
         to body: inout Data,
         boundary: String
     ) {
-        let sanitizedFileName = attachment.fileName.replacingOccurrences(of: "\"", with: "")
+        let sanitizedFileName = Self.multipartFileName(attachment.fileName)
 
         body.append(Data("--\(boundary)\r\n".utf8))
         body.append(

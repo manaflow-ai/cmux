@@ -196,4 +196,56 @@ import Testing
         }
     }
 
+    @Test func settledSessionFailureOutranksAmbientCancellation() async {
+        let settledFailure = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            #expect(Task.isCancelled)
+            return try MobileCoreRPCSession.resolvePendingSettlement(
+                .response(.failure(.rpcError("rejected", "workspace.create rejected"))),
+                isCancelled: Task.isCancelled
+            )
+        }
+        do {
+            _ = try await settledFailure.value
+            Issue.record("Expected the already-settled host rejection")
+        } catch MobileShellConnectionError.rpcError(let code, let message) {
+            #expect(code == "rejected")
+            #expect(message == "workspace.create rejected")
+        } catch {
+            Issue.record("Expected the RPC rejection to outrank ambient cancellation, got \(error)")
+        }
+    }
+
+    @Test func cancelledConnectionCloseRemainsAmbiguous() async {
+        await expectCancellationOutranksTransportFailure(.connectionClosed)
+    }
+
+    @Test func cancelledRequestTimeoutRemainsAmbiguous() async {
+        await expectCancellationOutranksTransportFailure(.requestTimedOut)
+    }
+
+    @Test func cancelledInvalidResponseRemainsAmbiguous() async {
+        await expectCancellationOutranksTransportFailure(.invalidResponse)
+    }
+
+    private func expectCancellationOutranksTransportFailure(
+        _ error: MobileShellConnectionError
+    ) async {
+        let settlement = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            #expect(Task.isCancelled)
+            return try MobileCoreRPCSession.resolvePendingSettlement(
+                .response(.failure(error)),
+                isCancelled: Task.isCancelled
+            )
+        }
+        do {
+            _ = try await settlement.value
+            Issue.record("Expected cancellation to preserve the ambiguous create outcome")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+    }
+
 }

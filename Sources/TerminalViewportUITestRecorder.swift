@@ -93,7 +93,7 @@ final class TerminalViewportUITestRecorder {
             : initialWindowSizeText
 
         if hideSidebar {
-            context.sidebarState.isVisible = false
+            context.sidebarState.setVisible(false)
         }
         if hideRightSidebar {
             context.fileExplorerState?.setVisible(false)
@@ -108,9 +108,8 @@ final class TerminalViewportUITestRecorder {
         terminalPanel.hostedView.superview?.layoutSubtreeIfNeeded()
         terminalPanel.hostedView.layoutSubtreeIfNeeded()
         terminalPanel.surface.forceRefresh(reason: "uiTest.terminalViewport")
+        guard var viewportData = Self.hostedGeometry(terminalPanel: terminalPanel) else { return }
         didRecordReadyGeometry = true
-
-        var viewportData = Self.hostedGeometry(terminalPanel: terminalPanel)
         var recorderData: [String: String] = [
             "terminalViewportReady": "1",
             "terminalViewportWindowWidth": Self.format(window.frame.width),
@@ -136,7 +135,7 @@ final class TerminalViewportUITestRecorder {
         for context in contextProvider() {
             guard let window = context.window else { continue }
             guard let workspace = context.tabManager.selectedWorkspace ?? context.tabManager.tabs.first else { continue }
-            guard let terminalPanel = workspace.focusedTerminalPanel
+            guard let terminalPanel = workspace.focusedTerminalInputTarget()?.panel
                     ?? workspace.panels.values.compactMap({ $0 as? TerminalPanel }).first else {
                 continue
             }
@@ -197,8 +196,15 @@ final class TerminalViewportUITestRecorder {
         }
     }
 
-    private static func hostedGeometry(terminalPanel: TerminalPanel) -> [String: String] {
+    private static func hostedGeometry(terminalPanel: TerminalPanel) -> [String: String]? {
         let hostedView = terminalPanel.hostedView
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = TerminalWindowPortalRegistry.hostedToWindowId[hostedId],
+              let portal = TerminalWindowPortalRegistry.portalsByWindowId[windowId],
+              let anchor = portal.entriesByHostedId[hostedId]?.anchorView,
+              anchor.window === portal.window else { return nil }
+        let panelSize = portal.effectiveAnchorFrameInWindow(for: anchor).size
+        guard panelSize.width > 0, panelSize.height > 0 else { return nil }
         let hostedFrame = hostedView.frame
         let hostedBounds = hostedView.bounds
         let hostedSuperviewBounds = hostedView.superview?.bounds ?? .zero
@@ -212,8 +218,9 @@ final class TerminalViewportUITestRecorder {
 
         return [
             "terminalViewportPanelId": terminalPanel.id.uuidString,
-            "terminalViewportPanelWidth": format(hostedSuperviewBounds.width),
-            "terminalViewportPanelHeight": format(hostedSuperviewBounds.height),
+            // The portal spans the window; its independent layout anchor excludes pane chrome.
+            "terminalViewportPanelWidth": format(panelSize.width),
+            "terminalViewportPanelHeight": format(panelSize.height),
             "terminalViewportHostedFrameMinX": format(hostedFrame.minX),
             "terminalViewportHostedFrameMinY": format(hostedFrame.minY),
             "terminalViewportHostedFrameMaxX": format(hostedFrame.maxX),

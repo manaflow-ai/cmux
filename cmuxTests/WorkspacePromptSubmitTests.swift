@@ -1,6 +1,8 @@
+import Bonsplit
 import Foundation
 import Testing
 import CMUXAgentLaunch
+import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -200,6 +202,86 @@ struct WorkspacePromptSubmitTests {
         #expect(second.latestConversationMessage == "shipped from feed path")
     }
 
+    @Test func testSubmittedPromptLengthReportsTheWholePromptNotTheCap() {
+        // The CLI caps message keys at 240 characters (239 plus U+2026) and
+        // publishes the submitted length beside the truncated value.
+        let truncated = String(repeating: "x", count: 239) + "\u{2026}"
+        let event = WorkstreamEvent(
+            sessionId: "agent-session",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: UUID().uuidString,
+            extraFieldsJSON: #"{"prompt":"\#(truncated)","prompt_length":1000}"#
+        )
+
+        #expect(event.submittedPromptMessage?.count == 240)
+        #expect(event.submittedPromptLength == 1000)
+    }
+
+    @Test func testSubmittedPromptLengthIsNilWhenTheProducerDidNotReportIt() {
+        let event = WorkstreamEvent(
+            sessionId: "agent-session",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            extraFieldsJSON: #"{"prompt":"short prompt"}"#
+        )
+
+        #expect(event.submittedPromptLength == nil)
+    }
+
+    @Test func testPromptSubmitEventPublishesTheSubmittedLengthOverThePreviewLength() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+        CmuxEventBus.shared.resetForTesting()
+
+        let truncated = String(repeating: "x", count: 239) + "\u{2026}"
+        _ = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: truncated,
+                submittedLength: 1000,
+                iMessageModeEnabled: false
+            )
+        )
+
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        let submitted = try #require(
+            events.first { $0["name"] as? String == "workspace.prompt.submitted" }
+        )
+        let payload = try #require(submitted["payload"] as? [String: Any])
+        #expect(payload["message_length"] as? Int == 1000)
+        #expect((payload["message_preview"] as? String)?.count == 240)
+        #expect(payload["message"] is NSNull)
+    }
+
+    @Test func testPromptSubmitWithoutASubmittedLengthStillCountsTheMessage() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+        CmuxEventBus.shared.resetForTesting()
+
+        _ = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: "ship it",
+                iMessageModeEnabled: false
+            )
+        )
+
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        let submitted = try #require(
+            events.first { $0["name"] as? String == "workspace.prompt.submitted" }
+        )
+        let payload = try #require(submitted["payload"] as? [String: Any])
+        #expect(payload["message_length"] as? Int == 7)
+    }
+
     @Test func testFeedPromptSubmitEventFallsBackToContextMessage() {
         let event = WorkstreamEvent(
             sessionId: "agent-session",
@@ -279,5 +361,262 @@ struct WorkspacePromptSubmitTests {
         #expect(!IMessageModeSettings.isEnabled(defaults: defaults))
         defaults.set(true, forKey: IMessageModeSettings.key)
         #expect(IMessageModeSettings.isEnabled(defaults: defaults))
+    }
+
+    @Test func testPromptScrollMarkerCapturesLiveBottom() throws {
+        let geometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 120, offset: 37, len: 20),
+            rowSpaceRevision: 7
+        )
+
+        let marker = try #require(TerminalPromptScrollMarker(geometry: geometry))
+
+        #expect(marker.topRow == 100)
+        #expect(marker.rowSpaceRevision == 7)
+    }
+
+    @Test func testPromptScrollMarkerTracksItsRowAsOutputAppends() throws {
+        let marker = try #require(TerminalPromptScrollMarker(
+            geometry: NotificationScrollRestoreGeometry(
+                scrollbar: GhosttyScrollbar(total: 120, offset: 100, len: 20),
+                rowSpaceRevision: 7
+            )
+        ))
+        let currentGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 220, offset: 200, len: 20),
+            rowSpaceRevision: 7
+        )
+
+        let fraction = try #require(marker.trackFraction(in: currentGeometry))
+
+        #expect(abs(fraction - 0.5) < 0.0001)
+    }
+
+    @Test func testPromptScrollMarkerExpiresWhenGhosttyRenumbersRows() throws {
+        let marker = try #require(TerminalPromptScrollMarker(
+            geometry: NotificationScrollRestoreGeometry(
+                scrollbar: GhosttyScrollbar(total: 120, offset: 100, len: 20),
+                rowSpaceRevision: 7
+            )
+        ))
+        let renumberedGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 120, offset: 100, len: 20),
+            rowSpaceRevision: 8
+        )
+
+        #expect(marker.trackFraction(in: renumberedGeometry) == nil)
+    }
+
+    @Test func testPromptScrollMarkerRecordedBeforeScrollbackAppearsStaysAtStart() throws {
+        let marker = try #require(TerminalPromptScrollMarker(
+            geometry: NotificationScrollRestoreGeometry(
+                scrollbar: GhosttyScrollbar(total: 20, offset: 0, len: 40),
+                rowSpaceRevision: 3
+            )
+        ))
+        let currentGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 80, offset: 60, len: 20),
+            rowSpaceRevision: 3
+        )
+
+        #expect(marker.topRow == 0)
+        #expect(marker.trackFraction(in: currentGeometry) == 0)
+    }
+
+
+    @Test func testPromptScrollMarkerActivationJumpsToCapturedRow() throws {
+        let initialGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 100, offset: 80, len: 20),
+            rowSpaceRevision: 1
+        )
+        let marker = try #require(TerminalPromptScrollMarker(geometry: initialGeometry))
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(
+            initialGeometry.scrollbar,
+            rowSpaceRevision: initialGeometry.rowSpaceRevision
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let promptScrollView = try #require(
+            hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first
+        )
+
+        hostedView.recordPromptScrollMarker()
+        surfaceView.setAuthoritativeScrollbar(
+            GhosttyScrollbar(total: 180, offset: 160, len: 20),
+            rowSpaceRevision: 1
+        )
+
+        #expect(promptScrollView.activatePromptScrollMarker(marker))
+        #expect(surfaceView.performedRows == [80])
+        #expect(surfaceView.attemptedRowSpaceRevisions == [1])
+    }
+
+    @Test func testPromptScrollMarkerActivationRejectsRenumberedScrollback() throws {
+        let initialGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 100, offset: 80, len: 20),
+            rowSpaceRevision: 1
+        )
+        let marker = try #require(TerminalPromptScrollMarker(geometry: initialGeometry))
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(
+            initialGeometry.scrollbar,
+            rowSpaceRevision: initialGeometry.rowSpaceRevision
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let promptScrollView = try #require(
+            hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first
+        )
+
+        hostedView.recordPromptScrollMarker()
+        surfaceView.setAuthoritativeScrollbar(
+            GhosttyScrollbar(total: 180, offset: 160, len: 20),
+            rowSpaceRevision: 2
+        )
+
+        #expect(!promptScrollView.activatePromptScrollMarker(marker))
+        #expect(surfaceView.performedRows.isEmpty)
+    }
+
+    @Test func testSubmittedMessageWithoutPanelIdLeavesPanelPromptsEmpty() {
+        let workspace = Workspace()
+
+        #expect(workspace.recordSubmittedMessage("workspace only"))
+        #expect(workspace.latestSubmittedMessage == "workspace only")
+        #expect(workspace.panelPrompts.isEmpty)
+    }
+
+    @Test func testSubmittedMessageWithPanelIdRecordsPerPanelPrompt() {
+        let workspace = Workspace()
+        let panelId = UUID()
+
+        #expect(workspace.recordSubmittedMessage("run the migration", panelId: panelId))
+
+        let recorded = workspace.panelPrompts[panelId]
+        #expect(recorded?.message == "run the migration")
+        #expect(recorded?.submittedAt == workspace.latestSubmittedAt)
+        #expect(workspace.latestSubmittedMessage == "run the migration")
+    }
+
+    @Test func testPanelPromptsKeepOneEntryPerPanel() {
+        let workspace = Workspace()
+        let first = UUID()
+        let second = UUID()
+
+        #expect(workspace.recordSubmittedMessage("first agent", panelId: first))
+        #expect(workspace.recordSubmittedMessage("second agent", panelId: second))
+
+        #expect(workspace.panelPrompts[first]?.message == "first agent")
+        #expect(workspace.panelPrompts[second]?.message == "second agent")
+        #expect(workspace.panelPrompts.count == 2)
+        // The workspace-level field still collapses to the newest prompt.
+        #expect(workspace.latestSubmittedMessage == "second agent")
+    }
+
+    @Test func testBlankSubmittedMessageDoesNotRecordPanelPrompt() {
+        let workspace = Workspace()
+        let panelId = UUID()
+
+        #expect(!workspace.recordSubmittedMessage(" \n ", panelId: panelId))
+        #expect(workspace.panelPrompts.isEmpty)
+    }
+
+    @Test func testResetSidebarContextClearsPanelPrompts() {
+        let workspace = Workspace()
+        let panelId = UUID()
+
+        #expect(workspace.recordSubmittedMessage("before reset", panelId: panelId))
+        workspace.resetSidebarContext(reason: "test")
+
+        #expect(workspace.panelPrompts.isEmpty)
+        #expect(workspace.latestSubmittedMessage == nil)
+    }
+
+    // The hook payload's `CMUX_SURFACE_ID` is already a panel id in the
+    // unsplit case, so the resolver's first branch has to accept it as-is.
+    @Test func testPromptSubmitWithPanelIdSurfaceIdRecordsPanelPrompt() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, placementOverride: .end)
+        let panelId = try #require(workspace.focusedPanelId)
+
+        let outcome = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: "run the migration",
+                iMessageModeEnabled: false,
+                surfaceId: panelId.uuidString
+            )
+        )
+
+        #expect(outcome.messageRecorded)
+        #expect(workspace.panelPrompts[panelId]?.message == "run the migration")
+        #expect(workspace.latestSubmittedMessage == "run the migration")
+    }
+
+    // In a split pane the surface id is a distinct bonsplit TabID, so the
+    // resolver has to fall through to the surface-to-panel mapping.
+    @Test func testPromptSubmitResolvesBonsplitSurfaceIdToItsPanel() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, placementOverride: .end)
+        // Read the panel id first: `bindSurface` is exclusive per panel, so
+        // rebinding drops the panel's original surface mapping and
+        // `focusedPanelId` stops resolving right after this line.
+        let panelId = try #require(workspace.focusedPanelId)
+        let surfaceId = UUID()
+        workspace.bindSurface(TabID(uuid: surfaceId), toPanelId: panelId)
+        #expect(!workspace.panels.keys.contains(surfaceId))
+
+        let outcome = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: "split pane prompt",
+                iMessageModeEnabled: false,
+                surfaceId: surfaceId.uuidString
+            )
+        )
+
+        #expect(outcome.messageRecorded)
+        #expect(workspace.panelPrompts[panelId]?.message == "split pane prompt")
+        #expect(workspace.panelPrompts[surfaceId] == nil)
+    }
+
+    // The control-socket reports reconcile panels in bulk through
+    // `pruneSurfaceMetadata` before each update, not through the single-panel
+    // close path, so the prompt map has to be filtered there too or the sidebar
+    // keeps showing a dead panel's prompt.
+    @Test func testPruneSurfaceMetadataDropsPromptsForPanelsThatAreGone() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, placementOverride: .end)
+        let livePanelId = try #require(workspace.focusedPanelId)
+        let departedPanelId = UUID()
+
+        #expect(workspace.recordSubmittedMessage("still here", panelId: livePanelId))
+        #expect(workspace.recordSubmittedMessage("already closed", panelId: departedPanelId))
+        #expect(workspace.panelPrompts.count == 2)
+
+        workspace.pruneSurfaceMetadata(validSurfaceIds: Set(workspace.panels.keys))
+
+        #expect(workspace.panelPrompts[livePanelId]?.message == "still here")
+        #expect(workspace.panelPrompts[departedPanelId] == nil)
+    }
+
+    // An id that matches neither a panel nor a surface must not invent a
+    // panel entry; the workspace-level fields still have to be written.
+    @Test func testPromptSubmitWithUnresolvableSurfaceIdKeepsWorkspaceLevelFallback() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, placementOverride: .end)
+
+        let outcome = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: "no surface match",
+                iMessageModeEnabled: false,
+                surfaceId: UUID().uuidString
+            )
+        )
+
+        #expect(outcome.messageRecorded)
+        #expect(workspace.panelPrompts.isEmpty)
+        #expect(workspace.latestSubmittedMessage == "no surface match")
+        #expect(workspace.latestSubmittedAt != nil)
     }
 }

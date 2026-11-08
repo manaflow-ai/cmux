@@ -1,29 +1,6 @@
+import CmuxDiffComments
 import CryptoKit
 import Foundation
-
-/// A review comment left on a line range in the diff viewer.
-///
-/// `endLine` (on `side`) is the anchor line the comment renders under;
-/// `lineText` is that line's content at save time so the comment can be
-/// re-anchored when the same diff is regenerated with shifted line numbers.
-struct DiffComment: Codable, Equatable, Identifiable {
-    var id: UUID
-    var filePath: String
-    var side: String
-    var startLine: Int
-    var endLine: Int
-    var endSide: String?
-    var lineText: String
-    var message: String
-    /// Formatted text block appended to a TextBox submission when the
-    /// workspace's pending pool is consumed.
-    var submissionText: String?
-    /// Set when a TextBox submission delivered this comment to an agent;
-    /// consumed comments never re-enter the pending pool.
-    var consumedAt: Date?
-    var createdAt: Date
-    var updatedAt: Date
-}
 
 /// Persists diff viewer review comments per git repository, one JSON file per
 /// repo (keyed by a hash of the canonical repo root path) under

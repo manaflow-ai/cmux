@@ -25,6 +25,20 @@ describe("VM timing helpers", () => {
     expect(recorded[0]?.durationMs).toBeGreaterThanOrEqual(0);
   });
 
+  test("Server-Timing lists every recorded stage in milliseconds", () => {
+    const attributes: Array<{ key: string; value: unknown }> = [];
+    const span = { setAttribute: (key: string, value: unknown) => attributes.push({ key, value }) } as unknown as Span;
+    const recorder = new VmTimingRecorder(span, "create", { debugTimings: false });
+    recorder.record("auth", 12.345);
+    recorder.record("connection_init", 8);
+    recorder.record("admission", 20);
+    recorder.record("provider_create", 250);
+    recorder.record("provider_create", 50);
+    expect(recorder.serverTimingHeader()).toBe("auth;dur=12.35, connection_init;dur=8, admission;dur=20, provider_create;dur=300");
+    expect(attributes.some((attribute) => attribute.key === "cmux.vm.timing.provider_create_started_at_ms")).toBe(true);
+    expect(attributes.some((attribute) => attribute.key === "cmux.vm.timing.provider_create_ended_at_ms")).toBe(true);
+  });
+
   test("finish is idempotent", () => {
     const attributes: Array<{ key: string; value: unknown }> = [];
     const span = {
@@ -41,5 +55,14 @@ describe("VM timing helpers", () => {
 
     expect(attributes.filter((attribute) => attribute.key === "cmux.vm.timing.total_ms")).toHaveLength(1);
     expect(attributes.filter((attribute) => attribute.key === "cmux.vm.timing.total_count")).toHaveLength(1);
+  });
+
+  test("accepts the phase end timestamp when work settles before its caller records it", () => {
+    const attributes: Array<{ key: string; value: unknown }> = [];
+    const span = { setAttribute: (key: string, value: unknown) => attributes.push({ key, value }) } as unknown as Span;
+    const recorder = new VmTimingRecorder(span, "create", { debugTimings: false });
+    recorder.record("connection_init", 20, { endedAtMs: 1_500 });
+    expect(attributes.find((attribute) => attribute.key === "cmux.vm.timing.connection_init_ended_at_ms")?.value).toBe(1_500);
+    expect(attributes.find((attribute) => attribute.key === "cmux.vm.timing.connection_init_started_at_ms")?.value).toBe(1_480);
   });
 });

@@ -18,7 +18,6 @@ final class FeedSidebarUITests: XCTestCase {
     private var dockConfigPath = ""
     private var requestId = ""
     private let modeKey = "socketControlMode"
-    private let dockBetaFeatureKey = "rightSidebar.beta.dock.enabled"
     private let launchTag = "ui-tests-feed-sidebar"
 
     override func setUp() {
@@ -42,10 +41,9 @@ final class FeedSidebarUITests: XCTestCase {
     }
 
     func testFeedReceivesAndResolvesPermissionRequest() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += [
             "-\(modeKey)", "allowAll",
-            "-\(dockBetaFeatureKey)", "YES",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US"
         ]
@@ -78,12 +76,13 @@ final class FeedSidebarUITests: XCTestCase {
             "Dock mode did not open in the right sidebar. diagnostics=\(loadDiagnostics())"
         )
 
-        let focusButton = app.buttons["Focus Control"].firstMatch
-        XCTAssertTrue(
-            focusButton.waitForExistence(timeout: 10),
-            "Dock Feed focus button did not appear"
-        )
-        focusButton.click()
+        // The Dock now renders the Feed terminal directly in its Bonsplit tree
+        // (no per-control "Focus Control" button). Click the mounted Dock
+        // container so keyboard input reaches the Feed TUI without assuming a
+        // positional shortcut number that users may customize.
+        let dockPanel = app.descendants(matching: .any)["DockPanel"].firstMatch
+        XCTAssertTrue(dockPanel.waitForExistence(timeout: 8), "Expected the Dock container before focusing Feed")
+        dockPanel.click()
         XCTAssertTrue(
             waitForFeedTUIReady(timeout: 90),
             "Feed TUI was not ready. marker=\(loadFeedTUIReadyMarker()) result=\(loadFeedResult())"
@@ -129,10 +128,9 @@ final class FeedSidebarUITests: XCTestCase {
     }
 
     func testDockTerminalRerendersAfterRightSidebarHideShow() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += [
             "-\(modeKey)", "allowAll",
-            "-\(dockBetaFeatureKey)", "YES",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US"
         ]
@@ -401,18 +399,16 @@ final class FeedSidebarUITests: XCTestCase {
 
     private func waitForDockModeVisible(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
         let dockButton = app.buttons["RightSidebarModeButton.dock"].firstMatch
-        let focusButton = app.buttons["Focus Control"].firstMatch
+        let dockPanel = app.descendants(matching: .any)["DockPanel"].firstMatch
         return pollUntil(timeout: timeout, interval: 0.2) {
-            dockButton.exists && dockButton.isHittable && focusButton.exists && focusButton.isHittable
+            dockButton.exists && dockButton.isHittable && dockButton.isSelected && dockPanel.exists
         }
     }
 
     private func waitForRightSidebarHidden(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let focusButton = app.buttons["Focus Control"].firstMatch
         let dockButton = app.buttons["RightSidebarModeButton.dock"].firstMatch
         return pollUntil(timeout: timeout, interval: 0.2) {
-            (!focusButton.exists || !focusButton.isHittable) &&
-                (!dockButton.exists || !dockButton.isHittable)
+            !dockButton.exists || !dockButton.isHittable
         }
     }
 

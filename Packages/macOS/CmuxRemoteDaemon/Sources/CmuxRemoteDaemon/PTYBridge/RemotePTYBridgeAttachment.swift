@@ -5,10 +5,13 @@ public struct RemotePTYBridgeAttachment: Sendable {
     public let attachmentID: String
     /// Daemon-issued secret authorizing operations on this attachment.
     public let token: String
+    /// Bytes of initial scrollback replayed before live PTY output.
+    public let replayByteCount: Int
 
     /// Creates an attachment identity; mirrors the original memberwise initializer.
-    public init(attachmentID: String, token: String) {
+    public init(attachmentID: String, token: String, replayByteCount: Int = 0) {
         self.attachmentID = attachmentID
         self.token = token
+        self.replayByteCount = max(0, replayByteCount)
     }
 }

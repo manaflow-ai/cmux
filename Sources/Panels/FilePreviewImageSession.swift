@@ -13,6 +13,7 @@ final class FilePreviewImageSession {
 
     func view(
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -21,6 +22,7 @@ final class FilePreviewImageSession {
             configure(
                 $0,
                 panel: panel,
+                revision: revision,
                 isVisibleInUI: isVisibleInUI,
                 backgroundColor: backgroundColor,
                 drawsBackground: drawsBackground
@@ -31,6 +33,7 @@ final class FilePreviewImageSession {
     func update(
         _ view: FilePreviewImageContainerView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -39,6 +42,7 @@ final class FilePreviewImageSession {
             configure(
                 $0,
                 panel: panel,
+                revision: revision,
                 isVisibleInUI: isVisibleInUI,
                 backgroundColor: backgroundColor,
                 drawsBackground: drawsBackground
@@ -53,6 +57,7 @@ final class FilePreviewImageSession {
     private func configure(
         _ view: FilePreviewImageContainerView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -60,6 +65,6 @@ final class FilePreviewImageSession {
         view.isHidden = !isVisibleInUI
         view.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
         view.setPanel(panel)
-        view.setURL(panel.fileURL)
+        view.setURL(panel.fileURL, revision: revision)
     }
 }

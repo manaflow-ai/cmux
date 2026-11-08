@@ -69,7 +69,7 @@ Sidefeltet viser git-gren, tilknyttet PR-status/nummer, arbeidsmappe, lyttende p
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> oppretter et arbeidsområde for en ekstern maskin. Nettleserpaneler rutes gjennom det eksterne nettverket, så localhost bare fungerer. Dra et bilde inn i en ekstern sesjon for å laste opp via scp.
+<code>cmux ssh user@remote</code> oppretter et arbeidsområde for en ekstern maskin. Angi <code>--command 'omp "investigate auth"'</code> for å kjøre en innledende kommando én gang i den første eksterne terminalen. Nettleserpaneler rutes gjennom det eksterne nettverket, så localhost bare fungerer. Dra et bilde inn i en ekstern sesjon for å laste opp via scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 Ved første oppstart kan macOS be deg bekrefte åpning av en app fra en identifisert utvikler. Klikk **Åpne** for å fortsette.
 
+### Shell-fullføring
+
+Homebrew-casken installerer fullføring for zsh, bash og fish. Start et nytt shell etter installasjonen. Hvis den ikke lastes, sjekk at Homebrews fullføringskataloger er koblet til shellet ditt (se [Homebrews dokumentasjon om shell-fullføring](https://docs.brew.sh/Shell-Completion)).
+
+Hvis du installerte cmux på en annen måte, legg den aktuelle linjen til i oppstartsfilen til shellet ditt, og start et nytt shell:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## Hvorfor cmux?
 
 Jeg kjører mange Claude Code- og Codex-sesjoner parallelt. Jeg brukte Ghostty med en haug delte paneler, og stolte på native macOS-varsler for å vite når en agent trengte meg. Men Claude Codes varselstekst er alltid bare "Claude is waiting for your input" uten kontekst, og med nok faner åpne kunne jeg ikke engang lese titlene lenger.
@@ -152,7 +171,9 @@ For mer informasjon om hvordan du konfigurerer cmux, [gå til dokumentasjonen v�
 
 | Snarvei | Handling |
 |----------|--------|
-| ⌘ N | Nytt arbeidsområde |
+| ⌘ N | Nytt lokalt arbeidsområde |
+| ⌘ Y | Nytt Cloud-arbeidsområde i den sist brukbare Cloud-konteksten; åpner New Cloud Machine når ingen finnes |
+| ⌘ ⇧ Y | Ny Cloud-maskin |
 | ⌘ 1–8 | Hopp til arbeidsområde 1–8 |
 | ⌘ 9 | Hopp til siste arbeidsområde |
 | ⌃ ⌘ ] | Neste arbeidsområde |
@@ -363,19 +384,19 @@ Ja, cmux er gratis å bruke. Kildekoden er tilgjengelig på [GitHub](https://git
 
 ### Hvordan kan jeg støtte cmux?
 
-cmux er gratis og åpen kildekode, og vil alltid være det. Hvis du vil støtte utviklingen og få tidlig tilgang til det som kommer, inkludert cmux AI, iOS-appen og Cloud VMs, sjekk ut [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux er gratis og åpen kildekode, og vil alltid være det. Hvis du vil støtte utviklingen og få tidlig tilgang til det som kommer, inkludert cmux AI, iOS-appen og Cloud VMs, sjekk ut [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
 
 ### Jeg har en funksjonsforespørsel eller fant en feil?
 
-Vi vil gjerne høre det. Åpne en [issue](https://github.com/manaflow-ai/cmux/issues) eller [pull request](https://github.com/manaflow-ai/cmux/pulls) på GitHub, eller [send oss en e-post](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Vi vil gjerne høre det. Åpne en [issue](https://github.com/manaflow-ai/cmux/issues) eller [pull request](https://github.com/manaflow-ai/cmux/pulls) på GitHub, eller [send oss en e-post](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Stjernehistorikk
 
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+<a href="https://www.star-history.com/?repos=manaflow-ai%2Fcmux&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&theme=dark&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
  </picture>
 </a>
 
@@ -391,27 +412,26 @@ Måter å engasjere seg:
 ## Fellesskap
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
-## Grunnleggerutgaven
+<p>
+  <strong>WeChat:</strong> Skann QR-koden for å bli med i fellesskapet.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-kode for å bli med i cmux-fellesskapet" width="240" />
+</p>
+
+## cmux Pro
 
 cmux er gratis, åpen kildekode, og vil alltid være det. Hvis du vil støtte utviklingen og få tidlig tilgang til det som kommer:
 
-**[Få Grunnleggerutgaven](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Prioriterte funksjonsforespørsler/feilrettinger**
-- **Tidlig tilgang: cmux AI som gir deg kontekst om hvert arbeidsområde, fane og panel**
-- **Tidlig tilgang: iOS-app med terminaler synkronisert mellom desktop og telefon**
-- **Tidlig tilgang: Cloud VMs**
-- **Tidlig tilgang: Stemmemodus**
-- **Min personlige iMessage/WhatsApp**
+**[Få cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## Lisens
 
-cmux er åpen kildekode under [GPL-3.0-or-later](LICENSE).
+cmux er åpen kildekode under [GPL-3.0-or-later](LICENSE). cmux-serverprogramvaren (`web/`, Cloudflare-workerne og relétjenestene i [LICENSE](LICENSE)) bruker i stedet [Business Source License 1.1](web/LICENSE): du kan lese, endre og kjøre den til ikke-produksjonsbruk, mens produksjonsbruk eller selvhosting krever en kommersiell lisens.
 
-Hvis organisasjonen din ikke kan overholde GPL, er en kommersiell lisens tilgjengelig. Kontakt [founders@manaflow.com](mailto:founders@manaflow.com) for detaljer.
+Hvis organisasjonen din ikke kan overholde GPL, er en kommersiell lisens tilgjengelig. Kontakt [founders@cmux.com](mailto:founders@cmux.com) for detaljer.

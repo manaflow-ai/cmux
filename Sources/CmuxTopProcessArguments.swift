@@ -1,5 +1,7 @@
+import CmuxFoundation
 import Darwin
 import Foundation
+import CmuxFoundation
 
 struct CmuxTopProcessArguments: Sendable {
     let arguments: [String]
@@ -7,6 +9,33 @@ struct CmuxTopProcessArguments: Sendable {
 }
 
 extension CmuxTopProcessSnapshot {
+    /// Reads argv and environment only while the process still has the census generation.
+    ///
+    /// The identity is checked immediately before and after the `KERN_PROCARGS2`
+    /// read so a PID reused during enrichment cannot donate argv to the old
+    /// topology record.
+    static func processArgumentsAndEnvironment(
+        for pid: Int,
+        expectedIdentity: AgentPIDProcessIdentity
+    ) -> CmuxTopProcessArguments? {
+        guard expectedIdentity.pid == pid_t(pid),
+              AgentPIDProcessIdentity(pid: expectedIdentity.pid) == expectedIdentity,
+              let bytes = kernProcArgsBytes(for: pid),
+              let arguments = processArgumentsAndEnvironment(fromKernProcArgs: bytes),
+              AgentPIDProcessIdentity(pid: expectedIdentity.pid) == expectedIdentity else {
+            return nil
+        }
+        return arguments
+    }
+
+    /// Reads argv and environment for one immutable census record.
+    static func processArgumentsAndEnvironment(
+        for process: CmuxTopProcessInfo
+    ) -> CmuxTopProcessArguments? {
+        guard let identity = process.processIdentity else { return nil }
+        return processArgumentsAndEnvironment(for: process.pid, expectedIdentity: identity)
+    }
+
     static func processArgumentsAndEnvironment(for pid: Int) -> CmuxTopProcessArguments? {
         guard pid > 0, pid <= Int(Int32.max),
               let bytes = kernProcArgsBytes(for: pid) else {
@@ -34,11 +63,10 @@ extension CmuxTopProcessSnapshot {
             guard index < bytes.count else { return nil }
             let start = index
             skipString(in: bytes, index: &index)
-            if start < index,
-               let argument = String(bytes: bytes[start..<index], encoding: .utf8) {
+            if let argument = String(bytes: bytes[start..<index], encoding: .utf8) {
                 arguments.append(argument)
             }
-            skipNulls(in: bytes, index: &index)
+            consumeTerminatingNull(in: bytes, index: &index)
         }
 
         var environment: [String: String] = [:]
@@ -84,6 +112,12 @@ extension CmuxTopProcessSnapshot {
 
     private static func skipNulls(in bytes: [UInt8], index: inout Int) {
         while index < bytes.count, bytes[index] == 0 {
+            index += 1
+        }
+    }
+
+    private static func consumeTerminatingNull(in bytes: [UInt8], index: inout Int) {
+        if index < bytes.count, bytes[index] == 0 {
             index += 1
         }
     }

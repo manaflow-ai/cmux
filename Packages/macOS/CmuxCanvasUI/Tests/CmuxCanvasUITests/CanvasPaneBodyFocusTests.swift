@@ -183,6 +183,52 @@ struct CanvasPaneBodyFocusTests {
         #expect(panelBMount.inactiveOverlayStates.last == false)
     }
 
+    @Test func descriptorObjectReplacementRemountsSelectedContent() throws {
+        let panelA = UUID()
+        let panelB = UUID()
+        let firstPanelA = NSObject()
+        let replacementPanelA = NSObject()
+        var mountsByPanelId: [UUID: [TestMount]] = [:]
+        let root = makeRoot(
+            panelA: panelA,
+            panelB: panelB,
+            panelAContentIdentity: ObjectIdentifier(firstPanelA),
+            mountFactory: { panelId in
+                let mount = TestMount()
+                mountsByPanelId[panelId, default: []].append(mount)
+                return mount
+            }
+        ) { _ in }
+        attachToHost(root)
+        defer {
+            root.teardown()
+            root.removeFromSuperview()
+        }
+
+        let firstMount = try #require(mountsByPanelId[panelA]?.first)
+        root.sync(
+            descriptors: [
+                descriptor(
+                    id: panelA,
+                    contentIdentity: ObjectIdentifier(replacementPanelA),
+                    title: "A",
+                    focused: true,
+                    mountFactory: { panelId in
+                        let mount = TestMount()
+                        mountsByPanelId[panelId, default: []].append(mount)
+                        return mount
+                    }
+                ),
+                descriptor(id: panelB, title: "B", focused: false),
+            ],
+            focusedPanelId: panelA,
+            isWorkspaceVisible: true
+        )
+
+        #expect(mountsByPanelId[panelA]?.count == 2)
+        #expect(firstMount.unmountCount == 1)
+    }
+
     @Test func tabSelectionWaitsForFreshDescriptorBeforeUpdatingMountPresentation() throws {
         let panelA = UUID()
         let panelB = UUID()
@@ -279,6 +325,7 @@ struct CanvasPaneBodyFocusTests {
         panelA: UUID,
         panelB: UUID,
         isWorkspaceVisible: Bool = true,
+        panelAContentIdentity: ObjectIdentifier? = nil,
         mountFactory: ((UUID) -> TestMount)? = nil,
         onFocusPanel: @escaping (UUID) -> Void
     ) -> CanvasRootView {
@@ -308,7 +355,13 @@ struct CanvasPaneBodyFocusTests {
         root.layoutSubtreeIfNeeded()
         root.sync(
             descriptors: [
-                descriptor(id: panelA, title: "A", focused: true, mountFactory: mountFactory),
+                descriptor(
+                    id: panelA,
+                    contentIdentity: panelAContentIdentity,
+                    title: "A",
+                    focused: true,
+                    mountFactory: mountFactory
+                ),
                 descriptor(id: panelB, title: "B", focused: false, mountFactory: mountFactory),
             ],
             focusedPanelId: panelA,
@@ -320,6 +373,7 @@ struct CanvasPaneBodyFocusTests {
 
     private func descriptor(
         id: UUID,
+        contentIdentity: ObjectIdentifier? = nil,
         title: String,
         focused: Bool,
         showsInactiveOverlay: Bool? = nil,
@@ -328,6 +382,7 @@ struct CanvasPaneBodyFocusTests {
         let showsInactiveOverlay = showsInactiveOverlay ?? !focused
         return CanvasPaneDescriptor(
             id: id,
+            contentIdentity: contentIdentity,
             tab: CanvasTabChrome(id: id, title: title, iconSystemName: nil),
             isFocused: focused,
             closeActionLabel: "",

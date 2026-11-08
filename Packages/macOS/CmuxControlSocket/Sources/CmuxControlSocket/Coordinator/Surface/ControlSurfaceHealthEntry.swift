@@ -15,6 +15,11 @@ public struct ControlSurfaceHealthEntry: Sendable, Equatable {
     /// (`isViewInWindow`) and browser (`webView.window != nil`) panels, `nil`
     /// (JSON `null`) for any other panel type.
     public let inWindow: Bool?
+    /// Socket-to-runtime ownership for terminal surfaces. `nil` means the
+    /// panel type does not use a terminal socket binding.
+    public let socketBindingRawValue: String?
+    /// Renderer health for terminal surfaces, or `nil` for other panel types.
+    public let renderHealthRawValue: String?
 
     /// Creates a surface-health entry.
     ///
@@ -23,13 +28,19 @@ public struct ControlSurfaceHealthEntry: Sendable, Equatable {
     ///   - typeRawValue: The panel type's raw value.
     ///   - inWindow: Whether the surface's hosting view is in a window, or `nil`
     ///     for non-terminal/browser panels.
+    ///   - socketBindingRawValue: Terminal socket ownership state, or `nil` for
+    ///     panel types without a terminal binding.
     public init(
         surfaceID: UUID,
         typeRawValue: String,
-        inWindow: Bool?
+        inWindow: Bool?,
+        socketBindingRawValue: String? = nil,
+        renderHealthRawValue: String? = nil
     ) {
         self.surfaceID = surfaceID
         self.typeRawValue = typeRawValue
         self.inWindow = inWindow
+        self.socketBindingRawValue = socketBindingRawValue
+        self.renderHealthRawValue = renderHealthRawValue
     }
 }

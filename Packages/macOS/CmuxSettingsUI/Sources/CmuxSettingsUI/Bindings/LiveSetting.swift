@@ -32,29 +32,34 @@ import SwiftUI
 /// no wrapping or casting. Reads work without an injected ``SettingsRuntime``
 /// (the `@State` is seeded from the catalog default); the runtime is only
 /// needed to observe and persist changes, resolved from the environment.
-@MainActor
+/// Deliberately not main-actor isolated. SwiftUI's `DynamicProperty.update()`
+/// requirement is nonisolated, so a main-actor conformance forces a
+/// cross-isolation bridge whose runtime executor check crashes on macOS 26.4.x.
+/// SwiftUI drives `update()` and the property-wrapper accessors on the main
+/// thread, while the wrapper's stored members are value projections or
+/// `Sendable` closures.
 @propertyWrapper
-public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicProperty {
+public struct LiveSetting<Value: SettingCodable>: DynamicProperty {
     @Environment(\.settingsRuntime) private var runtime
     @State private var value: Value
     @State private var driver = SettingReadDriver<Value>()
 
     /// Builds the change stream for this key against a resolved runtime.
-    private let makeStream: (SettingsRuntime) -> AsyncStream<Value>
+    private let makeStream: @Sendable (SettingsRuntime) -> AsyncStream<Value>
     /// Persists a new value to the backing store for this key.
-    private let persist: (SettingsRuntime, Value) -> Void
+    private let persist: @Sendable (SettingsRuntime, Value) -> Void
 
     /// Binds to a UserDefaults-backed setting.
     ///
     /// - Parameter keyPath: Key path to the catalog's ``DefaultsKey`` for this value.
     public init(_ keyPath: KeyPath<SettingCatalog, DefaultsKey<Value>>) {
-        _value = State(initialValue: SettingCatalog()[keyPath: keyPath].defaultValue)
+        let key = SettingCatalog()[keyPath: keyPath]
+        _value = State(initialValue: key.defaultValue)
         makeStream = { runtime in
-            runtime.userDefaultsStore.values(for: runtime.catalog[keyPath: keyPath])
+            runtime.userDefaultsStore.values(for: key)
         }
         persist = { runtime, newValue in
-            let key = runtime.catalog[keyPath: keyPath]
-            Task { await runtime.userDefaultsStore.set(newValue, for: key) }
+            Task { @MainActor in await runtime.userDefaultsStore.set(newValue, for: key) }
         }
     }
 
@@ -62,14 +67,14 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
     ///
     /// - Parameter keyPath: Key path to the catalog's ``JSONKey`` for this value.
     public init(_ keyPath: KeyPath<SettingCatalog, JSONKey<Value>>) {
-        _value = State(initialValue: SettingCatalog()[keyPath: keyPath].defaultValue)
+        let key = SettingCatalog()[keyPath: keyPath]
+        _value = State(initialValue: key.defaultValue)
         makeStream = { runtime in
-            runtime.jsonStore.values(for: runtime.catalog[keyPath: keyPath])
+            runtime.jsonStore.values(for: key)
         }
         persist = { runtime, newValue in
-            let key = runtime.catalog[keyPath: keyPath]
             let errorLog = runtime.errorLog
-            Task {
+            Task { @MainActor in
                 do { try await runtime.jsonStore.set(newValue, for: key) }
                 catch { errorLog.record(error, keyID: key.id) }
             }
@@ -83,14 +88,14 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
     ///
     /// - Parameter keyPath: Key path to the catalog's ``SecretFileKey``.
     public init(_ keyPath: KeyPath<SettingCatalog, SecretFileKey>) where Value == String {
-        _value = State(initialValue: SettingCatalog()[keyPath: keyPath].defaultValue)
+        let key = SettingCatalog()[keyPath: keyPath]
+        _value = State(initialValue: key.defaultValue)
         makeStream = { runtime in
-            runtime.secretStore.values(for: runtime.catalog[keyPath: keyPath])
+            runtime.secretStore.values(for: key)
         }
         persist = { runtime, newValue in
-            let key = runtime.catalog[keyPath: keyPath]
             let errorLog = runtime.errorLog
-            Task {
+            Task { @MainActor in
                 do { try await runtime.secretStore.set(newValue, for: key) }
                 catch { errorLog.record(error, keyID: key.id) }
             }
@@ -103,7 +108,7 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
     /// the wrapper's `@State`. Writes persist to the backing store and do not
     /// update `@State` directly; the stream yields the committed value back, so
     /// a write that the store rejects leaves the displayed value unchanged.
-    public var wrappedValue: Value {
+    @MainActor public var wrappedValue: Value {
         get { value }
         nonmutating set {
             // Persist only; the observation stream is the single writer of
@@ -119,16 +124,23 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
     ///
     /// The getter reflects the current `@State` value; the setter persists
     /// through ``wrappedValue``.
-    public var projectedValue: Binding<Value> {
+    @MainActor public var projectedValue: Binding<Value> {
         Binding(get: { value }, set: { wrappedValue = $0 })
     }
 
-    /// `DynamicProperty` hook. On the first call with a resolved
+    /// Nonisolated `DynamicProperty` hook. On the first call with a resolved
     /// ``SettingsRuntime`` it starts the ``SettingReadDriver`` that forwards the
     /// store's change stream into the wrapper's `@State`; later calls are no-ops.
+    /// SwiftUI's protocol requirement is nonisolated, so this conformance must
+    /// not use `@preconcurrency`: doing so synthesizes a runtime MainActor
+    /// executor check on every view update.
     public func update() {
         guard let runtime else { return }
+        // Capture locals so the closures passed to `activate` don't capture
+        // `self` (a non-Sendable struct) — avoids a Swift 6 sendable-capture
+        // warning now that this type is nonisolated.
         let binding = $value
+        let makeStream = makeStream
         driver.activate({ makeStream(runtime) }) { binding.wrappedValue = $0 }
     }
 }

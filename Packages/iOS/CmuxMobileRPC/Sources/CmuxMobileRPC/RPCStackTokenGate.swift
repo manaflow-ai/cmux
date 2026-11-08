@@ -94,4 +94,18 @@ public actor RPCStackTokenGate {
         }
         abandoned[id] = nil
     }
+
+    /// Clears the timed-out suppression window after an event that invalidates
+    /// it (a fresh interactive sign-in, an explicit pairing attempt): the stuck
+    /// provider was almost certainly waiting on auth state that has since
+    /// resolved, so the next request should try a fresh acquisition instead of
+    /// failing fast for the remainder of the window. The stuck task is
+    /// abandoned (already cancelled by `timeoutWaiter`; its completion watcher
+    /// reaps it), and an in-flight acquisition that has NOT timed out is left
+    /// untouched.
+    public func resetTimedOutSuppression() {
+        guard let existing = current, existing.timedOutUntil != nil else { return }
+        abandoned[existing.id] = existing.task
+        current = nil
+    }
 }

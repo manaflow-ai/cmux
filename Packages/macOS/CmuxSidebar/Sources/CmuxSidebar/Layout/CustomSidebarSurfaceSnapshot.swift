@@ -10,6 +10,10 @@ public import Foundation
 public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     /// The panel identifier, projected to the interpreter `tabs[i].id` string.
     public let panelId: UUID
+    /// The surface (tab) identifier, projected as `tabs[i].surfaceId`. This is
+    /// the id `surface.focus` and the other `surface.*` verbs accept; panelId
+    /// is the panel behind the tab and is NOT interchangeable with it.
+    public let surfaceId: UUID?
     /// The surface title (`tabs[i].title`).
     public let title: String
     /// Whether this surface is the workspace's focused panel (`tabs[i].focused`).
@@ -26,19 +30,32 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     public let gitIsDirty: Bool
     /// The surface's listening ports, or empty when none (`tabs[i].ports`).
     public let listeningPorts: [Int]
+    /// The prompt last submitted in this surface; `nil`/empty when the surface
+    /// has not seen one (`tabs[i].latestPrompt`).
+    public let latestSubmittedMessage: String?
+    /// When that prompt was submitted; `nil` when unknown (`tabs[i].latestAt`).
+    public let latestSubmittedAt: Date?
+    /// Whether this surface has an unread notification (`tabs[i].unread`,
+    /// projected as `0`/`1` so it reads like the workspace-level count).
+    public let hasUnreadNotification: Bool
 
     /// Creates a surface snapshot from already-resolved leaf values.
     public init(
         panelId: UUID,
+        surfaceId: UUID? = nil,
         title: String,
         isFocused: Bool,
         isPinned: Bool,
         directory: String?,
         gitBranch: String?,
         gitIsDirty: Bool,
-        listeningPorts: [Int]
+        listeningPorts: [Int],
+        latestSubmittedMessage: String? = nil,
+        latestSubmittedAt: Date? = nil,
+        hasUnreadNotification: Bool = false
     ) {
         self.panelId = panelId
+        self.surfaceId = surfaceId
         self.title = title
         self.isFocused = isFocused
         self.isPinned = isPinned
@@ -46,5 +63,8 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         self.gitBranch = gitBranch
         self.gitIsDirty = gitIsDirty
         self.listeningPorts = listeningPorts
+        self.latestSubmittedMessage = latestSubmittedMessage
+        self.latestSubmittedAt = latestSubmittedAt
+        self.hasUnreadNotification = hasUnreadNotification
     }
 }

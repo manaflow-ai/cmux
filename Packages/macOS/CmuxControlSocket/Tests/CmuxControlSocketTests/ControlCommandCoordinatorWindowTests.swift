@@ -12,8 +12,11 @@ private final class FakeControlCommandContext: ControlCommandContext {
     var focusResult = false
     var focusedID: UUID?
     var createResult: UUID?
+    var createdTitle: String?
     var closeResult = false
     var closedID: UUID?
+    var closedForce: Bool?
+    var closeResolution: ControlWindowCloseResolution?
     var displays: [ControlDisplayInfo] = []
     var existingWindowIDs: Set<UUID> = []
     var moveWindowResult: String?
@@ -32,11 +35,20 @@ private final class FakeControlCommandContext: ControlCommandContext {
         return focusResult
     }
 
-    func controlCreateWindowAndActivate() -> UUID? { createResult }
+    func controlCreateWindowAndActivate(title: String?) -> UUID? {
+        createdTitle = title
+        return createResult
+    }
 
     func controlCloseWindow(id: UUID) -> Bool {
         closedID = id
         return closeResult
+    }
+
+    func controlCloseWindow(id: UUID, force: Bool) -> ControlWindowCloseResolution {
+        closedID = id
+        closedForce = force
+        return closeResolution ?? (closeResult ? .resolved : .notFound)
     }
 
     func controlAvailableDisplays() -> [ControlDisplayInfo] { displays }
@@ -201,6 +213,19 @@ struct ControlCommandCoordinatorWindowTests {
             == .err(code: "internal_error", message: "Failed to create window", data: nil))
     }
 
+    @Test(arguments: ["Build server", "日本語のウィンドウ", "quotes \" and \\ paths"])
+    func windowCreatePassesTitleAtCreation(title: String) {
+        let (coordinator, context) = makeCoordinator()
+        let windowID = UUID()
+        context.createResult = windowID
+        #expect(coordinator.handle(request("window.create", ["title": .string(title)]))
+            == .ok(.object([
+                "window_id": .string(windowID.uuidString),
+                "window_ref": .string("window:1")
+            ])))
+        #expect(context.createdTitle == title)
+    }
+
     @Test func windowCloseOkAndNotFound() {
         let (coordinator, context) = makeCoordinator()
         let windowID = UUID()
@@ -218,6 +243,45 @@ struct ControlCommandCoordinatorWindowTests {
             "window_id": .string(windowID.uuidString),
             "window_ref": .string("window:1"),
         ])))
+    }
+
+    @Test func windowCloseForwardsForce() {
+        let (coordinator, context) = makeCoordinator()
+        let windowID = UUID()
+        context.closeResolution = .resolved
+
+        #expect(coordinator.handle(request("window.close", [
+            "window_id": .string(windowID.uuidString),
+            "force": .bool(true),
+        ])) == .ok(.object([
+            "window_id": .string(windowID.uuidString),
+            "window_ref": .string("window:1"),
+        ])))
+        #expect(context.closedID == windowID)
+        #expect(context.closedForce == true)
+    }
+
+    @Test func windowCloseConfirmationIncludesWorkspaceIDs() {
+        let (coordinator, context) = makeCoordinator()
+        let windowID = UUID()
+        let firstWorkspaceID = UUID()
+        let secondWorkspaceID = UUID()
+        context.closeResolution = .confirmationRequired(workspaceIDs: [firstWorkspaceID, secondWorkspaceID])
+
+        #expect(coordinator.handle(request("window.close", [
+            "window_id": .string(windowID.uuidString),
+        ])) == .err(code: "confirmation_required", message:
+            "One or more workspaces or Dock surfaces have a running process; retry with --force",
+            data: .object([
+                "window_id": .string(windowID.uuidString),
+                "window_ref": .string("window:1"),
+                "workspace_ids": .array([
+                    .string(firstWorkspaceID.uuidString),
+                    .string(secondWorkspaceID.uuidString),
+                ]),
+            ])))
+        #expect(context.closedID == windowID)
+        #expect(context.closedForce == false)
     }
 
     @Test func windowDisplaysBuildsPayload() {

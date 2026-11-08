@@ -208,7 +208,6 @@ import Testing
     }
 
     @Test(arguments: [
-        ("create_lock_directory", EACCES),
         ("open_lock", EACCES),
         ("open_lock", ELOOP),
         ("open_lock", EINVAL),
@@ -224,6 +223,80 @@ import Testing
                 errnoCode: errnoCode,
                 currentUserID: 501
             ) == SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        )
+    }
+
+    // The user-scoped stable socket is a sibling of the stable default inside
+    // the same state directory. When that directory itself cannot be created
+    // (root-owned ~/.local/state after a past `sudo` install, or an
+    // I/O-erroring home volume), every sibling fails identically, so both
+    // stable paths must escape to the legacy /tmp per-user path.
+    @Test(arguments: [
+        ("create_directory", EACCES),
+        ("create_directory", EPERM),
+        ("create_directory", EIO),
+        ("create_lock_directory", EACCES),
+        ("create_lock_directory", EPERM),
+        ("create_lock_directory", EIO),
+    ] as [(String, Int32)])
+    func stableSocketStateDirectoryCreationFailuresFallBackToLegacyTmpSocket(
+        stage: String,
+        errnoCode: Int32
+    ) {
+        #expect(
+            policy.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                stage: stage,
+                errnoCode: errnoCode,
+                currentUserID: 501
+            ) == SocketControlSettings.legacyUserScopedStableSocketPath(currentUserID: 501)
+        )
+    }
+
+    // Wedged machines whose stable-default probe reports inaccessible resolve
+    // the user-scoped path directly, before any bind attempt, so the fallback
+    // must also fire when the user-scoped path itself is the requested path
+    // (CMUXTERM-MACOS-2MHE: wake-driven create_lock_directory loop at
+    // ~/.local/state/cmux/cmux-501.sock with no fallback breadcrumb).
+    @Test(arguments: [
+        ("create_directory", EIO),
+        ("create_directory", EACCES),
+        ("create_lock_directory", EIO),
+        ("create_lock_directory", EACCES),
+    ] as [(String, Int32)])
+    func userScopedSocketStateDirectoryCreationFailuresFallBackToLegacyTmpSocket(
+        stage: String,
+        errnoCode: Int32
+    ) {
+        #expect(
+            policy.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
+                stage: stage,
+                errnoCode: errnoCode,
+                currentUserID: 501
+            ) == SocketControlSettings.legacyUserScopedStableSocketPath(currentUserID: 501)
+        )
+    }
+
+    // Only the shared stable default may fall back for lock/occupancy stages;
+    // those failures at the user-scoped path mean a same-user listener owns
+    // it, which is not a path problem the fallback should route around.
+    @Test(arguments: [
+        ("lock", EWOULDBLOCK),
+        ("open_lock", EACCES),
+        ("existing_path", EEXIST),
+        ("stat_existing_path", EACCES),
+        ("unlink", EACCES),
+        ("bind", EADDRINUSE),
+    ] as [(String, Int32)])
+    func userScopedSocketNonDirectoryFailuresDoNotFallBack(stage: String, errnoCode: Int32) {
+        #expect(
+            policy.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
+                stage: stage,
+                errnoCode: errnoCode,
+                currentUserID: 501
+            ) == nil
         )
     }
 

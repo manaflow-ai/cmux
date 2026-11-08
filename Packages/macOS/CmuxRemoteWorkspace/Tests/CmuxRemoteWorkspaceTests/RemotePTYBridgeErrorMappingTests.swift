@@ -20,6 +20,7 @@ struct RemotePTYBridgeErrorMappingTests {
             queue: DispatchQueue(label: "error-mapping-tests"),
             strings: TestPTYBridgeStrings(),
             clock: SystemRemoteProxyRetryClock(),
+            onAuthenticated: {},
             onClose: {}
         )
     }

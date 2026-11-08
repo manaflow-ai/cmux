@@ -2,28 +2,19 @@ import AppKit
 import Foundation
 import Quartz
 
-private final class FilePreviewQLItem: NSObject, QLPreviewItem {
-    let url: URL
-    let title: String
-
-    init(url: URL, title: String) {
-        self.url = url
-        self.title = title
-    }
-
-    var previewItemURL: URL? {
-        url
-    }
-
-    var previewItemTitle: String? {
-        title
-    }
+@MainActor
+protocol FilePreviewQuickLookRefreshing: AnyObject {
+    var displayState: Any! { get set }
+    func refreshPreviewItem()
 }
+
+extension QLPreviewView: FilePreviewQuickLookRefreshing {}
 
 @MainActor
 final class FilePreviewQuickLookSession {
     private let liveViews = NSHashTable<NSView>.weakObjects()
     private var item: FilePreviewQLItem?
+    private var itemRevision: Int?
 
     deinit {
         // AppKit teardown is performed explicitly by close() on the main actor.
@@ -31,6 +22,7 @@ final class FilePreviewQuickLookSession {
 
     func view(
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -40,6 +32,7 @@ final class FilePreviewQuickLookSession {
         configure(
             view,
             panel: panel,
+            revision: revision,
             isVisibleInUI: isVisibleInUI,
             backgroundColor: backgroundColor,
             drawsBackground: drawsBackground
@@ -50,6 +43,7 @@ final class FilePreviewQuickLookSession {
     func update(
         _ view: NSView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -58,44 +52,60 @@ final class FilePreviewQuickLookSession {
         configure(
             view,
             panel: panel,
+            revision: revision,
             isVisibleInUI: isVisibleInUI,
             backgroundColor: backgroundColor,
             drawsBackground: drawsBackground
         )
     }
 
+    /// Unregisters a root and its last shared item before AppKit teardown can reenter an update.
+    /// Repeated calls for an already unregistered root have no effect.
     func dismantle(_ view: NSView) {
         guard liveViews.contains(view) else { return }
         liveViews.remove(view)
-        Self.releaseView(view)
         if liveViews.allObjects.isEmpty {
             item = nil
+            itemRevision = nil
         }
+        // Retire the root only after the session has forgotten it and any
+        // last shared item. AppKit teardown can synchronously re-enter a
+        // representable update while the old QLPreviewView is deactivated.
+        Self.releaseView(view)
     }
 
+    /// Clears all root and item ownership before releasing the session's previews.
+    /// Reentrant updates during release cannot configure any of the retiring roots.
     func close() {
-        for view in liveViews.allObjects {
-            Self.releaseView(view)
-        }
+        let views = liveViews.allObjects
+        // A preview root can synchronously re-enter SwiftUI while AppKit
+        // detaches its inner QLPreviewView. Remove every root from the session
+        // before invoking teardown so that re-entrant updates cannot configure
+        // a retiring representable.
         liveViews.removeAllObjects()
         item = nil
+        itemRevision = nil
+        for view in views {
+            Self.releaseView(view)
+        }
     }
 
     private static func makeView() -> NSView {
-        FilePreviewQuickLookContainerView.make() ?? NSView()
+        FilePreviewQuickLookContainerView.make()
     }
 
     private static func releaseView(_ view: NSView) {
-        // QLPreviewView.close() asserts when the view is inactive and makes the
-        // view permanently reject future items. Session retirement handles stale
-        // updates; clearing the item releases the active preview.
-        (view as? FilePreviewQuickLookContainerView)?.clearPreviewItem()
-        view.removeFromSuperview()
+        if let container = view as? FilePreviewQuickLookContainerView {
+            container.dismantle()
+        } else {
+            view.removeFromSuperview()
+        }
     }
 
     private func configure(
         _ view: NSView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -104,7 +114,11 @@ final class FilePreviewQuickLookSession {
         if let container = view as? FilePreviewQuickLookContainerView,
            let previewView = container.livePreviewView() {
             panel.attachPreviewFocus(root: container, primaryResponder: previewView, intent: .quickLook)
-            previewView.previewItem = previewItem(for: panel.fileURL, title: panel.displayTitle)
+            updatePreviewItem(
+                for: panel.fileURL,
+                title: panel.displayTitle,
+                revision: revision
+            )
         }
         FilePreviewNativeBackground.applyRootLayer(
             to: view,
@@ -113,12 +127,40 @@ final class FilePreviewQuickLookSession {
         )
     }
 
-    private func previewItem(for url: URL, title: String) -> FilePreviewQLItem {
-        if let item, item.url == url, item.title == title {
-            return item
+    private func updatePreviewItem(for url: URL, title: String, revision: Int) {
+        if item == nil || item?.url != url || item?.title != title {
+            let nextItem = FilePreviewQLItem(url: url, title: title)
+            item = nextItem
+            itemRevision = revision
+            for previewView in livePreviewViews() {
+                previewView.previewItem = nextItem
+            }
+            return
         }
-        let next = FilePreviewQLItem(url: url, title: title)
-        item = next
-        return next
+
+        guard let item else { return }
+        let previewViews = livePreviewViews()
+        for previewView in previewViews where previewView.previewItem !== item {
+            previewView.previewItem = item
+        }
+        guard itemRevision != revision else { return }
+        for previewView in previewViews {
+            Self.refreshPreservingDisplayState(previewView)
+        }
+        itemRevision = revision
+    }
+
+    static func refreshPreservingDisplayState(_ previewView: some FilePreviewQuickLookRefreshing) {
+        let displayState = previewView.displayState
+        previewView.refreshPreviewItem()
+        if let displayState {
+            previewView.displayState = displayState
+        }
+    }
+
+    private func livePreviewViews() -> [QLPreviewView] {
+        liveViews.allObjects.compactMap {
+            ($0 as? FilePreviewQuickLookContainerView)?.livePreviewView()
+        }
     }
 }

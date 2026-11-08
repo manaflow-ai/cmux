@@ -13,7 +13,7 @@ import Foundation
 /// deterministically with no real waiting.
 ///
 /// ```swift
-/// let watcher = RecursivePathWatcher(paths: paths, clock: SystemFileWatchClock())
+/// let watcher = await RecursivePathWatcher(paths: paths, clock: SystemFileWatchClock())
 /// ```
 public protocol FileWatchClock: Sendable {
     /// Suspends for `duration`, throwing `CancellationError` if the surrounding

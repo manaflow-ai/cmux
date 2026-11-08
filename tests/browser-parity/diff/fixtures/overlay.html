@@ -1,0 +1,3 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>Overlay</title></head><body><h1>Overlay</h1><button id="under" onclick="document.getElementById('out').textContent='under clicked'">Under</button><p id="out">idle</p>
+<div id="cover" onclick="document.getElementById('out').textContent='cover clicked'" style="position:fixed;inset:0;background:rgba(0,0,0,.2)"></div>
+<button id="dismiss" style="position:fixed;right:10px;top:10px;z-index:2" onclick="document.getElementById('cover').remove()">Dismiss cover</button></body></html>

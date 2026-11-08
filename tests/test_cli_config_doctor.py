@@ -7,6 +7,7 @@ import glob
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -84,17 +85,101 @@ def first_finding(
     return finding
 
 
+def semantic_issues(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    findings = payload.get("findings")
+    if not isinstance(findings, list):
+        return issues
+    for finding in findings:
+        if not isinstance(finding, dict):
+            continue
+        raw_issues = finding.get("issues")
+        if isinstance(raw_issues, list):
+            issues.extend(issue for issue in raw_issues if isinstance(issue, dict))
+    return issues
+
+
 def main() -> int:
     cli_path = resolve_cmux_cli()
     failures: list[str] = []
+    repo_root = Path(__file__).resolve().parents[1]
+
+    generator_result = subprocess.run(
+        [sys.executable, str(repo_root / "scripts" / "generate-cmux-config-schema.py"), "--check"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if generator_result.returncode != 0:
+        failures.append(
+            "embedded schema is stale: "
+            + (generator_result.stdout.strip() or generator_result.stderr.strip())
+        )
 
     with tempfile.TemporaryDirectory(prefix="cmux-config-doctor-") as temp:
         home = Path(temp)
         workspace = home / "workspace" / "child"
         workspace.mkdir(parents=True)
+        helper = repo_root / "skills" / "cmux-settings" / "scripts" / "cmux-settings"
+        helper_env = dict(os.environ)
+        helper_env["HOME"] = str(home)
+        helper_env["CMUX_CLI_BIN"] = cli_path
+        helper_env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         (home / "cmux.json").write_text('{"homeLevel": true,,}\n', encoding="utf-8")
         config_path = home / ".config" / "cmux" / "cmux.json"
         config_path.parent.mkdir(parents=True)
+        custom_global_path = home / "custom-global" / "cmux.json"
+        custom_global_path.parent.mkdir()
+        custom_global_path.write_text(
+            json.dumps({"app": {"appearance": "dark"}}) + "\n",
+            encoding="utf-8",
+        )
+        custom_global_validate = subprocess.run(
+            [
+                sys.executable,
+                str(helper),
+                "--file",
+                str(custom_global_path),
+                "validate",
+            ],
+            text=True,
+            capture_output=True,
+            cwd=workspace,
+            env=helper_env,
+            timeout=5,
+            check=False,
+        )
+        if custom_global_validate.returncode != 0:
+            failures.append(
+                "custom global cmux.json was misclassified as project-local: "
+                + custom_global_validate.stderr
+            )
+
+        explicit_project_validate = subprocess.run(
+            [
+                sys.executable,
+                str(helper),
+                "--file",
+                str(custom_global_path),
+                "--scope",
+                "project",
+                "validate",
+            ],
+            text=True,
+            capture_output=True,
+            cwd=workspace,
+            env=helper_env,
+            timeout=5,
+            check=False,
+        )
+        if explicit_project_validate.returncode == 0:
+            failures.append("cmux-settings --scope project did not reject global-only app settings")
+        if "$.app" not in explicit_project_validate.stderr:
+            failures.append(
+                "cmux-settings --scope project did not report the rejected app path: "
+                + explicit_project_validate.stderr
+            )
+
         config_path.write_text(
             """
             {
@@ -122,6 +207,208 @@ def main() -> int:
                     keys = keys_raw if isinstance(keys_raw, list) else []
                     if "app" not in keys or "schemaVersion" not in keys:
                         failures.append(f"valid JSONC keys missing: {ok_result.stdout}")
+
+        semantic_cases = [
+            (
+                "unknown setting",
+                {"app": {"madeUpSetting": True}},
+                "$.app.madeUpSetting",
+                "unknown configuration key",
+            ),
+            (
+                "wrong value type",
+                {"notifications": {"dockBadge": "yes"}},
+                "$.notifications.dockBadge",
+                "expected boolean",
+            ),
+            (
+                "enum violation",
+                {"app": {"appearance": "neon"}},
+                "$.app.appearance",
+                "must be one of",
+            ),
+            (
+                "numeric bounds",
+                {"fileEditor": {"tabWidth": 0}},
+                "$.fileEditor.tabWidth",
+                "must be >= 1",
+            ),
+            (
+                "malformed nested value",
+                {"agentChat": {"fonts": {"baseSize": 0}}},
+                "$.agentChat.fonts.baseSize",
+                "must be > 0",
+            ),
+            (
+                "structural config section",
+                {"commands": "echo hello"},
+                "$.commands",
+                "expected array",
+            ),
+        ]
+        for label, document, expected_path, expected_message in semantic_cases:
+            config_path.write_text(json.dumps(document) + "\n", encoding="utf-8")
+            result = run_cli(
+                cli_path,
+                [
+                    "--json",
+                    "config",
+                    "validate",
+                    "--path",
+                    str(config_path),
+                    "--scope",
+                    "global",
+                ],
+                home,
+            )
+            if result.returncode == 0:
+                failures.append(f"{label}: semantic validation unexpectedly passed")
+                continue
+            payload = parse_json_output(result.stdout, label, failures)
+            if payload is None:
+                continue
+            issues = semantic_issues(payload)
+            if not any(
+                issue.get("path") == expected_path
+                and expected_message in str(issue.get("message", ""))
+                for issue in issues
+            ):
+                failures.append(
+                    f"{label}: expected {expected_path!r} / {expected_message!r}: {result.stdout}"
+                )
+
+        config_path.write_text(
+            json.dumps({"app": {"appearance": "system"}}) + "\n",
+            encoding="utf-8",
+        )
+        project_global_result = run_cli(
+            cli_path,
+            [
+                "--json",
+                "config",
+                "validate",
+                "--path",
+                str(config_path),
+                "--scope",
+                "project",
+            ],
+            home,
+        )
+        if project_global_result.returncode == 0:
+            failures.append("project scope accepted global-only app settings")
+        else:
+            payload = parse_json_output(
+                project_global_result.stdout,
+                "project/global difference",
+                failures,
+            )
+            if payload is not None:
+                issues = semantic_issues(payload)
+                if not any(
+                    issue.get("path") == "$.app"
+                    and "global cmux.json" in str(issue.get("message", ""))
+                    for issue in issues
+                ):
+                    failures.append(
+                        "project/global difference did not identify $.app: "
+                        + project_global_result.stdout
+                    )
+
+        config_path.write_text(
+            json.dumps({"notifications": {"hooksMode": "replace", "hooks": []}}) + "\n",
+            encoding="utf-8",
+        )
+        project_hooks_result = run_cli(
+            cli_path,
+            [
+                "--json",
+                "config",
+                "validate",
+                "--path",
+                str(config_path),
+                "--scope",
+                "project",
+            ],
+            home,
+        )
+        if project_hooks_result.returncode != 0:
+            failures.append(
+                "project notification hooks should be valid: "
+                + project_hooks_result.stdout
+                + project_hooks_result.stderr
+            )
+
+        original_bytes = b"""{
+  // Preserve this exact source when the proposed edit is invalid.
+  "app": {
+    "appearance": "dark",
+  },
+}
+"""
+        config_path.write_bytes(original_bytes)
+        helper = repo_root / "skills" / "cmux-settings" / "scripts" / "cmux-settings"
+        helper_env = dict(os.environ)
+        helper_env["HOME"] = str(home)
+        helper_env["CMUX_CLI_BIN"] = cli_path
+        helper_env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        helper_result = subprocess.run(
+            [
+                sys.executable,
+                str(helper),
+                "--file",
+                str(config_path),
+                "set",
+                "app.appearance",
+                "neon",
+            ],
+            text=True,
+            capture_output=True,
+            env=helper_env,
+            timeout=5,
+            check=False,
+        )
+        if helper_result.returncode == 0:
+            failures.append("cmux-settings set accepted an invalid enum value")
+        if config_path.read_bytes() != original_bytes:
+            failures.append("rejected cmux-settings set changed the source bytes")
+        if "$.app.appearance" not in helper_result.stderr:
+            failures.append(
+                "rejected cmux-settings set did not report the config path: "
+                + helper_result.stderr
+            )
+
+        config_path.write_text(
+            json.dumps({"app": {"appearance": "neon"}}) + "\n",
+            encoding="utf-8",
+        )
+        helper_validate_result = subprocess.run(
+            [sys.executable, str(helper), "--file", str(config_path), "validate"],
+            text=True,
+            capture_output=True,
+            env=helper_env,
+            timeout=5,
+            check=False,
+        )
+        if helper_validate_result.returncode == 0:
+            failures.append("cmux-settings validate accepted an invalid enum value")
+        if "$.app.appearance" not in helper_validate_result.stderr:
+            failures.append(
+                "cmux-settings validate did not report the config path: "
+                + helper_validate_result.stderr
+            )
+
+        config_path.write_text(
+            """
+            {
+              // JSONC comments and trailing commas are valid in cmux.json.
+              "schemaVersion": 1,
+              "app": {
+                "appearance": "system",
+              },
+            }
+            """,
+            encoding="utf-8",
+        )
 
         default_result = run_cli(cli_path, ["--json", "config", "doctor"], home, cwd=workspace)
         if default_result.returncode != 0:

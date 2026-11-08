@@ -1,7 +1,100 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxSidebar
 
 extension CmuxEventBus {
+    /// Keeps each status snapshot event below the event stream's 16 KiB line
+    /// limit. OSC 7501 record ids are limited to 128 bytes, so 32 records leave
+    /// room for the event envelope and addressed record as well.
+    private static let programStatusRecordsPerEvent = 32
+
+    /// Publishes one OSC 7501 change together with the terminal's current
+    /// records. Consumers can apply a report or clear without polling the
+    /// sidebar projection.
+    func publishProgramStatusChanged(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        report: ProgramStatusReport,
+        store: ProgramStatusRecordStore
+    ) {
+        publishProgramStatusChanged(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            payload: ProgramStatusChangedPayload(report: report, store: store)
+        )
+    }
+
+    /// Publishes a lifecycle cleanup together with the terminal's current
+    /// records. Lifecycle changes use the same event and snapshot shape as
+    /// OSC reports so consumers never need a second synchronization path.
+    func publishProgramStatusChanged(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        event: ProgramStatusChange,
+        store: ProgramStatusRecordStore
+    ) {
+        publishProgramStatusChanged(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            payload: ProgramStatusChangedPayload(event: event, store: store)
+        )
+    }
+
+    /// Converts the package-owned payload into the event bus's JSON-compatible
+    /// dictionary representation and publishes it to terminal subscribers.
+    ///
+    /// Each chunk is a separate event. Consumers must discard every chunk for
+    /// a `snapshot_id` when the stream reports `slow_consumer` or
+    /// `ack.resume.gap`, then wait for the next complete snapshot. There is no
+    /// dedicated program-status snapshot query; the next complete status event
+    /// is the recovery point.
+    private func publishProgramStatusChanged(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        payload: ProgramStatusChangedPayload
+    ) {
+        let records = payload.records.map(Self.programStatusRecordPayload)
+        let chunks: [[[String: Any]]] = records.isEmpty
+            ? [[]]
+            : stride(from: 0, to: records.count, by: Self.programStatusRecordsPerEvent).map { start in
+                Array(records[start..<min(start + Self.programStatusRecordsPerEvent, records.count)])
+            }
+        let snapshotID = UUID().uuidString
+
+        for (index, recordsChunk) in chunks.enumerated() {
+            publish(
+                name: "program_status.changed",
+                category: "terminal",
+                source: "terminal.program_status",
+                workspaceId: workspaceId.uuidString,
+                surfaceId: surfaceId.uuidString,
+                payload: [
+                    "event": payload.event.rawValue,
+                    "id": payload.id ?? NSNull(),
+                    "record": payload.record.map(Self.programStatusRecordPayload) ?? NSNull(),
+                    "records": recordsChunk,
+                    "records_total": records.count,
+                    "snapshot_id": snapshotID,
+                    "snapshot_index": index,
+                    "snapshot_count": chunks.count
+                ]
+            )
+        }
+    }
+
+    /// Converts one safe package snapshot to a Foundation dictionary.
+    private static func programStatusRecordPayload(
+        _ record: ProgramStatusRecordSnapshot
+    ) -> [String: Any] {
+        [
+            "id": record.id,
+            "state": record.state.rawValue,
+            "kind": record.kind.rawValue,
+            "progress": record.progress ?? NSNull(),
+            "updated_seq": record.updatedSequence
+        ]
+    }
+
     func publishWorkspaceCreated(
         workspaceId: UUID,
         title: String,
@@ -79,10 +172,14 @@ extension CmuxEventBus {
         )
     }
 
+    /// - Parameter submittedLength: the prompt's length as submitted, when the
+    ///   producer reported it. `message` may already be truncated by the time it
+    ///   reaches us, so counting it would report the cap instead of the prompt.
     func publishWorkspacePromptSubmitted(
         workspaceId: UUID,
         message: String?,
         preview: String?,
+        submittedLength: Int? = nil,
         source: String = "workspace.prompt_submit"
     ) {
         publish(
@@ -94,7 +191,7 @@ extension CmuxEventBus {
                 "workspace_id": workspaceId.uuidString,
                 "message": NSNull(),
                 "message_preview": preview ?? NSNull(),
-                "message_length": message?.count ?? 0,
+                "message_length": submittedLength ?? message?.count ?? 0,
                 "redacted_fields": ["message"]
             ]
         )
@@ -424,6 +521,7 @@ extension CmuxEventBus {
             category: "agent",
             source: event.source,
             workspaceId: event.workspaceId,
+            surfaceId: event.surfaceId,
             payload: payload
         )
 
@@ -432,6 +530,7 @@ extension CmuxEventBus {
             category: "feed",
             source: event.source,
             workspaceId: event.workspaceId,
+            surfaceId: event.surfaceId,
             payload: payload
         )
     }
@@ -442,12 +541,15 @@ extension CmuxEventBus {
             "hook_event_name": event.hookEventName.rawValue,
             "_source": event.source,
             "workspace_id": event.workspaceId ?? NSNull(),
+            "surface_id": event.surfaceId ?? NSNull(),
             "cwd": event.cwd ?? NSNull(),
             "tool_name": event.toolName ?? NSNull(),
+            "is_error": event.isError ?? NSNull(),
             "_opencode_request_id": event.requestId ?? NSNull(),
             "_ppid": event.ppid ?? NSNull(),
             "_received_at": Self.isoTimestamp(event.receivedAt)
         ]
+        payload["prompt_length"] = event.submittedPromptLength
         var redactedFields: [String] = []
         if let toolInputJSON = event.toolInputJSON {
             payload["tool_input"] = NSNull()
@@ -471,7 +573,6 @@ extension CmuxEventBus {
         }
         return payload
     }
-
     private static func encodedByteCount<T: Encodable>(_ value: T) -> Int? {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

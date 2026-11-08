@@ -150,6 +150,48 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
         }
     }
 
+    @Test(arguments: [NSEvent.EventType.appKitDefined, .systemDefined, .mouseMoved])
+    func openSelectionRejectsNonKeyboardEvents(eventType: NSEvent.EventType) throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+                styleMask: [.titled], backing: .buffered, defer: false
+            )
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let editor = NSTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+            window.contentView = editor
+            window.makeKeyAndOrderFront(nil)
+            try #require(window.makeFirstResponder(editor))
+
+            let event = try #require(eventType == .mouseMoved ? NSEvent.mouseEvent(
+                with: eventType, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0
+            ) : NSEvent.otherEvent(
+                with: eventType, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, subtype: 4, data1: 0, data2: 0
+            ))
+            defer { appDelegate.clearShortcutEventFocusContextCache(for: event) }
+            var commitCount = 0
+            let field = FileExplorerSearchField()
+            let table = FileExplorerSearchResultsTableView()
+            let outline = FileExplorerNSOutlineView()
+            field.onCommit = { commitCount += 1 }
+            table.onCommit = { commitCount += 1 }
+            for placement in [FileExplorerPanelPlacement.rightSidebar, .pane] {
+                field.fileExplorerPanelPlacement = placement
+                table.fileExplorerPanelPlacement = placement
+                outline.fileExplorerPanelPlacement = placement
+                #expect(!event.isFileExplorerOpenSelectionShortcut(in: placement))
+                #expect(!field.handleOpenSelectionShortcut(event))
+                #expect(!table.handleOpenSelectionShortcut(event))
+                #expect(!outline.handleOpenSelectionShortcut(event))
+            }
+            #expect(commitCount == 0)
+        }
+    }
+
     @Test(arguments: [36, 76] as [UInt16])
     func searchResultsReturnCommitsWhenOpenSelectionShortcutsAreUnbound(keyCode: UInt16) throws {
         try withIsolatedShortcutSettings {
@@ -215,8 +257,10 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
             #expect(window.firstResponder === tableView)
 
             let commandR = StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
+            KeyboardShortcutSettings.setShortcut(.unbound, for: .browserReload)
             KeyboardShortcutSettings.setShortcut(commandR, for: .fileExplorerOpenSelection)
             let event = try #require(makeKeyDownEvent(shortcut: commandR, windowNumber: window.windowNumber))
+            try #require(KeyboardShortcutSettings.shortcut(for: .fileExplorerOpenSelection).matches(event: event))
             defer { appDelegate.clearShortcutEventFocusContextCache(for: event) }
 
             #expect(!appDelegate.shortcutWhenClauseAllows(action: .fileExplorerOpenSelection, event: event))

@@ -35,7 +35,25 @@ except Exception:
 '
 }
 
+archive_sha256() {
+  local archive="$1"
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$archive" | awk '{print $1}'
+  else
+    sha256sum "$archive" | awk '{print $1}'
+  fi
+}
+
 ZIG_REQUIRED="99.99.99"
+case "$(uname -s)" in
+  Darwin) ZIG_OS="macos" ;;
+  Linux) ZIG_OS="linux" ;;
+  *)
+    echo "Unsupported test operating system: $(uname -s)" >&2
+    exit 1
+    ;;
+esac
+
 case "$(uname -m)" in
   arm64 | aarch64) ZIG_ARCH="aarch64" ;;
   x86_64) ZIG_ARCH="x86_64" ;;
@@ -46,7 +64,7 @@ case "$(uname -m)" in
 esac
 
 FIXTURE_ROOT="$TMP_DIR/fixture"
-ZIG_NAME="zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
+ZIG_NAME="zig-${ZIG_ARCH}-${ZIG_OS}-${ZIG_REQUIRED}"
 ARCHIVE="$TMP_DIR/${ZIG_NAME}.tar.xz"
 DEFAULT_INSTALL_ROOT="/tmp/cmux-zig-ci/$ZIG_NAME"
 SHARED_TMP_ZIG_DIR="/tmp/$ZIG_NAME"
@@ -113,7 +131,7 @@ printf 'lib fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/std"
 printf 'build runner fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler/build_runner.zig"
 printf 'wrong version build runner fixture\n' > "$WRONG_VERSION_LIB_DIR/compiler/build_runner.zig"
 (cd "$FIXTURE_ROOT" && tar -cf "$ARCHIVE" "$ZIG_NAME")
-ARCHIVE_SHA256="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+ARCHIVE_SHA256="$(archive_sha256 "$ARCHIVE")"
 
 cat > "$BIN_DIR/curl" <<EOF
 #!/usr/bin/env bash

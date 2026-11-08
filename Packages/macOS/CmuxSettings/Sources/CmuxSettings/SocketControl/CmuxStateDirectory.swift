@@ -54,11 +54,12 @@ public enum CmuxStateDirectory {
     /// The legacy Application Support control directory
     /// (`~/Library/Application Support/cmux`).
     ///
-    /// Retained only so the app can migrate persistent files (the socket
-    /// password) out of TCC-protected storage on launch. New reads and writes go
-    /// through ``url(homeDirectory:)``; nothing on the CLI hook path should touch
-    /// this location. The `FileManager` is injected (no ambient default) to keep
-    /// the seam explicit for tests and alternate callers.
+    /// Retained so the app can migrate the socket password out of TCC-protected
+    /// storage and mirror `last-socket-path` discovery markers for external
+    /// clients that use the pre-0.64.20 contract. The listener, password store,
+    /// and CLI use ``url(homeDirectory:)``; nothing on the CLI hook path should
+    /// touch this location. The `FileManager` is injected (no ambient default)
+    /// to keep the seam explicit for tests and alternate callers.
     ///
     /// - Parameter fileManager: Used to resolve Application Support.
     /// - Returns: The legacy directory, or `nil` when Application Support cannot

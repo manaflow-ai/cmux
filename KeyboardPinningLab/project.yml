@@ -1,0 +1,32 @@
+name: KeyboardPinningLab
+options:
+  bundleIdPrefix: ai.manaflow
+  deploymentTarget:
+    iOS: "17.0"
+  generateEmptyDirectories: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: 7WLXT3NR37
+    SWIFT_VERSION: 6.0
+    SWIFT_STRICT_CONCURRENCY: complete
+targets:
+  KeyboardPinningLab:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      - path: Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.manaflow.KeyboardPinningLab
+        PRODUCT_NAME: Keyboard Pinning Lab
+        INFOPLIST_KEY_CFBundleDisplayName: Pinning Lab
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: true
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        TARGETED_DEVICE_FAMILY: 1
+        GENERATE_INFOPLIST_FILE: true
+        CODE_SIGN_STYLE: Automatic
+    scheme:
+      testTargets: []

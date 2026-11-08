@@ -14,7 +14,7 @@ public enum ProjectLoadError: Error, Sendable, Equatable {
     /// The artifact exists and is the right kind, but parsing failed.
     ///
     /// The underlying reason is rendered as a string because adapter
-    /// implementations wrap third-party errors (XcodeProj, libxml2, etc.)
-    /// whose types are not part of this package's public API surface.
+    /// implementations wrap parser errors (property list, XML) whose types
+    /// are not part of this package's public API surface.
     case parseFailure(URL, reason: String)
 }

@@ -9,6 +9,59 @@ const {
   evaluateReleaseAssetGuard,
 } = require("./release_asset_guard");
 
+const daemonAssets = [
+  "cmuxd-remote-darwin-arm64",
+  "cmuxd-remote-darwin-amd64",
+  "cmuxd-remote-linux-arm64",
+  "cmuxd-remote-linux-amd64",
+  "cmuxd-remote-checksums.txt",
+  "cmuxd-remote-manifest.json",
+];
+
+const appAssets = [
+  "cmux-macos.dmg",
+  "cmux-macos-arm64.dmg",
+  "cmux-macos-x86_64.dmg",
+  "appcast.xml",
+  "appcast-arm64.xml",
+  "appcast-x86_64.xml",
+];
+
+test("stable ships thin DMGs and per-architecture feeds as immutable assets", () => {
+  for (const name of appAssets) {
+    assert.ok(IMMUTABLE_RELEASE_ASSETS.includes(name), name);
+  }
+  // A release that only has the universal build is incomplete, not done.
+  const result = evaluateReleaseAssetGuard({
+    existingAssetNames: ["cmux-macos.dmg", "appcast.xml", ...daemonAssets],
+  });
+  assert.equal(result.guardState, RELEASE_ASSET_GUARD_STATE.PARTIAL);
+  assert.deepEqual(
+    new Set(result.missingImmutableAssets),
+    new Set(["cmux-macos-arm64.dmg", "cmux-macos-x86_64.dmg", "appcast-arm64.xml", "appcast-x86_64.xml"]),
+  );
+});
+
+test("DMGs and appcasts without SSH daemon assets are an incomplete release (#12648)", () => {
+  const result = evaluateReleaseAssetGuard({
+    existingAssetNames: appAssets,
+  });
+  assert.equal(result.guardState, RELEASE_ASSET_GUARD_STATE.PARTIAL);
+  assert.equal(result.shouldSkipBuildAndUpload, false);
+  assert.deepEqual(new Set(result.missingImmutableAssets), new Set(daemonAssets));
+});
+
+for (const missing of [...appAssets.slice(1), ...daemonAssets]) {
+  test(`a release missing ${missing} cannot be treated as complete`, () => {
+    const result = evaluateReleaseAssetGuard({
+      existingAssetNames: [...appAssets, ...daemonAssets]
+        .filter((name) => name !== missing),
+    });
+    assert.equal(result.guardState, RELEASE_ASSET_GUARD_STATE.PARTIAL);
+    assert.deepEqual(result.missingImmutableAssets, [missing]);
+  });
+}
+
 test("marks guard as complete and skips build/upload when all immutable assets already exist", () => {
   const result = evaluateReleaseAssetGuard({
     existingAssetNames: [...IMMUTABLE_RELEASE_ASSETS, "notes.txt"],
@@ -36,7 +89,7 @@ test("marks guard as clear when immutable assets are not present", () => {
 });
 
 test("marks guard as partial when only some immutable assets exist", () => {
-  const partialAssets = ["appcast.xml", "cmuxd-remote-manifest.json"];
+  const partialAssets = ["appcast.xml"];
   const result = evaluateReleaseAssetGuard({
     existingAssetNames: partialAssets,
   });

@@ -1,75 +1,95 @@
 import Foundation
 
-/// The channel-specific URL scheme carried by cmux pairing/attach deep links.
+/// One validated URL scheme carried by a cmux pairing or attach deep link.
 ///
-/// All builds used to register and emit one scheme (`cmux-ios`), so scanning a
-/// beta/prod pairing QR with the iOS Camera app could open a *dev* build that
-/// happened to be installed (the OS picks an arbitrary app when several claim
-/// a scheme). The scheme is therefore channel-specific, mirroring how
-/// `MobileBuildType` splits channels:
-///
-/// - **Development (DEBUG)** builds — local Xcode and `reload.sh` tagged
-///   builds on both Mac and iPhone — register and emit ``development``.
-/// - **Release** builds (TestFlight beta and App Store prod) register and
-///   emit ``release``. Beta and prod share a scheme because they are the same
-///   compile configuration and a phone realistically has only one of them.
-///
-/// Emitters (the Mac building a pairing QR or attach URL) use ``current`` so a
-/// dev Mac pairs a dev phone and a release Mac pairs a release phone via the
-/// system camera. Parsers (the in-app scanner, manual paste, the root scene's
-/// deep-link gate) accept *any* pairing scheme via ``isPairingScheme(_:)`` /
-/// ``hasPairingScheme(_:)``, so cross-channel pairing still works when the
-/// user scans from inside the app.
-///
-/// The iOS app's registered scheme comes from `CMUX_IOS_URL_SCHEME` in
-/// `ios/Config/Shared.xcconfig` (dev) and `ios/Config/Release.xcconfig`
-/// (release); keep those values in sync with these constants.
-///
-/// lint:allow namespace-type — the build channel's URL scheme is a pure
-/// compile-time constant set with no per-instance state to inject; these
-/// scheme strings and the stateless pairing-scheme predicates are a genuine
-/// namespace, like the sanctioned FFI/seam holders.
+/// Every installed iOS bundle registers exactly one scheme derived from its
+/// complete bundle identifier. Parsers also accept the two historical shared
+/// schemes so an old QR remains scannable inside an already-open app, but new
+/// apps never register those shared schemes with iOS.
 public struct CmxPairingURLScheme {
-    private init() {}
+    /// The validated, lowercase URL scheme.
+    public let rawValue: String
 
-    /// The scheme Release (TestFlight beta + App Store) builds register and emit.
+    /// Creates the exact scheme registered by one installed iOS bundle.
+    public init?(iOSBundleIdentifier: String?) {
+        guard let namespace = MobileIOSAppNamespace(
+            bundleIdentifier: iOSBundleIdentifier
+        ) else {
+            return nil
+        }
+        let scheme = namespace.pairingURLScheme.lowercased()
+        guard Self.releaseSchemes.contains(scheme)
+                || scheme == Self.untaggedDevelopmentScheme
+                || scheme.hasPrefix(Self.developmentPrefix) else {
+            return nil
+        }
+        rawValue = scheme
+    }
+
+    /// Parses a classifiable bundle-specific or historical shared pairing
+    /// scheme. Unknown release-like namespaces fail closed so account preflight
+    /// cannot be bypassed by a syntactically valid but unclassified scheme.
+    public init?(rawValue: String?) {
+        guard let rawValue else { return nil }
+        let normalized = rawValue.lowercased()
+        if Self.all.contains(normalized) {
+            self.rawValue = normalized
+            return
+        }
+        let prefix = "cmux-ios-"
+        guard normalized.hasPrefix(prefix),
+              MobileIOSAppNamespace(
+                bundleIdentifier: String(normalized.dropFirst(prefix.count))
+              ) != nil,
+              Self.releaseSchemes.contains(normalized)
+                || normalized == Self.untaggedDevelopmentScheme
+                || normalized.hasPrefix(Self.developmentPrefix) else {
+            return nil
+        }
+        self.rawValue = normalized
+    }
+
+    /// Parses the scheme from a complete pairing URL.
+    public init?(urlString: String) {
+        guard urlString.contains("://"),
+              let components = URLComponents(string: urlString),
+              let scheme = CmxPairingURLScheme(rawValue: components.scheme) else {
+            return nil
+        }
+        self = scheme
+    }
+
+    /// Whether this scheme identifies a tagged iOS development build.
+    public var isDevelopment: Bool {
+        rawValue == Self.development
+            || rawValue == Self.untaggedDevelopmentScheme
+            || rawValue.hasPrefix(Self.developmentPrefix)
+    }
+
+    /// Whether this scheme identifies an App Store or TestFlight build.
+    public var isRelease: Bool {
+        Self.releaseSchemes.contains(rawValue)
+    }
+
+    /// Historical shared Release scheme. Parse-only in new iOS builds.
     public static let release = "cmux-ios"
 
-    /// The scheme development (DEBUG/tagged) builds register and emit.
+    /// Historical shared development scheme. Parse-only in new iOS builds.
     public static let development = "cmux-ios-dev"
 
-    /// Every scheme any cmux build may emit; parsers accept all of them.
+    /// Historical schemes retained for source compatibility and old QR tests.
     public static let all: [String] = [release, development]
 
-    /// The scheme this build emits in pairing QRs and attach URLs.
-    public static var current: String {
-        scheme(isDevelopmentBuild: isDevelopmentBuild)
-    }
+    private static let untaggedDevelopmentScheme = "cmux-ios-dev.cmux.ios"
+    private static let developmentPrefix = "cmux-ios-dev.cmux.ios."
 
-    /// Pure channel-to-scheme mapping, injected with the compile flag so the
-    /// derivation is testable from a single build configuration.
-    public static func scheme(isDevelopmentBuild: Bool) -> String {
-        isDevelopmentBuild ? development : release
-    }
-
-    /// Whether `scheme` is a pairing scheme from any cmux channel.
-    public static func isPairingScheme(_ scheme: String?) -> Bool {
-        guard let scheme else { return false }
-        return all.contains { $0.caseInsensitiveCompare(scheme) == .orderedSame }
-    }
-
-    /// Whether `rawValue` starts with any channel's pairing scheme (the
-    /// scanner/paste-side prefix check, before URL parsing).
-    public static func hasPairingScheme(_ rawValue: String) -> Bool {
-        let lowercased = rawValue.lowercased()
-        return all.contains { lowercased.hasPrefix($0 + "://") }
-    }
-
-    private static var isDevelopmentBuild: Bool {
-        #if DEBUG
-        true
-        #else
-        false
-        #endif
-    }
+    private static let releaseSchemes: Set<String> = [
+        release,
+        "cmux-ios-com.cmux.app",
+        "cmux-ios-dev.cmux.app.beta",
+        "cmux-ios-dev.cmux.app.internal",
+        "cmux-ios-dev.cmux.app.demo",
+    ]
 }
+
+extension CmxPairingURLScheme: Equatable, Sendable {}

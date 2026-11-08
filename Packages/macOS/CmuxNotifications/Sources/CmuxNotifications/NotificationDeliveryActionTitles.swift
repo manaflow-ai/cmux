@@ -5,6 +5,15 @@ public struct NotificationDeliveryActionTitles: Sendable, Equatable {
     /// Title for opening a terminal notification.
     public let show: String
 
+    /// Title for starting a terminal notification reply.
+    public let reply: String
+
+    /// Title for sending a terminal notification reply.
+    public let replySend: String
+
+    /// Placeholder for terminal notification reply text.
+    public let replyPlaceholder: String
+
     /// Title for allowing a permission request once.
     public let feedPermissionAllowOnce: String
 
@@ -26,12 +35,21 @@ public struct NotificationDeliveryActionTitles: Sendable, Equatable {
     /// Title for accepting an exit plan automatically.
     public let feedExitPlanAutoAccept: String
 
+    /// Title for revising an exit plan with free-text feedback.
+    public let feedExitPlanRevise: String
+
     /// Title for opening a feed question in the app.
     public let feedQuestionReply: String
+
+    /// Title for answering a feed question with free text.
+    public let feedQuestionOther: String
 
     /// Creates the localized titles used by delivery-category actions.
     public init(
         show: String,
+        reply: String,
+        replySend: String,
+        replyPlaceholder: String,
         feedPermissionAllowOnce: String,
         feedPermissionAlways: String,
         feedPermissionAll: String,
@@ -39,9 +57,14 @@ public struct NotificationDeliveryActionTitles: Sendable, Equatable {
         feedExitPlanUltraplan: String,
         feedExitPlanManual: String,
         feedExitPlanAutoAccept: String,
-        feedQuestionReply: String
+        feedExitPlanRevise: String,
+        feedQuestionReply: String,
+        feedQuestionOther: String
     ) {
         self.show = show
+        self.reply = reply
+        self.replySend = replySend
+        self.replyPlaceholder = replyPlaceholder
         self.feedPermissionAllowOnce = feedPermissionAllowOnce
         self.feedPermissionAlways = feedPermissionAlways
         self.feedPermissionAll = feedPermissionAll
@@ -49,6 +72,8 @@ public struct NotificationDeliveryActionTitles: Sendable, Equatable {
         self.feedExitPlanUltraplan = feedExitPlanUltraplan
         self.feedExitPlanManual = feedExitPlanManual
         self.feedExitPlanAutoAccept = feedExitPlanAutoAccept
+        self.feedExitPlanRevise = feedExitPlanRevise
         self.feedQuestionReply = feedQuestionReply
+        self.feedQuestionOther = feedQuestionOther
     }
 }

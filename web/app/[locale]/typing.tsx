@@ -3,18 +3,16 @@
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useDevValues } from "./components/spacing-control";
+import { codingAgents } from "@/i18n/coding-agents";
 
 function usePhrases() {
   const t = useTranslations("home");
   return [
     t("typingCodingAgents"),
     t("typingMultitasking"),
+    ...codingAgents.map((agent) => agent.name),
     t("typingOrganization"),
     t("typingProgrammability"),
-    "Claude Code",
-    "Codex",
-    "OpenCode",
-    "Gemini CLI",
   ];
 }
 
@@ -39,10 +37,11 @@ export function TypingTagline() {
   const [charIndex, setCharIndex] = useState(0);
   const [deleting, setDeleting] = useState(false);
   const dev = useDevValues();
+  const phrase = phrases[phraseIndex];
+  const phraseCount = phrases.length;
 
   useEffect(() => {
     if (demoMode) return;
-    const phrase = phrases[phraseIndex];
 
     if (!deleting && charIndex === phrase.length) {
       const timeout = setTimeout(() => setDeleting(true), 2000);
@@ -52,7 +51,7 @@ export function TypingTagline() {
     if (deleting && charIndex === 0) {
       const timeout = setTimeout(() => {
         setDeleting(false);
-        setPhraseIndex((i) => (i + 1) % phrases.length);
+        setPhraseIndex((i) => (i + 1) % phraseCount);
       }, 0);
       return () => clearTimeout(timeout);
     }
@@ -63,13 +62,12 @@ export function TypingTagline() {
     }, speed);
 
     return () => clearTimeout(timeout);
-  }, [charIndex, deleting, phraseIndex, demoMode]);
+  }, [charIndex, deleting, demoMode, phrase, phraseCount]);
 
   if (demoMode) {
     return <span>{phrases[1]}</span>;
   }
 
-  const phrase = phrases[phraseIndex];
   const displayed = phrase.slice(0, charIndex);
   // Like a macOS insertion point: solid while actively typing/deleting, only
   // blink once the phrase is fully typed and we're idling before the next one.

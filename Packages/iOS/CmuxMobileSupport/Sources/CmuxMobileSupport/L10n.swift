@@ -29,6 +29,25 @@ public struct L10n {
         string(key, defaultValue: defaultValue, bundle: .main)
     }
 
+    /// A localized unread label for VoiceOver and row summaries: the exact
+    /// count when the Mac reports one ("3 unread"), the plain "Unread"
+    /// against Macs old enough not to emit counts.
+    ///
+    /// - Parameter count: The unread count, `nil` when unknown.
+    /// - Returns: The localized unread phrase.
+    public static func unreadLabel(count: Int?) -> String {
+        guard let count, count > 0 else {
+            return string("mobile.workspace.unread", defaultValue: "Unread")
+        }
+        if count == 1 {
+            return string("mobile.workspace.unreadCountFormat.one", defaultValue: "1 unread")
+        }
+        return String(
+            format: string("mobile.workspace.unreadCountFormat.other", defaultValue: "%d unread"),
+            count
+        )
+    }
+
     /// A localized "N terminals" count label with singular/plural handling.
     ///
     /// - Parameter count: The number of terminals.

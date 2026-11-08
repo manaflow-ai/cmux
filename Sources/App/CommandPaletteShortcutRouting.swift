@@ -61,6 +61,40 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
 }
 
 @MainActor
+func contextAwareCommandPaletteSelectionDelta(
+    for event: NSEvent
+) -> Int? {
+    let normalizedFlags = event.modifierFlags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    if normalizedFlags.isEmpty {
+        switch event.keyCode {
+        case 125: return 1
+        case 126: return -1
+        default: break
+        }
+    }
+
+    let characters = event.characters ?? event.charactersIgnoringModifiers ?? ""
+    for (action, delta) in [
+        (KeyboardShortcutSettings.Action.commandPaletteNext, 1),
+        (.commandPalettePrevious, -1),
+    ] {
+        guard let shortcut = KeyboardShortcutSettings.shortcutIfBound(for: action),
+              !shortcut.hasChord,
+              shortcut.matches(
+                keyCode: event.keyCode,
+                modifierFlags: event.modifierFlags,
+                eventCharacter: characters,
+                layoutCharacterProvider: KeyboardLayout.character(forKeyCode:modifierFlags:)
+              ),
+              AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) != false else { continue }
+        return delta
+    }
+    return nil
+}
+
+@MainActor
 func commandPaletteSelectionDeltaForFieldEditorCommand(
     _ commandSelector: Selector,
     event: NSEvent?,

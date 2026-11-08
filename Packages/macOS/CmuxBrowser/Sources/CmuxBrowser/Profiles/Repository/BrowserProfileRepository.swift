@@ -80,6 +80,33 @@ public final class BrowserProfileRepository {
         profiles.first(where: { $0.id == id })
     }
 
+    /// Resolves a profile selector as an existing UUID or display name.
+    ///
+    /// UUID lookup takes precedence. A UUID-shaped selector whose identifier is
+    /// not present still falls back to an exact, case-insensitive display-name
+    /// match.
+    /// - Parameter rawSelector: A profile UUID or display name.
+    /// - Returns: The unique match, no match, or every ambiguous name match.
+    public func resolveProfileSelection(_ rawSelector: String) -> BrowserProfileSelectionResolution {
+        let selector = rawSelector.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let id = UUID(uuidString: selector),
+           let profile = profileDefinition(id: id) {
+            return .matched(profile)
+        }
+
+        let matches = profiles.filter {
+            $0.displayName.localizedCaseInsensitiveCompare(selector) == .orderedSame
+        }
+        switch matches.count {
+        case 0:
+            return .notFound
+        case 1:
+            return .matched(matches[0])
+        default:
+            return .ambiguous(matches)
+        }
+    }
+
     /// Display name for a profile id, falling back to the default profile name.
     /// - Parameter id: The profile id.
     /// - Returns: The profile's display name, or the default name when unknown.

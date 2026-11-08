@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCanvas
+import CmuxFoundation
 
 /// Small viewport map shown above the canvas, drawing pane positions and
 /// letting pointer clicks or drags recenter the viewport.
@@ -12,6 +13,13 @@ final class CanvasMinimapView: NSView {
         }
     }
 
+    /// Accent for the focused pane and viewport, set by the canvas root.
+    var accentColor = CmuxAccentColor() {
+        didSet {
+            guard accentColor != oldValue else { return }
+            needsDisplay = true
+        }
+    }
     var onCenterChanged: ((CGPoint) -> Void)?
     var onCenterSettled: ((CGPoint) -> Void)?
     var onScrollWheel: ((NSEvent) -> Void)?
@@ -166,9 +174,9 @@ final class CanvasMinimapView: NSView {
             let rect = displayRect(snapshot.minimapRect(for: pane.frame, in: drawingRect))
             let path = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
             if pane.id == snapshot.focusedPaneID {
-                NSColor.controlAccentColor.withAlphaComponent(0.36).setFill()
+                accentColor.dynamicNSColor.withAlphaComponent(0.36).setFill()
                 path.fill()
-                NSColor.controlAccentColor.withAlphaComponent(0.95).setStroke()
+                accentColor.dynamicNSColor.withAlphaComponent(0.95).setStroke()
                 path.lineWidth = 1.5
                 path.stroke()
             } else {
@@ -184,9 +192,9 @@ final class CanvasMinimapView: NSView {
     private func drawViewport() {
         let rect = displayRect(snapshot.minimapRect(for: snapshot.visibleRect, in: drawingRect))
         let path = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
-        NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
+        accentColor.dynamicNSColor.withAlphaComponent(0.12).setFill()
         path.fill()
-        NSColor.controlAccentColor.withAlphaComponent(0.9).setStroke()
+        accentColor.dynamicNSColor.withAlphaComponent(0.9).setStroke()
         path.lineWidth = 2
         path.stroke()
     }

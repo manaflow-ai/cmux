@@ -1,0 +1,1 @@
+terminal,yapay zeka,geliştirici,ajan,claude,codex,ssh,devops,uzak,cli,ghostty,cmux

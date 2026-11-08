@@ -57,4 +57,22 @@ actor AuthPhaseTimeoutRegistry {
         activePhases[key] = nil
         timedOutPhases[key] = nil
     }
+
+    /// Supersede every parked timed-out phase for an explicit interactive
+    /// attempt. A timed-out phase's operation was already cancelled at its
+    /// deadline and the sign-in write chokepoint drops a cancelled flow's
+    /// token writes, so the damper's only remaining job is suppressing
+    /// AUTOMATIC retry hammering; an explicit user action (a pairing attempt,
+    /// a tapped retry) is entitled to reclaim the phase immediately. Only the
+    /// timed-out operation's slot is released: a live, untimed-out operation
+    /// keeps refusing concurrent begins exactly as before.
+    func supersedeTimedOutPhases() {
+        for (key, state) in timedOutPhases {
+            activePhases[key]?.remove(state.id)
+            if activePhases[key]?.isEmpty == true {
+                activePhases[key] = nil
+            }
+        }
+        timedOutPhases.removeAll()
+    }
 }

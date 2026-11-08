@@ -1,0 +1,7 @@
+{
+  "commands": [
+    {"id": "top", "name": "Process monitor", "keys": "g", "run": ["top"]},
+    {"id": "git-status", "name": "Git status", "keys": ["alt+g"], "run": ["sh", "-lc", "git status; exec sh"]},
+    {"id": "scratch", "name": "Scratch note", "keys": ["alt+s"], "run": ["sh", "-lc", "cd \"${TMPDIR:-/tmp}\" && exec \"${EDITOR:-vi}\" scratch.md"]}
+  ]
+}

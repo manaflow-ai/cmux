@@ -1,0 +1,179 @@
+import AppKit
+import Testing
+import WebKit
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+@Suite
+final class MarkdownLinkBoundaryRegressionTests {
+    @Test
+    func renderedInlineLinkExcludesTrailingSentencePeriod() async throws {
+        try await withLoadedMarkdownShell { webView in
+            let expectedPath = "raw/plans/agent-ticket-v2/w5-runner-design.md"
+            let snapshot = try await renderLinkBoundarySnapshot(
+                """
+                The runner design doc is written: [\(expectedPath)](\(expectedPath)). It locks in the decisions we discussed...
+                """,
+                in: webView
+            )
+
+            #expect(snapshot.href == expectedPath)
+            #expect(snapshot.text == expectedPath)
+            #expect(snapshot.trailingText.hasPrefix(". It locks in"))
+            #expect(snapshot.periodHitHref == nil)
+        }
+    }
+
+    @Test
+    func renderedInlineLinkTitleAndLabelAreEscapedOnce() async throws {
+        try await withLoadedMarkdownShell { webView in
+            let href = #"raw/with "quote"&and.md"#
+            let snapshot = try await renderLinkBoundarySnapshot(
+                #"See [<span onclick="x">label <strong>raw</strong></span> **bold**](<\#(href)> "a & \" <q>")."#,
+                in: webView
+            )
+
+            #expect(snapshot.href == href)
+            #expect(snapshot.title == #"a & " <q>"#)
+            #expect(snapshot.text == "label raw bold")
+            #expect(snapshot.innerHTML == "label raw <strong>bold</strong>")
+        }
+    }
+
+    @Test
+    func renderedLinkedMarkdownImagePreservesImageLabel() async throws {
+        try await withLoadedMarkdownShell { webView in
+            let snapshot = try await renderLinkBoundarySnapshot(
+                #"[![diagram alt](raw/diagram.png "diagram title")](dest.md)."#,
+                in: webView
+            )
+
+            #expect(snapshot.href == "dest.md")
+            #expect(snapshot.imageAlt == "diagram alt")
+            #expect(snapshot.imageTitle == "diagram title")
+            #expect(snapshot.trailingText == ".")
+        }
+    }
+
+    private func withLoadedMarkdownShell<T>(
+        _ body: (WKWebView) async throws -> T
+    ) async throws -> T {
+        let markdownURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-link-boundary-\(UUID().uuidString).md")
+        let frame = NSRect(x: 0, y: 0, width: 1_000, height: 600)
+        let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer {
+            webView.navigationDelegate = nil
+            window.close()
+        }
+
+        let loadDelegate = MarkdownLinkBoundaryShellLoadDelegate()
+        webView.navigationDelegate = loadDelegate
+        try await loadDelegate.load(
+            MarkdownViewerAssets.shared.shellHTML(isDark: true),
+            in: webView,
+            baseURL: markdownURL
+        )
+        return try await body(webView)
+    }
+
+    private func renderLinkBoundarySnapshot(
+        _ markdown: String,
+        in webView: WKWebView
+    ) async throws -> LinkBoundarySnapshot {
+        let data = try JSONSerialization.data(withJSONObject: [markdown])
+        let literal = try #require(String(data: data, encoding: .utf8))
+        let result = try await webView.evaluateJavaScript(
+            """
+            (function(md) {
+              window.__cmuxRenderMarkdown(md);
+              var anchor = document.querySelector('a');
+              var image = anchor && anchor.querySelector('img');
+              var trailing = anchor && anchor.nextSibling;
+              var periodHit = null;
+              if (trailing && trailing.nodeType === Node.TEXT_NODE && trailing.textContent.charAt(0) === '.') {
+                var range = document.createRange();
+                range.setStart(trailing, 0);
+                range.setEnd(trailing, 1);
+                var rect = range.getBoundingClientRect();
+                periodHit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+              }
+              return {
+                href: anchor && anchor.getAttribute('href'),
+                title: anchor && anchor.getAttribute('title'),
+                text: anchor && anchor.textContent,
+                innerHTML: anchor && anchor.innerHTML,
+                imageAlt: image && image.getAttribute('alt'),
+                imageTitle: image && image.getAttribute('title'),
+                trailingText: trailing && trailing.textContent,
+                periodHitHref: periodHit && periodHit.getAttribute && periodHit.getAttribute('href')
+              };
+            })(\(literal)[0]);
+            """
+        )
+        let raw = try #require(result as? [String: Any])
+        return LinkBoundarySnapshot(
+            href: raw["href"] as? String,
+            title: raw["title"] as? String,
+            text: raw["text"] as? String,
+            innerHTML: raw["innerHTML"] as? String,
+            imageAlt: raw["imageAlt"] as? String,
+            imageTitle: raw["imageTitle"] as? String,
+            trailingText: raw["trailingText"] as? String ?? "",
+            periodHitHref: raw["periodHitHref"] as? String
+        )
+    }
+}
+
+private struct LinkBoundarySnapshot {
+    let href: String?
+    let title: String?
+    let text: String?
+    let innerHTML: String?
+    let imageAlt: String?
+    let imageTitle: String?
+    let trailingText: String
+    let periodHitHref: String?
+}
+
+private final class MarkdownLinkBoundaryShellLoadDelegate: NSObject, WKNavigationDelegate {
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    func load(_ html: String, in webView: WKWebView, baseURL: URL) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            webView.loadHTMLString(html, baseURL: baseURL)
+        }
+    }
+
+    private func finish(_ result: Result<Void, Error>) {
+        guard let continuation else { return }
+        self.continuation = nil
+        switch result {
+        case .success:
+            continuation.resume()
+        case .failure(let error):
+            continuation.resume(throwing: error)
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        finish(.success(()))
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        finish(.failure(error))
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        finish(.failure(error))
+    }
+}

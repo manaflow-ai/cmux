@@ -8,7 +8,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from cmux import cmux, cmuxError
+from cmux import BROWSER_SCREENSHOT_RESPONSE_TIMEOUT_S, cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
@@ -315,7 +315,11 @@ def main() -> int:
         ) or {}
         _must(bool(_value(in_view)) is True, f"Expected #bottom in viewport: {in_view}")
 
-        shot = c._call("browser.screenshot", {"surface_id": target}) or {}
+        shot = c._call(
+            "browser.screenshot",
+            {"surface_id": target},
+            timeout_s=BROWSER_SCREENSHOT_RESPONSE_TIMEOUT_S,
+        ) or {}
         _must(len(str((shot or {}).get("png_base64") or "")) > 100, f"Expected screenshot payload: {shot}")
 
         snap = c._call("browser.snapshot", {"surface_id": target}) or {}

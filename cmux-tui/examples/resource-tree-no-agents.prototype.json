@@ -1,0 +1,16 @@
+{
+  "sidebar": {
+    "views": [
+      { "id": "machines", "levels": ["machines"], "width": 18 },
+      {
+        "id": "workspace-tabs",
+        "levels": ["workspaces", "panes", "tabs"],
+        "actions": ["new-workspace"],
+        "width": 32
+      }
+    ]
+  },
+  "machine_sidebar": {
+    "enabled": true
+  }
+}

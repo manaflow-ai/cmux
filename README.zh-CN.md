@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> 为远程机器创建工作区。浏览器窗格通过远程网络路由，因此 localhost 直接可用。将图片拖入远程会话即可通过 scp 上传。
+<code>cmux ssh user@remote</code> 为远程机器创建工作区。传入 <code>--command 'omp "investigate auth"'</code> 可在其首个远程终端中执行一次初始命令。浏览器窗格通过远程网络路由，因此 localhost 直接可用。将图片拖入远程会话即可通过 scp 上传。
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 首次启动时，macOS 可能会要求您确认打开来自已验证开发者的应用。点击**打开**即可继续。
 
+### Shell 补全
+
+Homebrew cask 会安装 zsh、bash 和 fish 的补全。安装后启动一个新 shell 即可。如果没有生效，请确认 Homebrew 的补全目录已接入你的 shell（参见 [Homebrew 的 shell 补全文档](https://docs.brew.sh/Shell-Completion)）。
+
+如果你通过其他方式安装 cmux，请将对应的一行加入 shell 启动文件，然后启动一个新 shell：
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## 为什么做 cmux？
 
 我同时运行大量 Claude Code 和 Codex 会话。之前我用 Ghostty 开了一堆分割窗格，依靠 macOS 原生通知来了解代理何时需要我。但 Claude Code 的通知内容总是千篇一律的"Claude is waiting for your input"，没有任何上下文信息，而且标签页一多，连标题都看不清了。
@@ -152,7 +171,9 @@ cmux 是原语，而非解决方案。它提供终端、浏览器、通知、工
 
 | 快捷键 | 操作 |
 |----------|--------|
-| ⌘ N | 新建工作区 |
+| ⌘ N | 新建本地工作区 |
+| ⌘ Y | 在最近可用的 Cloud 上下文中创建新的 Cloud 工作区；没有可用上下文时打开 New Cloud Machine |
+| ⌘ ⇧ Y | 新建 Cloud 机器 |
 | ⌘ 1–8 | 跳转到工作区 1–8 |
 | ⌘ 9 | 跳转到最后一个工作区 |
 | ⌃ ⌘ ] | 下一个工作区 |
@@ -363,19 +384,19 @@ tmux 是一个在任意终端内运行的终端复用器。cmux 是一个带 GUI
 
 ### 我如何支持 cmux？
 
-cmux 免费且开源，并将一直如此。如果您想支持开发并提前体验接下来的功能，包括 cmux AI、iOS 应用和 Cloud VMs，请查看 [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)。
+cmux 免费且开源，并将一直如此。如果您想支持开发并提前体验接下来的功能，包括 cmux AI、iOS 应用和 Cloud VMs，请查看 [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)。
 
 ### 我有功能请求或发现了 bug？
 
-我们很想听到。请在 GitHub 上提交 [issue](https://github.com/manaflow-ai/cmux/issues) 或 [pull request](https://github.com/manaflow-ai/cmux/pulls)，或者 [给我们发邮件](mailto:founders@manaflow.com?subject=cmux%20feature%20request)。
+我们很想听到。请在 GitHub 上提交 [issue](https://github.com/manaflow-ai/cmux/issues) 或 [pull request](https://github.com/manaflow-ai/cmux/pulls)，或者 [给我们发邮件](mailto:founders@cmux.com?subject=cmux%20feature%20request)。
 
 ## Star History
 
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+<a href="https://www.star-history.com/?repos=manaflow-ai%2Fcmux&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&theme=dark&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
  </picture>
 </a>
 
@@ -391,27 +412,26 @@ cmux 免费且开源，并将一直如此。如果您想支持开发并提前体
 ## 社区
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
-## Founder's Edition
+<p>
+  <strong>WeChat：</strong>扫描二维码加入社区。<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="用于加入 cmux 社区的 WeChat 二维码" width="240" />
+</p>
+
+## cmux Pro
 
 cmux 免费、开源，并将一直如此。如果您想支持开发并提前体验即将推出的功能：
 
-**[获取 Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **功能请求/Bug 修复优先处理**
-- **抢先体验：为每个工作区、标签页和面板提供上下文的 cmux AI**
-- **抢先体验：桌面与手机间终端同步的 iOS 应用**
-- **抢先体验：云端虚拟机**
-- **抢先体验：语音模式**
-- **我的个人 iMessage/WhatsApp**
+**[获取 cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## 许可证
 
-cmux 以 [GPL-3.0-or-later](LICENSE) 开源。
+cmux 以 [GPL-3.0-or-later](LICENSE) 开源。cmux 服务器软件（`web/`、Cloudflare Worker 以及 [LICENSE](LICENSE) 中列出的中继服务）改用 [Business Source License 1.1](web/LICENSE)：您可以出于非生产目的阅读、修改和运行它，生产使用或自托管需要商业许可证。
 
-如果您的组织无法遵守 GPL，可提供商业许可证。详情请联系 [founders@manaflow.com](mailto:founders@manaflow.com)。
+如果您的组织无法遵守 GPL，可提供商业许可证。详情请联系 [founders@cmux.com](mailto:founders@cmux.com)。

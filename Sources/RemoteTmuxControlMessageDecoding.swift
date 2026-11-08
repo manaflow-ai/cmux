@@ -108,11 +108,28 @@ struct RemoteTmuxControlMessageDecoding {
     /// unreachable / connection refused — keep retrying).
     nonisolated func stderrIndicatesSessionGone(_ stderr: String) -> Bool {
         let lowered = stderr.lowercased()
-        return lowered.contains("can't find session")
+        return controlOutputIndicatesSessionGone(stderr)
+            || lowered.contains("can't find session")
             || lowered.contains("can\u{2019}t find session")
             || lowered.contains("no server running")
             || lowered.contains("no current session")
             || lowered.contains("session not found")
             || lowered.contains("lost server")
+    }
+
+    /// Whether unframed output from the forced SSH PTY is an exact tmux
+    /// attach failure. Remote stderr shares stdout under `ssh -tt`, so these
+    /// lines arrive as unparsed control-stream output rather than local stderr.
+    nonisolated func controlOutputIndicatesSessionGone(_ output: String) -> Bool {
+        output.lowercased().split(whereSeparator: \.isNewline).contains { rawLine in
+            let line = String(rawLine).trimmingCharacters(in: .whitespaces)
+            return line == "no sessions"
+                || line.hasPrefix("no server running on ")
+                || line.hasPrefix("can't find session:")
+                || line.hasPrefix("can\u{2019}t find session:")
+                || line == "no current session"
+                || line.hasPrefix("session not found")
+                || line == "lost server"
+        }
     }
 }

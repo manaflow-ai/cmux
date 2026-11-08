@@ -17,13 +17,25 @@ OWNER_LIST_NAME = "cmuxAuxiliaryWindowIdentifiers"
 # main window. Add to this set only when a window is intentionally not user
 # closable.
 IGNORED_IDENTIFIERS = {
+    # NSHostingView inside a terminal pane, not an auxiliary window. Cmd+W
+    # belongs to the containing pane rather than this inline failure card.
+    "cmux.cloudPaneCreationFailure.card",
     # Hidden WebKit preload host; it is not user closable and must not own Cmd+W.
     "cmux.browserBackgroundPreload",
+    # Hidden WebKit hover-prewarm host; it is not user closable and must not own Cmd+W.
+    "cmux.browserPrewarmPool",
     # Hidden WebKit visual automation host; it renders offscreen and never becomes key/main.
     "cmux.browserVisualAutomationRender",
     "cmux.bootstrap",
     # Cursor-anchored textbox completion popup; it never becomes key/main.
     "cmux.textbox.mentionCompletionPanel",
+    # Ghostty config-error notice: a non-activating child panel of a main
+    # window that never becomes key/main; Cmd+W belongs to the main window.
+    "cmux.ghosttyConfigDiagnosticsNotice",
+    # Full-screen Sleepy Mode screensaver overlay: it intentionally consumes
+    # every key (including Cmd+W, via performKeyEquivalent) to wake/dismiss the
+    # cover, so it must not own a standard Close-window shortcut.
+    "cmux.sleepyMode",
 }
 
 IDENTIFIER_ASSIGNMENT_RE = re.compile(

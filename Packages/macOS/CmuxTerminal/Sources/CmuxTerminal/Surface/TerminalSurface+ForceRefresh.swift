@@ -29,7 +29,7 @@ extension TerminalSurface {
             return
         }
 #if DEBUG
-        recordDebugForceRefresh()
+        recordDebugForceRefresh(reason: reason)
 #endif
         // Re-read self.surface before each ghostty call to guard against the surface
         // being freed during wake-from-sleep geometry reconciliation (issue #432).

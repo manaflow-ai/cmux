@@ -16,9 +16,13 @@ struct SettingsSidebarEntryRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            // Decorative: the title names the row. Exposed, VoiceOver read
+            // the symbol's name or a guessed label ("gearshape", "Mostly
+            // Cloudy") before every entry.
             Image(systemName: symbolName)
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)

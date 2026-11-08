@@ -131,7 +131,7 @@ public actor InterpreterClient {
                 .merging(extraEnvironment) { _, new in new }
         }
 
-        let channel = LengthPrefixedMessageChannel(
+        let channel = try LengthPrefixedMessageChannel(
             readFD: stdout.fileHandleForReading.fileDescriptor,
             writeFD: stdin.fileHandleForWriting.fileDescriptor
         )

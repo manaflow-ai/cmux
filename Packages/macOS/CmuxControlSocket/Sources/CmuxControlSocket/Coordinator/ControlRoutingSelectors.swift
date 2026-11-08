@@ -29,6 +29,11 @@ public struct ControlRoutingSelectors: Sendable, Equatable {
     public let surfaceID: UUID?
     /// The resolved `pane_id` target, if any.
     public let paneID: UUID?
+    /// Authenticated reverse-relay owner retained until live target resolution.
+    /// This is stamped by socket ingress, never inferred from a caller target.
+    public let remoteRelayOwnerWorkspaceID: UUID?
+    /// Local connection generation authenticated by relay ingress.
+    public let remoteRelayConnectionID: UUID?
 
     /// Creates a routing-selectors value.
     ///
@@ -45,7 +50,9 @@ public struct ControlRoutingSelectors: Sendable, Equatable {
         groupID: UUID?,
         workspaceID: UUID?,
         surfaceID: UUID?,
-        paneID: UUID?
+        paneID: UUID?,
+        remoteRelayOwnerWorkspaceID: UUID? = nil,
+        remoteRelayConnectionID: UUID? = nil
     ) {
         self.hasWindowIDParam = hasWindowIDParam
         self.windowID = windowID
@@ -53,5 +60,7 @@ public struct ControlRoutingSelectors: Sendable, Equatable {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
         self.paneID = paneID
+        self.remoteRelayOwnerWorkspaceID = remoteRelayOwnerWorkspaceID
+        self.remoteRelayConnectionID = remoteRelayConnectionID
     }
 }

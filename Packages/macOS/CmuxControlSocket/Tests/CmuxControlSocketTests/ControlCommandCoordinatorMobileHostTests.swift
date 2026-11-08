@@ -55,6 +55,32 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
         record("terminal.paste", params)
     }
 
+    func controlMobileTaskAttachmentUpload(
+        params: [String: JSONValue]
+    ) -> ControlCallResult {
+        record("task.attachment.upload", params)
+    }
+
+    nonisolated func controlMobileTaskModelsList(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        await MainActor.run {
+            record("task.models.list", params)
+        }
+    }
+
+    nonisolated func controlMobileChatSend(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        await MainActor.run { record("chat.send", params) }
+    }
+
+    nonisolated func controlMobileChatInterrupt(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        await MainActor.run { record("chat.interrupt", params) }
+    }
+
     func controlMobileChatSessionsDump() -> ControlCallResult {
         record("chat.sessions.dump", [:])
     }
@@ -75,18 +101,56 @@ struct ControlCommandCoordinatorMobileHostTests {
 
     // MARK: - handleMobileHost (processV2Command surface)
 
-    @Test func v2SurfaceRoutesPasteAndAliasThroughSeam() {
+    @Test func v2SurfaceRoutesPasteAndAliasThroughSeam() async {
         let (coordinator, context) = makeCoordinator()
-        #expect(coordinator.handle(request("mobile.terminal.paste")) != nil)
+        #expect(await coordinator.handleMobileHostAsync(request("mobile.terminal.paste"), context: context) != nil)
         #expect(context.lastMarker == "terminal.paste")
-        #expect(coordinator.handle(request("terminal.paste")) != nil)
+        #expect(await coordinator.handleMobileHostAsync(request("terminal.paste"), context: context) != nil)
         #expect(context.lastMarker == "terminal.paste")
+        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.terminal.paste") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "terminal.paste") == .socketWorker(mainThreadCallable: false))
     }
 
     @Test func v2SurfaceRoutesChatSessionsDumpThroughSeam() {
         let (coordinator, context) = makeCoordinator()
         #expect(coordinator.handle(request("chat.sessions.dump")) != nil)
         #expect(context.lastMarker == "chat.sessions.dump")
+    }
+
+    @Test func v2SurfaceRoutesTaskAttachmentUploadThroughSeam() {
+        let (coordinator, context) = makeCoordinator()
+        #expect(coordinator.handle(request("mobile.task.attachment.upload")) != nil)
+        #expect(context.lastMarker == "task.attachment.upload")
+    }
+
+    @Test func workerSurfaceRoutesTaskModelsListThroughAsyncSeam() async {
+        let (coordinator, context) = makeCoordinator()
+        let params: [String: JSONValue] = ["provider": .string("opencode")]
+        #expect(
+            await coordinator.handleMobileHostAsync(
+                request("mobile.task.models.list", params),
+                context: context
+            ) != nil
+        )
+        #expect(context.lastMarker == "task.models.list")
+        #expect(context.lastParams == params)
+        #expect(
+            coordinator.handleMobileHost(
+                request("mobile.task.models.list", params)
+            ) == nil
+        )
+    }
+
+    @Test func workerSurfaceRoutesChatSendAndInterruptThroughAsyncSeam() async {
+        let (coordinator, context) = makeCoordinator()
+        let params: [String: JSONValue] = ["session_id": .string("abc"), "text": .string("hi")]
+        #expect(await coordinator.handleMobileHostAsync(request("mobile.chat.send", params), context: context) != nil)
+        #expect(context.lastMarker == "chat.send")
+        #expect(context.lastParams == params)
+        #expect(await coordinator.handleMobileHostAsync(request("mobile.chat.interrupt"), context: context) != nil)
+        #expect(context.lastMarker == "chat.interrupt")
+        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.chat.send") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.chat.interrupt") == .socketWorker(mainThreadCallable: false))
     }
 
     @Test func v2SurfaceUsesPrivateHostStatusVariant() {

@@ -6,7 +6,8 @@ import UIKit
 /// Text" capture live in one cohesive file. Everything here is `internal`
 /// (not `private`) only so the main class file's lifecycle/snapshot paths can
 /// keep using the registry across the file boundary; nothing is exported
-/// beyond the module except `copyableTerminalText(surfaceID:)`.
+/// beyond the module except `copyableTerminalText(surfaceID:)` and
+/// `focusInput(surfaceID:)`.
 final class WeakGhosttySurfaceViewBox {
     weak var value: GhosttySurfaceView?
 
@@ -44,6 +45,30 @@ extension GhosttySurfaceView {
         UInt(bitPattern: UnsafeRawPointer(surface))
     }
 
+    /// Focuses the hidden text input of the mounted terminal surface for a
+    /// shell-level surface id (the id the mounting representable stamped on
+    /// the view as ``hostSurfaceID``).
+    ///
+    /// The chat/browser chrome keeps the terminal surface mounted underneath
+    /// it (an opacity swap, not a remount), so returning to the terminal
+    /// never re-fires the attach-time autofocus in `didMoveToWindow`. This is
+    /// the explicit focus-on-return entrypoint for that path. The lookup is
+    /// id-scoped like ``copyableTerminalText(surfaceID:)`` so a second
+    /// mounted surface (another iPad scene, an in-flight transition) can
+    /// never grab the keyboard for a different workspace's terminal.
+    @MainActor
+    public static func focusInput(surfaceID: String) {
+        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
+        let matchingView = registeredSurfaceViews
+            .sorted { $0.key < $1.key }
+            .compactMap(\.value.value)
+            .first { candidate in
+                candidate.hostSurfaceID == surfaceID && candidate.window != nil
+                    && !candidate.isDismantled
+            }
+        matchingView?.focusInput()
+    }
+
     /// Full-content capture for the "View as Text" copy sheet: the SCREEN
     /// range (scrollback history plus every written row) of the on-screen
     /// terminal surface, read entirely on the phone's own libghostty surface —
@@ -53,18 +78,18 @@ extension GhosttySurfaceView {
     /// on the serial `outputQueue` because `ghostty_surface_read_text` takes
     /// the surface lock that `process_output` holds during a render storm, so
     /// a main-thread read would stall the present and blank the terminal.
-    /// Unlike that synchronous DEV path there is no bounded semaphore wait
-    /// here — the caller awaits, so a busy queue just resumes the continuation
-    /// late while the sheet shows its loading state.
+    /// The await is bounded by the surface's display-link deadline, like the
+    /// diagnostic visible snapshot path, so a wedged output queue resumes nil
+    /// instead of leaving the copy sheet loading forever.
     ///
     /// The continuation body enqueues on `outputQueue` synchronously while
     /// still on the main actor, so the read is FIFO-ordered before any
     /// later-enqueued `disposeSurface` free of the same pointer — the same
     /// lifetime argument `visibleTerminalSnapshot()` relies on.
     ///
-    /// The read is bounded at the source: iOS surfaces are created with
-    /// `scrollback-limit = 2000000` (see `GhosttyRuntime.applyiOSDefaults`),
-    /// so the SCREEN range can never materialize more than ~2MB of text no
+    /// The bytes read are bounded at the source: iOS surfaces are created with
+    /// `scrollback-limit = 16000000` (see `GhosttyRuntime.applyiOSDefaults`),
+    /// so the SCREEN range can never materialize more than ~16MB of text no
     /// matter how long the session ran. The sheet's 5000-line budget is then
     /// applied off-main on top of that hard cap.
     ///
@@ -94,29 +119,8 @@ extension GhosttySurfaceView {
                     && candidate.window != nil && !candidate.isHidden
                     && candidate.alpha > 0.01
             }
-        guard let surface = matchingView?.surface else { return nil }
-        let handle = CopyableTextSurfaceHandle(surface: surface)
-        return await withCheckedContinuation { continuation in
-            outputQueue.async {
-                // SCREEN = scrollback + all written rows. Fall back to the
-                // viewport-only read if the screen read fails outright.
-                let text = surfaceText(handle.surface, pointTag: GHOSTTY_POINT_SCREEN)
-                    ?? surfaceText(handle.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
-                continuation.resume(returning: text)
-            }
-        }
+        guard let matchingView,
+              let surface = matchingView.surface else { return nil }
+        return await matchingView.copyableTextForCurrentSurface(surface: surface)
     }
-}
-
-/// Carrier for the "View as Text" sheet's surface pointer across the hop to
-/// `GhosttySurfaceView.outputQueue`. Same safety argument as
-/// `VisibleSnapshotRequest` in `GhosttySurfaceView.swift`: the pointer is only
-/// dereferenced on the queue that owns `process_output` and is FIFO-ordered
-/// before any queued free — hence `@unchecked Sendable`.
-///
-/// Deliberately `private` to this file: it holds the class's raw
-/// `ghostty_surface_t`, which must not escape `GhosttySurfaceView`'s
-/// queue/lifetime discipline into the wider module.
-private struct CopyableTextSurfaceHandle: @unchecked Sendable {
-    let surface: ghostty_surface_t
 }

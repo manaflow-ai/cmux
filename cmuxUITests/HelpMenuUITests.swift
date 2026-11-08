@@ -44,7 +44,7 @@ final class HelpMenuUITests: XCTestCase {
     }
 
     func testMainHelpMenuShowsCmuxResourcesAndOpensKeyboardShortcuts() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         helpMenuResetMenuBarOnlyDefault()
         addTeardownBlock {
             app.terminate()

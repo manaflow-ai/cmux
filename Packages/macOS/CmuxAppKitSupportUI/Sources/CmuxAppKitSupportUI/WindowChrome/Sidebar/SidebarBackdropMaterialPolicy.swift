@@ -46,4 +46,19 @@ public struct SidebarBackdropMaterialPolicy {
         self.preferLiquidGlass = preferLiquidGlass
         self.usesWindowLevelGlass = usesWindowLevelGlass
     }
+
+    /// The Reduce Transparency fallback: no material or glass, only the tint
+    /// composited onto `baseColor` as a fully opaque fill.
+    public func opaque(over baseColor: NSColor) -> SidebarBackdropMaterialPolicy {
+        SidebarBackdropMaterialPolicy(
+            material: nil,
+            blendingMode: blendingMode,
+            state: state,
+            opacity: 1,
+            tintColor: WindowChromeColorResolver().compositedColor(tintColor, over: baseColor),
+            cornerRadius: cornerRadius,
+            preferLiquidGlass: false,
+            usesWindowLevelGlass: false
+        )
+    }
 }

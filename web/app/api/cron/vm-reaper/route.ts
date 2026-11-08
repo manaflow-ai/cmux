@@ -1,0 +1,27 @@
+import { authorizeCronRequest } from "../../../../services/cronAuth";
+import { reportCronFailure, runMonitoredCron } from "../../../../services/observability/cronMonitor";
+import { captureVmReaperSummary } from "../../../../services/vms/observability";
+import { reapVmResources } from "../../../../services/vms/reaper";
+import { runVmWorkflow } from "../../../../services/vms/workflows";
+
+// Bounded batches keep a run well under this budget; the cap only guards a
+// hung provider call.
+export const maxDuration = 300;
+
+export async function GET(request: Request): Promise<Response> {
+  if (!authorizeCronRequest(request).ok) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  return runMonitoredCron("vm-reaper", async () => {
+    try {
+      const summary = await runVmWorkflow(reapVmResources());
+      // Best effort and bounded; never turns a successful run into a 500.
+      await captureVmReaperSummary(summary);
+      return Response.json({ ok: true, ...summary });
+    } catch (err) {
+      reportCronFailure("vm-reaper", err);
+      return Response.json({ error: "vm_reaper_failed" }, { status: 500 });
+    }
+  });
+}

@@ -57,39 +57,20 @@ public final class SidebarDragAutoScrollController: ObservableObject {
             return
         }
 
-        // AppKit drag/drop autoscroll guidance recommends autoscroll(with:)
-        // when periodic drag updates are available; use it first.
-        if applyNativeAutoscroll(to: scrollView) {
-            activePlan = plan(for: scrollView)
-            if activePlan == nil {
-                stop()
-            }
-            return
-        }
-
         activePlan = self.plan(for: scrollView)
         guard let plan = activePlan else {
             stop()
             return
         }
-        _ = apply(plan: plan, to: scrollView)
-    }
-
-    private func applyNativeAutoscroll(to scrollView: NSScrollView) -> Bool {
-        guard let event = NSApp.currentEvent else { return false }
-        switch event.type {
-        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            break
-        default:
-            return false
+        // Planner-driven scrolling only. The former autoscroll(with:) fast
+        // path read NSApp.currentEvent, which inside a timer tick is whatever
+        // event happened to be processed last — a stale position basis that
+        // produced erratic speeds; and it had no content clamp, so parking at
+        // an edge rubber-banded elastically on every tick.
+        guard apply(plan: plan, to: scrollView) else {
+            stop()
+            return
         }
-
-        let clipView = scrollView.contentView
-        let didScroll = clipView.autoscroll(with: event)
-        if didScroll {
-            scrollView.reflectScrolledClipView(clipView)
-        }
-        return didScroll
     }
 
     private func distancesToEdges(mousePoint: CGPoint, viewportHeight: CGFloat, isFlipped: Bool) -> (top: CGFloat, bottom: CGFloat) {
@@ -99,11 +80,25 @@ public final class SidebarDragAutoScrollController: ObservableObject {
         return (top: viewportHeight - mousePoint.y, bottom: mousePoint.y)
     }
 
-    private func planForMousePoint(_ mousePoint: CGPoint, in clipView: NSClipView) -> SidebarAutoScrollPlan? {
+    func planForMousePoint(_ mousePoint: CGPoint, in clipView: NSClipView) -> SidebarAutoScrollPlan? {
         let viewportHeight = clipView.bounds.height
         guard viewportHeight > 0 else { return nil }
 
-        let distances = distancesToEdges(mousePoint: mousePoint, viewportHeight: viewportHeight, isFlipped: clipView.isFlipped)
+        // Points converted into the clip view are in DOCUMENT coordinates,
+        // whose origin is the scroll offset. Edge distances must be viewport
+        // relative: without removing bounds.origin, any pointer position
+        // scrolled more than one viewport height deep measures as "past the
+        // bottom edge", which planned max-speed downward scrolling from
+        // anywhere in the list (the runaway-scroll report).
+        let viewportPoint = CGPoint(
+            x: mousePoint.x - clipView.bounds.origin.x,
+            y: mousePoint.y - clipView.bounds.origin.y
+        )
+        let distances = distancesToEdges(
+            mousePoint: viewportPoint,
+            viewportHeight: viewportHeight,
+            isFlipped: clipView.isFlipped
+        )
         return SidebarDragAutoScrollPlanner(distanceToTop: distances.top, distanceToBottom: distances.bottom).plan
     }
 
@@ -125,17 +120,21 @@ public final class SidebarDragAutoScrollController: ObservableObject {
     private func apply(plan: SidebarAutoScrollPlan, to scrollView: NSScrollView) -> Bool {
         guard let documentView = scrollView.documentView else { return false }
         let clipView = scrollView.contentView
-        let maxOriginY = max(0, documentView.bounds.height - clipView.bounds.height)
-        guard maxOriginY > 0 else { return false }
 
         let directionMultiplier: CGFloat = (plan.direction == .down) ? 1 : -1
         let flippedMultiplier: CGFloat = documentView.isFlipped ? 1 : -1
         let delta = directionMultiplier * flippedMultiplier * plan.pointsPerTick
         let currentY = clipView.bounds.origin.y
-        let targetY = min(max(currentY + delta, 0), maxOriginY)
-        guard abs(targetY - currentY) > 0.01 else { return false }
+        // constrainBoundsRect is the boundary authority: unlike a manual
+        // [0, contentHeight] clamp it honors the scroll view's content
+        // insets, so the list scrolls all the way into the inset margins at
+        // the top and bottom instead of stopping one inset short.
+        var target = clipView.bounds
+        target.origin.y = currentY + delta
+        let constrainedY = clipView.constrainBoundsRect(target).origin.y
+        guard abs(constrainedY - currentY) > 0.01 else { return false }
 
-        clipView.scroll(to: CGPoint(x: clipView.bounds.origin.x, y: targetY))
+        clipView.scroll(to: CGPoint(x: clipView.bounds.origin.x, y: constrainedY))
         scrollView.reflectScrolledClipView(clipView)
         return true
     }

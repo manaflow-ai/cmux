@@ -93,10 +93,64 @@ struct WorkstreamEventTests {
         #expect(event.ppid == nil)
     }
 
+    @Test("Decodes structured idle reminders without retaining a JSON parser in reducers")
+    func decodesIdleReminderMarker() throws {
+        for (field, value) in [("notification_type", "idle_prompt"), ("reason", "IDLE_PROMPT")] {
+            let json = """
+            {
+              "session_id": "grok-session",
+              "hook_event_name": "Notification",
+              "_source": "grok",
+              "\(field)": "\(value)",
+              "message": "Waiting for input"
+            }
+            """.data(using: .utf8)!
+
+            let event = try JSONDecoder().decode(WorkstreamEvent.self, from: json)
+            #expect(event.isIdleReminder)
+        }
+    }
+
+    @Test("Decodes nested structured idle reminder markers")
+    func decodesNestedIdleReminderMarker() throws {
+        let json = """
+        {
+          "session_id": "claude-session",
+          "hook_event_name": "Notification",
+          "_source": "claude",
+          "notification": {"notificationType": "idle_prompt"},
+          "data": {"reason": "idle_prompt"}
+        }
+        """.data(using: .utf8)!
+
+        let event = try JSONDecoder().decode(WorkstreamEvent.self, from: json)
+        #expect(event.isIdleReminder)
+    }
+
+    @Test("Constructed idle reminder markers survive Codable round trips")
+    func idleReminderMarkerRoundTrips() throws {
+        let event = WorkstreamEvent(
+            sessionId: "grok-session",
+            hookEventName: .notification,
+            source: "grok",
+            isIdleReminder: true
+        )
+
+        let encoded = try JSONEncoder().encode(event)
+        let object = try #require(
+            try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        #expect(object["_is_idle_reminder"] as? Bool == true)
+
+        let decoded = try JSONDecoder().decode(WorkstreamEvent.self, from: encoded)
+        #expect(decoded.isIdleReminder)
+    }
+
     @Test("Codex CLI lifecycle feed events decode at the app boundary")
     func codexLifecycleFeedEventsDecode() throws {
         let cases: [(String, WorkstreamEvent.HookEventName)] = [
             ("PostToolUse", .postToolUse),
+            ("PostToolUseFailure", .postToolUseFailure),
             ("PreCompact", .preCompact),
             ("PostCompact", .postCompact),
             ("SubagentStart", .subagentStart),

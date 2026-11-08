@@ -17,6 +17,8 @@ public struct ControlPaneSurfaceSummary: Sendable, Equatable {
     public let typeRawValue: String?
     /// Whether this surface is the selected tab in its pane.
     public let isSelected: Bool
+    /// The Dock container scope for a Dock-hosted surface, else `nil`.
+    public let dockScopeRawValue: String?
 
     /// Creates a pane-surface summary.
     ///
@@ -25,15 +27,18 @@ public struct ControlPaneSurfaceSummary: Sendable, Equatable {
     ///   - title: The tab's title.
     ///   - typeRawValue: The panel type's raw value, if resolved.
     ///   - isSelected: Whether this surface is selected.
+    ///   - dockScopeRawValue: The Dock scope for a Dock-hosted surface.
     public init(
         surfaceID: UUID?,
         title: String,
         typeRawValue: String?,
-        isSelected: Bool
+        isSelected: Bool,
+        dockScopeRawValue: String? = nil
     ) {
         self.surfaceID = surfaceID
         self.title = title
         self.typeRawValue = typeRawValue
         self.isSelected = isSelected
+        self.dockScopeRawValue = dockScopeRawValue
     }
 }

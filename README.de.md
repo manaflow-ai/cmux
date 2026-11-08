@@ -69,7 +69,7 @@ Die Seitenleiste zeigt Git-Branch, verknüpften PR-Status/Nummer, Arbeitsverzeic
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> erstellt einen Arbeitsbereich für eine entfernte Maschine. Browser-Bereiche werden über das entfernte Netzwerk geleitet, sodass localhost einfach funktioniert. Ziehen Sie ein Bild in eine entfernte Sitzung, um es per scp hochzuladen.
+<code>cmux ssh user@remote</code> erstellt einen Arbeitsbereich für eine entfernte Maschine. Übergeben Sie <code>--command 'omp "investigate auth"'</code>, um einmalig einen ersten Befehl im ersten entfernten Terminal auszuführen. Browser-Bereiche werden über das entfernte Netzwerk geleitet, sodass localhost einfach funktioniert. Ziehen Sie ein Bild in eine entfernte Sitzung, um es per scp hochzuladen.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 Beim ersten Start fordert macOS Sie möglicherweise auf, das Öffnen einer App von einem identifizierten Entwickler zu bestätigen. Klicken Sie auf **Öffnen**, um fortzufahren.
 
+### Shell-Vervollständigung
+
+Das Homebrew-Cask installiert die Vervollständigung für zsh, bash und fish. Starten Sie nach der Installation eine neue Shell. Falls die Vervollständigung nicht geladen wird, stellen Sie sicher, dass die Vervollständigungsverzeichnisse von Homebrew in Ihrer Shell eingebunden sind (siehe [Homebrews Dokumentation zur Shell-Vervollständigung](https://docs.brew.sh/Shell-Completion)).
+
+Wenn Sie cmux anders installiert haben, fügen Sie die passende Zeile zur Startdatei Ihrer Shell hinzu und starten Sie eine neue Shell:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## Warum cmux?
 
 Ich führe viele Claude Code- und Codex-Sitzungen parallel aus. Ich habe Ghostty mit einer Menge geteilter Bereiche verwendet und mich auf die nativen macOS-Benachrichtigungen verlassen, um zu wissen, wann ein Agent mich braucht. Aber der Benachrichtigungstext von Claude Code ist immer nur „Claude is waiting for your input" ohne Kontext, und bei genügend offenen Tabs konnte ich nicht einmal mehr die Titel lesen.
@@ -152,7 +171,9 @@ Weitere Informationen zur Konfiguration von cmux finden Sie in [unserer Dokument
 
 | Tastenkürzel | Aktion |
 |----------|--------|
-| ⌘ N | Neuer Arbeitsbereich |
+| ⌘ N | Neuer lokaler Arbeitsbereich |
+| ⌘ Y | Neuer Cloud-Arbeitsbereich im zuletzt nutzbaren Cloud-Kontext; öffnet New Cloud Machine, wenn keiner verfügbar ist |
+| ⌘ ⇧ Y | Neue Cloud-Maschine |
 | ⌘ 1–8 | Zu Arbeitsbereich 1–8 springen |
 | ⌘ 9 | Zum letzten Arbeitsbereich springen |
 | ⌃ ⌘ ] | Nächster Arbeitsbereich |
@@ -386,19 +407,19 @@ Ja, cmux ist kostenlos nutzbar. Der Quellcode ist auf [GitHub](https://github.co
 
 ### Wie kann ich cmux unterstützen?
 
-cmux ist kostenlos und Open Source und wird es immer bleiben. Wenn Sie die Entwicklung unterstützen und frühen Zugang zu kommenden Funktionen erhalten möchten, einschließlich cmux AI, der iOS-App und Cloud-VMs, schauen Sie sich die [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition) an.
+cmux ist kostenlos und Open Source und wird es immer bleiben. Wenn Sie die Entwicklung unterstützen und frühen Zugang zu kommenden Funktionen erhalten möchten, einschließlich cmux AI, der iOS-App und Cloud-VMs, schauen Sie sich die [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro) an.
 
 ### Ich habe einen Feature-Wunsch oder einen Bug gefunden?
 
-Wir möchten davon hören. Öffnen Sie eine [Issue](https://github.com/manaflow-ai/cmux/issues) oder einen [Pull Request](https://github.com/manaflow-ai/cmux/pulls) auf GitHub, oder [schreiben Sie uns eine E-Mail](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Wir möchten davon hören. Öffnen Sie eine [Issue](https://github.com/manaflow-ai/cmux/issues) oder einen [Pull Request](https://github.com/manaflow-ai/cmux/pulls) auf GitHub, oder [schreiben Sie uns eine E-Mail](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Star-Verlauf
 
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+<a href="https://www.star-history.com/?repos=manaflow-ai%2Fcmux&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&theme=dark&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
  </picture>
 </a>
 
@@ -414,27 +435,26 @@ Möglichkeiten, sich einzubringen:
 ## Community
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
-## Founder's Edition
+<p>
+  <strong>WeChat:</strong> Scannen Sie den QR-Code, um der Community beizutreten.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-Code zum Beitritt zur cmux-Community" width="240" />
+</p>
+
+## cmux Pro
 
 cmux ist kostenlos, Open Source und wird es immer sein. Wenn Sie die Entwicklung unterstützen und frühen Zugang zu kommenden Funktionen erhalten möchten:
 
-**[Founder's Edition erhalten](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Priorisierte Feature-Requests/Bugfixes**
-- **Früher Zugang: cmux AI, das Ihnen Kontext zu jedem Arbeitsbereich, Tab und Panel gibt**
-- **Früher Zugang: iOS-App mit zwischen Desktop und Telefon synchronisierten Terminals**
-- **Früher Zugang: Cloud-VMs**
-- **Früher Zugang: Sprachmodus**
-- **Meine persönliche iMessage/WhatsApp**
+**[cmux Pro erhalten](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## Lizenz
 
-cmux ist Open Source unter [GPL-3.0-or-later](LICENSE).
+cmux ist Open Source unter [GPL-3.0-or-later](LICENSE). Die cmux-Serversoftware (`web/`, die Cloudflare-Worker und die in [LICENSE](LICENSE) aufgeführten Relay-Dienste) steht stattdessen unter der [Business Source License 1.1](web/LICENSE): Sie dürfen sie lesen, ändern und für nicht-produktive Zwecke ausführen; für den Produktivbetrieb oder Self-Hosting ist eine kommerzielle Lizenz erforderlich.
 
-Wenn Ihre Organisation GPL nicht einhalten kann, ist eine kommerzielle Lizenz verfügbar. Kontaktieren Sie [founders@manaflow.com](mailto:founders@manaflow.com) für Details.
+Wenn Ihre Organisation GPL nicht einhalten kann, ist eine kommerzielle Lizenz verfügbar. Kontaktieren Sie [founders@cmux.com](mailto:founders@cmux.com) für Details.

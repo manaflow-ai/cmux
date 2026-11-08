@@ -56,4 +56,65 @@ struct ClaudeTeamsLaunchOptionTests {
         #expect(!hasDangerousSkip(["--model", "sonnet", "make a demo team"]))
         #expect(!hasDangerousSkip([]))
     }
+
+    @Test("Recognizes canonical Claude management commands after safe options")
+    func recognizesManagementCommands() {
+        let classifier = AgentLaunchInvocationClassifier()
+        for command in [
+            "auth", "auto-mode", "doctor", "gateway", "install", "kill", "logs", "mcp",
+            "plugin", "plugins", "project", "rm", "setup-token", "stop", "update", "upgrade",
+        ] {
+            #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: [command]))
+            #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["--verbose", command]))
+        }
+        #expect(classifier.claudeTeamsLaunchIsManagementCommand(
+            args: ["--tmux", "classic", "auth"]
+        ))
+        #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["logs", "session-id"]))
+        for subcommand in ["logs", "status", "stop", "uninstall"] {
+            #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["daemon", subcommand]))
+        }
+        #expect(classifier.claudeTeamsLaunchIsManagementCommand(
+            args: ["daemon", "--json-path", "/tmp/daemon.json", "status"]
+        ))
+        #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["agents", "--json"]))
+        #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["agents", "--all", "--json"]))
+    }
+
+    @Test("Does not promote command-shaped values or prompt payloads")
+    func rejectsManagementCommandMasqueraders() {
+        let classifier = AgentLaunchInvocationClassifier()
+        let launches = [
+            ["agents"],
+            ["agents", "--all"],
+            ["agents", "--json", "prompt"],
+            ["--verbose", "agents"],
+            ["daemon"],
+            ["daemon", "run"],
+            ["daemon", "--json-path", "run"],
+            ["--model", "config"],
+            ["--model", "logs"],
+            ["--append-system-prompt", "doctor"],
+            ["--tmux", "config"],
+            ["--", "config"],
+            ["please", "config"],
+            ["--unknown-option", "config"],
+            ["--debug", "auth", "start a team"],
+            ["-d", "doctor", "start a team"],
+            ["--continue", "config"],
+            ["--remote-control", "session-name", "auth"],
+            ["--resume", "doctor"],
+            ["--worktree", "config"],
+            ["api-key"],
+            ["config"],
+            ["rc"],
+            ["remote-control"],
+            ["import"],
+            ["import", "codex", "--dry-run"],
+            ["ultrareview"],
+        ]
+        for args in launches {
+            #expect(!classifier.claudeTeamsLaunchIsManagementCommand(args: args))
+        }
+    }
 }
