@@ -213,7 +213,7 @@ struct HomeDockOpensTests {
             let original = try #require(dock.stripModel.selectedID)
             let create = services.pages.createStoreTab
             var fail: CheckedContinuation<Void, Never>?
-            services.pages.createStoreTab = { _, _, _, _, _ in
+            services.pages.createStoreTab = { _, _, _, _, _, _ in
                 await withCheckedContinuation { fail = $0 }
                 throw DaemonError.notConnected
             }

@@ -132,7 +132,9 @@ extension WebPageTab {
             pane.focusContent()
             return true
         }
-        return services.linkOpener.open(from: source, kind: .browser) { [weak tab] pane, placed in
+        // A new split gets the page in one daemon commit (``gitHubSplit``); a pane on the right, a column or an older daemon go through `make`.
+        let split = gitHubSplit(tab, route: link.route, returningTo: source, services: services)
+        return services.linkOpener.open(from: source, kind: .browser, split: split) { [weak tab] pane, placed in
             guard let tab, let window = services.windowController(showing: pane) else { return false }
             let key = LocalPageTab.makeKey(.github), opener = pane === source && placed == nil && !HomeDockOpens.opensBeside(pane.pane, services: services) ? pane.selectedTab : nil
             tab.restore(link.route, for: key)

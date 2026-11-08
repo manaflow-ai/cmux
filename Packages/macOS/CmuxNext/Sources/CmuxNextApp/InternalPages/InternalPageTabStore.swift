@@ -23,13 +23,15 @@ final class InternalPageTabStore {
     /// Go Back (true) or Go Forward (false) from a page view's mouse buttons and swipes.
     @ObservationIgnored var navigate: ((Bool) -> Void)?
     /// Sends `new-conversation-tab` for a page tab (`page-tabs-v1`) on its
-    /// route (`page-tab-route-v1`) in a pane: the created tab and the event
+    /// route (`page-tab-route-v1`) in a pane, or in a new pane split from it
+    /// (`conversation-tab-split-v1`): the created tab and the event
     /// sequence its reply follows. Sends it on the pane's daemon; tests hold it.
-    @ObservationIgnored var createStoreTab: @MainActor (PaneID, DaemonService, String, String?, ClientTransactionID) async throws
-        -> (created: PageTabCreated, sequence: UInt64?) = { pane, daemon, page, route, transaction in
+    @ObservationIgnored var createStoreTab: @MainActor (PaneID, DaemonService, String, String?, ClientTransactionID, ConversationTabSplit?) async throws
+        -> (created: PageTabCreated, sequence: UInt64?) = { pane, daemon, page, route, transaction, split in
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
-        let request = NewConversationTabRequest(page: page, route: route, pane: pane, origin: InternalPageTabStore.createOrigin,
+        var request = NewConversationTabRequest(page: page, route: route, pane: pane, origin: InternalPageTabStore.createOrigin,
                                                 mutationID: UUID().uuidString.lowercased(), transaction: transaction)
+        request.split = split
         let response = try await connection.request(request)
         let created = PageTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
                                      surface: response.surface)
@@ -211,19 +213,24 @@ final class InternalPageTabStore {
     func openStoreTab(_ page: InternalPageID, in pane: PaneController, window: WindowController,
                       focus: Bool, key given: String? = nil,
                       created onCreated: (@MainActor (SurfaceID) -> Void)? = nil,
-                      failed onFailed: (@MainActor ((any Error)?) -> Void)? = nil, requiresSurface: Bool = false) -> InternalPageView? {
+                      failed onFailed: (@MainActor ((any Error)?) -> Void)? = nil, requiresSurface: Bool = false,
+                      split: SplitDirection? = nil) -> InternalPageView? {
         openStoreTab(page, in: pane.pane, of: pane.daemon, services: pane.services, controller: pane, window: window,
-                     focus: focus, key: given, created: onCreated, failed: onFailed, requiresSurface: requiresSurface)
+                     focus: focus, key: given, created: onCreated, failed: onFailed, requiresSurface: requiresSurface, split: split)
     }
 
     /// ``openStoreTab(_:in:window:focus:key:created:)`` in model pane `model` of `daemon`. With no
     /// `controller` (a workspace parked off screen, whose new panes have none until it shows) the
     /// tab goes into the model only, and its pane shows it when the workspace shows; `focus` then
     /// selects nothing (a focused show leaves the top page first, which shows the workspace).
+    /// `split` (`conversation-tab-split-v1`, the caller checked the capability): the tab opens in a new pane
+    /// on that side of `model`, in one daemon commit, shown at once in a provisional pane and never
+    /// listed in `model`'s strip; the caller selects nothing there (`focus` false) and needs `requiresSurface`.
     func openStoreTab(_ page: InternalPageID, in model: PaneModel, of daemon: DaemonService, services: AppServices,
                       controller pane: PaneController?, window: WindowController, focus: Bool, key given: String? = nil,
                       created onCreated: (@MainActor (SurfaceID) -> Void)? = nil,
-                      failed onFailed: (@MainActor ((any Error)?) -> Void)? = nil, requiresSurface: Bool = false) -> InternalPageView? {
+                      failed onFailed: (@MainActor ((any Error)?) -> Void)? = nil, requiresSurface: Bool = false,
+                      split: SplitDirection? = nil) -> InternalPageView? {
         let store = daemon.store
         let homePlacement = HomeDockOpens.opensBeside(model, services: services)
         // A foreground page in Home is selected by its destination placement, never while its
@@ -252,7 +259,11 @@ final class InternalPageTabStore {
             self?.storeTabCreated(provisional, as: tab.id, surface: tab.surface)
         }
         let transaction = ClientTransactionID.generate()
-        store.intend(.createTab(pane: model.handle, provisional: snapshot), transaction: transaction)
+        let splitPane = split.map { ($0, ProvisionalPane(holding: snapshot)) }
+        let tabSplit = splitPane.map { ConversationTabSplit(direction: $0.0, paneID: $0.1.paneID,
+                                                            splitID: daemon.supports(DaemonCapability.splitClientSplitID.rawValue) ? $0.1.splitID : nil) }
+        store.intend(splitPane.map { .splitPane(pane: model.handle, direction: $0.0, ratio: 0.5, provisional: $0.1) }
+            ?? .createTab(pane: model.handle, provisional: snapshot), transaction: transaction)
         if let pane {
             if selectHere {
                 pane.selectWhenReported(surface: provisional.surface)
@@ -267,7 +278,7 @@ final class InternalPageTabStore {
         let create = createStoreTab, handle = model.handle, paneKey = model.id
         services.registry.track(Task { @MainActor [weak self, weak pane] () -> ActionWorkFailure? in
             do {
-                let (created, sequence) = try await create(handle, daemon, page.rawValue, route, transaction)
+                let (created, sequence) = try await create(handle, daemon, page.rawValue, route, transaction, tabSplit)
                 // Closed first (CancelledCreation): nothing moves to the store's tab, nothing is reported.
                 if !store.creations.wasCancelled(transaction) { self?.storeTabCreated(provisional.id, as: created.key, surface: created.surface) }
                 // The store's tab replaces the provisional one in one step, never beside it.
