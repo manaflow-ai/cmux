@@ -26,6 +26,12 @@ const padding = gridLength("cards-padding");
 // The UI font's stack (type-scale.json font.stack, the macOS system font); it has no letter-spacing.
 const UI_FONT = typeScale.font.stack.join(", ");
 
+/// The face the card is drawn in, `--font-ui`: the chat's Interface Font (chatUiFont.ts) as the
+/// canvas can measure it, the system stack by default. A canvas can't read CSS variables.
+export function cardFont(): string {
+  return UI_FONT;
+}
+
 // The same line breaker as prose estimates, using the card's UI font rather than chat text size.
 function textHeight(text: string, width: number, size: number, line: number, mono = false, weight = 400): number {
   const room = Math.max(1, width);
