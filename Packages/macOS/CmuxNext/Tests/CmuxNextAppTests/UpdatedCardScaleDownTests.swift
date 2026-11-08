@@ -77,4 +77,75 @@ struct UpdatedCardScaleDownTests {
         #expect(host.height == 48, "the card kept \(host.height) points at 100%")
         #expect(host.frame.height <= 49, "the card's frame kept \(host.frame.height) points at 100%")
     }
+
+    /// A sidebar for the card at `scale` (the caller puts the scale and the remembered heights back).
+    private func sidebarAtScale(_ scale: CGFloat) -> (SidebarView, FakeSurfaces) {
+        let surfaces = FakeSurfaces()
+        let model = SidebarModel(sections: [])
+        model.updatedCard = Self.card
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.updateSurfaces = surfaces
+        DesignSettings.shared.uiScale = scale
+        return (sidebar, surfaces)
+    }
+
+    /// Review F1 of #38150: the remembered height is kept free of the scale it was reported at, so a
+    /// 60 pt card remembered at 125% is held at 48 the next launch at 100%, not at 60.
+    @Test func aRememberedHeightKeepsItsScaleAcrossLaunches() throws {
+        let keys = [SidebarUpdatedCardHost.rememberedHeightKey, SidebarUpdatedCardHost.rememberedHeightsKey]
+        keys.forEach(UserDefaults.standard.removeObject(forKey:))
+        let saved = DesignSettings.shared.uiScale
+        defer {
+            DesignSettings.shared.uiScale = saved
+            keys.forEach(UserDefaults.standard.removeObject(forKey:))
+        }
+        let (sidebar, surfaces) = sidebarAtScale(1.25)
+        let host = sidebar.updatedCardView
+        host.configure(Self.card)
+        sidebar.layoutSubtreeIfNeeded()
+        try #require(surfaces.islands.last).report(height: 60)
+        sidebar.layoutSubtreeIfNeeded()
+        host.configure(nil)
+
+        // The next launch runs at 100%: the card shows fresh, before its page reports.
+        DesignSettings.shared.uiScale = 1
+        host.configure(Self.card)
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(host.heldHeight == 48, "the first frame held \(host.heldHeight) points at 100%")
+        #expect(host.height == 48, "the card was \(host.height) points at 100%")
+    }
+
+    /// Review F2 of #38150: a remembered card whose page has not reported yet lays out again when the
+    /// scale changes, so its frame follows the rescaled hold instead of keeping its old height.
+    @Test func aScaleChangeBeforeThePageReportsRelayoutsTheCard() async throws {
+        let keys = [SidebarUpdatedCardHost.rememberedHeightKey, SidebarUpdatedCardHost.rememberedHeightsKey]
+        keys.forEach(UserDefaults.standard.removeObject(forKey:))
+        let saved = DesignSettings.shared.uiScale
+        defer {
+            DesignSettings.shared.uiScale = saved
+            keys.forEach(UserDefaults.standard.removeObject(forKey:))
+        }
+        let (sidebar, surfaces) = sidebarAtScale(1.25)
+        let host = sidebar.updatedCardView
+        host.configure(Self.card)
+        sidebar.layoutSubtreeIfNeeded()
+        try #require(surfaces.islands.last).report(height: 60)
+        sidebar.layoutSubtreeIfNeeded()
+        host.configure(nil)
+
+        // The card shows again at its remembered 60 points; its page has not reported.
+        host.configure(Self.card)
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(host.frame.height >= 60, "the remembered card showed at \(host.frame.height) points")
+
+        DesignSettings.shared.uiScale = 1
+        // The host hears the scale through its observation: give it a few turns.
+        for _ in 0..<100 where host.frame.height > 49 {
+            try await Task.sleep(for: .milliseconds(10))
+            sidebar.layoutSubtreeIfNeeded()
+        }
+        #expect(host.height == 48, "the card was \(host.height) points at 100%")
+        #expect(host.frame.height <= 49, "the card's frame kept \(host.frame.height) points at 100%")
+    }
 }
