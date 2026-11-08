@@ -98,6 +98,11 @@ async function render(items: AcpmuxActivity[], reveal?: FindRevealTarget) {
   const { createRoot } = await import("react-dom/client");
   const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
   const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  // Each mount starts from no reader choices: a call's open state is kept by its id past an unmount
+  // (transcriptDisclosureModel.ts useRowDisclosure), and these fixtures reuse their call ids.
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
+  resetTranscriptDisclosure();
   act(() => root?.unmount());
   root = createRoot(host);
   await act(async () =>
