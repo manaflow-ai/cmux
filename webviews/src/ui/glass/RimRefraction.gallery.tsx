@@ -68,7 +68,7 @@ function RimRefractionGallery({ refract, art }: Props) {
           borderRadius: BOX.radius,
           /* glass-raw-blur-allow: the gallery's stand-in for the App's native glass, not a page glass */
           backdropFilter: "blur(30px) saturate(1.6)",
-          background: "rgba(30, 31, 36, 0.4)",
+          background: "color-mix(in srgb, var(--surface-popup) var(--ds-glass-lens-tint), transparent)",
         }}
       />
       <div style={{ position: "absolute", inset: 0, padding: "8px 24px", lineHeight: 1.5 }}>{LINE.repeat(14)}</div>
@@ -95,9 +95,9 @@ function RimRefractionGallery({ refract, art }: Props) {
           <div
             key={item}
             style={{
-              padding: "6px 10px",
+              padding: "var(--ds-space-1) var(--ds-space-3)",
               borderRadius: 8,
-              background: index === 1 ? "rgba(255, 255, 255, 0.12)" : undefined,
+              background: index === 1 ? "var(--ds-color-hover)" : undefined,
             }}
           >
             {item}

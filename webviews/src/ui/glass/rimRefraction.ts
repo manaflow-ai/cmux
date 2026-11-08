@@ -36,7 +36,7 @@ export const REFRACTION_DEFAULT: RefractionName = "ios";
 /** The strength a `--glass-refract` value names; unset or unknown takes the default. */
 export function refractionNamed(value: string | null | undefined): Refraction {
   const name = (value ?? "").trim();
-  return name in REFRACTIONS ? REFRACTIONS[name as RefractionName] : REFRACTIONS[REFRACTION_DEFAULT];
+  return Object.hasOwn(REFRACTIONS, name) ? REFRACTIONS[name as RefractionName] : REFRACTIONS[REFRACTION_DEFAULT];
 }
 
 /** The longest side of a map, map px; a larger surface's map is stretched (the bend is smooth). */
