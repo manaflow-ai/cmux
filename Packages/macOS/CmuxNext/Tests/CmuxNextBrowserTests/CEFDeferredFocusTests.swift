@@ -650,6 +650,49 @@ import Testing
         #expect(!hosting.isDetached)
     }
 
+    /// ZOOM VARIANTS 5: zooming a pane out shows the page of a pane the zoom covered. The content lifecycle shows it
+    /// (`setContentVisible(true)`) after its view is back in the window, and the host view was unhidden there at once:
+    /// the fork ordered the page's input window in (addChildWindow, then the overlay panel's re-add) from its run-loop
+    /// observer before the commit, 4.4 ms of every zoom-out press's first frame (Time Profiler, cmux21, macOS 27,
+    /// 120 Hz, dfbecfb0). A page the lifecycle shows again stays detached for that turn, as a page shown by a switch
+    /// does, and attaches after its frame commits.
+    @Test func aPageTheLifecycleShowsAgainOrdersItsWindowInOnlyAfterTheCommit() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, host) = try createdTab(runtime, browser: 21)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
+        let log = CallLog()
+        let fork = CEFLayerHosting.Fork(setLayerHosting: { _, on in on ? 7 : 0 }, setResizeSync: { _, _ in true },
+                                        setDetachedHosting: { _, on in log.items.append(on ? "detach" : "attach"); return true })
+        let hosting = host.hostView.layerHosting
+        hosting.holdsFocus = { false }
+        hosting.pageWindowCreated(browser: 21, fork: fork)
+        let hosted = Date().addingTimeInterval(2)
+        while hosting.page == nil, Date() < hosted { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        try #require(hosting.page != nil)
+        // The zoom in: the lifecycle hides the covered page; its host view hides by the end of the turn.
+        tab.setContentVisible(false)
+        Self.endTurn()
+        try #require(host.hostView.isHidden)
+        try #require(log.items.isEmpty)
+
+        // The zoom out's turn: the lifecycle shows the page again.
+        tab.setContentVisible(true)
+        #expect(!host.hostView.isHidden)
+        #expect(log.items == ["detach"], "a page shown again in this turn must stay out of the window until its frame commits: \(log.items)")
+        let frames = FrameScheduler.forWindow(window)
+        let deadline = Date().addingTimeInterval(2)
+        while log.items.count < 2, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            frames.frameDidFire()
+        }
+        #expect(log.items == ["detach", "attach"], "the page attaches after the commit: \(log.items)")
+        #expect(!hosting.isDetached)
+    }
+
     private func createdTab(_ runtime: CEFRuntime, browser: Int32) throws -> (CEFTab, CEFPaneHost) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
