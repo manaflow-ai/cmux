@@ -234,7 +234,7 @@ public final class TerminalSurfaceView: NSView {
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output",
                                   frameLayer: layer.map(ObjectIdentifier.init))
         if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
-        registerForDraggedTypes([.fileURL, .URL, .string])
+        registerForDraggedTypes([.fileURL, .URL, .string, .png, .tiff])
         updateContentScale()
         updateSurfaceSize(forceReport: true)
         updateOcclusion()

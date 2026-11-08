@@ -1,13 +1,13 @@
-// l10n-allow-file: gallery fixtures (sample drafts and links), not shipped UI.
+// l10n-allow-file: gallery fixtures (sample drafts, titles and links), not shipped UI.
 // cmux deeplinks in the composer's draft (Leo, 2026-11-03: "hm i wonder if those should be rendered
-// the deeplinks within the composer too..."): a workspace link (`cmux-nightly://workspace/ws_…`), an
-// agent link (`cmux://agent/…`) and a web agent link (`https://cmux.com/deeplink/agent?…`). The
-// draft keeps each URL as its text; compare the arms (`composer-deeplink-look`: link, chip, plain)
-// for how it reads. The sent prompt above draws the same links, so draft and sent match.
+// the deeplinks within the composer too..."; of the chip with the workspace's current title and a
+// plain text fallback, 2026-11-08: "Yeah sure"). A link the pane knows (a workspace or tab in the
+// host's `linkPlaces`) draws as the sent message's chip (composer/deeplinkTitles.ts); one nothing
+// names, such as an agent link no listed chat has, stays plain text. The draft keeps each URL as its
+// text either way.
 import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { assistant, chat, summary, user } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
-import { composerDeeplinkLook } from "./composer/deeplinkLook.experiment";
 
 const WORKSPACE = "cmux-nightly://workspace/ws_cca525bafd4d2b969dad8fdb549b0c61";
 const AGENT = "cmux://agent/claude/9b2f4c1e-5d7a-4e3b-8c6f-1a2b3c4d5e6f";
@@ -22,12 +22,10 @@ const snapshot = chat([
   summary(7, { status: "completed" }),
 ]);
 
-/** Waits for the draft to show `url`, its deeplink (none in the plain arm, so it waits for the text).
- * Each variant waits for a URL its own draft has: the web agent link's draft has no workspace link. */
+/** Waits for the draft to show `url` as its text. */
 const drawnWith = (url: string) => async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md")?.textContent?.includes(url));
 };
-const drawn = drawnWith(WORKSPACE);
 
 const TAB_ID = "tab_0123456789abcdef0123456789abcdef";
 const TAB = `cmux-nightly://tab/${TAB_ID}`;
@@ -87,10 +85,10 @@ export default agentPaneEntry({
     "agent-session/acpmux/composer/deeplinkTitles.ts",
     "agent-session/acpmux/icons/iconMask.ts",
   ],
-  keywords: ["deeplink", "link", "workspace link", "agent link", "cmux://"],
+  keywords: ["deeplink", "link", "workspace link", "agent link", "cmux://", "chip"],
   variants: {
     "workspace-and-agent": variant(
-      "A draft with a workspace link and an agent link: each draws as a link, its text the URL; the sent prompt above draws its links the same way.",
+      "A draft with a workspace link and an agent link before the app names any place: nothing resolves them, so both stay plain text, as typed.",
       DRAFT,
     ),
     "named-by-the-app": {
@@ -100,7 +98,7 @@ export default agentPaneEntry({
       play: namedLater,
     },
     "web-agent-link": variant(
-      "A cmux.com agent deeplink in the draft draws as a link too.",
+      "A cmux.com agent deeplink no listed chat has stays plain text in the draft.",
       `Pick up where ${WEB_AGENT} left off`,
       WEB_AGENT,
     ),
@@ -108,9 +106,5 @@ export default agentPaneEntry({
       "Other schemes and plain words stay text: cmux:/x, javascript:, a path.",
       `Look at cmux:/workspace and src/cmux/workspace.ts, then ${WORKSPACE}.`,
     ),
-  },
-  experiment: {
-    definition: composerDeeplinkLook,
-    script: [{ name: "Draw the draft", run: drawn }],
   },
 });
