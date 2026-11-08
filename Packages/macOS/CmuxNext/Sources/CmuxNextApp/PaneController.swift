@@ -154,7 +154,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func observe() {
         // One snapshot now (the first frame), tracked; the stream brings the later ones. A trigger:
         // `apply` is also called outside the stream (`syncStripFromStore`) and compares with what it applied.
-        tabItems.cancelAll() // a new record's tabs are new objects
+        tabItems.cancelAll(); if daemon.store.diagOverlay == nil { daemon.store.diagOverlay = { InputJournal.shared.append(window: nil, .content(tab: "-", event: "diag " + $0)) } } // a new record's tabs are new objects (DIAG hook)
         guard !isSuspended else { // `resume` starts it: the strip is mapped once, when the workspace draws again
             observation?.cancel(); observation = nil
             return
@@ -360,7 +360,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // A tab this window created: show it now (focus is the coordinator's expectation, not decided here).
             showSelected()
         } else if let selectedID, selectedID.rawValue != currentTabKey {
-            presentSelection() // a close selected the neighbor
+            InputJournal.shared.append(window: state?.id, .content(tab: selectedID.rawValue, event: "diag present pane=\(paneKey) from=\(currentTabKey ?? "-") record=\(pane.tabs.map(\.id)) closing=\(daemon.store.closingTabIDs) intents=\(daemon.store.pendingIntents.count)")); presentSelection() // a close selected the neighbor (DIAG)
         } else {
             // Model-driven: show on the next frame, coalescing transient selections.
             services.presentation.setNeedsShowSelected(self)

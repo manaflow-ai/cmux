@@ -73,6 +73,8 @@ public final class DaemonStore: StateResourceQueries {
     public private(set) var tabListRevision: UInt64 = 0
     /// Tabs a pending close only hides while the daemon's read decides (``holdTabs(_:)``); the live tree still lists them.
     @ObservationIgnored var heldTabIDs: Set<String> = []
+    /// DIAG close-variants-3 (never merged): the app's input journal.
+    @ObservationIgnored public var diagOverlay: ((String) -> Void)?
     public let session = SessionStateStore()
     /// Recent notifications, newest last (bounded).
     public internal(set) var notifications: [DaemonNotification] = []

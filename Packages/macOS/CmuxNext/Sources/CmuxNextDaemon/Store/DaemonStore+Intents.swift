@@ -34,6 +34,7 @@ extension DaemonStore {
         verifyMirrorUnchanged(before: "intent")
         guard intentLog.append(intent, transaction: transaction) else { return }
         if !intentLog.setUndo(IntentOverlay.apply(intent, to: self), at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
+        if case .closeTabs = intent, let diag = diagOverlay { diag("intend close tx=\(transaction) undo=\(intentLog.entries.last?.undo == nil ? "nil" : "set")") } // DIAG
         recomputeSidebarIfNeeded()
         publishTabListChange()
         recordMirror()
@@ -67,6 +68,7 @@ extension DaemonStore {
     /// The command for `transaction` failed: the intent leaves the log and
     /// the visible state returns to the confirmed mirror (plus the others).
     public func rejectIntent(_ transaction: ClientTransactionID) {
+        diagOverlay?("reject tx=\(transaction) pending=\(intentLog.contains(transaction))") // DIAG
         guard intentLog.contains(transaction) else { return }
         // A rejected close leaves its tabs: no longer closed (`closedLately`), so a new tab's move waits for them again.
         if case .closeTabs(let surfaces)? = intentLog.entries.first(where: { $0.transaction == transaction })?.kind { intentLog.forgetClosed(Set(surfaces)) }
@@ -129,6 +131,13 @@ extension DaemonStore {
         releaseSettledProvisionalWorkspaces()
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
+        if let diag = diagOverlay { // DIAG close-variants-3, never merged
+            for entry in intentLog.entries {
+                guard case .closeTabs(let surfaces) = entry.kind else { continue }
+                diag("lift \(writer) snap=\(snapshot) tx=\(entry.transaction) undo=\(entry.undo == nil ? "nil" : "set") listed=\(surfaces.map { tab(surface: $0) != nil }) inPane=\(surfaces.map { tab(surface: $0).flatMap { index.pane(holding: $0) }.map { "\($0.handle)" } ?? "-" }) seq=\(entry.settleSequence.map { String($0) } ?? "-") awaits=\(entry.awaitsRecords) held=\(entry.held)")
+            }
+            for (transaction, settlement) in intentSettlements { diag("lift \(writer) settled tx=\(transaction) \(settlement)") }
+        }
         overlayLifted = false
         publishOverlayNetChange(held)
         recomputeSidebarIfNeeded()
