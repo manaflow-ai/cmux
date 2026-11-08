@@ -33,11 +33,11 @@ function field(value: unknown): string | undefined {
 
 function label(harness: string, entrypoint: string | undefined, app: string | undefined): string {
   if (harness === "claude-code") {
-    if (entrypoint === "claude-desktop" || app === "Claude.app") return "Claude desktop";
-    if (entrypoint?.startsWith("sdk")) return "Claude Agent SDK";
-    return "Claude Code";
+    if (entrypoint === "claude-desktop" || app === "Claude.app") return "Claude desktop"; // l10n-allow: product name
+    if (entrypoint?.startsWith("sdk")) return "Claude Agent SDK"; // l10n-allow: product name
+    return "Claude Code"; // l10n-allow: product name
   }
-  if (harness === "codex") return "Codex";
+  if (harness === "codex") return "Codex"; // l10n-allow: product name
   return harness;
 }
 
