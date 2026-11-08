@@ -2162,6 +2162,227 @@ class WebShardBaseVerdict(unittest.TestCase):
             self.assertNotIn(branch, pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
 
 
+REPLAY = "web / react-apps-base-check (4)"
+HEAD_SHARD = "web / react-apps-check (4)"
+CAPSULES = "test/agent-pane-no-capsules.test.ts"
+CAPSULE_TEST = "agent pane page > rounds its controls as small-radius rects, not capsules"
+CAPSULE_ERROR = "expect(received).toBe(expected)"
+FOOTER = "test/composer-footer-plain.test.ts"
+
+
+def web_log(*files, timeouts=()):
+    """A webview test job's log (run-webviews-tests.sh): each file is (name, [(test, error, line)])."""
+    lines = []
+    for name, tests in files:
+        lines += [f"START {name} (hard limit 120s)", f"FAIL {name} (raw log retained for the final bounded summary)",
+                  f"##[group]FAIL {name}"]
+        for test, error, at in tests:
+            lines += [f"error: {error}", f"      at <anonymous> (/home/runner/_work/cmux/cmux/webviews/{name}:{at}:22)",
+                      f"(fail) {test} [12.00ms]"]
+        lines += [" 0 pass", f" {len(tests)} fail", "##[endgroup]"]
+    for name in timeouts:
+        lines += [f"START {name} (hard limit 120s)", f"TIMEOUT {name} (raw log retained for the final bounded summary)",
+                  f"##[group]TIMEOUT {name}", "##[endgroup]"]
+    lines.append(f"### webviews tests: 295 files, {len(files) + len(timeouts)} failed or timed out")
+    lines += [f"FAIL {name} (limit 120s)" for name, _ in files] + [f"TIMEOUT {name} (limit 120s)" for name in timeouts]
+    return "\n".join(f"2026-11-08T09:29:40.2315681Z {line}" for line in lines)
+
+
+def replay_log(charged, shared=(), base_timeouts=(), passed_alone=()):
+    """react-apps-base-check's log: the merge parent's run of the head's reds (BASE_TIMEOUTS timed out there), the
+    compare, then the charged files re-run alone on the head and the compare again with that re-run (a test in
+    PASSED_ALONE passed alone there: charged before it, a warning after)."""
+    def compare(errors, warnings):
+        return [f"##[warning]{name}" for name in warnings] + [f"##[error]{name}" for name in errors] + [
+            f"{len(errors)} webview test steps red on this change, {len(warnings)} red on the base too, 0 fixed"]
+    first = list(charged) + list(passed_alone)
+    lines = web_log(timeouts=base_timeouts).splitlines() + [
+        f"2026-11-08T09:29:40.2315681Z {line}" for line in compare(first, shared)]
+    lines += [f"2026-11-08T09:30:06.3672619Z \x1b[36;1mecho \"re-running alone on the head:\"\x1b[0m",
+              "2026-11-08T09:30:06.3709644Z re-running alone on the head:"]
+    lines += web_log((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)])).splitlines()
+    lines += [f"2026-11-08T09:30:07.5567707Z {line}" for line in compare(charged, list(shared) + list(passed_alone))]
+    return "\n".join(lines)
+
+
+def web_job(job_id, run_id, sha, name, conclusion="failure"):
+    """A webview test job as the jobs API shows it: a continue-on-error step that failed reads as a success there."""
+    steps = (["Re-run the change's reds alone on the head", "Fail on the change's own reds"] if "base-check" in name
+             else ["Test webviews"])
+    return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": name, "status": "completed",
+            "conclusion": conclusion, "steps": [
+                {"name": "Set up runner", "status": "completed", "conclusion": "success"},
+                *({"name": step, "status": "completed", "conclusion": conclusion} for step in steps)]}
+
+
+class WebReplayGitHub(WebShardBaseGitHub):
+    """cmux#34111 at 64617d70 (2026-11-08): the head's ci.yml run 10 failed REPLAY, its merge-parent replay, which
+    charged CAPSULES > CAPSULE_TEST to the change; its head shard (4), job 3, passed and printed the test's error. No
+    base push runs a replay (ci-web.yml runs it on pull requests only). feat-cmux-next's webview runs are
+    cmux-next-web.yml's: run 41 cancelled (coalesced), run 40 whose shard (1), job 5, fails the same test the same way
+    and whose shard (2), job 6, passed."""
+
+    def __init__(self):
+        super().__init__()
+        named = f"{CAPSULES} > {CAPSULE_TEST}"
+        self.jobs = {1: web_job(1, 10, HEAD, REPLAY),
+                     3: web_job(3, 10, HEAD, HEAD_SHARD, "success"),
+                     5: web_job(5, 40, PUSHED_BASE_SHA, "web / react-apps-check (1)"),
+                     6: web_job(6, 40, PUSHED_BASE_SHA, "web / react-apps-check (2)", "success")}
+        self.logs = {1: replay_log([named]), 3: web_log((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)])),
+                     5: web_log((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))}
+        self.per_test_only = True  # the per-test path never reads the cancelled run 41; the by-name path may
+        self.pushed_runs = [run for run in self.pushed_runs if run["id"] in (40, 41)]
+        for run in self.pushed_runs:
+            run["updated_at"] = run["created_at"]
+
+    def json(self, route, *, paginate=False):
+        if "/actions/runs/41/" in route and self.per_test_only:
+            raise AssertionError(f"a cancelled coalesced base run is never read: {route}")
+        return super().json(route, paginate=paginate)
+
+    def add_base_run(self, run_id, created, shards):
+        """A newer (or older) cmux-next web run: SHARDS is {job id: (shard, log or None for a pass)}."""
+        self.pushed_runs.append({"id": run_id, "event": "push", "head_branch": "feat-cmux-next",
+                                 "status": "completed", "conclusion": "failure", "head_sha": PUSHED_BASE_SHA,
+                                 "created_at": created, "updated_at": created})
+        for job_id, (shard, text) in shards.items():
+            self.jobs[job_id] = web_job(job_id, run_id, PUSHED_BASE_SHA, f"web / react-apps-check ({shard})",
+                                        "success" if text is None else "failure")
+            if text is not None:
+                self.logs[job_id] = text
+
+
+class WebviewTestReplayPerTest(unittest.TestCase):
+    """A red webview replay (`web / react-apps-base-check (N)`) is judged per test against the base's webview runs:
+    no base push runs a job of its name, so by name every one was refused as having no base verdict (cmux#34111)."""
+
+    def judge(self, gh):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
+
+    def test_a_replay_red_the_base_fails_the_same_way_in_another_shard_is_a_base_red(self):
+        text = self.judge(WebReplayGitHub())
+        self.assertIn(f"excused '{REPLAY}'", text)
+        self.assertIn(f"{CAPSULES} > {CAPSULE_TEST} (feat-cmux-next run 40)", text)
+
+    def test_a_replay_red_that_passes_on_the_base_is_its_own_and_says_which_test(self):
+        gh = WebReplayGitHub()
+        gh.logs[5] = web_log((FOOTER, [("rests flat", CAPSULE_ERROR, 9)]))
+        with self.assertRaisesRegex(excuse.Refused, r"pass or do not run on feat-cmux-next run 40: "
+                                    + re.escape(f"{CAPSULES} > {CAPSULE_TEST}")):
+            self.judge(gh)
+
+    def test_the_same_test_failing_differently_on_the_base_is_its_own(self):
+        gh = WebReplayGitHub()
+        gh.logs[5] = web_log((CAPSULES, [(CAPSULE_TEST, "expect(received).toEqual(expected)", 140)]))
+        with self.assertRaisesRegex(excuse.Refused, "fail on none of feat-cmux-next run 40 the same way"):
+            self.judge(gh)
+
+    def test_a_file_that_timed_out_on_the_merge_parent_is_not_a_cut_short_head_run(self):
+        # cmux#34111's replay (2): transcript-toggle-round-trip-browser timed out in the merge parent's run, not the
+        # head's; the head's tests were still compared.
+        gh = WebReplayGitHub()
+        gh.logs[1] = replay_log([f"{CAPSULES} > {CAPSULE_TEST}"],
+                                base_timeouts=["test/transcript-toggle-round-trip-browser.test.ts"])
+        self.assertIn(f"excused '{REPLAY}'", self.judge(gh))
+
+    def test_a_timeout_in_the_head_rerun_is_the_heads_own(self):
+        gh = WebReplayGitHub()
+        gh.logs[1] = gh.logs[1].replace("re-running alone on the head:", "re-running alone on the head:\n"
+                                        "2026-11-08T09:30:06Z ##[group]TIMEOUT test/x.test.ts\n2026-11-08T09:30:06Z "
+                                        "##[endgroup]\n2026-11-08T09:30:06Z TIMEOUT test/x.test.ts (limit 120s)")
+        with self.assertRaisesRegex(excuse.Refused, "a crash or a cut-short run is never a base red"):
+            self.judge(gh)
+
+    def test_a_test_that_passed_again_alone_on_the_head_is_no_longer_charged(self):
+        # The compare before the head re-run charged FOOTER too; the re-run passed it, and the final verdict warns.
+        gh = WebReplayGitHub()
+        gh.logs[1] = replay_log([f"{CAPSULES} > {CAPSULE_TEST}"], passed_alone=[f"{FOOTER} > rests flat"])
+        self.assertIn(f"excused '{REPLAY}'", self.judge(gh))
+
+    def test_a_test_red_on_an_older_base_run_of_the_window_is_a_base_red(self):
+        gh = WebReplayGitHub()
+        gh.add_base_run(50, "2026-11-07T12:00:00Z", {7: (1, web_log((FOOTER, [("rests flat", CAPSULE_ERROR, 9)])))})
+        text = self.judge(gh)
+        self.assertIn(f"{CAPSULES} > {CAPSULE_TEST} (feat-cmux-next run 40)", text)
+
+    def test_a_green_base_run_ends_the_window(self):
+        gh = WebReplayGitHub()
+        gh.add_base_run(50, "2026-11-07T12:00:00Z", {7: (1, None), 8: (2, None)})
+        with self.assertRaisesRegex(excuse.Refused, "every webview test passed on feat-cmux-next run 50"):
+            self.judge(gh)
+        self.assertFalse([route for route in gh.routes if "/actions/runs/40/" in route], gh.routes)
+
+    def test_a_base_run_whose_shards_did_not_all_finish_is_passed_over(self):
+        gh = WebReplayGitHub()
+        gh.add_base_run(50, "2026-11-07T12:00:00Z", {7: (1, None), 8: (2, None)})
+        gh.jobs[8].update(status="in_progress", conclusion=None)
+        gh.pushed_runs[-1].update(status="in_progress", conclusion=None)
+        self.assertIn("(feat-cmux-next run 40)", self.judge(gh))
+
+    def test_no_base_webview_run_is_its_own(self):
+        gh = WebReplayGitHub()
+        gh.pushed_runs = [run for run in gh.pushed_runs if run["id"] == 41]
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next webview test verdict to compare"):
+            self.judge(gh)
+
+    def test_a_replay_whose_head_shard_is_missing_or_unreadable_is_its_own(self):
+        gh = WebReplayGitHub()
+        del gh.jobs[3]
+        with self.assertRaisesRegex(excuse.Refused, "no head shard 'web / react-apps-check \\(4\\)'"):
+            self.judge(gh)
+
+    def test_an_unreadable_base_log_is_its_own(self):
+        gh = WebReplayGitHub()
+        log = gh.log
+
+        def refuse(repo, job):
+            if job["id"] == 5:
+                raise excuse.Refused("GitHub evidence request failed: 502")
+            return log(repo, job)
+
+        gh.log = refuse
+        with self.assertRaisesRegex(excuse.Refused, "no readable feat-cmux-next webview test log in feat-cmux-next "
+                                    "run 40.*unread: job 5: GitHub evidence request failed: 502"):
+            self.judge(gh)
+
+    def test_a_replay_that_names_no_test_is_never_a_base_red(self):
+        gh = WebReplayGitHub()
+        gh.logs[1] = "2026-11-08T09:28:00Z ##[error]Process completed with exit code 1."
+        with self.assertRaisesRegex(excuse.Refused, "its replay names no failing webview test"):
+            self.judge(gh)
+
+    def test_a_replay_that_also_failed_outside_its_test_steps_is_never_judged_per_test(self):
+        # Review F1 on #38380: its tests match the base, but the head re-run's bundles did not build.
+        gh = WebReplayGitHub()
+        gh.jobs[1]["steps"].insert(1, {"name": "Build head web bundles", "status": "completed",
+                                       "conclusion": "failure"})
+        with self.assertRaisesRegex(excuse.Refused, "failed outside its webview test steps: Build head web bundles"):
+            self.judge(gh)
+
+    def test_a_head_shard_whose_gate_failed_keeps_its_failed_step_comparison(self):
+        # Review F1 on #38380: 'Build the web bundles' (continue-on-error) failed, so 'Fail on the gate checks' did;
+        # its Bun failure matching the base excuses nothing: it is judged by its name and failed steps, as before.
+        gh = WebReplayGitHub()
+        del gh.jobs[1]
+        gh.jobs[3].update(conclusion="failure")
+        gh.jobs[3]["steps"] += [{"name": "Fail on the gate checks", "status": "completed", "conclusion": "failure"}]
+        gh.logs[3] += "\n2026-11-08T09:40:00Z ##[error]Gate failed; see the step 'Build the web bundles'."
+        gh.per_test_only = False
+        with self.assertRaises(excuse.Refused) as refused:
+            self.judge(gh)
+        self.assertNotIn("judged per test", str(refused.exception))
+
+    def test_a_head_shard_red_matches_the_base_in_another_shard(self):
+        gh = WebReplayGitHub()
+        del gh.jobs[1]
+        gh.jobs[3].update(conclusion="failure")
+        gh.jobs[3]["steps"][-1]["conclusion"] = "failure"
+        text = self.judge(gh)
+        self.assertIn(f"excused '{HEAD_SHARD}'", text)
+        self.assertIn("(feat-cmux-next run 40)", text)
+
+
 SIGNED_HOST = "signed host admission"
 SIGNED_HOST_FILE = "nightly-next-cua-signed-host.yml"
 
