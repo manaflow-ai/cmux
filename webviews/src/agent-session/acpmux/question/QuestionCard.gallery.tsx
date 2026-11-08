@@ -24,7 +24,7 @@ type Props = {
   question: AgentQuestion;
   onReply(reply: QuestionReply): void | Promise<unknown>;
   otherText?: string;
-  look?: "compact" | "inset" | "quiet";
+  look?: "compact" | "inset" | "quiet" | "capsule" | "outline" | "bare";
   /// The answered card's look (QuestionCard.gallery.css): `stacked` ships.
   answeredLook?: AnsweredLook;
 };
@@ -271,6 +271,32 @@ export default componentEntry({
     ],
   },
   variants: {
+    // Leo 2026-11-05, of the Needs your input pill, the option rows and the custom answer: "kind of
+    // ugly". Three restyles on the card he showed (two options, a typed custom answer); capsule ships.
+    "restyle-capsule": {
+      ...variant(
+        pendingOther,
+        "Shipped: one small-radius rect (no capsule: agent-pane-no-capsules) tinted with the mark holding the Needs you dot (as the floating pill), regular-weight question and options, the typed custom answer in a quiet hairline field, Skip and Submit with outlined keycaps (esc, ⌘ ↩) as the permission card's.",
+        "do whatever's reasonable",
+      ),
+      props: { ...variant(pendingOther, "", "do whatever's reasonable").props, look: "capsule" },
+    },
+    "restyle-outline": {
+      ...variant(
+        pendingOther,
+        "Alternative: the pill ringed instead of tinted, full-width ruled rows, the custom answer underlined.",
+        "do whatever's reasonable",
+      ),
+      props: { ...variant(pendingOther, "", "do whatever's reasonable").props, look: "outline" },
+    },
+    "restyle-bare": {
+      ...variant(
+        pendingOther,
+        "Alternative: the dot and words with no capsule, the chosen radio filled with the accent, the custom answer a soft filled row.",
+        "do whatever's reasonable",
+      ),
+      props: { ...variant(pendingOther, "", "do whatever's reasonable").props, look: "bare" },
+    },
     "visual-compact": {
       ...variant(pendingSingle, "Compact rules: tighter rows and footer, with full-width hairlines."),
       props: { ...variant(pendingSingle, "").props, look: "compact" },

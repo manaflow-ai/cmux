@@ -75,6 +75,28 @@ names) with `tab`, `url`, `confirm` (the tab still asks for Connect),
 stream's state, mode and frame counts). It carries no credential and no
 screen content. Connect and Take over stay the person's clicks in the pane.
 
+`app machines [--no-refresh]` works with every build: it reads the app's
+`machine.list`, the right sidebar's Machines section as the person sees it,
+`{machines: [{id, name, kind, isLocal, linkState, online, serverState,
+joined}]}`. `kind` is `local`, `cloud`, `ssh`, `server` or `joined`;
+`linkState` is `connected`, `connecting`, `offline` or `paused`; `joined` is
+the hub's row (`id`, `state`, `meshPeerId`, `joinTokenId`, `platform`,
+`hostname`, `lastHeartbeat`) or null. A machine reached through the hub alone
+has the id `joined:<id>`, which `cmux action run machine.reconnect --target
+machine:<id>` takes. It reads `cmux machine list` once first unless
+`--no-refresh`.
+
+`app join-line [--mint] [--name <name>] [--no-open]` works with every build:
+it calls the app's `device.join_line`, Add Device's "Any machine" way. It
+opens the card on that way unless `--no-open`; `--mint` presses Make Line
+(New Line after an expiry or a failure) and waits for the line, never over a
+line still showing. The reply is `{shown, way, offersInvite, phase}` with
+`phase` `idle`, `minting`, `showing`, `joined`, `expired`, `failed` or
+`unavailable`; `showing` adds `line`, `joinTokenId`, `expiresAt`,
+`secondsLeft` and `name`, `joined` adds the machine and its checks (no line),
+`failed` adds `failure`. The line carries a single-use token: the CLI prints
+it and nothing logs it. It is refused with Cloud turned off.
+
 Every command acts on one session. Without `--socket`, `--session` or
 `--all-sessions`, lists and bulk commands act only on the session the CLI
 finds (see [Discovery](#discovery)), so a script that lists and then closes
@@ -463,7 +485,9 @@ cmux agent plugin use|update|remove <name-or-id>
 cmux agent plugin use --builtin
 ```
 
-`agent list` puts blocked agents first, then working, then idle and done
+`agent list` lists the caller's session: its terminal agents and the acpmux
+chats created in its workspaces (`--all-sessions` for every session and every
+chat on the machine). It puts blocked agents first, then working, then idle and done
 (`--sort recent|none` for recency or the daemon's order). `--json` stays a bare
 array of agents; `--json --counts` adds the counts by state
 (`{"agents": [...], "counts": {...}}`).

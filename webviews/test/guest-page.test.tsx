@@ -482,6 +482,28 @@ test("another guest's message draws as a prompt under their picture and name", a
   await page.unmount();
 });
 
+// The owner's own `acpmux send` at a plain terminal (acpmux `owner_terminal`, #38260) is recorded as
+// their prompt: `_meta.origin` person with a CLI client. The shared chat draws it as the owner's
+// prompt, never as a received card from the label its text starts with (#38260 F2).
+test("the owner's terminal send of `[P1] fix the race` draws as the owner's prompt, not a card from P1", async () => {
+  const records = workingRecords();
+  const first = records[0]!;
+  records[0] = {
+    ...first,
+    msg: {
+      ...(first.msg as Record<string, unknown>),
+      text: "[P1] fix the race",
+      client: "acpmux-cli#01a2f3@my-mac",
+      _meta: { origin: { actor: "person", verified: true } },
+    },
+  };
+  const page = await mount({ guestId: "g1", openSocket: fakeRoom(joinFrames(records)) });
+  await roomFrames();
+  expect(page.host.textContent).toContain("[P1] fix the race");
+  expect(page.host.querySelector(".cv-received__sender")).toBeNull();
+  await page.unmount();
+});
+
 test("a signed-in link join keeps the daemon's talk: the composer shows, and again after a reload", async () => {
   const { joinedRole, rememberJoined } = await import("../src/agent-session/guest/redeem");
   const tab = memoryStorage();

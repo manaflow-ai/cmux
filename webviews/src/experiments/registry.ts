@@ -73,6 +73,7 @@ import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment"
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
 import { sendStopMorph } from "../agent-session/acpmux/composer/sendStopMorph.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
+import { followMotion } from "../agent-session/acpmux/conversation/followMotion.experiment";
 import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
 import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
 import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
@@ -86,6 +87,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hoverActions,
   startedSessionCards,
   fileKindIcon,
+  followMotion,
   finishedTaskLook,
   claudeTurnFold,
   commandLabelLook,

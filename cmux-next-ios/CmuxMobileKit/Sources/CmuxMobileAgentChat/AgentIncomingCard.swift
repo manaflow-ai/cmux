@@ -52,12 +52,37 @@ struct AgentIncomingCard: View {
         .accessibilityElement(children: .contain)
     }
 
-    private var header: some View {
+    /// The harness a sender's icon draws: the card's, when one sender sent every message.
+    private func harness(for message: AgentIncoming.Message) -> String? {
+        incoming.oneSenderKey == message.toneKey ? incoming.harness : nil
+    }
+
+    /// A card of several messages opens and closes all of them from its header, so every message can
+    /// be read from the top line (Leo, 2026-11-05: "we don't seem to be able to click it at the top
+    /// level, which is no bueno. Like all of these things, we need to be able to see them here").
+    @ViewBuilder private var header: some View {
+        if incoming.messages.count > 1 {
+            let allOpen = open.count == incoming.messages.count
+            Button {
+                withAnimation(.cmuxMobileSmooth) {
+                    open = allOpen ? [] : Set(incoming.messages.indices)
+                }
+            } label: {
+                headerLine(chevron: allOpen).contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(allOpen ? "Closes every message" : "Opens every message")
+        } else {
+            headerLine(chevron: nil)
+        }
+    }
+
+    private func headerLine(chevron open: Bool?) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "person.crop.circle.badge.checkmark")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+            // One sender, however many messages: its family's mark and its own badge, in the tone of
+            // its session id (the Mac's), else its name.
+            let one = incoming.oneSenderKey.flatMap { _ in incoming.messages.first }
+            AgentSenderIcon(harness: one.flatMap(harness(for:)), identity: one?.toneKey ?? "messages", assignedTone: one?.tone, size: 16)
             Group {
                 if incoming.messages.count != 1 {
                     Text("\(incoming.messages.count) messages")
@@ -78,6 +103,12 @@ struct AgentIncomingCard: View {
             Text(at, style: .time)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+            if let open {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+            }
         }
     }
 
@@ -99,6 +130,7 @@ struct AgentIncomingCard: View {
                 }
             } label: {
                 HStack(spacing: 6) {
+                    AgentSenderIcon(harness: harness(for: message), identity: message.toneKey, assignedTone: message.tone, size: 14)
                     Text(message.sender)
                         .font(.footnote.weight(.semibold))
                         .lineLimit(1)

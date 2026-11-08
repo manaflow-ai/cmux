@@ -148,6 +148,8 @@ import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
+import { MachineLinkStatus } from "./MachineLinkStatus";
+import { peerLink, type PeerLink } from "./peerLink";
 import { noteSendOrigins } from "./conversation/sendMorph";
 import { composerHoldsDraft } from "./conversation/wakeFolds";
 import {
@@ -432,6 +434,9 @@ type Props = {
   authChecking?: boolean;
   /// Opens Session Info at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
+  /// Reconnects the acpmux peer a chat on another machine runs on, from the quiet row's link
+  /// (MachineLinkStatus.tsx).
+  onReconnectMachine?(link: PeerLink): Promise<unknown> | void;
 };
 
 /// The composer, drawn again only when a prop it is handed changes: its event handlers hold their
@@ -521,9 +526,13 @@ function ComposerFrame({
   authChecking = false,
   placeholder,
   onOpenContext,
+  onReconnectMachine,
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
+  // The chat's peer link for the quiet row, as acpmux reports it; null for a chat on this Mac
+  // (peerLink.ts).
+  const machineLink = peerLink(snapshot);
   const chrome = useComposerChrome();
   // Off (a queued row's ⋯ menu, queueing.ts), what is sent mid-turn steers on every key.
   const queueing = useQueueing();
@@ -2705,6 +2714,7 @@ function ComposerFrame({
         chips={
           <PromptFocus value={focusPrompt}>
             <Chips snapshot={snapshot} />
+            <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
           </PromptFocus>
         }
         // Claude Code ends the quiet row on the context ring. It keeps its place before the chat

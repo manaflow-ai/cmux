@@ -9,6 +9,10 @@
       "scope": "actions:run",
       "class": "mutation"
     },
+    "agent_chat.list": {
+      "scope": "agent_chat:read",
+      "class": "read"
+    },
     "agent_cli.list": {
       "scope": "agent_cli:read",
       "class": "read"

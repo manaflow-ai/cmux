@@ -62,7 +62,13 @@ import { primeSentImages, withSentShapes } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
 import { frameTextOf, imageNames, withoutFrames } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
-import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
+import {
+  peerConnectedFromStatus,
+  peerKindsFromStatus,
+  peerLinksFromStatus,
+  peerStatesFromStatus,
+} from "./environments";
+import type { PeerLinkDetail } from "./linkState";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
@@ -2200,9 +2206,13 @@ export class AcpmuxDirectClient {
   /// The promptIds drawn as prompts. An older page folds in after the rows below it, so the steer
   /// a held prompt re-ran comes after that prompt: it draws nothing. Kept across that fold.
   private promptsShown = new Set<string>();
-  /// Where each prompt was sent from, by prompt id (`sender_claim`, conversation/sentFromHarness.ts): its
-  /// record comes before the prompt's own, which reads it as its row is drawn.
+  /// Where each prompt was sent from, by prompt id (`sender_claim`, conversation/sentFromHarness.ts): a
+  /// row drawn after its claim reads it here, and a claim after its row (the daemon writes it once
+  /// the prompt is kept, an older page folds in later) updates that row.
   private sentFromPrompts = new Map<string, SentFrom>();
+  /// The inbox notice row that names each prompt id (agentInbox's route of another agent's send): a
+  /// claim that comes after its notice reaches that row's thread.
+  private inboxClaimRows = new Map<string, string>();
   /// Attachments sent with a prompt until its user-message event gives it a durable row id.
   private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
   /// Attachments for completed prompts, used when their turn is retried later.
@@ -2486,6 +2496,8 @@ export class AcpmuxDirectClient {
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
   private peerConnected: Record<string, boolean> = {};
   private peerStates: Record<string, string> = {};
+  /// Each peer's whole link state as acpmux said it (linkState.ts), from a daemon that sends it.
+  private peerLinks: Record<string, PeerLinkDetail> = {};
   private peerResources: NonNullable<AcpmuxSnapshot["peerResources"]> = {};
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
@@ -3293,6 +3305,7 @@ export class AcpmuxDirectClient {
     this.lateSteers = [];
     this.promptsShown.clear();
     this.sentFromPrompts.clear();
+    this.inboxClaimRows.clear();
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
@@ -6115,6 +6128,7 @@ export class AcpmuxDirectClient {
     this.lateSteers = [];
     this.promptsShown.clear();
     this.sentFromPrompts.clear();
+    this.inboxClaimRows.clear();
     this.firstSeq = undefined;
     // Found again as the held events are reduced (`reduceEvent`).
     this.nativeSeed = undefined;
@@ -6681,6 +6695,19 @@ export class AcpmuxDirectClient {
   /// and then sends the reply (App.tsx `withdrawForTypedReply`), so the decline comes first; a prompt
   /// steered in while it waits comes before. Either way its record reads "Answered in chat", also on
   /// a reload, which replays the same records in the same order.
+  /// `notice` with each thread's sender claims (`sender_claim`), by the prompt ids it names.
+  private withSentFrom(notice: InboxNotice): InboxNotice {
+    if (this.sentFromPrompts.size === 0) return notice;
+    return {
+      threads: notice.threads.map((thread) => {
+        const claims = thread.promptIds.flatMap((id) => {
+          const from = this.sentFromPrompts.get(id);
+          return from ? [[id, from] as const] : [];
+        });
+        return claims.length ? { ...thread, sentFrom: { ...thread.sentFrom, ...Object.fromEntries(claims) } } : thread;
+      }),
+    };
+  }
   private answeredInChat(event: EventRecord): void {
     // One reply answers one question: the oldest waiting, the one the card shows. The others stay
     // as they are, so a later Skip or Stop of one of them still reads as such.
@@ -7096,7 +7123,25 @@ export class AcpmuxDirectClient {
         this.takeSubagentRows();
       } else if (event.kind === "sender_claim") {
         const from = sentFrom(msg);
-        if (from) this.sentFromPrompts.set(from.promptId, from);
+        if (from) {
+          this.sentFromPrompts.set(from.promptId, from);
+          const rowId = this.promptRowKeys.get(from.promptId);
+          const row = rowId === undefined ? undefined : this.rows.get(rowId);
+          if (
+            row?.kind === "user" &&
+            (!row.untyped || row.incoming?.kind === "message") &&
+            row.promptId === from.promptId
+          )
+            this.rows.set(row.id, { ...row, version: row.version + 1, sentFrom: from });
+          const noticeId = this.inboxClaimRows.get(from.promptId);
+          const notice = noticeId === undefined ? undefined : this.rows.get(noticeId);
+          if (notice?.incoming?.kind === "inbox")
+            this.rows.set(notice.id, {
+              ...notice,
+              version: notice.version + 1,
+              incoming: { ...notice.incoming, notice: this.withSentFrom(notice.incoming.notice) },
+            });
+        }
       } else if (event.kind === "session_offer") {
         // Off by default: off, an offer draws nothing (offer/offersShown.ts).
         const offer = offersShown() ? sessionOffer(msg) : undefined;
@@ -7219,7 +7264,10 @@ export class AcpmuxDirectClient {
             : incoming?.kind === "notice"
               ? { text: incoming.text, incoming }
               : incoming?.kind === "inbox"
-                ? { text: inboxText(incoming.notice), incoming }
+                ? {
+                    text: inboxText(incoming.notice),
+                    incoming: { ...incoming, notice: this.withSentFrom(incoming.notice) },
+                  }
                 : incoming?.kind === "hidden"
                   ? { text: "", incoming }
                   : { text: incoming?.kind === "prompt" ? incoming.text : raw };
@@ -7256,6 +7304,9 @@ export class AcpmuxDirectClient {
           (fallbackPromptId ? this.promptRowKeys.get(fallbackPromptId) : undefined) ??
           `user-${event.seq}`;
         if (fallbackPromptId) this.promptRowKeys.set(fallbackPromptId, durableRowId);
+        if (incoming?.kind === "inbox")
+          for (const thread of incoming.notice.threads)
+            for (const id of thread.promptIds) this.inboxClaimRows.set(id, durableRowId);
         // A new list, never one changed in place: the snapshot names its rows by the list's identity.
         if (steer === "waiting") this.waitingSteers = [...this.waitingSteers, { rowId: durableRowId, promptId }];
         if (steer === "waiting" && promptId) this.steerRows.set(promptId, durableRowId);
@@ -8238,6 +8289,7 @@ export class AcpmuxDirectClient {
       peerKinds: this.peerKinds,
       peerConnected: this.peerConnected,
       peerStates: this.peerStates,
+      peerLinks: this.peerLinks,
       peerResources: this.peerResources,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: this.publishedSummary(summary, effort, limits),
@@ -10971,6 +11023,17 @@ export class AcpmuxDirectClient {
       ...(this.peerEvents.authoritative ? {} : this.peerStates),
       ...Object.fromEntries(peers.map(([peer, link]) => [peer, link.state])),
     };
+    const links = Object.fromEntries(
+      peers.flatMap(([peer, link]) => (link.detail ? [[peer, link.detail] as const] : [])),
+    );
+    // A note from an older daemon (no detail) leaves no stale whole state behind.
+    const said = new Set(peers.map(([peer]) => peer));
+    this.peerLinks = {
+      ...Object.fromEntries(
+        Object.entries(this.peerEvents.authoritative ? {} : this.peerLinks).filter(([peer]) => !said.has(peer)),
+      ),
+      ...links,
+    };
     this.peerConnected = {
       ...unlisted,
       ...Object.fromEntries(peers.map(([peer, link]) => [peer, link.connected])),
@@ -11001,6 +11064,7 @@ export class AcpmuxDirectClient {
     this.peerKinds = peerKindsFromStatus(status);
     this.peerConnected = peerConnectedFromStatus(status);
     this.peerStates = peerStatesFromStatus(status);
+    this.peerLinks = peerLinksFromStatus(status);
     this.peerResources = peerResourcesFromStatus(status);
     this.peerStatus = peerStatusFromStatus(status);
     if (this.peerEvents.observed) this.applyPeerStates();

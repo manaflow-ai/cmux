@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
-import { nativeProofSkip, oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
+import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { carrierDial, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
 
 describe("cloud journey", () => {
@@ -150,20 +150,7 @@ describe("cloud journey", () => {
   });
 });
 
-describe("cloud journey: link_token on a Native machine", () => {
-  const refusal = (code: string, reason?: string) => ({ ok: false, error: { code, message: "m", ...(reason ? { details: { reason } } : {}) } });
-  test("skips only a refusal for want of a Native device enrollment", () => {
-    for (const reason of ["host_missing", "host_unconfirmed", "proof_missing"])
-      expect(nativeProofSkip(refusal("auth.forbidden", reason))).toContain(`needs a Native device proof (app-only): link_token refused ${reason}`);
-  });
-  test("keeps every other answer red", () => {
-    expect(nativeProofSkip(refusal("auth.forbidden"))).toBeNull(); // an older backend names no check
-    expect(nativeProofSkip(refusal("auth.forbidden", "vm_services"))).toBeNull();
-    expect(nativeProofSkip(refusal("auth.forbidden", "host_grant"))).toBeNull();
-    expect(nativeProofSkip(refusal("owner.unreachable", "host_missing"))).toBeNull();
-    expect(nativeProofSkip({ ok: true, value: { expires_at: 1 } })).toBeNull();
-    expect(nativeProofSkip(undefined)).toBeNull();
-  });
+describe("cloud journey: login preflight", () => {
   test("the login preflight waits for the guest's bind, then names the failing check", async () => {
     const noPause = async () => {};
     let calls = 0;

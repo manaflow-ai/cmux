@@ -2,9 +2,9 @@
 //! Claude Code in a terminal), with no `--from` and no `ACPMUX_FROM`, against a real daemon: the
 //! receiver records it as that agent's message (`agent_message`, `fromHarness`), so its chat draws
 //! the agent's card, never the person's bubble (Leo, 2026-11-05: "why is it sending it as if it
-//! were me?"). The same send with no agent harness around it proves no one: it is recorded as an
-//! unverified sender's (`unverified`, its transport), never as the person's: socket access is
-//! not the person (only the app's proven connection is).
+//! were me?"). The same send with no agent harness around it and naming no one is the owner's own
+//! terminal send: it is recorded as the person's prompt, with no provenance, as the app's own
+//! composer records theirs (`server/requests.rs` `owner_terminal`; it regressed in #37497).
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -101,7 +101,7 @@ fn recorded_provenance(dir: &Path, said: &str) -> Option<Value> {
 }
 
 #[test]
-fn a_plain_send_from_a_codex_shell_is_that_agents_message_and_an_unnamed_one_is_unverified() {
+fn a_plain_send_from_a_codex_shell_is_that_agents_message_and_an_unnamed_one_is_the_owners() {
     let dir = scratch("s");
     let _shutdown = Shutdown(&dir);
     let made = cli(&dir, &["run", "-n", "coord", "warm up"], &[]);
@@ -114,7 +114,8 @@ fn a_plain_send_from_a_codex_shell_is_that_agents_message_and_an_unnamed_one_is_
     assert_eq!(provenance["kind"], "agent_message", "{provenance}");
     assert_eq!(provenance["from"], "fromAgent", "{provenance}");
     assert!(
-        provenance["fromName"].as_str().is_some_and(|name| name.starts_with("codex@")),
+        // `<harness> on <host> · <session>` since #38055 (`cli/sender.rs` `harness_name`).
+        provenance["fromName"].as_str().is_some_and(|name| name.starts_with("Codex on ")),
         "{provenance}"
     );
     // Its harness is only its claim: a label for its card, beside who the daemon knows sent it.
@@ -128,9 +129,8 @@ fn a_plain_send_from_a_codex_shell_is_that_agents_message_and_an_unnamed_one_is_
     let sent = cli(&dir, &["send", "coord", plain], &[]);
     assert!(sent.status.success(), "the plain send: {}", text(&sent));
     let provenance = provenance_of(&dir, plain).expect("the plain prompt is recorded");
-    assert_eq!(provenance["kind"], "unverified", "never the person's: {provenance}");
-    assert_eq!(provenance["verified"], false, "{provenance}");
-    assert_eq!(provenance["transport"], "unix", "{provenance}");
+    // The owner's own terminal send: the person's prompt, which carries no provenance.
+    assert!(provenance.is_null(), "the owner's prompt: {provenance}");
 
     // A name or host the sender gives itself is a claim, not the person.
     let claimed = "words that claim to be the person's";
