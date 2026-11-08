@@ -650,6 +650,19 @@ pub struct ToolRow {
 pub const RETIRED_AGENT_SESSION_IDS: usize = 32;
 
 impl SessionMeta {
+    /// Whether its harness counts a turn's input apart from the prompt cache, as Anthropic's
+    /// usage does: Claude Code (its `_meta.claude` usage) and the Claude ACP adapter
+    /// (`@agentclientprotocol/claude-agent-acp` sums `usage.input_tokens` into its ACP
+    /// `inputTokens`, the cache's reads and writes apart, `totalTokens` all four). Another
+    /// harness's ACP input (Codex's, Gemini's) counts the cache's reads in it. The harness
+    /// named `claude…`, or a Claude leaf family (`claude-sr2`); plain family `claude` alone is
+    /// not one, as opencode on a Claude model is filed under it with its own usage.
+    pub fn input_excludes_cache(&self) -> bool {
+        let harness = self.harness.trim().to_ascii_lowercase();
+        let family = self.family.as_deref().unwrap_or("").trim().to_ascii_lowercase();
+        harness.starts_with("claude") || family.starts_with("claude-")
+    }
+
     /// Replace the native id, retaining only prior Claude ids as transcript authority.
     /// Explicit provenance prevents a non-Claude id entering history after a profile switch.
     pub fn set_agent_session_id(&mut self, next: Option<String>, family: &str) {

@@ -171,7 +171,7 @@ pub fn summarize(
         if meta.updated_at < fold.streak_since() {
             continue;
         }
-        let mut session = SessionFold::new(options);
+        let mut session = SessionFold::new(options, meta.input_excludes_cache());
         let scanned = store.scan(&meta.id, 0, &mut |record| {
             session.record(&record);
             true
@@ -216,6 +216,8 @@ struct SessionFold {
     /// The open turn began before the log's `forked` record: a copy of the
     /// parent's.
     open_copied: bool,
+    /// Its harness counts input apart from the cache (`SessionMeta::input_excludes_cache`).
+    fresh_harness: bool,
 }
 
 struct Turn {
@@ -242,7 +244,7 @@ enum TurnStatus {
 }
 
 impl SessionFold {
-    fn new(options: &StatsOptions) -> Self {
+    fn new(options: &StatsOptions, fresh_harness: bool) -> Self {
         Self {
             options: *options,
             open: None,
@@ -261,6 +263,7 @@ impl SessionFold {
             waiting_ms: 0,
             last_at: None,
             open_copied: false,
+            fresh_harness,
         }
     }
 
@@ -344,7 +347,7 @@ impl SessionFold {
                     self.close(at, status);
                 }
                 if let Some(turn) = self.turns.last_mut() {
-                    turn.usage = branches::turn_usage(&record.msg);
+                    turn.usage = branches::turn_usage(&record.msg, self.fresh_harness);
                     turn.branch = branches::turn_branch(&record.msg);
                 }
             }
