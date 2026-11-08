@@ -134,6 +134,13 @@ function results(output: string | undefined): Row[] | undefined {
   return textRows(trimmed);
 }
 
+/// Whether the result is an MCP error (`isError: true`): the tool refused the whole call (more
+/// recipients than it reaches, say), so nothing went, whatever the call's status says.
+function isErrorResult(output: string | undefined): boolean {
+  if (!output?.includes('"isError"')) return false;
+  return record(parse(output.trim()))?.isError === true;
+}
+
 type Memo = {
   title: string;
   command: string | undefined;
@@ -182,7 +189,8 @@ function readSends(tool: Tool): AcpmuxSendCallPart[] | undefined {
   const items = list ? list.map((entry) => item(record(entry) ?? {}, defaults)) : [defaults];
   if (!items.length) return undefined;
   const running = tool.status === "pending" || tool.status === "in_progress";
-  const failed = tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);
+  const failed =
+    tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0) || isErrorResult(tool.output);
   const rows = running ? undefined : results(tool.output);
   const count = rows?.length || items.length;
   const base = (one: Item, index: number) => ({

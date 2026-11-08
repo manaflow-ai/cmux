@@ -537,8 +537,15 @@ function SentPages({ entries, children }: { entries: readonly SentEntry[]; child
           (value) => value !== undefined && foldFind(value).includes(reveal.needle),
         ),
     );
+    if (index >= 0) return index;
     // A match in the call's other text (its receipt) still opens its complete call behind one Raw.
-    return index >= 0 ? index : entries.findIndex(({ item }) => foldFind(activityText(item)).includes(reveal.needle));
+    // Every message of a batch shares its call: each call's text is folded once, not per message.
+    const hits = new Map<AcpmuxActivity, boolean>();
+    return entries.findIndex(({ item }) => {
+      let hit = hits.get(item);
+      if (hit === undefined) hits.set(item, (hit = foldFind(activityText(item)).includes(reveal.needle)));
+      return hit;
+    });
   }, [reveal, entries]);
   useLayoutEffect(() => {
     if (found >= 0) setPage(Math.floor(found / SEND_PAGE_SIZE));

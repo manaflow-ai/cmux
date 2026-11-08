@@ -331,6 +331,17 @@ describe("acpmuxMcpSends", () => {
     }
   });
 
+  test("an MCP error result with no per-recipient rows marks every message failed", () => {
+    const messages = Array.from({ length: 65 }, (_, index) => ({ to: `recipient-${index}`, text: "hi" }));
+    const output = JSON.stringify({
+      isError: true,
+      content: [{ type: "text", text: "acpmux_send reaches at most 64 sessions; nothing was sent." }],
+    });
+    const parts = acpmuxMcpSends(mcp({ messages }, { output }));
+    expect(parts).toHaveLength(65);
+    expect(parts!.every((part) => part.state === "failed")).toBe(true);
+  });
+
   test("an unchanged large MCP send is parsed once; changed receipts invalidate the memo", () => {
     const tool = mcp({
       messages: Array.from({ length: 1024 }, (_, index) => ({ to: `recipient-${index}`, text: "hi" })),
