@@ -38,7 +38,9 @@
 //!   one keep it until they end. `{"carrier_answer":{relay, slot,
 //!   ticket, expires_at, grant, daemon_key?}}` (a create's or spare claim's
 //!   `carrier`) is used by the next dial's first attempt instead of asking
-//!   the platform (see `dial --answer-fd`); a later one replaces one no dial
+//!   the platform (see `dial --answer-fd`), but only while the credential
+//!   current when it arrived is still current: one handed over for another
+//!   person is dropped and that dial asks. A later one replaces one no dial
 //!   took. Blank lines are skipped; any other line is refused with one
 //!   `bad_request` line and changes nothing.
 //! - One session per machine ([`held`]): the first accepted connection
@@ -100,7 +102,8 @@ struct Shared {
     /// The same source, for stdin's credential lines.
     http: Arc<HttpSource>,
     identity: StaticIdentity,
-    /// stdin's last `carrier_answer`, for the next connection's first attempt.
+    /// stdin's last `carrier_answer`, for the next dial's first attempt,
+    /// bound to the credential current when it arrived.
     prefetched: Arc<Prefetched>,
     /// The connect log: route and phases lines.
     log: Arc<dyn Fn(String) + Send + Sync>,
@@ -125,13 +128,13 @@ pub(super) fn run(args: &[String]) -> i32 {
         Arc::new(move || source.identity())
     };
     let shared = Arc::new(Shared {
-        session: Slot::new(idle_time(), who),
+        session: Slot::new(idle_time(), who.clone()),
         machine: dial.machine,
         deadline: dial.deadline,
         source: source.clone(),
         http: source,
         identity,
-        prefetched: Arc::new(Prefetched::default()),
+        prefetched: Arc::new(Prefetched::for_identity(who)),
         log: Arc::new(move |line| {
             if let Some(path) = &connect_log {
                 route_log::append(path, &line);

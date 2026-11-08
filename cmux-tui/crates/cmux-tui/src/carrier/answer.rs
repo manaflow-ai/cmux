@@ -357,24 +357,44 @@ impl TicketCache {
 /// a create's or spare claim's answer (`dial --answer-fd`, or serve's
 /// `{"carrier_answer":…}` stdin line). One connect attempt takes it; every
 /// later attempt asks the platform as before.
+///
+/// In `serve` ([`Self::for_identity`]) an answer is bound to whoever the
+/// current credential named when it arrived, and only a take while that
+/// credential is still current gets it: an answer handed over for one
+/// person is never used for another's dial.
 #[derive(Default)]
-pub(super) struct Prefetched(Mutex<Option<CarrierAnswer>>);
+pub(super) struct Prefetched {
+    held: Mutex<Option<(CarrierAnswer, Option<String>)>>,
+    identity: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
+}
 
 impl Prefetched {
     pub(super) fn new(answer: Option<CarrierAnswer>) -> Self {
-        Self(Mutex::new(answer))
+        Self { held: Mutex::new(answer.map(|answer| (answer, None))), identity: None }
+    }
+
+    /// Answers bound to the identity `identity` reads at each put and take.
+    pub(super) fn for_identity(identity: Arc<dyn Fn() -> Option<String> + Send + Sync>) -> Self {
+        Self { held: Mutex::new(None), identity: Some(identity) }
     }
 
     /// Holds `answer` for the next attempt, in place of any held one.
     pub(super) fn put(&self, answer: CarrierAnswer) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(answer);
+        let owner = self.identity.as_ref().and_then(|identity| identity());
+        *self.held.lock().unwrap_or_else(PoisonError::into_inner) = Some((answer, owner));
     }
 
     /// The held answer, once, while its ticket is good for at least the
     /// ticket margin at `now` (Unix seconds) and it has a grant. A stale or
-    /// grantless one is dropped, and the attempt asks the platform.
+    /// grantless one is dropped, and the attempt asks the platform. So is
+    /// one bound to an identity that is not the current one (or to none).
     pub(super) fn take(&self, now: u64) -> Option<CarrierAnswer> {
-        let answer = self.0.lock().unwrap_or_else(PoisonError::into_inner).take()?;
+        let (answer, owner) = self.held.lock().unwrap_or_else(PoisonError::into_inner).take()?;
+        if let Some(identity) = &self.identity
+            && (owner.is_none() || identity() != owner)
+        {
+            return None;
+        }
         (answer.grant.is_some() && TicketCache::usable(answer.expires_at, now)).then_some(answer)
     }
 
