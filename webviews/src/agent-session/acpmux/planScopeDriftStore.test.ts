@@ -14,10 +14,9 @@ const session = "scope-test";
 
 describe("plan scope drift", () => {
   test("extracts file and directory paths from a plan", () => {
-    expect(planScopeFromMarkdown("Update `ui/settings/*` and auth/session.rs; leave docs alone.")).toEqual([
-      "ui/settings/",
-      "auth/session.rs",
-    ]);
+    expect(
+      planScopeFromMarkdown("Update `ui/settings/*`, `src/**`, `assets/**/*` and auth/session.rs; leave docs alone."),
+    ).toEqual(["ui/settings/", "src/", "assets/", "auth/session.rs"]);
   });
 
   test("extracts absolute paths from a plan", () => {
@@ -33,6 +32,12 @@ describe("plan scope drift", () => {
     expect(observePlanEdit(session, ["auth/routes.rs"])).toBeUndefined();
     clearPlanScope(session);
     expect(currentPlanScopeDrift(session)).toBeUndefined();
+  });
+
+  test("matches recursive directory globs", () => {
+    approvePlan(session, "Edit src/**");
+    expect(observePlanEdit(session, ["src/deep/file.ts"])).toBeUndefined();
+    clearPlanScope(session);
   });
 
   test("replays edits captured before plan approval", () => {

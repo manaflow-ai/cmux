@@ -47,7 +47,7 @@ export function planScopeFromMarkdown(markdown: string): string[] {
   for (const match of markdown.matchAll(token)) {
     const path = pathOf(match[1]);
     if (!path || path.startsWith("http://") || path.startsWith("https://")) continue;
-    found.add(path.replace(/\/\*$/, "/"));
+    found.add(path.replace(/\/(?:\*\/?)+$/, "/"));
   }
   return [...found];
 }
