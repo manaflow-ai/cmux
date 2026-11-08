@@ -138,4 +138,34 @@ import Testing
         #expect(layout.catchers.framesInWindow.count == areas.count,
                 "the adopted page's dividers have panels: \(layout.catchers.framesInWindow.count) of \(areas.count)")
     }
+
+    /// One catcher panel the test watches without keeping it.
+    final class WatchedPanel {
+        weak var panel: DividerMousePanel?
+        init(_ panel: DividerMousePanel) { self.panel = panel }
+    }
+
+    /// ZOOM VARIANTS 9: this suite's `.closesItsWindows` check found catcher panels open after every test with a page over
+    /// the content (7 in this suite, 12 in FilmZoomPressTests, 1 in DividerCatcherHoldsPressTests). The app closes a shell
+    /// window through `WindowController.teardown`: the overlay layer's teardown, then the close. No catcher panel the
+    /// window made may outlive it, shown or parked as a spare: after that close path each one is closed or gone.
+    @Test func aClosedWindowLeavesNoCatcherPanelOpen() throws {
+        var watched: [WatchedPanel] = []
+        try autoreleasepool {
+            let layout = Layout(pageFrame: { $0.insetBy(dx: 40, dy: 40) })
+            let shown = (layout.window.childWindows ?? []).compactMap { $0 as? DividerMousePanel }
+            try #require(shown.count >= 3, "every divider over the page has a panel: \(shown.count)")
+            // The zoom leaves no divider: every panel parks as a spare, still a child of the window.
+            layout.show(.leaf("p1"), zoomed: true)
+            layout.land()
+            watched = shown.map(WatchedPanel.init)
+            // As `WindowController.teardown` closes a shell window.
+            layout.window.overlayLayer.teardown()
+            layout.window.removeChildWindow(layout.page)
+            layout.page.close()
+            layout.window.close()
+        }
+        let open = watched.compactMap(\.panel).filter { !WindowLeaks.wasClosed($0) }
+        #expect(open.isEmpty, "\(open.count) of \(watched.count) catcher panels outlived their closed window, never closed: \(open.map { "\($0.areaID) visible \($0.isVisible) parent \($0.parent != nil)" })")
+    }
 }
