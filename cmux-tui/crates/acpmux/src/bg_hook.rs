@@ -472,7 +472,6 @@ mod tests {
 
     mod agent_messaging {
         use super::*;
-        use cmux_json::JsonSet as _;
 
         /// Claude Code names a subagent only in the hook's input (`agent_id`, `agent_type`; read on
         /// 2.1.319): its acpmux command gets the mark, with no permission decision, and the lead's

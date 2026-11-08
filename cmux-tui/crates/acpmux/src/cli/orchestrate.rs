@@ -541,7 +541,7 @@ pub(crate) async fn ensure(
     effort: Option<String>,
     tags: Vec<String>,
     harness_from: Option<String>,
-    full: bool,
+    full_record: bool,
     json_out: bool,
 ) -> Result<()> {
     let (agent, model) = match &target {
@@ -640,7 +640,7 @@ pub(crate) async fn ensure(
     if json_out {
         let mut out = v.clone();
         out["created"] = json!(created);
-        print_json(&crate::cli::output::session_record(out, full));
+        print_json(&crate::cli::output::session_record(out, full_record));
     } else {
         println!(
             "{} {name} ({})",
