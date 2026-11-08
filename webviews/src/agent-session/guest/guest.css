@@ -19,7 +19,7 @@
 .guest-join__as-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .guest-join__face{flex:none;display:inline-flex;align-items:center}
 /* Edit name is a quiet text link under the button, never a second filled control. */
-.guest-join__edit{align-self:center;padding:0;border:0;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height);cursor:pointer}
+.guest-join__edit{align-self:center;padding:0;border:0;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .guest-join__edit:hover{color:var(--agent-text);text-decoration:underline}
 .guest-join__edit:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* The transcript's column: 760px wide, 16px from the edges on a phone. */
