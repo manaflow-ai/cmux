@@ -149,6 +149,7 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/cmux-next/push_range.py",
             "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/ci/github_release_download.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",

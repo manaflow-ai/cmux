@@ -111,8 +111,8 @@ pub struct Draft {
     pub previous_cwd: Option<String>,
 }
 
-pub const POLICIES: [&str; 5] =
-    ["ask", "approve-reads", "approve-edits", "approve-all", "deny-all"];
+pub const POLICIES: [&str; 6] =
+    ["ask", "approve-reads", "approve-edits", "approve-all", "deny-all", "review"];
 
 #[derive(Debug, Clone)]
 pub enum PickTarget {

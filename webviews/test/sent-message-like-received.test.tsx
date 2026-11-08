@@ -99,7 +99,7 @@ const receivedLine = () => (
   <IncomingMessageLine
     id="row-received"
     message={{
-      name: "lane-vm-09/acpmux-client-rust",
+      name: "dev-box/acpmux-client-rust",
       text: "Rebased; ready for review.",
       raw: "<cmux-message from=acpmux-client-rust>\nRebased; ready for review.\n</cmux-message>",
     }}
@@ -109,20 +109,22 @@ const receivedLine = () => (
 
 /// The parts a message row is made of, in the order they draw, closed and opened.
 function shape(): string[] {
-  const row = host.querySelector<HTMLElement>(".cv-disclosure")!;
+  const row = host.querySelector<HTMLElement>(".cv-agentmsg")!;
   const parts = (selectors: string[]) => selectors.filter((selector) => row.querySelector(`:scope ${selector}`));
+  // Both draw as the one message row (AgentMessageRow.tsx): the mark in its icon column, the chip in
+  // the sender span, the first line in the toggle; opened, the card, then Details or Raw under it.
   const closed = parts([
-    "> .cv-disclosure__line",
-    "> .cv-disclosure__line > .cv-received__sender > .cv-received__mark",
-    "> .cv-disclosure__line > .cv-received__sender > .cv-agent-tag",
-    "> .cv-disclosure__line > .cv-disclosure__toggle .cv-received__preview",
-    "> .cv-disclosure__line > .cv-disclosure__toggle[aria-expanded=false]",
+    "> .cv-agentmsg__line",
+    "> .cv-agentmsg__line > .cv-agentmsg__icon > .cv-received__mark",
+    "> .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-received__sender > .cv-agent-tag",
+    "> .cv-agentmsg__line .cv-agentmsg__toggle .cv-received__preview",
+    "> .cv-agentmsg__line .cv-agentmsg__toggle[aria-expanded=false]",
   ]);
-  act(() => row.querySelector<HTMLElement>(".cv-disclosure__toggle")!.click());
+  act(() => row.querySelector<HTMLElement>(".cv-agentmsg__toggle")!.click());
   const opened = parts([
-    "> .cv-disclosure__line > .cv-disclosure__toggle[aria-expanded=true]",
-    ".cv-disclosure__panel > .cv-received__text .cv-md",
-    ".cv-disclosure__panel > .cv-received__details > button.cv-received__more[aria-expanded=false]",
+    "> .cv-agentmsg__line .cv-agentmsg__toggle[aria-expanded=true]",
+    ".cv-agentmsg__card > .cv-received__text .cv-md",
+    ".cv-agentmsg__open > .cv-received__details > button.cv-received__more[aria-expanded=false]",
   ]);
   return [row.classList.contains("cv-received") ? "cv-received" : "other", ...closed, ...opened];
 }
@@ -147,7 +149,7 @@ test("an outgoing message row has the incoming row's header and body", async () 
 
 test("Raw is closed by default and stays closed when the row is drawn again", async () => {
   await draw(sentLine());
-  act(() => host.querySelector<HTMLElement>(".cv-disclosure__toggle")!.click());
+  act(() => host.querySelector<HTMLElement>(".cv-agentmsg__toggle")!.click());
   const raw = () => host.querySelector<HTMLButtonElement>(".cv-received__details > .cv-received__more");
   expect(raw()!.getAttribute("aria-expanded")).toBe("false");
   expect(host.querySelector("[data-tool-id], .cv-shell")).toBeNull();
@@ -158,7 +160,7 @@ test("Raw is closed by default and stays closed when the row is drawn again", as
   act(() => root?.unmount());
   root = undefined;
   await draw(sentLine());
-  expect(host.querySelector(".cv-disclosure__toggle")!.getAttribute("aria-expanded")).toBe("true");
+  expect(host.querySelector(".cv-agentmsg__toggle")!.getAttribute("aria-expanded")).toBe("true");
   expect(raw()!.getAttribute("aria-expanded")).toBe("false");
   expect(host.querySelector("[data-tool-id], .cv-shell")).toBeNull();
 });
@@ -168,7 +170,7 @@ test("Find opens the message to its words, not its Raw", async () => {
   // its Raw on every send whose call held it, and Raw stayed open after Find closed.
   const reveal = { rowId: "row-1", card: false, needle: "handoff", repaint: () => undefined };
   await draw(<FindReveal.Provider value={reveal}>{sentLine()}</FindReveal.Provider>);
-  expect(host.querySelector(".cv-disclosure__toggle")!.getAttribute("aria-expanded")).toBe("true");
+  expect(host.querySelector(".cv-agentmsg__toggle")!.getAttribute("aria-expanded")).toBe("true");
   expect(host.querySelector(".cv-received__more")!.getAttribute("aria-expanded")).toBe("false");
   expect(host.querySelector("[data-tool-id], .cv-shell")).toBeNull();
 });
@@ -203,7 +205,7 @@ test("Find opens Raw for a match in the output as well as the message, and shows
   expect(foldFind(activityText(item)).split("ready").length - 1).toBe(2);
   const first = { rowId: "row-1", card: false, needle: "ready", repaint: () => undefined };
   await draw(<FindReveal.Provider value={first}>{sentLine(ready)}</FindReveal.Provider>);
-  expect(host.querySelector(".cv-disclosure__toggle")!.getAttribute("aria-expanded")).toBe("true");
+  expect(host.querySelector(".cv-agentmsg__toggle")!.getAttribute("aria-expanded")).toBe("true");
   expect(host.querySelector(".cv-received__text")!.textContent).toContain("ready");
   // Next: the same row, its second match. Raw is open and its call shows the output's words.
   const second = { ...first };
@@ -226,7 +228,7 @@ test("the arrow look names the message's first line once", async () => {
   configureSentLook("arrow");
   try {
     await draw(sentLine());
-    const line = host.querySelector(".cv-disclosure__line")!.textContent ?? "";
+    const line = host.querySelector(".cv-agentmsg__line")!.textContent ?? "";
     expect(line.split("the old lane").length - 1).toBe(1);
   } finally {
     configureSentLook("sentence");
@@ -235,7 +237,7 @@ test("the arrow look names the message's first line once", async () => {
 
 test("opened, Raw is the call's plain command row, with no Shell card", async () => {
   await draw(sentLine());
-  act(() => host.querySelector<HTMLElement>(".cv-disclosure__toggle")!.click());
+  act(() => host.querySelector<HTMLElement>(".cv-agentmsg__toggle")!.click());
   act(() => host.querySelector<HTMLElement>(".cv-received__more")!.click());
   const command = host.querySelector<HTMLElement>(".cv-received__details .cv-tool[data-tool-id]");
   expect(command?.dataset.toolId).toBe(leoSend.id);

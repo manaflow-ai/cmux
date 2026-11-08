@@ -176,7 +176,9 @@ public nonisolated struct KeyBindingDefaults {
     public static var actionAliases: [KeyBinding] { tabCycleAliases + paneResizeAliases + paneFocusAliases + focusHistoryAliases + zoomAliases + spaceAliases }
 
     /// The space keys (plans/cmux-next/spaces-overhaul-DESIGN.md "Keys"). Previous / Next Space's catalog
-    /// keys are Ctrl-Opt-Cmd-Left / Right; Opt-Cmd-[ / ] stay as aliases (not in the code editor, whose keys they are). Select Space 1…9 keeps its
+    /// keys are Ctrl-Opt-Cmd-H / L, vim's left / right (Lawrence, 2026-11-07); Ctrl-Opt-Cmd-Left / Right
+    /// (the catalog keys before) and Opt-Cmd-[ / ] stay as aliases (the brackets not in the code editor,
+    /// whose keys they are). Select Space 1…9 keeps its
     /// catalog Ctrl-Opt-1…9 (the Number Keys card's scheme, ``ShortcutDigitScheme``) and adds
     /// Ctrl-Opt-Cmd-1…9. Ctrl-Cmd-arrows and Ctrl-Cmd-digits were asked for, but they are Ghostty's
     /// reserved pane resize and Focus Pane by Number; Ctrl-arrows and Ctrl-digits are Mission Control's.
