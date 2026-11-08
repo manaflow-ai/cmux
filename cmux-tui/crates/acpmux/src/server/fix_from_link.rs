@@ -108,6 +108,11 @@ pub async fn handle(
             meta.insert("model".into(), json!(model));
         }
     }
+    // Apply the folder-trust gate before the internal dispatch. The outer
+    // action already passed the caller/person and remote checks, and this
+    // nested start must not turn the link into an untrusted privileged start.
+    super::trust_gate::check(hub, conn.origin, crate::rpc::method::SESSION_NEW, &new_params, None)
+        .await?;
     let created = Box::pin(super::requests::dispatch_request(
         hub,
         conn,
@@ -121,23 +126,32 @@ pub async fn handle(
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::internal("session/new returned no sessionId"))?
         .to_owned();
-    let session = hub.resolve(&session_id)?;
     let prompt = issue_prompt(&issue, &issue_context);
+    let prompt_params = json!({
+        "sessionId": session_id,
+        "prompt": [{"type": "text", "text": prompt}],
+    });
+    let prompt_session = hub.resolve(&session_id)?;
+    super::trust_gate::check(
+        hub,
+        conn.origin,
+        crate::rpc::method::SESSION_PROMPT,
+        &prompt_params,
+        Some(&prompt_session),
+    )
+    .await?;
+    // Keep the prompt detached like the regular New Tab start: the action
+    // returns the selected chat immediately while the agent begins its turn.
     let prompt_hub = hub.clone();
     let prompt_conn = conn.clone();
-    let prompt_session = session.clone();
-    let prompt_for_send = prompt.clone();
+    let prompt_session_for_send = prompt_session.clone();
     tokio::spawn(async move {
-        if let Err(error) = prompt_hub
-            .prompt(
-                &prompt_session,
-                vec![json!({"type": "text", "text": prompt_for_send})],
-                &prompt_conn.label(),
-                false,
-            )
-            .await
+        let blocks =
+            prompt_params.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default();
+        if let Err(error) =
+            prompt_hub.prompt(&prompt_session_for_send, blocks, &prompt_conn.label(), false).await
         {
-            tracing::warn!(session = %prompt_session.id, "fix-from-link prompt failed: {error}");
+            tracing::warn!("fix-from-link prompt refused: {error}");
         }
     });
     Ok(json!({
