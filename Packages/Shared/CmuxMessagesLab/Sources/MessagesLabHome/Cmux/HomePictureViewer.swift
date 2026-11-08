@@ -565,6 +565,12 @@ final class HomePictureViewer: NSView {
 
     @objc private func styleChanged() {
         guard let style = HomePictureCompare.Style(rawValue: styles.selectedSegment) else { return }
+        showCompareStyle(style)
+    }
+
+    /// Shows the comparison as `style`, as its control in the bar does.
+    func showCompareStyle(_ style: HomePictureCompare.Style) {
+        styles.selectedSegment = style.rawValue
         compare.style = style
     }
     @objc private func replyClicked() { reply() }
