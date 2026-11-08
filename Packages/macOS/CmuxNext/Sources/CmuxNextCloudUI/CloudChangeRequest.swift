@@ -1,0 +1,29 @@
+public import AppKit
+public import CmuxNextDesign
+
+/// The person's yes before a Cloud machine change an agent or a script asked for (resize, snapshot,
+/// template, restore, snapshot delete), as a create's request asks first. cmux-platform holds such a
+/// change for a person's approval; the App sends it only as the person's own, through the approval
+/// loop, so nothing is sent until they click Allow. The App lists ``identifier`` as user-only
+/// (DebugDialog), so automation never answers it. Keys live in Resources/Cloud.xcstrings with every app locale.
+public enum CloudChangeRequest {
+    public static let identifier = "cmux.dialog.cloud.changeRequest"
+    /// The id of the button that says yes.
+    public static let accept = "allow"
+
+    /// `title`: the asked action's own name (its palette title).
+    public static func spec(_ title: String) -> CmuxDialogSpec {
+        CmuxDialogSpec(
+            title: title,
+            lines: [String(localized: "cloud.changeRequest.body", defaultValue: "Asked by an agent or a script. A Cloud machine change can count against your Cloud plan.", table: "Cloud", bundle: .module)],
+            buttons: [.cancel(String(localized: "cloud.changeRequest.decline", defaultValue: "Don't Allow", table: "Cloud", bundle: .module)),
+                      CmuxDialogButton(id: accept, title: String(localized: "cloud.changeRequest.accept", defaultValue: "Allow", table: "Cloud", bundle: .module), role: .default)],
+            identifier: identifier)
+    }
+
+    /// True only for the person's click on Allow; no window answers false.
+    @MainActor public static func allowed(_ title: String, in window: NSWindow?) async -> Bool {
+        guard let window else { return false }
+        return await CmuxDialogCenter.shared.present(spec(title), in: .window(window)).button == accept
+    }
+}
