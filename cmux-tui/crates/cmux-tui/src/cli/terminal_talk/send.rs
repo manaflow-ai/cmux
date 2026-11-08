@@ -33,6 +33,11 @@
 //!   the plain row reads.
 //! - A terminal whose agent waits on a dialog is refused without `force`:
 //!   the typed text would answer the dialog.
+//! - `idle` checks that Enter submitted the message: when the screen is
+//!   still, the agent reported nothing since Enter (no hook or socket
+//!   record; a screen-detection record is no report) and its input box
+//!   still holds the message, the send fails with `send.not_submitted`
+//!   instead of answering an empty reply (W5-R, bench round 4 A6).
 
 use std::cell::Cell;
 use std::time::{Duration, Instant};
@@ -558,6 +563,23 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         &Watch { sent_at, sent_ms, before: before.as_ref(), pattern: pattern.as_ref() },
         &reads,
     )?;
+    let shown_text = waited.screen.get("text").and_then(Value::as_str).unwrap_or_default();
+    if request.wait == Wait::Idle
+        && pattern.is_none()
+        && waited.verdict == Verdict::Done(AgentState::Idle)
+        && !waited.agent_reported
+        && reply::input_box_holds(shown_text, &request.text)
+    {
+        return Err(SendFailure::local(
+            "send.not_submitted",
+            crate::localization::catalog()
+                .terminal_input
+                .send_not_submitted
+                .replace("{terminal}", &id),
+            json!({"terminal": id, "idempotency_key": send_id, "typed": true}),
+            1,
+        ));
+    }
     let lines = reply_lines(backend, session, &id, &waited.screen, &request.text, &reads);
     let screen =
         reply::lines(waited.screen.get("text").and_then(Value::as_str).unwrap_or_default());
@@ -634,6 +656,8 @@ struct Waited {
     matched: bool,
     /// The last agent records read (`agent list --terminal`).
     records: Vec<Value>,
+    /// The agent itself (hooks, socket) wrote a record after the send.
+    agent_reported: bool,
 }
 
 /// Whether this daemon joins soft wraps on reads (`terminal-read-unwrap-v1`);
@@ -713,12 +737,21 @@ fn wait<B: Daemon + ?Sized>(
     let deadline = watch.sent_at + request.timeout;
     let show = plan(&["terminal", id, "show"])?;
     let agents = plan(&["agent", "list", "--terminal", id])?;
+    let mut agent_reported = false;
     loop {
         let terminal = backend.request(session, show.clone())?;
         // An agent list failure (an older daemon) leaves the screen and
         // the program status to decide.
         let records = backend.request(session, agents.clone()).unwrap_or(Value::Null);
         let records = records.as_array().cloned().unwrap_or_default();
+        agent_reported |= records.iter().any(|record| {
+            let updated = record.get("updated_at_ms");
+            roster::reported_by_agent(record)
+                && updated
+                    .and_then(Value::as_u64)
+                    .or_else(|| updated.and_then(Value::as_str).and_then(|ms| ms.parse().ok()))
+                    .is_some_and(|updated| updated >= watch.sent_ms)
+        });
         let shown = reads.screen(backend, session, id, &[])?;
         let now = Instant::now();
         let finished = finished_since(&terminal, watch.before).cloned();
@@ -741,7 +774,14 @@ fn wait<B: Daemon + ?Sized>(
             settle.observe(&sample, now)
         };
         if verdict != Verdict::Pending || now >= deadline {
-            return Ok(Waited { verdict, screen: shown, finished, matched, records });
+            return Ok(Waited {
+                verdict,
+                screen: shown,
+                finished,
+                matched,
+                records,
+                agent_reported,
+            });
         }
         std::thread::sleep(request.poll.min(deadline.saturating_duration_since(now)));
     }
