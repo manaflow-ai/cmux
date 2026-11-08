@@ -202,11 +202,13 @@ impl SshConnectionShare {
         // each opening (and authenticating) their own.
         let mut masters = inner.masters.lock().await;
         match masters.get_mut(target) {
-            Some(Shared::Master(master)) if master.is_alive() => {
-                return Ok(master.client_arguments());
+            Some(Shared::Master(master)) => {
+                if master.is_alive() {
+                    return Ok(master.client_arguments());
+                }
             }
             Some(Shared::Unavailable) => return Ok(Vec::new()),
-            _ => {}
+            None => {}
         }
         masters.remove(target);
         let _clock = inner.clock.begin();

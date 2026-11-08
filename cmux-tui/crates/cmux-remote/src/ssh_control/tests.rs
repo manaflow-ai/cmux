@@ -144,7 +144,7 @@ fn write_executable(path: &Path, contents: &[u8]) {
     let mut child = std::process::Command::new("/bin/sh")
         .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
         .arg(path)
-        .stdin(std::process::Stdio::piped())
+        .stdin(Stdio::piped())
         .spawn()
         .unwrap();
     child.stdin.take().unwrap().write_all(contents).unwrap();
@@ -356,7 +356,7 @@ fn master_arguments_enable_keepalives() {
 /// the person's arguments ask for it; a port forward they asked for stays.
 #[test]
 fn private_master_turns_forwarding_off() {
-    let arguments = crate::ssh_args::private_master_ssh_arguments(
+    let arguments = private_master_ssh_arguments(
         None,
         &["-A".to_owned(), "-XY".to_owned()],
         "person@password-host",
@@ -367,7 +367,7 @@ fn private_master_turns_forwarding_off() {
     for required in ["ForwardAgent=no", "ForwardX11=no", "ClearAllForwardings=yes"] {
         assert!(arguments.iter().any(|argument| argument == required), "{arguments:?}");
     }
-    let forwarding = crate::ssh_args::private_master_ssh_arguments(
+    let forwarding = private_master_ssh_arguments(
         None,
         &["-L".to_owned(), "8080:localhost:80".to_owned()],
         "person@password-host",
