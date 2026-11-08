@@ -363,7 +363,7 @@ fn restart_live(staging: &Connection) -> anyhow::Result<()> {
 }
 
 pub(super) fn insert_records(staging: &Connection, records: &[KeptRecord]) -> anyhow::Result<()> {
-    let mut insert = staging.prepare_cached(
+    let mut insert = staging.prepare(
         "INSERT INTO output_cleanup_records(sequence, kind, record_json, actor)
          VALUES(?1, ?2, ?3, ?4)",
     )?;
@@ -552,7 +552,7 @@ fn collect_segment(
     start: u64,
 ) -> anyhow::Result<(OpenSegment, bool)> {
     let limit = segment_record_limit();
-    let mut statement = staging.prepare_cached(
+    let mut statement = staging.prepare(
         "SELECT sequence, kind, record_json, actor FROM output_cleanup_records
          WHERE sequence > ?1 ORDER BY sequence ASC",
     )?;
@@ -673,9 +673,9 @@ fn copy_index_rows(
     )?;
     let columns = table_columns(source, "main", "journal_event_index")?;
     let list = columns.iter().map(|column| quote(column)).collect::<Vec<_>>().join(", ");
-    let mut select = source
-        .prepare_cached(&format!("SELECT {list} FROM journal_event_index WHERE sequence = ?1"))?;
-    let mut insert = staging.prepare_cached(&format!(
+    let mut select =
+        source.prepare(&format!("SELECT {list} FROM journal_event_index WHERE sequence = ?1"))?;
+    let mut insert = staging.prepare(&format!(
         "INSERT INTO main.journal_event_index({list}) VALUES({})",
         vec!["?"; columns.len()].join(", ")
     ))?;
