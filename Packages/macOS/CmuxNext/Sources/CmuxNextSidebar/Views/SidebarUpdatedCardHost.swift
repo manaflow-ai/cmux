@@ -265,6 +265,8 @@ final class SidebarUpdatedCardHost: NSView {
         isHidden = true
         setAccessibilityElement(false)
         closeButton.showsLabelToolTip = false
+        // A light x: a round hover fill, never a box (Lawrence 2026-11-07, "the X sits in a heavy box").
+        closeButton.isRound = true
         closeButton.takesKeyFocus = true
         closeButton.takesFirstClick = true
         closeButton.setAccessibilityIdentifier("cmux.sidebar.updated.close")
@@ -369,13 +371,19 @@ final class SidebarUpdatedCardHost: NSView {
     /// slot keeps only ``height`` of room; the rest stands over the list.
     var frameHeight: CGFloat { max(height, overlayHeight) }
 
+    /// The hover preview is open: the page asked for room past the card's own height.
+    var previewIsOpen: Bool { overlayHeight > height + 0.5 }
+
     /// The x's top: centered on the card's title line (the first of its two centered lines), inside
-    /// the card's own height: at the bottom of the view, or at its top for a card resting at the top
-    /// (its open preview grows downward).
+    /// the card's own height. The title line leads the card's lines at the view's top for a card
+    /// resting at the top, and while the hover preview is open (the page lays its header first,
+    /// Lawrence 2026-11-07: "a header (Updated to <version>, What's New link, close), then the
+    /// items"); else it is at the bottom of the view.
     var closeTop: CGFloat {
         let m = Self.metrics, card = height > 0 ? height : bounds.height
         let titleCenter = card / 2 - (m.gap + m.noteSize * 1.3) / 2
-        return (anchor == .top ? 0 : bounds.height - card) + max(Self.closeInset.height, (titleCenter - Self.closeSide / 2).rounded())
+        let headerOnTop = anchor == .top || previewIsOpen
+        return (headerOnTop ? 0 : bounds.height - card) + max(Self.closeInset.height, (titleCenter - Self.closeSide / 2).rounded())
     }
 
     /// Whether the x shows now (proofs).

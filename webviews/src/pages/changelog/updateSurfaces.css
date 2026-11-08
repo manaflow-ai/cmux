@@ -457,15 +457,56 @@
 @media (prefers-reduced-motion: reduce) {
   .wn-preview { transition: none !important; }
 }
-.wn-preview-list {
+/* What's New and the changes (Lawrence 2026-11-07, "this ui is very bad": every line was cut with
+   an ellipsis and the last row was dimmed). The body is laid out at its natural height while the
+   preview is closed (the card measures it); open, it is the preview's height and the list scrolls in
+   what is left under What's New. */
+.wn-preview-body {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.wn-updated[data-preview="open"] .wn-preview-body { max-height: var(--wn-preview-h, none); }
+.wn-preview-head {
+  flex: none;
+  display: flex;
+  padding: 0 var(--wn-side) calc(var(--grid-base, 4px) * 2);
+}
+.wn-preview-whatsnew {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--wn-note);
+  letter-spacing: var(--text-detail--letter-spacing);
+  color: var(--page-text-2);
+  cursor: default;
+  transition: color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+.wn-preview-whatsnew:hover { color: var(--page-text); }
+.wn-preview-whatsnew:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+.wn-preview-list {
+  flex: 1 1 auto;
+  min-height: 0;
   box-sizing: border-box;
-  max-height: var(--wn-preview-max, 264px);
   margin: 0;
   padding: var(--grid-base, 4px);
   list-style: none;
   overflow-y: auto;
   overscroll-behavior: contain;
+  box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--composer-material-edge);
+}
+/* More rows than fit show the scrollbar, never a fade over the last row (the dimmed row of
+   Lawrence's shot was the card scroller's 28 px edge fade). */
+.wn-preview-list[data-cmux-card-scroll] {
+  -webkit-mask: none !important;
+  mask: none !important;
+}
+.wn-preview-list[data-cmux-card-scroll]:is([data-cmux-more-above], [data-cmux-more-below])::-webkit-scrollbar-thumb {
+  background-color: var(--cmux-scroller-thumb);
 }
 .wn-preview-row {
   display: flex;
@@ -484,14 +525,62 @@
 }
 .wn-preview-row:hover { background: var(--page-hover); }
 .wn-preview-row:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }
+/* A change's title wraps onto a second line, and its detail too, instead of being cut at the card's
+   edge; only a title longer than two lines ends in an ellipsis. */
 .wn-preview-title,
 .wn-preview-detail {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
 }
 .wn-preview-title { font-size: var(--wn-title); }
 .wn-preview-detail { color: var(--page-text-2); font-size: var(--wn-note); letter-spacing: var(--text-detail--letter-spacing); }
+/* The titles layout: the changes are their titles alone, on up to three lines. */
+.wn-updated[data-layout="titles"] .wn-preview-title { -webkit-line-clamp: 3; }
+.wn-updated[data-layout="titles"] .wn-preview-detail { display: none; }
+
+/* The card's header (Lawrence 2026-11-07: "a clear hierarchy: a header, then the items"): its title
+   line ("Updated to Nightly", the x beside it), then, open, the full version in the note's place and
+   height, then What's New; the changes under a hairline. */
+.wn-card-version {
+  display: block;
+  margin: 0;
+  color: var(--page-text-2);
+  font-size: var(--wn-note);
+  line-height: 1.3;
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.wn-updated[data-preview="open"]:has(.wn-card-version) .wn-card-note { display: none; }
+/* The header leads the open panel (`header`, `titles`): at the bottom slot the card's lines go to
+   the panel's top and the changes follow; at the top place they already lead. The panel opens on the
+   card's curve with the host's native glass (Leo 2026-11-08), the header riding its top edge, and
+   its rows fade in. */
+.wn-updated:is([data-layout="header"], [data-layout="titles"])[data-preview="open"] { flex-direction: column-reverse; }
+.wn-updated:is([data-layout="header"], [data-layout="titles"]) .wn-preview { justify-content: flex-start; }
+.wn-updated:is([data-layout="header"], [data-layout="titles"])[data-preview="open"] .wn-preview {
+  box-shadow: none !important;
+}
+:root:not([data-cmux-motion="off"]) .wn-updated:is([data-layout="header"], [data-layout="titles"])[data-preview="open"] .wn-preview-list {
+  animation: wn-preview-rows-in var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wn-preview-list { animation: none !important; }
+}
+@keyframes wn-preview-rows-in {
+  from { opacity: 0; }
+}
+/* The header kept at the card's resting edge (`header-bottom`): What's New next to it, under the
+   changes, and the hairline above What's New. */
+.wn-updated[data-layout="header-bottom"]:not([data-anchor="top"]) .wn-preview-head { order: 1; padding-block: calc(var(--grid-base, 4px) * 2) var(--grid-base, 4px); }
+.wn-updated[data-layout="header-bottom"]:not([data-anchor="top"]) .wn-preview-list { box-shadow: none; }
+.wn-updated[data-layout="header-bottom"]:not([data-anchor="top"]) .wn-preview-head { box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--composer-material-edge); }
 .wn-card-link:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 
 /* The card's drag (updatedCardDrag.ts, Leo 2026-11-07: "drag that up to the top if you wanted
