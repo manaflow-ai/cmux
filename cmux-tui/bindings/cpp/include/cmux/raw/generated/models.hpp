@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "58e8230ddaafa705143a7635243743758363e04cf41a15d084c13111a198065f";
+inline constexpr std::string_view kProtocolIrSha256 = "aaaa8132232238e4faf50bf470932db3363e57307c7ee60cb2e2761f0d581e9a";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -4347,6 +4347,7 @@ struct ParticipantAvatarChangedEvent {
 
 struct PasteImageRequest {
     Field<std::string> data{};
+    Field<std::string> filename{};
     std::string lease{};
     Field<std::string> mime{};
     Field<std::uint64_t> offset{};

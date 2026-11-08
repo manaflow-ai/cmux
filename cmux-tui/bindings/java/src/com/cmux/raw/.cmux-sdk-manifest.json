@@ -762,8 +762,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "09bf7a5ddadedfadd03728c71c8111809f4c63f40c4377160a86a38a05b8e56f",
-      "size": 81211
+      "sha256": "83ae11b47de38e4dad9872b2712f35d21cf63b93c50b444fd903c4f4df223056",
+      "size": 81265
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -2142,8 +2142,8 @@
     },
     {
       "path": "PasteImageRequest.java",
-      "sha256": "b2cd5720ea9a2eea4d6037e236527196cfdd1a15e940acac9f4fc4f31af5a09f",
-      "size": 7500
+      "sha256": "24ce6149f42a72bec01feb67c2bd8055e3ddfeeaca6ad2818d21dcea4d4dc212",
+      "size": 8217
     },
     {
       "path": "PasteImageResult.java",
@@ -2192,7 +2192,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "1612cf060f2713a05177d6d05b1b35c703dc16229ed625d09353989c59578a39",
+      "sha256": "3b7568229c262be4868df09f5c1703c4ded496b308d7a60d5e407e60f60ce7da",
       "size": 8000
     },
     {
@@ -3592,7 +3592,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "58e8230ddaafa705143a7635243743758363e04cf41a15d084c13111a198065f",
+  "ir_sha256": "aaaa8132232238e4faf50bf470932db3363e57307c7ee60cb2e2761f0d581e9a",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

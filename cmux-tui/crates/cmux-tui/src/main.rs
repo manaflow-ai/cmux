@@ -29,6 +29,8 @@ mod build_adopt;
 mod carrier;
 mod classic_hooks;
 #[cfg(unix)]
+mod claude_plugin;
+#[cfg(unix)]
 mod claude_wrapper;
 mod cli;
 mod client_log;
@@ -57,6 +59,8 @@ mod screen_detection_status;
 mod share_room;
 #[cfg(unix)]
 mod signal_sender;
+#[cfg(unix)]
+mod terminal_paste;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[cfg(unix)]

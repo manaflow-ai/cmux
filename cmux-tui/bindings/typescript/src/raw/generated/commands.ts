@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 58e8230ddaafa705143a7635243743758363e04cf41a15d084c13111a198065f. */
+/* cmux-tui mux protocol 12, IR aaaa8132232238e4faf50bf470932db3363e57307c7ee60cb2e2761f0d581e9a. */
 
 
 import type * as T from "./types.js";
@@ -1939,6 +1939,7 @@ export type ParkTabsResult = T.JsonValue;
 export interface PasteImageRequest extends CmuxRequestBase {
   cmd: "paste-image";
   "data"?: (string) | null;
+  "filename"?: (string) | null;
   "lease": string;
   "mime"?: (string) | null;
   "offset"?: (bigint) | null;
