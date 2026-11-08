@@ -555,3 +555,83 @@ fn a_seeded_session_with_turns_and_no_usage_counts_them_unpriced() {
     assert_eq!((t.turns, t.unpriced_turns), (3, 3));
     assert_eq!(t.cost_usd, 0.0);
 }
+
+#[test]
+fn nothing_is_recorded_about_a_session_after_its_purge() {
+    let dir = scratch("late-writers");
+    let path = dir.join(store::FILE);
+    let late = "https://github.com/acme/secret/pull/2";
+    {
+        let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+        let cost = json!({"model": "claude-opus-5-5", "costUsd": 1.0});
+        turn(&l, "keep", D0, 0, cost.clone(), "claude", "claude");
+        turn(&l, "gone", D0, 1, cost.clone(), "claude", "claude");
+        l.flush();
+        l.purge("gone");
+        // An in-flight tool update, turn and meta save after the purge write nothing.
+        l.note_pull_request("gone", late);
+        turn(&l, "gone", D0 + 60_000, 1, cost.clone(), "claude", "claude");
+        let info = SessionInfo { title: Some("after the purge".into()), ..Default::default() };
+        l.note_session_info("gone", info);
+        l.seed([Seed {
+            id: "gone".into(),
+            at: D0,
+            turns: 3,
+            totals: TurnUsage::default(),
+            ctx: ctx("claude", "claude"),
+        }]);
+        l.flush();
+        assert!(!l.lock().sessions.contains_key("gone"));
+        assert!(!l.lock().open.contains_key("gone"));
+        assert_eq!(l.query(&all(0, D0 + 3 * DAY)).totals.turns, 1);
+    }
+    let text = std::fs::read_to_string(&path).unwrap();
+    for needle in ["\"gone\"", late, "after the purge"] {
+        assert!(!text.contains(needle), "{needle} is in the file:\n{text}");
+    }
+    let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert!(!after.lock().sessions.contains_key("gone"));
+    assert_eq!(after.query(&all(0, D0 + 3 * DAY)).totals.turns, 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_meta_change_writes_one_session_line_only_when_a_field_changed() {
+    let dir = scratch("session-info");
+    let path = dir.join(store::FILE);
+    let lines = || std::fs::read_to_string(&path).unwrap().lines().count();
+    {
+        let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+        // A session the ledger does not hold yet gets its fields at its first turn.
+        l.note_session_info("a", ctx("claude", "claude").info);
+        l.flush();
+        assert!(!l.lock().sessions.contains_key("a"));
+        turn(&l, "a", D0, 0, json!({"model": "claude-opus-5-5"}), "claude", "claude");
+        l.flush();
+        let before = lines();
+        let renamed = SessionInfo {
+            title: Some("renamed".into()),
+            branch: Some("feature".into()),
+            workspace_id: Some("ws-2".into()),
+            account: Some("home".into()),
+            ..ctx("claude", "claude").info
+        };
+        l.note_session_info("a", renamed.clone());
+        l.flush();
+        assert_eq!(lines(), before + 1);
+        // The same fields again, or none: nothing written.
+        l.note_session_info("a", renamed);
+        l.note_session_info("a", SessionInfo::default());
+        l.flush();
+        assert_eq!(lines(), before + 1);
+    }
+    let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    let s = after.lock();
+    let row = s.sessions.get("a").unwrap();
+    assert_eq!(row.title.as_deref(), Some("renamed"));
+    assert_eq!(row.branch.as_deref(), Some("feature"));
+    assert_eq!(row.workspace_id.as_deref(), Some("ws-2"));
+    assert_eq!(row.account.as_deref(), Some("home"));
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
