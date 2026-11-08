@@ -367,6 +367,51 @@ struct SidebarPinFlightTests {
         #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
     }
 
+    /// The pin's curve starts on the first frame that can show it, the vsync after the turn (Chrome: an animation starts
+    /// at the time of the first frame that ticks it): that frame shows the row where it was and the next one curve(1
+    /// refresh) of the move's spring, also when the turn crosses a refresh. Before: one refresh from the turn on any
+    /// phase, so the first moved frame showed between 0 and 1 refresh of the curve.
+    @Test func aPinsCurveStartsOnTheFirstFrameThatCanShowIt() throws {
+        let (list, window) = Self.list(pins: [])
+        defer { window.close() }
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let refresh = 1.0 / 120
+        let grid = CACurrentMediaTime()
+        list.frameClock = MotionFrameClock(now: { grid + 1.3 * refresh }, vsync: { (grid, refresh) }, refresh: { refresh })
+        let firstFrame = grid + 2 * refresh
+        let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
+        let startFrame = list.convert(start.bounds, from: start)
+        Self.show([Self.moved], on: list)
+        list.reload(animated: true)
+        let probes = Self.probes(Self.moved, list, now: grid)
+        let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
+        let end = list.convert(arrived.bounds, from: arrived)
+        var failures: [String] = []
+        let begin = try #require(Self.moveBegin(of: arrived), "the pin did not animate")
+        if abs(begin - firstFrame) > 0.0001 {
+            failures.append(String(format: "the curve begins %.2f refreshes after the vsync, not 2 (the first frame after the turn)",
+                                   (begin - grid) / refresh))
+        }
+        for time in [grid + 1.5 * refresh, firstFrame] {
+            switch Self.one(probes, at: time) {
+            case let .success(frame) where abs(frame.minY - startFrame.minY) > 0.5:
+                failures.append(String(format: "at %.1f refreshes the row shows at y %.1f, it was at %.1f", (time - grid) / refresh, frame.minY, startFrame.minY))
+            case let .failure(failure): failures.append("at \((time - grid) / refresh) refreshes: \(failure.text)")
+            default: break
+            }
+        }
+        let spring = try #require(arrived.layer.flatMap { layer in
+            (layer.animationKeys() ?? []).filter { $0.hasPrefix("\(SidebarDragSpring.batchKey).") }
+                .compactMap { layer.animation(forKey: $0) as? CASpringAnimation }.first
+        }, "the pin's move has no spring")
+        let expected = startFrame.minY + (end.minY - startFrame.minY) * MotionPath.springProgress(spring, at: refresh)
+        if case let .success(frame) = Self.one(probes, at: firstFrame + refresh), abs(frame.minY - expected) > 0.5 {
+            failures.append(String(format: "the first moved frame shows y %.1f, curve(1 refresh) is %.1f", frame.minY, expected))
+        }
+        #expect(failures.isEmpty, "\(failures.joined(separator: "\n"))")
+    }
+
     @Test func aPinMovesTheRowToItsPinnedSlot() throws { try move(pin: true) }
 
     @Test func anUnpinMovesTheItemBackToItsRow() throws { try move(pin: false) }
@@ -386,29 +431,46 @@ struct SidebarPinFlightTests {
         defer { window.close() }
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
+        // The window draws once before the pin, as the app's sidebar has: the gap between the two updates is the client's
+        // (20 ms here), not a new window's first display pass on the test host (about 150 ms on the fleet's display workers,
+        // which the render server spent closing the row before the blocks came).
+        window.displayIfNeeded()
+        CATransaction.flush()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         var pinnedNow = false
         list.model.workspacePin = (isPinned: { pinnedNow && $0 == Self.moved }, toggle: { _ in })
         let (sections, blocks) = Self.state([Self.moved])
         list.model.sections = sections
+        let rowsStart = CACurrentMediaTime()
         list.reload(animated: true)
+        let rowsEnd = CACurrentMediaTime()
         CATransaction.flush()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
         // The closing row's path, read before the item takes over (the row goes in that apply).
-        let closing = Self.probes(Self.moved, list, now: CACurrentMediaTime())
+        let probed = CACurrentMediaTime()
+        let closing = Self.probes(Self.moved, list, now: probed)
         pinnedNow = true
         list.blocks = blocks
         list.reload(animated: true)
         let turnEnd = CACurrentMediaTime()
+        // Where the time between the two updates went (ms): the rows' apply, the wait for the blocks, the blocks' apply.
+        func ms(_ a: CFTimeInterval, _ b: CFTimeInterval) -> String { String(format: "%.1f", (b - a) * 1000) }
+        let timing = "rows apply \(ms(rowsStart, rowsEnd)) ms, then \(ms(rowsEnd, probed)) ms to the blocks, blocks apply \(ms(probed, turnEnd)) ms"
+        print("pin-closing-row timing: \(timing)")
         let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
         var failures: [String] = []
         Self.checkBegin("pinned d (rows first)", of: arrived, turnEnd: turnEnd, failures: &failures)
         // Where the person sees the workspace when the item takes over: the closing row's path at the move's begin.
         let now = Self.moveBegin(of: arrived) ?? turnEnd
+        print("pin-closing-row timing: the item begins \(ms(turnEnd, now)) ms after the blocks' turn, \(ms(rowsStart, now)) ms after the rows' apply")
+        // A client's two updates come a frame or two apart. A host that stalls the run loop past the row's close (the
+        // fleet's display workers spent about 150 ms on a new window's first display pass) tests nothing: say so.
+        try #require(now - rowsStart < 0.1, "SETUP: the item begins \(ms(rowsStart, now)) ms after the rows' update (\(timing)), past the close")
         let drawnStart: CGRect
         switch Self.one(closing, at: now) {
         case let .success(frame): drawnStart = frame
         case let .failure(failure):
-            Issue.record("the closing row at the item's begin: \(failure.text)")
+            Issue.record("the closing row at the item's begin: \(failure.text) (\(timing); the item begins \(ms(rowsStart, now)) ms after the rows' apply)")
             return
         }
         let probes = Self.probes(Self.moved, list, now: now)

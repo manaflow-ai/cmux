@@ -26,6 +26,8 @@ final class SidebarListView: NSView {
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
+    /// When a pin's move starts its curve (`SidebarPinFlight.begin`); nil: the window's display frames.
+    var frameClock: MotionFrameClock?
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
     /// What placed groups draw in under the gradient palette (`SidebarGroup.drawnTints`), set with `groups`; empty

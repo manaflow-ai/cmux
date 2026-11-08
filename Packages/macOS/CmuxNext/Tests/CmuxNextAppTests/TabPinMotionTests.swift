@@ -38,6 +38,56 @@ struct TabPinMotionTests {
         #expect(moving.isEmpty, "\(moving.count) layers still move with motion off")
     }
 
+    /// The curve starts on the first frame that can show the pin (Chrome: an animation starts at the time of the first
+    /// frame that ticks it), not at the key turn. That frame (tick 0) shows the old frame and the next one curve(1
+    /// refresh), also when the key turn crosses a refresh. The K12 film at cb761d6 (cmux21, 120 Hz): the curve began at
+    /// the key turn and the first moved frame showed curve(2.6 refreshes), 82.5 pt in one step.
+    @Test(.enabled("the strip animates only in a window on a screen") { await hasDisplay() })
+    func aPinsCurveStartsOnTheFirstFrameThatCanShowIt() throws {
+        let first = Self.ids[0]
+        let (strip, model, window) = try Self.strip(pinned: [first])
+        defer { window.closeAfterTest() }
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let refresh = 1.0 / 120
+        // A vsync at `grid`; the key turn writes the frames 1.3 refreshes after it (it crossed a refresh), so the first
+        // frame that can show the pin begins at the vsync after that, 2 refreshes after `grid`.
+        let grid = CACurrentMediaTime()
+        strip.frameClock = MotionFrameClock(now: { grid + 1.3 * refresh }, vsync: { (grid, refresh) }, refresh: { refresh })
+        let firstFrame = grid + 2 * refresh
+        let cell = try #require(strip.cells[Self.moved])
+        let start = Self.shown(cell, at: grid)
+        model.tabs = Self.tabs(pinned: [first, Self.moved])
+        strip.sync(fromModel: true)
+        let end = cell.layer.frame
+        let begin = try #require(TabMoveMotionTargetTests.moveBegin(Array(strip.cells.values)), "the pin did not animate")
+        var failures: [String] = []
+        if abs(begin - firstFrame) > 0.0001 {
+            failures.append(String(format: "the curve begins %.2f refreshes after the vsync, not 2 (the first frame after the turn)",
+                                   (begin - grid) / refresh))
+        }
+        // Up to the first frame the tab shows where it was (a move that begins later holds its start, never the model).
+        for time in [grid + 1.5 * refresh, firstFrame] {
+            let shown = Self.shown(cell, at: time)
+            if abs(shown.minX - start.minX) > 0.5 {
+                failures.append(String(format: "at %.1f refreshes the tab shows at x %.1f, it was at %.1f", (time - grid) / refresh, shown.minX, start.minX))
+            }
+        }
+        // The first moved frame: the strip's move curve at 1 refresh.
+        let motion = try #require(MotionMove.tween(.tabMove, in: Motion.tabs))
+        let probe = CALayer()
+        let curve = motion.additive("position", from: NSValue(point: CGPoint(x: -100, y: 0)), to: NSValue(point: .zero))
+        curve.beginTime = firstFrame
+        probe.add(curve, forKey: "curve")
+        let progress = 1 + MotionPath(probe, "position").value(at: firstFrame + refresh).x / 100
+        let expected = start.minX + (end.minX - start.minX) * progress
+        let moved = Self.shown(cell, at: firstFrame + refresh).minX
+        if abs(moved - expected) > 0.5 {
+            failures.append(String(format: "the first moved frame shows x %.1f, curve(1 refresh) is %.1f (progress %.3f)", moved, expected, progress))
+        }
+        #expect(failures.isEmpty, "\(failures.joined(separator: "\n"))")
+    }
+
     // MARK: - The rig
 
     static let ids = (0..<6).map { TabID("tab\($0)") }
@@ -130,12 +180,17 @@ struct TabPinMotionTests {
         let start = shown(cell, at: before)
         let startTitle = opacity(cell.titleLayer, at: before)
         let starts = Dictionary(uniqueKeysWithValues: strip.cells.map { ($0.key, shown($0.value, at: before)) })
+        let dividerStart = strip.pinnedDivider.isHidden ? nil : MotionPath(strip.pinnedDivider, "position").value(at: before).x
         model.tabs = tabs(pinned: pin ? [first, moved] : [first])
         strip.sync(fromModel: true)
         #expect(strip.cells[moved] === cell, "the tab's cell was replaced: the same view must move")
         // Frame 0 is the move's begin (`TabStripMove.begin`), not the clock after `sync` returns: a slow host's sync
         // time would otherwise read as a jump.
         let begin = try #require(TabMoveMotionTargetTests.moveBegin(Array(strip.cells.values)), "the pin did not animate")
+        // The app syncs the strip a second time while the pin moves (the daemon's echo of the same change: the film's second
+        // turn). The screen at a4ccec2: the divider showed at its new place from that turn on, tab1's icon slid under it
+        // (3 frames), then it vanished (5 frames). Every reading below is after both syncs, as the screen shows it.
+        strip.sync(fromModel: true)
         let ends = Dictionary(uniqueKeysWithValues: strip.cells.map { ($0.key, $0.value.layer.frame) })
         let end = ends[moved] ?? cell.layer.frame
         let endTitle = cell.titleLayer.opacity
@@ -145,6 +200,7 @@ struct TabPinMotionTests {
         var titles: [Float] = []
         var icons: [CGFloat] = []
         var iconOverTitle = false
+        var separatorOverIcon = false
         for k in 0...ticks {
             let time = begin + Double(k) / 120
             let frame = shown(cell, at: time)
@@ -196,6 +252,28 @@ struct TabPinMotionTests {
                     failures.append("tick \(k): \(id.rawValue) hides \(outside - drawnOutside) pt outside the moving tab's pill")
                 }
             }
+            // No separator draws through a tab's icon (the films: the divider left of tab1 slid on its own path and
+            // drew through tab1's icon for 4 frames). The divider and every cell's separator, each where it shows.
+            var lines: [(String, CGFloat)] = []
+            if !strip.pinnedDivider.isHidden, opacity(strip.pinnedDivider, at: time) > 0.05 {
+                lines.append(("the divider", MotionPath(strip.pinnedDivider, "position").value(at: time).x))
+            }
+            for (id, other) in strip.cells where !other.separatorLayer.isHidden && opacity(other.separatorLayer, at: time) > 0.05 {
+                lines.append(("\(id.rawValue)'s separator", shown(other, at: time).minX + MotionPath(other.separatorLayer, "position").value(at: time).x))
+            }
+            iconCheck: for (id, other) in strip.cells where !other.iconLayer.isHidden {
+                let otherFrame = shown(other, at: time)
+                let center = MotionPath(other.iconLayer, "position").value(at: time).x
+                let width = MotionPath(other.iconLayer, "bounds.size").value(at: time).x
+                let iconMinX = otherFrame.minX + center - width * other.iconLayer.anchorPoint.x
+                for (name, x) in lines where x > iconMinX + 0.5 && x < iconMinX + width - 0.5 {
+                    if !separatorOverIcon {
+                        separatorOverIcon = true
+                        failures.append("tick \(k): \(name) at \(x) draws through \(id.rawValue)'s icon \(iconMinX)...\(iconMinX + width)")
+                    }
+                    break iconCheck
+                }
+            }
             // The divider never draws over the moving tab.
             let divider = strip.pinnedDivider
             if !divider.isHidden, opacity(divider, at: time) > 0.05 {
@@ -241,6 +319,11 @@ struct TabPinMotionTests {
         }
         // The divider fades, never pops: its opacity steps no more than the move's own step allows.
         let dividerOpacity = (0...ticks).map { strip.pinnedDivider.isHidden ? 0 : opacity(strip.pinnedDivider, at: begin + Double($0) / 120) }
+        // Tick 0 shows the divider where it showed before the pin (or not at all): it never jumps to its new place.
+        if let dividerStart, dividerOpacity[0] > 0.05 {
+            let x = MotionPath(strip.pinnedDivider, "position").value(at: begin).x
+            if abs(x - dividerStart) > 0.5 { failures.append("tick 0: the divider shows at \(x), it showed at \(dividerStart)") }
+        }
         for (index, pair) in zip(dividerOpacity, dividerOpacity.dropFirst()).enumerated() where abs(pair.1 - pair.0) > 0.5 {
             failures.append("tick \(index + 1): the divider pops (\(pair.0) to \(pair.1))")
             break

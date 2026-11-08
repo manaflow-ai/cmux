@@ -59,6 +59,10 @@ class SidebarItemRowView: NSView {
     /// The inline rename's editor draws over the title, which stays hidden until it ends.
     var isRenaming = false
     var wiggleSize: CGSize = .zero
+    /// Its layer's own ground while a pin's flight raises it (`SidebarListView.raiseForFlight`); nil at rest.
+    var flightGround: SidebarFlightGround?
+    /// The newest flight that raised it: only that flight's end lands it (`SidebarListView.landFlights`).
+    var flightSerial = 0
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
     private(set) var style = Style.builtIn

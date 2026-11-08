@@ -52,20 +52,35 @@ extension TabStripView {
 
     /// The divider's path when tabs fly across the pinned group's end: from `oldX` it fades out on the first half of
     /// the move (sooner if a flying tab reaches it; a tab that grows into it from the left pushes it along), and at
-    /// `newX` it fades in once no flying tab covers that place. Opacity and x per 120 Hz sample, as keyframes.
-    func addPinnedDividerCrossing(_ move: TabStripMove, from oldX: CGFloat, wasShown: Bool, crossing: [CALayer]) {
+    /// `newX` it fades in once no flying tab covers that place (past the move's end when one covers it until then).
+    /// Opacity and x per 120 Hz sample, as keyframes.
+    /// `neighbours`: the tabs that stay in their region (they slide, they do not fly). One that lands right of the new
+    /// place carries the divider on its leading edge and one it would cover hides it, as a flying tab does: the divider
+    /// never draws through a sliding tab's icon (the films: through tab1's icon for 4 frames).
+    /// `fromOpacity`: the opacity it shows at the start (a crossing retargeted mid-fade goes on from there).
+    func addPinnedDividerCrossing(_ move: TabStripMove, from oldX: CGFloat, wasShown: Bool, fromOpacity: Float = 1, crossing: [CALayer],
+                                  neighbours: [CALayer] = []) {
         let divider = pinnedDivider
         let newX = divider.position.x
         let duration = move.duration(closing: false)
         let count = MotionPath.sampleCount(seconds: duration)
         let times = MotionPath.times(from: move.begin, to: move.begin + duration, count: count)
-        let paths = crossing.map { ($0, MotionPath($0, "position", now: move.begin), MotionPath($0, "bounds.size", now: move.begin)) }
-        let frames: [[CGRect]] = times.map { time in
-            paths.map { layer, position, size in
-                let p = position.value(at: time), s = size.value(at: time)
-                return CGRect(x: p.x - layer.anchorPoint.x * s.x, y: 0, width: s.x, height: s.y)
+        func sampled(_ layers: [CALayer]) -> [[CGRect]] {
+            let paths = layers.map { ($0, MotionPath($0, "position", now: move.begin), MotionPath($0, "bounds.size", now: move.begin)) }
+            return times.map { time in
+                paths.map { layer, position, size in
+                    let p = position.value(at: time), s = size.value(at: time)
+                    return CGRect(x: p.x - layer.anchorPoint.x * s.x, y: 0, width: s.x, height: s.y)
+                }
             }
         }
+        let frames = sampled(crossing)
+        // The sliding tabs whose resting frame leaves the divider's new place free (a resting neighbour may reach into
+        // the gap; it never moves through the divider).
+        let slid = sampled(neighbours)
+        let slidEnds = slid.last ?? []
+        // The first tab whose resting middle is right of the divider's new place.
+        let anchor = slidEnds.indices.filter { slidEnds[$0].midX > newX }.min { slidEnds[$0].minX < slidEnds[$1].minX }
         func covers(_ x: CGFloat, _ frame: CGRect) -> Bool { x > frame.minX - 0.5 && x < frame.maxX + 0.5 }
         let last = times.count - 1
         // Out: by half the move, or the sample before a tab from its right reaches it (at least two samples).
@@ -74,35 +89,51 @@ extension TabStripView {
             frames[k].indices.contains { index in covers(oldX, frames[k][index]) && frames[0][index].minX >= oldX }
         }) { outEnd = max(2, min(outEnd, reached - 1)) }
         // In: a tab that lands left of the new place carries it on its trailing edge (the pinned group's end), so it
-        // never draws inside that tab; it shows after the last sample a flying tab covers it (at least three before the end).
+        // never draws inside that tab; it shows after the last sample a flying tab covers it.
         let ends = frames[last]
         let inXs = times.indices.map { k in
-            frames[k].indices.reduce(newX) { x, index in
+            let left = frames[k].indices.reduce(newX) { x, index in
                 ends[index].maxX <= newX ? max(x, frames[k][index].maxX + (newX - ends[index].maxX)) : x
             }
+            // The sliding tab right of the new place (its cell may reach into the gap) carries it at its resting
+            // offset from that tab's leading edge: same frame per tick, so it never draws through the tab's icon.
+            guard let anchor else { return left }
+            return min(left, slid[k][anchor].minX + (newX - slidEnds[anchor].minX))
         }
-        let coveredLast = frames.indices.last { k in frames[k].contains { covers(inXs[k], $0) } } ?? -1
-        let inStart = min(max(outEnd, coveredLast + 1), max(outEnd, last - 3))
+        let coveredLast = frames.indices.last { k in
+            frames[k].contains { covers(inXs[k], $0) }
+                || slid[k].indices.contains { index in !covers(newX, slidEnds[index]) && covers(inXs[k], slid[k][index]) }
+        } ?? -1
+        // It fades in over at least three samples from the one after the last a tab covers it. When a tab covers it
+        // until the move's last samples (the flying tab's width settles last), the fade runs on past the move's end: a
+        // fade clamped into the move showed the line inside that tab (tick 22 of 24 at 9c2b9a9, TabPinMotionTests).
+        let inStart = max(outEnd, coveredLast + 1)
+        let end = max(last, inStart + 3)
+        let step = duration / Double(max(1, last))
+        let timeline = times + (0..<(end - last)).map { times[last] + step * Double($0 + 1) }
         var xs: [CGFloat] = [], opacities: [Float] = []
-        for k in times.indices {
-            if k <= outEnd, wasShown {
+        for k in timeline.indices {
+            if k > last {
+                xs.append(inXs[last])
+                opacities.append(Float(CGFloat(max(0, k - inStart)) / CGFloat(max(1, end - inStart))))
+            } else if k <= outEnd, wasShown {
                 // A tab left of it at the start that grows into it pushes it along its trailing edge.
                 var x = oldX
                 for (index, start) in frames[0].enumerated() where start.maxX <= oldX {
                     x = max(x, frames[k][index].maxX + (oldX - start.maxX))
                 }
                 xs.append(x)
-                opacities.append(Float(1 - CGFloat(k) / CGFloat(max(1, outEnd))))
+                opacities.append(fromOpacity * Float(1 - CGFloat(k) / CGFloat(max(1, outEnd))))
             } else {
                 xs.append(inXs[k])
-                opacities.append(k <= inStart ? 0 : Float(CGFloat(k - inStart) / CGFloat(max(1, last - inStart))))
+                opacities.append(k <= inStart ? 0 : Float(CGFloat(k - inStart) / CGFloat(max(1, end - inStart))))
             }
         }
         let y = divider.position.y
-        if let position = MotionPath.keyframes("position", values: xs.map { NSValue(point: CGPoint(x: $0, y: y)) }, times: times, on: divider) {
+        if let position = MotionPath.keyframes("position", values: xs.map { NSValue(point: CGPoint(x: $0, y: y)) }, times: timeline, on: divider) {
             move.add(position, to: divider, as: "divider.crossing.position")
         }
-        if let fade = MotionPath.keyframes("opacity", values: opacities.map { NSNumber(value: $0) }, times: times, on: divider) {
+        if let fade = MotionPath.keyframes("opacity", values: opacities.map { NSNumber(value: $0) }, times: timeline, on: divider) {
             move.add(fade, to: divider, as: "divider.crossing.opacity")
         }
     }
