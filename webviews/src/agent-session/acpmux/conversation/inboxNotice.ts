@@ -230,15 +230,15 @@ const senderIdentity = (thread: InboxThread) => {
 };
 
 /// Whether the later thread's newest sender is the earlier one's own chat, not only its name: the
-/// later one names no identity of its own, or both name the same session (else the same record).
-/// Two chats can share a name (cmux#38642 review), so a matching name alone never lends one's
-/// record, session, family or unverified mark to the other.
+/// later one names no identity of its own, or both name the same session (else, when neither names
+/// one, the same record). Two chats can share a name or a label (cmux#38642, cmux#38791 reviews), so
+/// a matching one alone never lends one's record, session, family or unverified mark to the other.
 const sameSender = (held: InboxThread, next: InboxThread): boolean => {
   if (newestFrom(held) !== newestFrom(next)) return false;
   const a = senderIdentity(held);
   const b = senderIdentity(next);
   if (!b.session && !b.label) return true;
-  if (a.session && b.session) return a.session === b.session;
+  if (a.session || b.session) return a.session === b.session;
   return !!a.label && a.label === b.label;
 };
 
