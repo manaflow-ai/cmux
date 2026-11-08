@@ -128,6 +128,17 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
     settle_until(Duration::from_millis(500), || false).await;
     assert_eq!(compactions(&hub, &id), 1, "once per idle stretch: {:?}", prompts(&hub, &id));
 
+    // An unsent draft in one surface's composer (`_acpmux/composer_set`), with nobody typing:
+    // the person is mid-message, so nothing is compacted under them.
+    let drafted = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&drafted, "cache-probe")).await;
+    let surface = json!({"id": "pane-1", "name": "Pane"});
+    let draft = json!({"sessionId": drafted, "surface": surface, "text": "half a thought"});
+    c.ok("_acpmux/composer_set", draft).await;
+    clock.advance(Duration::from_secs(3600));
+    settle_until(Duration::from_millis(500), || false).await;
+    assert_eq!(compactions(&hub, &drafted), 0, "{:?}", prompts(&hub, &drafted));
+
     // Under the threshold (usage-probe: 4.2K of 200K, no cache tier): nothing is armed.
     let small = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
     c.ok("session/prompt", prompt(&small, "usage-probe")).await;
