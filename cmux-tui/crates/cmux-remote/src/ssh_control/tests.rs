@@ -6,7 +6,7 @@
 //! `ControlMaster=no` and a live socket logs `mux`; any other run logs
 //! `auth`, which on a password-only host is another password prompt.
 
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -22,6 +22,9 @@ use crate::ssh_bootstrap::{BootstrapOutcome, SshBootstrapConfig, SshBootstrapper
 enum Mode {
     /// Authenticates after `delay_ms` and serves clients.
     Serve { delay_ms: u64 },
+    /// Like `Serve`, but keeps stdout open after the ready line, as OpenSSH
+    /// before 7.7 does.
+    ServeKeepingStdout,
     /// Fails authentication after `delay_ms` (wrong password three times).
     Fail { delay_ms: u64 },
 }
@@ -37,9 +40,10 @@ impl FakeSsh {
         let directory = tempfile::tempdir().unwrap();
         let binary = directory.path().join("ssh");
         let log = directory.path().join("ssh.log");
-        let (fail, delay_ms) = match mode {
-            Mode::Serve { delay_ms } => (false, delay_ms),
-            Mode::Fail { delay_ms } => (true, delay_ms),
+        let (fail, delay_ms, keep_stdout) = match mode {
+            Mode::Serve { delay_ms } => (false, delay_ms, false),
+            Mode::ServeKeepingStdout => (false, 0, true),
+            Mode::Fail { delay_ms } => (true, delay_ms, false),
         };
         let probe = serde_json::json!({
             "app": "cmux-tui",
@@ -55,6 +59,7 @@ import os, signal, socket, sys, time
 LOG = {log:?}
 FAIL = {fail}
 DELAY = {delay}
+KEEP_STDOUT = {keep_stdout}
 PROBE = {probe:?}
 args = sys.argv[1:]
 def option(name):
@@ -71,6 +76,8 @@ master = option("ControlMaster")
 path = option("ControlPath")
 if master == "yes":
     log("auth master")
+    with open(LOG + ".pid", "w") as handle:
+        handle.write(str(os.getpid()))
     time.sleep(DELAY / 1000)
     if FAIL:
         sys.exit(255)
@@ -84,8 +91,10 @@ if master == "yes":
             os.unlink(path)
         os._exit(0)
     signal.signal(signal.SIGTERM, terminate)
+    print("shell startup noise", flush=True)
     print("cmux-ssh-master-ready", flush=True)
-    os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
+    if not KEEP_STDOUT:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
     while True:
         signal.pause()
 if master == "no" and path and os.path.exists(path):
@@ -97,11 +106,11 @@ if "remote-probe" in command:
 "#,
             log = log.to_string_lossy(),
             fail = if fail { "True" } else { "False" },
+            keep_stdout = if keep_stdout { "True" } else { "False" },
             delay = delay_ms,
             probe = probe.to_string(),
         );
-        std::fs::write(&binary, script).unwrap();
-        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_executable(&binary, script.as_bytes());
         Self { _directory: directory, binary, log }
     }
 
@@ -118,9 +127,33 @@ if "remote-probe" in command:
         std::fs::read_to_string(&self.log).unwrap_or_default().lines().map(str::to_owned).collect()
     }
 
+    fn master_pid(&self) -> Option<libc::pid_t> {
+        std::fs::read_to_string(self.log.with_extension("log.pid")).ok()?.trim().parse().ok()
+    }
+
     fn authentications(&self) -> usize {
         self.lines().iter().filter(|line| line.starts_with("auth")).count()
     }
+}
+
+/// Writes an executable without this process holding a write descriptor
+/// for it: a sibling test's fork would inherit one and executing the script
+/// would fail with ETXTBSY. A short-lived `sh` writes it instead.
+fn write_executable(path: &Path, contents: &[u8]) {
+    use std::io::Write as _;
+    let mut child = std::process::Command::new("/bin/sh")
+        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(contents).unwrap();
+    assert!(child.wait().unwrap().success(), "could not write {}", path.display());
+}
+
+fn process_running(pid: libc::pid_t) -> bool {
+    // SAFETY: signal 0 only checks that the process exists.
+    unsafe { libc::kill(pid, 0) == 0 }
 }
 
 fn control_path(arguments: &[String]) -> PathBuf {
@@ -276,6 +309,71 @@ async fn a_dead_master_is_replaced_by_one_new_authentication() {
     let replacement = share.client_arguments(&fake.target()).await.unwrap();
     assert_ne!(control_path(&replacement), socket);
     assert_eq!(fake.authentications(), 2, "{:?}", fake.lines());
+}
+
+/// OpenSSH before 7.7 keeps stdout open after `LocalCommand`: the ready
+/// line alone must be enough.
+#[tokio::test]
+async fn ready_line_suffices_when_ssh_keeps_stdout_open() {
+    let fake = FakeSsh::new(Mode::ServeKeepingStdout);
+    let share = SshConnectionShare::new();
+    let arguments =
+        tokio::time::timeout(Duration::from_secs(10), share.client_arguments(&fake.target()))
+            .await
+            .expect("the ready line, not EOF, ends the wait")
+            .unwrap();
+    assert!(control_path(&arguments).exists());
+}
+
+/// A cancelled open (a timeout, a shutdown) while ssh still waits for the
+/// password ends that ssh, so no stray process keeps prompting.
+#[tokio::test]
+async fn cancelling_a_pending_master_ends_its_ssh() {
+    let fake = FakeSsh::new(Mode::Serve { delay_ms: 30_000 });
+    let share = SshConnectionShare::new();
+    let target = fake.target();
+    let open = share.client_arguments(&target);
+    tokio::pin!(open);
+    tokio::select! {
+        _ = &mut open => panic!("the master cannot be ready yet"),
+        () = wait_until(|| fake.master_pid().is_some()) => {}
+    }
+    let pid = fake.master_pid().unwrap();
+    drop(open);
+    wait_until(|| !process_running(pid)).await;
+}
+
+/// The master sends keepalives, so a silently dead connection is noticed
+/// instead of hanging every run through it.
+#[test]
+fn master_arguments_enable_keepalives() {
+    let arguments = master_arguments(Path::new("/tmp/s"));
+    assert!(arguments.iter().any(|argument| argument == "ServerAliveInterval=15"));
+    assert!(arguments.iter().any(|argument| argument == "ServerAliveCountMax=3"));
+}
+
+/// The private master never forwards the local agent or X11, even when
+/// the person's arguments ask for it; a port forward they asked for stays.
+#[test]
+fn private_master_turns_forwarding_off() {
+    let arguments = crate::ssh_args::private_master_ssh_arguments(
+        None,
+        &["-A".to_owned(), "-XY".to_owned()],
+        "person@password-host",
+    );
+    for forbidden in ["-A", "-X", "-Y", "-XY"] {
+        assert!(!arguments.iter().any(|argument| argument == forbidden), "{arguments:?}");
+    }
+    for required in ["ForwardAgent=no", "ForwardX11=no", "ClearAllForwardings=yes"] {
+        assert!(arguments.iter().any(|argument| argument == required), "{arguments:?}");
+    }
+    let forwarding = crate::ssh_args::private_master_ssh_arguments(
+        None,
+        &["-L".to_owned(), "8080:localhost:80".to_owned()],
+        "person@password-host",
+    );
+    assert!(forwarding.iter().any(|argument| argument == "ForwardAgent=no"), "{forwarding:?}");
+    assert!(!forwarding.iter().any(|argument| argument == "ClearAllForwardings=yes"));
 }
 
 #[test]
