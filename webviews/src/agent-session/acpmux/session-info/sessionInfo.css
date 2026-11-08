@@ -509,7 +509,7 @@
   height: 0;
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }
-.acpmux-session-info-more:hover {
+.acpmux-session-info-fold:hover {
   color: var(--agent-text);
 }
 .acpmux-session-info-more:hover > .acpmux-session-info-more__rule {
@@ -1075,10 +1075,16 @@ button.acpmux-session-info-port:hover,
    controls: "you keep it on when you click the context menu"). */
 .acpmux-session-info-pr .acpmux-session-info-pr__more {
   opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
 }
 .acpmux-session-info-pr:is(:hover, :focus-within) .acpmux-session-info-pr__more,
 .acpmux-session-info-pr__more:is([data-popup-open], [aria-expanded="true"]) {
   opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.acpmux-session-info-pr:has(:focus-visible) .acpmux-session-info-pr__more {
+  transition: none;
 }
 .acpmux-session-info-pr__more[data-popup-open] {
   color: var(--agent-text);
@@ -1140,11 +1146,17 @@ button.acpmux-session-info-port:hover,
    into, lit while its menu is open, always on touch screens. */
 .acpmux-session-info-source .acpmux-session-info-source__more {
   opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
 }
 .acpmux-session-info-source:is(:hover, :focus-within) .acpmux-session-info-source__more,
 .acpmux-session-info-source:is(:has([data-popup-open]), :focus-within) .acpmux-session-info-source__more,
 .acpmux-session-info-source__more:is([data-popup-open], [aria-expanded="true"]) {
   opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.acpmux-session-info-source:has(:focus-visible) .acpmux-session-info-source__more {
+  transition: none;
 }
 .acpmux-session-info-source__more[data-popup-open] {
   color: var(--agent-text);
@@ -1305,11 +1317,17 @@ button.acpmux-session-info-port:focus-visible {
   translate: 0 -50%;
   opacity: 0;
   color: var(--agent-status-failure);
+  transition: var(--cmux-hover-reveal-out-transition);
 }
 .acpmux-session-info-task--command:is(:hover, :focus-within) > .acpmux-session-info-stop,
 .acpmux-session-info-task--command:is(:has([data-popup-open]), :focus-within) > .acpmux-session-info-stop,
 .acpmux-session-info-task--command > .acpmux-session-info-stop[data-state="failed"] {
   opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.acpmux-session-info-task--command:has(:focus-visible) > .acpmux-session-info-stop {
+  transition: none;
 }
 .acpmux-session-info-task--command:has(> .acpmux-session-info-stop):is(:hover, :focus-within)
   .acpmux-session-info-task__time,

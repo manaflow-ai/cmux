@@ -222,7 +222,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tabBarOrder: TabBarOrder = ChromePlacementSetting.tabBarOrderDefault
     /// `browser.toolbarPosition`: the omnibar row of browser and Markdown panes.
     public var browserToolbarPosition: ToolbarPosition = ChromePlacementSetting.browserToolbarPositionDefault
-    /// `app.quitBehavior`; "ask" when unset or invalid.
+    /// `app.quitBehavior`; "keep" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
@@ -411,7 +411,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         CmuxConfigSnapshot.parseAgentPane(root, into: &snapshot)
         snapshot.agentPaneZoom = AgentPaneZoomSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
-        let (borders, bordersDiagnostic) = BordersSetting.parse(root)
+        let styleBorders: BorderMode? = snapshot.chromeStyle.drawsLines.map { $0 ? .default : .none }
+        let (borders, bordersDiagnostic) = BordersSetting.parse(root, defaultMode: styleBorders ?? BordersSetting.fallback)
         snapshot.borders = borders
         if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }
         let (indicator, indicatorDiagnostic) = PaneFocusSettings.parse(

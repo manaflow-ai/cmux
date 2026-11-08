@@ -63,6 +63,24 @@ import Foundation
         return pane.tabs.first { $0.surface == surface }
     }
 
+    /// Whether stand-in tab `id` stands for a creation still under way: neither closed by the person (cancelled) nor answered
+    /// (a confirmed reply or echo named its tab). A new tab placed right after it keeps it as its anchor while it is out of the
+    /// records (`NewTabSuccession`). Any creation's stand-in: a new tab's, a new workspace's first tab, a conversation split's
+    /// tab, a dock's fresh tab (review F2 on #37799: only a new tab's counted, so a tab opened after the others was re-anchored).
+    public func isUnderway(standIn id: String) -> Bool {
+        store.intentLog.entries.contains { entry in
+            !entry.closeWhenCreated && !entry.standInClosed && !entry.createdConfirmed && entry.kind.standInTab?.tabResourceID?.rawValue == id
+        }
+    }
+
+    /// Whether `pane`'s tab `id` is the tab a creation made in its stand-in's place, named by the daemon (its reply, its echo
+    /// or its terminal's host id) and not closed by the person: the one arrival a stand-in leaving in the same step can have
+    /// become. A tab moved in, a script's, or one arriving as a closed stand-in leaves is none (review F3 on #37799).
+    public func tookAStandInsPlace(tab id: String, in pane: PaneModel) -> Bool {
+        guard let surface = pane.tabs.first(where: { $0.id == id })?.surface else { return false }
+        return store.intentLog.replacedAStandIn(surface) && !store.intentLog.entries.contains { $0.createdSurface == surface && ($0.closeWhenCreated || $0.standInClosed) }
+    }
+
     /// Whether tab `id` is still a pending creation's provisional tab (a close cancels it).
     public func isPending(tab id: String) -> Bool { CancelledCreation.transaction(showingTab: id, in: store) != nil }
 

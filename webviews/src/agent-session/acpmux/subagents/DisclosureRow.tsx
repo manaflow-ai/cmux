@@ -62,6 +62,8 @@ export type DisclosureRowProps = {
   lineClassName?: string;
   /// The row's own class, next to `cv-disclosure`.
   className?: string;
+  /// More attributes on the row's root (a sent message's `data-send-state`).
+  attributes?: Record<string, string | undefined>;
 };
 
 export function DisclosureRow({
@@ -87,6 +89,7 @@ export function DisclosureRow({
   below,
   lineClassName,
   className,
+  attributes,
 }: DisclosureRowProps) {
   const [stored, setStored] = useTranscriptDisclosure(disclosureKey, defaultOpen);
   const held = open !== undefined;
@@ -116,7 +119,11 @@ export function DisclosureRow({
   );
   const chevron = <ChevronRight size={14} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
   return (
-    <div className={className ? `cv-disclosure ${className}` : "cv-disclosure"} data-open={collapse.open || undefined}>
+    <div
+      className={className ? `cv-disclosure ${className}` : "cv-disclosure"}
+      data-open={collapse.open || undefined}
+      {...attributes}
+    >
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
       <TranscriptActivityRowShell
         className={`cv-disclosure__line${lineClassName ? ` ${lineClassName}` : ""}`}

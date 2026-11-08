@@ -1,6 +1,6 @@
 import type { AcpmuxSnapshot } from "./model";
 import type { PickerCatalog } from "./modelCatalogData";
-import { pickerFaceHarness } from "./ModelPicker";
+import { pickerFaceHarness } from "./modelPickerModel";
 import type { ModelPickerProps } from "./modelPickerLayout";
 
 /** The composer's existing catalog projection, shared with its pre-send health notice. */

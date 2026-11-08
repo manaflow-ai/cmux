@@ -22,7 +22,7 @@ import { ShellBlock } from "./ShellBlock";
 import { shortCommand } from "./shortCommand";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useTranscriptReadOnly } from "./readOnly";
-import { SubagentNavContext } from "../subagents/SubagentGroup";
+import { SubagentNavContext } from "../subagents/subagentGroupModel";
 import { spanDuration } from "./turns";
 
 export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
