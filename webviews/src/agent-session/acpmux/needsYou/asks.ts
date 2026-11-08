@@ -108,8 +108,14 @@ export class AskTracker {
     if (!this.stale) return;
     const all = [...this.asks.values()];
     // A grouped ask coming or going keeps the other list's array, so its readers do not redraw.
-    this.listed = same(this.listed, all.filter((ask) => !this.inGroup.has(ask.permission.permissionId)));
-    this.listedGrouped = same(this.listedGrouped, all.filter((ask) => this.inGroup.has(ask.permission.permissionId)));
+    this.listed = same(
+      this.listed,
+      all.filter((ask) => !this.inGroup.has(ask.permission.permissionId)),
+    );
+    this.listedGrouped = same(
+      this.listedGrouped,
+      all.filter((ask) => this.inGroup.has(ask.permission.permissionId)),
+    );
     this.stale = false;
   }
 

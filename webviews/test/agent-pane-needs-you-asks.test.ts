@@ -163,7 +163,10 @@ test("grouped requests are held apart for the chat above their sub-session, and 
   expect(asks.listGrouped().map((ask) => ask.permission.permissionId)).toEqual(["g1"]);
   expect(asks.list()).toBe(listed);
   asks.session({ sessionId: "child", pendingPermissions: 2 });
-  reads[0]!.resolve([{ permissionId: "g1", groupId: "grp" }, { permissionId: "g2", groupId: "grp" }]);
+  reads[0]!.resolve([
+    { permissionId: "g1", groupId: "grp" },
+    { permissionId: "g2", groupId: "grp" },
+  ]);
   await settle();
   expect(asks.listGrouped().map((ask) => ask.permission.permissionId)).toEqual(["g1", "g2"]);
   asks.session({ sessionId: "child", pendingPermissions: 0 });
