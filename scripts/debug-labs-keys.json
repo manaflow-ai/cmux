@@ -82,6 +82,7 @@
   "layout.prototype.model": {"case": "keep", "why": "A view-only layout prototype for trying other layout models; off because it is experimental."},
   "layout.prototype.orientation": {"case": "keep", "why": "A frame prototype comparison (column-major or row-major docks); column-major is the default and the choice is still read."},
   "links.agentLinks": {"case": "keep", "why": "A kill switch for cmux://agent links, which open sessions (hq#2555); a security gate worth keeping."},
+  "macScreen.sharingLook": {"case": "keep", "why": "A look comparison for the Screen Sharing page's This Mac section (Lawrence 11-07); the list is the default."},
   "motion.pane.variant": {"case": "keep", "why": "A motion comparison for pane close and expand; the standard movement is the shipped one."},
   "navigation.mouseSideButtons": {"case": "delete", "why": "On by default; the switch was only there to turn it off while new. Deleting it keeps mouse buttons 4 and 5 as back and forward."},
   "newTab.layout": {"case": "keep", "why": "A design comparison for the new tab screen; design B is the default and A is still selectable."},

@@ -11,21 +11,6 @@
   color: var(--cmux-text-tertiary);
   font-size: var(--text-caption);
 }
-.hm-gallery-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  height: 100%;
-}
-.hm-gallery-peek {
-  display: flex;
-  width: 360px;
-  aspect-ratio: 18 / 13;
-}
-.hm-gallery-peek > .hm-agent-chat {
-  border: 1px solid var(--cmux-separator);
-  border-radius: 12px;
-  background: var(--cmux-elevated-background);
-}
 .hm-gallery-message {
   margin: 0 0 16px;
   line-height: var(--text-body--line-height);

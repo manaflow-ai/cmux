@@ -32,7 +32,7 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
         if window != nil { performWithTheme { paintContent() } }
     }
 
-    override func updateLayer() {
+    override func paint() {
         performWithTheme { paintContent() }
     }
 
