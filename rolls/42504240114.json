@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42504240114",
+  "recorded_at": "2026-11-08T17:26:02Z",
+  "reason": "cmux-tui 87e106b429d0 changes the image's cmux-tui (pinned 19c8d49b473f)",
+  "dry_run": false,
+  "cmux_tui": "87e106b429d0eb543c530bbd9943a868c69a257b",
+  "fixes": [
+    {
+      "sha": "87e106b429d0eb543c530bbd9943a868c69a257b",
+      "mergedAt": "2026-11-08T08:56:23-08:00",
+      "subject": "Cloud terminals: predictive local echo engine (Rust, over the app FFI) (#38449)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T17:26:02Z",
+    "snapshot_id": "sh-33116d2dc2d346edaf3c214225419f30",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42504240114): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6904af3dec112589673e7cd713e6076c500703a6",
+    "image": "cloud-native-auto-87e106b4-42504240114-1",
+    "revision": "ci-42504240114-1",
+    "at": "2026-11-08T17:26:02Z"
+  },
+  "rolled_back": false
+}
