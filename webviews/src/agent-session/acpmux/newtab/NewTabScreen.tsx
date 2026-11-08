@@ -2202,7 +2202,7 @@ export function NewTabScreen(props: Props) {
                   props.onFixFromLink?.(fixFromLink.url, project ?? askFolder);
                 }}
               >
-                Fix in a new worktree
+                {t("worktree.fixFromLink")}
               </button>
               {props.fixError && (
                 <p className="nt-fix-error" role="alert">

@@ -10238,6 +10238,7 @@ export class AcpmuxDirectClient {
   async fixFromLink(url: string, cwd?: string): Promise<string | undefined> {
     const result = await this.request("chat.fix_from_link", { url, ...(cwd ? { cwd } : {}) }, 70_000);
     const sessionId = typeof result?.sessionId === "string" ? result.sessionId : undefined;
+    // l10n-allow: internal transport shape failure; the user sees the host error surface.
     if (!sessionId) throw new Error("fix-from-link did not return a session");
     return sessionId;
   }

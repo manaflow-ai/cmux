@@ -134,6 +134,7 @@ export function newTabScreenActions(deps: {
               result && typeof result === "object" && typeof (result as { sessionId?: unknown }).sessionId === "string"
                 ? (result as { sessionId: string }).sessionId
                 : undefined;
+            // l10n-allow: internal transport shape failure; the user sees the host error surface.
             if (!sessionId) throw new Error("fix-from-link did not return a session");
             deps.selectSession(sessionId);
           })
