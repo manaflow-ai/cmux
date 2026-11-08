@@ -182,7 +182,10 @@ pub(crate) async fn rekey(
     record: impl FnOnce(&str) -> anyhow::Result<()>,
 ) -> Result<Value, RpcError> {
     let unwritten = || {
-        refusal("key_write_failed", "this Mac could not write a new WireGuard key; its key is unchanged")
+        refusal(
+            "key_write_failed",
+            "this Mac could not write a new WireGuard key; its key is unchanged",
+        )
     };
     let private = match holder
         .with_lock(|lock| crate::cli::mesh_node_key::read_pending_held(state_dir, lock))
@@ -204,8 +207,8 @@ pub(crate) async fn rekey(
     let public = base64::engine::general_purpose::STANDARD
         .encode(PublicKey::from(&StaticSecret::from(*private)).to_bytes());
     let drop_pending = || {
-        let _ = holder
-            .with_lock(|lock| crate::cli::mesh_node_key::drop_pending_held(state_dir, lock));
+        let _ =
+            holder.with_lock(|lock| crate::cli::mesh_node_key::drop_pending_held(state_dir, lock));
     };
     let path = format!("/v1/machines/credentials/{}/wg-key", machine.id);
     let answer = match post(machine, &path, token, Some(json!({"wgPublicKey": public}))).await {

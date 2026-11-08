@@ -149,7 +149,10 @@ async fn a_rekey_sends_the_new_key_before_it_replaces_the_key_file() {
     assert!(!answer.to_string().contains(TOKEN));
     assert!(KeyHolder::acquire(dir.path()).is_ok(), "the rekey let the key lock go");
     // The candidate was on disk before the platform had it, and became the key file.
-    assert_eq!(seen[0].pending_then.as_deref(), std::fs::read(KeyFile::Node.path_in(dir.path())).ok().as_deref());
+    assert_eq!(
+        seen[0].pending_then.as_deref(),
+        std::fs::read(KeyFile::Node.path_in(dir.path())).ok().as_deref()
+    );
     assert!(!KeyFile::NodePending.path_in(dir.path()).exists(), "no pending key is left");
 }
 
@@ -233,13 +236,20 @@ async fn a_lost_answer_keeps_the_candidate_and_the_next_rekey_sends_it_again() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(KeyFile::NodePending.path_in(dir.path())).unwrap().permissions().mode();
+        let mode = std::fs::metadata(KeyFile::NodePending.path_in(dir.path()))
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o600);
     }
     let answer = rekey_once(&rekeys, &target, dir.path(), None, TOKEN, |_| Ok(())).await.unwrap();
     let seen = platform.seen.lock().unwrap().clone();
     assert_eq!(seen.len(), 2);
-    assert_eq!(sent_key(&seen[1]), candidate, "the retry sends the same candidate, never a new or old key");
+    assert_eq!(
+        sent_key(&seen[1]),
+        candidate,
+        "the retry sends the same candidate, never a new or old key"
+    );
     assert_ne!(sent_key(&seen[1]), old);
     assert_eq!(answer["wgPublicKey"], candidate.as_str());
     assert_eq!(public_of(dir.path()), candidate);
@@ -253,9 +263,10 @@ async fn a_gateway_failure_is_indeterminate_and_keeps_the_candidate() {
         let old = public_of(dir.path());
         let platform = platform(dir.path().into(), None, move |_| (status, json!({}))).await;
         let rekeys = tokio::sync::Mutex::new(());
-        let error = rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |_| Ok(()))
-            .await
-            .unwrap_err();
+        let error =
+            rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |_| Ok(()))
+                .await
+                .unwrap_err();
         assert_eq!(reason(&error), "indeterminate", "{status}");
         assert_eq!(public_of(dir.path()), old);
         assert!(pending_public(dir.path()).is_some(), "{status}");
