@@ -162,6 +162,8 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.agentGuidance"),
             // Whether a turn a rate limit or a lost connection ended is tried again, how often.
             GroupSpec(group: "settings.group.agentRetry"),
+            // Whether an idle Claude chat is compacted while its prompt cache is warm.
+            GroupSpec(group: "settings.group.agentCache"),
             // Folders that start an agent without the trust question.
             GroupSpec(group: "settings.group.folderTrust"),
         ],

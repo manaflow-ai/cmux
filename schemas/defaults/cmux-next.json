@@ -275,6 +275,8 @@
     "setting.agents.autoRetry.attempts": 4,
     "setting.agents.autoRetry.enabled": true,
     "setting.agents.autoRetry.intervalSeconds": 0,
+    "setting.agents.cacheCompact.enabled": false,
+    "setting.agents.cacheCompact.minContextPercent": 50,
     "setting.agents.chats.discovery": true,
     "setting.agents.chats.enabled": true,
     "setting.agents.chats.roots": [],

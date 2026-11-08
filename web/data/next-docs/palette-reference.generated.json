@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1375,
+    "entries": 1376,
     "shortcuts": 189
   },
   "sections": [
@@ -650,6 +650,12 @@
           "title": "Toggle Top Dock",
           "shortcut": null,
           "command": "cmux window toggle-dock-top"
+        },
+        {
+          "id": "home.undockChief",
+          "title": "Undock Chief",
+          "shortcut": null,
+          "command": "cmux home undock-chief"
         },
         {
           "id": "zoomWindow",

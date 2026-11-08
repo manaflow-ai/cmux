@@ -2,6 +2,7 @@
 // The shared chat's faces render from plain fields: the author, the header stack with +N, the
 // typing line's words, and nothing at all for a reader alone.
 import { afterEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -59,6 +60,34 @@ test("a link guest's author chip says they are a guest, as their held card does"
   const guest = { id: "guest:sh-1.g-1", name: "Sam" };
   const host = render(<AuthorChip author={guest} />);
   expect(host.querySelector(".cv-author__name")?.textContent).toBe("Sam (guest)");
+});
+
+test("a prompt's author picture is a person's face at the author face token, not a 14-16px mark", () => {
+  // Leo, 2026-11-07: "as if the user sent it, but, like, with their profile avatar picture
+  // instead". The face over the bubble takes `--cv-author-face` (multiplayer.css: five grid units,
+  // the header's person faces, scaling with the interface), with its initials scaled to it.
+  const host = render(
+    <AuthorChip author={{ id: "guest:sh-1.g-1", name: "Priya Raman", avatar: "https://a.example/p.png" }} />,
+  );
+  const face = host.querySelector<HTMLElement>(".cv-author .cv-face")!;
+  expect(face.style.width).toBe("var(--cv-author-face)");
+  expect(face.style.height).toBe("var(--cv-author-face)");
+  expect(face.querySelector("img")?.getAttribute("src")).toBe("https://a.example/p.png");
+  const initials = render(<AuthorChip author={ANA} />).querySelector<HTMLElement>(".cv-face")!;
+  expect(initials.style.width).toBe("var(--cv-author-face)");
+  expect(initials.style.fontSize).toBe("calc(var(--cv-author-face) * 0.45)");
+  // In a queued prompt's line of text it stays a mark inline with the words.
+  const inline = render(<AuthorChip author={ANA} inline />).querySelector<HTMLElement>(".cv-face")!;
+  expect(inline.style.width).toBe("16px");
+});
+
+test("the author face token derives from the grid scale, and the row estimate matches its line", () => {
+  const css = readFileSync(new URL("./multiplayer.css", import.meta.url), "utf8");
+  expect(css).toMatch(/--cv-author-face:\s*calc\(var\(--grid-base\) \* 5\);/);
+  // The line is the 20 face (scaled with the interface) plus the 4 under it (model.ts authorHeight).
+  const model = readFileSync(new URL("../model.ts", import.meta.url), "utf8");
+  expect(model).toMatch(/const AUTHOR_FACE = 20;/);
+  expect(model).toMatch(/Math\.max\(AUTHOR_LINE, AUTHOR_FACE \* chromeScale\) \+ AUTHOR_GAP/);
 });
 
 test("the header stacks three faces, then +N, and names everyone for screen readers", () => {
