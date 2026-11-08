@@ -150,8 +150,9 @@ struct PageFactory {
         }
         let accounts = services.accounts.model
         let github = services.accounts.github
-        provider.accountsState = { github.accountsPageState(accounts) }
-        provider.accountsRun = { params in try await github.runAccountsPage(params, accounts: accounts) }
+        let agentKeys = services.accounts.agentKeys
+        provider.accountsState = { github.accountsPageState(accounts, agentKeys: agentKeys) }
+        provider.accountsRun = { params in try await github.runAccountsPage(params, accounts: accounts, agentKeys: agentKeys) }
         provider.agents = services.agentHarnesses
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },

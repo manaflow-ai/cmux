@@ -1,4 +1,5 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
+import { mockAgentKeys } from "./mockAgentKeys";
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type {
   AccountsCmux,
@@ -1560,6 +1561,17 @@ variants["github-connect-empty"] = variant("accounts", {
     },
   ),
 });
+// Settings > Accounts > Team agent keys (TeamAgentKeysCard.tsx): admin, member, signed out,
+// personal team and a conflict refusal, each with the app's copy (mockAgentKeys.ts).
+for (const [state, agentKeys] of Object.entries(mockAgentKeys)) {
+  variants[`team-agent-keys-${state}`] = variant("accounts", {
+    accounts: accounts({}, { agentKeys }),
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="team-agent-keys"]'));
+      ctx.document.querySelector<HTMLElement>('[data-card="team-agent-keys"]')!.scrollIntoView({ block: "center" });
+    },
+  });
+}
 variants["github-connect-pending"] = variant("accounts", {
   accounts: accounts(
     {},
