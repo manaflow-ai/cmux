@@ -175,14 +175,16 @@ const SEVEN_OH_SEVEN = "And also, like, we do not want to have this card thing g
   .repeat(9)
   .slice(0, 707);
 
-test("a 707-character message recorded as pasted shows plain and whole, unfolded", () => {
-  expect(SEVEN_OH_SEVEN).toHaveLength(707);
-  const host = render(
-    "",
-    <PromptText rowId="row" text={SEVEN_OH_SEVEN} show={(part) => part} pasted={[{ start: 0, end: 707 }]} />,
-  );
-  expect(host.querySelector(".cv-user__paste-card")).toBeNull();
-  expect(host.textContent).not.toContain("Pasted text");
-  expect(host.textContent).toContain(SEVEN_OH_SEVEN);
-  expect(host.querySelector(".cv-user__text.is-clamped")).toBeNull();
-});
+// Under the shipped look (`text`), named here: another file in the same run may leave the card arm on.
+test("a 707-character message recorded as pasted shows plain and whole, unfolded", () =>
+  withPasteLook("text", () => {
+    expect(SEVEN_OH_SEVEN).toHaveLength(707);
+    const host = render(
+      "",
+      <PromptText rowId="row" text={SEVEN_OH_SEVEN} show={(part) => part} pasted={[{ start: 0, end: 707 }]} />,
+    );
+    expect(host.querySelector(".cv-user__paste-card")).toBeNull();
+    expect(host.textContent).not.toContain("Pasted text");
+    expect(host.textContent).toContain(SEVEN_OH_SEVEN);
+    expect(host.querySelector(".cv-user__text.is-clamped")).toBeNull();
+  }));

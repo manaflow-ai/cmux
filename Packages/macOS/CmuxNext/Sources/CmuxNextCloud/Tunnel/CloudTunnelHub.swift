@@ -131,6 +131,12 @@ public actor CloudTunnelHub {
         do { try await api.revokeTunnel(deviceID: id) } catch { logger.error("tunnel revoke failed: \(String(describing: error), privacy: .public)") }
     }
 
+    /// Whether ``revoke()`` ran and no sign-in has resumed the hub since.
+    public var isRevoked: Bool {
+        if case .revoked = phase { return true }
+        return false
+    }
+
     /// Allows enrollment again after a sign-in.
     public func resume() {
         if case .revoked = phase { phase = .idle }
