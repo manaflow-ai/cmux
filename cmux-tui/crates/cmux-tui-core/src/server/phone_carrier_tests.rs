@@ -92,9 +92,14 @@ fn a_tab_must_be_this_stores_agent_tab_and_a_close_an_unbound_one() {
     let bound = run(
         &mux,
         json!({"cmd":"new-conversation-tab","pane":pane,
-               "agent_session":{"host":host,"session":"acp_bound","harness":"claude"}}),
+               "agent_session":{"host":host,"harness":"claude"}}),
     )["surface"]
         .clone();
+    run(
+        &mux,
+        json!({"cmd":"bind-conversation-tab-session","surface":bound,"session":"acp_bound",
+               "expected_session":null,"harness":"claude"}),
+    );
     denied(&client.request(json!({"cmd":"close-surface","surface":bound})));
 }
 
