@@ -7406,12 +7406,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               typeof sessionId === "string" && sessionId ? sessionId : undefined,
               annotations && typeof annotations === "object" ? (annotations as Record<string, unknown>) : undefined,
             ),
-          "chat.plan.build": ({ permissionId, target, sessionId, harnesses }) =>
+          "chat.plan.build": ({ permissionId, target, sessionId }) =>
             client.planBuild(
               String(permissionId),
               planBuildTarget(target),
               typeof sessionId === "string" && sessionId ? sessionId : undefined,
-              Array.isArray(harnesses) ? harnesses.map(String) : undefined,
             ),
           "chat.plan.compare": ({ buildId, sessionId }) =>
             client.planCompare(String(buildId), typeof sessionId === "string" && sessionId ? sessionId : undefined),

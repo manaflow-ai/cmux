@@ -9842,16 +9842,11 @@ export class AcpmuxDirectClient {
   /// in this chat; `worktree` and `compare` start it in new worktrees as sub-sessions (one, or one
   /// per harness) and answer the ask so this chat stays free. Takes a gesture ticket for that
   /// exact build, as an answer does.
-  async planBuild(
-    permissionId: string,
-    target: PlanBuildTarget,
-    session?: string,
-    harnesses?: string[],
-  ): Promise<PlanBuildReply> {
+  async planBuild(permissionId: string, target: PlanBuildTarget, session?: string): Promise<PlanBuildReply> {
     const sessionId = session ?? this.actingSessionId;
     // l10n-allow: refuses the card's answer so it stays answerable; never shown.
     if (!sessionId) throw new Error("no chat to build in");
-    const params = { sessionId, permissionId, target, ...(harnesses?.length ? { harnesses } : {}) };
+    const params = { sessionId, permissionId, target };
     const ticket = await postNative<{ ticket?: string }>("transport.gesture", {
       intent: { method: "_acpmux/plan/build", params },
     }).then(

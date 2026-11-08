@@ -41,6 +41,8 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         // cx-0q7o: the person's pick of one option of one prompt; only such an allow is signed
         // for another daemon run.
         "_acpmux/permission_respond": ["sessionId", "permissionId", "optionId"],
+        // The person's Build pick on a plan approval: which ask, and here, worktree or compare.
+        "_acpmux/plan/build": ["permissionId", "target"],
     ]
 
     /// Intent params a method may add to its keys: objects, each held as its canonical digest. A
@@ -55,6 +57,7 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// and only a prompt to that chat redeems it.
     public static let bindingKeys: [String: Set<String>] = [
         "session/prompt": ["sessionId"],
+        "_acpmux/plan/build": ["sessionId"],
     ]
 
     /// How long a ticket waits for its frame: a pick held while a harness starts, or a prompt held
@@ -117,7 +120,8 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         switch (method, params["configId"], params["promptId"], params["permissionId"]) {
         case ("session/set_config_option", .string(let config)?, _, _): return method + "#" + config
         case ("session/prompt", _, .string(let promptId)?, _): return method + "#" + promptId
-        case ("_acpmux/permission_respond", _, _, .string(let permissionId)?): return method + "#" + permissionId
+        case ("_acpmux/permission_respond", _, _, .string(let permissionId)?),
+             ("_acpmux/plan/build", _, _, .string(let permissionId)?): return method + "#" + permissionId
         default: return method
         }
     }
