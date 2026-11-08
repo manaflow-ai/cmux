@@ -27,7 +27,7 @@ extension ProfileBarView {
         }
     }
 
-    // theme-scoped: called only from drawMarks() inside performWithTheme
+    // theme-scoped: called only from drawMarks() and the dot drag's snapshots, each inside performWithTheme
     func drawWindowMark(for profile: SidebarProfile, in rect: NSRect, compact: Bool) {
         guard elsewhere(profile) != nil else { return }
         let color = Palette.textPrimary.withAlphaComponent(0.55)

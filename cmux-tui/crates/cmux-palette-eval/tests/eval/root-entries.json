@@ -7861,24 +7861,6 @@
     },
     {
       "entry": {
-        "actionID": "feed.show",
-        "demoted": false,
-        "entersScope": false,
-        "frecencyKey": "action:feed.show",
-        "hasShortcut": true,
-        "hidesWhenTyping": false,
-        "isEnabled": true,
-        "isVisibleWhenQueryEmpty": true,
-        "keywords": ["inbox", "requests", "notifications", "approvals"],
-        "rankBias": 0,
-        "sectionIndex": 8,
-        "title": "Show Feed",
-        "typingSectionIndex": 16
-      },
-      "id": "action:feed.show"
-    },
-    {
-      "entry": {
         "actionID": "showNotifications",
         "demoted": false,
         "entersScope": false,
