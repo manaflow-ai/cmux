@@ -293,9 +293,7 @@ export function UserBubble({
             {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           </div>
         ) : sendingMark && !lastBand ? (
-          <div className="cv-user__bubble-wrap is-empty">
-            <DeliveryMark delivery={row.delivery} />
-          </div>
+          <div className="cv-user__bubble-wrap is-empty">{sendingMark}</div>
         ) : null}
         {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
             moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
