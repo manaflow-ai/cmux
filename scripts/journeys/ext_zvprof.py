@@ -130,6 +130,20 @@ def step_zv_turn_zooms(j, step):
               "commit_ms": ms, "p50": _pct(ms, .5), "p95": _pct(ms, .95), "max": max(ms) if ms else None,
               "in_p50": _pct(ins, .5), "in_p95": _pct(ins, .95), "out_p50": _pct(outs, .5), "out_p95": _pct(outs, .95),
               "rows": zoom, "spans": spans}
+    cpu = []  # ZOOM VARIANTS 5: the worst display frame's main-thread CPU per press (the daemon-echo turn included)
+    for i in range(int(step.get("cpu_runs", 0))):
+        j.app.rpc("debug.main_cpu", {"action": "start"})
+        V.step_hid_key(j, {"key": "return", "modifiers": ["cmd", "shift"], "mark": f"zoomcpu.{label}.{i}"})
+        time.sleep(gap)
+        cpu.append(j.app.rpc("debug.main_cpu", {"action": "stop"}) or {})
+    if int(step.get("cpu_runs", 0)) % 2:
+        V.step_hid_key(j, {"key": "return", "modifiers": ["cmd", "shift"], "mark": f"zoomcpu.{label}.back"})
+        time.sleep(gap)
+    if cpu:
+        mx = [float(c.get("main_ms_max") or 0) for c in cpu]
+        result.update(cpu_frame_max_ms=mx, cpu_in_p50=_pct(mx[0::2], .5), cpu_in_p95=_pct(mx[0::2], .95),
+                      cpu_out_p50=_pct(mx[1::2], .5), cpu_out_p95=_pct(mx[1::2], .95),
+                      cpu_over_8_33=[c.get("main_over_8_33_ms") for c in cpu])
     (j.out / f"diag-zoomturn-{label}.json").write_text(json.dumps(result, default=str))
     result.pop("rows", None)
     return result

@@ -264,8 +264,9 @@
             "label": "z4-k6-g4p-nospan",
             "runs": 80,
             "gap": 1.0,
-            "title": "80 real Cmd-Shift-Enter zooms (z4-k6-g4p-nospan, 40 in + 40 out), no profiler, debug.motion NOT recording",
-            "spans": false
+            "title": "80 real Cmd-Shift-Enter zooms (z4-k6-g4p-nospan, 40 in + 40 out), no profiler, debug.motion NOT recording; then 40 presses (20 per direction) with debug.main_cpu per press (worst frame main CPU)",
+            "spans": false,
+            "cpu_runs": 40
         },
         {
             "do": "wait",
