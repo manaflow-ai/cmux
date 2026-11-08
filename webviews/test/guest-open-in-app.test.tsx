@@ -27,7 +27,8 @@ Object.assign(scope, replacements);
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { OpenInApp } = await import("../src/agent-session/guest/OpenInApp");
+const { OpenInApp, WithOpenInApp } = await import("../src/agent-session/guest/OpenInApp");
+const { useEffect } = await import("react");
 const { appLinkUrl, appScheme, chooseBrowser, offersApp, tryOpenApp } =
   await import("../src/agent-session/guest/appLink");
 type AppOpenWindow = import("../src/agent-session/guest/appLink").AppOpenWindow;
@@ -166,6 +167,19 @@ test("a page opened hidden asks the app only once it is shown, so a background t
   expect(background.listeners.size).toBe(0);
 });
 
+test("a page that unmounts while it waits to be shown never asks the app later (a page restored from bfcache)", async () => {
+  const background = fakeWindow(false);
+  background.document.visibilityState = "hidden";
+  const controller = new AbortController();
+  void tryOpenApp(background.win, "cmux://share", 1500, controller.signal);
+  controller.abort();
+  expect(background.listeners.size).toBe(0);
+  background.document.visibilityState = "visible";
+  background.listeners.get("visibilitychange")?.();
+  await Promise.resolve();
+  expect(background.assigned).toEqual([]);
+});
+
 async function mount(took: boolean) {
   const fake = fakeWindow(took);
   const appUrl = appLinkUrl("cmux", "https://share.cmux.dev", { shareId: SHARE, secret: SECRET });
@@ -205,4 +219,51 @@ test("when the app takes the link, the card stays with Open in cmux and Continue
   await act(async () => browser.click());
   expect(page.continued()).toBe(1);
   await act(async () => page.root.unmount());
+});
+
+test("the guest page mounts at once beneath the banner: its join card and whoami never wait for the app attempt", async () => {
+  const fake = fakeWindow(false);
+  const appUrl = appLinkUrl("cmux", "https://share.cmux.dev", { shareId: SHARE, secret: SECRET });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const started: string[] = [];
+  // Stands in for GuestPage: its whoami request starts on mount.
+  function Page() {
+    useEffect(() => void started.push("whoami"), []);
+    return <main data-testid="join-card">Join</main>;
+  }
+  let chose = 0;
+  await act(async () => {
+    root.render(
+      <WithOpenInApp appUrl={appUrl} win={fake.win} onChooseBrowser={() => chose++}>
+        <Page />
+      </WithOpenInApp>,
+    );
+  });
+  // The attempt is pending (no timer fired), and the page is already there with its request started.
+  expect(fake.assigned).toEqual([appUrl]);
+  expect(fake.timers.size).toBe(1);
+  expect(host.querySelector("[data-testid=join-card]")).not.toBeNull();
+  expect(started).toEqual(["whoami"]);
+  expect(host.querySelector("[data-testid=guest-open-in-app]")).not.toBeNull();
+  // No app: the banner goes, the page stays, mounted once.
+  await act(async () => fake.elapse());
+  expect(host.querySelector("[data-testid=guest-open-in-app]")).toBeNull();
+  expect(host.querySelector("[data-testid=join-card]")).not.toBeNull();
+  expect(started).toEqual(["whoami"]);
+  expect(chose).toBe(1);
+  await act(async () => root.unmount());
+});
+
+test("an unmount right after the page is shown still asks the app nothing", async () => {
+  const background = fakeWindow(false);
+  background.document.visibilityState = "hidden";
+  const controller = new AbortController();
+  const pending = tryOpenApp(background.win, "cmux://share", 1500, controller.signal);
+  background.document.visibilityState = "visible";
+  background.listeners.get("visibilitychange")?.();
+  controller.abort();
+  expect(await pending).toBe(false);
+  expect(background.assigned).toEqual([]);
 });
