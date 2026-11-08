@@ -137,12 +137,94 @@ fn folder_beneath(root: &Path, rel: &str) -> Option<(std::os::fd::OwnedFd, std::
     Some((dir, CString::new(last).ok()?))
 }
 
+/// What a file was when it was read: [`replace_beneath`] replaces it only while it still is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Stamp {
+    dev: u64,
+    ino: u64,
+    size: i64,
+    mtime: i64,
+    mtime_nsec: i64,
+}
+
+#[cfg(unix)]
+impl Stamp {
+    fn of(st: &libc::stat) -> Self {
+        Self {
+            dev: st.st_dev as u64,
+            ino: st.st_ino as u64,
+            size: st.st_size as i64,
+            mtime: st.st_mtime as i64,
+            mtime_nsec: st.st_mtime_nsec as i64,
+        }
+    }
+}
+
+/// The whole of `rel` beneath `root` and its [`Stamp`], for an edit: `None` only when there is
+/// no such file. Any other failure (no permission, a read error, a non-file, more than `max`
+/// bytes, a size that changed while it was read) is an error, so an edit never takes a file it
+/// could not read for an empty one.
+#[cfg(unix)]
+pub(crate) fn read_whole_beneath(
+    root: &Path,
+    rel: &str,
+    max: u64,
+) -> Result<Option<(Vec<u8>, Stamp)>, String> {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+
+    let (dir, name) = folder_beneath(root, rel)
+        .ok_or_else(|| format!("{rel}'s folder could not be opened in {}", root.display()))?;
+    // SAFETY: `dir` is open and `name` is NUL-terminated; O_NONBLOCK keeps a fifo from blocking.
+    let fd = unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        let e = std::io::Error::last_os_error();
+        return match e.raw_os_error() {
+            Some(libc::ENOENT) => Ok(None),
+            _ => Err(format!("{rel} could not be read: {e}")),
+        };
+    }
+    // SAFETY: `fd` was just opened and nothing else owns it.
+    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    // SAFETY: a zeroed `stat` is a valid out-parameter.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: `file` is open and `st` is writable.
+    if unsafe { libc::fstat(file.as_raw_fd(), &mut st) } != 0 {
+        return Err(format!("{rel}: {}", std::io::Error::last_os_error()));
+    }
+    if st.st_mode & libc::S_IFMT != libc::S_IFREG {
+        return Err(format!("{rel} is not a regular file; edit it by hand"));
+    }
+    if st.st_size as u64 > max {
+        return Err(format!("{rel} is over {} KB; edit it by hand", max / 1024));
+    }
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(&file, max + 1), &mut bytes)
+        .map_err(|e| format!("{rel} could not be read: {e}"))?;
+    if bytes.len() as i64 != st.st_size as i64 {
+        return Err(format!("{rel} changed while it was read; try again"));
+    }
+    Ok(Some((bytes, Stamp::of(&st))))
+}
+
 /// Replaces `rel` beneath `root` with `bytes` all at once (`memory_inbox.rs`): written to a new
 /// file beside it, synced, then renamed over it, so a crash or a full disk leaves the old file
 /// whole. It keeps the old file's mode (`0644` for a new one); a link, a folder or any other
-/// non-file at `rel`, or a linked folder on the way, is refused, never replaced.
+/// non-file at `rel`, or a linked folder on the way, is refused, never replaced. `read` is
+/// the [`Stamp`] it was read at, None when there was no file: a file that changed or appeared
+/// since is left as it is.
 #[cfg(unix)]
-pub(crate) fn replace_beneath(root: &Path, rel: &str, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn replace_beneath(
+    root: &Path,
+    rel: &str,
+    bytes: &[u8],
+    read: Option<Stamp>,
+) -> Result<(), String> {
     use std::ffi::CString;
     use std::os::fd::{AsRawFd as _, FromRawFd as _};
 
@@ -154,6 +236,10 @@ pub(crate) fn replace_beneath(root: &Path, rel: &str, bytes: &[u8]) -> Result<()
     let found = unsafe {
         libc::fstatat(dir.as_raw_fd(), name.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW)
     } == 0;
+    let now = found.then(|| Stamp::of(&st));
+    if now != read {
+        return Err(format!("{rel} changed while it was being edited; try again"));
+    }
     let mode = if found {
         if st.st_mode & libc::S_IFMT != libc::S_IFREG {
             return Err(format!("{rel} is not a regular file; edit it by hand"));
@@ -212,8 +298,23 @@ pub(crate) fn open_beneath(_root: &Path, _rel: &str) -> Option<std::fs::File> {
 
 /// Elsewhere no folder file is written either.
 #[cfg(not(unix))]
-pub(crate) fn replace_beneath(_root: &Path, rel: &str, _bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn replace_beneath(
+    _root: &Path,
+    rel: &str,
+    _bytes: &[u8],
+    _read: Option<Stamp>,
+) -> Result<(), String> {
     Err(format!("{rel} can only be written on macOS and Linux"))
+}
+
+/// Elsewhere no folder file is read for an edit either.
+#[cfg(not(unix))]
+pub(crate) fn read_whole_beneath(
+    _root: &Path,
+    rel: &str,
+    _max: u64,
+) -> Result<Option<(Vec<u8>, Stamp)>, String> {
+    Err(format!("{rel} can only be edited on macOS and Linux"))
 }
 
 /// The start of `rel` beneath `cwd` (at most the cap and a few bytes) and its full size;

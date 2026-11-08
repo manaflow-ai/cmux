@@ -246,3 +246,37 @@ fn concurrent_accepts_both_land() {
     }
     assert_eq!(text.matches(HEADING).count(), 1);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_file_that_cannot_be_read_is_never_replaced() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("AGENTS.md");
+    std::fs::write(&path, "# Keep all of this\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o200)).unwrap();
+    // Root reads any file: the refusal is then not what this checks.
+    if std::fs::read(&path).is_ok() {
+        return;
+    }
+    assert!(write(dir.path(), "AGENTS.md", &["Use pnpm, not npm.".into()]).is_err());
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "# Keep all of this\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_that_changed_since_it_was_read_is_left_alone() {
+    use crate::folder_instructions::{read_whole_beneath, replace_beneath};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("CLAUDE.md");
+    std::fs::write(&path, "one\n").unwrap();
+    let (_, stamp) = read_whole_beneath(dir.path(), "CLAUDE.md", 1024).unwrap().unwrap();
+    std::fs::write(&path, "one\ntwo, written meanwhile\n").unwrap();
+    assert!(replace_beneath(dir.path(), "CLAUDE.md", b"one\nnew\n", Some(stamp)).is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "one\ntwo, written meanwhile\n");
+    // A file that appeared after it was found missing is left alone too.
+    std::fs::write(dir.path().join("AGENTS.md"), "theirs\n").unwrap();
+    assert!(replace_beneath(dir.path(), "AGENTS.md", b"ours\n", None).is_err());
+    assert_eq!(std::fs::read_to_string(dir.path().join("AGENTS.md")).unwrap(), "theirs\n");
+}

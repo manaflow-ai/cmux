@@ -270,17 +270,20 @@ pub fn has_heading(existing: &str) -> bool {
 /// The whole of `rel` in `cwd`, None when it is not there as a regular file; an error when it is
 /// too big to edit or not text.
 pub fn read(cwd: &Path, rel: &str) -> Result<Option<String>, String> {
-    let Some(file) = crate::folder_instructions::open_beneath(cwd, rel) else {
+    Ok(read_stamped(cwd, rel)?.map(|(text, _)| text))
+}
+
+/// [`read`] with what the file was when read.
+fn read_stamped(
+    cwd: &Path,
+    rel: &str,
+) -> Result<Option<(String, crate::folder_instructions::Stamp)>, String> {
+    let Some((bytes, stamp)) = crate::folder_instructions::read_whole_beneath(cwd, rel, MAX_FILE)?
+    else {
         return Ok(None);
     };
-    let size = file.metadata().map_err(|e| e.to_string())?.len();
-    if size > MAX_FILE {
-        return Err(format!("{rel} is over {} KB; edit it by hand", MAX_FILE / 1024));
-    }
-    let mut bytes = Vec::new();
-    std::io::Read::read_to_end(&mut std::io::Read::take(file, MAX_FILE + 1), &mut bytes)
-        .map_err(|e| e.to_string())?;
-    String::from_utf8(bytes).map(Some).map_err(|_| format!("{rel} is not UTF-8 text"))
+    let text = String::from_utf8(bytes).map_err(|_| format!("{rel} is not UTF-8 text"))?;
+    Ok(Some((text, stamp)))
 }
 
 /// One write at a time: two Accepts read, merge and replace the file one after the other, so
@@ -292,13 +295,15 @@ static WRITING: Mutex<()> = Mutex::new(());
 /// committed.
 pub fn write(cwd: &Path, rel: &str, facts: &[String]) -> Result<Vec<String>, String> {
     let _one = WRITING.lock().unwrap_or_else(|e| e.into_inner());
-    let existing = read(cwd, rel)?.unwrap_or_default();
+    let read = read_stamped(cwd, rel)?;
+    let stamp = read.as_ref().map(|(_, stamp)| *stamp);
+    let existing = read.map(|(text, _)| text).unwrap_or_default();
     let added = fresh(facts, &existing, &[]);
     if added.is_empty() {
         return Ok(added);
     }
     let text = with_facts(&existing, &added);
-    crate::folder_instructions::replace_beneath(cwd, rel, text.as_bytes())?;
+    crate::folder_instructions::replace_beneath(cwd, rel, text.as_bytes(), stamp)?;
     Ok(added)
 }
 
