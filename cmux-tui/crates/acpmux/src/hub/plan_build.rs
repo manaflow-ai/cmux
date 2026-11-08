@@ -308,8 +308,15 @@ impl Hub {
             .into_iter()
             .filter_map(|s| {
                 let m = s.meta.lock().unwrap_or_else(|e| e.into_inner());
-                let ours = m.subsession.as_ref().is_some_and(|l| l.started_by == parent)
-                    && m.tags.get(BUILD_TAG).is_some_and(|t| t.value == build_id);
+                // The daemon's record of the build it started the chat as; the tag only for
+                // builds from before that record (an agent may write tags).
+                let ours = m.subsession.as_ref().is_some_and(|l| {
+                    l.started_by == parent
+                        && match &l.plan_build {
+                            Some(b) => b == build_id,
+                            None => m.tags.get(BUILD_TAG).is_some_and(|t| t.value == build_id),
+                        }
+                });
                 let created = m.created_at;
                 drop(m);
                 ours.then_some((created, s))
@@ -357,6 +364,13 @@ impl Hub {
                         .unwrap_or_default()
                         .to_owned();
                     if let Ok(child) = self.resolve(&id) {
+                        // Where an agent cannot write it: only the daemon makes a chat a build
+                        // (the tag below is what the lists read, and `_acpmux/tag` may set it).
+                        let mut m = child.meta.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(link) = m.subsession.as_mut() {
+                            link.plan_build = Some(build_id.to_owned());
+                        }
+                        drop(m);
                         let mut set = serde_json::Map::new();
                         set.insert(BUILD_TAG.into(), Value::String(build_id.to_owned()));
                         for (tag, field) in
@@ -417,7 +431,12 @@ impl Hub {
             if m.tags.contains_key(KEPT_TAG) {
                 kept = json!(s.id);
             }
-            let tagged_root = m.tags.get(ROOT_TAG).map(|t| PathBuf::from(&t.value));
+            // The daemon's record of the worktree it made first; the tag for builds from before it.
+            let tagged_root = m
+                .subsession
+                .as_ref()
+                .and_then(|l| l.worktree.clone())
+                .or_else(|| m.tags.get(ROOT_TAG).map(|t| PathBuf::from(&t.value)));
             let (root, branch) = match &m.worktree {
                 Some(w) => (tagged_root.unwrap_or_else(|| w.root.clone()), w.branch.clone()),
                 None => (tagged_root.unwrap_or_else(|| m.cwd.clone()), None),
@@ -486,17 +505,26 @@ impl Hub {
     /// removed only when care's pass archived it; one care left (in use, unarchivable, or an
     /// agent still letting go of its folder) is tried again for at most [`DISCARD_LIMIT`], then
     /// stays. Answers each build's `{sessionId, removed, archive?, error?}`.
-    pub(crate) async fn plan_discard(self: &Arc<Self>, others: &[Arc<Session>]) -> Vec<Value> {
+    pub(crate) async fn plan_discard(
+        self: &Arc<Self>,
+        build_id: &str,
+        others: &[Arc<Session>],
+    ) -> Vec<Value> {
         let mut left: Vec<(String, PathBuf)> = Vec::new();
         let mut rows = Vec::new();
         for s in others {
             if let Err(e) = self.kill(s, false).await {
                 tracing::warn!(session = %s.id, error = %e.message, "plan build close");
             }
-            // Only the worktree its start made (its root recorded then): never a folder it was
-            // opened in.
+            // Only the worktree the daemon made at its start, for a chat the daemon started as
+            // this build, both recorded in its lineage then: never a folder it was opened in,
+            // and never one the tags name (an agent may write those).
             let m = s.meta();
-            match m.tags.get(ROOT_TAG).map(|t| PathBuf::from(&t.value)) {
+            let link = m.subsession.as_ref();
+            let root = link
+                .filter(|l| l.plan_build.as_deref() == Some(build_id))
+                .and_then(|l| l.worktree.clone());
+            match root {
                 Some(root) => left.push((s.id.clone(), root)),
                 None => rows.push(
                     json!({"sessionId": s.id, "removed": false, "error": "no worktree of its own"}),

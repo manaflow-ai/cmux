@@ -543,6 +543,16 @@ pub struct SubsessionLink {
     /// it but does not prompt, stop or close it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub offered: bool,
+    /// The top folder of the worktree its start made for it (`start_session` with
+    /// `worktree: true`), set by the daemon then and never by a tag: the only folder a plan
+    /// build's Keep may remove for it (`hub/plan_build.rs` `plan_discard`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<std::path::PathBuf>,
+    /// The plan build it was started as (`hub/plan_build.rs`), set by the daemon at its start:
+    /// unlike the `planBuild` tag, which `_acpmux/tag` may write, an agent cannot make another
+    /// chat a build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_build: Option<String>,
 }
 
 /// Limit overrides of one session; `None` inherits its parent's, then the

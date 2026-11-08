@@ -252,6 +252,8 @@ async fn lineage_survives_a_daemon_restart() {
         short_name: format!("s{depth}"),
         depth,
         offered: false,
+        worktree: None,
+        plan_build: None,
     };
     for (who, up, depth) in [(&kid, &coord, 1), (&grandkid, &kid, 2), (&looped, &looped, 1)] {
         let mut m = store.load(who).unwrap().unwrap();

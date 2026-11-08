@@ -2485,12 +2485,18 @@ function ComposerFrame({
             runRef={runOnButton}
             onRun={(variants) => {
               const prompt = typedWords().trim();
+              const session = persistedSession.current;
+              const written = field.current?.value() ?? textRef.current;
               return runOnAgents.run(prompt, variants).then(() => {
-                // The prompt went to the runs: it is no draft any more, as a send's.
-                if (typedWords().trim() === prompt) edit("", 0);
-                noteDraftSent(persistedSession.current);
-                sentAt.current = Date.now();
                 closeRunOn();
+                // The prompt went to the runs: it is no draft any more, as a send's. Read the
+                // editor now, not this render's text: words typed while the runs started, or
+                // another chat's draft, stay.
+                if (persistedSession.current !== session) return;
+                if ((field.current?.value() ?? textRef.current) !== written) return;
+                edit("", 0);
+                noteDraftSent(session);
+                sentAt.current = Date.now();
               });
             }}
             onClose={closeRunOn}

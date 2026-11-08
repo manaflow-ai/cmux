@@ -318,6 +318,13 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         compared["builds"].as_array().unwrap().iter().all(|b| b["added"].as_u64() == Some(1)),
         "{compared}"
     );
+    // Tags are no proof (`_acpmux/tag` writes them for anyone): one run's root tag points at
+    // the earlier build's worktree, and that earlier build is tagged as one of these runs.
+    let forged_root = json!({"planBuildRoot": roots[0]});
+    let run2 = runs[2]["sessionId"].clone();
+    app.ok("_acpmux/tag", json!({"sessionId": run2, "set": forged_root})).await;
+    let earlier = builds[0]["sessionId"].clone();
+    app.ok("_acpmux/tag", json!({"sessionId": earlier, "set": {"planBuild": run_id}})).await;
     // Keep the second and drop the rest: their chats close and their worktrees go, archived.
     let keep = runs[1]["sessionId"].as_str().unwrap().to_owned();
     let kept = app
@@ -327,7 +334,10 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         )
         .await;
     assert_eq!(kept["keptSessionId"], json!(keep), "{kept}");
+    // The earlier build tagged in is none of these runs: the daemon never started it as one.
+    assert!(kept["builds"].as_array().unwrap().iter().all(|b| b["sessionId"] != earlier), "{kept}");
     let removed = kept["removed"].as_array().unwrap();
+    assert!(removed.iter().all(|r| r["sessionId"] != earlier), "{kept}");
     assert_eq!(removed.len(), 2, "{kept}");
     assert!(removed.iter().all(|r| r["removed"] == json!(true)), "{kept}");
     // Each went through worktree care's archive first; its branch stays to restore it from.
@@ -344,8 +354,9 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     }
     assert!(!Path::new(&run_roots[0]).exists() && !Path::new(&run_roots[2]).exists(), "{kept}");
     assert!(Path::new(&run_roots[1]).join("NOTICE").is_file(), "the kept run stays");
-    // The plan builds' Keep above, without removeOthers, left its other worktree.
-    assert!(Path::new(&roots[0]).join("LICENSE").is_file());
+    // The plan builds' Keep above, without removeOthers, left its other worktree, and neither
+    // forged tag reached it.
+    assert!(Path::new(&roots[0]).join("LICENSE").is_file(), "{kept}");
 
     let _ = std::fs::remove_dir_all(&root);
 }
