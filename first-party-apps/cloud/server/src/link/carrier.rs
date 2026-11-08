@@ -39,7 +39,20 @@ pub struct CarrierSpawner;
 
 /// The upstream connections of one carrier (or of one file op), so
 /// `terminate` (or a deadline) ends exactly them, by their own handles.
-pub(crate) type Streams = Arc<Mutex<Vec<UnixStream>>>;
+pub(crate) type Streams = Arc<Mutex<StreamSet>>;
+
+/// Each open upstream connection's handle under the key it was given when
+/// opened. A socket's (device, inode) is no key: macOS reports 0 for both on
+/// every socket, so ending one stream would forget them all.
+#[derive(Default)]
+pub(crate) struct StreamSet {
+    next: u64,
+    open: std::collections::HashMap<u64, UnixStream>,
+}
+
+/// The key of one stream in its [`StreamSet`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StreamKey(u64);
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -52,7 +65,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 pub(crate) fn open_upstream(
     upstream: &Path,
     streams: &Streams,
-) -> Result<UnixStream, super::dial::Refusal> {
+) -> Result<(UnixStream, StreamKey), super::dial::Refusal> {
     let refused = |why: String| super::dial::Refusal {
         code: DialCode::Unreachable,
         detail: super::dial::clip_detail(&why),
@@ -66,38 +79,32 @@ pub(crate) fn open_upstream(
     let handle = stream
         .try_clone()
         .map_err(|e| refused(format!("the carrier stream has no handle ({:?})", e.kind())))?;
-    lock(streams).push(handle);
-    Ok(stream)
+    let mut set = lock(streams);
+    set.next += 1;
+    let key = StreamKey(set.next);
+    set.open.insert(key.0, handle);
+    Ok((stream, key))
 }
 
-/// Ends one upstream connection and forgets its handle.
-pub(crate) fn end_stream(stream: &UnixStream, streams: &Streams) {
+/// Ends one upstream connection and forgets its handle (only its own).
+pub(crate) fn end_stream(stream: &UnixStream, key: StreamKey, streams: &Streams) {
     let _ = stream.shutdown(std::net::Shutdown::Both);
-    let Ok(id) = stream_id(stream) else { return };
-    lock(streams).retain(|s| stream_id(s).ok() != Some(id));
-}
-
-/// The kernel identity of a socket (its inode), the same for its clones.
-fn stream_id(stream: &UnixStream) -> std::io::Result<(u64, u64)> {
-    use std::os::fd::AsFd as _;
-    let file = std::fs::File::from(stream.as_fd().try_clone_to_owned()?);
-    let meta = file.metadata()?;
-    Ok((meta.dev(), meta.ino()))
+    lock(streams).open.remove(&key.0);
 }
 
 /// Ends every upstream connection in `streams` (a terminate or a deadline).
 pub(crate) fn end_all(streams: &Streams) {
-    for stream in lock(streams).drain(..) {
+    for (_, stream) in lock(streams).open.drain() {
         let _ = stream.shutdown(std::net::Shutdown::Both);
     }
 }
 
 /// Carries one local connection over one upstream connection; returns when
 /// both sides end.
-fn splice(connection: UnixStream, upstream: UnixStream, streams: &Streams) {
+fn splice(connection: UnixStream, upstream: UnixStream, key: StreamKey, streams: &Streams) {
     let (Ok(mut upload_from), Ok(mut upload_to)) = (connection.try_clone(), upstream.try_clone())
     else {
-        end_stream(&upstream, streams);
+        end_stream(&upstream, key, streams);
         return;
     };
     let upload = std::thread::Builder::new().name("cmux-link-up".into()).spawn(move || {
@@ -107,7 +114,7 @@ fn splice(connection: UnixStream, upstream: UnixStream, streams: &Streams) {
     });
     let Ok(upload) = upload else {
         // No upload, no stream: the client sees end of stream, never a half-open one.
-        end_stream(&upstream, streams);
+        end_stream(&upstream, key, streams);
         return;
     };
     let mut download_from = upstream;
@@ -115,7 +122,7 @@ fn splice(connection: UnixStream, upstream: UnixStream, streams: &Streams) {
     let _ = pump(&mut download_from, &mut download_to);
     let _ = download_to.flush();
     let _ = download_to.shutdown(std::net::Shutdown::Both);
-    end_stream(&download_from, streams);
+    end_stream(&download_from, key, streams);
     let _ = upload.join();
 }
 
@@ -273,8 +280,10 @@ fn run(
             let _slot = slot;
             match open_upstream(&upstream, &streams) {
                 // A terminate that came while the stream opened: never serve it.
-                Ok(stream) if stop.load(Ordering::SeqCst) => end_stream(&stream, &streams),
-                Ok(stream) => splice(connection, stream, &streams),
+                Ok((stream, key)) if stop.load(Ordering::SeqCst) => {
+                    end_stream(&stream, key, &streams);
+                }
+                Ok((stream, key)) => splice(connection, stream, key, &streams),
                 // The app's carrier is gone: the generation ends, typed, and
                 // the next connect asks the app again. The client sees end
                 // of stream.
@@ -400,6 +409,29 @@ mod tests {
         let mut byte = [0u8; 1];
         let read = std::io::Read::read(&mut app_side, &mut byte);
         assert!(matches!(read, Ok(0)), "the app's side sees end of stream: {read:?}");
+        std::fs::remove_dir_all(root).expect("remove this test's private files");
+    }
+
+    /// Ending one stream forgets only its own handle, whatever the sockets'
+    /// (device, inode) say (macOS reports 0 for both on every socket), so a
+    /// terminate still ends every other stream.
+    #[test]
+    fn ending_one_stream_keeps_the_others_for_a_terminate() {
+        let root = root("keys");
+        let upstream = root.join("serve.sock");
+        let serve = UnixListener::bind(&upstream).expect("the fake serve listens");
+        let streams: Streams = Arc::default();
+        let (first, first_key) = open_upstream(&upstream, &streams).expect("first");
+        let (_second, _) = open_upstream(&upstream, &streams).expect("second");
+        let (_, _) = serve.accept().expect("first accepted");
+        let (mut second_app_side, _) = serve.accept().expect("second accepted");
+        end_stream(&first, first_key, &streams);
+        assert_eq!(lock(&streams).open.len(), 1, "only the ended stream is forgotten");
+        end_all(&streams);
+        second_app_side.set_read_timeout(Some(Duration::from_secs(5))).expect("timeout");
+        let mut byte = [0u8; 1];
+        let read = std::io::Read::read(&mut second_app_side, &mut byte);
+        assert!(matches!(read, Ok(0)), "the other stream ended with the terminate: {read:?}");
         std::fs::remove_dir_all(root).expect("remove this test's private files");
     }
 }

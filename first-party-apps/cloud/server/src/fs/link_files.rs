@@ -142,7 +142,7 @@ fn exchange(
     streams: &Streams,
     sent: &AtomicBool,
 ) -> Result<Vec<u8>, CloudError> {
-    let mut stream = open_upstream(&target.socket, streams).map_err(|refusal| {
+    let (mut stream, key) = open_upstream(&target.socket, streams).map_err(|refusal| {
         unavailable(format!(
             "the carrier refused: {}{}",
             refusal.code.as_str(),
@@ -153,13 +153,13 @@ fn exchange(
     // remote stream when its client half-closes, and the reply is lost.
     let written = stream.write_all(line.as_bytes()).and_then(|()| stream.flush());
     if let Err(e) = written {
-        end_stream(&stream, streams);
+        end_stream(&stream, key, streams);
         return Err(unavailable(format!("the daemon link closed: {e}")));
     }
     sent.store(true, Ordering::Release);
     let mut answer = Vec::new();
     let read = BufReader::new(&stream).take(MAX_ANSWER_BYTES).read_until(b'\n', &mut answer);
-    end_stream(&stream, streams);
+    end_stream(&stream, key, streams);
     read.map_err(|e| answer_lost(op, format!("the daemon link closed before the answer: {e}")))?;
     // EOF before the whole line (a line at the size bound is a bad answer).
     if answer.last() != Some(&b'\n') && (answer.len() as u64) < MAX_ANSWER_BYTES {
