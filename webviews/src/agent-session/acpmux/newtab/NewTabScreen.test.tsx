@@ -749,6 +749,33 @@ test("an Escape on the list is forgotten once the text changes: the same word ty
   expect(menu()).not.toBeNull();
 });
 
+test("a lone GitHub issue URL offers an explicit fix worktree action", async () => {
+  const fixes: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={(...args) => asks.push(args)}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        onFixFromLink={(url) => fixes.push(url)}
+        location="https://github.com/manaflow-ai/cmux/issues/123"
+      />,
+    );
+  });
+  const chip = container.querySelector<HTMLButtonElement>(".nt-fix-chip");
+  expect(chip?.textContent).toContain("Fix in a new worktree");
+  await act(async () => chip!.click());
+  expect(fixes).toEqual(["https://github.com/manaflow-ai/cmux/issues/123"]);
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect((asks[0] as unknown[])[1]).toBe("https://github.com/manaflow-ai/cmux/issues/123");
+});
+
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
   const uploaded: File[][] = [];
   const asks: unknown[][] = [];
