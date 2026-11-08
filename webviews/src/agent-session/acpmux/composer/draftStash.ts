@@ -1,11 +1,13 @@
 // Stash: the composer's draft put aside with one key (⌃S), the prompt emptied for something else,
 // and the draft brought back (⌃S on an empty prompt, or a pick from the Stashed chip's list). Each
 // chat holds a short stack, newest first. The stacks live in localStorage, shared by every pane of
-// the app, so a reload or a released page keeps them: each change starts from what is stored now,
-// never from this page's older copy, and other panes' changes arrive by the `storage` event. An
-// entry too large for localStorage keeps its chips' contents in IndexedDB (`chipStore`) under its
-// id, and in localStorage only the chips without their contents (`held` names them); nothing
-// stashed is ever kept in this page alone.
+// the app, so a reload or a released page keeps them. Each entry is a key of its own
+// (`STORAGE_PREFIX` + chat + id): a stash adds one key and a take removes one, so two panes never
+// write over each other's entries, and other panes' changes arrive by the `storage` event. A stash
+// whose key cannot be written is not made (the prompt keeps the draft). An entry too large for
+// localStorage keeps its chips' contents in IndexedDB (`chipStore`) under its id, and in
+// localStorage only the chips without their contents (`held` names them); nothing stashed is ever
+// kept in this page alone.
 import { useSyncExternalStore } from "react";
 import { withoutInlineTokens, type ComposerAttachment } from "../attachments";
 
@@ -24,7 +26,7 @@ export const STASH_LIMIT = 5;
 export const STASH_CHATS = 50;
 /// An entry keeps its chips' contents in localStorage only below this many characters of JSON.
 const STORED_ENTRY_MAX = 256 * 1024;
-export const STORAGE_KEY = "cmux.agentPane.draftStash.v1";
+export const STORAGE_PREFIX = "cmux.agentPane.draftStash.v2:";
 
 /// Where a large entry's chips are kept, by entry id.
 export type ChipStore = {
@@ -52,36 +54,52 @@ const storage = (): Storage | undefined => {
   }
 };
 
-/// The stacks kept from an earlier page, malformed entries left out.
-export function parseStacks(raw: string | null | undefined): Map<string, StashedDraft[]> {
-  const out = new Map<string, StashedDraft[]>();
-  if (!raw) return out;
-  let parsed: unknown;
+/// The key of `chat`'s entry `id`. A chat id never holds the separator once encoded.
+export const entryKey = (chat: string, id: string) => `${STORAGE_PREFIX}${encodeURIComponent(chat)}:${id}`;
+
+/// One stored entry, or undefined when it is not one.
+export function parseEntry(raw: string | null | undefined): StashedDraft | undefined {
+  if (!raw) return undefined;
+  let entry: unknown;
   try {
-    parsed = JSON.parse(raw);
+    entry = JSON.parse(raw);
   } catch {
-    return out;
+    return undefined;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return out;
-  for (const [chat, list] of Object.entries(parsed as Record<string, unknown>)) {
-    if (!Array.isArray(list)) continue;
-    const drafts = list
-      .filter(
-        (entry): entry is StashedDraft =>
-          !!entry &&
-          typeof entry === "object" &&
-          typeof entry.id === "string" &&
-          typeof entry.text === "string" &&
-          typeof entry.at === "number",
-      )
-      .map(({ held, ...entry }) => ({
-        ...entry,
-        attachments: Array.isArray(entry.attachments) ? entry.attachments : [],
-        ...(Array.isArray(held) && held.length ? { held: held.filter((id) => typeof id === "string") } : {}),
-      }))
-      .slice(0, STASH_LIMIT);
-    if (drafts.length) out.set(chat, drafts);
+  if (!entry || typeof entry !== "object") return undefined;
+  const { id, text, at, attachments, held } = entry as Record<string, unknown>;
+  if (typeof id !== "string" || typeof text !== "string" || typeof at !== "number") return undefined;
+  const heldIds = Array.isArray(held) ? held.filter((chip): chip is string => typeof chip === "string") : [];
+  return {
+    id,
+    text,
+    at,
+    attachments: Array.isArray(attachments) ? (attachments as ComposerAttachment[]) : [],
+    ...(heldIds.length ? { held: heldIds } : {}),
+  };
+}
+
+const newestFirst = (a: StashedDraft, b: StashedDraft) => b.at - a.at || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+
+/// Every chat's stack as stored now, newest first, malformed entries left out.
+export function storedStacks(store: Pick<Storage, "length" | "key" | "getItem">): Map<string, StashedDraft[]> {
+  const out = new Map<string, StashedDraft[]>();
+  for (let index = 0; index < store.length; index += 1) {
+    const key = store.key(index);
+    if (!key?.startsWith(STORAGE_PREFIX)) continue;
+    const rest = key.slice(STORAGE_PREFIX.length);
+    const split = rest.lastIndexOf(":");
+    const entry = parseEntry(store.getItem(key));
+    if (split <= 0 || !entry || entry.id !== rest.slice(split + 1)) continue;
+    let chat: string;
+    try {
+      chat = decodeURIComponent(rest.slice(0, split));
+    } catch {
+      continue;
+    }
+    out.set(chat, [...(out.get(chat) ?? []), entry]);
   }
+  for (const list of out.values()) list.sort(newestFirst);
   return out;
 }
 
@@ -97,57 +115,66 @@ export function storedEntry(entry: StashedDraft): StashedDraft {
   };
 }
 
-const read = (): Map<string, StashedDraft[]> => {
-  const store = storage();
-  return store ? parseStacks(store.getItem(STORAGE_KEY)) : new Map(stacks as Map<string, StashedDraft[]>);
-};
-
 const idsOf = (all: Stacks) => new Set([...all.values()].flatMap((list) => list.map((entry) => entry.id)));
+
+const refresh = () => {
+  const store = storage();
+  stacks = store ? storedStacks(store) : new Map();
+  emit();
+};
 
 function load(): void {
   if (loaded) return;
   loaded = true;
-  stacks = read();
+  const store = storage();
+  stacks = store ? storedStacks(store) : new Map();
   // Another pane's stash, take or move: this page shows it at once.
   globalThis.addEventListener?.("storage", (event: StorageEvent) => {
-    if (event.key !== STORAGE_KEY && event.key !== null) return;
-    stacks = read();
-    emit();
+    if (event.key === null || event.key.startsWith(STORAGE_PREFIX)) refresh();
   });
-  // Chips whose entry is gone (a pane that closed between its write and its drop).
+  // Chips whose entry is gone (a pane that closed between its take and its drop).
   void chipStore
     .ids()
     .then((ids) => {
-      const live = idsOf(read());
+      const live = idsOf(store ? storedStacks(store) : new Map());
       for (const id of ids) if (!live.has(id)) void chipStore.drop(id).catch(() => undefined);
     })
     .catch(() => undefined);
 }
 
-/// Stores `next` (made from `before`, what was stored), letting go of the chips of every held
-/// entry it no longer has, but `taking`'s, which `stashedChips` reads and then drops.
-function save(before: Stacks, next: Map<string, StashedDraft[]>, taking?: string): void {
-  // The stacks used longest ago go once there are too many chats.
-  while (next.size > STASH_CHATS) next.delete(next.keys().next().value!);
-  stacks = next;
+/// Removes `chat`'s entry, its chips too when `chips` (a take keeps them for `stashedChips`).
+function remove(store: Storage, chat: string, entry: StashedDraft, chips: boolean): void {
+  store.removeItem(entryKey(chat, entry.id));
+  if (chips && entry.held) void chipStore.drop(entry.id).catch(() => undefined);
+}
+
+/// Lets the oldest go: drafts past `STASH_LIMIT` in `chat`, and the stacks used longest ago past
+/// `STASH_CHATS`.
+function trim(store: Storage, chat: string): void {
+  const all = storedStacks(store);
+  for (const entry of (all.get(chat) ?? []).slice(STASH_LIMIT)) remove(store, chat, entry, true);
+  const byUse = [...all].sort(([, a], [, b]) => (b[0]?.at ?? 0) - (a[0]?.at ?? 0));
+  for (const [old, list] of byUse.slice(STASH_CHATS)) for (const entry of list) remove(store, old, entry, true);
+}
+
+/// Writes `entry` under `chat`; whether it was kept.
+function write(store: Storage, chat: string, entry: StashedDraft): boolean {
   try {
-    storage()?.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(next)));
+    store.setItem(entryKey(chat, entry.id), JSON.stringify(entry));
+    return true;
   } catch {
-    // Full or unavailable: this page's copy still holds them.
+    return false;
   }
-  const kept = idsOf(next);
-  for (const list of before.values())
-    for (const entry of list)
-      if (entry.held && entry.id !== taking && !kept.has(entry.id))
-        void chipStore.drop(entry.id).catch(() => undefined);
-  emit();
 }
 
 let serial = 0;
+const newId = () =>
+  `stash-${Date.now().toString(36)}-${(serial++).toString(36).padStart(6, "0")}-${Math.random().toString(36).slice(2, 8)}`;
 
-/// Puts `draft` on top of `chat`'s stack. Nothing is stashed for an empty draft, nor when a large
-/// draft's chips cannot be kept (no IndexedDB): the prompt keeps the draft then. Resolves to
-/// whether it was stashed; a draft that needs no chip store is stashed before this returns.
+/// Puts `draft` on top of `chat`'s stack. Nothing is stashed for an empty draft, nor when it
+/// cannot be kept (no localStorage, a full one, a large draft's chips with no IndexedDB): the
+/// prompt keeps the draft then. Whether it was stashed; a draft that needs no chip store is
+/// stashed before this returns.
 export function stashDraft(
   chat: string,
   text: string,
@@ -155,21 +182,17 @@ export function stashDraft(
 ): Promise<boolean> | boolean {
   if (!text.trim() && attachments.length === 0) return false;
   load();
-  const full: StashedDraft = {
-    id: `stash-${Date.now().toString(36)}-${(serial++).toString(36)}`,
-    text,
-    attachments: [...attachments],
-    at: Date.now(),
-  };
+  const store = storage();
+  if (!store) return false;
+  const full: StashedDraft = { id: newId(), text, attachments: [...attachments], at: Date.now() };
   const entry = storedEntry(full);
   const push = () => {
-    const before = read();
-    const next = new Map(before);
-    const list = [entry, ...(next.get(chat) ?? NONE)].slice(0, STASH_LIMIT);
-    // Most recently used last, so the oldest key is the one to let go.
-    next.delete(chat);
-    next.set(chat, list);
-    save(before, next);
+    if (!write(store, chat, entry)) {
+      if (entry.held) void chipStore.drop(entry.id).catch(() => undefined);
+      return false;
+    }
+    trim(store, chat);
+    refresh();
     return true;
   };
   if (!entry.held) return push();
@@ -180,15 +203,13 @@ export function stashDraft(
 /// Its chips come from `stashedChips`.
 export function takeStashed(chat: string, id?: string): StashedDraft | undefined {
   load();
-  const before = read();
-  const list = before.get(chat) ?? NONE;
+  const store = storage();
+  if (!store) return undefined;
+  const list = storedStacks(store).get(chat) ?? NONE;
   const entry = id === undefined ? list[0] : list.find((candidate) => candidate.id === id);
   if (!entry) return undefined;
-  const next = new Map(before);
-  const rest = list.filter((candidate) => candidate.id !== entry.id);
-  if (rest.length) next.set(chat, [...rest]);
-  else next.delete(chat);
-  save(before, next, entry.id);
+  remove(store, chat, entry, false);
+  refresh();
   return entry;
 }
 
@@ -212,16 +233,17 @@ export function dropStashed(chat: string, id: string): void {
   if (entry?.held) void chipStore.drop(entry.id).catch(() => undefined);
 }
 
-/// A new chat's stack follows it once it has a session.
+/// A new chat's stack follows it once it has a session: each entry is written under the session
+/// before it leaves the new chat's, so a failed write leaves it where it was.
 export function moveStash(from: string, to: string): void {
   load();
-  const before = read();
-  const list = before.get(from);
-  if (!list || from === to) return;
-  const next = new Map(before);
-  next.delete(from);
-  next.set(to, [...list, ...(next.get(to) ?? NONE)].slice(0, STASH_LIMIT));
-  save(before, next);
+  const store = storage();
+  if (!store || from === to) return;
+  const list = storedStacks(store).get(from);
+  if (!list) return;
+  for (const entry of list) if (write(store, to, entry)) store.removeItem(entryKey(from, entry.id));
+  trim(store, to);
+  refresh();
 }
 
 const subscribe = (listener: () => void) => {

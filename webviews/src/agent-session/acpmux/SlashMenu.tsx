@@ -61,7 +61,9 @@ export function SlashMenu({
                 ? t("composer.slashSkill")
                 : match.command.source === "prompt"
                   ? t("composer.slashPrompt")
-                  : "cmux"}
+                  : match.command.source === "saved"
+                    ? t("composer.slashSaved")
+                    : "cmux"}
             </span>
           )}
           <span className="acpmux-slash-description">

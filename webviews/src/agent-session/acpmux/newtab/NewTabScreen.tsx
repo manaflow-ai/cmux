@@ -115,6 +115,7 @@ import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
+import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts } from "../savedPrompts";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import {
   applyCommand,
@@ -842,9 +843,19 @@ export function NewTabScreen(props: Props) {
   // Shell mode's text is a command line, where a `/` starts a path.
   const commandAt = shell ? undefined : commandTrigger;
   const commandQuery = commandAt?.query;
+  // The person's saved prompts (savedPrompts.ts) first, as in the chat composer; read again as the list opens.
+  const savedPrompts = useSavedPrompts();
+  const menuCommands = useMemo(
+    () => [...savedPromptCommands(savedPrompts), ...(snapshot.commands ?? [])],
+    [savedPrompts, snapshot.commands],
+  );
+  const commandOpening = commandAt !== undefined;
+  useEffect(() => {
+    if (commandOpening) void refreshSavedPrompts();
+  }, [commandOpening]);
   const commandMatches = useMemo(
-    () => (commandAt ? slashMatches(snapshot.commands ?? [], commandAt) : []),
-    [commandAt, snapshot.commands],
+    () => (commandAt ? slashMatches(menuCommands, commandAt) : []),
+    [commandAt, menuCommands],
   );
   // An Escape (the person's, or the one the host sends as its list closes, ui/popupHost.ts) hides the
   // list for the text it was pressed on only: any edit forgets it, a cleared draft too, so the same
@@ -866,6 +877,24 @@ export function NewTabScreen(props: Props) {
   const onCommands = props.onCommands;
   const pickCommand = (command: SlashCommand) => {
     setCommandActive(0);
+    // A saved prompt's text, its variables filled, goes over the typed `/word`; the first one left
+    // open is selected for the person to type.
+    if (command.source === "saved") {
+      const filled = fillPrompt(command.body ?? "", { cwd: chatFolder });
+      const plain = field.current?.text();
+      if (plain && commandAt) {
+        const end = plain.selectionStart;
+        const start = Math.max(0, end - commandAt.length);
+        const [from, to] = filled.open ?? [filled.text.length, filled.text.length];
+        field.current?.writeText(
+          plain.value.slice(0, start) + filled.text + plain.value.slice(end),
+          start + from,
+          start + to,
+        );
+      } else setText(filled.text);
+      requestAnimationFrame(() => field.current?.focus());
+      return;
+    }
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
     if (command.name.length > 1 && command.name.startsWith("$")) pickedSkills.current.add(shownName(command));
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.

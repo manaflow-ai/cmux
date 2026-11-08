@@ -172,8 +172,9 @@ import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts }
 /// How long after a send the Stop button that replaces Send ignores clicks.
 const STOP_GUARD_MS = 600;
 
-/// The stash of a chat that has no session yet; it moves to the session once there is one.
-const NEW_CHAT_STASH = "new";
+/// The stash of a chat that has no session yet, one per composer (the stacks are shared by every
+/// pane); it moves to the session once there is one.
+const newChatStash = () => `new-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
 /// How often at most a new chat's text goes to the host while the person types (`onUnsentDraft`).
 const UNSENT_DRAFT_INTERVAL_MS = 300;
 /// A field change this soon after the person's key, text input or composition is their edit.
@@ -893,7 +894,8 @@ function ComposerFrame({
   // Stash (composer/draftStash.ts): ⌃S puts the draft aside and empties the prompt; ⌃S on an empty
   // prompt, or a pick from the Stashed chip, brings the newest (or the picked) one back. A draft
   // typed meanwhile goes on the stack in its place, so nothing typed is ever replaced.
-  const stashChat = sessionId ?? NEW_CHAT_STASH;
+  const [newChatKey] = useState(newChatStash);
+  const stashChat = sessionId ?? newChatKey;
   const stashed = useStash(stashChat);
   const heldDraft = () => ({
     text: field.current?.value() ?? textRef.current,
@@ -944,9 +946,9 @@ function ComposerFrame({
   // A new chat's stack follows it to its session.
   const stashedFor = useRef(sessionId);
   useEffect(() => {
-    if (!stashedFor.current && sessionId) moveStash(NEW_CHAT_STASH, sessionId);
+    if (!stashedFor.current && sessionId) moveStash(newChatKey, sessionId);
     stashedFor.current = sessionId;
-  }, [sessionId]);
+  }, [sessionId, newChatKey]);
   useImperativeHandle(
     handle,
     () => ({
@@ -1859,7 +1861,10 @@ function ComposerFrame({
     // ⌃S stashes the draft; on an empty prompt it brings the newest stashed one back.
     if (event.key === "s" && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !shell) {
       event.preventDefault();
-      if (!stashNow()) unstash();
+      const held = heldDraft();
+      // A draft that could not be stashed stays in the prompt; only an empty one brings one back.
+      if (held.text.trim() || held.attachments.length) stashNow();
+      else unstash();
       return;
     }
     // Tab takes the suggested prompt into the field; the next Tab moves focus on as usual. Esc puts
