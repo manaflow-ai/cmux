@@ -228,11 +228,15 @@ pub fn probe(path: &Path) -> io::Result<Probe> {
         if !lock(&file, libc::LOCK_SH)? {
             // Syncing; past its head when its producer let go of the head lock. An
             // outer folder still syncing short of its head wins below.
-            if head_in_place(folder)? {
-                head_only = true;
-                continue;
+            match syncing_state(folder, &file)? {
+                Syncing::PastHead => {
+                    head_only = true;
+                    continue;
+                }
+                Syncing::ShortOfHead => return Ok(Probe::Syncing),
+                // The producer ended between the two reads: its byte says how.
+                Syncing::Ended => {}
             }
-            return Ok(Probe::Syncing);
         }
         let mut ready = [0];
         if file.read(&mut ready)? != 1 || ready[0] != b'1' {
@@ -246,16 +250,52 @@ pub fn probe(path: &Path) -> io::Result<Probe> {
     Ok(Probe::Ready(Ready(held)))
 }
 
-/// Whether a syncing folder's producer said its head is in place: its head lock is free.
-fn head_in_place(folder: &Path) -> io::Result<bool> {
+enum Syncing {
+    PastHead,
+    ShortOfHead,
+    /// The marker's lock came free: no producer holds it now, and the caller holds it shared.
+    Ended,
+}
+
+/// A folder whose marker was locked: whether its producer is past its head. The head lock is
+/// taken shared first and kept for this call, so no new producer can begin meanwhile
+/// ([`Sync::begin`] takes it first); then the marker is tried again. Still locked: the same
+/// producer is alive, and it released the head lock, so its head is in place. Free: it ended
+/// (a failed one drops both locks at once), and only the marker's byte may say ready.
+fn syncing_state(folder: &Path, marker: &File) -> io::Result<Syncing> {
     let head = match open(&head_marker(folder)?, false) {
         Ok(head) => head,
         // A producer from before head locks: it never marks a head.
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Syncing::ShortOfHead),
         Err(error) => return Err(error),
     };
     // Released when `head` closes at the end of this call.
-    lock(&head, libc::LOCK_SH)
+    if !lock(&head, libc::LOCK_SH)? {
+        return Ok(Syncing::ShortOfHead);
+    }
+    if lock(marker, libc::LOCK_SH)? { Ok(Syncing::Ended) } else { Ok(Syncing::PastHead) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The window review F1 (cmux#38084, 8843ee22f76) found: the reader saw the marker locked,
+    /// then the producer failed and dropped both locks. The head lock is free now, but the
+    /// producer never marked its head, so the folder is not past its head.
+    #[test]
+    fn a_producer_that_failed_between_the_reads_is_never_past_its_head() {
+        let dir = std::env::temp_dir().join(format!("cmux-sync-unit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = dir.canonicalize().unwrap().join("repo");
+        let sync = Sync::begin(&repo).unwrap();
+        let marker = open(&marker(&repo).unwrap(), false).unwrap();
+        assert!(!lock(&marker, libc::LOCK_SH).unwrap(), "the reader sees the marker locked");
+        drop(sync);
+        assert!(matches!(syncing_state(&repo, &marker).unwrap(), Syncing::Ended));
+        assert!(matches!(probe(&repo).unwrap(), Probe::Incomplete));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 impl Drop for Ready {
