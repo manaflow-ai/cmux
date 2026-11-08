@@ -310,10 +310,16 @@ async fn open_desktop(
     {
         Ok(Ok(stream)) => Ok(stream),
         Ok(Err(BridgeError::Rejected(why))) => Err(Failure::fatal(contract::Step::Service, why)),
-        Ok(Err(error)) => Err(Failure::fatal(
-            contract::Step::Relay,
-            format!("the session ended before the desktop opened: {error}"),
-        )),
+        Ok(Err(error)) => {
+            let detail = format!("the session ended before the desktop opened: {error}");
+            // The session host restarted after the session's first stream
+            // opened and no longer has it: the dial opens a fresh one.
+            Err(if multiplexer.session_unavailable() {
+                Failure::session_gone(contract::Step::Relay, detail)
+            } else {
+                Failure::fatal(contract::Step::Relay, detail)
+            })
+        }
         Err(_) => Err(Failure::fatal(
             contract::Step::Relay,
             "the desktop did not open before the deadline",
@@ -426,22 +432,33 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 }
             }),
         };
-        let dialed = client::dial(&plan, jitter).await;
         // The desktop opens its stream before the reply, so a refusal (not
         // the owner, no desktop on the machine) is the dial's answer. The
-        // open stays inside the dial's one deadline.
-        let (dialed, desktop) = match (dialed, args.service) {
-            (Ok(dialed), DialService::Desktop) => {
-                match open_desktop(&dialed.multiplexer, plan.deadline).await {
-                    Ok(stream) => (Ok(dialed), Some(stream)),
-                    Err(failure) => {
-                        dialed.multiplexer.shutdown().await;
-                        let _ = dialed.connection.close().await;
-                        (Err(failure), None)
+        // open stays inside the dial's one deadline. A session the host lost
+        // before the desktop opened is dialed fresh, at most
+        // `MAX_FRESH_SESSIONS` times.
+        let mut fresh_sessions = 0_u32;
+        let (dialed, desktop) = loop {
+            let dialed = client::dial(&plan, jitter).await;
+            match (dialed, args.service) {
+                (Ok(dialed), DialService::Desktop) => {
+                    match open_desktop(&dialed.multiplexer, plan.deadline).await {
+                        Ok(stream) => break (Ok(dialed), Some(stream)),
+                        Err(failure) => {
+                            dialed.multiplexer.shutdown().await;
+                            let _ = dialed.connection.close().await;
+                            if failure.fresh_session
+                                && fresh_sessions < contract::MAX_FRESH_SESSIONS
+                            {
+                                fresh_sessions += 1;
+                                continue;
+                            }
+                            break (Err(failure), None);
+                        }
                     }
                 }
+                (dialed, _) => break (dialed, None),
             }
-            (dialed, _) => (dialed, None),
         };
         let code = match &dialed {
             Ok(dialed) => {
