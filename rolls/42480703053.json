@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42480703053",
+  "recorded_at": "2026-11-08T12:40:40Z",
+  "reason": "cmux-tui d383f8521627 changes the image's cmux-tui (pinned 2fd0caccf0f0)",
+  "dry_run": false,
+  "cmux_tui": "d383f85216277cc8120f97b9c0ed8e12faaf7ed9",
+  "fixes": [
+    {
+      "sha": "d383f85216277cc8120f97b9c0ed8e12faaf7ed9",
+      "mergedAt": "2026-11-08T04:16:03-08:00",
+      "subject": "acpmux: a chat's media reader opens its stored uploads; upload tests read #38190's store (#38362)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T12:40:40Z",
+    "snapshot_id": "sh-c88ac5a675c14400876a9d190cbdba3a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42480703053): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a2853b3bf6ab98b5b9ea07b6c33a8eb61dc04c4c",
+    "image": "cloud-native-auto-d383f852-42480703053-1",
+    "revision": "ci-42480703053-1",
+    "at": "2026-11-08T12:40:40Z"
+  },
+  "rolled_back": false
+}
