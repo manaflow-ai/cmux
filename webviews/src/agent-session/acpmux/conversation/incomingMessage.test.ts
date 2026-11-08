@@ -60,7 +60,8 @@ test("a report whose sender acpmux recorded by name is that agent's, from the ma
   const named = { kind: "agent_message", from: "fromAgent", fromName: "codex-lane", to: "s-1" };
   expect(incomingPrompt("#24927 merged.", { _meta: { provenance: named }, client: "acpmux-peer#01a16e" })).toEqual({
     kind: "message",
-    message: { name: "codex-lane", remote: true, text: "#24927 merged.", raw: "#24927 merged." },
+    // It only named itself: the line marks it unverified (senderIdentity.ts).
+    message: { name: "codex-lane", remote: true, text: "#24927 merged.", raw: "#24927 merged.", unverified: true },
   });
   // The same record with no sender is the person's.
   expect(incomingPrompt("#24927 merged.", { client: "acpmux-peer#01a16e" })).toBeUndefined();
@@ -982,9 +983,11 @@ test("a plain send from a Codex or Claude Code shell is that agent's message, wi
     fromHarness: "codex",
   };
   const text = "Message from an audit agent: scope corrected.";
+  // Its name and harness are only its own word (prompt_provenance.rs `named_sender`, verified
+  // false): the line marks it unverified, as any sender that only named itself.
   expect(incomingPrompt(text, { _meta: { provenance: sent }, client: "acpmux-cli#01a2f3@workstation" })).toEqual({
     kind: "message",
-    message: { name: "codex@workstation", harness: "codex", text, raw: text },
+    message: { name: "codex@workstation", harness: "codex", unverified: true, text, raw: text },
   });
 });
 
@@ -1032,4 +1035,28 @@ test("a record with no provenance and no origin keeps the person's bubble, with 
   // Every person's prompt before acpmux's `_meta.origin` mark was recorded so: it stays theirs.
   expect(incomingPrompt("rebase first", {})).toBeUndefined();
   expect(incomingPrompt("rebase first", { _meta: {} })).toBeUndefined();
+});
+
+test("a relayed or session-stamped sender with no sender record is verified, as acpmux reads it", () => {
+  // Review of cmux#37653: a direct transcript record carries the daemon's own proof (a relay's
+  // `fromRelay`, a proven session's `fromSessionId`, prompt_provenance.rs `sender_record_with_auth`)
+  // but no `sender` projection; it is no sender that only named itself.
+  const relayed = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "vm-1/lane",
+    to: "s-1",
+    fromRelay: { by: "lane-gh", machine: "vm-1", session: "lane" },
+    fromHarness: "codex",
+  };
+  const text = "Merged the fix.";
+  const relayedPrompt = incomingPrompt(text, { _meta: { provenance: relayed } });
+  expect(relayedPrompt?.kind === "message" && relayedPrompt.message.unverified).toBeFalsy();
+  const stamped = { kind: "agent_message", from: "fromAgent", fromName: "lane-a", to: "s-1", fromSessionId: "s-9" };
+  const stampedPrompt = incomingPrompt(text, { _meta: { provenance: stamped } });
+  expect(stampedPrompt?.kind === "message" && stampedPrompt.message.unverified).toBeFalsy();
+  // A relay record that is no relay's (no machine) proves nothing: still the sender's own word.
+  const forged = { ...relayed, fromRelay: { by: "lane-gh" } };
+  const forgedPrompt = incomingPrompt(text, { _meta: { provenance: forged } });
+  expect(forgedPrompt?.kind === "message" && forgedPrompt.message.unverified).toBe(true);
 });

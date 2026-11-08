@@ -1879,10 +1879,14 @@ export default agentPaneEntry({
       play: async (ctx) => {
         // It waits as its own line; with others it waits in their one collapsed group (PendingMessagesCard.tsx).
         if (ctx.document.querySelector(".cv-pending__toggle")) await ctx.click({ selector: ".cv-pending__toggle" });
-        await ctx.waitFor(() => ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle'));
-        await ctx.click({ selector: '[data-queued-message="q1"] .cv-disclosure__toggle' });
         await ctx.waitFor(() =>
-          ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle[aria-expanded="true"]'),
+          ctx.document.querySelector('[data-queued-message="q1"] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)'),
+        );
+        await ctx.click({ selector: '[data-queued-message="q1"] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)' });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(
+            '[data-queued-message="q1"] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)[aria-expanded="true"]',
+          ),
         );
       },
     },

@@ -52,6 +52,8 @@ mod pending;
 mod delivery_tests;
 #[cfg(test)]
 mod repo_sync_tests;
+#[cfg(test)]
+mod review_policy_tests;
 
 impl Hub {
     // ------------------------------------------------------------- inbound
@@ -350,7 +352,9 @@ impl Hub {
                 }
             }
             "tool_call" | "tool_call_update" => {
-                super::pull_requests::absorb(session, update, &mut m);
+                if let Some(url) = super::pull_requests::absorb(session, update, &mut m) {
+                    self.ledger.note_pull_request(&session.id, &url);
+                }
                 super::touched::absorb(session, update, &mut m, replayed);
                 super::lineage::note_tool_call(session, update);
             }
@@ -405,6 +409,11 @@ impl Hub {
                     if !title.is_empty() {
                         m.title = Some(title.to_owned());
                         m.title_source = Some(super::titles::HARNESS.to_owned());
+                        // The ledger's copy (one map entry; a line only when a field changed).
+                        self.ledger.note_session_info(
+                            &session.id,
+                            super::ledger::TurnContext::of(&m).info,
+                        );
                     }
                 }
                 // Claude Code's /context breakdown, sent after each turn (`claude_stdio`). It comes
@@ -860,8 +869,10 @@ impl Hub {
         // program could be one the agent wrote.
         let reads_policy = {
             let cfg = self.config.read().await;
-            capped_policy(Self::stored_policy_for(session, cfg.permission_policy), off.off())
-                == PermissionPolicy::ApproveReads
+            matches!(
+                capped_policy(Self::stored_policy_for(session, cfg.permission_policy), off.off()),
+                PermissionPolicy::ApproveReads | PermissionPolicy::Review
+            )
         };
         // Judged in the environment the harness runs it with: the daemon's, the allow-listed
         // login values, then the env its agent was started with (`ensure_child`). An agent this
@@ -958,7 +969,9 @@ impl Hub {
                 None => match policy {
                     PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
                     PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
-                    PermissionPolicy::ApproveReads | PermissionPolicy::ApproveEdits => {
+                    PermissionPolicy::ApproveReads
+                    | PermissionPolicy::ApproveEdits
+                    | PermissionPolicy::Review => {
                         let edits = policy == PermissionPolicy::ApproveEdits;
                         if matches!(tool_kind, "read" | "search" | "fetch" | "think")
                             || (edits && tool_kind == "edit")
@@ -966,7 +979,10 @@ impl Hub {
                             pick(&["allow_once", "allow_always"])
                         } else if tool_kind == "execute"
                             && shell_reads
-                            && policy == PermissionPolicy::ApproveReads
+                            && matches!(
+                                policy,
+                                PermissionPolicy::ApproveReads | PermissionPolicy::Review
+                            )
                         {
                             // Judged under approve-reads before the lock; the policy read here
                             // must still be it.
@@ -980,8 +996,16 @@ impl Hub {
                     PermissionPolicy::Ask => None,
                 },
             };
+            // Review denies at once what approve-reads would leave to the person (a write, a
+            // command that does not only read), so a reviewer never waits on a prompt; a question
+            // still goes to the person, and a rule still decides first.
+            let review_refuses = policy == PermissionPolicy::Review
+                && rule.is_none()
+                && auto.is_none()
+                && !needs_person;
             let denied = policy == PermissionPolicy::DenyAll
-                || rule == Some(super::rules::RuleDecision::Deny);
+                || rule == Some(super::rules::RuleDecision::Deny)
+                || review_refuses;
             // The chat allowance never answers in a Web turn, nor what an `ask` rule sends to the person.
             let chat_option = if state.chat_allowed
                 && !denied

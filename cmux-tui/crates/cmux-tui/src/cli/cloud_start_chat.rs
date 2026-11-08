@@ -534,9 +534,11 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     words.join(" ")
 }
 
-/// One word for a POSIX shell.
+/// One word for a POSIX shell. A word that starts with `=` is quoted too:
+/// zsh expands a bare `=name` to the path of `name`.
 pub(super) fn shell_quote(text: &str) -> String {
     if !text.is_empty()
+        && !text.starts_with('=')
         && text.chars().all(|ch| ch.is_ascii_alphanumeric() || "-_./:@=+,".contains(ch))
     {
         return text.to_owned();
