@@ -31,7 +31,7 @@ on:
     paths:
       # What a gallery render reads, and nothing else (2026-11-05 CI audit, cmuxterm-hq
       # plans/ci/baggage-2026-11-05.md): the webviews UI sources and the gallery's own build, the
-      # files outside webviews/ they import or read (galleryHost.ts, gen-strings.mjs, uiFont.ts),
+      # files outside webviews/ they import or read (galleryHost.ts, gen-strings.mjs),
       # the lockfiles of both installs, the checker and this workflow. webviews/test, webviews/bench,
       # the other webviews scripts and the repository's root bun.lock render nothing here.
       # Scripts are listed file by file, not by folder: the build scripts the gallery build runs or
@@ -103,7 +103,6 @@ on:
       - "Resources/cmux-themes/**"
       - "Resources/markdown-viewer/**"
       - "Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/**"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/**"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.xcstrings"
@@ -190,7 +189,6 @@ on:
       - "Resources/cmux-themes/**"
       - "Resources/markdown-viewer/**"
       - "Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/**"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/**"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.xcstrings"

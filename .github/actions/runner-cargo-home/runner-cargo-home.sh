@@ -14,14 +14,16 @@
 # The home is <runner>/_work/.cargo-home: it persists between this runner's jobs,
 # and the hosts' idle-runner eviction skips dot names in _work. The rustup home
 # and the toolchains stay shared; the toolchain is on PATH by its own bin dir.
-# Ephemeral and single-runner hosts, and a job that sets CARGO_HOME itself, keep
-# their CARGO_HOME.
+# Ephemeral and single-runner hosts, and a job that sets CARGO_HOME itself to
+# anything but $HOME/.cargo, keep their CARGO_HOME.
 set -euo pipefail
 
 : "${GITHUB_ENV:?GITHUB_ENV is required}"
 : "${GITHUB_PATH:?GITHUB_PATH is required}"
 
-if [[ -n "${CARGO_HOME:-}" ]]; then
+# dtolnay/rust-toolchain writes CARGO_HOME=$HOME/.cargo to GITHUB_ENV: that is
+# the shared home, not a home of the job's own, so it does not count.
+if [[ -n "${CARGO_HOME:-}" && "${CARGO_HOME%/}" != "${HOME%/}/.cargo" ]]; then
   echo "CARGO_HOME is set by the job ($CARGO_HOME); it is kept"
   exit 0
 fi
