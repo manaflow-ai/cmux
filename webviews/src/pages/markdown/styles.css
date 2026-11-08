@@ -83,8 +83,12 @@ body {
   font-size: var(--cmux-md-ui-font-size);
 }
 
+/* The page's selection color is where the shared fit starts (ui/adaptiveSelection.ts). */
+:root {
+  --cmux-selection-base: var(--cmux-md-selection-color);
+}
 ::selection {
-  background: var(--cmux-md-selection-color);
+  background: var(--cmux-selection-fill, var(--cmux-md-selection-color));
 }
 
 .md-page {

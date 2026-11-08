@@ -113,6 +113,9 @@
     "credential.mint",
     "credential.rotate",
     "credential.verify",
+    "diff.comments.delete",
+    "diff.comments.list",
+    "diff.comments.save",
     "frontend_projection.get",
     "frontend_projection.put",
     "git.branches",
@@ -131,6 +134,7 @@
     "git.worktree.apply",
     "git.worktree.create",
     "git.worktree.remove",
+    "git.worktree.setup",
     "history.backups.purge",
     "history.clear",
     "history.entries.list",
@@ -157,6 +161,7 @@
     "origin.confirmation.issue",
     "pairing_request.list",
     "pairing_request.resolve",
+    "palette.rank",
     "palette_usage.forget",
     "palette_usage.get",
     "palette_usage.hide",
@@ -702,6 +707,12 @@
     },
     {
       "name": "history-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "stash-changed",
       "streams": [
         "subscribe"
       ]

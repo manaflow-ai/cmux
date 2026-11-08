@@ -7,6 +7,7 @@
         "args": {
           "agent": "claude",
           "cwd": "/home/cmux/w",
+          "login": "none",
           "prompt": "What is 2+2?",
           "promptId": "p-1"
         },
@@ -2188,6 +2189,8 @@
       "params": {
         "action": "share chat",
         "args": {
+          "role": "talk",
+          "signedInRole": "talk",
           "surface": "1",
           "ttl": "/tmp/contract",
           "uses": "1"
@@ -2195,7 +2198,7 @@
         "cli": true,
         "wait": true
       },
-      "source": "cmux share chat --surface 1 --ttl /tmp/contract --uses 1"
+      "source": "cmux share chat --surface 1 --ttl /tmp/contract --uses 1 --role talk --signed-in-role talk"
     },
     {
       "params": {
@@ -2326,6 +2329,7 @@
         "args": {
           "bootstrap": "/tmp/contract",
           "bootstrapScript": "/tmp/contract",
+          "environment": "/tmp/contract",
           "machineConfig": "/tmp/contract",
           "name": "/tmp/contract",
           "persistent": true,
@@ -2335,7 +2339,7 @@
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud new-machine --name /tmp/contract --size /tmp/contract --persistent --bootstrap /tmp/contract --bootstrap-script /tmp/contract --machine-config /tmp/contract --repo /tmp/contract"
+      "source": "cmux cloud new-machine --name /tmp/contract --size /tmp/contract --persistent --bootstrap /tmp/contract --bootstrap-script /tmp/contract --machine-config /tmp/contract --repo /tmp/contract --environment /tmp/contract"
     },
     {
       "params": {
@@ -2915,13 +2919,14 @@
         "args": {
           "agent": "/tmp/contract",
           "cwd": "/tmp/contract",
+          "login": "/tmp/contract",
           "prompt": "/tmp/contract",
           "promptId": "/tmp/contract"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud relay-chat --agent /tmp/contract --prompt /tmp/contract --cwd /tmp/contract --prompt-id /tmp/contract"
+      "source": "cmux cloud relay-chat --agent /tmp/contract --prompt /tmp/contract --cwd /tmp/contract --prompt-id /tmp/contract --login /tmp/contract"
     },
     {
       "params": {

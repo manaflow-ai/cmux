@@ -303,7 +303,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
             lightsMaxX = local.maxX
-            midY = local.midY
+            midY = WindowTitlebar.topRowLine(in: window).map { bounds.maxY - $0.centerY } ?? local.midY
         }
         let presence = toolbarBandPresence
         let bandHeight = TitlebarBandButton.side

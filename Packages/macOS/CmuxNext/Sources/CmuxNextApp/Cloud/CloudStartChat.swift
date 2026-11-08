@@ -65,9 +65,9 @@ struct CloudStartChat {
             let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
             services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public)")
-            // A failure a retry can help (the machine didn't connect, a copy that timed out): the card's Retry
-            // sends the same prompt again, which the page keys as this start (cloudRun.ts `cloudStartKeys`).
-            return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: (error as? CloudMove.Failure)?.retry != nil, origin: "native")
+            // A failure a retry can help (the machine didn't connect, a copy that timed out) gets the card's Retry (cloudRun.ts
+            // `cloudStartKeys`); a plan refusal keeps its own code, so the card offers Upgrade or This Mac (CloudStartView).
+            return AgentPaneReply.failure(code: CloudMachineCreation.proRefusal(error) == nil ? "cloud_start_failed" : "cloud_plan_required", message: message, details: nil, retryable: (error as? CloudMove.Failure)?.retry != nil, origin: "native")
         }
     }
 

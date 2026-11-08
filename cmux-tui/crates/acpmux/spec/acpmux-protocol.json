@@ -754,6 +754,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine_info",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/session_files",
       "params": true,
       "result": true
@@ -1042,6 +1048,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/uploads_keep",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/dispatch",
       "params": true,
       "result": true
@@ -1263,6 +1275,12 @@
     {
       "kind": "request",
       "name": "_acpmux/secret_run",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/elevation_request",
       "params": true,
       "result": true
     },
@@ -1993,6 +2011,7 @@
         "cliHost": true,
         "compression": true,
         "context": true,
+        "createdBy": true,
         "cwd": true,
         "decisionNonce": true,
         "disallowedTools": true,
@@ -2038,6 +2057,8 @@
         "requireFullAccess": true,
         "resend": true,
         "route": true,
+        "senderHarness": true,
+        "senderHarnessChecked": true,
         "spawnToolCallId": true,
         "startLater": true,
         "steer": true,
@@ -2575,6 +2596,51 @@
       ],
       "type": "string"
     },
+    "CreatedBy": {
+      "description": "Who created a session (`hub/created_by.rs`), the shape cmux-tui's\n`workspace.create {created_by}` takes.",
+      "properties": {
+        "kind": {
+          "$ref": "#/types/CreatorKind"
+        },
+        "session": {
+          "description": "The acpmux session whose agent created it; only for `agent`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "workspace": {
+          "description": "The cmux workspace it was created from (lowercase UUID): the agent session's\nworkspace for an agent, else the one the create named.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "CreatorKind": {
+      "oneOf": [
+        {
+          "const": "person",
+          "description": "This host's app, or a connection that proved it is the person.",
+          "type": "string"
+        },
+        {
+          "const": "agent",
+          "description": "An agent session: its shell's `acpmux new` (a proven caller token) or its\n`start_session` tool.",
+          "type": "string"
+        },
+        {
+          "const": "script",
+          "description": "Any other client: a script or the CLI outside a chat.",
+          "type": "string"
+        }
+      ]
+    },
     "DeliveryReceipt": {
       "properties": {
         "messageId": {
@@ -2813,6 +2879,13 @@
         },
         "sessionId": {
           "type": "string"
+        },
+        "subagent": {
+          "description": "Only this subagent's own records: the updates acpmux tagged with it and those that start\nor change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -4411,8 +4484,15 @@
     "QueuedAuthor": {
       "description": "The person who queued a prompt in a shared chat.",
       "properties": {
+        "avatar": {
+          "description": "Their profile picture (`_meta.provenance` `fromAvatar`, an `https://` URL), left out when\nthey have none (and from an older acpmux).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
-          "description": "`tailnet:<login>` or `user_…`.",
+          "description": "`tailnet:<login>`, `user_…` or `guest:<share>.<guest>`.",
           "type": "string"
         },
         "name": {
@@ -4525,11 +4605,19 @@
           },
           "type": "array"
         },
+        "inboxNotice": {
+          "default": null,
+          "description": "acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,\n`hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the\nmessages it carries and never as the person's queued prompt, also when it has not read\nits `queued` record (a chat reopened on a recent page). Null for any other prompt, and\nonce edited (an edit drops the provenance)."
+        },
         "prompt": {
           "type": "string"
         },
         "promptId": {
           "type": "string"
+        },
+        "provenance": {
+          "default": null,
+          "description": "Its `_meta.provenance` when it names a sender that is no agent's to act on: another agent's\nmessage the person edited (`editedBy`, still that agent's words to read) or a prompt no\nproof attributes (`unverified`). An app draws its card from it while `fromAgent` is null.\nNull otherwise. Display only, never authority."
         },
         "queuedAt": {
           "format": "uint64",
@@ -4570,8 +4658,10 @@
         "held",
         "heldByStop",
         "images",
+        "inboxNotice",
         "prompt",
         "promptId",
+        "provenance",
         "queuedAt",
         "revision",
         "subagentRetry",
@@ -5035,6 +5125,18 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "createdBy": {
+          "anyOf": [
+            {
+              "$ref": "#/types/CreatedBy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
         },
         "currentModeId": {
           "type": [
@@ -5656,6 +5758,18 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "createdBy": {
+          "anyOf": [
+            {
+              "$ref": "#/types/CreatedBy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
         },
         "currentModeId": {
           "type": [

@@ -489,6 +489,83 @@ where
     pump_client(stream, reader, writer).await
 }
 
+/// Opens one [`Service::TcpTunnel`] stream to `route` and copies bytes
+/// between it and `reader` / `writer`, the way an ssh `ProxyCommand` needs:
+/// EOF on `reader` half-closes the stream and the remote side keeps sending,
+/// and the call returns once the remote closes, without waiting for more
+/// local input. Every chunk is flushed, so a buffered `writer` (stdout)
+/// never holds a protocol message back. A remote reset is an error.
+pub async fn dial_tcp_route<R, W>(
+    multiplexer: &Arc<ServiceMultiplexer>,
+    route: RouteId,
+    mut local_reader: R,
+    mut local_writer: W,
+) -> Result<(), BridgeError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let metadata = BTreeMap::from([("route".to_owned(), route.0.to_string())]);
+    let stream = multiplexer.open(Service::TcpTunnel, metadata).await?;
+    if let Err(error) = await_opened(&stream).await {
+        let _ = stream.close().await;
+        return Err(error);
+    }
+    let remote = Arc::new(stream);
+    let upload = {
+        let remote = remote.clone();
+        async move {
+            let mut buffer = vec![0_u8; 32 * 1024];
+            loop {
+                let size = local_reader.read(&mut buffer).await?;
+                let Some(bytes) = buffer.get(..size).filter(|bytes| !bytes.is_empty()) else {
+                    remote.close().await?;
+                    break;
+                };
+                remote.send(Bytes::copy_from_slice(bytes)).await?;
+            }
+            Ok::<_, BridgeError>(())
+        }
+    };
+    let download = {
+        let remote = remote.clone();
+        async move {
+            while let Some(chunk) = remote.receive().await? {
+                if !chunk.payload.is_empty() {
+                    local_writer.write_all(&chunk.payload).await?;
+                    local_writer.flush().await?;
+                }
+                if chunk.reset {
+                    return Err(BridgeError::Rejected("the remote reset the connection".into()));
+                }
+                if chunk.finished {
+                    break;
+                }
+            }
+            local_writer.shutdown().await?;
+            Ok::<_, BridgeError>(())
+        }
+    };
+    tokio::pin!(upload);
+    tokio::pin!(download);
+    let failure = remote.wait_for_failure();
+    tokio::pin!(failure);
+    // Stops when the remote closes or fails; local EOF only ends the upload.
+    let mut uploading = true;
+    loop {
+        tokio::select! {
+            biased;
+            error = &mut failure => return Err(error.into()),
+            result = &mut download => return result,
+            result = &mut upload, if uploading => {
+                result?;
+                uploading = false;
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum BridgeError {
     Service(ServiceError),

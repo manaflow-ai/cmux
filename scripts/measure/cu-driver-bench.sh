@@ -385,15 +385,19 @@ if [[ "$suite" == route || "$suite" == bench-v2 || "$suite" == arena ]]; then
   [[ $answered == 1 ]] || { head -c 2000 "$out/route-probe.txt"; finish "the guest's claude -p did not answer through the route (route-probe.txt)"; exit 4; }
   note "the guest's Claude Code $cc_version answered through the route"
   if [[ "$suite" == arena && ",$harness," == *,codex:* ]]; then
-    # The pinned Codex, its native binary; its route is given per run on the command line (arena.py).
+    # The pinned Codex, its native binaries; its route is given per run on the command line (arena.py).
     codex_sum=$(pin arena codex sha256)
     codex_tgz="$lume_home/bin/codex-$codex_sum.tar.gz"
     if [[ "$(shasum -a 256 "$codex_tgz" 2>/dev/null | awk '{print $1}')" != "$codex_sum" ]]; then
       curl -fsSL --retry 3 -o "$codex_tgz.part" "$(pin arena codex url)" && mv "$codex_tgz.part" "$codex_tgz"
     fi
     [[ "$(shasum -a 256 "$codex_tgz" 2>/dev/null | awk '{print $1}')" == "$codex_sum" ]] || { rm -f "$codex_tgz"; finish "could not fetch the pinned Codex"; exit 4; }
-    tar -xzOf "$codex_tgz" "$(pin arena codex binary)" | guest 'cat >/opt/homebrew/bin/codex && chmod 755 /opt/homebrew/bin/codex && (codesign -v /opt/homebrew/bin/codex 2>/dev/null || codesign -s - -f /opt/homebrew/bin/codex)' ||
-      { finish "could not copy Codex into the guest"; exit 4; }
+    # codex finds its code-mode host next to itself, as npm lays them out.
+    for codex_bin in codex codex-code-mode-host; do
+      tar -xzOf "$codex_tgz" "$(pin arena codex bin_dir)/$codex_bin" |
+        guest "cat >/opt/homebrew/bin/$codex_bin && chmod 755 /opt/homebrew/bin/$codex_bin && (codesign -v /opt/homebrew/bin/$codex_bin 2>/dev/null || codesign -s - -f /opt/homebrew/bin/$codex_bin)" ||
+        { finish "could not copy $codex_bin into the guest"; exit 4; }
+    done
     setfact route codex "$(guest_n '/opt/homebrew/bin/codex --version' 2>/dev/null | head -1)"
   fi
   if [[ "$suite" == route ]]; then
@@ -427,8 +431,15 @@ finished=0
 # results still come back.
 deadline=$(( started_at + budget_s - 300 ))
 [[ "$suite" != arena ]] && (( deadline > $(date +%s) + 5400 )) && deadline=$(( $(date +%s) + 5400 ))
+# A progress line every 5 minutes: the guest's eval.log stays in the guest until it ends, and the
+# controller stops a measurement that prints nothing for 45 minutes (CMUX_CI_MEASURE_SILENT_MAX).
+next_progress=$(( $(date +%s) + 300 ))
 while (( $(date +%s) < deadline )); do
   guest_n 'test -f ~/cu-eval/eval.status' 2>/dev/null && { finished=1; break; }
+  if (( $(date +%s) >= next_progress )); then
+    next_progress=$(( $(date +%s) + 300 ))
+    note "still running: $(guest_n 'n=$(wc -l <~/cu-eval/artifacts/cu-driver-eval/arena/trials.jsonl 2>/dev/null || echo 0); echo "$n trials; $(tail -1 ~/cu-eval/eval.log 2>/dev/null | cut -c1-160)"' 2>/dev/null)"
+  fi
   sleep 10
 done
 guest_n 'cat ~/cu-eval/eval.log' >"$out/eval.log" 2>/dev/null

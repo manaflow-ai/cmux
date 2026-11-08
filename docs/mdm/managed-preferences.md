@@ -50,7 +50,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `tabs.swapCmdTAndCmdN` | boolean | `false` |  | Swap Cmd-T and Cmd-N. When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused. |
 | `app.warnBeforeClosingTab` | boolean | `true` |  | Warn Before Closing a Running Program |
 | `app.warnBeforeClosingAgentSession` | boolean | `true` |  | Warn Before Closing a Working Agent |
-| `app.quitBehavior` | string | `"ask"` | `ask`, `keep`, `end-keep-layout`, `end-everything` | When Quitting. Terminals run in cmux-tui and keep running after cmux quits unless you end them. |
+| `app.quitBehavior` | string | `"keep"` | `keep`, `end-keep-layout`, `end-everything` | When Quitting. Terminals run in cmux-tui and keep running after cmux quits unless you end them. |
 | `layout.defaultColumnWidth` | real | `0.6666666666666666` | 0.1 to 1 | Fixed Column Width. A share of the window width, for Fixed Width new columns. |
 | `layout.centerFocusedColumn` | string | `"never"` | `never`, `always`, `on-overflow` | Center Focused Column |
 | `layout.stripScrollbar` | string | `"system"` | `system`, `auto`, `always`, `off` | Column Scroll Bar. A thin bar under the columns that shows and moves the visible range. |
@@ -106,6 +106,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.autoRetry.enabled` | boolean | `true` |  | Retry Automatically. When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works. |
 | `agents.autoRetry.intervalSeconds` | real | `0` | 0 to 3600 | Seconds Between Retries. How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes. |
 | `agents.autoRetry.attempts` | real | `4` | 1 to 12 | Retries per Error. How many times the chat tries again before it stops and waits for you. |
+| `agents.cacheCompact.enabled` | boolean | `false` |  | Compact Before the Cache Expires. When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache. |
+| `agents.cacheCompact.minContextPercent` | real | `50` | 10 to 95 | Only Above Context Used (%). Chats using less of their context window than this are left as they are. |
 | `agents.trust.autoTrust` | boolean | `false` |  | Trust My Own Folders Without Asking. Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first. |
 | `agents.trust.projectRoots` | array | `[]` |  | Trusted Project Roots. Everything inside these folders is trusted. Use full paths or ~/ paths. |
 | `agents.trust.ownOrgs` | array | `[]` |  | Trusted GitHub Owners. A repository is trusted when all of its GitHub remotes belong to these users or organizations. |
@@ -143,6 +145,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.chats.discovery` | boolean | `true` |  | Discover Chat Folders. Find harness chat folders automatically. When off, only the listed folders are used. |
 | `agents.chats.roots` | array | `[]` |  | Chat Folders. Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders. |
 | `agents.chats.sessionRecap` | boolean | `true` |  | Session Recap. When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage. |
+| `chat.on` | string | `""` |  | Default Chat Target. Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here. |
 | `picker.pinned` | array | `[]` |  | Pinned Folders. The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths. |
 | `screenshots.findTools` | boolean | `true` |  | Find Screenshot Apps. The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap. |
 | `screenshots.folders` | array | `[]` |  | More Screenshot Folders. The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths. |
@@ -155,7 +158,10 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `workspaces.freeing.idleMinutes` | real | `1440` | 60 to 43200 | Free Terminals After. A hibernated workspace's idle shells end after this many minutes without use (1440 is one day). |
 | `workspaces.freeing.agents` | boolean | `true` |  | Free Idle Agents. Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session. |
 | `workspaces.freeing.runningCommands` | string | `"never"` | `never`, `relaunch` | Running Commands. What happens to a command that still runs in a workspace that frees its terminals. |
+| `agents.hiddenChats.discard` | boolean | `false` |  | Release Hidden Agent Chats. A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released. |
+| `agents.hiddenChats.discardAfterMinutes` | real | `15` | 1 to 1440 | Release Hidden Chats After. How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner. |
 | `tasks.layout` | string | `"inbox"` | `list`, `board`, `inbox` | Tasks Layout. Inbox lists what needs you first, with the task beside it. Changes apply at once. |
+| `appearance.iconTheme` | string | `"default"` | `default`, `neko` | Icon Theme. The icon drawings used by cmux. |
 | `appearance.theme` | string |  |  | Theme. Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it. |
 | `appearance.appTheme` | string | `"followTerminal"` |  | App Theme. Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast. |
 | `appearance.themeEdits` | dictionary | `{}` |  | Theme Edits. Your color changes to a theme, such as "Rose Pine/background": "#1f1d2e". The theme itself never changes; remove an entry to reset that color. |
@@ -194,7 +200,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.focusIndicator` | string | `"tabs"` | `border`, `tabs`, `both`, `none` | Focused Pane. How the focused pane stands out: its border, subtler tabs in the other panes, both or neither. |
 | `focus.inactiveTabStyle` | string | `"fade"` | `fade`, `tonal`, `quiet` | Unfocused Pane Tabs. How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill. |
 | `ui.animationSpeed` | string | `"fast"` | `fast`, `normal`, `off` | Animations |
-| `appearance.chromeStyle` | string | `"flat"` | `default`, `card`, `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating` | Window Style. The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them. |
+| `appearance.chromeStyle` | string | `"flat"` | `default`, `card`, `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating`, `blocks` | Window Style. The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them. |
 | `ui.paneAnimations` | boolean | `true` |  | Animate Panes. Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once. |
 | `ui.animations.newTab` | boolean | `true` |  | Animate New Tabs. A new tab grows into its place in the tab bar. Off shows it there at once. |
 | `ui.animations.newWorkspace` | boolean | `true` |  | Animate New Workspaces. A new workspace row opens in the sidebar. Off shows it there at once. |
@@ -389,6 +395,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.groupHeader.memberCount` | boolean | `false` |  | Show Group Member Count. A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner. |
 | `sidebar.groupHeader.unreadCount` | boolean | `false` |  | Show Group Unread Count. A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner. |
 | `sidebar.groupHeader.background` | string | `"auto"` | `auto`, `glass`, `solid` | Group Background. How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. |
+| `sidebar.groupPalette` | string | `"glass"` | `glass`, `theme`, `wallpaper`, `grayscale`, `vibrant` | Group Colors. Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. |
 | `sidebar.minimalMode` | string | `"off"` | `off`, `bottom`, `top`, `both` | Hide Bands Until Hover. Hides the chosen sections until the pointer is over the sidebar. |
 | `sidebar.cards.tips` | boolean | `true` |  | Show Tips. A "Did you know" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once. |
 | `sidebar.priorityView.enabled` | boolean | `false` |  | Priority View. A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle. |
@@ -525,6 +532,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.showBookmarksBar` | boolean | `false` |  | Show Bookmarks Bar. A row of bookmarks under each browser toolbar. |
 | `browser.import.enabled` | boolean | `true` |  | Import from Other Browsers. Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays. |
 | `browser.import.cookieBanner` | boolean | `true` |  | Offer to Import Cookies. Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off. |
+| `browser.import.cookieSync` | boolean | `true` |  | Keep Imported Cookies in Sync. After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it. |
 | `browser.showAgentCursor` | boolean | `true` |  | Show Agent Cursor. When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots. |
 | `browser.agentMouse.motion` | string | `"human"` | `human`, `instant` | Agent Pointer Motion. How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once. |
 | `browser.agentMouse.maxMoveMs` | real | `350` | 60 to 1000 | Longest Agent Pointer Move. The longest time one agent pointer move takes with human motion. Short moves take less. |
@@ -560,6 +568,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.enabled` | boolean | `true` |  | Enable cmux Browser. When off, cmux opens no browser tabs for web pages and every link opens in your default browser. |
 | `browser.openLinksInCmuxBrowser` | boolean | `true` |  | Open Links in cmux Browser. When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser. |
 | `browser.openSignInPagesInCmux` | boolean | `true` |  | Open Sign-In Pages in cmux Browser. Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win. |
+| `browser.openPullRequestsInGitHubPage` | boolean | `true` |  | Open Pull Requests in cmux GitHub Page. A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way. |
 | `browser.openTerminalLinksInCmuxBrowser` | boolean | `true` |  | Open Terminal Links in cmux Browser. When off, links clicked in terminal output open in your default browser. |
 | `browser.hostsToOpenInEmbeddedBrowser` | array | `[]` |  | Hosts to Open in Embedded Browser. Only these hosts open in cmux, such as example.com or *.example.com. Empty opens every host in cmux. |
 | `browser.urlsToAlwaysOpenExternally` | array | `[]` |  | URLs to Always Open Externally. Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression. |
@@ -653,6 +662,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.showContextUsage` | boolean | `true` |  | Show Context Usage. The ring beside the model that fills as the chat uses its context window. |
 | `agentPane.composerRing` | string | `"context"` | `context`, `planUsage` | Composer Ring. What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them. |
 | `agentPane.showDictation` | boolean | `true` |  | Show Dictation Button. The microphone beside Send in every composer, including the New Tab page. |
+| `agentPane.dictationSource` | string | `"cmux"` | `cmux`, `macos`, `chatgpt`, `claude`, `gemini`, `wisprFlow`, `superwhisper` | Dictate With. What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut. |
+| `agentPane.dictationShortcut` | string | `""` |  | Dictation App Shortcut. The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default. |
 | `agentPane.spellChecking` | boolean | `false` |  | Check Spelling While Typing. Underlines misspellings and offers system suggestions in the composer. |
 | `agentPane.attachmentView` | string | `"inline"` | `inline`, `strip`, `both` | Attachment View. How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same. |
 | `agentPane.scrollToBottomOnSend` | boolean | `true` |  | Scroll to Bottom When I Send. When off, sending while you are reading up keeps your place and shows new messages below. |

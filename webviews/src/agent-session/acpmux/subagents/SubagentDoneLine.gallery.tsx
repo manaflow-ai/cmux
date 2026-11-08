@@ -122,8 +122,9 @@ export default componentEntry<Props>({
     ],
   },
   load: async () => {
-    const { SubagentDoneLine, DoneReportLookContext } = await import("./SubagentDoneLine");
-    const { SubagentNavContext } = await import("./SubagentGroup");
+    const { SubagentDoneLine } = await import("./SubagentDoneLine");
+    const { DoneReportLookContext } = await import("./subagentDoneLineModel");
+    const { SubagentNavContext } = await import("./subagentGroupModel");
     const { SubsessionContext, SubsessionStore } = await import("./subsessions");
     // The sub-session's own chat, titled, as the session list has it.
     const store = new SubsessionStore();

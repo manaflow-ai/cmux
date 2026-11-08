@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextChiefPetWiring
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextCompat
@@ -159,6 +160,7 @@ extension AgentTabStore {
             guard let services, let avatars = tabs?.agentAvatars else { return [:] }
             return await services.home.agentPageFace(of: chief, avatars: avatars)
         }
+        tabs.mini = services.chiefPetMini
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state, files: services.agentPaneStateFiles)
         tabs.unsentDrafts.windowOfTab = { [weak services, weak tabs] key in
@@ -168,6 +170,12 @@ extension AgentTabStore {
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         tabs.cloudMachines.wire(services)
+        services.cloud.portChanged = { [weak tabs] change in
+            guard let tabs, change.isBrowserPreview else { return }
+            for (key, view) in tabs.views where tabs.remoteMachineID(of: key) == change.machineID {
+                view.cloudPreviewPortOpened(port: change.port, process: change.process, machineID: change.machineID, state: change.state.rawValue, known: change.known)
+            }
+        }
         tabs.remoteControl = services.iphone.remoteControl
         // The composer strip's machine dot: the sidebar header's same link state; using a machine
         // that is down runs its header's Reconnect, as `.page`: never a takeover (HQ #4877 G5).
@@ -308,6 +316,8 @@ extension AgentTabStore {
             let height = services.paneController(for: pane).flatMap { $0.workspace?.layoutModel.newRowHeight(below: $0.layoutPaneID) } ?? 1000
             services.daemon(for: pane).placeFork(tab.surface, beside: pane, left: left, rowHeight: height) { TabMoves.toNewColumn(tab, anchor: pane, afterColumn: $0, services: services, completion: $1) }
         }
+        tabs.moveToNewWorkspace = { [weak services] key, machine, newWindow in guard let services, let (tab, _) = services.locateTab(key, onMachine: machine), TabPromotion.refusal(tab: tab, services: services) == nil else { return false }; return await TabHandlers.newWorkspaceMove(of: tab, with: [tab], newWindow: newWindow, services: services)() == nil }
+        tabs.holdOutbound = { [weak services] pane, daemon in daemon.store.pane(pane).flatMap { services?.paneController(for: $0) }.map { OutboundTab.begin(in: $0) } }
         tabs.selectInPane = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key) else { return }
             // Shown, and no keyboard focus moved: the chat keeps it (an unfocused subagent's tab, AgentBesidePlacement).
@@ -380,6 +390,7 @@ extension AgentTabStore {
             }
             return await CloudMachineShare.shareWithMe(session, cloud: services.cloud)
         }
+        tabs.shareOp = { [weak services] key, op, session in guard let services else { return nil }; return await AgentShareActions.pane(op, session: session, tab: key, host: services) }
         tabs.remoteHost = { [weak services, weak tabs] key in
             guard let services, let tabs, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }
             let started = record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)
@@ -533,6 +544,8 @@ extension AgentTabStore {
             self?.agentAvatarChanged(session)
         }
         model.onChiefFace = { [weak self] chief in await self?.chiefFace?(chief) ?? [:] }
+        model.onMiniSubject = { [weak self] in self?.mini?.subject.chat?.session }
+        model.onShowInMini = { [weak self, weak model] session in if let model, let registry = self?.actionRegistry { self?.mini?.show(session: session, of: model, registry: registry) } }
     }
 
     /// Every agent page (tabs and standalone chats) asks for session `session`'s avatar again: a

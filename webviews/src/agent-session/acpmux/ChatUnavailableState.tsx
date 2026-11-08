@@ -3,6 +3,7 @@ import type { ChatUnavailable } from "./chatUnavailable";
 import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
 import { currentLanguage, useT } from "./i18n";
+import { shortSession } from "./chatUnavailableStateModel";
 
 /// The tab's chat is not here (`missingSession`): centered in place of the transcript, quiet, in the
 /// new chat hero's type (EmptyState.tsx), it says which case it is. Deleted: Remove from Sidebar
@@ -104,6 +105,11 @@ export function ChatUnavailableState({
     // (All Chats, where the person picks the chat they meant) and Close Tab stay.
     title = t("unavailable.gone.title");
     detail = t("unavailable.gone.detail");
+  } else if (unavailable.reason === "unreached") {
+    // A sender chip named a chat on a machine this Mac's acpmux has no connection to: no Reconnect,
+    // since nothing here would reach it.
+    title = t("unavailable.unreached.title", { machine: unavailable.machine });
+    detail = t("unavailable.unreached.detail", { machine: unavailable.machine });
   } else if (unavailable.reason === "notFound") {
     // Not listed here and never seen here: it may be deleted, or in an acpmux this tab is not routed
     // to (a Chief home's own), so the pane never says it was deleted.
@@ -194,7 +200,10 @@ export function ChatUnavailableState({
           focusable="false"
         >
           <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
-          {unavailable.reason === "deleted" || unavailable.reason === "notFound" || unavailable.reason === "gone" ? (
+          {unavailable.reason === "deleted" ||
+          unavailable.reason === "notFound" ||
+          unavailable.reason === "gone" ||
+          unavailable.reason === "unreached" ? (
             <path d="M13.5 18h9" />
           ) : (
             <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />
@@ -229,9 +238,4 @@ export function ChatUnavailableState({
       </div>
     </div>
   );
-}
-
-/// The first 13 characters of a session id (an acpmux UUIDv7's time part), enough to tell chats apart.
-export function shortSession(session: string): string {
-  return session.length > 13 ? session.slice(0, 13) : session;
 }

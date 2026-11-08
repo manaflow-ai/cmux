@@ -50,6 +50,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case server
         /// Settings > Accounts > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`.
         case cloudEnvironments
+        /// Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks.
+        case sharedLinks
     }
 
     /// A group card as the layout states it: rows claimed by key to lead it, the rows

@@ -49,6 +49,9 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+// These cover the paste card (sentPasteLook `card`); the default draws a paste as the bubble's own
+// text (test/sent-bubble-final-size.test.ts, user-prompt-collapse.test.tsx).
+globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "sent-paste-look": "card" };
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -57,10 +60,11 @@ const { FindReveal } = await import("../src/agent-session/acpmux/conversation/ch
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { clearImageEntries } = await import("../src/agent-session/acpmux/conversation/imageEntries");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
-const { resetSourceIcons } = await import("../src/agent-session/acpmux/composer/SourceBadge");
+const { resetSourceIcons } = await import("../src/agent-session/acpmux/composer/sourceBadgeModel");
 
 const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
-const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+const { resetTranscriptDisclosure } =
+  await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 
 const host = dom.window.document.getElementById("root")!;

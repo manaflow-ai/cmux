@@ -28,7 +28,7 @@ import Testing
 
     @Test func theSessionCarriesTheDotsTheRowsAndTheChosenColor() throws {
         let session = GroupEditorSession(id: "s1", revision: 3, group: Self.group, items: Self.items)
-        let event = session.event(themed: false, icons: GroupEditorIcons())
+        let event = session.event(palette: .glass, icons: GroupEditorIcons())
         #expect(event["id"]?.stringValue == "s1")
         #expect(event["revision"]?.intValue == 3)
         #expect(event["name"]?.stringValue == "Work")
@@ -43,7 +43,7 @@ import Testing
 
         var none = Self.group
         none.tint = .none
-        let cleared = GroupEditorSession(id: "s2", revision: 1, group: none, items: []).event(themed: false, icons: GroupEditorIcons())
+        let cleared = GroupEditorSession(id: "s2", revision: 1, group: none, items: []).event(palette: .glass, icons: GroupEditorIcons())
         guard case let .array(dots)? = cleared["colors"] else { Issue.record("no colors"); return }
         #expect(dots.filter { $0["chosen"]?.boolValue == true }.compactMap { $0["id"]?.stringValue } == ["grey"],
                 "a group with no color shows the No color dot chosen")
@@ -182,24 +182,28 @@ import Testing
     }
 
     /// Review of #37299 at efa6302 (F2): the editor takes the keys as it opens, before the page has painted, so a name
-    /// typed right after Rename Group goes into its field, not into the list or terminal under it.
+    /// typed right after Rename Group goes into its field, not into the list or terminal under it; and (review at 9c0b58c,
+    /// F1) a close before the page answers gives them back. A test app is not the active app, so no window of it becomes
+    /// key (`ActiveAppKeyPanel`); what the editor controls, and what this checks, is that the page holds the panel's
+    /// first responder from the open on, and nothing in the panel does after the close.
     @Test func theEditorTakesTheKeysAsItOpens() async throws {
         try #require(await GUIAnimationTestSupport.animatesHere(), "requires an awake fleet display; a skip is not regression evidence")
         let service = GroupEditorService()
         let parent = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         parent.isReleasedWhenClosed = false
-        parent.makeKeyAndOrderFront(nil)
+        parent.orderFrontRegardless()
         defer { parent.closeAfterTest() }
         service.present(Self.group, items: Self.items, anchor: PopupAnchor(rect: CGRect(x: 240, y: 650, width: 100, height: 30), edge: .leading),
                         parent: parent, themeAnchor: parent.contentView ?? NSView(), ordersFront: true, events: Self.events(Record()))
         let panel = try #require(service.panel)
         defer { panel.closeAfterTest() }
+        let content = try #require(panel.contentView)
         #expect(service.open?.shown == false, "the page has not answered yet")
-        #expect(panel.isKeyWindow, "keys typed before the page painted went to the window under the editor")
-        // Review of #37299 at 9c0b58c (F1): a close before the page answers gives the keys back too.
+        let focused = panel.firstResponder as? NSView
+        #expect(focused.map { $0 !== content && $0.isDescendant(of: content) } == true,
+                "the page did not hold the keyboard before it painted: \(String(describing: panel.firstResponder))")
         service.dismiss()
-        #expect(!panel.isKeyWindow, "the closed, invisible editor kept the keys")
-        #expect(parent.isKeyWindow, "the window under the editor did not get the keys back")
+        #expect(panel.firstResponder === panel, "the closed, invisible editor's page kept the keyboard")
     }
 
     /// Review of #37299 at 44de463 (F1): the page zooms with `app.uiScale`, so its CSS pixels are not points; the card

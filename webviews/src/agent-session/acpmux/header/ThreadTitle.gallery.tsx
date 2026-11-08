@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery-only sample labels, not shipped UI.
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { ChatMenu, menuGroups, type ChatMenuItem } from "./ChatHeaderTools";
+import { ChatMenu } from "./ChatHeaderTools";
+import { menuGroups, type ChatMenuItem } from "./chatHeaderToolsModel";
 import { ThreadTitle } from "./ThreadTitle";
 
 // The ⋮ menu's rows the title menu used to hold (the rest of the real menu is left out here).

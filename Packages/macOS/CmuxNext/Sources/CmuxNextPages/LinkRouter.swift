@@ -25,6 +25,13 @@ public final class LinkRouter {
     /// The tab (a tab id) of the pane showing a clicked view, nil when no pane shows it: the App
     /// finds the pane holding the view (``open(_:otherTarget:from:)``).
     public var sourceTab: (_ view: NSView) -> String? = { _ in nil }
+    /// Whether the cmux GitHub page shows `url` (a github.com pull request): nil when it never does,
+    /// true when a chat's click opens it there (`browser.openPullRequestsInGitHubPage`), false when
+    /// the click opens its web page. The App sets it (CmuxNextGitHubViewer's `GitHubLink.clickOpensPage`).
+    public var gitHubPage: (_ url: URL) -> Bool? = { _ in nil }
+    /// Opens `url` in the cmux GitHub page whatever the setting, beside `source` (a tab id, nil: the
+    /// focused pane); false when it could not, and the caller opens its web page.
+    public var openGitHubPage: (_ url: URL, _ source: String?) -> Bool = { _, _ in false }
 
     #if DEBUG
     /// `CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS=1` (live scripts): what would go to another app is

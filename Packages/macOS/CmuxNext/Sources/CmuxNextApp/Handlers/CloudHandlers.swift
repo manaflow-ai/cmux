@@ -62,13 +62,13 @@ enum CloudHandlers {
                 if let window, context.services.windows.controller(for: window.id) == nil {
                     return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined)
                 }
-                if request.isDefault, actionOrigin == .user, window != nil {
+                if request.takesPlainPath, actionOrigin == .user, window != nil {
                     CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat, environment: invocation["environment"]?.stringValue)
                     return nil
                 }
                 let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
                                          askedBy: invocation.callerAgentSession, reveals: invocation.allowsViewChange)
-                guard request.isDefault else {
+                guard request.takesPlainPath else {
                     CloudHandlers.createRequested(request, flow: flow, window: window, context)
                     return nil
                 }
