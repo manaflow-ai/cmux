@@ -150,3 +150,22 @@ test("a row's drag start moves no row; the grid opens as the pointer goes up int
   expect(rowIds()).toEqual(rows.filter((id) => id !== row.getAttribute("data-list-row")));
   await pointer("pointerup", 10, dom!.window);
 });
+
+test("a search with no match shows the Orb, No Results and a Clear Search that empties the query", async () => {
+  const { element, calls } = await mount(3, {
+    query: "zzz",
+    model: listModel(sampleConversations(3, NOW), { me: ME.id, now: NOW, language: "en-US", words, query: "zzz" }),
+    strings: createStrings({ en: { "sidebar.noResults": "No Results", "sidebar.clearSearch": "Clear Search" } }, [
+      "en",
+    ]),
+  });
+  const empty = element.querySelector<HTMLElement>(".hm-empty .ui-illustrated-empty")!;
+  expect(empty.querySelector("p")?.textContent).toBe("No Results");
+  const art = empty.querySelector("img")!;
+  expect(art.getAttribute("alt")).toBe("");
+  expect(art.getAttribute("width")).toBe("56");
+  const button = empty.querySelector<HTMLButtonElement>("button")!;
+  expect(button.textContent).toBe("Clear Search");
+  await act(async () => button.click());
+  expect(calls).toEqual(["query:"]);
+});

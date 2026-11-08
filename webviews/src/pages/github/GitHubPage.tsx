@@ -22,6 +22,9 @@ import {
 } from "react";
 import { relativeTime } from "../../agent-session/acpmux/conversation/relativeTime";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
+// Imported, not `new URL(...)`: the page's CSP allows `img-src data:` only, and bundle.mjs inlines it.
+import mascotMoon from "../../agent-session/acpmux/mascots/ChiefMascotMoon.png";
+import { IllustratedEmpty } from "../../ui/EmptyState/IllustratedEmpty";
 import type { Strings } from "../shared/i18n";
 import { ChecksDashboard } from "./ChecksDashboard";
 import { withRollup } from "./checksModel";
@@ -36,6 +39,9 @@ import { ReadinessBlock, type ReadinessLayout } from "./ReadinessBlock";
 import type { Blocker } from "./readiness";
 import type { GitHubSnapshot, GitHubStore } from "./store";
 import type { ConversationEntry, FilePatch, LinkedPullRequest, PullRequestDetails } from "./types";
+
+/** The empty page's button: the person's open pull requests on GitHub, in a cmux tab. */
+const PULLS_URL = "https://github.com/pulls";
 
 /// Pierre comes in its own chunk, loaded when a file first opens.
 const GitHubFileDiff = lazy(() => import("./GitHubFileDiff").then((module) => ({ default: module.GitHubFileDiff })));
@@ -158,7 +164,12 @@ export function GitHubPage({
   if (!target) {
     return (
       <main className="gh">
-        <p className="gh-muted">{t("github.noPullRequest")}</p>
+        <IllustratedEmpty
+          className="gh-empty"
+          art={mascotMoon}
+          line={t("github.noPullRequest")}
+          action={{ label: t("github.empty.openPullRequests"), onClick: () => store.openOnGitHub(PULLS_URL) }}
+        />
       </main>
     );
   }

@@ -1,0 +1,61 @@
+/* ui/EmptyState/IllustratedEmpty.tsx: art, one line, one button. Every size reads the design scale
+   and the type scale; the art's box is fixed so nothing moves when the image arrives. Colors come
+   from the shared roles, so the agent pane and every page read their own theme. */
+.ui-illustrated-empty {
+  --ui-empty-art: var(--ds-space-56);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-2);
+  box-sizing: border-box;
+  min-width: 0;
+  padding: var(--ds-space-4) var(--ds-space-3);
+  text-align: center;
+  color: var(--ds-color-muted);
+  font-family: var(--font-ui);
+}
+.ui-illustrated-empty[data-art="48"] {
+  --ui-empty-art: var(--ds-space-48);
+}
+
+.ui-illustrated-empty-art {
+  display: block;
+  flex: none;
+  width: var(--ui-empty-art);
+  height: var(--ui-empty-art);
+  object-fit: contain;
+  -webkit-user-drag: none;
+  user-select: none;
+  pointer-events: none;
+}
+
+.ui-illustrated-empty-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.ui-illustrated-empty-line {
+  margin: 0;
+  max-width: 36ch;
+  color: var(--ds-color-muted);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+  overflow-wrap: anywhere;
+}
+
+/* One compact row: the art at the leading edge, the line over the button beside it. */
+.ui-illustrated-empty[data-layout="beside"] {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-2) var(--ds-space-3);
+  text-align: start;
+}
+.ui-illustrated-empty[data-layout="beside"] .ui-illustrated-empty-copy {
+  align-items: flex-start;
+  gap: var(--ds-space-1);
+}

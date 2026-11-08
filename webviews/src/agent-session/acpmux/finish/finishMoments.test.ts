@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import type { HeaderPullRequest } from "../header/headerState";
 import {
   endFinishMoment,
@@ -11,7 +11,10 @@ import {
   startFinishMoment,
 } from "./finishMoments";
 
-afterEach(() => endFinishMoment());
+afterEach(() => {
+  endFinishMoment();
+  jest.useRealTimers();
+});
 
 const pr = (state: string, checks: string, url = "https://github.com/o/r/pull/1"): HeaderPullRequest => ({
   url,
@@ -70,12 +73,15 @@ test("only the ended turn's own Worked for row shows the turn moment", () => {
   expect(isFinishedTurnRow(undefined, 499_400)).toBe(false);
 });
 
-test("a moment clears itself after its time; a hidden page gets none", async () => {
+test("a moment clears itself after its time; a hidden page gets none", () => {
+  jest.useFakeTimers();
   expect(startFinishMoment({ kind: "turn", session: "s", turnStartedAt: 1 }, false)).toBe(false);
   expect(finishMoment()).toBeUndefined();
   expect(startFinishMoment({ kind: "turn", session: "s", turnStartedAt: 1 }, true)).toBe(true);
   expect(finishMoment()?.kind).toBe("turn");
-  await new Promise((resolve) => setTimeout(resolve, FINISH_MS.turn + 30));
+  jest.advanceTimersByTime(FINISH_MS.turn - 1);
+  expect(finishMoment()?.kind).toBe("turn");
+  jest.advanceTimersByTime(1);
   expect(finishMoment()).toBeUndefined();
 });
 
