@@ -149,7 +149,7 @@ pub fn codex(env: &impl Fn(&str) -> Option<String>) -> Option<Value> {
     let thread = set("CODEX_THREAD_ID").or_else(|| set("CODEX_SESSION_ID"))?;
     let mut claim = json!({"harness": "codex", "source": "env", "sessionId": thread});
     if let Some(version) = set("CODEX_VERSION") {
-        claim["version"] = json!(version);
+        put(&mut claim, "version", json!(version));
     }
     Some(claim)
 }
@@ -164,7 +164,7 @@ pub fn ai_agent(env: &impl Fn(&str) -> Option<String>) -> Option<Value> {
     let version = parts.next().filter(|v| !v.is_empty()).map(|v| v.replace('-', "."));
     let mut claim = json!({"harness": harness, "source": "env"});
     if let Some(version) = version {
-        claim["version"] = json!(version);
+        put(&mut claim, "version", json!(version));
     }
     Some(claim)
 }
@@ -180,9 +180,9 @@ pub fn from_chain(chain: &Chain) -> Option<Value> {
             json!({"harness": app.trim_end_matches(".app")})
         }
     };
-    claim["source"] = json!("process");
+    put(&mut claim, "source", json!("process"));
     if let Some(app) = app {
-        claim["app"] = json!(app);
+        put(&mut claim, "app", json!(app));
     }
     Some(claim)
 }
@@ -196,7 +196,7 @@ pub fn from_mcp_client(client_info: &Value) -> Option<Value> {
     }
     let mut claim = json!({"harness": name, "source": "mcp"});
     if let Some(version) = client_info.get("version").and_then(Value::as_str) {
-        claim["version"] = json!(version);
+        put(&mut claim, "version", json!(version));
     }
     Some(claim)
 }
@@ -264,16 +264,23 @@ pub fn checked(
     }
     let mut found = json!({"peerPid": peer_pid});
     if let Some((harness, pid)) = &chain.harness {
-        found["harness"] = json!(harness);
-        found["harnessPid"] = json!(pid);
+        put(&mut found, "harness", json!(harness));
+        put(&mut found, "harnessPid", json!(pid));
     }
     if let Some((name, path)) = &chain.app {
-        found["app"] = json!(name);
+        put(&mut found, "app", json!(name));
         if let Some(signer) = signer(path) {
-            found["signedBy"] = json!(signer);
+            put(&mut found, "signedBy", json!(signer));
         }
     }
     Some(found)
+}
+
+/// `value[key] = field` on a JSON object, without indexing (a no-op on anything else).
+fn put(value: &mut Value, key: &str, field: Value) {
+    if let Some(map) = value.as_object_mut() {
+        map.insert(key.into(), field);
+    }
 }
 
 /// The `sender_claim` record for a prompt, or `None` with nothing to say.
@@ -283,10 +290,10 @@ pub fn record(prompt_id: &str, claimed: Option<Value>, checked: Option<Value>) -
     }
     let mut record = json!({"promptId": prompt_id});
     if let Some(claimed) = claimed {
-        record["claimed"] = claimed;
+        put(&mut record, "claimed", claimed);
     }
     if let Some(checked) = checked {
-        record["checked"] = checked;
+        put(&mut record, "checked", checked);
     }
     Some(record)
 }
@@ -401,7 +408,7 @@ pub fn chain(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Chain {
 /// The outermost `.app` bundle in an executable path: its name and its path.
 fn app_bundle(exe: &str) -> Option<(String, String)> {
     let end = exe.find(".app/")? + ".app".len();
-    let path = &exe[..end];
+    let path = exe.get(..end)?;
     let name = path.rsplit('/').next()?;
     (name.len() > ".app".len()).then(|| (name.to_owned(), path.to_owned()))
 }
@@ -447,7 +454,7 @@ fn lookup(pid: u32) -> Option<Proc> {
     // SAFETY: `path` is 4096 writable bytes.
     let len = unsafe { libc::proc_pidpath(id, path.as_mut_ptr().cast(), 4096) };
     let len = usize::try_from(len).ok().filter(|l| (1..=path.len()).contains(l))?;
-    let exe = String::from_utf8_lossy(&path[..len]).into_owned();
+    let exe = String::from_utf8_lossy(path.get(..len)?).into_owned();
     Some(Proc { pid, ppid: info.pbi_ppid, exe })
 }
 
