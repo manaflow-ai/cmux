@@ -860,13 +860,8 @@ export function NewTabScreen(props: Props) {
     environment?.kind === "local" && environment.worktree && environment.folder && props.onNewWorktree;
   // Its final directory (and project-local credentials) exists only after creation, as New
   // project's folder does.
-  const targetCwd = createsWorktree || newProject
-    ? undefined
-    : environment
-      ? environmentCwd
-      : machine
-        ? machine.folder
-        : localChatCwd;
+  const targetCwd =
+    createsWorktree || newProject ? undefined : environment ? environmentCwd : machine ? machine.folder : localChatCwd;
   // Cloud and Sandbox allocate their own destination. Local credentials say nothing about it.
   const authQuery =
     harness && !offMachine && (!remoteTarget || targetHost)

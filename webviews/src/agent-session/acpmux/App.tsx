@@ -6154,9 +6154,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [snapshot.rows, snapshot.isWorking, localCwd, quick]);
   useEffect(() => {
     if (!servedUrl || !takeProjectPreview(localCwd)) return;
-    void callNative("pane.action", { id: HEADER_ACTIONS.preview, url: servedUrl, mode: "open" }).catch(
-      () => undefined,
-    );
+    void callNative("pane.action", { id: HEADER_ACTIONS.preview, url: servedUrl, mode: "open" }).catch(() => undefined);
   }, [servedUrl, localCwd]);
   // Stop reaches acpmux even when pressed while the pane reconnects (stopThroughReconnect.ts).
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
