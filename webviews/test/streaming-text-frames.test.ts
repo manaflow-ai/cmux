@@ -196,10 +196,12 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     // frame moves more than three lines (2026-11-07: 28 px Chromium, 57 px WebKit, 96 px stepped).
     // The chase moves on six times as many frames as stepped, so its frames over SNAP_PX are
     // bounded as a share of the moving frames: under a quarter of stepped's (15-20% eased, 97-100%
-    // stepped). The 95th percentile stays under 0.8 of a line (Chromium 10.6 px, WebKit 16.5 px:
-    // WebKit's late frames carry more of each catch-up).
+    // stepped). The 95th percentile stays under 0.9 of a line: a landing block's own frame moves up
+    // to 0.8 of a line at once (followChase.ts), so the live line under the reply never drops by the
+    // whole block and climbs back (2110 px of its travel down against base's 1393, gallery
+    // agent-pane.streaming-text). WebKit's late frames count that move whole (19.4 px; Chromium 12.7).
     expect(eased.follow.p50).toBeLessThanOrEqual(SNAP_PX * 0.6);
-    expect(eased.follow.p95).toBeLessThan(LINE_PX * 0.8);
+    expect(eased.follow.p95).toBeLessThan(LINE_PX * 0.9);
     expect(eased.follow.max).toBeLessThanOrEqual(3 * LINE_PX);
     expect(eased.follow.overSnap / eased.follow.moving).toBeLessThan(
       stepped.follow.overSnap / stepped.follow.moving / 4,

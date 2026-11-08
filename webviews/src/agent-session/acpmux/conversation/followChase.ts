@@ -54,6 +54,15 @@ export const CHASE_MAX_TRAIL_LINES = 2;
 export const BURST_S = 0.05;
 /// The most any frame moves the rows, in the chat's lines per 120 Hz frame.
 export const CHASE_MAX_FRAME_LINES = 1;
+/// How much of a reply's growth (not a send's rise) the `blocks` arm draws back, in lines. Past it,
+/// the frame the text lands in moves the rest at once, up to CHASE_LAND_LINES with the chase's
+/// step in that frame; the chase takes what is left. Holding a whole block back pushed the live
+/// line under the reply down by the block and then raised it again: the streaming-text gallery's
+/// live line travelled 2110 px down where base's travelled 1393 px (shift 3.07, baseline 2.25).
+export const CHASE_HOLD_LINES = 1;
+/// The most a landing frame moves, that at once and the chase's step in it together, in lines:
+/// under the 0.85 of a line that 95 in 100 of the stream's frames keep to (send-stream-motion.test.ts).
+export const CHASE_LAND_LINES = 0.8;
 /// How far behind its layout the thread may be drawn at all, in viewports; only a move past that
 /// (a whole screen landing at once) moves at once.
 const CHASE_MAX_LAG = 0.75;
@@ -129,6 +138,12 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   let due: number | undefined;
   /// `land`: home within BURST_S whatever the trail, nothing more to chase.
   let landing = false;
+  /// What `shift` moved at once since the last step (px): that display frame's step moves less by
+  /// it, so the frame keeps to CHASE_LAND_LINES (a line in a burst).
+  let spent = 0;
+  /// How far the last step moved the rows (px): a landing in the same display frame as that step
+  /// moves at once less by it (whether a commit lands before or after the frame's step varies).
+  let stepped = 0;
   /// While it chases the thread is its own compositor layer, so a frame's step moves it without
   /// painting its rows again (a `translate` on an unpromoted thread repainted every row each frame).
   const draw = () => {
@@ -151,12 +166,15 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     due = undefined;
     rising = false;
     landing = false;
+    spent = 0;
+    stepped = 0;
     draw();
   };
   const step = (now: number) => {
     frame = undefined;
     const dt = last === undefined ? 1 / 120 : Math.min(MAX_STEP_S, Math.max(0, (now - last) / 1000));
     last = now;
+    const from = x;
     // Past CATCH_UP_LINES behind (a burst faster than the limit) the limit rises by what is further
     // behind over CATCH_UP_S, so a frame never moves far while the view stays near the newest line.
     const line = currentChatMetrics().lineHeight;
@@ -183,7 +201,14 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       let nextV = (v - w * carry * dt) * decay;
       // No frame moves more than the speed limit allows, nor more than a line a 120 Hz slot (`cap`,
       // which the burst below keeps to as well: no path moves a frame further).
-      const cap = CHASE_MAX_FRAME_LINES * line * Math.max(1, Math.round(dt * 120));
+      const slots = Math.max(1, Math.round(dt * 120));
+      const frameMost = CHASE_MAX_FRAME_LINES * line * slots;
+      // A frame that already moved at once keeps to CHASE_LAND_LINES in all, unless a burst is
+      // bringing the trail back (those frames move up to a line in all, as before).
+      const cap = Math.max(
+        0,
+        (spent > 0 && !(burst > 0) ? Math.min(frameMost, CHASE_LAND_LINES * line) : frameMost) - spent,
+      );
       const most = Math.min(limit * dt, cap);
       if (Math.abs(nextX - x) > most) {
         nextX = x + Math.sign(nextX - x) * most;
@@ -214,6 +239,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       v = (nextX - x) / Math.max(dt, 1e-3);
       x = nextX;
     }
+    spent = 0;
+    stepped = Math.abs(x - from);
     if (Math.abs(x) < REST_PX && Math.abs(v) < REST_SPEED) {
       stop();
       return;
@@ -240,6 +267,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       v = 0;
       burst = 0;
       due = undefined;
+      stepped = 0;
       if (x === 0) stop();
     },
     resume,
@@ -289,6 +317,18 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // already spent).
       if (Math.abs(x) <= chaseMaxTrail()) due = undefined;
       x = Math.max(-most, Math.min(most, rising ? most : Math.max(0, below), x - moved));
+      // A reply's growth (`below` bounded: not a send's rise, not after Jump to latest) holds back
+      // at most CHASE_HOLD_LINES; the frame it lands in moves the rest, up to CHASE_LAND_LINES less
+      // what it already moved at once and the chase's last step, so the text above starts home as the block lands instead of the
+      // whole block pushing the live line under it down and raising it again.
+      if (arm === "blocks" && !held && below !== Number.POSITIVE_INFINITY && x > 0) {
+        const line = currentChatMetrics().lineHeight;
+        const atOnce = Math.min(x - CHASE_HOLD_LINES * line, CHASE_LAND_LINES * line - spent - stepped);
+        if (atOnce > 0) {
+          x -= atOnce;
+          spent += atOnce;
+        }
+      }
       // Past the trail bound: back within it BURST_S after the landing that first put it past
       // (more landing before then speeds it up), at no more than a line a frame.
       const timeline = node.ownerDocument.timeline?.currentTime;

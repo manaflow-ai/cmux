@@ -3,7 +3,14 @@
 // behaviour at 120 Hz is in test/send-stream-motion.test.ts.
 import { expect, test } from "bun:test";
 import { currentChatMetrics } from "../chatDisplay";
-import { BURST_S, CHASE_MAX_SPEED, chaseMaxTrail, createFollowChase } from "./followChase";
+import {
+  BURST_S,
+  CHASE_HOLD_LINES,
+  CHASE_LAND_LINES,
+  CHASE_MAX_SPEED,
+  chaseMaxTrail,
+  createFollowChase,
+} from "./followChase";
 import type { FollowMotionArm } from "./followMotion.experiment";
 
 /// A thread with a stand-in window whose frames the test runs one at a time (8.33 ms apart).
@@ -204,4 +211,25 @@ test("the turn ending lands the chase within BURST_S, no frame more than a line"
   chase.land();
   expect(drawn()).toBe(0);
   expect(pending()).toBe(0);
+});
+
+test("blocks: a reply's growth holds back a line; its landing frame moves the rest, up to CHASE_LAND_LINES", () => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn } = fixture();
+  const line = currentChatMetrics().lineHeight;
+  // A line of growth is held whole: the rows stay where the reader saw them.
+  chase.shift(node, -line, 30);
+  expect(drawn()).toBeCloseTo(CHASE_HOLD_LINES * line);
+  while (drawn() > 0) frame();
+  // A 1.5-line block: the part past a line moves at once, and that frame's step keeps the frame's
+  // move within CHASE_LAND_LINES (the whole block drawn back pushed the live line under it down by
+  // the block, and up again).
+  chase.shift(node, -1.5 * line, 30);
+  const landed = drawn();
+  expect(landed).toBeCloseTo(CHASE_HOLD_LINES * line);
+  expect(1.5 * line - frame()).toBeLessThanOrEqual(CHASE_LAND_LINES * line + 1e-6);
+  // A send's rise (`below` unbounded) is drawn back whole, as before.
+  chase.stop();
+  chase.shift(node, -1.5 * line);
+  expect(drawn()).toBeCloseTo(1.5 * line);
 });
