@@ -554,11 +554,12 @@ public final class TerminalSurfaceView: NSView {
 
     /// Whether a key resize drives this view's size (``updateSurfaceSize(forceReport:justShown:drawingAhead:)``): its host
     /// follows its pane's key hold, or the key's turn drew the press's first size ahead or the hold's end asked its final
-    /// size (``TerminalHostView`` `dropsAheadAtRest`) and that size is with Ghostty.
+    /// size (``TerminalHostView`` `aheadOfKeyResize`, never a snapped split's, close's or zoom's) and that size is with
+    /// Ghostty. A drag that began meanwhile keeps its own rule (its grid goes when its size shows).
     private var followsKeyResize: Bool {
-        guard let host = superview as? TerminalHostView else { return false }
+        guard !isFollowingResizeGesture, let host = superview as? TerminalHostView else { return false }
         return host.surfaceFollowsArea
-            || (host.dropsAheadAtRest && (frameOwnership.ahead != nil || frameOwnership.inFlight != nil))
+            || (host.aheadOfKeyResize && (frameOwnership.ahead != nil || frameOwnership.inFlight != nil))
     }
 
     /// The grid Ghostty fits to the size it was given; nil when no whole cell fits.
