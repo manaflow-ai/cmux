@@ -31,7 +31,8 @@ def install(driver):
 
 def step_zv_xctrace_zooms(j, step):
     label = step.get("label", "z4")
-    C._HANDLER = re.compile(r"toggleSplitZoom|filmZoomNow|PaneHandlers.bindSizing")
+    # ZOOM VARIANTS 5: on feat the handler is under one sample; a journey names a frame every press runs.
+    C._HANDLER = re.compile(step.get("handler", r"toggleSplitZoom|filmZoomNow|PaneHandlers.bindSizing"))
     runs, gap = int(step.get("runs", 10)), float(step.get("gap", 1.0))
     xcrun = shutil.which("xcrun") or "/usr/bin/xcrun"
     trace = j.out / f"zooms-{label}.trace"
