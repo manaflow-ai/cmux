@@ -162,7 +162,10 @@ import Testing
         homes.startsOwnAgents(first.view)
         homes.startsOwnAgents(second.view)
         for (home, name) in [(second, "second"), (first, "first")] {
-            let items = try #require(home.view.transcript.agentPillMenu)("a7")
+            // Unwrapped first, then called: calling `#require(...)`'s result in one expression crashes the
+            // Xcode 26.6 type checker (signal 6, "Assertion failed: (inserted), function recordArgumentList").
+            let menu = try #require(home.view.transcript.agentPillMenu)
+            let items = menu("a7")
             let index = try #require(items.firstIndex { $0.title == "Start now" })
             let shown = NSMenu()
             items.forEach(shown.addItem)
