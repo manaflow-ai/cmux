@@ -96,6 +96,13 @@ fn id(path: &Path) -> Option<(u64, u64)> {
     std::fs::metadata(path).ok().map(|file| (file.dev(), file.ino()))
 }
 
+/// Keeps `previous` for a daemon that runs the file at `ran`, open as the
+/// step opens it, with the identity of `runs`.
+fn keep(install: &Path, previous: &Path, ran: &Path, runs: &Path) {
+    let running = std::fs::File::open(ran).unwrap();
+    keep_previous(install, previous, &running, id(runs).unwrap()).unwrap();
+}
+
 /// A folder with an installed build B, a kept build A and a deleted build R
 /// standing in for the file a daemon runs after its path was replaced.
 fn builds() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
@@ -112,7 +119,7 @@ fn builds() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf, std::
 #[test]
 fn a_daemon_on_the_installed_binary_keeps_it_as_previous() {
     let (_folder, install, previous, running) = builds();
-    keep_previous(&install, &previous, &running, id(&install)).unwrap();
+    keep(&install, &previous, &running, &install);
     assert_eq!(id(&previous), id(&install));
 }
 
@@ -122,7 +129,7 @@ fn a_daemon_on_the_kept_build_keeps_it_as_previous() {
     // previous: rolling back must go to A, which served, not to B.
     let (_folder, install, previous, running) = builds();
     let kept = id(&previous);
-    keep_previous(&install, &previous, &running, kept).unwrap();
+    keep(&install, &previous, &running, &previous);
     assert_eq!(id(&previous), kept);
     assert_eq!(std::fs::read(&previous).unwrap(), b"A");
 }
@@ -130,10 +137,40 @@ fn a_daemon_on_the_kept_build_keeps_it_as_previous() {
 #[test]
 fn a_daemon_on_a_deleted_build_keeps_a_copy_of_it_as_previous() {
     let (_folder, install, previous, running) = builds();
-    keep_previous(&install, &previous, &running, id(&running)).unwrap();
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(&running, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // The daemon's binary is open before its path goes, as the step holds it.
+    let open = std::fs::File::open(&running).unwrap();
+    let ran = id(&running).unwrap();
+    std::fs::remove_file(&running).unwrap();
+    keep_previous(&install, &previous, &open, ran).unwrap();
     assert_eq!(std::fs::read(&previous).unwrap(), b"R");
+    assert_eq!(std::fs::metadata(&previous).unwrap().permissions().mode() & 0o777, 0o755);
     assert_eq!(std::fs::read(&install).unwrap(), b"B");
     assert!(!install.with_file_name(".cmux-tui.prev.part").exists());
+}
+
+/// The step reads the daemon's binary only as the peer of its socket: here
+/// this test process listens, so the peer is this test binary.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_daemon_binary_is_the_socket_peers_and_only_for_its_pid() {
+    use super::daemon_binary;
+    let folder = tempfile::tempdir().unwrap();
+    let socket = folder.path().join("daemon.sock");
+    let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let own = std::env::current_exe().unwrap();
+    let pid = i32::try_from(std::process::id()).unwrap();
+    let daemon = daemon_binary(&socket, pid).expect("the listener's binary");
+    assert_eq!(std::fs::canonicalize(&daemon.path).unwrap(), std::fs::canonicalize(&own).unwrap());
+    assert_eq!(Some(daemon.id), id(&own));
+    // Another pid (the Mac's stale read: the daemon restarted since) is the
+    // quiet `busy`, and nothing is read.
+    let refused = daemon_binary(&socket, pid + 1).err().expect("another pid is refused");
+    assert_eq!(refused, ("busy", super::RESTARTED.to_owned()));
+    // No listener: nothing is read.
+    let missing = daemon_binary(&folder.path().join("none.sock"), pid).err().expect("no socket");
+    assert_eq!(missing.0, "failed");
 }
 
 #[test]

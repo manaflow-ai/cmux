@@ -106,7 +106,7 @@ enum WorkspaceStructureHandlers {
                 // Through the funnel: the action run waits for the layout's
                 // echo, so `created` names the tabs it made.
                 try await daemon.perform(label + " layout") { connection in
-                    try await WorkspaceBlueprintBuilder(connection: connection, key: key, browsers: withBrowsers, defaultEngine: engine)
+                    try await WorkspaceBlueprintBuilder(daemon: daemon, connection: connection, key: key, browsers: withBrowsers, defaultEngine: engine)
                         .build(blueprint)
                     if metadata, blueprint.color != nil || blueprint.icon != nil {
                         try await connection.state.setWorkspaceIdentity(key, resource: resource,

@@ -36,7 +36,7 @@
 //! would hear the digest's answer for it).
 //!
 //! The digest's provenance (hub-set, never a client's): `{kind: "inbox_digest", digestId,
-//! parts: [{promptId, from, fromName, class, receivedAt, bytes, duplicateOf?}], counts: {block,
+//! parts: [{promptId, from, fromName, class, receivedAt, bytes, duplicateOf?, notice?}], counts: {block,
 //! question, result, fyi}}`. A message's class is the one its queue entry holds
 //! (`prompt_class.rs`), a result when it has none.
 //!
@@ -102,6 +102,8 @@ pub(crate) struct Part {
     pub class: Class,
     pub received_at: u64,
     pub text: String,
+    /// The tool's notice it is (`prompt_provenance::notice`), which its digest part keeps.
+    pub notice: Option<Value>,
 }
 
 /// A digest: the prompt's text and its provenance.
@@ -197,6 +199,9 @@ pub(crate) fn render(digest_id: &str, parts: &[Part]) -> Rendered {
             if let Some(kept) = folded_into(part) {
                 crate::no_panic::JsonExt::set(&mut v, "duplicateOf", json!(kept.prompt_id));
             }
+            if let Some(notice) = &part.notice {
+                crate::no_panic::JsonExt::set(&mut v, "notice", notice.clone());
+            }
             v
         })
         .collect();
@@ -253,6 +258,8 @@ fn digestible(q: &QueuedPrompt) -> bool {
         && !q.sent_now
         && run.control != Control::Web
         && !run.trust_gate
+        // A goal's continuation runs alone, checked against its goal (`goal_tools.rs`).
+        && !super::super::goal_tools::is_continuation(run.provenance.as_ref())
         && !run.blocks.is_empty()
         && run.blocks.iter().all(|b| {
             b.get("type").and_then(Value::as_str) == Some("text")
@@ -297,6 +304,13 @@ fn part_of(q: &QueuedPrompt) -> Part {
             q.run.provenance.as_ref(),
         )
         .to_owned(),
+        notice: q
+            .run
+            .provenance
+            .as_ref()
+            .filter(|p| crate::prompt_provenance::is_notice(Some(p)))
+            .and_then(|p| p.get("notice"))
+            .cloned(),
     }
 }
 
@@ -428,7 +442,7 @@ impl Hub {
                 prompt_id: digest_id.clone(),
                 turn_id: turn_id.clone(),
                 client: client.to_owned(),
-                preview: short_text(&text, 200),
+                preview: short_text(super::inbox::relay_body(&text), 200),
                 queued_at: now_ms(),
                 withdraw: Arc::new(Notify::new()),
                 run: Arc::new(run),

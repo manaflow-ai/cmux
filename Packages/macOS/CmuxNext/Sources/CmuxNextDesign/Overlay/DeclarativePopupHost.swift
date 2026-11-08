@@ -150,7 +150,7 @@ final class DeclarativePopupHost {
         guard let next = model else { return }
         let enabled = Self.enabledRows((next.rail ?? []) + next.rows + (next.footer ?? []))
         if let child, let childRowID,
-           let row = enabled.first(where: { $0.id == childRowID && $0.kind == .submenu }),
+           let row = enabled.first(where: { $0.id == childRowID && $0.opensChildren }),
            let rows = row.children, !rows.isEmpty,
            let view = content.rowView(id: childRowID) {
             var submenu = next
@@ -230,6 +230,8 @@ final class DeclarativePopupHost {
             if row.kind == .choice, row.options?.contains(where: { $0.id == value && $0.disabled != true }) != true { return }
         case .highlight:
             guard let row, row.disabled != true else { return }
+        case .navigate:
+            guard current.rail?.isEmpty == false, id == nil, value == "next" || value == "previous" else { return }
         case .dismiss: return
         }
         let opening = root.openingGeneration
@@ -256,7 +258,7 @@ final class DeclarativePopupHost {
     private func open(_ row: NativePopupRow, from view: NSView) {
         guard let model, let current = root.model, let webView,
               let row = Self.enabledRows((current.rail ?? []) + current.rows + (current.footer ?? []))
-                .first(where: { $0.id == row.id && $0.kind == .submenu }),
+                .first(where: { $0.id == row.id && $0.opensChildren }),
               let rows = row.children, !rows.isEmpty else { return }
         child?.hide()
         let submenu = DeclarativePopupHost(webView: webView, zoom: zoom, send: send, isAppActive: isAppActive)
@@ -286,7 +288,7 @@ final class DeclarativePopupHost {
 
     private static func enabledRows(_ rows: [NativePopupRow]) -> [NativePopupRow] {
         rows.filter { $0.disabled != true }.flatMap { row in
-            [row] + (row.kind == .submenu ? enabledRows(row.children ?? []) : [])
+            [row] + (row.opensChildren ? enabledRows(row.children ?? []) : [])
         }
     }
 }

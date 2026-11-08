@@ -12,14 +12,19 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_automations::exec::{ProcessExecutor, run_job};
+use cmux_automations::watch::Watches;
 use cmux_automations::{
-    Automation, AutomationSpec, Body, CatchUp, Run, RunState, RunnerLock, Store, StoreError,
-    Trigger, Zone, recover_orphans, start_manual, tick,
+    Automation, AutomationSpec, Body, CatchUp, EventOutcome, Gate, Run, RunState, RunnerLock,
+    Store, StoreError, Trigger, Zone, recover_orphans, start_event, start_manual_with_event, tick,
 };
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::OutputMode;
 use crate::localization::AutomationMessages;
+
+mod teleport;
+mod triggers;
 
 /// The runner never sleeps longer than this, so a new automation, a clock
 /// change or a wake from sleep is seen within a minute.
@@ -51,26 +56,115 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return None;
     }
     let output = global.output;
-    Some(match dispatch(rest, &global) {
+    Some(match dispatch(rest, &global, &Out::printing(output)) {
         Ok(code) => code,
-        Err(Failure::Usage(message)) => {
-            super::app::failure("usage.invalid", &format!("cmux: {message}"), output, 2)
-        }
-        Err(Failure::Store(StoreError::NotFound(q))) => super::app::failure(
-            "automation.not_found",
-            &format!("cmux: {}", StoreError::NotFound(q)),
-            output,
-            1,
-        ),
-        Err(Failure::Store(e)) => {
-            super::app::failure("automation.failed", &format!("cmux: {e}"), output, 1)
+        Err(failure) => {
+            let (code, message, exit) = failure.parts();
+            super::app::failure(code, &format!("cmux: {message}"), output, exit)
         }
     })
+}
+
+/// `cmux automation WORDS…` in this process, its JSON answer returned
+/// instead of printed: the MCP `automation_*` tools run the CLI's own verbs
+/// through it. `Err((error, outcome_unknown))`: `outcome_unknown` when a
+/// mutation may have applied (a transport failure after sending).
+pub(super) fn run_json(
+    global: &super::GlobalArgs,
+    words: &[String],
+) -> Result<Value, (Value, bool)> {
+    let out = Out::capturing();
+    let result = dispatch(words, global, &out);
+    let captured = out.take();
+    match (result, captured) {
+        (Err(failure), _) => {
+            let (code, message, _) = failure.parts();
+            Err((
+                json!({"code": code, "message": message, "details": {}, "retryable": false}),
+                false,
+            ))
+        }
+        (Ok(_), Some(answer)) => answer,
+        (Ok(0), None) => Ok(json!({})),
+        (Ok(exit), None) => Err((
+            json!({"code": "automation.failed", "message": format!("exit {exit}"), "details": {}, "retryable": false}),
+            false,
+        )),
+    }
+}
+
+/// Where a verb's answer goes: printed (the CLI), or kept for
+/// [`run_json`] (MCP). A capturing sink is JSON mode, so no verb prints
+/// human text into the MCP server's stdout.
+pub(super) struct Out {
+    pub(super) mode: OutputMode,
+    captured: Option<std::cell::RefCell<Option<CapturedResult>>>,
+}
+
+/// What `Out` holds while captured: the result, or the error value and whether
+/// it is a usage error.
+type CapturedResult = Result<Value, (Value, bool)>;
+
+impl Out {
+    pub(super) fn printing(mode: OutputMode) -> Out {
+        Out { mode, captured: None }
+    }
+
+    fn capturing() -> Out {
+        Out { mode: OutputMode::Json, captured: Some(std::cell::RefCell::new(None)) }
+    }
+
+    fn take(&self) -> Option<Result<Value, (Value, bool)>> {
+        self.captured.as_ref().and_then(|c| c.borrow_mut().take())
+    }
+
+    /// A verb's JSON answer.
+    pub(super) fn value(&self, v: &Value) {
+        match &self.captured {
+            Some(c) => *c.borrow_mut() = Some(Ok(v.clone())),
+            None => print_json(v),
+        }
+    }
+
+    /// A Cloud (or destination) refusal; the exit code.
+    pub(super) fn refusal(&self, error: &Value) -> i32 {
+        match &self.captured {
+            Some(c) => {
+                *c.borrow_mut() = Some(Err((error.clone(), false)));
+                cloud::refusal_exit(error)
+            }
+            None => cloud::print_refusal(error, self.mode),
+        }
+    }
+
+    /// A local or transport error; `unknown`: a mutation may have applied.
+    pub(super) fn error(&self, error: &Value, exit: i32, unknown: bool) -> i32 {
+        match &self.captured {
+            Some(c) => {
+                *c.borrow_mut() = Some(Err((error.clone(), unknown)));
+                exit
+            }
+            None => super::wire::print_local_error(error, self.mode, exit),
+        }
+    }
 }
 
 enum Failure {
     Usage(String),
     Store(StoreError),
+}
+
+impl Failure {
+    /// The error code, message and exit code.
+    fn parts(&self) -> (&'static str, String, i32) {
+        match self {
+            Failure::Usage(message) => ("usage.invalid", message.clone(), 2),
+            Failure::Store(e @ StoreError::NotFound(_)) => {
+                ("automation.not_found", e.to_string(), 1)
+            }
+            Failure::Store(e) => ("automation.failed", e.to_string(), 1),
+        }
+    }
 }
 
 impl From<StoreError> for Failure {
@@ -87,7 +181,29 @@ fn usage<T>(message: impl Into<String>) -> Result<T, Failure> {
 
 fn open_store() -> Result<Store, Failure> {
     let root = Store::default_root().ok_or_else(|| Failure::Usage(messages().no_home.into()))?;
-    Ok(Store::open(&root)?)
+    Ok(Store::open(&root)?.with_home(machine_home()))
+}
+
+/// `mac:<machine id>` from the state root's `machine-id` (read only, never
+/// made here), else `mac:local`.
+fn machine_home() -> String {
+    crate::feature_flags::state_root()
+        .and_then(|root| std::fs::read_to_string(root.join("machine-id")).ok())
+        .map(|text| text.trim().to_string())
+        .filter(|id| {
+            !id.is_empty()
+                && id.len() <= 128
+                && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        })
+        .map(|id| format!("mac:{id}"))
+        .unwrap_or_else(|| cmux_automations::LOCAL_HOME.to_string())
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// `--name value` / `--name=value` options and boolean flags, in any order
@@ -132,6 +248,11 @@ impl Args {
         self.values.iter().rev().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
     }
 
+    /// Every value of a repeatable option, in order.
+    fn values_of(&self, name: &str) -> Vec<&str> {
+        self.values.iter().filter(|(n, _)| n == name).map(|(_, v)| v.as_str()).collect()
+    }
+
     fn flag(&self, name: &str) -> bool {
         self.flags.iter().any(|f| f == name)
     }
@@ -145,10 +266,12 @@ impl Args {
     }
 }
 
-const SCHEDULE_FLAGS: &[&str] = &["daily", "weekdays", "weekly", "every", "at", "in", "cron"];
+const SCHEDULE_FLAGS: &[&str] =
+    &["daily", "weekdays", "weekly", "every", "at", "in", "cron", "watch"];
 const SPEC_VALUED: &[&str] = &[
     "prompt", "command", "daily", "weekdays", "weekly", "every", "at", "in", "cron", "tz",
-    "folder", "model", "timeout", "catch-up", "name",
+    "folder", "model", "timeout", "catch-up", "name", "watch", "debounce", "if", "cooldown",
+    "max-runs",
 ];
 const SPEC_FLAGS: &[&str] = &["hourly", "manual", "paused"];
 
@@ -175,11 +298,10 @@ fn take_target(args: &[String]) -> Result<(bool, Vec<String>), Failure> {
     }
 }
 
-fn dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
-    let output = global.output;
+fn dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Outcome {
     let (cloud, args) = take_target(args)?;
     if cloud {
-        return cloud_dispatch(&args, global);
+        return cloud_dispatch(&args, global, out);
     }
     let Some((verb, rest)) = args.split_first() else {
         print!("{}", messages().usage);
@@ -190,17 +312,20 @@ fn dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
             print!("{}", messages().usage);
             Ok(0)
         }
-        "create" | "new" | "add" => create(rest, output),
-        "list" | "ls" => list(rest, output),
-        "show" | "get" => show(rest, output),
-        "run" => run_now(rest, output),
-        "pause" => set_enabled(rest, false, output),
-        "resume" => set_enabled(rest, true, output),
-        "edit" | "update" => edit(rest, output),
-        "history" | "runs" => history(rest, output),
-        "logs" | "log" => logs(rest, output),
-        "delete" | "rm" => delete(rest, output),
-        "runner" => runner(rest, output),
+        "create" | "new" | "add" => create(rest, out),
+        "list" | "ls" => list(rest, out),
+        "show" | "get" => show(rest, out),
+        "run" => run_now(rest, out),
+        "pause" => set_enabled(rest, false, out),
+        "resume" => set_enabled(rest, true, out),
+        "edit" | "update" => edit(rest, out),
+        "history" | "runs" => history(rest, out),
+        "test" | "dry-run" => triggers::test(rest, out),
+        "logs" | "log" => logs(rest, out),
+        "delete" | "rm" => delete(rest, out),
+        "teleport" | "move" => teleport::run(rest, global, out, false),
+        "import" => teleport::import(rest, out),
+        "runner" => runner(rest, out),
         "_exec" => exec(rest),
         other => usage(messages().unknown_verb.replace("{verb}", other)),
     }
@@ -320,6 +445,7 @@ fn parse_trigger(a: &Args, now: i64) -> Result<Option<Trigger>, Failure> {
         "at" => Trigger::At { at: parse_at(value, zone, now)? },
         "in" => Trigger::At { at: now + parse_duration(value)? as i64 },
         "cron" => Trigger::Cron { expr: value.to_string(), tz: zone.name().to_string() },
+        "watch" => triggers::watch_trigger(a, value)?,
         _ => return Ok(None),
     };
     trigger.validate().map_err(|e| Failure::Usage(e.0))?;
@@ -377,6 +503,10 @@ fn automation_json(store: &Store, a: &Automation) -> Value {
     let mut v = serde_json::to_value(a).unwrap_or(Value::Null);
     if let Value::Object(map) = &mut v {
         map.insert("next_run_at".into(), json!(next));
+        map.insert(
+            "dropped_events".into(),
+            json!(store.state(&a.id).map(|s| s.dropped).unwrap_or(0)),
+        );
         map.insert("last_run".into(), serde_json::to_value(last).unwrap_or(Value::Null));
     }
     v
@@ -399,7 +529,8 @@ fn runner_running(store: &Store) -> bool {
 
 // ------------------------------------------------------------- verbs
 
-fn create(args: &[String], output: OutputMode) -> Outcome {
+fn create(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, SPEC_VALUED, SPEC_FLAGS)?;
     let name = match (a.value("name"), a.words.as_slice()) {
         (Some(n), []) => n.to_string(),
@@ -422,6 +553,7 @@ fn create(args: &[String], output: OutputMode) -> Outcome {
         (None, Some(command)) => Body::Command { command: command.into(), folder },
         _ => return usage(messages().need_body),
     };
+    let new_watch = matches!(trigger, Trigger::Watch { .. });
     let spec = AutomationSpec {
         name,
         trigger,
@@ -429,6 +561,7 @@ fn create(args: &[String], output: OutputMode) -> Outcome {
         catch_up: a.value("catch-up").map(parse_catch_up).transpose()?.unwrap_or_default(),
         timeout_seconds: a.value("timeout").map(parse_duration).transpose()?.unwrap_or(30 * 60),
         enabled: !a.flag("paused"),
+        gate: triggers::gate(&a, Gate::default(), new_watch)?,
     };
     let store = open_store()?;
     let created = store.create(spec, now)?;
@@ -438,7 +571,7 @@ fn create(args: &[String], output: OutputMode) -> Outcome {
         if let Value::Object(map) = &mut v {
             map.insert("runner_running".into(), json!(runner));
         }
-        print_json(&v);
+        out.value(&v);
     } else if output != OutputMode::Quiet {
         println!(
             "{}",
@@ -458,20 +591,30 @@ fn create(args: &[String], output: OutputMode) -> Outcome {
     Ok(0)
 }
 
-fn list(args: &[String], output: OutputMode) -> Outcome {
+fn list(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, &[], &[])?;
     if let Some(extra) = a.words.first() {
         return usage(messages().unexpected_argument.replace("{value}", extra));
     }
     let store = open_store()?;
     let all = store.list()?;
+    let moved = store.moved(now_ms())?;
     if output == OutputMode::Json {
-        print_json(
-            &json!({ "automations": all.iter().map(|x| automation_json(&store, x)).collect::<Vec<_>>(), "runner_running": runner_running(&store) }),
+        out.value(
+            &json!({ "automations": all.iter().map(|x| automation_json(&store, x)).collect::<Vec<_>>(), "moved": moved, "runner_running": runner_running(&store) }),
         );
         return Ok(0);
     }
-    if all.is_empty() {
+    for t in &moved {
+        println!(
+            "{}  {:<28} {}",
+            t.id,
+            t.name,
+            messages().moved_row.replace("{to}", &t.moved_to).replace("{id}", &t.moved_id)
+        );
+    }
+    if all.is_empty() && moved.is_empty() {
         println!("{}", messages().none_yet);
         return Ok(0);
     }
@@ -504,13 +647,14 @@ fn list(args: &[String], output: OutputMode) -> Outcome {
     Ok(0)
 }
 
-fn show(args: &[String], output: OutputMode) -> Outcome {
+fn show(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, &[], &[])?;
     let store = open_store()?;
     let x = store.find(a.one_word("AUTOMATION")?)?;
     let v = automation_json(&store, &x);
     if output == OutputMode::Json {
-        print_json(&v);
+        out.value(&v);
         return Ok(0);
     }
     println!("{} ({})", x.name, x.id);
@@ -532,6 +676,7 @@ fn show(args: &[String], output: OutputMode) -> Outcome {
     if let Some(f) = x.body.folder() {
         println!("  {}: {f}", messages().folder_label);
     }
+    triggers::show_lines(&x, store.state(&x.id)?.dropped);
     if let Some(next) = v.get("next_run_at").and_then(Value::as_i64) {
         println!("  {}: {}", messages().next_label, when(next));
     }
@@ -546,8 +691,9 @@ fn show(args: &[String], output: OutputMode) -> Outcome {
     Ok(0)
 }
 
-fn run_now(args: &[String], output: OutputMode) -> Outcome {
-    let a = Args::parse(args, &["key"], &["wait"])?;
+fn run_now(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
+    let a = Args::parse(args, &["key", "event"], &["wait"])?;
     let store = open_store()?;
     let x = store.find(a.one_word("AUTOMATION")?)?;
     let key = a
@@ -555,7 +701,7 @@ fn run_now(args: &[String], output: OutputMode) -> Outcome {
         .map(str::to_string)
         .unwrap_or_else(|| format!("cli-{}-{}", now(), std::process::id()));
     let mut exec = executor(&store)?;
-    let run = start_manual(&store, &x.id, &key, now(), &mut exec)?;
+    let run = start_manual_with_event(&store, &x.id, &key, a.value("event"), now(), &mut exec)?;
     if a.flag("wait") {
         let pid = store.run(&x.id, &run)?.and_then(|r| r.pid);
         if let Some(pid) = pid {
@@ -564,7 +710,7 @@ fn run_now(args: &[String], output: OutputMode) -> Outcome {
     }
     let record = store.run(&x.id, &run)?;
     if output == OutputMode::Json {
-        print_json(&serde_json::to_value(&record).unwrap_or(Value::Null));
+        out.value(&serde_json::to_value(&record).unwrap_or(Value::Null));
     } else if output != OutputMode::Quiet {
         let state = record.as_ref().map(state_label).unwrap_or_default();
         println!(
@@ -581,13 +727,14 @@ fn run_now(args: &[String], output: OutputMode) -> Outcome {
     Ok(if failed { 1 } else { 0 })
 }
 
-fn set_enabled(args: &[String], enabled: bool, output: OutputMode) -> Outcome {
+fn set_enabled(args: &[String], enabled: bool, out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, &[], &[])?;
     let store = open_store()?;
     let x = store.find(a.one_word("AUTOMATION")?)?;
     let x = store.set_enabled(&x.id, enabled, now())?;
     if output == OutputMode::Json {
-        print_json(&automation_json(&store, &x));
+        out.value(&automation_json(&store, &x));
     } else if output != OutputMode::Quiet {
         let line = if enabled { messages().resumed } else { messages().paused_done };
         println!("{}", line.replace("{name}", &x.name));
@@ -595,7 +742,8 @@ fn set_enabled(args: &[String], enabled: bool, output: OutputMode) -> Outcome {
     Ok(0)
 }
 
-fn edit(args: &[String], output: OutputMode) -> Outcome {
+fn edit(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, SPEC_VALUED, SPEC_FLAGS)?;
     let store = open_store()?;
     let x = store.find(a.one_word("AUTOMATION")?)?;
@@ -606,7 +754,16 @@ fn edit(args: &[String], output: OutputMode) -> Outcome {
     }
     if let Some(trigger) = parse_trigger(&a, now)? {
         spec.trigger = trigger;
+    } else if a.value("debounce").is_some() {
+        let Trigger::Watch { command, .. } = &spec.trigger else {
+            return usage(messages().debounce_needs_watch);
+        };
+        spec.trigger = triggers::watch_trigger(&a, &command.clone())?;
     }
+    let became_watch = matches!(spec.trigger, Trigger::Watch { .. })
+        && !matches!(x.trigger, Trigger::Watch { .. })
+        && x.gate == Gate::default();
+    spec.gate = triggers::gate(&a, spec.gate, became_watch)?;
     let folder = match a.value("folder") {
         Some(_) => folder_arg(&a)?,
         None => x.body.folder().map(str::to_string),
@@ -642,7 +799,7 @@ fn edit(args: &[String], output: OutputMode) -> Outcome {
     }
     let x = store.update(&x.id, spec, now)?;
     if output == OutputMode::Json {
-        print_json(&automation_json(&store, &x));
+        out.value(&automation_json(&store, &x));
     } else if output != OutputMode::Quiet {
         println!(
             "{}",
@@ -655,7 +812,8 @@ fn edit(args: &[String], output: OutputMode) -> Outcome {
     Ok(0)
 }
 
-fn history(args: &[String], output: OutputMode) -> Outcome {
+fn history(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, &["limit", "state"], &[])?;
     let store = open_store()?;
     let limit: usize = match a.value("limit") {
@@ -682,7 +840,7 @@ fn history(args: &[String], output: OutputMode) -> Outcome {
     });
     rows.truncate(limit);
     if output == OutputMode::Json {
-        print_json(&json!({ "runs": rows.iter().map(|(_, r)| r).collect::<Vec<_>>() }));
+        out.value(&json!({ "runs": rows.iter().map(|(_, r)| r).collect::<Vec<_>>() }));
         return Ok(0);
     }
     if rows.is_empty() {
@@ -695,12 +853,19 @@ fn history(args: &[String], output: OutputMode) -> Outcome {
         } else {
             String::new()
         };
-        println!("{}  {at}  {:<24} {}{late}", r.id, name, state_label(r));
+        let event = r
+            .event
+            .as_deref()
+            .and_then(|e| e.lines().next())
+            .map(|line| format!("  [{}] {}", r.trigger, line.chars().take(60).collect::<String>()))
+            .unwrap_or_default();
+        println!("{}  {at}  {:<24} {}{late}{event}", r.id, name, state_label(r));
     }
     Ok(0)
 }
 
-fn logs(args: &[String], output: OutputMode) -> Outcome {
+fn logs(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, &[], &[])?;
     let word = a.one_word("RUN")?;
     let store = open_store()?;
@@ -723,7 +888,7 @@ fn logs(args: &[String], output: OutputMode) -> Outcome {
     let path = store.log_path(&automation, &run.id);
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     if output == OutputMode::Json {
-        print_json(&json!({ "run": run, "log_path": path, "log": text }));
+        out.value(&json!({ "run": run, "log_path": path, "log": text }));
     } else {
         let mut out = std::io::stdout().lock();
         let _ = out.write_all(text.as_bytes());
@@ -731,13 +896,15 @@ fn logs(args: &[String], output: OutputMode) -> Outcome {
     Ok(0)
 }
 
-fn delete(args: &[String], output: OutputMode) -> Outcome {
-    let a = Args::parse(args, &[], &[])?;
+fn delete(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
+    // `--yes`: scripts confirm up front; the CLI does not ask.
+    let a = Args::parse(args, &[], &["yes"])?;
     let store = open_store()?;
     let x = store.find(a.one_word("AUTOMATION")?)?;
     store.delete(&x.id)?;
     if output == OutputMode::Json {
-        print_json(&json!({ "deleted": x.id }));
+        out.value(&json!({ "deleted": x.id }));
     } else if output != OutputMode::Quiet {
         println!("{}", messages().deleted.replace("{name}", &x.name));
     }
@@ -757,17 +924,18 @@ fn exec(args: &[String]) -> Outcome {
     Ok(0)
 }
 
-fn runner(args: &[String], output: OutputMode) -> Outcome {
+fn runner(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, &[], &["once"])?;
     match a.words.first().map(String::as_str) {
-        None => serve(a.flag("once"), output),
-        Some("install") => install(output),
-        Some("uninstall") => uninstall(output),
+        None => serve(a.flag("once"), out),
+        Some("install") => install(out),
+        Some("uninstall") => uninstall(out),
         Some("status") => {
             let store = open_store()?;
             let running = runner_running(&store);
             if output == OutputMode::Json {
-                print_json(
+                out.value(
                     &json!({ "running": running, "launchd_label": LAUNCHD_LABEL, "plist": plist_path() }),
                 );
             } else {
@@ -782,9 +950,10 @@ fn runner(args: &[String], output: OutputMode) -> Outcome {
     }
 }
 
-/// The runner loop: one tick, then sleep until the next due time (at most a
-/// minute). `--once` ticks once and exits.
-fn serve(once: bool, output: OutputMode) -> Outcome {
+/// The runner loop: a tick at each due time (at most a minute apart), and
+/// in between, the watch commands' lines. `--once` ticks once and exits.
+fn serve(once: bool, out: &Out) -> Outcome {
+    let output = out.mode;
     let store = open_store()?;
     let Some(_lock) = RunnerLock::acquire(&store)? else {
         if output != OutputMode::Quiet {
@@ -794,37 +963,67 @@ fn serve(once: bool, output: OutputMode) -> Outcome {
     };
     let mut exec = executor(&store)?;
     recover_orphans(&store, now(), &mut exec)?;
+    let mut watches = Watches::new(store.clone());
+    let mut next_tick_ms = 0i64;
     loop {
-        let report = tick(&store, now(), &mut exec)?;
+        if now_ms() >= next_tick_ms {
+            let _ = store.prune_moved(now_ms());
+            let report = tick(&store, now(), &mut exec)?;
+            exec.reap();
+            if output == OutputMode::Json {
+                println!(
+                    "{}",
+                    json!({ "at": now(), "started": report.started, "skipped": report.skipped, "errors": report.errors })
+                );
+            } else if output != OutputMode::Quiet
+                && (!report.started.is_empty() || !report.errors.is_empty())
+            {
+                for id in &report.started {
+                    println!("{} {id}", when(now()));
+                }
+                for (id, e) in &report.errors {
+                    eprintln!("{id}: {e}");
+                }
+            }
+            if once {
+                return Ok(0);
+            }
+            let automations = store.list()?;
+            watches.reconcile(&automations, now_ms());
+            let t = now();
+            let next = automations
+                .iter()
+                .filter(|x| x.enabled && !x.fenced())
+                .filter_map(|x| x.trigger.next_after(t).ok().flatten())
+                .min()
+                .unwrap_or(t + MAX_SLEEP.as_secs() as i64);
+            next_tick_ms = next.clamp(t + 1, t + MAX_SLEEP.as_secs() as i64) * 1000;
+        }
+        watches.restart_due(now_ms());
+        for event in watches.due_events(now_ms()) {
+            match start_event(&store, &event.automation, &event.text, &event.key, now(), &mut exec)
+            {
+                Ok(outcome) if output == OutputMode::Json => {
+                    let (state, value) = match &outcome {
+                        EventOutcome::Started(run) => ("started", run.as_str()),
+                        EventOutcome::Dropped(why) => ("dropped", *why),
+                    };
+                    println!(
+                        "{}",
+                        json!({ "at": now(), "automation": event.automation, "event": state, "detail": value })
+                    );
+                }
+                Ok(EventOutcome::Started(run)) if output != OutputMode::Quiet => {
+                    println!("{} {run} ({})", when(now()), event.automation);
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("{}: {e}", event.automation),
+            }
+        }
         exec.reap();
-        if output == OutputMode::Json {
-            println!(
-                "{}",
-                json!({ "at": now(), "started": report.started, "skipped": report.skipped, "errors": report.errors })
-            );
-        } else if output != OutputMode::Quiet
-            && (!report.started.is_empty() || !report.errors.is_empty())
-        {
-            for id in &report.started {
-                println!("{} {id}", when(now()));
-            }
-            for (id, e) in &report.errors {
-                eprintln!("{id}: {e}");
-            }
-        }
-        if once {
-            return Ok(0);
-        }
-        let t = now();
-        let next = store
-            .list()?
-            .iter()
-            .filter(|x| x.enabled)
-            .filter_map(|x| x.trigger.next_after(t).ok().flatten())
-            .min()
-            .unwrap_or(t + MAX_SLEEP.as_secs() as i64);
-        let wait = Duration::from_secs((next - t).clamp(1, MAX_SLEEP.as_secs() as i64) as u64);
-        std::thread::sleep(wait);
+        let deadline = watches.next_deadline_ms().map_or(next_tick_ms, |d| d.min(next_tick_ms));
+        let wait = (deadline - now_ms()).clamp(10, MAX_SLEEP.as_millis() as i64);
+        watches.wait(Duration::from_millis(wait as u64), &now_ms);
     }
 }
 
@@ -848,7 +1047,8 @@ fn launchctl(args: &[&str]) -> bool {
 }
 
 /// A launchd agent that keeps `cmux automation runner` running for this user.
-fn install(output: OutputMode) -> Outcome {
+fn install(out: &Out) -> Outcome {
+    let output = out.mode;
     let store = open_store()?;
     let exe = std::env::current_exe().map_err(|e| Failure::Store(e.into()))?;
     let plist = plist_path().ok_or_else(|| Failure::Usage(messages().no_home.into()))?;
@@ -869,21 +1069,22 @@ fn install(output: OutputMode) -> Outcome {
     let _ = launchctl(&["bootout", &format!("{domain}/{LAUNCHD_LABEL}")]);
     let ok = launchctl(&["bootstrap", &domain, &plist.to_string_lossy()]);
     if output == OutputMode::Json {
-        print_json(&json!({ "installed": ok, "plist": plist }));
+        out.value(&json!({ "installed": ok, "plist": plist }));
     } else if output != OutputMode::Quiet {
         println!("{}", if ok { messages().installed } else { messages().install_failed });
     }
     Ok(if ok { 0 } else { 1 })
 }
 
-fn uninstall(output: OutputMode) -> Outcome {
+fn uninstall(out: &Out) -> Outcome {
+    let output = out.mode;
     let plist = plist_path().ok_or_else(|| Failure::Usage(messages().no_home.into()))?;
     // SAFETY: as above.
     let domain = format!("gui/{}", unsafe { libc::getuid() });
     let _ = launchctl(&["bootout", &format!("{domain}/{LAUNCHD_LABEL}")]);
     let _ = std::fs::remove_file(&plist);
     if output == OutputMode::Json {
-        print_json(&json!({ "uninstalled": true }));
+        out.value(&json!({ "uninstalled": true }));
     } else if output != OutputMode::Quiet {
         println!("{}", messages().uninstalled);
     }
@@ -902,7 +1103,7 @@ fn cloud_schedule(a: &Args) -> Result<Option<CloudSchedule>, Failure> {
         cmux_automations::CronExpr::parse(&expr).map_err(Failure::Usage)?;
         Ok(Some(CloudSchedule::Cron { expr, tz: tz.clone() }))
     };
-    for local_only in ["every", "at", "in"] {
+    for local_only in ["every", "at", "in", "watch", "debounce", "if", "cooldown", "max-runs"] {
         if a.value(local_only).is_some() {
             return usage(messages().cloud_local_only.replace("{flag}", local_only));
         }
@@ -944,22 +1145,19 @@ fn cloud_schedule(a: &Args) -> Result<Option<CloudSchedule>, Failure> {
 }
 
 /// Prints a Cloud answer; refusals go through `print_refusal`.
-fn cloud_out(
-    answer: Result<Answer, Value>,
-    output: OutputMode,
-    human: impl FnOnce(&Value),
-) -> Outcome {
+fn cloud_out(answer: Result<Answer, Value>, out: &Out, human: impl FnOnce(&Value)) -> Outcome {
+    let output = out.mode;
     match answer {
         Ok(Answer::Value(v)) => {
             if output == OutputMode::Json {
-                print_json(&v);
+                out.value(&v);
             } else if output != OutputMode::Quiet {
                 human(&v);
             }
             Ok(0)
         }
-        Ok(Answer::Refused(error)) => Ok(cloud::print_refusal(&error, output)),
-        Err(error) => Ok(super::wire::print_local_error(&error, output, 3)),
+        Ok(Answer::Refused(error)) => Ok(out.refusal(&error)),
+        Err(error) => Ok(out.error(&error, 3, true)),
     }
 }
 
@@ -1004,8 +1202,31 @@ fn cloud_row(v: &Value) -> String {
     )
 }
 
+/// `--private`/`--shared`, `--editor USER` (repeatable) and `--catch-up` on
+/// a Cloud create or update (docs/automations-teleport-teams.md, section 4).
+fn team_fields(a: &Args, params: &mut Value) -> Result<(), Failure> {
+    match (a.flag("private"), a.flag("shared")) {
+        (true, true) => return usage(messages().one_sharing),
+        (true, false) => params["sharing"] = json!("private"),
+        (false, true) => params["sharing"] = json!("team"),
+        (false, false) => {}
+    }
+    let editors = a.values_of("editor");
+    if !editors.is_empty() {
+        params["editors"] = json!(editors);
+    }
+    if let Some(c) = a.value("catch-up") {
+        params["catch_up"] = json!(parse_catch_up(c)?.name());
+    }
+    Ok(())
+}
+
 /// The Cloud automation `word` names: an `auto_` id, or a name from `automation.list`.
-fn cloud_find(global: &super::GlobalArgs, word: &str) -> Result<Result<String, Outcome>, Failure> {
+fn cloud_find(
+    global: &super::GlobalArgs,
+    out: &Out,
+    word: &str,
+) -> Result<Result<String, Outcome>, Failure> {
     if word.starts_with("auto_") && word.len() == 25 {
         return Ok(Ok(word.to_string()));
     }
@@ -1028,23 +1249,25 @@ fn cloud_find(global: &super::GlobalArgs, word: &str) -> Result<Result<String, O
                 None => Err(Failure::Store(StoreError::NotFound(word.into()))),
             }
         }
-        other => Ok(Err(cloud_out(other, global.output, |_| {}))),
+        other => Ok(Err(cloud_out(other, out, |_| {}))),
     }
 }
 
-fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
-    let output = global.output;
+fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Outcome {
     let Some((verb, rest)) = args.split_first() else {
         print!("{}", messages().usage);
         return Ok(0);
     };
+    if verb == "teleport" || verb == "move" {
+        return teleport::run(rest, global, out, true);
+    }
     let mut valued = SPEC_VALUED.to_vec();
-    valued.extend(["limit", "key"]);
+    valued.extend(["limit", "key", "editor"]);
     let mut flags = SPEC_FLAGS.to_vec();
-    flags.push("webhook");
+    flags.extend(["webhook", "private", "shared", "yes"]);
     let a = Args::parse(rest, &valued, &flags)?;
     let target = |a: &Args| -> Result<Result<String, Outcome>, Failure> {
-        cloud_find(global, a.one_word("AUTOMATION")?)
+        cloud_find(global, out, a.one_word("AUTOMATION")?)
     };
     match verb.as_str() {
         "create" | "new" | "add" => {
@@ -1063,9 +1286,11 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
             let chief = match cloud::call(global, "chief.list", json!({}), None) {
                 Ok(Answer::Value(v)) => cloud::default_chief(&v)
                     .ok_or_else(|| Failure::Usage(messages().cloud_no_chief.into()))?,
-                other => return cloud_out(other, output, |_| {}),
+                other => return cloud_out(other, out, |_| {}),
             };
-            let params = cloud::create_params(&name, prompt, &schedule, &chief, a.flag("paused"));
+            let mut params =
+                cloud::create_params(&name, prompt, &schedule, &chief, a.flag("paused"));
+            team_fields(&a, &mut params)?;
             cloud_out(
                 cloud::call(
                     global,
@@ -1073,7 +1298,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
                     params,
                     Some(cloud::key(global, "create")),
                 ),
-                output,
+                out,
                 |v| {
                     println!(
                         "{}",
@@ -1088,7 +1313,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
         }
         "list" | "ls" => cloud_out(
             cloud::call(global, "automation.list", json!({"limit": 100}), None),
-            output,
+            out,
             |v| {
                 let all =
                     v.get("automations").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -1103,7 +1328,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
         "show" | "get" => match target(&a)? {
             Ok(id) => cloud_out(
                 cloud::call(global, "automation.get", json!({"automation": id}), None),
-                output,
+                out,
                 |v| println!("{}", cloud_row(v.get("automation").unwrap_or(v))),
             ),
             Err(done) => done,
@@ -1120,7 +1345,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
                             .unwrap_or_else(|| cloud::key(global, "run")),
                     ),
                 ),
-                output,
+                out,
                 |v| {
                     let run = v
                         .get("id")
@@ -1142,7 +1367,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
                         json!({"automation": id, "enabled": enabled}),
                         Some(cloud::key(global, verb)),
                     ),
-                    output,
+                    out,
                     |v| {
                         let name = v.get("name").and_then(Value::as_str).unwrap_or(&id);
                         println!(
@@ -1155,6 +1380,96 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
             }
             Err(done) => done,
         },
+        "edit" | "update" => {
+            let unsupported = [
+                "prompt", "command", "folder", "model", "timeout", "tz", "if", "cooldown",
+                "max-runs", "debounce",
+            ]
+            .iter()
+            .chain(SCHEDULE_FLAGS)
+            .any(|f| a.value(f).is_some())
+                || ["hourly", "manual", "webhook"].iter().any(|f| a.flag(f));
+            if unsupported {
+                return usage(messages().cloud_edit_flags);
+            }
+            match target(&a)? {
+                Ok(id) => {
+                    let mut params = json!({"automation": id});
+                    if let Some(name) = a.value("name") {
+                        params.set("name", json!(name));
+                    }
+                    if a.flag("paused") {
+                        params.set("enabled", json!(false));
+                    }
+                    team_fields(&a, &mut params)?;
+                    cloud_out(
+                        cloud::call(
+                            global,
+                            "automation.update",
+                            params,
+                            Some(cloud::key(global, "update")),
+                        ),
+                        out,
+                        |v| {
+                            let name = v.get("name").and_then(Value::as_str).unwrap_or(&id);
+                            println!(
+                                "{}",
+                                messages().updated.replace("{name}", name).replace(
+                                    "{version}",
+                                    &v.get("version")
+                                        .map(Value::to_string)
+                                        .unwrap_or_else(|| "-".into())
+                                )
+                            );
+                        },
+                    )
+                }
+                Err(done) => done,
+            }
+        }
+        "audit" => {
+            let limit: u64 = match a.value("limit") {
+                Some(n) => n
+                    .parse()
+                    .map_err(|_| Failure::Usage(messages().bad_limit.replace("{value}", n)))?,
+                None => 50,
+            };
+            let mut params = json!({"limit": limit});
+            match a.words.as_slice() {
+                [] => {}
+                [_] => match target(&a)? {
+                    Ok(id) => {
+                        params.set("automation", json!(id));
+                    }
+                    Err(done) => return done,
+                },
+                [_, extra, ..] => {
+                    return usage(messages().unexpected_argument.replace("{value}", extra));
+                }
+            }
+            cloud_out(cloud::call(global, "automation.audit.list", params, None), out, |v| {
+                let entries =
+                    v.get("entries").and_then(Value::as_array).cloned().unwrap_or_default();
+                if entries.is_empty() {
+                    println!("{}", messages().audit_none);
+                }
+                for e in &entries {
+                    let s = |k: &str| e.get(k).and_then(Value::as_str).unwrap_or("-").to_string();
+                    let at = e
+                        .get("at")
+                        .and_then(Value::as_i64)
+                        .map(|ms| when(ms / 1000))
+                        .unwrap_or_default();
+                    println!(
+                        "{at}  {:<20} {:<10} {:<26} {}",
+                        s("actor"),
+                        s("op"),
+                        s("automation"),
+                        s("summary")
+                    );
+                }
+            })
+        }
         "history" | "runs" => match target(&a)? {
             Ok(id) => cloud_out(
                 cloud::call(
@@ -1163,7 +1478,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
                     json!({"automation": id, "limit": 50}),
                     None,
                 ),
-                output,
+                out,
                 |v| {
                     let runs = v.get("runs").and_then(Value::as_array).cloned().unwrap_or_default();
                     if runs.is_empty() {
@@ -1197,7 +1512,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
                     json!({"automation": id}),
                     Some(cloud::key(global, "delete")),
                 ),
-                output,
+                out,
                 |_| {
                     println!("{}", messages().deleted_cloud.replace("{id}", &id));
                 },

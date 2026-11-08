@@ -8,7 +8,6 @@ import CmuxNextWakeups
 /// pull requests its sessions opened or work on, newest first, one line each: the title, a state
 /// pill, `owner/repo #N` and the lines added and removed. A click opens the pull request in a
 /// browser tab of the focused pane. It scrolls past ``SidebarPullRequestCardView/visibleRows``.
-/// `sidebar.pullRequestCard` (Debug Settings, on by default) turns it off.
 ///
 /// It shows in the app's one hover card window as an owned card (`HoverCardCoordinator.presentOwned`),
 /// as the update card's highlights do: it takes clicks and scrolls, a workspace card that shows
@@ -52,7 +51,7 @@ final class SidebarPullRequestCardController {
     /// clicked one.
     func badgeEntered(_ badge: SidebarPullRequestBadgeView, items: [SidebarPullRequestItem], cards: HoverCardCoordinator,
                       open: @escaping (URL) -> Void) {
-        guard Self.isEnabled, !items.isEmpty, let window = badge.window else { return }
+        guard !items.isEmpty, let window = badge.window else { return }
         closer.cancel()
         self.badge = badge
         self.cards = cards
@@ -75,9 +74,6 @@ final class SidebarPullRequestCardController {
         open = nil
         cards?.endOwned(Self.cardID)
     }
-
-    /// `sidebar.pullRequestCard`.
-    static var isEnabled: Bool { SidebarTunables.pullRequestCard.value }
 
     /// The card left the window: closed by ``dismiss()``, or taken by a workspace or tab card.
     private func ended() {
@@ -206,7 +202,7 @@ final class SidebarPullRequestCardRow: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = Metrics.space1
+        layer?.cornerRadius = Metrics.controlCornerRadius
         pill.wantsLayer = true
         pill.addSubview(pillLabel)
         [title, pill, place, additions, deletions].forEach(addSubview)

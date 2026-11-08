@@ -27,7 +27,7 @@ public nonisolated enum AppScopeRequirement: Sendable, Hashable {
         if table.never.contains(op) || neverPrefixes.contains(where: { op.hasPrefix($0) }) { return .never }
         guard let entry = table.ops[op] else { return .unsupported }
         switch entry.scope {
-        case "storage:local":
+        case "storage:local", "none":
             return .own
         case "net:<host>":
             guard let text = params["url"]?.stringValue, text.lowercased().hasPrefix("https://"),

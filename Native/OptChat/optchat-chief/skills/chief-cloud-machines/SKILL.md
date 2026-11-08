@@ -77,6 +77,8 @@ run it again before deciding there is no machine.
 
 ## Run a task as an agent chat on a Cloud machine
 
+For subagents, `spawn` picks a machine automatically; `place` accepts here/local/mac, cloud (also cloud:small|medium|large), or a paired machine name, while optional harness routing stays off by default.
+
 To hand a task to a coding agent on a Cloud machine and get its answer, use
 one command:
 

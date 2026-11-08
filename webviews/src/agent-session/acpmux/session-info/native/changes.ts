@@ -1,21 +1,28 @@
 // Session Info's Changes, drawn by the App (ChangesSection.tsx): every pull request the chat opened
 // or changed, open ones first (changesOrder), five then Show more. A row is its title (its owner
 // beside it), then `repo #N`, its lines and comments; its failing checks or its checks' state at
-// the end; its state the glyph and tone alone. A click opens it beside the chat.
+// the end; its state the glyph and tone alone. A click opens it beside the chat; its menu also opens
+// its diff (View diff).
 import type { StringKey, Translate } from "../../i18n";
 import type { SummaryPullRequest } from "../../summary/sessionSummary";
-import { CHANGES_SHOWN, changesOrder, glyphState, KINDS, type SessionInfoPullRequestStatus } from "../ChangesSection";
-import type { PullRequestGlyphState } from "../PullRequestGlyph";
-import type { NativeInfoActions, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
+import {
+  CHANGES_SHOWN,
+  changesOrder,
+  glyphState,
+  KINDS,
+  type SessionInfoPullRequestStatus,
+} from "../changesSectionModel";
+import { PULL_REQUEST_ICONS, type PullRequestGlyphState } from "../pullRequestGlyphModel";
+import {
+  NATIVE_PACK_ICON,
+  type NativeInfoActions,
+  type NativeInfoRow,
+  type NativeInfoSection,
+  type NativeInfoTone,
+} from "./model";
 import { nativeExternalUrl, safeExternalUrl } from "./links";
+import { openPullRequestDiff, pullRequestDiffUrl } from "../pullRequestDiff";
 
-const SYMBOLS: Record<PullRequestGlyphState, string> = {
-  open: "arrow.triangle.pull",
-  draft: "arrow.triangle.pull",
-  conflicting: "arrow.triangle.pull",
-  merged: "arrow.triangle.merge",
-  closed: "xmark.circle",
-};
 const TONES: Record<PullRequestGlyphState, NativeInfoTone> = {
   open: "done",
   draft: "muted",
@@ -89,7 +96,16 @@ export function changesSection(
       if (onBase > 0) trailing += ` ${t("sessionInfo.changes.failingOnBase", { count: onBase })}`;
     } else if (checks && CHECK_LABELS[checks]) trailing = t(CHECK_LABELS[checks]!);
     const reference = `${pr.repo}#${pr.number}`;
+    const diffUrl = pullRequestDiffUrl(pr.url);
     const menu = [
+      ...(diffUrl
+        ? [
+            {
+              label: t("sessionInfo.changes.viewDiff"),
+              action: actions.add(`changes.viewDiff:${pr.url}`, () => openPullRequestDiff(diffUrl)),
+            },
+          ]
+        : []),
       ...(safeExternalUrl(pr.url)
         ? [
             {
@@ -130,7 +146,8 @@ export function changesSection(
       : undefined;
     return {
       id: pr.url,
-      symbol: SYMBOLS[state],
+      // The pack's glyph, as the page's row draws it (PullRequestGlyph), not an SF Symbol.
+      symbol: `${NATIVE_PACK_ICON}${PULL_REQUEST_ICONS[state]}`,
       title: (live.title ?? pr.title) || `#${pr.number}`,
       ...(live.owner ? { detail: live.owner } : {}),
       subtitle: line.join("  "),

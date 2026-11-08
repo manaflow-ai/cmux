@@ -35,10 +35,12 @@ mod classic;
 mod events;
 mod group_create;
 mod keybinding;
+mod live;
 mod nightly;
 mod open;
 mod open_link;
 mod page;
+mod renderers;
 mod right;
 mod run;
 mod settings;
@@ -75,13 +77,16 @@ pub(super) const APP_SCOPES: &[&str] = &[
 /// network action the app bounds itself (`ActionDescriptor.resultDeadline`,
 /// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
 pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
+/// The app method `cmux app remote-views` reads; the app registers it in every
+/// build (RemoteViewTabsControl.releaseMethods, whose test reads this line).
+pub(super) const REMOTE_VIEWS_METHOD: &str = "remote_view.state";
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// `errors.list` reads the app's logs first (the app bounds it at 12 s).
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 /// A run that waits for a person's answer in the app (an agent's cookie
 /// import shows a consent panel, then macOS asks for a password; Invite to
 /// Team waits for Send in its dialog; an agent's or script's Share Chat with
-/// Guest waits for the owner's Make Link, #30263): the app
+/// Guest or Invite People waits for the owner's Make Link or Invite, #30263): the app
 /// bounds it at 200 s (`ActionDescriptor.personDeadline`).
 pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
 /// The CLI names and ids of the actions the app marks `waitsForPerson` (the
@@ -104,6 +109,8 @@ const PERSON_ACTIONS: &[&str] = &[
     "workspace.importClassic",
     "share chat",
     "agent.share",
+    "share invite",
+    "agent.share.invite",
 ];
 
 /// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.
@@ -111,9 +118,10 @@ pub(in crate::cli) fn waiting_run_timeout(action: &str) -> Duration {
     if PERSON_ACTIONS.contains(&action) { PERSON_RUN_TIMEOUT } else { WAITING_RUN_TIMEOUT }
 }
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
-/// A `busy` app that says the run never started is asked again this many
-/// times, after the delay it names (`retry_after_ms`, else this default).
-const BUSY_RETRIES: u32 = 3;
+/// An app that says the run never started (`busy`, an early `timeout`, a
+/// reconnecting daemon) is asked again this many times, after the delay it
+/// names (`retry_after_ms`, else this default, doubled each time).
+const BUSY_RETRIES: u32 = 5;
 const BUSY_RETRY_DELAY: Duration = Duration::from_millis(100);
 const MAX_BUSY_RETRY_DELAY: Duration = Duration::from_secs(1);
 
@@ -156,7 +164,11 @@ pub(super) enum AppCommand {
         params: Value,
         out: Option<String>,
     },
-    /// `settings list|schema|validate` (app/settings.rs).
+    /// `app renderers`: `renderers.list`, joined into one row per renderer pid (app/renderers.rs).
+    Renderers {
+        params: Value,
+    },
+    /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
     /// tab right of the Home chat, then `then` runs on it.
@@ -169,6 +181,8 @@ pub(super) enum AppCommand {
     Version,
     /// `cmux nightly list|install`: another recent nightly build (app/nightly.rs).
     Nightly(nightly::Command),
+    /// `cmux live start|stop|status`: edit cmux's web UI while it runs (app/live.rs).
+    Live(live::Command),
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -207,6 +221,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     if scope == "nightly" {
         return nightly::parse(args.get(1..).unwrap_or_default())
             .map(|command| Some(AppCommand::Nightly(command)));
+    }
+    if scope == "live" {
+        return live::parse(args.get(1..).unwrap_or_default())
+            .map(|command| Some(AppCommand::Live(command)));
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
@@ -263,6 +281,18 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
+        ("app", Some("renderers")) => renderers::parse(rest)?,
+        // The Cloud desktop tabs (`remote_view.state`, every build): per tab its
+        // viewer, whether it is connected and who has control; never a credential
+        // or a pixel of the screen.
+        ("app", Some("remote-views")) => {
+            let options = Options::parse(rest.get(1..).unwrap_or_default(), &["tab"], &[])?;
+            let mut params = Map::new();
+            if let Some(tab) = options.value("tab") {
+                params.insert("tab".into(), json!(tab));
+            }
+            call(REMOTE_VIEWS_METHOD, Value::Object(params))
+        }
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
@@ -301,6 +331,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             } else {
                 run_action(id, tail, ActionName::Any)?
             }
+        }
+        ("settings" | "config", Some("list")) => {
+            return settings::parse_list(rest.get(1..).unwrap_or_default());
         }
         ("settings" | "config", Some(verb)) if settings::VERBS.contains(&verb) => {
             settings::parse(rest)?
@@ -446,7 +479,7 @@ pub(super) fn action_origin() -> &'static str {
 
 /// An action argument's name from its flag: the catalog names arguments in
 /// camelCase (`--keep-sessions` is `keepSessions`).
-fn argument_name(flag: &str) -> String {
+pub(super) fn argument_name(flag: &str) -> String {
     let mut name = String::with_capacity(flag.len());
     let mut upper = false;
     for character in flag.chars() {
@@ -532,7 +565,18 @@ pub(super) fn run_action(
                 continue;
             }
             "focus" => {
-                params.insert("focus".into(), json!(true));
+                // An action with its own `focus` argument (`open-remote`) takes the flag as that argument too,
+                // with an optional `true`/`false` after it; the run's own focus follows it.
+                let mut value = true;
+                if super::action_hint::action_takes_argument(action, "focus") {
+                    if let Some(word @ ("true" | "false")) = args.get(index + 1).map(String::as_str)
+                    {
+                        value = word == "true";
+                        index += 1;
+                    }
+                    arguments.insert("focus".into(), json!(value));
+                }
+                params.insert("focus".into(), json!(value));
                 index += 1;
                 continue;
             }
@@ -564,6 +608,24 @@ pub(super) fn run_action(
                     .split_once('=')
                     .ok_or_else(|| UsageError::new(messages.arg_shape.replace("{value}", text)))?;
                 arguments.insert(key.into(), json!(value));
+            }
+            // `--focus=false` for an action with a `focus` argument: the argument, and the run's own focus.
+            // Any other value is a usage error, never a silent `true`.
+            "focus" if super::action_hint::action_takes_argument(action, "focus") => {
+                let on = match value.as_str() {
+                    None | Some("true") => true,
+                    Some("false") => false,
+                    Some(text) => {
+                        return Err(UsageError::new(
+                            messages
+                                .flag_bool
+                                .replace("{flag}", "--focus")
+                                .replace("{value}", text),
+                        ));
+                    }
+                };
+                params.insert("focus".into(), json!(on));
+                arguments.insert("focus".into(), json!(on));
             }
             _ => {
                 let key = argument_name(&name);
@@ -684,6 +746,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     if let AppCommand::Nightly(command) = &command {
         return Ran::Done(nightly::run(global, command));
     }
+    if let AppCommand::Live(command) = &command {
+        return Ran::Done(live::run(command));
+    }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
@@ -696,6 +761,15 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
 /// that does not answer as the cmux app is `socket.wrong_kind`; neither
 /// tries another socket.
 pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> {
+    connect_command_within(global, None)
+}
+
+/// [`connect_command`] for an optional read that must never hold up a command: with `probe`, the
+/// `--socket` kind probe (`system.ping`) has that hard deadline instead of waiting out a busy app.
+pub(super) fn connect_command_within(
+    global: &GlobalArgs,
+    probe: Option<Duration>,
+) -> Result<UnixStream, Value> {
     let socket = command_socket(global)?;
     let Some(flag) = socket.named_by else {
         return connect(&socket.path).map_err(|message| typed("app.unreachable", message, None));
@@ -718,7 +792,10 @@ pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> 
         // An app's refusal is an object with a code (a classic app in
         // older password-mode app refuses ping before `auth.login`; a daemon's
         // refusal of the unknown line is a plain string.
-        let pong = exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT);
+        let pong = match probe {
+            Some(timeout) => exchange_within(&mut stream, "system.ping", json!({}), timeout),
+            None => exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT),
+        };
         let is_app = match &pong {
             Ok(Ok(result)) => result.get("pong") == Some(&Value::Bool(true)),
             Ok(Err(error)) => error.get("code").is_some_and(Value::is_string),
@@ -773,10 +850,14 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::DebugCall { method, params } => {
             return Ran::Done(call::run(global, stream, &method, params));
         }
-        AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
+        AppCommand::Renderers { params } => {
+            return Ran::Done(renderers::run(global, stream, params));
+        }
+        AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
+        AppCommand::Live(command) => return Ran::Done(live::run(&command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
@@ -862,6 +943,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             }
             .unwrap_or(result);
             warn_unstable_handles(method, &value, global.output);
+            open_created(global, stream, &params, &value);
             if global.output == OutputMode::Human
                 && let Some(line) = super::share_cli::human_line(&params, &value)
                     .or_else(|| super::vm::created_line(&params, &value, global))
@@ -897,6 +979,47 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     }
 }
 
+/// After a person's `cloud new-machine` (`cmux machine new`) made a machine, the app opens it
+/// (`cloud open-machine`): a workspace on the machine is shown, so the window's new-terminal
+/// button opens there (Leo, 2026-11-06: "the terminal I open on the top right button works thru
+/// that machine"). A JSON or quiet run (a script, an agent) leaves the window as it was, and so
+/// does a machine still starting. A failed open is a note: the machine is made either way.
+fn open_created(global: &GlobalArgs, stream: &mut UnixStream, params: &Value, value: &Value) {
+    let Some(target) = created_target(global.output, params, value) else { return };
+    let Ok(AppCommand::Call { method, mut params, timeout, .. }) = open_created_command(target)
+    else {
+        return;
+    };
+    let opened = insert_run_key(&mut params, None)
+        .map_err(|error| json!({ "message": error }))
+        .and_then(|_| wait::request(global, stream, method, &params, timeout));
+    if let Ok(Err(error)) | Err(error) = opened {
+        let reason = error.get("message").and_then(Value::as_str).unwrap_or("no answer");
+        eprintln!("cmux: the machine is made, but its workspace did not open: {reason}");
+    }
+}
+
+/// [`open_created`]'s `cloud open-machine` run. `--focus`: a CLI run changes the window only
+/// when it asks to (the app's `allowsViewChange`).
+fn open_created_command(target: String) -> Result<AppCommand, UsageError> {
+    let args = ["--target".to_owned(), target, "--focus".to_owned()];
+    run_action("cloud open-machine", &args, ActionName::Cli)
+}
+
+/// The machine a person's `cloud new-machine` made, for [`open_created`]; `None` otherwise.
+fn created_target(output: OutputMode, params: &Value, value: &Value) -> Option<String> {
+    if output != OutputMode::Human || params.get("action")?.as_str()? != "cloud new-machine" {
+        return None;
+    }
+    let result = value.get("result")?;
+    if result.get("pending").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    result.get("target").and_then(Value::as_str).map(str::to_owned).or_else(|| {
+        result.get("machine_id").and_then(Value::as_str).map(|id| format!("machine:{id}"))
+    })
+}
+
 /// Progress notes go to stderr for a person, never in JSON or quiet output.
 fn output_shows_notes(output: OutputMode) -> bool {
     output == OutputMode::Human
@@ -911,10 +1034,13 @@ fn names_a_target(error: &Value) -> bool {
     error.get("data").and_then(|data| data.get("reason")).is_some()
 }
 
-/// A `busy` answer is safe to retry only when the app says the request
-/// never ran; one that may have started (`in_progress`) is reported.
-fn busy_before_running(error: &Value) -> bool {
-    error_code(error) == Some("busy") && refused_before_running(error)
+/// A refusal the CLI asks again for instead of showing it: the app says nothing ran
+/// (`not_run`) and the cause passes (`busy`, a `timeout` before the work started, or an
+/// `unavailable` read barrier on a daemon connection that was reconnecting, #32724). One that
+/// may have started (`in_progress`) is reported.
+fn retry_before_running(error: &Value) -> bool {
+    matches!(error_code(error), Some("busy" | "timeout" | "unavailable"))
+        && refused_before_running(error)
 }
 
 /// The app says nothing ran (`data.not_run`): it refused before the
@@ -1191,7 +1317,7 @@ fn timed_out(response: &Result<Value, Value>) -> bool {
 }
 
 /// One request with exactly `params` (no read barrier) and its response.
-fn exchange(
+pub(super) fn exchange(
     stream: &mut UnixStream,
     method: &str,
     params: Value,
@@ -1200,13 +1326,122 @@ fn exchange(
     let timeout = timeout.into();
     let line = json!({ "id": 1, "method": method, "params": params });
     send_line(stream, &line)?;
+    read_reply(stream, method, timeout, app_answers_ping)
+}
+
+/// [`exchange`] with a hard deadline: no answer within `timeout` is an error, even from an app
+/// that is only busy. For an optional read that must never hold up a command. The write and
+/// every read share the one deadline, so an app that trickles bytes cannot stretch it. Like
+/// every app request, it carries the read barrier ([`with_read_barrier`]), so a value an earlier
+/// `cmux` call wrote through the daemon is the one read; the barrier's round trip is inside the
+/// same deadline.
+pub(super) fn exchange_within(
+    stream: &mut UnixStream,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+) -> Result<Result<Value, Value>, String> {
+    let deadline = std::time::Instant::now().checked_add(timeout);
+    let left = || {
+        deadline
+            .and_then(|deadline| deadline.checked_duration_since(std::time::Instant::now()))
+            .filter(|left| !left.is_zero())
+            .ok_or_else(|| wait::timeout_message(timeout))
+    };
+    stream.set_write_timeout(Some(left()?)).map_err(|error| error.to_string())?;
+    let line = json!({ "id": 1, "method": method, "params": with_read_barrier(method, params) });
+    send_line(stream, &line)
+        .map_err(|error| if left().is_err() { wait::timeout_message(timeout) } else { error })?;
+    let mut response = Vec::new();
+    let mut chunk = [0_u8; 4096];
+    loop {
+        stream.set_read_timeout(Some(left()?)).map_err(|error| error.to_string())?;
+        let read = match stream.read(&mut chunk) {
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(read_error(&error, Some(timeout))),
+        };
+        let got = chunk.get(..read).unwrap_or_default();
+        if let Some(end) = got.iter().position(|byte| *byte == b'\n') {
+            response.extend_from_slice(got.get(..=end).unwrap_or_default());
+            break;
+        }
+        // End of stream: parse what came.
+        if got.is_empty() {
+            break;
+        }
+        response.extend_from_slice(got);
+        if u64::try_from(response.len()).unwrap_or(u64::MAX) > MAX_RESPONSE_BYTES {
+            return Err(format!("{method}: the answer is over {MAX_RESPONSE_BYTES} bytes"));
+        }
+    }
+    parse_response(&String::from_utf8_lossy(&response))
+}
+
+/// Reads one reply line. `timeout` is how long to wait before asking whether the app is still
+/// there, not how long it may take: a loaded app (load 300 on 15 cores, #32724) answers late,
+/// and failing the request then shows the caller a timeout for an app that was only busy. While
+/// `alive` says the app answers, the read goes on, with a note on stderr for a person; an app
+/// that does not answer ends it as before. The same request keeps waiting: nothing is resent.
+fn read_reply(
+    stream: &UnixStream,
+    method: &str,
+    timeout: Option<Duration>,
+    alive: impl Fn(&UnixStream, Duration) -> bool,
+) -> Result<Result<Value, Value>, String> {
     stream.set_read_timeout(timeout).map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(
         stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES),
     );
-    let mut response = String::new();
-    reader.read_line(&mut response).map_err(|error| read_error(&error, timeout))?;
-    parse_response(&response)
+    // Bytes, not a String: a read cut by the timeout keeps what it read, even half a character.
+    let mut response = Vec::new();
+    let started = std::time::Instant::now();
+    loop {
+        match reader.read_until(b'\n', &mut response) {
+            Ok(_) => break,
+            Err(error) => match timeout {
+                Some(window) if is_read_timeout(&error) && alive(stream, window) => {
+                    note_busy(method, started.elapsed());
+                }
+                _ => return Err(read_error(&error, timeout)),
+            },
+        }
+    }
+    parse_response(&String::from_utf8_lossy(&response))
+}
+
+fn is_read_timeout(error: &std::io::Error) -> bool {
+    matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
+}
+
+/// Whether the app at the other end of `stream` still answers: a plain `ping` on a new
+/// connection, which the app answers before any request work (`PONG`, no main actor, no daemon).
+/// It gets one read window; no answer, a refused connection or another answer is no.
+fn app_answers_ping(stream: &UnixStream, window: Duration) -> bool {
+    let Some(path) =
+        stream.peer_addr().ok().and_then(|address| address.as_pathname().map(Path::to_path_buf))
+    else {
+        return false;
+    };
+    let Ok(mut probe) = UnixStream::connect(path) else { return false };
+    if probe.set_read_timeout(Some(window)).is_err() || probe.write_all(b"ping\n").is_err() {
+        return false;
+    }
+    let mut answer = String::new();
+    BufReader::new(probe.take(64)).read_line(&mut answer).is_ok() && answer.trim() == "PONG"
+}
+
+/// A note for a person that the app is busy and the request still waits (stderr, only when it
+/// is a terminal, so piped and JSON output never mix it in).
+fn note_busy(method: &str, waited: Duration) {
+    use std::io::IsTerminal as _;
+    if std::io::stderr().is_terminal() {
+        let template = crate::localization::catalog().app_control.app_busy_waiting;
+        eprintln!(
+            "{}",
+            template.replace("{what}", method).replace("{elapsed}", &waited.as_secs().to_string())
+        );
+    }
 }
 
 pub(super) fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), String> {

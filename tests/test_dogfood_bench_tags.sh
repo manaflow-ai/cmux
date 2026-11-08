@@ -23,10 +23,13 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 # The checked-in conf: chrome-parity-* dogfood tags build bench; every other tag stays plain Release.
 glob="$(dogfood_bench_glob chrome-parity-benchconf-0123456789ab-v1)" || fail "a chrome-parity-* tag does not build bench"
 [[ "$glob" == 'chrome-parity-*' ]] || fail "a chrome-parity-* tag matched '$glob', not 'chrome-parity-*'"
-for tag in nightly cmux-next-nightly release my-chrome-parity-x chrome-parity "" ; do
+# pr-capture's capture build (cap<sha10>, exactly ten lowercase hex digits) builds bench too.
+glob="$(dogfood_bench_glob cap0123456789)" || fail "a cap<sha10> capture tag does not build bench"
+[[ "$glob" == cap\[0-9a-f\]* ]] || fail "a cap<sha10> tag matched '$glob'"
+for tag in nightly cmux-next-nightly release my-chrome-parity-x chrome-parity "" cap capture cap012345678 cap0123456789a capABCDEF0123 xcap0123456789 ; do
   if dogfood_bench_glob "$tag" >/dev/null; then fail "tag '$tag' builds bench"; fi
 done
-echo "PASS: the checked-in conf names chrome-parity-* and no other tag"
+echo "PASS: the checked-in conf names chrome-parity-* and cap<sha10>, and no other tag"
 
 # The value's globs match the tag, never files in the current directory.
 mkdir -p "$TMP_DIR/cwd" && touch "$TMP_DIR/cwd/chrome-parity-file"

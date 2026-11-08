@@ -135,8 +135,10 @@ test("a title cut with an ellipsis is made whole from its summary", () => {
 });
 
 // The digest of a new pipeline carries a shortened title and the rest of its line as the summary;
-// an older one carries the whole line. Either way the row reads the line once.
-test("a summary that continues its title shows only what it adds", () => {
+// an older one carries the whole line. Either way the row reads the line once: as one title, since
+// "so a column scrolled in is never blank" is the rest of a sentence, not one of its own (Leo
+// 2026-11-02: "the 0 information density one", on rows whose grey line was a piece of the title).
+test("a summary that continues its title reads as one whole title", () => {
   const view = releaseView(
     notes([
       entry(
@@ -147,7 +149,10 @@ test("a summary that continues its title shows only what it adds", () => {
     ]),
     "en",
   );
-  expect(summaries(view)).toEqual({ "summary-0": "So a column scrolled in is never blank" });
+  expect(summaries(view)).toEqual({ "summary-0": "" });
+  expect(view.groups.flatMap((g) => g.items)[0]?.title).toBe(
+    "Terminals in the keep-alive band keep drawing, so a column scrolled in is never blank",
+  );
 });
 
 // A reviewed entry is a person's words: product names, a "Word:" lead and a long title stay, and

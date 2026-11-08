@@ -97,6 +97,48 @@ pub fn admit_profile(answer: &Value, profile: &str) -> Result<Admitted, String> 
     cmux_chief::policy::harness::admit_profile(answer, profile).map(|a| admitted(profile, a))
 }
 
+/// Peer catalogs deliberately omit argv/env. Admit their reported adapter
+/// kind and family, retaining an exact profile for launch. Local admission
+/// still checks the command behind reserved route names.
+pub fn admit_peer(answer: &Value, requested: &str) -> Result<Admitted, String> {
+    let profiles = answer["harnesses"]
+        .as_object()
+        .ok_or_else(|| "peer did not report its harnesses".to_owned())?;
+    // An unredacted catalog can prove a reserved route's command. A
+    // redacted one can only admit an exact name: kind/family alone cannot
+    // distinguish the person's direct login from the team's paid route.
+    if cmux_chief::policy::harness::is_route(requested)
+        && profiles.values().any(|row| row["argv"].is_array())
+    {
+        return admit(answer, requested);
+    }
+    let profile = requested;
+    if !profiles.contains_key(profile) {
+        return Err(format!(
+            "peer has no harness named {requested}; name an available profile explicitly"
+        ));
+    }
+    if cmux_chief::policy::harness::is_route(requested) && profiles[profile]["kind"] != CLAUDE_STDIO
+    {
+        return Err(format!(
+            "peer's {requested} is not acpmux's {CLAUDE_STDIO} adapter"
+        ));
+    }
+    refuse_chief_harness(answer, profile)?;
+    if let Some(why) = profiles[profile]
+        .get("unavailable")
+        .filter(|v| !v.is_null() && **v != false)
+    {
+        return Err(format!("peer's {profile} is unavailable: {why}"));
+    }
+    let mut admitted = admit_profile(answer, profile)?;
+    if admitted.kind == CLAUDE_STDIO {
+        admitted.family = Family::Claude;
+    }
+    admitted.requested = requested.into();
+    Ok(admitted)
+}
+
 /// acpmux's family of its built-in Chief harness (`cmux-tui chief acp`,
 /// acpmux `config::CHIEF_FAMILY`).
 pub const CHIEF_HARNESS_FAMILY: &str = "chief";

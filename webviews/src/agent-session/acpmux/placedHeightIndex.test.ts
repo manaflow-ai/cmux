@@ -1,5 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { PlacedHeightIndex } from "./placedHeightIndex";
+import { PlacedHeightIndex, type GapBetween } from "./placedHeightIndex";
+
+/// placeRows' left-to-right walk: a drawn row's gap comes from the nearest drawn row above it.
+function sequential(heights: readonly number[], marks: readonly number[], between: GapBetween) {
+  const tops: number[] = [];
+  let top = 0;
+  let last = -1;
+  for (let index = 0; index < heights.length; index += 1) {
+    if (heights[index]! > 0) {
+      if (last >= 0) top += between(marks[last]!, marks[index]!);
+      last = index;
+    }
+    tops.push(top);
+    top += heights[index]!;
+  }
+  return { tops, total: top };
+}
 
 function bruteTops(heights: readonly number[]): number[] {
   const tops: number[] = [];
@@ -103,5 +119,88 @@ describe("PlacedHeightIndex", () => {
     // A generous ratio catches accidental full-array copies without making the
     // assertion depend on a particular machine's absolute clock speed.
     expect(largeMs).toBeLessThan(Math.max(50, smallMs * 8));
+  });
+
+  test("gap-aware: tops, gaps and upper bounds match the sequential walk across leaves", () => {
+    const between: GapBetween = (before, next) => (before === next ? 0 : 8 + before + 2 * next);
+    for (const count of [1, 63, 64, 65, 200, 700]) {
+      const heights = Array.from({ length: count }, (_, index) => ((index * 37) % 7 < 3 ? 0 : ((index * 13) % 40) + 1));
+      const marks = Array.from({ length: count }, (_, index) => (index * 5) % 9);
+      const index = PlacedHeightIndex.fromRows(heights, marks, undefined, { between });
+      const { tops, total } = sequential(heights, marks, between);
+      expect(index.totalHeight).toBe(total);
+      expect([...index.materializeTops()]).toEqual(tops);
+      for (let at = 0; at < count; at += 1) {
+        expect(index.topAt(at)).toBe(tops[at]!);
+        expect(index.markAt(at)).toBe(marks[at]!);
+        expect(index.gapAt(at)).toBe(at > 0 ? tops[at]! - tops[at - 1]! - heights[at - 1]! : 0);
+      }
+      for (let target = -1; target <= total + 1; target += 3) {
+        let expected = 0;
+        while (expected < count && tops[expected]! <= target) expected += 1;
+        expect(index.upperBoundTop(target)).toBe(expected);
+      }
+    }
+  });
+
+  test("gap-aware: a row that starts or stops drawing moves its neighbours' gaps", () => {
+    const between: GapBetween = (before, next) => (before === 1 ? 24 : next === 2 ? 16 : 4);
+    const heights = [10, 0, 0, 30, 0, 20];
+    const marks = [1, 2, 3, 2, 3, 2];
+    let index = PlacedHeightIndex.fromRows(heights, marks, undefined, { between });
+    const check = () => {
+      const { tops, total } = sequential(heights, marks, between);
+      expect([...index.materializeTops()]).toEqual(tops);
+      expect(index.totalHeight).toBe(total);
+    };
+    check();
+    for (const [at, height] of [
+      [1, 5],
+      [3, 0],
+      [0, 0],
+      [5, 0],
+      [0, 7],
+    ] as const) {
+      const before = index;
+      index = index.update(at, height);
+      heights[at] = height;
+      check();
+      expect(before).not.toBe(index);
+    }
+  });
+
+  test("gap-aware: splice keeps the prefix and replaces the tail, growing or shrinking", () => {
+    const between: GapBetween = (before, next) => before * 3 + next;
+    const heights = Array.from({ length: 300 }, (_, index) => (index % 4 === 0 ? 0 : index % 11));
+    const marks = Array.from({ length: 300 }, (_, index) => index % 5);
+    const full = PlacedHeightIndex.fromRows(heights, marks, undefined, { between });
+    for (const [from, length] of [
+      [0, 10],
+      [64, 0],
+      [100, 400],
+      [299, 1],
+      [300, 70],
+      [130, 3],
+    ] as const) {
+      const tail = Array.from({ length }, (_, offset) => (offset % 3 === 0 ? 0 : 5 + (offset % 7)));
+      const tailMarks = Array.from({ length }, (_, offset) => (offset * 7) % 5);
+      const spliced = full.splice(from, tail, tailMarks);
+      const nextHeights = [...heights.slice(0, from), ...tail];
+      const nextMarks = [...marks.slice(0, from), ...tailMarks];
+      const { tops, total } = sequential(nextHeights, nextMarks, between);
+      expect(spliced.count).toBe(nextHeights.length);
+      expect([...spliced.materializeTops()]).toEqual(tops);
+      expect(spliced.totalHeight).toBe(total);
+      // The source snapshot is untouched.
+      expect(full.count).toBe(300);
+      expect(full.topAt(299)).toBe(sequential(heights, marks, between).tops[299]!);
+    }
+  });
+
+  test("gap-aware: own gaps apply between drawn rows only", () => {
+    const index = PlacedHeightIndex.fromRows([0, 10, 0, 10, 10], undefined, [9, 9, 9, 3, 5]);
+    expect([...index.materializeTops()]).toEqual([0, 0, 10, 13, 28]);
+    expect(index.totalHeight).toBe(38);
+    expect(index.lastMarks).toEqual({ last: 0, beforeLast: 0 });
   });
 });

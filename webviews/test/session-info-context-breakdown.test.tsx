@@ -8,7 +8,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextRing } from "../src/agent-session/acpmux/ComposerPickers";
-import { contextBreakdown, ContextSection } from "../src/agent-session/acpmux/session-info/ContextSection";
+import { ContextSection } from "../src/agent-session/acpmux/session-info/ContextSection";
+import { contextBreakdown } from "../src/agent-session/acpmux/session-info/contextSectionModel";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import { COMPACT_PROMPT, compactThrough } from "../src/agent-session/acpmux/conversation/turnActions";
 
@@ -211,28 +212,42 @@ test("Session Info's Context offers Compact only with a compact, and sends it on
   expect(sent).toEqual(["compact"]);
 });
 
-test("Session Info's Compact session stays live while a turn runs, and its click sends /compact", async () => {
+test("Session Info's Compact stays live while a turn runs, and its click sends /compact", async () => {
   // Leo, 2026-10-31: "COMPACT BUTTON LITERALLY DOESN'T EVEN F***IN WORK". It was disabled while a
   // turn ran, and his chats nearly always run; the /compact now queues behind the turn as one typed
   // in the composer does. The click goes through App.tsx's own path: compactThrough's chat.send.
+  // Context is one line that opens the composer's context card (no Compact there, Lucas 2026-11-05);
+  // Usage's "Context per call" row keeps Compact.
   const container = installDom();
   root = createRoot(container);
   const calls: Array<[string, Record<string, unknown>]> = [];
   const callNative = async (method: string, params: Record<string, unknown>) => {
     calls.push([method, params]);
   };
+  const full = (await import("../src/agent-session/acpmux/session-info/SessionInfo.gallery")).default.variants.full!
+    .props as Parameters<typeof SessionInfo>[0];
   await act(async () =>
     root!.render(
       // SessionInfo takes no working state at all: nothing a running turn sets can turn Compact off.
       <SessionInfo
-        summary={{ usage: { used: 94_000, size: 200_000 } } as never}
-        sections={{ context: true } as never}
+        {...full}
+        more
+        sections={{ ...full.sections, usage: true } as never}
         onCompact={compactThrough(callNative)}
       />,
     ),
   );
-  const button = container.querySelector<HTMLButtonElement>(".acpmux-session-info-context__compact")!;
-  expect(button.textContent).toBe("Compact session");
+  const context = container.querySelector('[data-section="context"]')!;
+  expect(context.querySelector(".acpmux-session-info-context__compact")).toBeNull();
+  // Its line is a fold (Lucas, 2026-11-06): unfolded, the breakdown's rows from the first one down,
+  // with no total line and no bar (the head has the meter and tokens).
+  const trigger = context.querySelector<HTMLButtonElement>("button.ui-disclosure-trigger")!;
+  if (trigger.getAttribute("aria-expanded") !== "true") await act(async () => trigger.click());
+  expect(context.querySelector(".acpmux-session-info-context__total")).toBeNull();
+  expect(context.querySelector(".acpmux-session-info-context__bar")).toBeNull();
+  expect(context.querySelectorAll(".acpmux-session-info-context .acpmux-session-info-row").length).toBeGreaterThan(0);
+  const button = container.querySelector<HTMLButtonElement>(".acpmux-session-info-usage__action")!;
+  expect(button.textContent).toBe("Compact");
   expect(button.disabled).toBe(false);
   await act(async () => button.click());
   expect(calls).toEqual([["chat.send", { text: COMPACT_PROMPT }]]);

@@ -36,6 +36,9 @@
 # cmux-tailnet, which links libtailscale built with Go; a pinned Go 1.27.1 is fetched into
 # .build/go-1.27.1 when the host has none), then a release build of both binaries. No fmt
 # step: the imported host code predates a cmux-screen rustfmt config.
+# acpmux-hot: cmux-tui/crates/acpmux-hot/bench.sh (the daemon's hot wasm modules: the guest
+# variants, the swap and rollback bench, and a running daemon's sign-in through a module swapped
+# under it), its outputs at .build/artifacts/acpmux-hot (fetch them with --artifact). No TEST_FILTER.
 # optchat-chief: fmt, clippy and tests of Native/OptChat/optchat-chief (its own workspace)
 # on macOS, where the Chief host runs: its macOS-only code (the acpmux socket peer check,
 # cx-ggai: LOCAL_PEERPID, proc_pidpath, the Security framework) runs only here.
@@ -74,8 +77,8 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
-if [[ ( "$mode" == api-compat* || "$mode" == panic ) && -n "$filter" ]]; then
+case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
+if [[ ( "$mode" == api-compat* || "$mode" == panic || "$mode" == acpmux-hot ) && -n "$filter" ]]; then
   echo "error: $mode takes no TEST_FILTER" >&2
   exit 2
 fi
@@ -89,6 +92,21 @@ test_scope=(--workspace)
 if [[ "$mode" == terminal ]]; then
   test_scope=()
   for crate in "${terminal_crates[@]}"; do test_scope+=(-p "$crate"); done
+fi
+# test @affected=BASE (a 40-hex commit) tests only the crates a change since BASE can reach:
+# scripts/ci/cargo_affected.py over `git diff BASE...HEAD` (the owning crates and every crate
+# that depends on them; the whole workspace when the change reaches the build, such as
+# Cargo.lock). `cmux-ci test --affected` sends it, sharded or not. An affected set with no
+# crate passes without building. It is a scope, not a TEST_FILTER.
+affected_base=""
+doc_exclude=()
+if [[ "$filter" == @affected=* ]]; then
+  affected_base="${filter#@affected=}"
+  filter=""
+  if [[ "$mode" != test || ! "$affected_base" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "error: @affected=BASE takes the test mode and a full 40-hex BASE commit" >&2
+    exit 2
+  fi
 fi
 if [[ -n "$filter" && ! "$filter" =~ ^[A-Za-z0-9_:.-]{1,200}$ ]]; then
   echo "error: TEST_FILTER must be one Rust test-name substring (letters, digits, _ : . -)" >&2
@@ -178,6 +196,34 @@ use_pinned_toolchain() { export RUSTUP_TOOLCHAIN="$pinned_toolchain"; }
 # on cmux7 had rustfmt installed and still failed with "no such command").
 toolchain_cargo="$(rustup which cargo)" || { echo "error: rustup which cargo failed" >&2; exit 3; }
 export PATH="$(dirname "$toolchain_cargo"):$PATH"
+if [[ -n "$affected_base" ]]; then
+  # The step's checkout may hold only HEAD's history: fetch BASE when it is missing. With no
+  # BASE to diff against, the scope stays the whole workspace (it never skips a test).
+  depth=()  # --depth only in a checkout that is already shallow, so a full clone stays full
+  [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=200)
+  git -C "$root" cat-file -e "$affected_base^{commit}" 2>/dev/null \
+    || git -C "$root" fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} origin "$affected_base" 2>/dev/null \
+    || echo "affected: cannot fetch $affected_base"
+  if git -C "$root" merge-base "$affected_base" HEAD >/dev/null 2>&1 \
+      && affected_args="$(python3 "$root/scripts/ci/cargo_affected.py" --root "$root" --base "$affected_base")"; then
+    read -r -a test_scope <<<"$affected_args"
+    if [[ "${#test_scope[@]}" -eq 0 ]]; then
+      echo "gate-notice: affected: no cmux-tui crate is affected since ${affected_base:0:12}; no test to run"
+      exit 0
+    fi
+    echo "gate-notice: affected since ${affected_base:0:12}: ${test_scope[*]}"
+    if [[ "${test_scope[0]}" != --workspace ]]; then
+      doc_exclude=()
+      while IFS= read -r crate; do
+        [[ " ${test_scope[*]} " == *" $crate "* ]] || doc_exclude+=(--exclude "$crate")
+      done < <(cargo metadata --no-deps --format-version 1 --locked \
+        | python3 -c 'import json,sys; m=json.load(sys.stdin); ids=set(m["workspace_members"]); print("\n".join(p["name"] for p in m["packages"] if p["id"] in ids))')
+    fi
+  else
+    test_scope=(--workspace)
+    echo "gate-notice: affected: no merge base with ${affected_base:0:12} (or cargo_affected failed); testing the whole workspace"
+  fi
+fi
 echo "cargo: $toolchain_cargo"
 # The step's own target dir (in its checkout) may be warm: the worker's warm
 # slot keeps the checkout's .build between steps. Cargo keeps another rustc's
@@ -630,7 +676,10 @@ PY
 workspace_tests() {
   # nextest's store is target/nextest under the workspace, not under CARGO_TARGET_DIR.
   local junit="$root/cmux-tui/target/nextest/ci/junit.xml" rc rrc vrc n expr verdict line
-  local args=(nextest run "${test_scope[@]}" --locked --profile ci --no-tests=fail)
+  local no_tests=fail
+  # A partition of a few affected crates can hold no test (2 tests over 4 shards).
+  [[ -z "$affected_base" || -z "$shard" ]] || no_tests=warn
+  local args=(nextest run "${test_scope[@]}" --locked --profile ci --no-tests="$no_tests")
   [[ "$fail_fast" != 1 ]] || args+=(--fail-fast)
   [[ -z "$shard" ]] || args+=(--partition "count:$shard")
   [[ -z "$filter" ]] || args+=("$filter")
@@ -681,7 +730,9 @@ workspace_tests() {
   return "$rc"
 }
 doc_tests() {
-  local args=(test --workspace --locked --doc ${no_fail_fast[@]+"${no_fail_fast[@]}"})
+  # --workspace skips crates with no library; an affected scope excludes the rest instead of
+  # naming crates with -p, which fails on a bin-only crate ("no library targets found").
+  local args=(test --workspace ${doc_exclude[@]+"${doc_exclude[@]}"} --locked --doc ${no_fail_fast[@]+"${no_fail_fast[@]}"})
   [[ "${#skip_args[@]}" -eq 0 ]] || args+=(-- "${skip_args[@]}")
   reap_leaked "before doc tests"
   env "$run_marker" cargo "${args[@]}"
@@ -694,12 +745,13 @@ doc_tests() {
 # 14-55 s and a shard ran 3569 s with 44 time-outs. prune_target keeps in
 # deps/ only the units this commit's build uses (cargo reports every artifact,
 # fresh or rebuilt, with --message-format=json) and deletes the rest. Build
-# again with the same flags, so cargo only reports: no unit is rebuilt.
+# again with the same flags, so cargo only reports: no unit is rebuilt. An affected run
+# lists its own scope: --workspace there would compile every crate the run skipped.
 prune_target() {
   local deps="$CARGO_TARGET_DIR/debug/deps" list
   [[ -d "$deps" ]] || return 0
   list="$(mktemp "${TMPDIR:-/tmp}/rust-check-artifacts.XXXXXX")"
-  if ! cargo test --workspace --locked --no-run --message-format=json >"$list" 2>/dev/null \
+  if ! cargo test "${test_scope[@]}" --locked --no-run --message-format=json >"$list" 2>/dev/null \
     || { [[ "$mode" == all ]] && ! cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --message-format=json >>"$list" 2>/dev/null; }; then
     rm -f "$list"
     echo "prune: skipped (cargo did not list the build's artifacts)"
@@ -810,6 +862,12 @@ if [[ "$mode" == rd-bench ]]; then
   warm_target_guard
   step "rd-bench release build" cargo build --locked --release --no-default-features --features bench
   step "rd-bench artifact" copy_rd_bench
+  finish
+fi
+if [[ "$mode" == acpmux-hot ]]; then
+  export FAST_CHECKS_OUT="$root/.build/artifacts/acpmux-hot"
+  warm_target_guard
+  step "acpmux-hot bench" bash "$root/cmux-tui/crates/acpmux-hot/bench.sh"
   finish
 fi
 # Go for libtailscale (cmux-screen/crates/cmux-tailnet/build.rs): the host's go

@@ -1,7 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample harness status), not shipped UI.
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
-import { row } from "../../gallery/fixtures/acpmux";
 import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
 import { HarnessStatusCard } from "./HarnessStatusCard";
@@ -47,7 +46,7 @@ const CLAUDE_USAGE_LIMITS = {
 // What acpmux's session detail sets for these launches: top-level fields, no agentInfo labels.
 const LAUNCHES = {
   sr2: {
-    machine: "cosmic-gray",
+    machine: "studio-mac",
     authSource: "SR2 token (sr2 claude)",
     route: "SR2 (sr2 claude)",
     settingsSources: ["~/.claude/settings.json", "~/src/atlas-web/.claude/settings.json", "autocompact at 400K"],
@@ -111,11 +110,7 @@ function GalleryStatusCard({ harness, overlays, launch }: Props) {
       style={{ padding: 24, height: overlays ? 560 : 360, position: "relative" }}
     >
       {open ? (
-        <HarnessStatusCard
-          summary={snapshot(harness, launch)}
-          rows={[row("sessionStart", 0, { sessionStart: { agent: "claude", version: details[harness].version } })]}
-          onDismiss={() => setOpen(false)}
-        />
+        <HarnessStatusCard summary={snapshot(harness, launch)} onDismiss={() => setOpen(false)} />
       ) : (
         <div data-status-card-dismissed>Status card dismissed</div>
       )}

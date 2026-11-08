@@ -13,7 +13,8 @@ import CmuxNextDesign
 /// page uses the same path, so both engines show one card the same way.
 ///
 /// The chrome owns the cards and places them over `page` (its page area):
-/// bottom center, `inset` above its bottom edge plus each card's `lift`,
+/// bottom center (or bottom left, ``Placement/bottomLeading``, the link
+/// status bubble), `inset` above its bottom edge plus each card's `lift`,
 /// never wider than the page less the insets. A card shows only while the
 /// page is in a window and not hidden (a parked tab keeps its cards for when
 /// it shows again). The chrome syncs on layout and window, superview and
@@ -21,9 +22,20 @@ import CmuxNextDesign
 /// swap) arrives as `browserChildWindowPagesNeedUpdate`.
 @MainActor
 final class PageFloatingOverlays {
+    /// Where a card sits on the page's bottom edge.
+    enum Placement {
+        /// Centered (the notice pill, the cookie import card).
+        case bottomCenter
+        /// At the left edge (the link status bubble, as Chrome places it).
+        case bottomLeading
+    }
+
     private struct Card {
         let view: NSView
         var lift: CGFloat
+        var placement: Placement = .bottomCenter
+        /// Never takes a click (the link status bubble).
+        var passesThroughClicks = false
         var handle: OverlayHandle?
         /// Fading out: it no longer takes clicks (`release`).
         var isReleased = false
@@ -51,11 +63,23 @@ final class PageFloatingOverlays {
 
     /// Adds `view` (an Auto Layout view sized by its own constraints) above
     /// the page; `lift` raises it over the page's bottom inset.
-    func add(_ view: NSView, lift: CGFloat = 0) {
+    /// `placement` puts it at the bottom center or left; a card that
+    /// `passesThroughClicks` leaves every click to the page.
+    func add(_ view: NSView, lift: CGFloat = 0, placement: Placement = .bottomCenter, passesThroughClicks: Bool = false) {
         guard !cards.contains(where: { $0.view === view }) else { return }
         view.translatesAutoresizingMaskIntoConstraints = false
-        cards.append(Card(view: view, lift: lift))
+        cards.append(Card(view: view, lift: lift, placement: placement, passesThroughClicks: passesThroughClicks))
         observePages()
+    }
+
+    /// `view`, added passing its clicks through while it is not drawn yet (the cookie import card
+    /// waits for its page to measure itself), takes clicks from now on; the next ``sync()``
+    /// presents it again with its mouse region.
+    func startTakingClicks(_ view: NSView) {
+        guard let index = cards.firstIndex(where: { $0.view === view }), cards[index].passesThroughClicks,
+              !cards[index].isReleased else { return }
+        cards[index].passesThroughClicks = false
+        dismiss(index)
     }
 
     /// `view` starts to fade out: from now on clicks pass through it to the
@@ -92,17 +116,27 @@ final class PageFloatingOverlays {
         let scope = page.themeScope
         for index in cards.indices {
             let view = cards[index].view
+            // A hidden card waits for its tab (one chrome per pane): off screen, it takes no clicks.
+            if view.isHidden {
+                dismiss(index)
+                continue
+            }
             if view.themeScope !== scope { scope.root(view) }
             if let handle = cards[index].handle, !handle.isDismissed, view.window?.parent === window {
                 handle.update(paneClip: clip)
             } else {
                 dismiss(index)
+                // The host shows what it presents at full opacity; a card keeps its own (the cookie
+                // import card waits clear until its page measured itself, then fades in).
+                let alpha = view.alphaValue
                 let handle = WindowOverlayHost.host(for: window).present(
                     view, options: OverlayOptions(kind: .attached, anchor: NSRect(origin: clip.origin, size: .zero),
-                                                  passesThroughClicks: cards[index].isReleased, layer: .pane(clip: clip))
+                                                  passesThroughClicks: cards[index].isReleased || cards[index].passesThroughClicks,
+                                                  layer: .pane(clip: clip))
                 )
+                view.alphaValue = alpha
                 cards[index].handle = handle
-                if let holder = view.superview { pin(view, in: holder, lift: cards[index].lift) }
+                if let holder = view.superview { pin(view, in: holder, lift: cards[index].lift, placement: cards[index].placement) }
             }
             guard let holder = view.superview, let handle = cards[index].handle else { continue }
             holder.layoutSubtreeIfNeeded()
@@ -113,12 +147,17 @@ final class PageFloatingOverlays {
     }
 
     /// The card's place in its overlay clip, as it was in the chrome.
-    private func pin(_ view: NSView, in holder: NSView, lift: CGFloat) {
+    private func pin(_ view: NSView, in holder: NSView, lift: CGFloat, placement: Placement) {
         let inset = BrowserMetrics.overlayInset
+        let horizontal = switch placement {
+        case .bottomCenter: view.centerXAnchor.constraint(equalTo: holder.centerXAnchor)
+        case .bottomLeading: view.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: inset)
+        }
         NSLayoutConstraint.activate([
-            view.centerXAnchor.constraint(equalTo: holder.centerXAnchor),
+            horizontal,
             view.bottomAnchor.constraint(equalTo: holder.bottomAnchor, constant: -inset - lift),
             view.leadingAnchor.constraint(greaterThanOrEqualTo: holder.leadingAnchor, constant: inset),
+            view.trailingAnchor.constraint(lessThanOrEqualTo: holder.trailingAnchor, constant: -inset),
         ])
     }
 

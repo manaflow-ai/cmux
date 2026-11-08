@@ -1,14 +1,17 @@
 import { describe, expect, test } from "bun:test"
 import {
+  BENCH_LIMIT_MS,
   CANCEL_BUDGET_MS,
   CHILD_PATH,
   KILL_GRACE_MS,
   REVOKE_RESERVE_MS,
+  STALE_MS,
   DEV_API,
   DEV_PLATFORM,
   type ChildResult,
   type Deps,
   type Options,
+  benchResult,
   evidenceLeaks,
   redact,
   byteForm,
@@ -45,6 +48,8 @@ const opts: Options = {
 const env = { CMUX_UITEST_STACK_EMAIL: EMAIL, CMUX_UITEST_STACK_PASSWORD: PASSWORD }
 
 interface Knobs {
+  /** What the --bench script prints and how it exits. */
+  bench?: ChildResult
   mintStatus?: number
   joinExit?: number
   heartbeat?: boolean
@@ -152,6 +157,7 @@ function world(k: Knobs = {}) {
   let listReads = 0
   const revokedIds: string[] = []
   const kills: string[] = []
+  const benchRuns: Array<{ argv: string[]; timeoutMs: number; joined: boolean; revoked: boolean }> = []
   let releaseJoin: (() => void) | undefined
   const listAt: number[] = []
   const revokeAt: number[] = []
@@ -358,6 +364,10 @@ function world(k: Knobs = {}) {
         if (k.catFails && cmd[2] !== CRED_PATH) return { code: 1, stdout: "", stderr: "Permission denied" }
         return { code: 0, stdout: files[cmd[2]!] ?? "", stderr: "" }
       }
+      if (cmd[0] === "/bin/bash") {
+        benchRuns.push({ argv: cmd, timeoutMs: o.timeoutMs, joined, revoked })
+        return k.bench ?? { code: 0, stdout: "{}\n", stderr: "" }
+      }
       if (cmd[0] === "stat")
         return {
           code: 0,
@@ -408,6 +418,7 @@ function world(k: Knobs = {}) {
   for (const [path, text] of Object.entries(k.homeFiles ?? {})) files[path] = text
   return {
     deps,
+    benchRuns,
     calls,
     runs,
     lines,
@@ -500,6 +511,12 @@ describe("refusals", () => {
     expect(refusal({ ...opts, user: "Bad;user" })).toContain("user")
     expect(refusal({ ...opts, home: "relative/home" })).toContain("home")
     expect(refusal({ ...opts, home: "/tmp/../etc" })).toContain("home")
+  })
+
+  test("the bench script is an absolute path", () => {
+    expect(refusal({ ...opts, bench: "/opt/bench/deps-bench.sh" })).toBeUndefined()
+    expect(refusal({ ...opts, bench: "deps-bench.sh" })).toContain("bench")
+    expect(refusal({ ...opts, bench: "/opt/../tmp/x.sh" })).toContain("bench")
   })
 
   test("missing stack secrets touch nothing", async () => {
@@ -923,6 +940,13 @@ describe("cancellation, the sweep, masking and the scan", () => {
     expect(e.result).toBe("pass")
   })
 
+  test("the sweep leaves a CI machine younger than the longest run (a bench still running)", async () => {
+    const w = world({ others: [{ machineId: "m_bench", joinTokenId: "jt_b", label: "ci-join-40003", mintedBy: "user_1", createdAt: "2026-10-29T11:15:00Z", revoked: false }] })
+    await runE2E(opts, env, w.deps)
+    expect(w.revokedIds).not.toContain("m_bench")
+    expect(STALE_MS).toBeGreaterThan(12 * 60_000 + BENCH_LIMIT_MS)
+  })
+
   test("a password with a newline and a percent sign is masked escaped, line by line", async () => {
     const password = "p%0Ass\nline2"
     const w = world()
@@ -1218,5 +1242,50 @@ describe("redaction helpers", () => {
     // A token nobody held (another run's) is still cut at its prefix.
     const other = redact(`x cmj_someOtherTokenValue123 y ${ACCESS}`, [])
     expect(other).toBe("x cmj_[redacted] y [jwt].YWNjZXNzc2lnbmF0dXJl")
+  })
+})
+
+describe("the bench", () => {
+  const BENCH = "/tmp/machine-join-e2e.test/bin/deps-bench.sh"
+
+  test("its result keeps only numbers, booleans and plain strings from the last JSON line", () => {
+    const out = ['{"cargoColdS": 1}', "noise", '{"cargoColdS": 12.5, "cargoWarmRestore": "restored", "ok": true, "x": "a\\nb", "deep": {"y": 1}, "bad key": 2}', ""].join("\n")
+    expect(benchResult(out)).toEqual({ cargoColdS: 12.5, cargoWarmRestore: "restored", ok: true })
+    expect(benchResult("no json here\n[1,2]\n")).toBeNull()
+    expect(benchResult(`{"leak": "${TOKEN}x::y"}`)).toEqual({ leak: `${TOKEN}x::y`.match(/^[A-Za-z0-9 _.:/-]{0,128}$/) ? `${TOKEN}x::y` : undefined }.leak ? { leak: `${TOKEN}x::y` } : {})
+  })
+
+  test("runs as the disposable user while joined, before the revoke, and its numbers are evidence", async () => {
+    const w = world({ bench: { code: 0, stdout: 'cargo fetch: done\n{"cargoColdS": 40.1, "cargoWarmS": 6.2, "cargoWarmRestore": "restored"}\n', stderr: "" } })
+    const e = await runE2E({ ...opts, bench: BENCH }, env, w.deps)
+    expect(e.result).toBe("pass")
+    expect(w.benchRuns).toHaveLength(1)
+    expect(w.benchRuns[0]).toMatchObject({ argv: ["/bin/bash", BENCH, opts.acpmux], timeoutMs: BENCH_LIMIT_MS, joined: true, revoked: false })
+    expect(e.bench).toEqual({ code: 0, result: { cargoColdS: 40.1, cargoWarmS: 6.2, cargoWarmRestore: "restored" } })
+    expect(e.revoke).toEqual({ revokedListed: true, statusRevoked: true })
+    expect(w.lines.some((l) => l.includes("bench: cargo fetch: done"))).toBe(true)
+    assertNoSecretEscaped(w)
+  })
+
+  test("a failed bench fails the run and still revokes", async () => {
+    const w = world({ bench: { code: 1, stdout: "cargo fetch failed\n", stderr: "" } })
+    const e = await runE2E({ ...opts, bench: BENCH }, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("bench: exit 1")
+    expect(e.revoke.revokedListed).toBe(true)
+    assertNoSecretEscaped(w)
+  })
+
+  test("a secret in the bench's output is redacted from the log", async () => {
+    const w = world({ bench: { code: 0, stdout: `echo ${CREDENTIAL}\n{"n": 1}\n`, stderr: "" } })
+    await runE2E({ ...opts, bench: BENCH }, env, w.deps)
+    assertNoSecretEscaped(w)
+  })
+
+  test("no bench without --bench", async () => {
+    const w = world()
+    const e = await runE2E(opts, env, w.deps)
+    expect(w.benchRuns).toEqual([])
+    expect(e.bench).toBeUndefined()
   })
 })

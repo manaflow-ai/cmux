@@ -222,6 +222,12 @@ nonisolated enum CatalogArgument {
     }
 
     /// `cloud new-machine --repo OWNER/NAME[@REF]`: the GitHub repository the machine clones.
+    /// `cloud new-machine --environment ID|NAME`: the Cloud environment the new machine boots in.
+    static var environmentString: ActionArgument {
+        ActionArgument(name: "environment", title: String(localized: "argument.environment", defaultValue: "Cloud Environment", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var repoString: ActionArgument {
         ActionArgument(name: "repo", title: String(localized: "argument.repo", defaultValue: "Repository", bundle: .module),
                        kind: .string, isRequired: false)
@@ -283,18 +289,6 @@ nonisolated enum CatalogArgument {
     static var pinnedBool: ActionArgument {
         ActionArgument(name: "pinned", title: String(localized: "argument.pinned", defaultValue: "Pinned", bundle: .module), kind: .bool,
                        isRequired: false)
-    }
-
-    /// `cloud share-machine --teammate USER_ID`: the teammate whose chats on the machine change.
-    static var teammateString: ActionArgument {
-        ActionArgument(name: "teammate", title: String(localized: "argument.teammate", defaultValue: "Teammate", bundle: .module),
-                       kind: .string, isRequired: false)
-    }
-
-    /// `cloud share-machine --teammate USER_ID --revoke`: take the teammate's share back.
-    static var revokeBool: ActionArgument {
-        ActionArgument(name: "revoke", title: String(localized: "argument.revoke", defaultValue: "Revoke", bundle: .module),
-                       kind: .bool, isRequired: false)
     }
 
     static var onBool: ActionArgument {
@@ -420,16 +414,17 @@ nonisolated enum CatalogArgument {
                               suggestions: ActionSuggestions(source: "browserFit", pinned: pinned))
     }
 
-    /// How Open Desktop shows a Cloud machine's screen (`cloudOpenDesktop`): `web`, its noVNC
-    /// page in a Chromium tab (the default); `native`, the remote view pane straight to the
-    /// machine's VNC server over the app's Cloud tunnel; or `rd`, the pane showing the machine's
-    /// `cmux-rd` host (H.264) over its daemon link.
+    /// How Open Desktop shows a Cloud machine's screen (`cloudOpenDesktop`): `rd`, the remote view
+    /// pane on the machine's `cmux-rd` host over its Native link (the default for a machine that
+    /// declares `desktop`); `web`, its noVNC page in a Chromium tab (the default otherwise); or, in
+    /// development builds, `native`, the pane straight to the machine's VNC server over the app's
+    /// Cloud tunnel.
     static var desktopViewerChoice: ActionArgument {
-        var cases = [ActionEnumCase(value: "web", title: String(localized: "argument.value.viewerWeb", defaultValue: "Browser", bundle: .module))]
+        var cases = [ActionEnumCase(value: "rd", title: String(localized: "argument.value.viewerRd", defaultValue: "Video Stream", bundle: .module)),
+                     ActionEnumCase(value: "web", title: String(localized: "argument.value.viewerWeb", defaultValue: "Browser", bundle: .module))]
         #if DEBUG
-        // The remote view pane is development-only (RemoteViewAvailability).
+        // The pane's VNC client is development-only (RemoteViewAvailability).
         cases.append(ActionEnumCase(value: "native", title: String(localized: "argument.value.viewerNative", defaultValue: "Native", bundle: .module)))
-        cases.append(ActionEnumCase(value: "rd", title: String(localized: "argument.value.viewerRd", defaultValue: "Video Stream", bundle: .module)))
         #endif
         return ActionArgument(name: "viewer", title: String(localized: "argument.viewer", defaultValue: "Viewer", bundle: .module),
                               kind: .enumeration(cases), isRequired: false)

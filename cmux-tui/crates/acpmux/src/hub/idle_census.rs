@@ -17,8 +17,10 @@
 //! harness up. A hosted harness's servers are kept in its session's meta with its host's
 //! incarnation (`StoredLaunch`, `SessionMeta::idle_launch`), so a next daemon that adopts the host
 //! after a restart, an update or a crash judges it by the same servers. For a harness another
-//! daemon started with none kept (a build before this one), none are known: it ends only when
-//! nothing runs under it.
+//! daemon started with none kept (a build before those were kept), they are read from the
+//! running harness at its adoption: its argv and the environment it started with, as the kernel
+//! has them, and its configs as they are then (`LaunchServers::read_live`). When that read fails
+//! none are known: it ends only when nothing runs under it.
 //!
 //! Only a child of the harness can be a server, and only when its argv is exactly the server's:
 //! its program (as configured, or what `PATH` runs for a name), or an interpreter running that
@@ -221,6 +223,32 @@ impl LaunchServers {
             _ => Self::Unknown,
         }
     }
+
+    /// For a running harness whose start no daemon kept the servers of (a host an older build
+    /// started, before `StoredLaunch`): read from the harness itself, its argv and the
+    /// environment it was started with as the kernel has them (`tree::argv`, `tree::environ`),
+    /// in `cwd`, its session's folder, with the configs as they are now. A server since removed
+    /// from them keeps the harness up as unknown work does; one since added counts only when a
+    /// child of the harness runs exactly its argv. None when the harness cannot be read in time.
+    #[cfg(unix)]
+    pub(crate) async fn read_live(
+        pid: u32,
+        cwd: PathBuf,
+        family: String,
+        kind: crate::config::HarnessKind,
+    ) -> Option<Self> {
+        let live = tokio::task::spawn_blocking(move || {
+            let argv = crate::agent_host::tree::argv(pid)?;
+            let env = crate::agent_host::tree::environ(pid)?;
+            let (program, args) = argv.split_first()?;
+            Some(crate::agent::Launch::new(program, args, &env, &cwd))
+        });
+        let launch = tokio::time::timeout(CENSUS_BUDGET, live).await.ok()?.ok()??;
+        match Self::read(&launch, family, kind).await {
+            known @ Self::Known { .. } => Some(known),
+            Self::Unknown => None,
+        }
+    }
 }
 
 impl ChildAgent {
@@ -276,18 +304,40 @@ impl Hub {
     }
 
     /// An adopted host's servers, from its session's meta when they were kept for this
-    /// `incarnation`: the idle census then judges it as the daemon that started it did.
-    pub(super) fn restore_launch(&self, session: &Session, child: &ChildAgent, incarnation: &str) {
-        let Some(stored) = session.meta().idle_launch.filter(|l| l.incarnation == incarnation)
-        else {
+    /// `incarnation`: the idle census then judges it as the daemon that started it did. When
+    /// none were kept (a host an older build started), they are read from the running harness
+    /// (`LaunchServers::read_live`, for a profile of `kind`) and kept for the next daemon. Before,
+    /// such a harness knew no server, so the one its user config names (a `.claude.json` server)
+    /// kept it up for good: 27 idle harnesses, 8.3 GB, on one lane VM (2026-11-03).
+    pub(super) async fn restore_launch(
+        &self,
+        session: &Session,
+        child: &ChildAgent,
+        incarnation: &str,
+        kind: Option<crate::config::HarnessKind>,
+    ) {
+        if let Some(stored) = session.meta().idle_launch.filter(|l| l.incarnation == incarnation) {
+            child.record_launch(LaunchServers::Known {
+                servers: stored.servers,
+                path: stored.path,
+                cwd: stored.cwd,
+            });
+            *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = stored.given;
             return;
-        };
-        child.record_launch(LaunchServers::Known {
-            servers: stored.servers,
-            path: stored.path,
-            cwd: stored.cwd,
-        });
-        *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = stored.given;
+        }
+        #[cfg(unix)]
+        if let (Some(pid), Some(kind)) = (child.pid, kind) {
+            let meta = session.meta();
+            let family = meta.family.clone().unwrap_or_default();
+            if let Some(read) = LaunchServers::read_live(pid, meta.cwd.clone(), family, kind).await
+            {
+                child.record_launch(read);
+                self.note_launch(session, child);
+                self.save_meta(session);
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = kind;
     }
 }
 
@@ -509,13 +559,16 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
                 .is_some_and(|(cwd, server)| same_file(&cwd.join(second), Path::new(server)))
     };
     // A script: the executable must be the interpreter its `#!` line runs, not any file named
-    // like one.
+    // like one, or the app a framework Python runs scripts through (`framework_app`).
+    let app = s.interpreter.as_deref().and_then(framework_app);
+    let by_app = |first: &str| {
+        app.as_deref().is_some_and(|app| same_file(Path::new(first), app) && runs_file(who, first))
+    };
     let runs_script = |first: &str, second: &str| {
-        interpreter(first)
+        ((interpreter(first) && s.interpreter.as_deref().is_some_and(is_exe)) || by_app(first))
             && second.contains('/')
             && program(second)
             && script_is(second)
-            && s.interpreter.as_deref().is_some_and(is_exe)
     };
     let at = match who.argv.as_slice() {
         [first, ..] if runs_program(first) => 1,
@@ -539,6 +592,20 @@ fn runs_file(who: &crate::agent_host::tree::Identity, w: &str) -> bool {
 fn same_file(a: &Path, b: &Path) -> bool {
     let canonical = |p: &Path| std::fs::canonicalize(p).ok();
     canonical(a).is_some_and(|a| canonical(b) == Some(a))
+}
+
+/// The app a framework build of Python (Homebrew's, python.org's) runs a script through: its
+/// `Versions/X/bin/python3.X` execs `Versions/X/Resources/Python.app/Contents/MacOS/Python`, so a
+/// `#!/usr/bin/env python3` server runs as that app, never as the `python3` its line names. None
+/// for any other interpreter.
+fn framework_app(interpreter: &str) -> Option<PathBuf> {
+    let real = std::fs::canonicalize(interpreter).ok()?;
+    let name = real.file_name()?.to_str()?;
+    let bin = real.parent()?;
+    let framework = bin.parent()?.parent()?.file_name()? == "Versions"
+        && bin.parent()?.parent()?.parent()?.extension()? == "framework";
+    (name.starts_with("python") && is_interpreter(name) && bin.file_name()? == "bin" && framework)
+        .then(|| bin.with_file_name("Resources/Python.app/Contents/MacOS/Python"))
 }
 
 /// Whether `w` names one of [`INTERPRETERS`] (`python3.12` included).
@@ -619,11 +686,14 @@ fn relays(who: &crate::agent_host::tree::Identity, launcher: &Launcher) -> bool 
 /// A native wrapper (`wrapper`): the agent it names and the args it passes on.
 struct Wrapper<'a> {
     name: &'a str,
+    /// `name` with the account number sr2 puts after it dropped (`claude2`: `claude`).
+    agent: &'a str,
     args: &'a [String],
 }
 
 /// A native wrapper harness: a program, not an interpreter, run as `WRAPPER NAME ARGS` with at
-/// least one arg (`sr2 claude -p ...`, `sr codex -c ... app-server`). It runs the agent `NAME`
+/// least one arg (`sr2 claude -p ...`, `sr codex -c ... app-server`; `sr2 claude2 ...` names
+/// `claude` for an account, or `claude2` itself). It runs the agent `NAME`
 /// as its child with those args plus its own (`relays_for`), and that child starts the MCP
 /// servers. Argv is the leader's own to rewrite too, so the executable the kernel says it runs
 /// must be the wrapper: the file argv names, or for a bare name, the one the harness's `path`
@@ -641,12 +711,15 @@ fn wrapper<'a>(
     if args.is_empty() || !bare || is_interpreter(program) {
         return None;
     }
+    // sr2 names an account's agent with a number after it (`sr2 claude2`) and runs `claude`.
+    let agent = name.trim_end_matches(|c: char| c.is_ascii_digit());
+    let agent = if agent.is_empty() { name.as_str() } else { agent };
     let runs_wrapper = if program.contains('/') {
         program.starts_with('/') && runs_file(who, program)
     } else {
         path.and_then(|path| first_on_path(program, path)).is_some_and(|w| runs_file(who, &w))
     };
-    runs_wrapper.then_some(Wrapper { name, args })
+    runs_wrapper.then_some(Wrapper { name, agent, args })
 }
 
 /// Whether `who`, a child of a native wrapper (`wrapper`), is the agent it relays to: a program
@@ -659,11 +732,13 @@ fn relays_for(who: &crate::agent_host::tree::Identity, wrapper: &Wrapper) -> boo
     let Some(file) = Path::new(program).file_name().and_then(|n| n.to_str()) else {
         return false;
     };
-    let named = file == wrapper.name
-        || file
-            .strip_suffix(wrapper.name)
-            .and_then(|prefix| prefix.strip_suffix('-'))
-            .is_some_and(|prefix| !prefix.is_empty());
+    let named = [wrapper.name, wrapper.agent].into_iter().any(|name| {
+        file == name
+            || file
+                .strip_suffix(name)
+                .and_then(|prefix| prefix.strip_suffix('-'))
+                .is_some_and(|prefix| !prefix.is_empty())
+    });
     program.starts_with('/')
         && !is_interpreter(program)
         && named
@@ -752,10 +827,10 @@ fn classify(
                 // where `claude-*` is any program.
                 harness.push(p.pid);
                 let program = who.argv.first().map(Path::new);
-                if program.and_then(Path::file_name).is_some_and(|f| f != w.name)
+                if program.and_then(Path::file_name).is_some_and(|f| f != w.name && f != w.agent)
                     && let Some(program) = program
                 {
-                    let named = program.with_file_name(w.name);
+                    let named = program.with_file_name(w.agent);
                     harness_programs.push(named.to_string_lossy().into_owned());
                 }
             } else if part_of(who, &harness_programs) {

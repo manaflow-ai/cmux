@@ -15,7 +15,7 @@ import { JSDOM } from "jsdom";
 import { act, createRef, useRef, useState } from "react";
 import type { Root } from "react-dom/client";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
-import type { PendingAttachment } from "../src/agent-session/acpmux/composer/attachmentIntake";
+import type { PendingAttachment } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
@@ -317,7 +317,7 @@ test("a PDF's open in the text opens the strip's PDF viewer", async () => {
   expect(document.querySelector(".acpmux-pdf-viewer")?.textContent).toContain(PDF.name);
 });
 
-test("a video's play in the text plays it in Quick Look, as the strip's does", async () => {
+test("a video's play in the text plays it as the strip's does (Quick Look when the host grants no stream)", async () => {
   const calls: [string, unknown][] = [];
   setChipHost(async (method, params) => {
     calls.push([method, params]);
@@ -330,6 +330,8 @@ test("a video's play in the text plays it in Quick Look, as the strip's does", a
   );
   expect(play).not.toBeNull();
   await act(async () => play!.click());
+  await until(() => calls.some(([method]) => method === "video.quickLook"));
+  expect(calls.filter(([method]) => method === "media.load")).toEqual([["media.load", { src: VIDEO.path }]]);
   expect(calls.filter(([method]) => method === "video.quickLook")).toEqual([["video.quickLook", { src: VIDEO.path }]]);
 });
 

@@ -1356,7 +1356,10 @@ fn agents_action_tools_send_the_cli_requests_and_move_focus_only_by_purpose() {
     assert_eq!(result["structuredContent"]["action"], "dialog.answer", "{result}");
     let reply = &sent_of(&server, "app")[0];
     assert_eq!(reply["method"], "feed.question.reply");
-    assert_eq!(reply["params"], json!({"request_id": "request_a", "selections": ["one", "two"]}));
+    // The tool names who answers (origin, and the caller when it is an agent session).
+    assert_eq!(reply["params"]["request_id"], "request_a");
+    assert_eq!(reply["params"]["selections"], json!(["one", "two"]));
+    assert_eq!(reply["params"]["origin"], "mcp");
 }
 
 #[test]
@@ -1427,7 +1430,9 @@ fn agents_dialog_answer_only_denies_permissions_over_mcp() {
     assert_eq!(result["isError"], false, "{result}");
     let reply = &sent_of(&server, "app")[0];
     assert_eq!(reply["method"], "feed.permission.reply");
-    assert_eq!(reply["params"], json!({"request_id": "request_a", "mode": "deny"}));
+    assert_eq!(reply["params"]["request_id"], "request_a");
+    assert_eq!(reply["params"]["mode"], "deny");
+    assert_eq!(reply["params"]["origin"], "mcp");
 
     let listed =
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
@@ -1558,7 +1563,7 @@ fn code_mode_server(fake: Fake) -> Server<Fake> {
 }
 
 #[test]
-fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
+fn code_mode_lists_exec_and_workflow_and_a_script_reaches_every_tool() {
     let mut server = code_mode_server(Fake::with_actions());
     let initialize =
         server.handle(&json!({"jsonrpc": "2.0", "id": "i", "method": "initialize"})).unwrap();
@@ -1567,9 +1572,9 @@ fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
     let tools = listed["result"]["tools"].as_array().cloned().unwrap();
     let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>();
-    // Only cmux_exec (Lawrence 2026-10-23): a script searches with
-    // `cmux.docs(query)`, and `cmux_docs` stays callable for old prompts.
-    assert_eq!(names, ["cmux_exec"]);
+    // Scripts search the underlying catalog with cmux.docs; durable runs
+    // also have a direct lifecycle tool beside the code-mode entry point.
+    assert_eq!(names, ["cmux_exec", "cmux_workflow"]);
     let bytes = serde_json::to_vec(&tools).unwrap().len();
     assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
     let all = server.list();

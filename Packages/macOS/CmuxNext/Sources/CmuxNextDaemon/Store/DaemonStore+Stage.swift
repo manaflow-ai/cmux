@@ -106,7 +106,7 @@ extension DaemonStore {
         case .renameScreen(let screen, _), .setScreenColor(let screen, _), .setScreenIcon(let screen, _), .setScreenPinned(let screen, _):
             return self.screen(screen).flatMap { index.workspace(holding: $0) }.map { [$0.handle] }
         case .setWorkspaceGroupCollapsed, .setTabGroupCollapsed, .setRowHeights, .createTab, .bindAgentSession, .splitPane,
-             .createWorkspace, .closeTabs:
+             .createWorkspace, .closeTabs, .dockTab, .closeStandInPane:
             return nil
         }
     }

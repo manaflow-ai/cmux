@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c'
+IR_SHA256 = 'b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c'
 
 
 @dataclass(frozen=True)
@@ -102,6 +102,7 @@ COMMANDS = {
             'expected_generation': CommandFieldMetadata(None, 'attach-identity-v1'),
             'expected_terminal_id': CommandFieldMetadata(None, 'attach-identity-v1'),
             'mode': CommandFieldMetadata(7, None),
+            'replay_history_rows': CommandFieldMetadata(None, 'attach-replay-history-rows-v1'),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
@@ -322,6 +323,17 @@ COMMANDS = {
         {
             'path': CommandFieldMetadata(None, None),
             'query': CommandFieldMetadata(None, None),
+        },
+    ),
+    'chief-work': CommandMetadata(
+        'chief-work',
+        'frontend',
+        12,
+        'chief-work-v1',
+        ('frontend',),
+        None,
+        {
+            'chief': CommandFieldMetadata(None, None),
         },
     ),
     'clear-history': CommandMetadata(
@@ -2112,6 +2124,7 @@ COMMANDS = {
             'dock': CommandFieldMetadata(12, 'dock-columns-v1'),
             'keep_focus': CommandFieldMetadata(12, 'tab-split-keep-focus-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'pane_id': CommandFieldMetadata(12, 'tab-column-client-pane-v1'),
             'respawn': CommandFieldMetadata(12, 'tab-column-respawn-v1'),
             'screen': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
@@ -2283,6 +2296,7 @@ COMMANDS = {
             'pane': CommandFieldMetadata(None, None),
             'profile_id': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'split': CommandFieldMetadata(None, 'frontend-browser-tab-split-v1'),
             'title': CommandFieldMetadata(None, None),
             'url': CommandFieldMetadata(None, None),
         },
@@ -2680,6 +2694,51 @@ COMMANDS = {
         6,
         None,
         ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'remote-host-app': CommandMetadata(
+        'remote-host-app',
+        'local-admin',
+        12,
+        'remote-host-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'remote-host-call': CommandMetadata(
+        'remote-host-call',
+        'local-admin',
+        12,
+        'remote-host-v1',
+        ('local-admin',),
+        None,
+        {
+            'method': CommandFieldMetadata(None, None),
+            'params': CommandFieldMetadata(None, None),
+        },
+    ),
+    'remote-host-config': CommandMetadata(
+        'remote-host-config',
+        'local-admin',
+        12,
+        'remote-host-v1',
+        ('local-admin',),
+        None,
+        {
+            'computer_use': CommandFieldMetadata(None, None),
+            'headless': CommandFieldMetadata(None, None),
+            'screen_sharing': CommandFieldMetadata(None, None),
+        },
+    ),
+    'remote-host-status': CommandMetadata(
+        'remote-host-status',
+        'local-admin',
+        12,
+        'remote-host-v1',
+        ('local-admin',),
         None,
         {
         },
@@ -3143,6 +3202,18 @@ COMMANDS = {
             'policy': CommandFieldMetadata(None, None),
         },
     ),
+    'set-layout-sizes': CommandMetadata(
+        'set-layout-sizes',
+        'control',
+        12,
+        'layout-sizes-batch-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'transaction': CommandFieldMetadata(None, None),
+            'values': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-personal-terminal': CommandMetadata(
         'set-personal-terminal',
         'control',
@@ -3533,6 +3604,18 @@ COMMANDS = {
             'marker_epoch': CommandFieldMetadata(None, None),
             'max_bytes': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-last-command': CommandMetadata(
+        'terminal-last-command',
+        'control',
+        12,
+        'terminal-last-command-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
     'terminal-ports': CommandMetadata(
@@ -3964,8 +4047,10 @@ EVENTS = {
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'selection-changed': EventMetadata('selection-changed', 12, 'tree-selection-deltas-v1', ('subscribe-deltas',), 'emitted'),
     'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
+    'stash-changed': EventMetadata('stash-changed', 12, 'stash-v1', ('subscribe',), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),
     'surface-output': EventMetadata('surface-output', 5, None, ('subscribe',), 'emitted'),
@@ -3989,6 +4074,7 @@ EVENTS = {
     'workspace-changed': EventMetadata('workspace-changed', 12, 'workspace-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'workspace-closed': EventMetadata('workspace-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'workspace-moved': EventMetadata('workspace-moved', 7, None, ('subscribe-deltas',), 'emitted'),
+    'workspace-presentation-changed': EventMetadata('workspace-presentation-changed', 12, 'tree-selection-deltas-v1', ('subscribe-deltas',), 'emitted'),
     'workspace-renamed': EventMetadata('workspace-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
 }
 

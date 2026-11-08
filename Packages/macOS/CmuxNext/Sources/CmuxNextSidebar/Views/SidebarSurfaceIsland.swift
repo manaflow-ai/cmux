@@ -14,6 +14,9 @@ public protocol SidebarSurfaceIsland: AnyObject {
     var view: NSView { get }
     /// The content's height in points; 0 until the page has drawn.
     var contentHeight: CGFloat { get }
+    /// The content's own width in points (the popover is as wide as its lines); 0 when the page
+    /// fills the width it is given.
+    var contentWidth: CGFloat { get }
     /// The content height changed.
     var onHeightChange: (() -> Void)? { get set }
     /// The page ran one of its actions (the popover then closes).
@@ -22,6 +25,62 @@ public protocol SidebarSurfaceIsland: AnyObject {
     var onDismiss: (() -> Void)? { get set }
     /// The sidebar went away: the page cancels its subscriptions.
     func close()
+    /// The room, in points, the Updated card's open hover preview needs above its slot's bottom
+    /// (the card and the preview's rows); 0 while the preview is closed.
+    var overlayHeight: CGFloat { get }
+    /// The height, in points, the Updated card's hover preview has once open; 0 from the moment it
+    /// starts to close. The host's glass behind the page runs the page's motion to it.
+    var previewHeight: CGFloat { get }
+    /// Tells the page whether the pointer is on its view (the host's tracking area): WebKit sends a
+    /// page no pointer moves while another of the app's windows, a Chromium page's, has the key.
+    func setPointerInside(_ inside: Bool)
+    /// The person drags the Updated card (its page runs the drag): where it is held from its rest,
+    /// and where it settles once let go.
+    var onDrag: ((SidebarCardDrag) -> Void)? { get set }
+    /// Tells the page where the card rests and how far it may be dragged.
+    func setPlace(_ place: SidebarCardPlace)
+}
+
+extension SidebarSurfaceIsland {
+    public var contentWidth: CGFloat { 0 }
+    public var overlayHeight: CGFloat { 0 }
+    public var previewHeight: CGFloat { 0 }
+    public func setPointerInside(_ inside: Bool) {}
+    public var onDrag: ((SidebarCardDrag) -> Void)? {
+        get { nil }
+        set {}
+    }
+    public func setPlace(_ place: SidebarCardPlace) {}
+}
+
+/// Where the sidebar's Updated card rests: at the bottom card slot (its first place), or at the top
+/// of the list, under the titlebar row (Leo 2026-11-07: "you can drag that up to the top").
+public enum SidebarCardAnchor: String, Sendable {
+    case top, bottom
+}
+
+/// One report of the Updated card's drag, in points: how far the page holds it from where it rests,
+/// and on its release, the anchor it settles at.
+public struct SidebarCardDrag: Equatable, Sendable {
+    public var offset: CGPoint
+    public var drop: SidebarCardAnchor?
+
+    public init(offset: CGPoint, drop: SidebarCardAnchor? = nil) {
+        self.offset = offset
+        self.drop = drop
+    }
+}
+
+/// Where the Updated card rests and the room, in points, from its top edge up to the farthest it may
+/// rest (`above`) and from its bottom edge down (`below`).
+public struct SidebarCardPlace: Equatable, Sendable {
+    public var anchor: SidebarCardAnchor
+    public var above: CGFloat
+    public var below: CGFloat
+
+    public init(anchor: SidebarCardAnchor, above: CGFloat, below: CGFloat) {
+        (self.anchor, self.above, self.below) = (anchor, above, below)
+    }
 }
 
 /// Makes the update surfaces (set by the App on each sidebar).
@@ -38,19 +97,27 @@ final class SidebarPopoverIslandHost: NSView {
     var onPointerExit: (() -> Void)?
     private var tracking: NSTrackingArea?
 
-    /// The host's height in a hover card (the card fits its body); its width is fixed.
+    /// The host's size in a hover card (the card fits its body).
     private var heightConstraint: NSLayoutConstraint?
+    private var widthConstraint: NSLayoutConstraint?
+    /// The widest the host gets (the menu width); a page that reports its own width is narrower.
+    let maxWidth: CGFloat
 
     init(width: CGFloat) {
+        maxWidth = width
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: 1))
         let height = heightAnchor.constraint(equalToConstant: 1)
-        NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: width), height])
+        let widthConstraint = widthAnchor.constraint(equalToConstant: width)
+        NSLayoutConstraint.activate([widthConstraint, height])
         heightConstraint = height
+        self.widthConstraint = widthConstraint
     }
 
-    /// Sizes the host `height` tall (the page's height, capped to its window).
-    func fit(height: CGFloat) {
+    /// Sizes the host `height` tall (the page's height, capped to its window) and `width` wide
+    /// (the page's own width, at most ``maxWidth``; 0 is the full width).
+    func fit(height: CGFloat, width: CGFloat = 0) {
         heightConstraint?.constant = max(1, height)
+        widthConstraint?.constant = width > 0 ? min(maxWidth, ceil(width)) : maxWidth
     }
 
     /// Moves the surface's page view in (it waits parked in the card while

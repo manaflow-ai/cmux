@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c.
+// cmux-tui mux protocol 12, IR b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -76,6 +76,8 @@ pub struct AttachSurfaceRequest {
     pub expected_terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<AttachSurfaceRequestMode>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub replay_history_rows: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -326,6 +328,22 @@ pub struct ChiefInspectResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub error: Optional<String>,
     pub status: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkRequest {
+    pub chief: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkResult {
+    pub agents: Vec<T::ChiefWorkAgent>,
+    #[serde(rename = "taskSources")]
+    pub task_sources: Vec<String>,
+    pub tasks: Vec<T::ChiefWorkTask>,
+    pub truncated: bool,
 }
 
 #[rustfmt::skip]
@@ -2307,6 +2325,8 @@ pub struct MoveTabToColumnRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub respawn: Optional<T::SplitRespawn>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub screen: Optional<T::Id>,
@@ -2524,6 +2544,9 @@ pub struct NewFrontendBrowserTabRequest {
     pub profile_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    /// With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub split: Optional<T::ConversationTabSplit>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub title: Optional<String>,
     pub url: String,
@@ -2940,6 +2963,44 @@ pub struct ReloadConfigResult {
     pub path: Nullable<String>,
     pub reloaded: bool,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RemoteHostAppRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteHostCallRequest {
+    pub method: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub params: Optional<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type RemoteHostCallResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RemoteHostConfigRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub computer_use: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub headless: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen_sharing: Optional<bool>,
+}
+
+#[rustfmt::skip]
+pub type RemoteHostConfigResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RemoteHostStatusRequest {
+}
+
+#[rustfmt::skip]
+pub type RemoteHostStatusResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3410,6 +3471,16 @@ pub struct SetHostSizePolicyRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetLayoutSizesRequest {
+    pub transaction: u64,
+    pub values: Vec<T::LayoutSizeValue>,
+}
+
+#[rustfmt::skip]
+pub type SetLayoutSizesResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetPersonalTerminalRequest {
     pub session_id: String,
     pub terminal_key: String,
@@ -3785,6 +3856,15 @@ pub struct TerminalHistoryRequest {
 
 #[rustfmt::skip]
 pub type TerminalHistoryResult = T::TerminalHistoryPagesResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TerminalLastCommandRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4183,6 +4263,9 @@ impl CmuxClient {
         if !request.mode.is_missing() {
             self.require_protocol_field("attach-surface", 7)?;
         }
+        if !request.replay_history_rows.is_missing() {
+            self.require_capability_field("attach-surface", "attach-replay-history-rows-v1")?;
+        }
         if !request.rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;
         }
@@ -4266,6 +4349,10 @@ impl CmuxClient {
 
     pub fn chief_inspect(&mut self, request: ChiefInspectRequest) -> Result<ChiefInspectResult> {
         self.execute(&CHIEF_INSPECT_METADATA, &request)
+    }
+
+    pub fn chief_work(&mut self, request: ChiefWorkRequest) -> Result<ChiefWorkResult> {
+        self.execute(&CHIEF_WORK_METADATA, &request)
     }
 
     pub fn clear_history(&mut self, request: ClearHistoryRequest) -> Result<ClearHistoryResult> {
@@ -4922,6 +5009,10 @@ impl CmuxClient {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "tab-split-keep-focus-v1")?;
         }
+        if !request.pane_id.is_missing() {
+            self.require_protocol_field("move-tab-to-column", 12)?;
+            self.require_capability_field("move-tab-to-column", "tab-column-client-pane-v1")?;
+        }
         if !request.respawn.is_missing() {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "tab-column-respawn-v1")?;
@@ -5012,6 +5103,9 @@ impl CmuxClient {
     }
 
     pub fn new_frontend_browser_tab(&mut self, request: NewFrontendBrowserTabRequest) -> Result<NewFrontendBrowserTabResult> {
+        if !request.split.is_missing() {
+            self.require_capability_field("new-frontend-browser-tab", "frontend-browser-tab-split-v1")?;
+        }
         self.execute(&NEW_FRONTEND_BROWSER_TAB_METADATA, &request)
     }
 
@@ -5234,6 +5328,22 @@ impl CmuxClient {
 
     pub fn reload_config(&mut self, request: ReloadConfigRequest) -> Result<ReloadConfigResult> {
         self.execute(&RELOAD_CONFIG_METADATA, &request)
+    }
+
+    pub fn remote_host_app(&mut self, request: RemoteHostAppRequest) -> Result<T::RemoteHostAppResult> {
+        self.execute(&REMOTE_HOST_APP_METADATA, &request)
+    }
+
+    pub fn remote_host_call(&mut self, request: RemoteHostCallRequest) -> Result<RemoteHostCallResult> {
+        self.execute(&REMOTE_HOST_CALL_METADATA, &request)
+    }
+
+    pub fn remote_host_config(&mut self, request: RemoteHostConfigRequest) -> Result<RemoteHostConfigResult> {
+        self.execute(&REMOTE_HOST_CONFIG_METADATA, &request)
+    }
+
+    pub fn remote_host_status(&mut self, request: RemoteHostStatusRequest) -> Result<RemoteHostStatusResult> {
+        self.execute(&REMOTE_HOST_STATUS_METADATA, &request)
     }
 
     pub fn remote_terminal_snapshot(&mut self, request: RemoteTerminalSnapshotRequest) -> Result<RemoteTerminalSnapshotResult> {
@@ -5488,6 +5598,10 @@ impl CmuxClient {
         self.execute(&SET_HOST_SIZE_POLICY_METADATA, &request)
     }
 
+    pub fn set_layout_sizes(&mut self, request: SetLayoutSizesRequest) -> Result<SetLayoutSizesResult> {
+        self.execute(&SET_LAYOUT_SIZES_METADATA, &request)
+    }
+
     pub fn set_personal_terminal(&mut self, request: SetPersonalTerminalRequest) -> Result<SetPersonalTerminalResult> {
         self.execute(&SET_PERSONAL_TERMINAL_METADATA, &request)
     }
@@ -5681,6 +5795,10 @@ impl CmuxClient {
 
     pub fn terminal_history(&mut self, request: TerminalHistoryRequest) -> Result<TerminalHistoryResult> {
         self.execute(&TERMINAL_HISTORY_METADATA, &request)
+    }
+
+    pub fn terminal_last_command(&mut self, request: TerminalLastCommandRequest) -> Result<T::TerminalLastCommandResult> {
+        self.execute(&TERMINAL_LAST_COMMAND_METADATA, &request)
     }
 
     pub fn terminal_ports(&mut self, request: TerminalPortsRequest) -> Result<T::TerminalPortsResult> {

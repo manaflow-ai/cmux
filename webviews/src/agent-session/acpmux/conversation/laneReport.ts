@@ -11,12 +11,17 @@ export type LaneNoticeVerdict = "SHIP" | "BLOCK" | "FIX" | "HOLD";
 
 export type LaneNoticeDelivery = {
   readonly sender: string;
+  /// The key the sender's chat is asked for by (inboxNotice.ts `senderKey`), when acpmux recorded
+  /// who sent it; else `sender`.
+  readonly lookup?: string;
   readonly text: string;
   readonly promptId?: string;
 };
 export type LaneNoticeThread = {
   readonly id: string;
   readonly sender: string;
+  /// The newest sender's key (`LaneNoticeDelivery.lookup`).
+  readonly lookup?: string;
   readonly preview?: string;
   readonly messages?: readonly LaneNoticeDelivery[];
   readonly label?: string;
@@ -44,6 +49,8 @@ export type LaneNoticePayload = {
   readonly report?: boolean;
   /** A person's own words (`IncomingMessage.fromPerson`): never a notice. */
   readonly fromPerson?: boolean;
+  /** A tool's notice (agentNotice.ts): its own row, never a report or an inbox notice. */
+  readonly notice?: unknown;
   /** Structured inbox threads from acpmux's inbox_notice payload. */
   readonly noticeThreads?: readonly { readonly id: string; readonly sender: string }[];
 };
@@ -209,6 +216,8 @@ export function laneNotice(message: LaneNoticePayload): LaneNotice | undefined {
   // A person's own words are never a notice, whatever they look like: a notice shows only part of
   // its text, and a guest's prompt runs whole (incomingMessage.ts `fromPerson`).
   if (message.fromPerson) return undefined;
+  // A tool's notice draws its own title and body (IncomingMessageCard.tsx), whatever its text says.
+  if (message.notice) return undefined;
   const cached = parsed.get(message as object);
   if (cached !== undefined || parsed.has(message as object)) return cached;
   const text = message.text.trim();

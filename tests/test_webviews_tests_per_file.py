@@ -90,14 +90,21 @@ case "$file" in
     printf '%*s' 2000000 '' | tr ' ' F
     printf '\n(fail) inspector-dead-clicks sentinel\n'
     exit 1 ;;
-  *timed-out-once*|*timed-out-then-fail*|*timed-out-slow-retry*)
+  *timed-out-once*|*timed-out-then-fail*|*timed-out-overrun-retry*)
     # A timeout without the wait: exit 124 is what the runner's per-file limit reports.
     stamp="$BUN_CALLS.$(basename "$file")"
     if [ ! -f "$stamp" ]; then touch "$stamp"; echo "killed beside the others"; exit 124; fi
     case "$file" in
       *then-fail*) echo "(fail) still broken alone"; exit 1 ;;
-      # Passes alone just inside its limit; the runner's own upkeep then runs past it.
-      *slow-retry*) sleep 1.9 ;;
+      *overrun-retry*)
+        # Its retry runs to its limit and past it: it waits for the runner's TERM at the limit, not
+        # for a clock, then holds 3 s of the 10 s kill grace. The perl stand-in's whole-second deadline
+        # can send TERM about 1 s early, so the retry costs at least 4 s, two 2 s limits, however
+        # loaded the host is.
+        trap 'sleep 3; exit 0' TERM
+        sleep 60 &
+        wait
+        exit 0 ;;
     esac
     echo "(pass) $file alone"; exit 0 ;;
   *fail-slow*) sleep 1; echo "(fail) a slow broken test"; exit 1 ;;
@@ -295,16 +302,19 @@ class PerFileRunner(unittest.TestCase):
                          False, output)
 
     def test_a_retry_running_to_its_limit_costs_the_next_file_nothing(self):
-        """A retry that passes just inside its limit plus the runner's upkeep took more than its
-        limit; a budget summed from the limits then had too little left for the last file's retry."""
-        files = ["test/a-timed-out-slow-retry.test.ts", "test/b-timed-out-slow-retry.test.ts"]
+        """A retry's kill grace and upkeep run past its limit; a budget summed from the limits then
+        had too little left for the last file's retry. Each file's retry runs to its limit and 3 s
+        into the kill grace (it waits for the runner's TERM, so no wall-clock race decides it: a 1.9 s
+        sleep inside the 2 s limit timed out on loaded glaeda Macs). Both overrun, so whichever
+        retries first, the other still gets its retry."""
+        files = ["test/a-timed-out-overrun-retry.test.ts", "test/b-timed-out-overrun-retry.test.ts"]
         result, _, calls = self.run_runner(files, extra_env={"CMUX_WEB_TEST_RETRIES": "60"})
         output = result.stdout + result.stderr
-        self.assertEqual(result.returncode, 0, output)
         for file in files:
             self.assertEqual(calls.count(f"./{file}"), 2, output)
-            self.assertIn(f"  {file} (first run: TIMEOUT)", output)
+            self.assertIn(f"TIMEOUT {file} (limit 2s)", output)
         self.assertNotIn("cannot fit", output)
+        self.assertEqual(output.count("RETRY "), 2, output)
 
     def test_no_retry_runs_past_the_retry_deadline(self):
         """CMUX_WEB_TEST_RETRY_DEADLINE keeps the step inside its job's timeout-minutes: a timeout
@@ -516,6 +526,22 @@ class PerFileRunner(unittest.TestCase):
         after = split(list(known) + ["test/new.test.ts", "test/0-first.test.ts"])
         self.assertEqual({name: after[name] for name in before}, before)
         self.assertEqual(len(after), len(known) + 2)
+
+    def test_the_split_weighs_files_on_the_pools_the_runner_really_has(self):
+        """#32224 ran the shards at 8 jobs (2 dev-server files at once) while the split still counted
+        8 at once: it set 81 dev-server files beside nothing and a 456 s alone file beside 3, shards
+        of 8 and 40 min (run 41580824945). Seventeen 8 s dev-server files and a 24 s alone file: on
+        8 dev lanes they balance as 17 against 1; on the runner's 2 they part 11 against 6 + 1."""
+        files = [f"test/dev{index:02}.test.ts" for index in range(17)] + ["test/alone.test.ts"]
+        contents = {name: "// cmux-web-test-alone\n// vite.config.acpmux-pane.mjs\n" if "alone" in name
+                    else "// vite.config.acpmux-pane.mjs\n" for name in files}
+        manifest = self.manifest({**{name: 8 for name in files}, "test/alone.test.ts": 24})
+        def split(extra):
+            env = {"CMUX_WEB_TEST_DURATIONS": manifest, **extra}
+            return sorted(len(self.run_runner(files, contents=contents, shard=n, shard_count=2, extra_env=env)[2])
+                          for n in (1, 2))
+        self.assertEqual(split({"CMUX_WEB_TEST_JOBS": "8"}), [7, 11])  # 6 plain, 2 browser, 2 dev lanes
+        self.assertEqual(split({"CMUX_WEB_TEST_JOBS": "8", "CMUX_WEB_TEST_DEV_JOBS": "8"}), [1, 17])
 
     def test_unrecorded_files_split_by_a_stable_hash_of_their_path(self):
         names = [f"test/{index}.test.ts" for index in range(40)]
@@ -829,6 +855,26 @@ class ShardHelper(unittest.TestCase):
         split = [subprocess.run([sys.executable, str(SHARDS), "assign", "files", "serial", "d.json", str(n), "2"],
                                 cwd=temp, capture_output=True, check=True).stdout.split(b"\0")[:-1] for n in (1, 2)]
         self.assertEqual(sorted(len(shard) for shard in split), [1, 17], split)
+
+    def test_the_split_takes_the_runners_widths_and_refuses_bad_ones(self):
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        files = [f"test/dev{index:02}.test.ts" for index in range(17)] + ["test/alone.test.ts"]
+        (temp / "test").mkdir()
+        for name in files:
+            (temp / name).write_text("// cmux-web-test-alone\n" if "alone" in name else "// vite.config.acpmux-pane.mjs\n")
+        (temp / "files").write_bytes(b"".join(name.encode() + b"\0" for name in files))
+        (temp / "serial").write_bytes((temp / "files").read_bytes())
+        (temp / "d.json").write_text(json.dumps({**{name: 8 for name in files}, "test/alone.test.ts": 24}))
+        def split(*widths):
+            return sorted(len(subprocess.run([sys.executable, str(SHARDS), "assign", "files", "serial", "d.json", str(n),
+                                              "2", *widths], cwd=temp, capture_output=True, check=True).stdout.split(b"\0")[:-1])
+                          for n in (1, 2))
+        self.assertEqual(split(), [1, 17])  # the 32 vCPU widths: 8 dev lanes
+        self.assertEqual(split("6,2,8"), [1, 17])
+        self.assertEqual(split("6,2,2"), [7, 11])
+        bad = subprocess.run([sys.executable, str(SHARDS), "assign", "files", "serial", "d.json", "1", "2", "6,2"],
+                             cwd=temp, capture_output=True, text=True)
+        self.assertEqual(bad.returncode, 2, bad.stderr)
 
     def test_the_plan_counts_each_configs_warming_file_alone(self):
         """One config with files of 100 s and 20 s: the 20 s file warms alone, then the 100 s one runs

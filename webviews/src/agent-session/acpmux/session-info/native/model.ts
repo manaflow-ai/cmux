@@ -26,11 +26,13 @@ export type NativeInfoButton = {
 export type NativeInfoRow = {
   /// Stable within its section, so the App keeps the row's hover and focus across updates.
   id: string;
-  /// An SF Symbol name.
+  /// An SF Symbol name, or NATIVE_PACK_ICON and a cmux pack icon name (Changes' pull requests).
   symbol?: string;
   title: string;
   /// The row's existing harness mark, when it is an agent.
   harness?: string;
+  /// Stable identity ink from shared `agentTone(id)`, separate from status.
+  identityTone?: number;
   /// A retrying agent uses the native spinner instead of its harness glyph.
   working?: boolean;
   /// A regular running row's shared Session Info wave position and cadence.
@@ -107,6 +109,9 @@ export type NativeSessionInfo = {
   /// Over the chat's column, how far above the pane's foot it stops (the composer's stack), CSS
   /// pixels; none runs it to the foot less the float margin.
   foot?: number;
+  /// It lies over the chat's column (Session Info's `overlay` stage), a short pane's popover too: the
+  /// App puts its glass under it so the transcript never shows through it. A popover sends no `foot`.
+  overChat?: boolean;
   /// The panel's accessible name ("Session Info", in the page's language).
   label: string;
   /// A subagent's own panel names the subagent at its top (its breadcrumb).
@@ -161,3 +166,7 @@ export class NativeInfoActions {
     return true;
   }
 }
+
+/// A row symbol that starts with this names a cmux pack icon (icons/cmuxIcons.json) the App draws
+/// with CmuxNextIcons, so a native row shows the page's own glyph (AgentPaneSessionInfoContent.swift).
+export const NATIVE_PACK_ICON = "cmux:";

@@ -7,6 +7,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, session, summary, tool, user, SESSION_ID } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSessionEntry } from "../sessionList";
+import { finishedTaskLook } from "./taskLine.experiment";
 
 const REPO = "acme/atlas-web";
 const pr = (number: number) => `[#${number}](https://github.com/${REPO}/pull/${number})`;
@@ -136,12 +137,12 @@ const leadRows = (finished: boolean) => [
     : []),
 ];
 
-const lead = (finished: boolean) => {
+const lead = (finished: boolean, task = finished ? DONE : RUNNING) => {
   const snapshot = chat(leadRows(finished), {
     title: "How did October go?",
     isWorking: !finished,
   });
-  return { ...snapshot, sessions: [...snapshot.sessions, finished ? DONE : RUNNING] };
+  return { ...snapshot, sessions: [...snapshot.sessions, task] };
 };
 
 /// The review's own chat: its brief, the reads it ran, and the report as its last reply.
@@ -173,18 +174,34 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/conversation/SubsessionCallCard.tsx",
     "agent-session/acpmux/conversation/Markdown.tsx",
+    "agent-session/acpmux/conversation/TaskLine.tsx",
   ],
+  // Where the finished review stays in sight in the lead chat (variant lead-finished): a line
+  // after the fold (shipped), a line after the reply, or the sub-session's card left unfolded.
+  experiment: {
+    definition: finishedTaskLook,
+    script: [{ name: "The finished turn", run: async () => undefined }],
+  },
   variants: {
     "lead-running": {
       note: "The lead chat, narrow: it starts a Codex review as a sub-session and posts progress replies while it runs.",
       snapshot: lead(false),
     },
     "lead-finished": {
-      note: "The lead chat once the review finished: the wait's card carries the report, then a short closing reply.",
+      note: "The lead chat once the review finished: its work folds, and the review stays in sight as one line that opens its report.",
       snapshot: lead(true),
+    },
+    "lead-finished-working": {
+      note: "The lead chat's turn finished while the review still works: its line keeps the harness mark at rest, no spinner, and its title shimmers as a running tool row's words do.",
+      snapshot: lead(true, RUNNING),
     },
     report: {
       note: "The review's own chat, wide: the long report with bold lead sentences, PR links, inline code and typed artifact links.",
+      snapshot: report(),
+    },
+    "report-15px": {
+      note: "The same report at ChatGPT's body size, 15px on a 1.7 line, through the chat's own text size setting (a question for Leo, not the default).",
+      display: { "agentPane.display.font.size": 15, "agentPane.display.font.lineHeight": 1.7 },
       snapshot: report(),
     },
   },

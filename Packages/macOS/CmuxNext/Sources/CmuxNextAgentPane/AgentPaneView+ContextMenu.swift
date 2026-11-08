@@ -7,7 +7,7 @@ public import Foundation
 import WebKit
 
 public extension Notification.Name {
-    /// Posted by an app-owned webview context menu while the Labs pointer inspector is enabled.
+    /// Posted by an app-owned web page's context menu for Inspect Element (the page is the object).
     static let cmuxNextInspectUIElement = Notification.Name("cmux.next.inspect-ui-element")
 }
 
@@ -284,6 +284,7 @@ extension AgentPaneView {
 
     /// The pane's menu for `target` and `selection` in `menu`, which holds WebKit's items (none for More).
     private func fillContextMenu(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String?) {
+        lastContextMenu = (NSEvent.mouseLocation, ProcessInfo.processInfo.systemUptime)
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
         AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu,
                                      scope: themeScope.fullStrength, actions: .init(
@@ -298,8 +299,28 @@ extension AgentPaneView {
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
             quoteReply: { [weak self] markdown in self?.runMessageAction("chat.quoteReply", ["markdown": markdown]) },
             open: { [weak self] url in self?.openLink(url) },
-            linkItems: { LinkMenu().linkItems(for: $0) },
+            linkItems: { [weak self] url in
+                // A pull request link's row opens the GitHub page or github.com beside this chat.
+                var menu = LinkMenu()
+                menu.offersGitHubPage = true
+                menu.source = self.flatMap { LinkRouter.shared.sourceTab($0) }
+                return menu.linkItems(for: url)
+            },
             pathItems: { [weak self] path in self?.pathMenuItems(path) },
+            openSession: { [weak self] session, sender in
+                guard let self else { return }
+                AgentPanePersonInput.record(self.model.transport.gestures, sources: self.eventSources)
+                _ = AgentPaneOfferOpen.respond(session, sender: sender, in: self.model)
+            },
+            goToSession: { [weak self] session, sender in
+                guard let self, let goTo = AgentPaneOfferOpen.goTo(session, sender: sender, in: self.model) else { return nil }
+                return { [weak self] in
+                    guard let self else { return }
+                    AgentPanePersonInput.record(self.model.transport.gestures, sources: self.eventSources)
+                    goTo()
+                }
+            },
+            sessionItems: { [weak self] session in self?.model.sessionMenuItems?(session) ?? [] },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
             page: { [weak self] name, params in self?.runMessageAction(name, params) },
             pasteTarget: webView,

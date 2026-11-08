@@ -1101,3 +1101,52 @@ async fn another_chiefs_turn_is_not_the_manager() {
     let reply = c.message(&chief, &kid, "x1", "hello").await;
     assert!(reply.get("error").is_none(), "{reply}");
 }
+
+/// What `acpmux send --notice` sends from inside a session: a tool's notice, no provenance of
+/// its own (`prompt_provenance::notice`).
+fn notice_prompt(to: &str, id: &str, title: &str) -> Value {
+    json!({"sessionId": to, "prompt": [{"type": "text", "text": format!("[notice from watch] {title}")}],
+           "_meta": {"acpmux": {"promptId": id, "notice": {"sender": "watch", "severity": "warn", "title": title}}}})
+}
+
+/// A tool's notice a session sends is that session's message for the pair guard: one repeating
+/// itself is paused like any other send (review of the notice prompt kind).
+#[tokio::test]
+async fn a_session_repeating_itself_with_notices_is_paused() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    let mut lane = Client::as_session(&hub, &a).await;
+    for (id, title) in
+        [("n1", "Please check the build, run 1"), ("n2", "please  check the BUILD, run 2")]
+    {
+        let sent = lane.reply("session/prompt", notice_prompt(&b, id, title)).await;
+        assert!(sent.get("error").is_none(), "{sent}");
+    }
+    let third = lane
+        .reply("session/prompt", notice_prompt(&b, "n3", "Please check the build, run 3"))
+        .await;
+    assert!(held(&third), "the third near-identical notice is held: {third}");
+    assert!(!c.ran(&b, "n3").await, "a held notice does not run");
+}
+
+/// A taken-over chat holds its manager's notices too, until Hand back.
+#[tokio::test]
+async fn a_taken_over_chat_holds_its_managers_notices() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (chief, kid) = (c.new_session().await, c.new_session().await);
+    c.call("_acpmux/tag", json!({"sessionId": chief, "set": {"cmux.chief": "home1"}})).await;
+    c.call("_acpmux/tag", json!({"sessionId": kid, "set": {"mux.parent": "optchat-chief:home1"}}))
+        .await;
+    let mut person = Client::person(&hub).await;
+    person.call(HOLD, json!({"sessionId": kid, "held": true})).await;
+    let mut manager = Client::as_session(&hub, &chief).await;
+    let sent = manager.reply("session/prompt", notice_prompt(&kid, "cn1", "fast tier red")).await;
+    assert!(held(&sent), "{sent}");
+    assert_eq!(sent.pointer("/error/data/trip"), Some(&json!("taken_over")), "{sent}");
+    assert!(!c.ran(&kid, "cn1").await);
+    let back = person.call(HOLD, json!({"sessionId": kid, "held": false})).await;
+    assert_eq!(back["delivered"], 1, "{back}");
+    c.wait_ran(&kid, "cn1").await;
+}

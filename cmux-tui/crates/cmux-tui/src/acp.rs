@@ -19,6 +19,7 @@ pub(crate) fn run_scope(head: &str, args: Vec<OsString>) -> i32 {
 
 /// `<display_name> <args>`: `cmux acp …`, or `cmux` for the `cmux chats …` and
 /// `cmux harness …` aliases, so usage and errors name the command the user typed.
+#[allow(clippy::indexing_slicing, reason = "the branch above guarantees the first argument exists")]
 pub(crate) fn run_as(args: Vec<OsString>, display_name: &str) -> i32 {
     if let [chats, open, rest @ ..] = args.as_slice()
         && chats == "chats"

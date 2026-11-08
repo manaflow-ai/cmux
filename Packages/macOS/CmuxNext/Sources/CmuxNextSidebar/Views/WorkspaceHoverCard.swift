@@ -93,7 +93,10 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let list, let window = list.window else { return nil }
-        let point = list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        let windowPoint = window.convertPoint(fromScreen: screenPoint)
+        // Under the Updated card's open preview no row or group has a card (`hoverOccluded`).
+        if list.hoverOccluded?(windowPoint) == true { return nil }
+        let point = list.convert(windowPoint, from: nil)
         if let group = list.hoverCardGroup(at: point), let anchor = list.hoverCardBand(forGroup: group) {
             // A group waits its own, longer delay: the person rests on it "for a while".
             return HoverCardHit(target: HoverTarget(id: Self.targetID(group), window: window.windowNumber,
@@ -113,7 +116,10 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
         guard let list, let window = list.window, !list.isHiddenOrHasHiddenAncestor,
               let first = list.displayed.rows.first, let last = list.displayed.rows.last else { return false }
-        let point = list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        let windowPoint = window.convertPoint(fromScreen: screenPoint)
+        // Under the Updated card's open preview a shown row card bridges nothing: it goes (review F1 of #38117).
+        if list.hoverOccluded?(windowPoint) == true { return false }
+        let point = list.convert(windowPoint, from: nil)
         return list.visibleRect.contains(point) && point.y >= first.y && point.y < last.maxY
     }
 
@@ -131,7 +137,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// The pointer is on a row's pull request badge, whose own card (`SidebarPullRequestCard`)
     /// shows there instead.
     static func onPullRequestBadge(_ badge: SidebarPullRequestBadgeView?, window: NSWindow, screenPoint: CGPoint) -> Bool {
-        guard let badge, !badge.isHidden, badge.badge?.items.isEmpty == false, SidebarPullRequestCardController.isEnabled
+        guard let badge, !badge.isHidden, badge.badge?.items.isEmpty == false
         else { return false }
         return window.convertToScreen(badge.convert(badge.bounds, to: nil)).contains(screenPoint)
     }
@@ -140,7 +146,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         if let group = groupID(id) { return groupCardBody(for: group, id: id) }
         guard let list, let ws = workspaceID(id), let workspace = list.hoverCardRow(ws) else { return nil }
         let body = body ?? WorkspaceHoverCardView()
-        body.widthCap = min(WorkspaceHoverCardView.maxCardWidth, list.bounds.width + 120)
+        body.widthCap = min(WorkspaceHoverCardView.maxCardWidth, list.bounds.width + WorkspaceHoverCardView.tokens.sidebarReach)
         if bodyID != id { body.resetDetails() }
         // Activation ran while the card was pending, before this body existed, so details
         // opened here (Show Resource Usage) start their sampling below, once bodyID is set.
@@ -152,7 +158,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         let wantsTimeline = options.layout != .classic
         let timeline = wantsTimeline ? (timelineSource?(ws, Self.timelineReadLimit) ?? []) : []
         // The workspace on screen needs no digest: the person is looking at it.
-        let looked = SidebarTunables.sinceLooked.value && ws != list.model.activeWorkspaceID ? SidebarLookedStore.shared.stamps[ws] : nil
+        let looked = ws != list.model.activeWorkspaceID ? SidebarLookedStore.shared.stamps[ws] : nil
         let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline,
                                                      looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
         body.configure(content)
@@ -306,29 +312,38 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private let tabPlacement: TabPlacement
 
     func handleHoverCardKeyDown(_ event: NSEvent) -> Bool { tabList.handleHoverCardKeyDown(event) }
-    private static var padding: CGFloat { Metrics.space4 }
+    /// Every size of the card at the sidebar's density and text size (``SidebarRowTokens/hoverCard``): a pinned row
+    /// and a list row open this card, so it follows the rows (Lawrence 2026-11-03: "make sure size of the pinned
+    /// summary thing reflect size of ui compactness i chose"). Read at configure time, so a change applies live.
+    static var tokens: SidebarHoverCardMetrics { SidebarRowTokens.current.hoverCard }
+    private static var padding: CGFloat { tokens.padding }
     /// The card sizes to its content between these widths (POLISH: no
     /// blank band beside a short name); a long name wraps at the widest.
-    static var cardWidth: CGFloat { 280 }
+    static var cardWidth: CGFloat { tokens.width }
     /// The card's widest by default: the tab rows' details read whole up to it (the owner, on msg 19245's
     /// gallery: "the card is too narrow to show the detail you added").
-    static var maxCardWidth: CGFloat { 320 }
-    /// This card's widest: `maxCardWidth`, or less beside a narrow sidebar (its width plus 120).
-    var widthCap: CGFloat = WorkspaceHoverCardView.maxCardWidth
-    static var minCardWidth: CGFloat { 180 }
+    static var maxCardWidth: CGFloat { tokens.maxWidth }
+    /// This card's widest: `maxCardWidth`, or less beside a narrow sidebar (its width plus `tokens.sidebarReach`);
+    /// nil for `maxCardWidth` at the sizes now.
+    var widthCap: CGFloat?
+    static var minCardWidth: CGFloat { tokens.minWidth }
     /// The full history layout's width: a prompt reads in longer lines (u3320).
-    static var logCardWidth: CGFloat { 340 }
+    static var logCardWidth: CGFloat { tokens.logWidth }
     /// How tall the history may grow before it scrolls: the default card, and the full history.
-    static var timelineMaxHeight: CGFloat { 220 }
-    static var logMaxHeight: CGFloat { 360 }
+    static var timelineMaxHeight: CGFloat { tokens.timelineMaxHeight }
+    static var logMaxHeight: CGFloat { tokens.logMaxHeight }
     /// The card's one icon column's width: the kind icon, the status mark, each fact's and each tab's icon.
-    static var iconSize: CGFloat { HoverCardRowView.iconSize }
+    static var iconSize: CGFloat { tokens.iconSide }
+    /// The name, the host and a fact's text; the age, stats, summary and error lines.
+    private static var titleFont: NSFont { Typography.bodyEmphasized.withSize(tokens.titleSize) }
+    private static var bodyFont: NSFont { Typography.system(.default, size: tokens.titleSize, weight: .regular) }
+    private static var captionFont: NSFont { Typography.system(.default, size: tokens.captionSize, weight: .regular) }
     /// Where every row's text starts, past the icon column: the name, the status word, the stats, each
     /// fact, each tab's title and detail line, "Show N more" and "Show details" share this one leading edge
     /// (Lawrence msg 19245: "alignment here looks bad").
     static var textInset: CGFloat { iconSize + Metrics.space2 }
     /// The body font with digits of one width, for lines whose running time ticks.
-    private static var liveFont: NSFont { Typography.system(.monospacedDigit, size: Typography.body.pointSize, weight: .regular) }
+    private static var liveFont: NSFont { Typography.system(.monospacedDigit, size: tokens.titleSize, weight: .regular) }
 
     /// When the card's running times next change their text: every second under an hour, then
     /// every minute ("1h 3m"); nil when nothing runs.
@@ -375,6 +390,9 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// The card's widest; the full history layout widens it.
     private var widthLimit: NSLayoutConstraint?
     private var width: CGFloat = WorkspaceHoverCardView.cardWidth
+    /// The constraints the tokens size, and how (`applySizes`).
+    private var sized: [(NSLayoutConstraint, (SidebarHoverCardMetrics) -> CGFloat)] = []
+    private var activitySlot: HoverCardIconSlot?
     /// The user's card (`cmux.hovercard/1`) once its first scene arrives; the built-in rows hide.
     private let customSlot = NSView()
     /// Why the user's card did not render: shown under the built-in card, which stays.
@@ -393,6 +411,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private var builtIn: [NSView] = []
     /// The shown content, for the live elapsed times (`tick`).
     private var content: WorkspaceHoverCardContent?
+    /// Hidden history is measured only when details open, never on a hover retarget.
+    private var pendingTimelineAt: Date?
     /// The machine `hostLabel` names, whose color pick (`appearance.machineColors`) it draws in.
     private var hostMachine: String?
     /// The shown status word, before its elapsed time.
@@ -404,7 +424,6 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         tabList = WorkspaceTabHoverCardView(style: style)
         super.init(frame: .zero)
         let content = self
-        titleLabel.font = Typography.bodyEmphasized
         // The whole name, wrapped: the card is where a clipped row title
         // reads in full (also under Reduce Motion, which has no marquee).
         titleLabel.lineBreakMode = .byWordWrapping
@@ -412,7 +431,6 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         // The name hugs its text so the machine and its dot read right after it, not at the far edge.
         titleLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        hostLabel.font = Typography.body
         hostLabel.lineBreakMode = .byTruncatingTail
         hostLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         hostLabel.setContentHuggingPriority(.required, for: .horizontal)
@@ -421,17 +439,13 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         hostDot.setContentHuggingPriority(.required, for: .horizontal)
         hostDot.setContentCompressionResistancePriority(.required, for: .horizontal)
         hostDot.isHidden = true
-        ageLabel.font = Typography.caption
         ageLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         ageLabel.setContentHuggingPriority(.required, for: .horizontal)
         kindIcon.setContentHuggingPriority(.required, for: .horizontal)
         kindIcon.line = titleLabel
-        kindIcon.side = Self.iconSize
         // Digits of one width: a running time that ticks keeps its width ("1m 11s", "1m 18s").
-        activityLabel.font = Self.liveFont
         activityLabel.lineBreakMode = .byTruncatingTail
         resourceRow.isHidden = true
-        statsLabel.font = Typography.system(.monospacedDigit, size: Typography.caption.pointSize, weight: .regular)
         statsLabel.lineBreakMode = .byTruncatingTail
         timeline.isHidden = true
         detailsToggle.title = Strings.showDetails
@@ -448,6 +462,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         // The indicator's slot is a box that never hides, so a style that draws no glyph keeps the
         // word on the text column.
         let activitySlot = HoverCardIconSlot(side: Self.iconSize, line: activityLabel)
+        self.activitySlot = activitySlot
         activity.translatesAutoresizingMaskIntoConstraints = false
         activitySlot.addSubview(activity)
         activityRow.setViews([activitySlot, activityLabel], in: .leading)
@@ -459,19 +474,15 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         factsStack.alignment = .leading
         factsStack.spacing = Metrics.space2
 
-        customError.font = Typography.caption
         customError.maximumNumberOfLines = 3
         customError.isHidden = true
         customSlot.isHidden = true
         // The stats line reads on the text column with the name and the facts, not under the icons.
         statsRow.setViews([statsLabel], in: .leading)
-        statsRow.edgeInsets = NSEdgeInsets(top: 0, left: Self.textInset, bottom: 0, right: 0)
         statsRow.isHidden = true
         // The summary line starts on the text column too, not under the icons.
-        summaryLabel.font = Typography.caption
         summaryLabel.lineBreakMode = .byTruncatingTail
         summaryRow.setViews([summaryLabel], in: .leading)
-        summaryRow.edgeInsets = NSEdgeInsets(top: 0, left: Self.textInset, bottom: 0, right: 0)
         summaryRow.isHidden = true
         builtIn = [activityRow, statsRow, factsStack, timeline, resourceRow]
         // The shipped card is Rex-style: tabs are immediately available and a one-click
@@ -484,37 +495,56 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = Metrics.space3
+        // The shared hover card style's one spacing scale (`HoverCardStyle`), as every other hover card.
+        stack.spacing = HoverCardStyle.shared.rowGap
         // Show details reads as the list's last row, on the rows' spacing.
         stack.setCustomSpacing(Metrics.space1, after: tabList)
         stack.setCustomSpacing(Metrics.space1, after: titleRow)
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
-        let p = Self.padding
         let widthLimit = content.widthAnchor.constraint(lessThanOrEqualToConstant: Self.cardWidth)
         self.widthLimit = widthLimit
-        NSLayoutConstraint.activate([
+        sized = [
+            (content.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.minCardWidth), \.minWidth),
+            (stack.topAnchor.constraint(equalTo: content.topAnchor), \.padding),
+            (stack.bottomAnchor.constraint(equalTo: content.bottomAnchor), { -$0.padding }),
+            (stack.leadingAnchor.constraint(equalTo: content.leadingAnchor), \.padding),
+            (stack.trailingAnchor.constraint(equalTo: content.trailingAnchor), { -$0.padding }),
+        ] + [kindIcon.widthAnchor, kindIcon.heightAnchor, activitySlot.widthAnchor, activitySlot.heightAnchor,
+             activity.widthAnchor, activity.heightAnchor].map { ($0.constraint(equalToConstant: Self.iconSize), \.iconSide) }
+        NSLayoutConstraint.activate(sized.map(\.0) + [
             widthLimit,
             timeline.widthAnchor.constraint(equalTo: stack.widthAnchor),
             tabList.widthAnchor.constraint(equalTo: stack.widthAnchor),
             detailsToggle.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            content.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.minCardWidth),
-            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: p),
-            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             titleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             factsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
             resourceRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            kindIcon.widthAnchor.constraint(equalToConstant: Self.iconSize),
-            kindIcon.heightAnchor.constraint(equalToConstant: Self.iconSize),
-            activitySlot.widthAnchor.constraint(equalToConstant: Self.iconSize),
-            activitySlot.heightAnchor.constraint(equalToConstant: Self.iconSize),
-            activity.widthAnchor.constraint(equalToConstant: Self.iconSize),
-            activity.heightAnchor.constraint(equalToConstant: Self.iconSize),
             activity.centerXAnchor.constraint(equalTo: activitySlot.centerXAnchor),
             activity.centerYAnchor.constraint(equalTo: activitySlot.centerYAnchor),
         ])
+        applySizes()
+    }
+
+    /// Takes the card's sizes at the sidebar's density and text size now (``SidebarRowTokens/hoverCard``): fonts,
+    /// padding, the icon column and the width bounds. The card is reused from show to show, so `configure` runs it.
+    private func applySizes() {
+        let tokens = Self.tokens
+        titleLabel.font = Self.titleFont
+        hostLabel.font = Self.bodyFont
+        ageLabel.font = Self.captionFont
+        activityLabel.font = Self.liveFont
+        statsLabel.font = Typography.system(.monospacedDigit, size: tokens.captionSize, weight: .regular)
+        customError.font = Self.captionFont
+        summaryLabel.font = Self.captionFont
+        kindIcon.side = tokens.iconSide
+        activitySlot?.side = tokens.iconSide
+        statsRow.edgeInsets = NSEdgeInsets(top: 0, left: Self.textInset, bottom: 0, right: 0)
+        summaryRow.edgeInsets = NSEdgeInsets(top: 0, left: Self.textInset, bottom: 0, right: 0)
+        for (constraint, value) in sized { constraint.constant = value(tokens) }
+        resourceRow.iconSide = tokens.iconSide
+        factViews.forEach { $0.iconSide = tokens.iconSide }
+        detailsToggle.applySizes()
     }
 
     @available(*, unavailable)
@@ -534,6 +564,11 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         if !customError.isHidden { lines.append(customError.stringValue) }
         return lines + tabList.reportedLines
     }
+
+    /// The name's font, the caption lines' font and the kind icon's frame in the card, as drawn (tests).
+    var drawnTitleFont: NSFont? { titleLabel.font }
+    var drawnCaptionFont: NSFont? { ageLabel.font }
+    var kindIconFrame: CGRect { kindIcon.convert(kindIcon.bounds, to: self) }
 
     /// The card shows a running time (the status's or a command's): the controller ticks it.
     var isLive: Bool {
@@ -569,7 +604,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         hostDot.accessory = host?.accessory
         hostDot.isHidden = host?.accessory == nil
         kindIcon.isHidden = host != nil
-        width = content.options.layout == .log ? Self.logCardWidth : widthCap
+        applySizes()
+        width = content.options.layout == .log ? Self.logCardWidth : widthCap ?? Self.maxCardWidth
         widthLimit?.constant = width
         statsLabel.stringValue = content.stats ?? ""
         statsRow.isHidden = content.stats == nil
@@ -598,7 +634,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             var shown = fact.row
             shown.text = WorkspaceHoverCardContent.withElapsed(fact.text, since: fact.since, now: now)
             row.configure(shown, image: Self.ownImage(fact) ?? NSImage.icon(fact.icon, size: Self.iconSize),
-                          font: fact.since == nil ? Typography.body : Self.liveFont, wrapWidth: wrap,
+                          font: fact.since == nil ? Self.bodyFont : Self.liveFont, wrapWidth: wrap,
                           truncation: Self.truncation(fact))
         }
         // The preview (the last reply or the pull request's state) sits a step apart from the
@@ -608,12 +644,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             factsStack.setCustomSpacing(next?.isPreview == true ? Metrics.space3 : NSStackView.useDefaultSpacing, after: row)
         }
         factsStack.isHidden = !content.facts.contains { $0.kind != "machine" }
-        let log = content.options.layout == .log
-        timeline.isHidden = content.timeline.isEmpty
-        if !content.timeline.isEmpty {
-            timeline.configure(content.timeline, width: width - 2 * Self.padding,
-                               maxHeight: log ? Self.logMaxHeight : Self.timelineMaxHeight, textLines: log ? 3 : 2, now: now)
-        }
+        pendingTimelineAt = now
         applyColors()
         updateDetailsVisibility()
     }
@@ -672,6 +703,14 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     private func updateDetailsVisibility() {
+        if detailsExpanded, let now = pendingTimelineAt, let content {
+            pendingTimelineAt = nil
+            if !content.timeline.isEmpty {
+                let log = content.options.layout == .log
+                timeline.configure(content.timeline, width: width - 2 * Self.padding,
+                                   maxHeight: log ? Self.logMaxHeight : Self.timelineMaxHeight, textLines: log ? 3 : 2, now: now)
+            }
+        }
         detailsToggle.title = detailsExpanded ? Strings.hideDetails : Strings.showDetails
         detailsToggle.isExpanded = detailsExpanded
         if !detailsExpanded {
@@ -763,6 +802,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         row.textLabel.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
         factsStack.addArrangedSubview(row)
         row.widthAnchor.constraint(equalTo: factsStack.widthAnchor).isActive = true
+        row.iconSide = Self.iconSize
         factViews.append(row)
     }
 }
@@ -781,7 +821,7 @@ extension WorkspaceHoverCardView {
             // The frosted material (Lawrence msg 19245: glass over a busy terminal was hard to read): a veil of
             // the theme's window background over the glass, below the overlay rule's solid alpha.
             wantsLayer = true
-            layer?.cornerRadius = Metrics.panelCornerRadius
+            layer?.cornerRadius = HoverCardStyle.shared.cornerRadius
             layer?.cornerCurve = .continuous
             // 0.55: as dense as the overlay rule allows a body's tint (under 0.6).
             layer?.backgroundColor = style.material == .frosted ? Palette.windowBackground.withAlphaComponent(0.55).cgColor : nil
@@ -806,7 +846,7 @@ extension WorkspaceHoverCardView {
 
     /// The machine's name in its color pick, else the secondary ink like the rest of the header (read in the
     /// card's theme scope).
-    private var hostColor: NSColor { hostMachine.flatMap { MachineColor(name: $0).pickedColor } ?? Palette.textSecondary }
+    private var hostColor: NSColor { hostMachine.flatMap { MachineColor(name: $0).pickedCardTextColor } ?? Palette.textSecondary }
 
     /// A machine color picked while the card shows reaches the header only through this hook (a store
     /// repaint carries no new theme).

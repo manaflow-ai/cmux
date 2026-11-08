@@ -41,7 +41,7 @@ import Testing
         tab.performDevTools(.toggle)
         ShimLog.calls = []
         tab.performDevTools(.toggle)
-        for _ in 0..<20 { await Task.yield() }
+        await rig.passes(20)
         #expect(!ShimLog.calls.contains { $0.hasSuffix("show") }, "no open while Chromium still closes DevTools")
         rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools))
         await rig.until { ShimLog.calls.contains { $0.hasSuffix("show") } }
@@ -58,7 +58,7 @@ import Testing
         tab.performDevTools(.toggle)
         ShimLog.calls = []
         rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools))
-        for _ in 0..<20 { await Task.yield() }
+        await rig.passes(20)
         #expect(ShimLog.calls.isEmpty, "the last toggle closed: nothing opens")
         #expect(!tab.devToolsController.reservesRoom)
         #expect(tab.devToolsController.views == nil)
@@ -112,7 +112,7 @@ import Testing
         tab.container.isHidden = true  // another tab of the pane shows (PaneContentView parks this one)
         ShimLog.calls = []
         rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools))
-        for _ in 0..<20 { await Task.yield() }
+        await rig.passes(20)
         #expect(!ShimLog.calls.contains("command \(Rig.browser) console"), "no Chromium console command: it acts on the shown tab")
         #expect(ShimLog.calls == ["panel \(Rig.browser) console"], "this page's DevTools opens on its console")
     }
@@ -163,7 +163,7 @@ import Testing
         rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools))  // the older one
         ShimLog.calls = []
         rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools + 1))  // its own X
-        for _ in 0..<20 { await Task.yield() }
+        await rig.passes(20)
         #expect(ShimLog.calls.isEmpty, "nothing opens again")
         #expect(!tab.devTools.isOpen)
     }
@@ -210,7 +210,7 @@ import Testing
         try await clock.waitForSleeper()
         rig.runtime.handle(.devToolsOpened(browser: Rig.browser, devTools: Rig.devTools, docked: true))
         clock.advance(by: CEFDevToolsController.openedLimit * 2)
-        for _ in 0..<20 { await Task.yield() }
+        await rig.passes(20)
         #expect(tab.devTools.isOpen)
         #expect(tab.devToolsController.reservesRoom)
     }
@@ -310,10 +310,27 @@ import Testing
             return tab
         }
 
+        /// Runs main-actor jobs and main run-loop passes (with their observers: the frame commit) until `condition`.
         func until(_ condition: () -> Bool) async {
             let clock = ContinuousClock()
             let deadline = clock.now.advanced(by: .seconds(10))
-            while !condition(), clock.now < deadline { await Task.yield() }
+            while !condition(), clock.now < deadline { await pass() }
+        }
+
+        /// `count` main run-loop passes, each after the main-actor jobs queued so far.
+        func passes(_ count: Int) async {
+            for _ in 0..<count { await pass() }
+        }
+
+        private func pass() async {
+            await Task.yield()
+            Self.runLoopPass()
+        }
+
+        /// One main run-loop pass, with its before-waiting observers (the frame commit's stage). Synchronous: the
+        /// run loop cannot be run from an async context directly.
+        private static func runLoopPass() {
+            _ = CFRunLoopRunInMode(.defaultMode, 0.001, false)
         }
 
         func close() {

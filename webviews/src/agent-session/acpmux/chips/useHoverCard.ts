@@ -39,6 +39,10 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
   /// The card's Open in menu is open: the card stays until it closes.
   const menuOpen = useRef(false);
   const trigger = useRef<HTMLElement | null>(null);
+  /// What to start when the pointer first arrives on the trigger, before the dwell: the card's own
+  /// data (a pull request card's read, LinkHoverCard.tsx), so it opens filled. Focus opens the card
+  /// at once, and the card asks for itself then.
+  const intent = useRef<(() => void) | undefined>(undefined);
   const unwatch = useRef<(() => void) | undefined>(undefined);
   const bridgeId = useRef(0);
   bridgeId.current ||= ++nextBridgeId;
@@ -82,7 +86,10 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
     bridge.current?.move(point(event));
   };
   const enter = (region: "trigger" | "card", event: PointerEvent<HTMLElement>, immediate = false) => {
-    if (region === "trigger") trigger.current = event.currentTarget;
+    if (region === "trigger") {
+      trigger.current = event.currentTarget;
+      intent.current?.();
+    }
     watch();
     refresh();
     bridge.current?.enter(
@@ -153,6 +160,8 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
     },
     /// Closes the card now (Escape), however it opened; the next hover or focus opens it again.
     dismiss,
+    /// Set by the card's content: called on hover intent, before the card opens.
+    intent,
     /// The card's Open in menu opened or closed.
     menuChanged: (next: boolean) => {
       menuOpen.current = next;

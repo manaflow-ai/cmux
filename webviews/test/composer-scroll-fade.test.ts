@@ -101,6 +101,12 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
       selector: EDITABLE,
       last: `draft line ${lines}:`,
     });
+    // The field grows to the paste's height on a motion (composer/fieldGrowth.ts): the edges are
+    // read with the field at rest.
+    await page.waitForFunction(
+      (selector) => document.querySelector(selector)?.getAnimations({ subtree: true }).length === 0,
+      FIELD,
+    );
     await settle(page);
     // The paste overflows the field's cap, so it scrolls inside.
     expect((await edges(page)).end).toBeGreaterThan(100);

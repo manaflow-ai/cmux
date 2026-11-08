@@ -1,4 +1,3 @@
-import AppKit
 @testable import CmuxNextDesign
 import Testing
 import CmuxNextDesignTokens
@@ -19,46 +18,21 @@ import CmuxNextDesignTokens
     @Test func workBreathesAsAnAccentDot() {
         #expect(Self.plan(.working, look: .breathe) == StatusIndicatorPlan(glyph: .dot, animation: .breathe, tint: .working))
         #expect(Self.plan(.working, look: .shimmer) == StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .working))
-        #expect(Self.plan(.working, look: .spinner) == StatusIndicatorPlan(glyph: .sweep, animation: .spin, tint: .spinner))
+        #expect(Self.plan(.working, look: .spinner) == StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .spinner))
     }
 
-    /// The agent working-state mark is ChatGPT's ring with one gap, turning slowly (Leo 2026-11-02, on
-    /// ChatGPT's beside ours: "THIS IS CHATGPT", "IT GOES SLOWER"): a bright arc of 0.72 of the ring
-    /// over a faint track, a third heavier than the loading arc, one turn per 1.4 s. Not #31455's
-    /// short 80° sweep, and never the macOS activity indicator's segmented spokes (#29903; Leo
-    /// 2026-11-01: "why the f*** did you make the spinner into this????"). Pinned for every icon set.
-    @Test func theWorkingSpinnerIsChatGPTsGapRingNeverTheSpokes() {
-        #expect(StatusIndicatorPlan.workingGlyph == .sweep)
-        #expect(StatusIndicatorPlan.workingArcLength == 0.72)
-        #expect(StatusIndicatorPlan.workingStrokeScale == 4.0 / 3.0)
-        #expect(MotionTunables.loopDefaults[.spinner]?.0 == 1.4)
+    /// The agent working-state mark is the original 3/4 arc turning smoothly, never the macOS
+    /// activity indicator's segmented spokes, for every icon set that draws work as a spinner
+    /// (Lawrence msg 19638; the drawn arc is pinned in `OriginalWorkingSpinnerTests`).
+    @Test func theWorkingSpinnerIsTheOriginalArcNeverSpokes() {
+        #expect(StatusIndicatorPlan.workingGlyph == .arc)
         for set in StatusIconSet.allCases {
             let plan = StatusIndicatorPlan.make(.working, style: .arc, animates: true, set: set)
-            #expect(plan.glyph != .native && plan.glyph != .arc && plan.animation != .step, "\(set): \(plan)")
-            if plan.animation == .spin || plan.glyph == .sweep {
-                #expect(plan.glyph == .sweep && plan.animation == .spin, "\(set): \(plan)")
+            #expect(plan.glyph != .native && plan.animation != .step, "\(set): \(plan)")
+            if plan.animation == .spin || plan.glyph == .arc {
+                #expect(plan.glyph == .arc && plan.animation == .spin, "\(set): \(plan)")
             }
         }
-    }
-
-    /// The working ring draws as a faint full track plus the bright arc the spin turns, both at the
-    /// working stroke.
-    @Test func theWorkingRingDrawsATrackAndAHeavierTurningArc() {
-        Motion.reduceMotionOverride = false
-        defer { Motion.reduceMotionOverride = nil }
-        let indicator = StatusIndicatorLayer(clock: SpinnerClock(mediaTime: { 100 }, unixTime: { 1_000 }))
-        indicator.frame = CGRect(x: 0, y: 0, width: 14, height: 14)
-        let config = StatusIndicatorConfig()
-        indicator.apply(StatusIndicatorPlan.working(tint: .spinner), config: config)
-        let arc = indicator.glyphLayer
-        #expect(arc?.strokeEnd == CGFloat(StatusIndicatorPlan.workingArcLength))
-        #expect(arc?.lineCap == .round)
-        #expect(arc?.lineWidth == config.settings.thickness * 4 / 3)
-        #expect(arc?.animation(forKey: "spin")?.duration == Motion.indicators.period(.spinner))
-        let track = indicator.layer.sublayers?.compactMap { $0 as? CAShapeLayer }.first { $0 !== arc }
-        #expect(track != nil && track!.opacity > 0.1 && track!.opacity < 0.3)
-        #expect(track?.lineWidth == arc?.lineWidth)
-        #expect(indicator.nativeLayer == nil)
     }
 
     @Test func aHiddenOrStillRowHoldsTheDotStill() {

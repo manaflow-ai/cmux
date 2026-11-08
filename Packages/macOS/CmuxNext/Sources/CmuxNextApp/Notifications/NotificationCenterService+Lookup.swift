@@ -160,7 +160,7 @@ extension NotificationCenterService {
     /// Attention marks for `workspace`'s panes: every pane whose shown tab
     /// reads unread (``TabModel/showsUnread``: an unread notification or Mark
     /// as Unread, the value every unread dot reads; ``unreadRing(of:dismissed:)``),
-    /// unless the workspace is muted or the style is `none`. As
+    /// agent chats included, unless the workspace is muted or the style is `none`. As
     /// classic's ring lived on the notifying terminal, a pane showing a read
     /// tab (a Markdown file) draws none; the unread tab's dot marks it. The
     /// mark changes with the newest notification, so its animation restarts;
@@ -178,20 +178,25 @@ extension NotificationCenterService {
         for screen in workspace.screens {
             for pane in screen.panes {
                 guard let id = shownTab(pane) ?? self.shownTab(of: pane), let shown = pane.tabs.first(where: { $0.id == id }) else { continue }
-                // Each kind of pane rings only when its setting is on: terminals by default,
-                // agent chats opt-in (`notifications.attention.agentChats`).
-                let agentChat = shown.agentSession != nil
-                guard attention.rings(agentChat: agentChat) else { continue }
-                // An agent chat whose turn ended rings until the person goes into it.
-                if key.machine == MachineRegistry.localID, let finished = agentFinished[shown.id] {
+                // A viewed tab reads its notifications at once, so a ring only blinked (a mark or needs-you stays).
+                if shown.hasUnread, !shown.markedUnread, shown.attention == nil, NotificationPolicy(prefs: preferences).clears(.focus, for: source(of: shown)), isViewed(shown.id) { continue }
+                // A chat that is thinking, on any machine, rings nothing (Leo, 2026-11-06). One whose turn ended rings
+                // until the person goes into it, only with the opt-in agent chat ring (`notifications.attention.agentChats`).
+                if let chat = shown.agentSession, AgentTurnStateStore.shared.isWorking(chat, isChatMachine: { self.services?.machines.machineID(peer: $0) == key.machine }) { continue }
+                let agentChatLook = shown.agentSession != nil && attention.rings(agentChat: true)
+                if agentChatLook, key.machine == MachineRegistry.localID, let finished = agentFinished[shown.id] {
                     marks[LayoutPaneID(pane.id)] = AttentionMark(color: preferences.sources[.agent]?.color, generation: finished,
-                                                                 agentChat: agentChat, quiet: quietAgentFinishes.contains(shown.id))
+                                                                 agentChat: true, quiet: quietAgentFinishes.contains(shown.id))
                     continue
                 }
-                guard let generation = unreadRing(of: shown, dismissed: dismissed) else { continue }
+                // An unread tab rings whatever kind it is, as its dot shows (cmux#34447): the
+                // agent chat setting covers the turn-end ring above, never an owner-held unread
+                // mark. A chat draws its own look when that is on, else the terminal look.
+                guard attention.rings(agentChat: agentChatLook),
+                      let generation = unreadRing(of: shown, dismissed: dismissed) else { continue }
                 // A marked tab with no notification has no source: the ring's own color.
                 let color = shown.hasUnread ? preferences.sources[source(of: shown)]?.color : nil
-                marks[LayoutPaneID(pane.id)] = AttentionMark(color: color, generation: generation, agentChat: agentChat)
+                marks[LayoutPaneID(pane.id)] = AttentionMark(color: color, generation: generation, agentChat: agentChatLook)
             }
         }
         return marks

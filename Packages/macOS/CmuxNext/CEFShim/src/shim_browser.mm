@@ -34,6 +34,10 @@ int cmux_shim_create_window(int request, void* parent_view, int width, int heigh
   info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
   CefBrowserSettings settings;
   settings.background_color = BackgroundColor();
+  // cmux draws the hovered link itself (CMUX_SHIM_STATUS_MESSAGE): Chrome's
+  // bubble is a child window of the page window, outside the page clip, and
+  // showed over other panes.
+  settings.chrome_status_bubble = STATE_DISABLED;
   CefRefPtr<CefRequestContext> context = RequestContextFor(profile_cache_path ? profile_cache_path : "");
   return CefBrowserHost::CreateBrowser(info, MakeClient(request), url ? url : "", settings, nullptr, context) ? 1 : 0;
 }
@@ -149,6 +153,10 @@ void cmux_shim_set_unhandled_key_handler(cmux_shim_key_fn handler) {
 
 void cmux_shim_set_zoom_level(int browser_id, double level) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetZoomLevel(level);
+}
+
+void cmux_shim_set_audio_muted(int browser_id, int muted) {
+  if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetAudioMuted(muted != 0);
 }
 
 void cmux_shim_set_accessibility(int browser_id, int enabled) {

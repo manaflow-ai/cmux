@@ -350,4 +350,9 @@ def main(env: Mapping[str, str] = os.environ, read: Callable[[str, str], Any] | 
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["hosted-wait"]:
+        # The pick's read of hosted Ubuntu's start wait, which the signer route reads (hosted_queue_wait.py).
+        import hosted_queue_wait  # noqa: E402,PLC0415
+
+        sys.exit(hosted_queue_wait.main())
     sys.exit(main())

@@ -239,9 +239,15 @@ impl MeshDriver {
         if peer.route.is_none() {
             return;
         }
+        if peer.tunn.time_since_last_handshake().is_none() {
+            peer.waiting = Some(now);
+        }
         if let TunnResult::WriteToNetwork(datagram) =
             peer.tunn.encapsulate(packet, &mut self.scratch)
         {
+            if classify(datagram) == DatagramClass::WireGuardInitiation {
+                peer.initiated = Some(now);
+            }
             self.out.send(peer.route, datagram);
             peer.schedule.on_activity(now);
         }
@@ -261,8 +267,20 @@ impl MeshDriver {
                 let retry = classify(packet) == DatagramClass::WireGuardInitiation;
                 self.out.send(peer.route, packet);
                 if retry {
+                    peer.initiated = Some(now);
                     peer.schedule.on_activity(now);
                 }
+            }
+            // A dial waiting on the handshake gets an initiation every
+            // HANDSHAKE_RESEND, not only boringtun's every 5 s or more.
+            if peer.route.is_some()
+                && peer.resend_due(now)
+                && let TunnResult::WriteToNetwork(packet) =
+                    peer.tunn.format_handshake_initiation(&mut self.scratch, true)
+            {
+                self.out.send(peer.route, packet);
+                peer.initiated = Some(now);
+                peer.schedule.on_activity(now);
             }
         }
     }
@@ -311,6 +329,7 @@ impl MeshDriver {
                 entry.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
             self.out.send(entry.route, packet);
+            entry.initiated = Some(now);
             entry.schedule.on_activity(now);
         }
         self.stack.abort_conns(|conn| {
