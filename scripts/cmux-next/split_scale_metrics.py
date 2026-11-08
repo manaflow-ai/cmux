@@ -11,9 +11,11 @@ Per transition the bench hands this two records of the same gesture:
 
 and gets back:
 
-  first_frame_ms   input to the first composited frame that differs from before it (strip first_change_ms, else the
-                   first frame whose outside or content changed)
-  settled_ms       input to the first frame of the settled run: every later frame equals the last (outside and content)
+  first_frame_ms   input to the first display-link tick whose layout differs (the trace lined up with the input by
+                   frame_strip's `sent_host_s`); a build without it falls back to the first changed composited frame
+  settled_ms       input to the last tick that moved anything; for static content (empty terminal, chat) no earlier
+                   than the first frame of the composited settled run (every later frame equals the last), so paint
+                   that comes after the panes landed counts
   frame_p50/p95/max_ms  display-link intervals while anything in the trace moved (one frame before the first move to
                    the last move): the transition's own frame times, not the idle ticks around it
   dropped_frames   those intervals longer than 1.5 refresh periods
@@ -105,10 +107,19 @@ def retargets(points):
     return turned
 
 
-def trace_stats(trace):
-    """The transition's display-link frame times, dropped frames and retargets from a trace_stop report."""
+def trace_stats(trace, sent_host_s=None):
+    """The transition's display-link frame times, dropped frames and retargets from a trace_stop report. With
+    `sent_host_s` (the input's host time, frame_strip's `sent_host_s`; the trace's `t0_s` shares its clock) it also
+    gives the layout's own times from the input: `layout_first_ms` (the first tick whose geometry differs) and
+    `layout_settled_ms` (the last tick that moved anything), and leaves out what moved before the input."""
     samples = [s for s in (trace or {}).get("samples") or [] if _number(s.get("t"))]
     refresh = (trace or {}).get("refresh_ms") or None
+    t0 = (trace or {}).get("t0_s")
+    sent = (sent_host_s - t0) * 1000 if _number(sent_host_s) and _number(t0) and t0 > 0 else None
+    if sent is not None:
+        # One tick before the input stays in, as the reference the first move is measured against.
+        before = [x for x in samples if x["t"] < sent]
+        samples = before[-1:] + [x for x in samples if x["t"] >= sent]
     movers = trace_movers(samples)
     first = last = None
     turns, ticks = {}, set()
@@ -121,20 +132,24 @@ def trace_stats(trace):
         if turned:
             turns[key] = len(turned)
             ticks |= turned
-    times = [s["t"] for s in samples]
+    times = [x["t"] for x in samples]
     intervals = []
     if first is not None:
         window = [t for t in times if t >= first - (refresh or 8.34) * 1.01 and t <= last]
         # The interval that ends at the first moved tick counts: it is the frame the transition first showed in.
-        before = [t for t in times if t < first]
-        if before and (not window or window[0] >= first):
-            window = [before[-1]] + window
+        earlier = [t for t in times if t < first]
+        if earlier and (not window or window[0] >= first):
+            window = [earlier[-1]] + window
         intervals = [round(b - a, 2) for a, b in zip(window, window[1:]) if b > a]
     dropped = sum(1 for i in intervals if refresh and i > refresh * 1.5)
-    return {"refresh_ms": refresh, "motion_ms": round(last - first, 1) if first is not None else 0,
-            "moved_frames": len(intervals), "frame_p50_ms": pct(intervals, 0.5), "frame_p95_ms": pct(intervals, 0.95),
-            "frame_max_ms": max(intervals) if intervals else None, "dropped_frames": dropped,
-            "retargets": len(ticks), "retargeted": turns, "movers": len(movers)}
+    out = {"refresh_ms": refresh, "motion_ms": round(last - first, 1) if first is not None else 0,
+           "moved_frames": len(intervals), "frame_p50_ms": pct(intervals, 0.5), "frame_p95_ms": pct(intervals, 0.95),
+           "frame_max_ms": max(intervals) if intervals else None, "dropped_frames": dropped,
+           "retargets": len(ticks), "retargeted": turns, "movers": len(movers), "aligned": sent is not None}
+    if sent is not None:
+        out["layout_first_ms"] = round(first - sent, 1) if first is not None else None
+        out["layout_settled_ms"] = round(last - sent, 1) if last is not None else None
+    return out
 
 
 def strip_stats(strip, tolerance=TOLERANCE, settle_frames=6):
@@ -164,17 +179,46 @@ def strip_stats(strip, tolerance=TOLERANCE, settle_frames=6):
             "partial_frames": partial, "strip_frames": len(after), "strip_interval_ms": (strip or {}).get("mean_interval_ms")}
 
 
-def transition(strip, trace, tolerance=TOLERANCE):
-    """One transition's record from its strip and trace (either may be an error dict)."""
-    out = {}
+def transition(strip, trace, tolerance=TOLERANCE, static=True):
+    """One transition's record from its strip and trace (either may be an error dict); `error` says why a round
+    measured nothing usable, and such a round fails its cell.
+
+    `static`: the panes' content holds still when nothing is done (an empty terminal, a chat). Streaming output or an
+    animating page (scrollback, browser) keeps changing pixels, so their pixel times say nothing about the transition:
+    first frame and settled then come from the trace alone (the layout's ticks from the input), and partial frames
+    are not judged. For static content the pixel settle counts too, so content that paints after the panes landed
+    delays settled."""
+    out, errors = {}, []
+    pixels = {}
     if strip and not strip.get("error"):
-        out.update(strip_stats(strip, tolerance))
-    elif strip:
-        out["strip_error"] = str(strip.get("error"))[:300]
+        pixels = strip_stats(strip, tolerance)
+    else:
+        errors.append(f"strip: {str((strip or {}).get('error') or 'none')[:300]}")
+    sent = (strip or {}).get("sent_host_s")
+    timed = {}
     if trace and not trace.get("error"):
-        out.update(trace_stats(trace))
-    elif trace:
-        out["trace_error"] = str(trace.get("error"))[:300]
+        timed = trace_stats(trace, sent)
+        out.update(timed)
+    else:
+        errors.append(f"trace: {str((trace or {}).get('error') or 'none')[:300]}")
+    out["blank_frames"] = pixels.get("blank_frames")
+    out["partial_frames"] = pixels.get("partial_frames") if static else None
+    out["pixel_first_ms"], out["pixel_settled_ms"] = pixels.get("first_frame_ms"), pixels.get("settled_ms")
+    if timed.get("aligned"):
+        out["first_frame_ms"] = timed.get("layout_first_ms")
+        settled = timed.get("layout_settled_ms")
+        if static and settled is not None:
+            pixel = pixels.get("settled_ms")
+            settled = None if pixel is None else max(settled, pixel)
+        out["settled_ms"] = settled
+        if timed.get("layout_first_ms") is None:
+            errors.append("nothing moved after the input")
+    elif static:
+        out["first_frame_ms"], out["settled_ms"] = pixels.get("first_frame_ms"), pixels.get("settled_ms")
+    else:
+        errors.append("no input time (a build without frame_strip sent_host_s): streaming content has no pixel timing")
+    if errors:
+        out["error"] = "; ".join(errors)
     return out
 
 
@@ -184,10 +228,12 @@ SUMMARY_KEYS = ("first_frame_ms", "settled_ms", "frame_p50_ms", "frame_p95_ms", 
 
 def summarize(records):
     """A cell's transition over its rounds: the median of each number, except blank, partial and retargets, which
-    take the worst round (one blank frame in any round is a blank frame), and frame_max, the max."""
-    good = [r for r in records if not r.get("strip_error")]
-    out = {"rounds": len(records), "errors": [r.get("strip_error") or r.get("trace_error") or r.get("error")
-                                               for r in records if r.get("strip_error") or r.get("error")][:3]}
+    take the worst round (one blank frame in any round is a blank frame), and frame max and dropped, the max. A round
+    with an `error` (no measurement, or a gesture that did nothing) is counted in `failed_rounds`, which fails the
+    cell; its numbers are not borrowed from the other rounds."""
+    good = [r for r in records if not r.get("error")]
+    out = {"rounds": len(records), "failed_rounds": len(records) - len(good),
+           "errors": [r["error"] for r in records if r.get("error")][:3]}
     for key in SUMMARY_KEYS:
         values = [r.get(key) for r in good if _number(r.get(key))]
         if not values:
@@ -202,13 +248,15 @@ def summarize(records):
 
 
 def verdict(summary, refresh_ms=None):
-    """{target: True/False/None} for one cell's transition summary; None: not measured."""
+    """{target: True/False/None} for one cell's transition summary; None: not measured. A failed round, a round that
+    never settled or a target with no measurement fails the cell."""
     refresh = refresh_ms or summary.get("refresh_ms")
 
     def under(key, limit):
         value = summary.get(key)
         return None if value is None else value <= limit
     checks = {
+        "complete": summary.get("rounds", 0) > 0 and not summary.get("failed_rounds"),
         "first_frame": under("first_frame_ms", TARGETS["first_frame_ms"]),
         "settled": under("settled_ms", TARGETS["settled_ms"]) if not summary.get("unsettled") else False,
         "p95": under("frame_p95_ms", p95_target(refresh)),
@@ -276,12 +324,12 @@ def table(report):
 
 def headline(cells, flat):
     """The goal check's one number: the worst cell's settled time over all transitions, with the cell, its
-    transition and the worst flatness ratio."""
+    transition and the worst flatness ratio. A cell with a failed or unsettled round is the worst (settled None)."""
     worst = None
     for cell, per in cells.items():
         for name, summary in per.items():
             value = summary.get("settled_ms")
-            if summary.get("unsettled") or value is None:
+            if summary.get("unsettled") or summary.get("failed_rounds") or value is None:
                 value = float("inf")
             if worst is None or value > worst["settled_ms"]:
                 worst = {"cell": cell, "transition": name, "settled_ms": value}
