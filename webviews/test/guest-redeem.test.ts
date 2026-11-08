@@ -147,7 +147,10 @@ test("a join remembers the invite's role for a reload; a link join watches only"
   // By the link alone (no account), whatever role was kept or none: view.
   rememberJoined(SHARE, "g1", kept, "Ana");
   expect(joinedRole(SHARE, kept)).toBe("view");
+  // A signed-in account on a talk link: the redeem named talk, and a reload keeps it.
   rememberJoined(SHARE, "g1", kept, "Ana", "talk", "link");
+  expect(joinedRole(SHARE, kept)).toBe("talk");
+  rememberJoined(SHARE, "g1", kept, "Ana", "view", "link");
   expect(joinedRole(SHARE, kept)).toBe("view");
 });
 
@@ -194,4 +197,38 @@ test("a tab that joined by the link still accepts on the invite page; an invite 
   expect(joinedAs(SHARE, before, true)).toBe("old-invitee");
   before.removeItem(`cmux.guest.${SHARE}.role`);
   expect(joinedAs(SHARE, before, true)).toBeUndefined();
+});
+
+test("whoami posts no body, same origin with credentials; only a signed-in answer with a name counts", async () => {
+  const { whoamiOverFetch } = await import("../src/agent-session/guest/redeem");
+  const calls: [string, RequestInit][] = [];
+  const answer = (status: number, body: unknown) =>
+    whoamiOverFetch(async (url, init) => {
+      calls.push([url, init]);
+      return new Response(JSON.stringify(body), { status });
+    });
+  expect(
+    await answer(200, { signed_in: true, name: "Priya Raman", avatar_url: "https://avatars.example.com/p.png" })(SHARE),
+  ).toEqual({ signedIn: true, name: "Priya Raman", avatarUrl: "https://avatars.example.com/p.png" });
+  expect(calls[0]![0]).toBe(`/v1/chat-shares/${SHARE}/whoami`);
+  expect(calls[0]![1]).toMatchObject({ method: "POST", credentials: "include", body: "{}" });
+  // A picture that is not https is dropped; the name still joins.
+  expect(await answer(200, { signed_in: true, name: "Priya", avatar_url: "http://x.example/p.png" })(SHARE)).toEqual({
+    signedIn: true,
+    name: "Priya",
+  });
+  expect(await answer(200, { signed_in: false })(SHARE)).toEqual({ signedIn: false });
+  expect(await answer(200, { signed_in: true, name: "  " })(SHARE)).toEqual({ signedIn: false });
+  // An older room (no route) or any failure is anonymous: the name prompt.
+  expect(await answer(404, { error: "not_found" })(SHARE)).toEqual({ signedIn: false });
+  expect(await whoamiOverFetch(() => Promise.reject(new TypeError("offline")))(SHARE)).toEqual({ signedIn: false });
+});
+
+test("redeem sends the attempt, the secret and the name only; never an account", async () => {
+  let sent: unknown;
+  await redeemOverFetch(async (_url, init) => {
+    sent = JSON.parse(String(init.body));
+    return new Response(JSON.stringify({ guest_id: "g1", role: "talk" }));
+  })(SHARE, { attempt_id: "a".repeat(32), secret: "c2VjcmV0LWFiY2RlZmdo", name: "Priya" });
+  expect(Object.keys(sent as object).sort()).toEqual(["attempt_id", "name", "secret"]);
 });

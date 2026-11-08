@@ -34,7 +34,7 @@ extension TerminalHostView: PaneResizeGestureFollowing {
 extension TerminalHostView: PaneMotionHoldFollowing {
     public func followPaneMotion(_ hold: PaneMotionHold?, heldSize: CGSize?) {
         // The end of a followed hold: its last size drawn ahead goes at the final placement unless that placement takes it.
-        if hold == nil, followedHold != nil { dropsAheadAtRest = true }
+        if hold == nil, followedHold != nil { (dropsAheadAtRest, aheadOfKeyResize) = (true, true) }
         followedHold = hold.map { ($0, heldSize ?? bounds.size) }
         needsLayout = true
     }
@@ -63,11 +63,12 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     }
 
     /// Draw ahead of the follow (T-KEYS 3): a key press's first refresh hands this host its pane's hold at `nextHostSize`.
-    /// The surface asks Ghostty for the size it takes then, in the key's turn (render only), so the frame that shows the
-    /// press has it drawn. A follow that does not begin leaves it to the next placement at rest, which drops it unless it
-    /// takes it (``dropsAheadAtRest``).
-    public func drawAheadOfFollow(nextHostSize: CGSize) {
+    /// The surface asks Ghostty for the size it takes then, in the key's turn (a key press: with its grid to the program,
+    /// ``aheadOfKeyResize``; a snap: render only), so the frame that shows the press has it drawn. A follow that does not
+    /// begin leaves it to the next placement at rest, which drops it unless it takes it (``dropsAheadAtRest``).
+    public func drawAheadOfFollow(nextHostSize: CGSize, keyPress: Bool) {
         guard !surfaceFollowsArea, !isHidden, let current else { return }
+        aheadOfKeyResize = keyPress
         current.drawAhead(surfaceSize(forHostSize: nextHostSize))
         dropsAheadAtRest = true
     }

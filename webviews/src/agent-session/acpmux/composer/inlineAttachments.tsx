@@ -17,7 +17,7 @@ import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
 import { AttachmentChip, InstantPreview, RetryButton, UploadProgress } from "./attachmentIntake";
-import type { PendingAttachment } from "./attachmentIntakeModel";
+import { imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { keptThumb } from "./imagePool";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
@@ -241,6 +241,20 @@ export function useInlineAttachments(options: Options) {
       live.current.expand(id);
     },
     known,
+    /// The attachments in the text, read from `markdown` (the host's value): with the placeholders this
+    /// composer put there whose node the editor holds, which the host's value may not show yet. A pasted
+    /// or dropped chip is the text's from the moment it is made, so it is never drawn in the strip above
+    /// for a frame (Leo, 2026-11-07: "it pasted above the original picture, which would, like, extend
+    /// the composer"). One whose node a value from outside took away (a command's clear) is the strip's
+    /// again.
+    inText(markdown: string): ReadonlySet<string> {
+      const ids = new Set(inlineTokenIds(markdown, known));
+      if (placed.current.size) {
+        const nodes = new Set(live.current.field.current?.inlineIds() ?? []);
+        for (const id of placed.current) if (nodes.has(id)) ids.add(id);
+      }
+      return ids;
+    },
     /// The field tells its nodes' elements in a microtask after the change that made them (MarkdownField
     /// `tellInlineViews`): their chips draw before that task's frame paints, so a paste's placeholder
     /// shows in the paste's own frame, as the strip's does (composer-paste-instant.test.tsx).
@@ -334,6 +348,12 @@ const InlineChip = memo(function InlineChip({
         className={pending!.failed ? "acpmux-md-inline-chip" : `acpmux-md-inline-chip ${PASTE_LOADING_CLASS}`}
         data-state={pending!.failed ? "failed" : "loading"}
         {...(pending!.failed ? {} : { "data-paste-look": look })}
+        // A loading image is the shape its thumbnail will be (its header's size), so the picture
+        // arriving moves nothing.
+        {...(!pending!.failed && pending!.image && pending!.size
+          ? { "data-sized": "", style: imageShape(pending!.size) }
+          : {})}
+        {...(!pending!.failed && pending!.sizing ? { "data-sizing": "" } : {})}
         aria-busy={pending!.failed ? undefined : "true"}
         aria-label={name}
         /* tooltip-allow: the failed tile is cut to its size; the tooltip has the reason */ title={pending!.failed}

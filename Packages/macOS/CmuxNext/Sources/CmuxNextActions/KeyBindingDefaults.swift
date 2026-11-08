@@ -61,7 +61,7 @@ public nonisolated struct KeyBindingDefaults {
     public static let homeChatScoped: Set<ActionID> = Set(RustActionCatalog.shared.idLists["home_chat_scoped"] ?? [])
 
     /// The Chief chat's zoom: every key of theirs (a default, a cmux.json or a Settings rebind) runs only
-    /// where ``onHome`` holds, so a rebind never zooms the Chief chat from a terminal or a browser.
+    /// where ``onChiefZoom`` holds, so a rebind never zooms the Chief chat from a terminal or a browser.
     public static let homeScoped: Set<ActionID> = Set(RustActionCatalog.shared.idLists["home_scoped"] ?? [])
 
     /// The tab keys on Home: the keys that cycle a pane's tabs move through Home's chat list in
@@ -118,6 +118,23 @@ public nonisolated struct KeyBindingDefaults {
         .equals(KeyContext.topPage, .string("home")),
         .equals(KeyContext.surfaceKind, .string("home")),
         .equals(KeyContext.surfaceKind, .string("home-dock")),
+    ])
+
+    /// The `topPage` of a window that shows Bring your history on top (the first-run import over Home).
+    public static let historyImportTopPage = "import-history"
+
+    /// Where the Chief chat's zoom keys run: Home (``onHome``'s terms), and Bring your history
+    /// (`cmux.import-history`) as the window's top page or with the keyboard in a pane, whose page
+    /// zooms with the Chief chat (`PageWebView.followsChatZoom`; issue 38049: Cmd-= / Cmd-- did
+    /// nothing on the first-run import). As on Home, the top page takes the zoom keys wherever the
+    /// window's keyboard is (a sidebar click leaves it shown). One flat `or`, the tree its text
+    /// parses back to, so the Rust catalog's text form (`bindings.rs`) gives this clause.
+    public static let onChiefZoom = WhenClause.or([
+        .equals(KeyContext.topPage, .string("home")),
+        .equals(KeyContext.surfaceKind, .string("home")),
+        .equals(KeyContext.surfaceKind, .string("home-dock")),
+        .equals(KeyContext.topPage, .string(historyImportTopPage)),
+        .equals(KeyContext.pageID, .string("cmux.import-history")),
     ])
 
     /// The arrow aliases for pane resize. These are defaults in addition to

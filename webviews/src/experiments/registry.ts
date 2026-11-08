@@ -32,10 +32,13 @@ import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.ex
 import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
 import { threadMinimapCard } from "../agent-session/acpmux/threadMinimap/card.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
+import { codeActionsLook } from "../agent-session/acpmux/conversation/codeActions.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
+import { commandLabelLook } from "../agent-session/acpmux/conversation/commandLabel.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
+import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
@@ -63,6 +66,7 @@ import { composerPlusCommands } from "../agent-session/acpmux/composerPlusComman
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { composerDeeplinkLook } from "../agent-session/acpmux/composer/deeplinkLook.experiment";
 import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgentLook.experiment";
+import { sentPasteLook } from "../agent-session/acpmux/conversation/sentPasteLook.experiment";
 import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
@@ -72,6 +76,7 @@ import { sendStopMorph } from "../agent-session/acpmux/composer/sendStopMorph.ex
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
 import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
 import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
+import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -84,7 +89,9 @@ export const EXPERIMENTS: readonly Experiment[] = [
   fileKindIcon,
   finishedTaskLook,
   claudeTurnFold,
+  commandLabelLook,
   turnFoldReplies,
+  turnFoldSteered,
   workedForMessages,
   threadMinimapLayout,
   threadMinimapHeight,
@@ -98,6 +105,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapIncoming,
   threadMinimapCard,
   chatMinimapPlaceholder,
+  codeActionsLook,
   turnErrorCard,
   pausedMachineResume,
   codeRouterOffer,
@@ -143,6 +151,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   promptSuggestionLook,
   composerDeeplinkLook,
   pastedAgentLook,
+  sentPasteLook,
   sentMessageLook,
   contextRingLook,
   contextRingMotion,
@@ -150,6 +159,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   emojiShortcodeLook,
   pastePlaceholderLook,
   sendStopMorph,
+  fieldGrowthMotion,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

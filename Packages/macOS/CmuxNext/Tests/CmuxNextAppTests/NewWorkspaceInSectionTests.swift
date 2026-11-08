@@ -63,6 +63,6 @@ import Testing
     /// The fallback Leo named (2026-11-06: "you should just have it right next to it"): with no setting a new
     /// workspace goes right after the current one.
     @Test func theDefaultIsAfterCurrent() {
-        #expect(CmuxConfigSnapshot.newWorkspacePlacementFallback == .afterCurrent)
+        #expect(CmuxConfigSnapshot.newWorkspacePlacementDefault == .afterCurrent)
     }
 }

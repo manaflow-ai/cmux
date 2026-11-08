@@ -1141,7 +1141,7 @@ test("the environment picker withholds a warning while a machine is not ready", 
 });
 
 test("an open machine list reads the machines again until it closes", async () => {
-  const { MACHINES_REFRESH_MS } = await import("../src/agent-session/acpmux/EnvironmentPicker");
+  const { MACHINES_REFRESH_MS } = await import("../src/agent-session/acpmux/environmentPickerModel");
   expect(MACHINES_REFRESH_MS).toBeLessThanOrEqual(5_000);
   const { props } = await daemonProps();
   const realSetInterval = globalThis.setInterval;
@@ -1380,7 +1380,7 @@ test("Leo's menu: no section headers, no second lines, and no setup rows", async
 });
 
 test("Leo's menu: the Where list never searches; Machines… searches only from eight machines", async () => {
-  const { ENVIRONMENT_SEARCH_MIN } = await import("../src/agent-session/acpmux/EnvironmentPicker");
+  const { ENVIRONMENT_SEARCH_MIN } = await import("../src/agent-session/acpmux/environmentPickerModel");
   expect(ENVIRONMENT_SEARCH_MIN).toBe(8);
   await mount(true, shipped);
   await openMachines();

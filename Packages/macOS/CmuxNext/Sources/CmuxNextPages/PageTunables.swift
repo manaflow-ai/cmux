@@ -33,10 +33,6 @@ public nonisolated struct PageTunables {
     public nonisolated init() {}
     public static let section = TunableSection(id: "pages", title: "Pages", symbol: "doc.richtext", order: 46)
 
-    public static let history = Tunable<PageImplementation>.choice(
-        "history.surface", section, "History page", help: "Shows cmux://history as the React page. New tabs use it.",
-        default: .native, code: "PageTunables.history")
-
     /// The CodeRouter app opens as the React CodeRouter page (cmux.coderouter) instead of its
     /// scene pane.
     public static let coderouter = Tunable<PageImplementation>.choice(
@@ -48,5 +44,5 @@ public nonisolated struct PageTunables {
         "cloud.machines.layout", section, "Cloud machines layout", help: "Machine list of the Cloud page: dense rows or cards. New pages use it.",
         default: .rows, code: "PageTunables.cloudMachinesLayout")
 
-    public static var all: [TunableDescriptor] { [history.descriptor, coderouter.descriptor, cloudMachinesLayout.descriptor] }
+    public static var all: [TunableDescriptor] { [coderouter.descriptor, cloudMachinesLayout.descriptor] }
 }
