@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42498934051",
+  "recorded_at": "2026-11-08T16:22:46Z",
+  "reason": "cmux-tui 67a6c13fb7e9 changes the image's cmux-tui (pinned 7758533a5afa)",
+  "dry_run": false,
+  "cmux_tui": "67a6c13fb7e9879a29b6edd32fd5e3f783c608e6",
+  "fixes": [
+    {
+      "sha": "67a6c13fb7e9879a29b6edd32fd5e3f783c608e6",
+      "mergedAt": "2026-11-08T15:59:12Z",
+      "subject": "acpmux: the agent reads who wrote each part of a prompt, never another agent's words as the person's (#37190)"
+    },
+    {
+      "sha": "cf8345cdd5f4f0d34bef3424a6f46861891c0913",
+      "mergedAt": "2026-11-08T15:58:57Z",
+      "subject": "cmux-tui: terminal run -- ARGV also quotes a command word the shell reads as syntax (if, FOO=bar) and =word (#38634)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T16:22:46Z",
+    "snapshot_id": "sh-c5788a7b48f04a31972cfe7bd838dab8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42498934051): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "da3b3a815d99ca9a3234ff125fbaa791062027a4",
+    "image": "cloud-native-auto-67a6c13f-42498934051-1",
+    "revision": "ci-42498934051-1",
+    "at": "2026-11-08T16:22:46Z"
+  },
+  "rolled_back": false
+}
