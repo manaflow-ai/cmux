@@ -371,7 +371,7 @@ async fn hub_carrier_a_turn_streams_over_the_relay_and_survives_a_relay_reconnec
     })
     .await
     .expect("the missed events never arrived after the relay came back");
-    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    assert_eq!(answer.as_ref().unwrap()["stopReason"], "end_turn");
     assert!(
         carrier_a.stats().dials.load(Ordering::Relaxed) > dials_before,
         "redialed over the carrier"
