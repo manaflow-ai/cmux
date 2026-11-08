@@ -100,6 +100,28 @@ struct SidebarWorkTabIconTests {
         #expect(row.icon == nil)
     }
 
+    /// The window's own focus wins over the daemon's `focused_at`, which the app never writes (focus.md 2): a
+    /// page opened in a split is stamped newest by the daemon, and a click back into the terminal must still
+    /// drop its favicon (Leo 2026-10-21: "why did this turn into the githb favicon?").
+    @Test func theWindowsFocusedPaneWinsOverTheDaemonsStamp() throws {
+        let workspace = try Self.workspace([
+            PaneSnapshot(id: 1, focusedAt: 1, tabs: [TabSnapshot(surface: 1, kind: .pty, title: "coordinator")]),
+            PaneSnapshot(id: 2, focusedAt: 2, tabs: [Self.page]),
+        ])
+        let terminalPane = try #require(workspace.screens.first?.panes.first { $0.tabs.first?.kind == .pty })
+        let pagePane = try #require(workspace.screens.first?.panes.first { $0.tabs.first?.kind == .browser })
+        let memory = TabSelectionMemory()
+        func row() -> SidebarWorkspace {
+            SidebarMapping.shared.row(workspace, machine: .local, focusedPane: { memory.focusedPane(in: $0.id) },
+                                      pageFace: { _, tab, _ in tab.kind == .browser ? .init(title: "PR", favicon: Self.favicon) : nil })
+        }
+        memory.focus(terminalPane.id, in: workspace.id)
+        #expect(row().icon == nil)
+        #expect(row().focusedTab?.rawValue == terminalPane.tabs.first?.id)
+        memory.focus(pagePane.id, in: workspace.id)
+        #expect(row().icon == .favicon(Self.favicon))
+    }
+
     @Test func aWorkspaceOfPagesShowsItsPagesFavicon() throws {
         let row = try Self.row(Self.workspace([PaneSnapshot(id: 1, focusedAt: 1, tabs: [Self.page])]))
         #expect(row.icon == .favicon(Self.favicon))
