@@ -610,6 +610,9 @@ describe("devbox image template", () => {
     expect(bashrc).toContain('cp "$__cmux_seed" "$__cmux_tmp"');
     expect(bashrc).toContain('mv -f "$__cmux_tmp" "$__cmux_dst"');
     expect(bashrc).not.toContain('cp "$__cmux_seed" "$__cmux_dst"');
+    // A failed attempt removes only the temp file it made, never a stale value.
+    expect(bashrc.indexOf("      __cmux_tmp=\n")).toBeGreaterThan(-1);
+    expect(bashrc.indexOf("      __cmux_tmp=\n")).toBeLessThan(bashrc.indexOf('if mkdir -p "${__cmux_dst%/*}"'));
   });
 
   test("the Dockerfile is the Ubuntu 24.04 recipe the Freestyle bake replays, desktop included", () => {
