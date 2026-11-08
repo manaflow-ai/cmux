@@ -45,7 +45,8 @@ export const BENCHES: readonly Bench[] = [
     args: ["500", "500", "3"],
     timeoutMs: 120_000,
   },
-  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
+  // chat-open takes about 18 s on the perf runner (2026-11-08); 165 s leaves the suite's sum where it was.
+  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 165_000 },
   { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
   {
     name: "transcript-scroll-frame",
