@@ -115,7 +115,8 @@ extension ScreenContentView {
             case (.z4, true):
                 self.filmGrow(film, zoomedLayer, from: oldZoomed, to: place, container: container, finish: finish)
             case (.z4, false):
-                self.filmShrink(film, container: container, from: oldZoomed, to: place, fadingIn: returningLayers, finish: finish)
+                self.filmShrink(film, container: container, zoomed: zoomed, from: oldZoomed, to: place, fadingIn: returningLayers,
+                                finish: finish)
             case (.z2, true):
                 // A hole the zoomed pane shows through, from its old frame to its frame now.
                 let mask = Self.filmHoleMask(bounds: bounds)
@@ -288,30 +289,72 @@ extension ScreenContentView {
     /// Z4 out: the zoomed pane's old full picture (`container`, over the final layout) shows through a frame that shrinks
     /// from `from` to its place `to`, the picture on that frame's top-left, while the panes the unzoom shows again fade
     /// in at their places; one progress value p drives all of it.
-    private func filmShrink(_ film: FilmZoomVariant, container: CALayer, from: CGRect, to: CGRect, fadingIn: [CALayer],
-                            finish: @escaping @MainActor () -> Void) {
+    ///
+    /// One picture of the pane at a time (ZOOM VARIANTS 6, lead watched the C3 film: the old picture faded out over the
+    /// live pane, so the old wrap and the new wrap showed through each other for 4-6 frames). The old picture stays opaque
+    /// until the zoomed terminal's frame at its new grid lands (``FilmFrameLanding``, in the presenter's pass before
+    /// that commit); in that same commit the old picture goes and the live pane shows on the frame's top-left, its
+    /// layer riding the same p from the start (under the old picture until then), the rest of the frame its ground. No
+    /// pixel ever mixes the two pictures. A pane with no terminal frame to wait for (a page) swaps at the motion's end.
+    private func filmShrink(_ film: FilmZoomVariant, container: CALayer, zoomed pane: PaneID, from: CGRect, to: CGRect,
+                            fadingIn: [CALayer], finish: @escaping @MainActor () -> Void) {
         let driver = film.driver // one progress table for every layer this zoom drives
-        guard let picture = container.sublayers?.first else { return finish() }
+        guard let picture = container.sublayers?.first, let host = context.hosts[pane], let live = host.layer else { return finish() }
         let mask = CAShapeLayer()
         mask.frame = container.bounds
         mask.fillColor = NSColor.black.cgColor
         mask.path = CGPath(rect: from, transform: nil)
+        // The swap sets these in the presenter's pass, where no transaction may begin: no implicit action on them.
+        let still: [String: any CAAction] = ["hidden": NSNull(), "backgroundColor": NSNull(), "opacity": NSNull()]
+        container.actions = still
+        picture.actions = still
+        let generation = frameInput.filmZoomGeneration
+        let zBefore = live.zPosition
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         container.mask = mask
         CATransaction.commit()
         let nothing: @MainActor () -> Void = {}
-        driver.drive(mask, "path", { p in CGPath(rect: Self.filmLerp(from, to, p).standardized, transform: nil) }, completion: nothing)
         driver.drive(picture, "transform", { p in
             let r = Self.filmLerp(from, to, p)
             return NSValue(caTransform3D: CATransform3DMakeTranslation(r.minX - from.minX, r.minY - from.minY, 0))
         }, completion: nothing)
+        // The live pane at its place rides the frame's top-left on the same p (Z4 in's reverse), hidden under the old
+        // picture until the swap.
+        driver.drive(live, "transform", { p in
+            let r = Self.filmLerp(from, to, p)
+            return NSValue(caTransform3D: CATransform3DMakeTranslation(r.minX - to.minX, r.minY - to.minY, 0))
+        }, completion: nothing)
         for layer in fadingIn {
             driver.drive(layer, "opacity", { p in NSNumber(value: Float(min(1, max(0, p)))) }, completion: nothing)
         }
-        // The old full picture fades out on the same p while it shrinks (film zv-z4-c3-view: kept opaque, it covered the
-        // live pane at its place with the old wide lines until the spring rested); the live zoomed pane is under it.
-        driver.drive(container, "opacity", { p in NSNumber(value: Float(min(1, max(0, 1 - p)))) }, completion: finish)
+        // The zoomed terminal tells this zoom when its frame at the new size lands, in the presenter's pass before that
+        // commit: the swap is in that commit. The layers are found again at the swap (by the container's name and the
+        // host): no layer is captured.
+        let tag = container.name
+        let landing = Self.filmLanding(in: host)
+        landing?.filmFrameLanded = { [weak self] in
+            guard let self, self.frameInput.filmZoomGeneration == generation, let host = self.context.hosts[pane], let live = host.layer,
+                  let container = self.layer?.sublayers?.first(where: { $0.name == tag }), let picture = container.sublayers?.first else { return }
+            // One commit: the old picture goes, the frame shows the pane's ground, the live pane shows above it.
+            MotionTrace.interval("zk.out.swap") {
+                picture.isHidden = true
+                container.backgroundColor = host.content.paneGroundColor ?? host.clipView.layer?.backgroundColor
+                live.zPosition = container.zPosition + 1
+            }
+        }
+        // The end: one completion on the frame (every property ends on the same p).
+        driver.drive(mask, "path", { p in CGPath(rect: Self.filmLerp(from, to, p).standardized, transform: nil) }, completion: { [weak self, weak landing] in
+            landing?.filmFrameLanded = nil
+            if let self, self.frameInput.filmZoomGeneration == generation, let live = self.context.hosts[pane]?.layer {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                live.zPosition = zBefore
+                live.transform = CATransform3DIdentity
+                CATransaction.commit()
+            }
+            finish()
+        })
     }
 
     /// The frame at progress `p` (past 1 on a spring's overshoot) from `a` to `b`.
@@ -355,6 +398,15 @@ extension ScreenContentView {
             return CATransform3DMakeTranslation(0, dy > 0 ? bounds.maxY - frame.minY : bounds.minY - frame.maxY, 0)
         }
         return CATransform3DIdentity
+    }
+
+    /// The first view in `view`'s tree whose frames land in a commit (the zoomed pane's terminal surface), depth first.
+    static func filmLanding(in view: NSView) -> (any FilmFrameLanding)? {
+        if let landing = view as? any FilmFrameLanding { return landing }
+        for sub in view.subviews {
+            if let landing = filmLanding(in: sub) { return landing }
+        }
+        return nil
     }
 
     /// A copy of `layer`'s tree as it shows now: the same geometry and contents, hidden layers left out.

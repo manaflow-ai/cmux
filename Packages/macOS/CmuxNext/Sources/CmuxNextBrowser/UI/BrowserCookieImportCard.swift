@@ -27,6 +27,10 @@ final class BrowserCookieImportCard: NSView {
     var onReady: (() -> Void)?
     /// Hidden while another tab of the pane shows; it shows again when this tab binds (`BrowserChromeTabSwitch`).
     weak var heldFor: BrowserChromeTabState?
+    /// Off screen while its tab does not have the keyboard (``BrowserChromeTabState/hasKeyboard``): it
+    /// floats on the window's overlay host, above every pane, so it must not show over the terminal,
+    /// chat or Home the person is in (Lawrence 2026-11-07). Kept apart from `isHidden`, the pane's tab switch.
+    var waitsForFocus = false
     /// Set while the close animation runs; a new offer then gets a new card.
     var isDismissing = false
     private(set) var offer: BrowserCookieImportOffer

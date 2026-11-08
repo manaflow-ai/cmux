@@ -61,6 +61,10 @@ public final class TerminalSurfaceView: NSView {
 
     /// Who presents this view's new sizes and a held display scale (``place(_:)``).
     var frameOwnership = TerminalFrameOwnership()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// ZOOM VARIANTS 6 (never merged): a Z4 unzoom's swap, called when this view's next frame at a new size lands.
+    public var filmFrameLanded: (@MainActor () -> Void)?
+    #endif
 
     /// A person drags a divider or edge of this terminal's pane (its host's ``TerminalHostView/followsResizeGesture``): the
     /// surface follows its pane in every frame, and its grids go to the PTY coalesced (``gridReports``, cmux-ad m29).
@@ -843,4 +847,6 @@ extension TerminalSurfaceView: FilmSnapGridSending {
         updateReflowPreview()
     }
 }
+
+extension TerminalSurfaceView: FilmFrameLanding {}
 #endif

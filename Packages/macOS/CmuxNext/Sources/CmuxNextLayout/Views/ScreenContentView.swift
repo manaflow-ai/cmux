@@ -513,8 +513,9 @@ final class ScreenContentView: NSView {
         }
 
         if structural { scrollRidesFrames = departing && animateFrames && !covering }
-        // A close's neighbours start covering the closed pane's space in the frame it leaves:
-        // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
+        // A close's neighbours start covering the closed pane's space in the first frame that shows
+        // the close: no frame shows the hole before they move (`leadIfPending`, after `syncScroll`;
+        // a pane close's key turn holds it for its first frame tick).
         leadsFrame = departing && animateFrames && !covering && !wasMoving
         #if DEBUG || CMUX_BENCH_HOOKS
         if departing, animateFrames, !covering { startFilmCurve() }

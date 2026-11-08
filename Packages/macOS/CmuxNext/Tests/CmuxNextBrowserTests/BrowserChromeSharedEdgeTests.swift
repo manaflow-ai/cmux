@@ -100,6 +100,7 @@ import Testing
     @Test func aCookieOfferComesBackWithItsTab() async {
         let t = Self.tab("t.example"), u = Self.tab("u.example")
         let stateT = BrowserChromeTabState(), stateU = BrowserChromeTabState()
+        stateT.hasKeyboard = true  // the person is in tab T: its cookie offer may show
         let pane = BrowserPaneChrome()
         let chrome = pane.bind(t, state: stateT)
         let window = Self.window(chrome)
@@ -122,6 +123,7 @@ import Testing
     @Test func aCookieOfferStaysClearUntilItsPageMeasuredItself() async {
         let t = Self.tab("t.example"), u = Self.tab("u.example")
         let stateT = BrowserChromeTabState(), stateU = BrowserChromeTabState()
+        stateT.hasKeyboard = true  // the person is in tab T: its cookie offer may show
         let pane = BrowserPaneChrome()
         let chrome = pane.bind(t, state: stateT)
         let window = Self.window(chrome)
@@ -180,6 +182,7 @@ import Testing
     @Test func aHiddenTabMovedToAnotherPaneTakesItsCookieOffer() async {
         let t = Self.tab("t.example"), u = Self.tab("u.example")
         let stateT = BrowserChromeTabState(), stateU = BrowserChromeTabState()
+        stateT.hasKeyboard = true  // the person is in tab T: its cookie offer may show
         let paneA = BrowserPaneChrome(), paneB = BrowserPaneChrome()
         let chromeA = paneA.bind(t, state: stateT)
         let window = Self.window(chromeA)

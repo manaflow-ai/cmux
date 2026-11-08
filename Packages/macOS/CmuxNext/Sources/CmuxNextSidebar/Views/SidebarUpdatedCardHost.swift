@@ -22,8 +22,11 @@ import CmuxNextWakeups
 /// glass though, right?"). It is the card's size and its open preview's, and runs
 /// the page's preview motion with it (``MotionGate/cardCurve``).
 ///
-/// Resting on the card opens its hover preview, a scrollable list of the update's
-/// changes in the same glass (Leo 2026-11-07: "a quick access scroll through of
+/// Resting on the card opens its changes beside the sidebar, in the app's one hover card window
+/// (``SidebarUpdatedNotesPopover``; Lawrence 2026-11-07, on the list that grew up over the
+/// sidebar: "i dont like how it expands upwards"). The look before, kept as a Debug choice
+/// (``UpdatedCardPreviewMode/above``), opens a hover preview in the card itself, a scrollable list
+/// of the update's changes in the same glass (Leo 2026-11-07: "a quick access scroll through of
 /// what's new. Right in that bottom left of the sidebar area"). The page decides
 /// when (it hears the pointer from this view's tracking area,
 /// ``SidebarSurfaceIsland/setPointerInside(_:)``) and asks for the room above the
@@ -50,7 +53,11 @@ final class SidebarUpdatedCardHost: NSView {
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 10 }, label: "")
     /// The pointer is on the card: its x shows.
     private(set) var isHovered = false
-    private var hoverArea: NSTrackingArea?
+    /// The hover owner (`PointerHover`): hover is where the pointer is now, over the card's glass or its
+    /// closing preview, recomputed whenever the glass moves. A tracking area on the whole view, room
+    /// included, sent no exit when the view shrank under a still pointer, so the page kept hearing
+    /// "inside" over the rows and reopened the list (Leo 2026-11-08: "flicker upon hovering over what's new").
+    private var pointerHover: PointerHover?
     /// The frost behind the page: the card and its open preview, at the composer's corner. Only the
     /// material: the page paints the composer's tint over it.
     let glass = GlassPanelView(cornerRadius: LayoutGrid.composerRadius) // glass-level-allow: the material only; the page paints the composer's popover-level tint over it
@@ -73,8 +80,21 @@ final class SidebarUpdatedCardHost: NSView {
             island?.close()
             pageReported = false
             island = card == nil ? nil : surfaces?.island(.updated)
+            notes.tearDown()
+            notes.surfaces = surfaces
+            prepareNotes()
             isHidden = card == nil || island == nil
         }
+    }
+    /// The card's changes beside the sidebar (``UpdatedCardPreviewMode/beside``, the shipped look).
+    let notes = SidebarUpdatedNotesPopover()
+    /// Where the card shows its changes, read when the card shows (Debug Settings
+    /// `sidebar.updatedCard.preview`; the page reads the same look from the theme).
+    private(set) var previewMode = UpdatedCardPreviewMode.shipped
+
+    /// Makes (or closes) the changes' popover page for the card's look.
+    private func prepareNotes() {
+        notes.prepare(in: self, enabled: card != nil && previewMode.opensBeside)
     }
     var island: (any SidebarSurfaceIsland)? {
         didSet {
@@ -265,6 +285,8 @@ final class SidebarUpdatedCardHost: NSView {
         isHidden = true
         setAccessibilityElement(false)
         closeButton.showsLabelToolTip = false
+        // A light x: a round hover fill, never a box (Lawrence 2026-11-07, "the X sits in a heavy box").
+        closeButton.isRound = true
         closeButton.takesKeyFocus = true
         closeButton.takesFirstClick = true
         closeButton.setAccessibilityIdentifier("cmux.sidebar.updated.close")
@@ -273,6 +295,12 @@ final class SidebarUpdatedCardHost: NSView {
         closeButton.alphaValue = 0
         glass.isHidden = true
         addSubview(glass)
+        let hover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
+        hover.region = { [weak self] _ in
+            guard let self else { return .zero }
+            return closingFrame.map { glassFrame.union($0) } ?? glassFrame
+        }
+        pointerHover = hover
         addSubview(closeButton)
     }
 
@@ -287,9 +315,11 @@ final class SidebarUpdatedCardHost: NSView {
         guard card != self.card else { return }
         // A card that shows (at launch, after the update) takes its room at once.
         if card != nil, self.card == nil { (landsAtOnce, pageReported, heldHeight, holdArmed, pendingRememberedHeight) = (true, false, 0, false, nil) }
+        if card != nil, self.card == nil { previewMode = UpdatedCardPreviewMode.tunable.value }
         self.card = card
         closeButton.label = card?.dismissLabel ?? ""
         if card != nil, island == nil { island = surfaces?.island(.updated) }
+        prepareNotes()
         if card == nil {
             if let island {
                 // The card went away (dismissed): its page goes too (cx-asynu).
@@ -337,6 +367,7 @@ final class SidebarUpdatedCardHost: NSView {
         isHovered = hovered
         setHoverShown(closeButton, hovered && card != nil, fades: window != nil)
         island?.setPointerInside(hovered && card != nil)
+        notes.cardHovered(hovered && card != nil)
     }
 
     /// A hidden card is not under the pointer: hidden by the slot (a card of higher priority took it)
@@ -346,8 +377,10 @@ final class SidebarUpdatedCardHost: NSView {
         didSet {
             if isHidden, !oldValue {
                 pointerLeft()
+                notes.hide()
                 hideEndsDrag()
             }
+            pointerHover?.refresh()
         }
     }
 
@@ -356,6 +389,7 @@ final class SidebarUpdatedCardHost: NSView {
         isHovered = false
         setHoverShown(closeButton, false, fades: false)
         island?.setPointerInside(false)
+        notes.cardHovered(false)
     }
 
     /// The room the open hover preview needs from the card's resting edge (the card and the preview's
@@ -369,13 +403,19 @@ final class SidebarUpdatedCardHost: NSView {
     /// slot keeps only ``height`` of room; the rest stands over the list.
     var frameHeight: CGFloat { max(height, overlayHeight) }
 
+    /// The hover preview is open: the page asked for room past the card's own height.
+    var previewIsOpen: Bool { overlayHeight > height + 0.5 }
+
     /// The x's top: centered on the card's title line (the first of its two centered lines), inside
-    /// the card's own height: at the bottom of the view, or at its top for a card resting at the top
-    /// (its open preview grows downward).
+    /// the card's own height. The title line leads the card's lines at the view's top for a card
+    /// resting at the top, and while the hover preview is open (the page lays its header first,
+    /// Lawrence 2026-11-07: "a header (Updated to <version>, What's New link, close), then the
+    /// items"); else it is at the bottom of the view.
     var closeTop: CGFloat {
         let m = Self.metrics, card = height > 0 ? height : bounds.height
         let titleCenter = card / 2 - (m.gap + m.noteSize * 1.3) / 2
-        return (anchor == .top ? 0 : bounds.height - card) + max(Self.closeInset.height, (titleCenter - Self.closeSide / 2).rounded())
+        let headerOnTop = anchor == .top || previewIsOpen
+        return (headerOnTop ? 0 : bounds.height - card) + max(Self.closeInset.height, (titleCenter - Self.closeSide / 2).rounded())
     }
 
     /// Whether the x shows now (proofs).
@@ -407,6 +447,7 @@ final class SidebarUpdatedCardHost: NSView {
         // The composer's corner at the page's zoom: the page's corner grows with the interface scale.
         glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1)
         guard next != glassFrame else { return }
+        defer { pointerHover?.refresh() }
         let moves = preview != glassPreview && window != nil && !glassFrame.isEmpty
         if preview != glassPreview {
             // A new open or close: the latest one decides what the card holds.
@@ -420,7 +461,9 @@ final class SidebarUpdatedCardHost: NSView {
         // is simply there, and so is the glass (review F1 of #38117).
         Motion.web.animateCard(in: self, { glass.animator().frame = next }) { [weak self] in
             // An earlier motion's end leaves a later close's hold alone.
-            if self?.glassMotion == motion { self?.closingHeight = nil }
+            guard let self, glassMotion == motion else { return }
+            closingHeight = nil
+            pointerHover?.refresh()
         }
     }
 
@@ -441,24 +484,5 @@ final class SidebarUpdatedCardHost: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let superview, owns(convert(point, from: superview)) else { return nil }
         return super.hitTest(point)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverArea { removeTrackingArea(hoverArea) }
-        // Active in the active app, not only the key window: a Chromium page's window may hold the key.
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(area)
-        hoverArea = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        super.mouseEntered(with: event)
-        setHovered(true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        setHovered(false)
     }
 }
