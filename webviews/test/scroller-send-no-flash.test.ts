@@ -36,8 +36,8 @@ function page() {
   const key = (id: string, keyName: string) =>
     $(id).dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: keyName, bubbles: true }));
   const press = (id: string) => {
-    $(id).dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true }));
-    $(id).dispatchEvent(new dom.window.Event("pointerup", { bubbles: true }));
+    $(id).dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true, composed: true }));
+    $(id).dispatchEvent(new dom.window.Event("pointerup", { bubbles: true, composed: true }));
   };
   return { scroll, key, press };
 }

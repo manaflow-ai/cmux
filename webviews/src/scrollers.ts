@@ -206,29 +206,54 @@ export function wheelTarget(event: Pick<WheelEvent, "composedPath" | "deltaX" | 
 
 const installed = new WeakSet<Document>();
 
-/** The user's last wheel, key or button in a document: when (ms, `now()`), what it was aimed at,
-    and the key, for a key. */
-export type UserInput = { at: number; target: EventTarget | null; key?: string };
+/** The user's last wheel, key or button in a document: when (ms, `now()`), what it was aimed at
+    (`path`: its composed path, innermost first, across shadow roots), and the key, for a key. */
+export type UserInput = { at: number; target: EventTarget | null; path?: readonly EventTarget[]; key?: string };
 
 /** The user's last input in each document. */
 const lastUserInput = new WeakMap<Document, UserInput>();
 
-/** Keys that scroll whatever the page scrolls by keyboard, wherever focus is (outside a text field). */
-const SCROLLING_KEYS = new Set(["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "]);
+/** Keys that scroll whatever the page scrolls by keyboard, wherever focus is (outside a text field).
+    "Spacebar" is an older engine's name for " ". */
+const SCROLLING_KEYS = new Set([
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  " ",
+  "Spacebar",
+]);
 
 function editable(node: Node): boolean {
   const element = node as HTMLElement;
   return element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.isContentEditable === true;
 }
 
+/** Whether a key pressed on `node` is the control's own and scrolls nothing: Space on a button
+    presses it (a Send button sends), and a select takes the arrows. */
+function control(node: Node, key: string): boolean {
+  const element = node as HTMLElement;
+  if (element.tagName === "SELECT") return true;
+  return (
+    (key === " " || key === "Spacebar") && (element.tagName === "BUTTON" || element.getAttribute?.("role") === "button")
+  );
+}
+
 /** Whether `input` can have scrolled `element`: it was aimed inside it, or it is a scrolling key
     pressed outside a text field. A key or button aimed elsewhere (Enter in a composer, a click on
     Send) leaves the page to scroll it, and that is the page's scroll. */
 function reaches(input: UserInput, element: Element): boolean {
-  const target = input.target as Node | null;
+  const target = (input.path?.[0] ?? input.target) as Node | null;
   if (!target || typeof target.nodeType !== "number") return true;
-  if (target.nodeType === 1 && element.contains(target)) return true;
-  return input.key !== undefined && SCROLLING_KEYS.has(input.key) && !editable(target);
+  // Content in a shadow root is not contained by the scroller around its host: its host, further
+  // out on the composed path, is.
+  for (const node of input.path ?? [target])
+    if ((node as Node).nodeType === 1 && element.contains(node as Node)) return true;
+  return input.key !== undefined && SCROLLING_KEYS.has(input.key) && !editable(target) && !control(target, input.key);
 }
 
 /**
@@ -267,7 +292,8 @@ export function installScrollingMarks(document: Document, timers: ScrollTimers =
   const input = (event: Event) =>
     lastUserInput.set(document, {
       at: now(),
-      target: event.composedPath?.()[0] ?? event.target,
+      target: event.target,
+      path: event.composedPath?.(),
       key: event.type === "keydown" ? (event as KeyboardEvent).key : undefined,
     });
   for (const type of ["wheel", "keydown", "pointerdown"])
