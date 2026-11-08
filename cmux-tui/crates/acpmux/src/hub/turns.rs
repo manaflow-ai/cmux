@@ -387,9 +387,14 @@ impl Hub {
         // A held agent message released, or a queued one sent now, may still name its uploads.
         let mut blocks = blocks;
         let web = opts.control == Control::Web;
-        crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await?;
-        // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
+        // Capture this before guard validation: a stop racing the final setup fence must
+        // still prevent the prompt from starting.
         let stops = session.stops.load(Ordering::SeqCst);
+        crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await?;
+        if let Some(guard) = opts.race_guard.as_ref() {
+            guard()?;
+        }
+        // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
         let control = opts.control;
         let trust_gate = opts.trust_gate;
         let no_queue = opts.no_queue;
@@ -423,7 +428,13 @@ impl Hub {
         let from_agent =
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
+        let race_guard = opts.race_guard.clone();
         let mut accept = |mut v: Value| {
+            if let Some(race_guard) = race_guard.as_ref()
+                && let Err(error) = race_guard()
+            {
+                v = json!({"raceCancelled": true, "error": error.message});
+            }
             if let Some(f) = on_accepted.take() {
                 if supersede.is_some() {
                     super::queue::supersede::mark(&mut v, replaced.get());
@@ -756,6 +767,15 @@ impl Hub {
         } else {
             None
         };
+        // Admission can wait through queueing and dispatch checks. A cancelled race
+        // must refuse the prompt itself, not merely change its acceptance response.
+        if let Some(race_guard) = race_guard.as_ref()
+            && let Err(e) = race_guard()
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
