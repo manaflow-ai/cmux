@@ -93,7 +93,10 @@ fn links_out_of_the_head(dir: &Path, depth: usize) -> bool {
             return std::fs::metadata(&path).is_err();
         }
         let harness = depth == 0 && HEAD_DIRS.iter().any(|d| entry.file_name() == *d);
-        kind.is_dir() && (harness || depth > 0) && depth < 8 && links_out_of_the_head(&path, depth + 1)
+        kind.is_dir()
+            && (harness || depth > 0)
+            && depth < 8
+            && links_out_of_the_head(&path, depth + 1)
     })
 }
 
