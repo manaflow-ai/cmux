@@ -275,7 +275,9 @@ Perceive, act in logical groups, then verify:
    only elements you can act on (not `display_only`, not `enabled: false`;
    `actionable: false` widens it). `gone` is reported only from a whole tree: a
    read bounded by `max_elements`/`max_depth` is checked again without them,
-   and a `truncated` tree ends in `gone_unconfirmed: true`, not gone. It is served by the
+   and a `truncated` tree ends in `gone_unconfirmed: true`, not gone. A gone
+   result says `tree: whole`, or `tree: unknown` when the helper did not report
+   whether its tree was whole. It is served by the
    `upstream` driver's bridge (`acpmux cua-mcp`) only.
 
 Notes:

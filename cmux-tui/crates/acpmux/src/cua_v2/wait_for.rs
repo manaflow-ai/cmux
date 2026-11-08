@@ -59,7 +59,7 @@ const PASSED_ON: [&str; 4] = ["pid", "window_id", "max_depth", "max_elements"];
 pub fn definition() -> Value {
     json!({
         "name": TOOL,
-        "description": "Wait until an element appears in a window's accessibility tree (or, with gone: true, until none matches), instead of sleeping and taking another screenshot. Checks the tree with get_window_state (no screenshot) every interval_ms until timeout_ms. On a match it returns the matching elements in get_window_state's shape, with element_token values from the newest snapshot, ready for click or type_text. On timeout it returns isError with timed_out: true and the count the last check saw. Pass query (get_window_state's case-insensitive match on an element's role, label or value; like it, only indexed rows count, so a plain text or spinner with no element_index never matches), role, or both. A wait to appear matches only elements you can act on (an element_index, not disabled). gone is only reported from a whole tree: a bounded read (max_elements, max_depth) that sees no match is read again without the bounds, and a truncated tree never counts as gone (at the deadline the result says gone_unconfirmed: true).",
+        "description": "Wait until an element appears in a window's accessibility tree (or, with gone: true, until none matches), instead of sleeping and taking another screenshot. Checks the tree with get_window_state (no screenshot) every interval_ms until timeout_ms. On a match it returns the matching elements in get_window_state's shape, with element_token values from the newest snapshot, ready for click or type_text. On timeout it returns isError with timed_out: true and the count the last check saw. Pass query (get_window_state's case-insensitive match on an element's role, label or value; like it, only indexed rows count, so a plain text or spinner with no element_index never matches), role, or both. A wait to appear matches only elements you can act on (an element_index, not disabled). gone is only reported from a whole tree: a bounded read (max_elements, max_depth) that sees no match is read again without the bounds, and a truncated tree never counts as gone (at the deadline the result says gone_unconfirmed: true); a gone result says tree: whole, or tree: unknown when the helper did not report whether its tree was whole.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -263,17 +263,55 @@ pub fn is_actionable(element: &Value) -> bool {
         && element.get("enabled") != Some(&Value::Bool(false))
 }
 
-/// Whether a `get_window_state` result may have left elements out: the
-/// helper says `truncated` (or names a `truncation_reason`), or the read was
-/// bounded by `max_elements`/`max_depth` and the helper did not say
-/// `truncated: false`.
-fn incomplete(state: &Value, bounded: bool) -> bool {
-    match state.get("truncated") {
-        Some(Value::Bool(true)) => true,
-        _ if state.get("truncation_reason").is_some_and(|reason| !reason.is_null()) => true,
-        Some(Value::Bool(false)) => false,
-        _ => bounded,
+/// The helper's own cap on the AX walk when no `max_elements` is passed.
+/// A tree that lists this many actionable rows was cut there, whether or
+/// not the helper says so.
+pub const HELPER_MAX_ELEMENTS: u64 = 2_000;
+
+/// What one `get_window_state` result says about its own completeness.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tree {
+    /// The helper said so: `truncated: false` or `elements_complete: true`.
+    Whole,
+    /// Cut short: `truncated: true`, a `truncation_reason`, as many rows as
+    /// the walk's cap, or a read bounded by `max_elements`/`max_depth` the
+    /// helper did not call whole.
+    Cut,
+    /// An unbounded read the helper said nothing about (the shipped helper
+    /// does not report truncation).
+    Unknown,
+}
+
+impl Tree {
+    fn as_str(self) -> &'static str {
+        match self {
+            Tree::Whole => "whole",
+            Tree::Cut => "cut",
+            Tree::Unknown => "unknown",
+        }
     }
+}
+
+/// How whole the tree of `state` is, for a read of `arguments`.
+pub fn tree(state: &Value, arguments: &Value) -> Tree {
+    let flag = |key: &str| state.get(key).and_then(Value::as_bool);
+    if flag("truncated") == Some(true)
+        || state.get("truncation_reason").is_some_and(|reason| !reason.is_null())
+    {
+        return Tree::Cut;
+    }
+    let cap = arguments.get("max_elements").and_then(Value::as_u64).unwrap_or(HELPER_MAX_ELEMENTS);
+    let rows = ["total_element_count", "element_count"]
+        .iter()
+        .filter_map(|key| state.get(*key).and_then(Value::as_u64))
+        .max();
+    if rows.is_some_and(|rows| rows >= cap) {
+        return Tree::Cut;
+    }
+    if flag("truncated") == Some(false) || flag("elements_complete") == Some(true) {
+        return Tree::Whole;
+    }
+    if BOUNDS.iter().any(|key| arguments.get(*key).is_some()) { Tree::Cut } else { Tree::Unknown }
 }
 
 /// The caller's bounds on the walk, which a "gone" check must not trust.
@@ -328,11 +366,15 @@ pub async fn run<R: TreeReader>(wait: &Wait, reader: &mut R) -> Value {
         last = matching(state, wait.query.as_deref(), wait.role.as_deref(), wait.actionable);
         unconfirmed = false;
         if last.is_empty() == wait.gone {
-            let bounded = BOUNDS.iter().any(|key| arguments.get(*key).is_some());
-            if !wait.gone || !incomplete(state, bounded) {
-                return done(wait, &last, &window, checks, started, widened);
+            if !wait.gone {
+                return done(wait, &last, &window, checks, started, Gone::default());
             }
-            if bounded {
+            let whole = tree(state, &arguments);
+            if whole != Tree::Cut {
+                return done(wait, &last, &window, checks, started, Gone { tree: whole, widened });
+            }
+            let bounded = BOUNDS.iter().any(|key| arguments.get(*key).is_some());
+            if bounded && Instant::now() < deadline {
                 // No match in a bounded tree proves nothing: read the whole
                 // tree now, and keep reading it whole.
                 if let Some(read) = arguments.as_object_mut() {
@@ -343,7 +385,8 @@ pub async fn run<R: TreeReader>(wait: &Wait, reader: &mut R) -> Value {
                 widened = true;
                 continue;
             }
-            // Even the whole tree was cut short: absence stays unknown.
+            // Cut short with no time or bound left to widen: absence stays
+            // unknown.
             unconfirmed = true;
         }
         let now = Instant::now();
@@ -400,12 +443,21 @@ fn done(
     window: &Value,
     checks: u64,
     started: Instant,
-    widened: bool,
+    gone: Gone,
 ) -> Value {
+    let Gone { tree, widened } = gone;
     let elapsed = elapsed_ms(started);
     let text = if wait.gone {
         let whole = if widened { ", read without max_elements/max_depth to be sure" } else { "" };
-        format!("no element is {} any more ({elapsed} ms, {checks} checks{whole})", wait.describe())
+        let unknown = if tree == Tree::Unknown {
+            "; the helper did not say whether its tree was whole (tree: unknown), so a window with more than a few thousand elements may still hold it"
+        } else {
+            ""
+        };
+        format!(
+            "no element is {} any more ({elapsed} ms, {checks} checks{whole}){unknown}",
+            wait.describe()
+        )
     } else {
         format!(
             "found {} element(s): {} ({elapsed} ms, {checks} checks){}",
@@ -425,10 +477,26 @@ fn done(
             "checks": checks,
             "elapsed_ms": elapsed,
             "widened": widened,
+            "tree": if wait.gone { json!(tree.as_str()) } else { Value::Null },
             "pid": window.get("pid"),
             "window_id": window.get("window_id"),
         },
     })
+}
+
+/// How a gone wait proved its absence.
+#[derive(Clone, Copy, Debug)]
+struct Gone {
+    /// The tree of the check that saw no match.
+    tree: Tree,
+    /// The caller's `max_elements`/`max_depth` were dropped to see it.
+    widened: bool,
+}
+
+impl Default for Gone {
+    fn default() -> Gone {
+        Gone { tree: Tree::Whole, widened: false }
+    }
 }
 
 fn timed_out(

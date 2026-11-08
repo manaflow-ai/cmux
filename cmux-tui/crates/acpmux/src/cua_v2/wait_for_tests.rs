@@ -364,3 +364,52 @@ async fn a_wait_to_appear_matches_only_rows_an_agent_can_act_on() {
     .await;
     assert_eq!(result["structuredContent"]["timed_out"], true, "{result}");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_tree_as_large_as_the_helpers_cap_never_counts_as_gone() {
+    // The shipped helper cuts its walk at 2000 nodes without saying so.
+    let mut reader = Script::new(vec![state_with(
+        json!([]),
+        json!({"element_count": HELPER_MAX_ELEMENTS, "total_element_count": HELPER_MAX_ELEMENTS}),
+    )]);
+    let result = run(
+        &wait(
+            json!({"pid": 123, "window_id": 4, "query": "Save", "gone": true, "timeout_ms": 400}),
+        ),
+        &mut reader,
+    )
+    .await;
+    assert_eq!(result["structuredContent"]["timed_out"], true, "{result}");
+    assert_eq!(result["structuredContent"]["gone_unconfirmed"], true);
+}
+
+#[tokio::test(start_paused = true)]
+async fn gone_from_a_tree_the_helper_said_nothing_about_says_tree_unknown() {
+    let mut reader = Script::new(vec![state_with(json!([]), json!({"element_count": 12}))]);
+    let result =
+        run(&wait(json!({"pid": 123, "window_id": 4, "query": "Save", "gone": true})), &mut reader)
+            .await;
+    assert_eq!(result.get("isError"), None, "{result}");
+    assert_eq!(result["structuredContent"]["tree"], "unknown");
+    assert!(result["content"][0]["text"].as_str().unwrap().contains("tree: unknown"));
+    let mut whole = Script::new(vec![state_with(json!([]), json!({"elements_complete": true}))]);
+    let result =
+        run(&wait(json!({"pid": 123, "window_id": 4, "query": "Save", "gone": true})), &mut whole)
+            .await;
+    assert_eq!(result["structuredContent"]["tree"], "whole", "{result}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_bounded_gone_check_at_its_deadline_does_not_read_again() {
+    // timeout_ms: 0 is one check: no widened read after the deadline.
+    let mut reader = Script::new(vec![state(json!([]))]);
+    let result = run(
+        &wait(json!({"pid": 123, "window_id": 4, "query": "Save", "gone": true,
+            "max_elements": 5, "timeout_ms": 0})),
+        &mut reader,
+    )
+    .await;
+    assert_eq!(reader.asked.len(), 1, "{result}");
+    assert_eq!(result["structuredContent"]["timed_out"], true);
+    assert_eq!(result["structuredContent"]["gone_unconfirmed"], true);
+}
