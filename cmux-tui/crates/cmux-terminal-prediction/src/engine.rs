@@ -75,6 +75,17 @@ enum EraseProgress {
     Blanked,
 }
 
+/// Whose echo output inside the untracked window is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UntrackedOutput {
+    /// A keystroke's the engine stopped tracking.
+    Older,
+    /// The oldest tracked keystroke's.
+    Tracked,
+    /// Either; nothing tells them apart.
+    Ambiguous,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Keystroke {
     /// A printable key: the remote echoes this byte and advances one cell.
@@ -217,6 +228,13 @@ pub struct TerminalPredictionEngine {
     /// barrier, or the one a withdrawal was for). A key sent right after it can
     /// reach the remote in the same read and come back merged with it.
     newest_untracked_keystroke: Option<Duration>,
+    /// Printable bytes whose untracked echo may still be on its way, one bit
+    /// each. Output matching the next tracked key is ambiguous while its byte
+    /// is here.
+    untracked_bytes: u128,
+    /// Until when output may come from a key whose effect is not modelled
+    /// (Return, an editing key, a lost read): it can print anything.
+    opaque_echo_until: Option<Duration>,
 }
 
 impl Default for TerminalPredictionEngine {
@@ -248,6 +266,8 @@ impl TerminalPredictionEngine {
             suspended_until: None,
             untracked_echo_deadline: None,
             newest_untracked_keystroke: None,
+            untracked_bytes: 0,
+            opaque_echo_until: None,
         }
     }
 
@@ -404,12 +424,17 @@ impl TerminalPredictionEngine {
         // starts the untracked window that covers it.
         if self.has_barrier() {
             self.newest_untracked_keystroke = Some(now);
+            match byte.filter(|byte| (0x20..=0x7E).contains(byte)) {
+                Some(byte) => self.note_untracked_byte(byte),
+                None => self.mark_opaque_echo(now),
+            }
             return expired;
         }
         let Some(byte) = byte.filter(|byte| (0x20..=0x7E).contains(byte)) else {
             if self.raise_barrier_if_in_flight(now) {
                 return expired;
             }
+            self.mark_opaque_echo(now);
             return self.withdraw_all(false, now, true) || expired;
         };
         if self.entries.len() >= self.configuration.maximum_speculative_glyphs {
@@ -426,6 +451,7 @@ impl TerminalPredictionEngine {
             // sent right behind an untracked one may come back merged with it,
             // or not at all when it undoes it; it is untracked too.
             self.newest_untracked_keystroke = Some(now);
+            self.note_untracked_byte(byte);
             self.untracked_echo_deadline = self
                 .untracked_echo_deadline
                 .map(|deadline| deadline.max(now + self.untracked_echo_settle()));
@@ -567,6 +593,7 @@ impl TerminalPredictionEngine {
         }
         self.scanner = TerminalOutputScanner::new();
         let changed = self.withdraw_all(false, now, false);
+        self.mark_opaque_echo(now);
         self.extend_untracked_deadline(now);
         changed
     }
@@ -608,7 +635,7 @@ impl TerminalPredictionEngine {
         }
         self.end_run();
         if self.untracked_echo_deadline.is_some_and(|deadline| now >= deadline) {
-            self.untracked_echo_deadline = None;
+            self.close_untracked_window();
         }
     }
 
@@ -618,18 +645,25 @@ impl TerminalPredictionEngine {
                 && signal != OutputSignal::Ignorable
                 && !matches!(signal, OutputSignal::AlternateScreen(_))
             {
-                if !self.is_tracked_echo(signal, now) {
-                    // Possibly the echo of a keystroke already given up on.
-                    // The keys tracked since echo after it, in order, so they
-                    // stay; the row it wrote is unknown, so the run starts over.
-                    self.end_run();
-                    return false;
+                match self.classify_untracked_output(signal, now) {
+                    UntrackedOutput::Older => {
+                        // The echo of a keystroke already given up on. The keys
+                        // tracked since echo after it, in order, so they stay;
+                        // the row it wrote is unknown, so the run starts over.
+                        self.end_run();
+                        return false;
+                    }
+                    UntrackedOutput::Ambiguous => {
+                        // It could be either; guessing wrong would put every
+                        // later glyph one cell off, so everything goes.
+                        return self.withdraw_all(false, now, false);
+                    }
+                    // The first tracked key's echo: everything untracked was
+                    // ahead of it in the stream, so it has all arrived.
+                    UntrackedOutput::Tracked => self.close_untracked_window(),
                 }
-                // The first tracked key's echo: everything untracked was ahead
-                // of it in the stream, so it has all arrived.
-                self.untracked_echo_deadline = None;
             } else if now >= deadline {
-                self.untracked_echo_deadline = None;
+                self.close_untracked_window();
             }
         }
         match signal {
@@ -870,6 +904,20 @@ impl TerminalPredictionEngine {
                 .map(|e| e.typed_at)
                 .max()
         };
+        for entry in &self.entries {
+            if entry.standing != Standing::Speculative {
+                continue;
+            }
+            match entry.keystroke {
+                Keystroke::Glyph(byte) => self.untracked_bytes |= 1u128 << (byte & 0x7F),
+                Keystroke::Barrier => {
+                    let until = now + self.untracked_echo_settle();
+                    self.opaque_echo_until =
+                        Some(self.opaque_echo_until.map_or(until, |known| known.max(until)));
+                }
+                Keystroke::Erase(_) => {}
+            }
+        }
         if let Some(newest) = newest_untracked {
             self.newest_untracked_keystroke =
                 Some(self.newest_untracked_keystroke.map_or(newest, |known| known.max(newest)));
@@ -953,6 +1001,7 @@ impl TerminalPredictionEngine {
     /// period covering the keys typed behind it.
     fn resolve_barrier(&mut self, now: Duration) -> bool {
         let changed = self.withdraw_all(false, now, false);
+        self.mark_opaque_echo(now);
         self.extend_untracked_deadline(now);
         changed
     }
@@ -972,20 +1021,46 @@ impl TerminalPredictionEngine {
         }
     }
 
-    /// Whether output inside the untracked window is the echo of the oldest
-    /// key tracked since: the character it expects, arriving no sooner than
-    /// half a measured round trip after that key was sent. An older key's
-    /// echo, which comes first, was sent at least that much earlier.
-    fn is_tracked_echo(&self, signal: OutputSignal, now: Duration) -> bool {
+    /// Whose output this is, inside the untracked window. The oldest key
+    /// tracked since echoes the character it expects, no sooner than half a
+    /// measured round trip after it was sent; an older key's echo comes first
+    /// and was sent at least that much earlier. Output that fits both is
+    /// ambiguous when an untracked key had the same byte, or one whose effect
+    /// is unknown may still be printing.
+    fn classify_untracked_output(&self, signal: OutputSignal, now: Duration) -> UntrackedOutput {
         let OutputSignal::Printable(byte) = signal else {
-            return false;
+            return UntrackedOutput::Older;
         };
         let Some((_, entry)) = self.first_speculative_entry() else {
-            return false;
+            return UntrackedOutput::Older;
         };
         let earliest = entry.typed_at
             + self.smoothed_echo_latency.map_or(Duration::ZERO, |latency| latency / 2);
-        entry.keystroke == Keystroke::Glyph(byte) && now >= earliest
+        if entry.keystroke != Keystroke::Glyph(byte) || now < earliest {
+            return UntrackedOutput::Older;
+        }
+        let opaque = self.opaque_echo_until.is_some_and(|until| now < until);
+        if opaque || self.untracked_bytes & (1u128 << (byte & 0x7F)) != 0 {
+            return UntrackedOutput::Ambiguous;
+        }
+        UntrackedOutput::Tracked
+    }
+
+    fn note_untracked_byte(&mut self, byte: u8) {
+        self.untracked_bytes |= 1u128 << (byte & 0x7F);
+    }
+
+    /// A key whose effect is not modelled was sent or answered now.
+    fn mark_opaque_echo(&mut self, now: Duration) {
+        let until = now + self.untracked_echo_settle();
+        self.opaque_echo_until =
+            Some(self.opaque_echo_until.map_or(until, |known| known.max(until)));
+    }
+
+    fn close_untracked_window(&mut self) {
+        self.untracked_echo_deadline = None;
+        self.untracked_bytes = 0;
+        self.opaque_echo_until = None;
     }
 
     /// How soon after an untracked key another one may reach the remote in the
