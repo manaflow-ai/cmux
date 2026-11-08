@@ -3,9 +3,10 @@ use std::cell::Cell;
 use serde_json::{Value, json};
 
 use super::super::cloud_start_chat::Machine;
+use super::joined::{self, JoinedMachine, Settled, Sources};
 use super::{
     Parsed, Reads, Route, Start, TAKES_VALUE, cloud_words, global_words, here_words, parse,
-    parse_with, pick_target, route, setting_stream, start_words,
+    parse_with, pick_target, route, route_or_joined, setting_stream, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -433,5 +434,188 @@ fn a_daemon_socket_reads_the_setting_from_its_owning_app() {
     assert!(
         setting_stream(|| Ok(named), || -> Result<_, String> { panic!("asked the owner") })
             .is_some()
+    );
+}
+
+/// acpmux's peers: an ssh peer, and the machines only the mesh hub reaches.
+fn hub() -> Vec<Value> {
+    vec![
+        json!({"name": "box", "connected": true, "state": "connected"}),
+        json!({"name": "studio", "connected": true, "state": "connected", "via": "hub"}),
+        json!({"name": "mini-2", "connected": true, "state": "connected", "via": "hub"}),
+    ]
+}
+
+/// The account's joined machines, as `cmux machine list` shows them.
+fn joined_rows() -> Vec<Value> {
+    vec![
+        json!({"kind": "joined", "id": "m_studio", "name": "studio", "hostname": "studio",
+               "state": "online"}),
+        // Labelled: the hub knows it by its hostname.
+        json!({"kind": "joined", "id": "m_desk", "name": "Desk Mac", "hostname": "mini-2",
+               "state": "offline"}),
+        json!({"kind": "joined", "id": "m_attic", "name": "attic", "hostname": "attic",
+               "state": "offline"}),
+        json!({"kind": "joined", "id": "m_old", "name": "old", "hostname": "old",
+               "state": "revoked"}),
+        json!({"kind": "joined", "id": "m_twin_a", "name": "twin-j", "hostname": "twin-a",
+               "state": "online"}),
+        json!({"kind": "joined", "id": "m_twin_b", "name": "twin-j", "hostname": "twin-b",
+               "state": "online"}),
+    ]
+}
+
+/// `route_or_joined` with the device fixtures and the joined machines; `rows` None: the
+/// account's list could not be read.
+fn on_joined(on: &str, rows: Option<Vec<Value>>) -> Result<Route, Value> {
+    route_or_joined(
+        Some(on),
+        Reads { catalog: || Ok(catalog()), signed_in: || true, cloud_machines: || Ok(listed()) },
+        Sources { hub, rows: || rows.ok_or_else(|| "not signed in".to_owned()) },
+    )
+}
+
+fn joined_at(id: Option<&str>, name: &str, host: &str) -> Result<Route, Value> {
+    Ok(Route::Joined(JoinedMachine {
+        id: id.map(str::to_owned),
+        name: name.to_owned(),
+        host: host.to_owned(),
+    }))
+}
+
+/// A joined machine is found by its name, the hub's host name, or `joined:ID`, with no ssh.
+#[test]
+fn a_joined_machine_is_a_chat_target_by_name_or_id() {
+    // By name: the hub lists it, so the account's list is not read.
+    let read = Cell::new(false);
+    let by_hub = route_or_joined(
+        Some("studio"),
+        Reads { catalog: || Ok(catalog()), signed_in: || true, cloud_machines: || Ok(listed()) },
+        Sources {
+            hub,
+            rows: || -> Result<Vec<Value>, String> {
+                read.set(true);
+                Ok(joined_rows())
+            },
+        },
+    );
+    assert_eq!(by_hub, joined_at(None, "studio", "studio"));
+    assert!(!read.get(), "the hub's list named it");
+    // By its account id, and by its label: the hub's host name is the hostname.
+    assert_eq!(
+        on_joined("joined:m_studio", Some(joined_rows())),
+        joined_at(Some("m_studio"), "studio", "studio")
+    );
+    assert_eq!(
+        on_joined("Desk Mac", Some(joined_rows())),
+        joined_at(Some("m_desk"), "Desk Mac", "mini-2")
+    );
+    // The account calls it offline, but the hub lists it now: the hub's word is newer.
+    assert_eq!(
+        on_joined("joined:m_desk", Some(joined_rows())),
+        joined_at(Some("m_desk"), "Desk Mac", "mini-2")
+    );
+    // Without the account's list, a name the hub lists still works.
+    assert_eq!(on_joined("mini-2", None), joined_at(None, "mini-2", "mini-2"));
+}
+
+/// An offline or revoked joined machine is refused with what to do; nothing starts.
+#[test]
+fn an_offline_or_revoked_joined_machine_is_refused_clearly() {
+    let offline = on_joined("attic", Some(joined_rows())).unwrap_err();
+    assert_eq!(offline["code"], "chat_target.unavailable");
+    assert_eq!(offline["retryable"], true);
+    assert!(offline["message"].as_str().unwrap().contains("attic is offline"), "{offline}");
+    assert!(offline["details"]["next"].as_str().unwrap().contains("machine doctor attic"));
+    assert_eq!(code(on_joined("joined:m_attic", Some(joined_rows()))), "chat_target.unavailable");
+
+    let revoked = on_joined("old", Some(joined_rows())).unwrap_err();
+    assert_eq!(revoked["code"], "chat_target.revoked");
+    assert!(revoked["message"].as_str().unwrap().contains("old was revoked"), "{revoked}");
+    assert!(revoked["details"]["next"].as_str().unwrap().contains("cmux machine add"));
+    assert_eq!(code(on_joined("joined:m_old", Some(joined_rows()))), "chat_target.revoked");
+}
+
+/// Unknown, ambiguous and unread joined machines keep a refusal that says what to run next;
+/// the catalog's devices and refusals win over a joined machine.
+#[test]
+fn joined_lookups_never_guess() {
+    assert_eq!(code(on_joined("joined:m_gone", Some(joined_rows()))), "chat_target.unknown_device");
+    assert_eq!(code(on_joined("joined:", Some(joined_rows()))), "chat_target.unknown_device");
+    // Not joined and not a device: the catalog's own refusal.
+    assert_eq!(code(on_joined("nowhere", Some(joined_rows()))), "chat_target.unknown_device");
+    assert_eq!(code(on_joined("twin-j", Some(joined_rows()))), "chat_target.ambiguous_device");
+    // `joined:ID` without the account's list says why it could not be read.
+    let unread = on_joined("joined:m_studio", None).unwrap_err();
+    assert_eq!(unread["code"], "chat_target.unknown_device");
+    assert!(unread["message"].as_str().unwrap().contains("not signed in"), "{unread}");
+    // A catalog device runs as before; an ssh device no joined machine names keeps no_route.
+    assert_eq!(on_joined("machine_mac", Some(joined_rows())), Ok(Route::Here));
+    assert_eq!(code(on_joined("machine_box", Some(joined_rows()))), "chat_target.no_route");
+    assert_eq!(code(on_joined("machine_term", Some(joined_rows()))), "chat_target.not_permitted");
+    // Reserved selectors never become a joined machine.
+    assert_eq!(on_joined("here", Some(joined_rows())), Ok(Route::Here));
+}
+
+/// A device the catalog lists but the CLI had no route to (no_route) starts through acpmux when
+/// a joined machine has that name: the e2e's `cmux chat --on DEVICE` case.
+#[test]
+fn a_catalog_device_without_a_route_is_its_joined_machine() {
+    let catalog = || {
+        Ok(json!([{"id": "machine_studio", "name": "studio", "origin": "server",
+                   "status": "running", "capabilities": ["agent_session"]}]))
+    };
+    let found = route_or_joined(
+        Some("studio"),
+        Reads { catalog, signed_in: || true, cloud_machines: || Ok(listed()) },
+        Sources { hub, rows: || Ok(joined_rows()) },
+    );
+    assert_eq!(found, joined_at(None, "studio", "studio"));
+}
+
+/// The acpmux start: `session start NAME --machine HOST`, with the harness and folder.
+#[test]
+fn a_joined_start_is_acpmuxs_mesh_start() {
+    let machine =
+        JoinedMachine { id: Some("m_desk".into()), name: "Desk Mac".into(), host: "mini-2".into() };
+    let plain = start(&["--on", "Desk Mac", "Run the tests"]);
+    assert_eq!(
+        joined::start_words(&plain, &machine, "run-the-tests-abcd").unwrap(),
+        words(&["session", "start", "run-the-tests-abcd", "--machine", "mini-2", "--json"])
+    );
+    let full = start(&["--on", "x", "--agent", "codex", "--model", "gpt-6", "--cwd", "/w", "go"]);
+    assert_eq!(
+        joined::start_words(&full, &machine, "n").unwrap(),
+        words(&[
+            "session",
+            "start",
+            "n",
+            "--machine",
+            "mini-2",
+            "-m",
+            "codex/gpt-6",
+            "--cwd",
+            "/w",
+            "--json"
+        ])
+    );
+    // --wait waits for a Cloud chat only.
+    assert!(joined::start_words(&start(&["--wait", "go"]), &machine, "n").is_err());
+    // The name: --name, else a few words of the prompt and four letters.
+    assert_eq!(joined::chat_name(&plain, "abcd"), "run-the-tests-abcd");
+    assert_eq!(joined::chat_name(&start(&["--name", "lane-a", "go"]), "abcd"), "lane-a");
+    assert_eq!(joined::chat_name(&start(&[]), "abcd"), "chat-abcd");
+    assert_eq!(joined::chat_name(&start(&["-"]), "abcd"), "chat-abcd");
+}
+
+/// The start's receipt: delivered means the chat runs there.
+#[test]
+fn a_joined_start_settles_on_its_receipt() {
+    assert_eq!(joined::settled(&json!({"state": "queued"})), Settled::Pending);
+    assert_eq!(joined::settled(&json!({"state": "leased"})), Settled::Pending);
+    assert_eq!(joined::settled(&json!({"state": "delivered", "detail": "s1"})), Settled::Started);
+    assert_eq!(
+        joined::settled(&json!({"state": "refused", "detail": "no harness"})),
+        Settled::Refused("refused: no harness".into())
     );
 }

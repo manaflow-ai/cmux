@@ -21,6 +21,9 @@
 //!   and the app's cloud sign-in read now, so a device the person may not use, one that does not
 //!   run agent chats or one not running is refused before anything starts. Nothing here keeps a
 //!   device list of its own.
+//! - `--on MACHINE` or `--on joined:ID`: a machine joined to the account (`cmux machine add`)
+//!   that only the mesh hub reaches, by its name or account id. acpmux starts the chat there and
+//!   picks the carrier (joined.rs); a device name in the catalog is matched first.
 //!
 //! `CMUX_ON` names the target when `--on` is absent, as `DOCKER_CONTEXT` does, and the app's
 //! `chat.on` setting (`cmux config set on cloud`) when both are: `--on` > `CMUX_ON` > `chat.on` >
@@ -88,6 +91,9 @@ Starts an agent chat, right here unless --on names another target:
   --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm list-machines`)
   --on DEVICE        A connected device by its id or name (`cmux machine list`);
                      it must be yours, running, and run agent chats
+  --on MACHINE       A machine you joined (`cmux machine add`), by its name, or
+  --on joined:ID     by its id; acpmux starts the chat there, no ssh needed.
+                     The answer's session_id is HOST/NAME: `cmux chat send HOST/NAME TEXT`
   CMUX_ON=TARGET names the target when --on is absent.
   `cmux config set on TARGET` saves a default target (the chat.on setting),
   used when neither --on nor CMUX_ON names one; `cmux config reset on` clears it.
@@ -109,7 +115,7 @@ EXAMPLES
 Messages to a chat: cmux chat send|read|wait|list (`cmux chat send --help`).
 A refused target exits 1 and says what to run next (chat_target.unknown_device,
 ambiguous_device, unknown_vm, which_vm, vm_starting, not_permitted, unavailable,
-signed_out, no_route).
+signed_out, revoked, no_route).
 Exit codes: 0 ok, 1 refused, 2 bad arguments.
 ";
 
@@ -140,6 +146,8 @@ pub(super) enum Route {
     Here,
     /// A Cloud VM (`cloud start-chat`'s run).
     Cloud(Machine),
+    /// A machine joined to the account, which acpmux reaches through the mesh hub (joined.rs).
+    Joined(joined::JoinedMachine),
 }
 
 /// `Some(exit code)` when `args` is a chat start: `cmux chat` with no words, `cmux chat new …`,
@@ -239,7 +247,7 @@ pub(super) fn parse_with(
                 let on = value()?.trim().to_owned();
                 if on.is_empty() {
                     return Err(UsageError::new(
-                        "--on needs a target: here, cloud, vm, vm:new, vm:ID|NAME or a device",
+                        "--on needs a target: here, cloud, vm, vm:new, vm:ID|NAME, a device or a joined machine",
                     ));
                 }
                 start.on = Some(on);
@@ -568,13 +576,50 @@ fn text<'a>(machine: &'a Value, key: &str) -> Option<&'a str> {
     machine.get(key).and_then(Value::as_str)
 }
 
+/// [`route`], then a joined machine (joined.rs) when the catalog knows no device by that name or
+/// has no CLI route to it. `joined:ID` names only a joined machine and reads no catalog.
+pub(super) fn route_or_joined<C, S, L, H, R>(
+    on: Option<&str>,
+    reads: Reads<C, S, L>,
+    sources: joined::Sources<H, R>,
+) -> Result<Route, Value>
+where
+    C: FnOnce() -> Result<Value, Value>,
+    S: FnOnce() -> bool,
+    L: FnOnce() -> Result<Value, Value>,
+    H: FnOnce() -> Vec<Value>,
+    R: FnOnce() -> Result<Vec<Value>, String>,
+{
+    if let Some(selector) = on.filter(|on| on.starts_with(joined::PREFIX)) {
+        return joined::resolve(selector, sources)
+            .unwrap_or_else(|| {
+                Err(refused(&ChatTargetRefusal::UnknownDevice { id: selector.to_owned() }))
+            })
+            .map(Route::Joined);
+    }
+    let first = route(on, reads);
+    let (Some(selector), Err(error)) = (on, &first) else { return first };
+    let fallback = matches!(
+        error.get("code").and_then(Value::as_str),
+        Some("chat_target.unknown_device" | "chat_target.no_route")
+    );
+    if !fallback {
+        return first;
+    }
+    match joined::resolve(selector, sources) {
+        Some(found) => found.map(Route::Joined),
+        None => first,
+    }
+}
+
 fn run(global: &GlobalArgs, start: Start) -> i32 {
     let reads = Reads {
         catalog: || read_catalog(global),
         signed_in: || cloud_start_chat::app_signed_in(global),
         cloud_machines: || cloud_start_chat::app_machines(global),
     };
-    let route = match route(start.on.as_deref(), reads) {
+    let sources = joined::Sources { hub: joined::hub_peers, rows: || joined::account_rows(global) };
+    let route = match route_or_joined(start.on.as_deref(), reads, sources) {
         Ok(route) => route,
         Err(error) => return super::wire::print_local_error(&error, global.output, 1),
     };
@@ -599,6 +644,7 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             }
             Err(error) => usage_failure(&error, global.output),
         },
+        Route::Joined(machine) => joined::run(global, &start, &machine),
     }
 }
 
@@ -716,6 +762,8 @@ pub(super) fn read_stdin() -> Result<String, String> {
 fn usage_failure(error: &UsageError, output: OutputMode) -> i32 {
     super::app::failure("usage.invalid", &format!("cmux: {}\n{USAGE}", error.0), output, 2)
 }
+
+pub(super) mod joined;
 
 #[cfg(test)]
 mod tests;
