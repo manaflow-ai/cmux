@@ -194,6 +194,7 @@ pub(super) use session::{newest_first, prompt_text, short_text};
 mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
+pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
 pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
