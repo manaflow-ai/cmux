@@ -143,6 +143,11 @@
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--agent-text) 45%, transparent);
 }
+/* A cmux.com deeplink is markdown's autolink too; one nothing names is plain text, as an app link
+   is (composer/deeplinkTokens.ts), and a named one is its chip, which draws no underline. */
+.acpmux-md a:has(.acpmux-web-deeplink) {
+  text-decoration: none;
+}
 /* A `/name` that names a command (composer/slashTokens.ts), at the prompt's start or after a space:
    the link blue, so the person sees the agent will read it as a command. Only its colour changes. */
 .acpmux-md .acpmux-slash-token {

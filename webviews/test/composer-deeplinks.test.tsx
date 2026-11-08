@@ -4,6 +4,7 @@
 // cmux-link-chips.test.tsx covers), so Send sends exactly the URL that was typed; a sent prompt
 // draws a cmux app link as a link (conversation/PromptText.tsx).
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -12,6 +13,7 @@ import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { deeplinks } from "../src/agent-session/acpmux/composer/deeplinks";
+import { WEB_DEEPLINK_CLASS } from "../src/agent-session/acpmux/composer/deeplinkTokens";
 import { PromptTyped } from "../src/agent-session/acpmux/conversation/PromptText";
 
 const WORKSPACE = "cmux-nightly://workspace/ws_cca525bafd4d2b969dad8fdb549b0c61";
@@ -148,6 +150,21 @@ test("a deeplink nothing names stays plain text in the draft and sends exactly a
   const typed = `Open ${WORKSPACE} and the chat at ${AGENT}.`;
   const { field, sent } = await composer(typed);
   expect(drawn()).toBe(typed);
+  await act(async () => {
+    field.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true, cancelable: true }),
+    );
+  });
+  expect(sent).toEqual([typed]);
+});
+
+test("a cmux.com deeplink nothing names is plain text in the draft, not markdown's underlined autolink", async () => {
+  const typed = `Pick up where ${WEB_AGENT} left off`;
+  const { field, sent } = await composer(typed);
+  const link = host.querySelector<HTMLAnchorElement>(".acpmux-md a")!;
+  expect(link.querySelector(`.${WEB_DEEPLINK_CLASS}`)?.textContent).toBe(WEB_AGENT);
+  const css = readFileSync(new URL("../src/agent-session/acpmux/markdownField.css", import.meta.url), "utf8");
+  expect(css).toMatch(new RegExp(`\\.acpmux-md a:has\\(\\.${WEB_DEEPLINK_CLASS}\\) \\{\\s*text-decoration: none;`));
   await act(async () => {
     field.dispatchEvent(
       new window.KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true, cancelable: true }),

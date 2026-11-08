@@ -12,6 +12,9 @@ import { deeplinks } from "./deeplinks";
 // copy and undo see exactly what was typed. An edit reads again only the textblocks it changed,
 // never the whole prompt per key.
 
+/// The class a web deeplink's text draws with inside markdown's autolink (markdownField.css).
+export const WEB_DEEPLINK_CLASS = "acpmux-web-deeplink";
+
 export const deeplinksKey = new PluginKey<DecorationSet>("acpmuxDeeplinks");
 const key = deeplinksKey;
 
@@ -31,7 +34,9 @@ function redecorate(set: DecorationSet, doc: ProseNode, block: ProseNode, pos: n
       Decoration.inline(
         start + link.start,
         start + link.end,
-        {},
+        // A web deeplink is also markdown's autolink: the class lets markdownField.css take the link's
+        // underline off, so one nothing names reads as plain text like an app link (which no autolink takes).
+        link.href.startsWith("https:") ? { class: WEB_DEEPLINK_CLASS } : {},
         // Read by the titles plugin (deeplinkTitles.ts), which draws a known link as what it names.
         { deeplink: link.href },
       ),
