@@ -6395,7 +6395,15 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "permission_auto") {
       if (sessionId) {
         const permission = permissionFromMessage({ ...msg, sessionId }, sessionId);
-        if (permission?.plan) approvePlan(sessionId, permission.plan);
+        const optionId = typeof msg.optionId === "string" ? msg.optionId : undefined;
+        const decision =
+          permission && optionId ? permissionDecision(permission, { outcome: "selected", optionId }) : undefined;
+        const optionAllowed =
+          decision?.kind === "allowed" ||
+          decision?.kind === "allowedAlways" ||
+          (decision === undefined && msg.chatAllowance === true);
+        const autoApproved = msg.cancelled !== true && (typeof msg.fullAccess === "string" || optionAllowed);
+        if (autoApproved && permission?.plan) approvePlan(sessionId, permission.plan);
       }
       if (typeof msg.fullAccess === "string") this.recordFullAccess(event, msg);
     } else if (event.kind === "secret_request")
