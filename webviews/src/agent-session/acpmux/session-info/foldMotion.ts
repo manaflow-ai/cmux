@@ -30,6 +30,15 @@ export const FOLD_MS = MOTION_SETTLE_MS;
 const foldEase = (box: HTMLElement) =>
   box.ownerDocument.defaultView?.getComputedStyle(box).getPropertyValue("--cmux-ease-settle").trim() || MOTION_SETTLE;
 
+/// The settle's length on `box` (--cmux-motion-settle, so a gallery comparison can swap it), else FOLD_MS.
+function foldDuration(box: HTMLElement): number {
+  const value =
+    box.ownerDocument.defaultView?.getComputedStyle(box).getPropertyValue("--cmux-motion-settle").trim() ?? "";
+  const match = /^(\d+(?:\.\d+)?)(ms|s)$/.exec(value);
+  if (!match) return FOLD_MS;
+  return Number(match[1]) * (match[2] === "s" ? 1000 : 1);
+}
+
 export interface FoldMotion<E extends HTMLElement> {
   /// The box that holds the rows: its height moves.
   ref: RefObject<E | null>;
@@ -81,10 +90,17 @@ export function useFoldMotion<E extends HTMLElement>(
     const box = ref.current;
     const start = from.current;
     from.current = undefined;
-    if (!box || start === undefined) return;
     const before = run.current;
     run.current = undefined;
     before?.cancel();
+    if (!box) return;
+    if (start === undefined) {
+      // Opened or closed from outside (a reveal that sets the owner's state, not toggle): no motion,
+      // and none left running from before, so a close it interrupted never holds its clip.
+      delete box.dataset.folding;
+      setHeld(false);
+      return;
+    }
     const end = open ? box.offsetHeight : measureClosed.current(box);
     if (Math.abs(end - start) < 1) {
       // Nothing to move (a fold turned back where it began): no clip left from the one it replaced.
@@ -94,7 +110,7 @@ export function useFoldMotion<E extends HTMLElement>(
     }
     box.dataset.folding = "";
     const fold = box.animate([{ height: `${start}px` }, { height: `${end}px` }], {
-      duration: FOLD_MS,
+      duration: foldDuration(box),
       easing: foldEase(box),
       // Closing holds the end height until the rows that go have left (the effect below).
       fill: open ? "none" : "forwards",
