@@ -627,7 +627,7 @@ import { groupAskedCalls, withoutAskedCalls } from "./permissions/askRows";
 import { withoutQuietThoughts } from "./conversation/thoughts";
 import type { PermissionDecision } from "./permissions/protocol";
 import { planBuildTarget, planFanoutVariants } from "./permissions/planBuild";
-import { runOnOffered } from "./runOnAgents/runOnAgents";
+import { runOnOffered, type RunVariant } from "./runOnAgents/runOnAgents";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
@@ -6272,6 +6272,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
   /// refuses `cloud.startChat` from it. A fresh connection has its origin before any summary.
   const onOtherMachine = remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer";
+  // Run on N agents: the prompt on 2 to 4 agents, each a sub-session of this chat in its own
+  // worktree (`_acpmux/plan/fanout`); the chat's builds card compares them. Only from a chat that
+  // exists on this Mac (runOnOffered). One object while its inputs hold, so a turn's updates never
+  // redraw the composer for it.
+  const runOn = runOnOffered({ quick, sessionId: snapshot.sessionId, cloudPicked, sandboxing, onOtherMachine });
+  const composerRunOnAgents = useMemo(
+    () =>
+      runOn
+        ? {
+            catalog: pickerCatalog,
+            run: (text: string, variants: RunVariant[]) =>
+              callNative("chat.plan.fanout", { prompt: text, variants, sessionId: snapshot.sessionId }),
+          }
+        : undefined,
+    [runOn, snapshot.sessionId, pickerCatalog],
+  );
   const folderRunDefault = useMemo(
     () =>
       sandboxOffered && !onOtherMachine
@@ -10974,18 +10990,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // ⌘↩ on an empty prompt answers a waiting tagged ask's first answer (NextStepCard.tsx),
             // never while a question or permission card waits.
             onEmptyCommandReturn={hasBottomAsk ? undefined : nextStepFire?.fire}
-            // Run on N agents: the prompt on 2 to 4 agents, each a sub-session of this chat in its
-            // own worktree (`_acpmux/plan/fanout`); the chat's builds card compares them. Only from
-            // a chat that exists on this Mac (runOnOffered).
-            runOnAgents={
-              runOnOffered({ quick, sessionId: snapshot.sessionId, cloudPicked, sandboxing, onOtherMachine })
-                ? {
-                    catalog: pickerCatalog,
-                    run: (text, variants) =>
-                      callNative("chat.plan.fanout", { prompt: text, variants, sessionId: snapshot.sessionId }),
-                  }
-                : undefined
-            }
+            runOnAgents={composerRunOnAgents}
             prompt={prompt}
             handle={composerRef}
             onUnplacedQuotes={composerUnplacedQuotes}
