@@ -9,7 +9,6 @@ import {
   type Environment,
   type EnvironmentKind,
   type OffloadKind,
-  type EnvironmentSection,
   type SavedEnvironment,
   environmentDigit,
   environmentForDigit,
@@ -20,60 +19,27 @@ import {
   savedEnvironmentIsFolder,
   savedEnvironmentLabel,
 } from "./environments";
-import { type CloudMachine, isCloudMachineRow } from "./cloudMachines";
+import { isCloudMachineRow } from "./cloudMachines";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
 import { useRowPresence } from "./rowPresence";
 import type { RunModeRows } from "./sandboxRun";
+import {
+  SECTION_LABELS,
+  environmentStateLabel,
+  ENVIRONMENT_SEARCH_MIN,
+  useMachineRefresh,
+} from "./environmentPickerModel";
 
 /// The Cloud row's value (cloudRun.ts): not a machine id, and not an action of the list.
 const CLOUD_RUN = "\u0000cloud-run";
 
-/// The sections (environments.ts `environmentSections`): This Mac, My machines, Cloud and VMs.
-export const SECTION_LABELS: Record<EnvironmentSection, StringKey> = {
-  local: "composer.thisMac",
-  mine: "composer.envMine",
-  fleet: "composer.envFleet",
-};
 /// A machine's kind, which the search also matches ("ssh", "cloud").
 const KIND_LABELS: Record<EnvironmentKind, StringKey> = {
   local: "composer.envLocal",
   ssh: "composer.envSSH",
   cloud: "composer.cloud",
 };
-/// A machine a chat cannot start on yet, in words: its link state as acpmux says it.
-const STATE_LABELS: Record<string, StringKey> = {
-  connecting: "rail.connectorPending",
-  degraded: "rail.connectorPending",
-  reconnecting: "header.reconnecting",
-  // A Cloud machine the account says sleeps (cloudMachines.ts withCloudSleep): a calm state, never
-  // a link to fix.
-  paused: "composer.envPaused",
-  resuming: "composer.envResuming",
-};
-export function environmentStateLabel(environment: Environment): string {
-  if (isCloudMachineRow(environment)) return cloudMachineLabel(environment.cloudMachine);
-  return t(STATE_LABELS[environment.state ?? ""] ?? "composer.envNotConnected");
-}
-/// An account Cloud machine acpmux does not list (cloudMachines.ts): its stage, and what a pick does.
-const CLOUD_STAGE_LABELS: Record<string, StringKey> = {
-  ready: "composer.envOpenMachine",
-  paused: "composer.envPausedResume",
-  requesting: "composer.envStarting",
-  resuming: "composer.envResuming",
-  creating: "composer.envStarting",
-  booting: "composer.envStarting",
-  connecting: "composer.envStarting",
-  // A machine that failed to start says so, never "Not connected", which reads as a link to fix.
-  failed: "switch.failedShort",
-};
-function cloudMachineLabel(machine: CloudMachine): string {
-  return t(CLOUD_STAGE_LABELS[machine.stage] ?? "composer.envNotConnected");
-}
-
-/// The machines (and saved environments) a list holds before it gets a search field.
-export const ENVIRONMENT_SEARCH_MIN = 8;
-
 /// The control's look: its icon and short name, its icon alone, or a bordered chip (gallery variants).
 export type EnvironmentFaceStyle = "label" | "icon" | "chip";
 
@@ -89,23 +55,6 @@ export type EnvironmentRows = "combined" | "where" | "machines" | "run";
 /// The cloud toggle's rows' second lines (a gallery arm copying ChatGPT Work; the shipped picker
 /// has none, design/environment-picker.md rule 0).
 export type RunRowDetails = { local: string; cloud: string };
-
-/// How often an open machine list reads the machines again: acpmux sends no peer events, so a
-/// machine that connects or drops while the list is open shows within this long.
-export const MACHINES_REFRESH_MS = 5_000;
-
-/// While a machine list is open, `refresh` runs as it opens and then every MACHINES_REFRESH_MS;
-/// the timer stops when the list closes or the picker unmounts.
-export function useMachineRefresh(open: boolean, refresh: (() => void) | undefined): void {
-  const latest = useRef(refresh);
-  latest.current = refresh;
-  useEffect(() => {
-    if (!open) return;
-    latest.current?.();
-    const timer = setInterval(() => latest.current?.(), MACHINES_REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [open]);
-}
 
 /// The New Tab page's saved environments in the picker: in Machines… after This Mac, Create
 /// environment on the right-click menu, and Edit environment there while one is picked. One that is
