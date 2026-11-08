@@ -222,9 +222,11 @@ public struct SidebarMapping {
 
     /// The band items (pinned tiles, top rows) of `workspaces`, in order: each row as `rows` maps it with the page
     /// face's favicon only (an item keeps its own title rule), no unread state and its shell's folder as the label.
-    public func tileInfos(_ workspaces: [(workspace: WorkspaceModel, machine: MachineID)], favicon: @escaping (WorkspaceModel, TabModel) -> SidebarFavicon?,
+    /// `pageFace` is the face the list's rows read (`AppServices.sidebarPageFace`).
+    public func tileInfos(_ workspaces: [(workspace: WorkspaceModel, machine: MachineID)],
+                          pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> PageFace,
                           homeShellTitle: (MachineID) -> String?, faces: SidebarFaceBatch? = nil) -> [SidebarItemInfo] {
-        let mapped = self.rows(workspaces, showsUnread: false, pageFace: { workspace, tab, _ in PageFace(favicon: favicon(workspace, tab)) },
+        let mapped = self.rows(workspaces, showsUnread: false, pageFace: { workspace, tab, work in PageFace(favicon: pageFace(workspace, tab, work).favicon) },
                                homeShellTitle: homeShellTitle, foldersLabel: true, faces: faces)
         return zip(workspaces, mapped).map { item, row in
             var info = SidebarItemInfo(workspaceRow: row, color: color(item.workspace.color))
