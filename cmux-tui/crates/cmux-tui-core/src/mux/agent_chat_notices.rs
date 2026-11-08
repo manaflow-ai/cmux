@@ -999,8 +999,11 @@ impl Chat {
         let ended_now = |turn: &String| {
             before.is_some_and(|chat| chat.last_turn.as_ref().map(|(id, _)| id) != Some(turn))
         };
-        // Work it started past its turn ended in this change.
-        let below_ended = before.is_some_and(|chat| chat.works_below) && !self.works_below;
+        // Work it started past its turn ended in this change, and no newer turn runs: one that
+        // does supersedes the old turn's finish, and its own end notifies.
+        let below_ended = before.is_some_and(|chat| chat.works_below)
+            && !self.works_below
+            && self.indicator != "working";
         if let Some((turn, status)) = &self.last_turn
             && !self.works_below
             && (self.unread || below_ended || ended_now(turn))
