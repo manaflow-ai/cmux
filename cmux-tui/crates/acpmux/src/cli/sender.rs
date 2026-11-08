@@ -75,16 +75,40 @@ fn subagent_in(env: impl Fn(&str) -> Option<String>) -> Option<Subagent> {
 
 /// What `acpmux send` prints as `sending as …` for an agent's send: the session its caller token
 /// proves (and the subagent in it), or the name it gave, which proves nothing. `None` for the
-/// person's own send.
-pub fn sending_as_this_process(named: Option<&str>) -> Option<String> {
-    sending_as(|key| std::env::var(key).ok(), named)
+/// person's own send. `current` is the session's name as the daemon has it now
+/// ([`own_session_name`]): `ACPMUX_SESSION_NAME` is the name when its agent started, and a
+/// session named after its start (`acpmux run -n`, a rename) has another one now.
+pub fn sending_as_this_process(named: Option<&str>, current: Option<&str>) -> Option<String> {
+    sending_as(|key| std::env::var(key).ok(), named, current)
 }
 
-fn sending_as(env: impl Fn(&str) -> Option<String>, named: Option<&str>) -> Option<String> {
+/// This process's session's name as the daemon on `client` has it, or None when it runs in no
+/// session or the daemon does not answer within two seconds.
+pub async fn own_session_name(client: &crate::client::Client) -> Option<String> {
+    let env = |key: &str| std::env::var(key).ok();
+    if !in_session(env) {
+        return None;
+    }
+    let id = env("ACPMUX_SESSION_ID")?.trim().to_owned();
+    let params = serde_json::json!({"sessionId": id});
+    let ask = client.request(crate::rpc::method::MUX_INFO, params);
+    let info = tokio::time::timeout(std::time::Duration::from_secs(2), ask).await.ok()?.ok()?;
+    let name = info.get("name").and_then(serde_json::Value::as_str)?;
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
+fn sending_as(
+    env: impl Fn(&str) -> Option<String>,
+    named: Option<&str>,
+    current: Option<&str>,
+) -> Option<String> {
     let set = |key: &str| env(key).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
     if in_session(&env) {
         let id = set("ACPMUX_SESSION_ID").unwrap_or_default();
-        let name = set("ACPMUX_SESSION_NAME").unwrap_or_else(|| id.chars().take(8).collect());
+        let name = current
+            .map(str::to_owned)
+            .or_else(|| set("ACPMUX_SESSION_NAME"))
+            .unwrap_or_else(|| id.chars().take(8).collect());
         return Some(match subagent_in(&env) {
             Some(sub) => format!(
                 "{name}'s {} (only a reply to this send reaches it; `acpmux send {name}` reaches its lead)",
@@ -290,7 +314,10 @@ mod tests {
                 ("CLAUDE_CODE_CHILD_SESSION", "1"),
             ];
             assert_eq!(subagent_in(env(&lead)), None, "the lead's own shell has the same env");
-            assert_eq!(sending_as(env(&lead), None).as_deref(), Some("claude-17"));
+            assert_eq!(sending_as(env(&lead), None, None).as_deref(), Some("claude-17"));
+            // Renamed after its agent started: the daemon's name now wins over the env's.
+            let renamed = sending_as(env(&lead), None, Some("alpha"));
+            assert_eq!(renamed.as_deref(), Some("alpha"));
             let mut sub = lead.to_vec();
             sub.push((SUBAGENT_ENV, "general-purpose:a0a68e7af3df5967e"));
             let found = subagent_in(env(&sub)).expect("marked");
@@ -300,7 +327,7 @@ mod tests {
                 found.to_value(),
                 serde_json::json!({"id": "a0a68e7af3df5967e", "type": "general-purpose"})
             );
-            let shown = sending_as(env(&sub), None).unwrap();
+            let shown = sending_as(env(&sub), None, None).unwrap();
             assert!(shown.starts_with("claude-17's general-purpose subagent a0a68e7a"), "{shown}");
             // No token: no session to be a subagent of. A mark that is no TYPE:ID word pair: none.
             let unproven = [("ACPMUX_SESSION_ID", "s1"), (SUBAGENT_ENV, "general-purpose:a1")];
@@ -311,10 +338,10 @@ mod tests {
                 assert_eq!(subagent_in(env(&odd)), None, "{bad:?}");
             }
             assert_eq!(
-                sending_as(env(&[]), Some("reach-lane")).as_deref(),
+                sending_as(env(&[]), Some("reach-lane"), None).as_deref(),
                 Some("reach-lane (a name it gave, not proven)")
             );
-            assert_eq!(sending_as(env(&[]), None), None, "the person's own send");
+            assert_eq!(sending_as(env(&[]), None, None), None, "the person's own send");
         }
     }
 

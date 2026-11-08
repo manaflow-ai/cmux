@@ -745,13 +745,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if harness_agent {
                 prompt_id.subagent =
                     crate::cli::sender::subagent_of_this_process().map(|s| s.to_value());
-                if !json_out
-                    && let Some(shown) =
-                        crate::cli::sender::sending_as_this_process(prompt_id.from_agent.as_deref())
-                {
-                    eprintln!("sending as {shown}");
-                }
             }
+            let announce = harness_agent && !json_out;
             // An agent that waits for the reply asks a question, which wakes an idle receiver
             // (`prompt_class.rs`); a class it names stays. A message that would still not wake
             // the receiver is refused at once instead of waiting for a turn that never comes.
@@ -815,6 +810,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let (mesh_prompt, mesh_steer) = (prompt_id.clone(), steer);
             let sent = async move {
                 let client = before_deadline(deadline, &session, connect(true)).await?;
+                if announce {
+                    let current = crate::cli::sender::own_session_name(&client).await;
+                    let shown = crate::cli::sender::sending_as_this_process(
+                        prompt_id.from_agent.as_deref(),
+                        current.as_deref(),
+                    );
+                    if let Some(shown) = shown {
+                        eprintln!("sending as {shown}");
+                    }
+                }
                 // Any size and number: inline when they fit one message with the text, else uploaded
                 // to the chat first and named by reference (`attach.rs`).
                 if !attach.is_empty() {
