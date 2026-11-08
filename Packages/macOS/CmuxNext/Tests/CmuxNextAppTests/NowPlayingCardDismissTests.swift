@@ -206,8 +206,9 @@ import Testing
         #expect(h.savedEnabled() == false, "Never Show Media Card left sidebar.nowPlaying.enabled on")
         #expect(!h.cardIsShown)
         _ = h.services.registry.perform("nowPlaying.showCard")
-        await h.until { h.cardIsShown && h.savedEnabled() == true }
-        #expect(h.savedEnabled() == true, "Show Media Card did not turn sidebar.nowPlaying.enabled on")
+        // On is the default: the write removes the key (#38119), so cmux.json keeps no copy.
+        await h.until { h.cardIsShown && h.savedEnabled() == nil }
+        #expect(h.savedEnabled() == nil, "Show Media Card did not turn sidebar.nowPlaying.enabled back to its default, on")
         #expect(h.cardIsShown)
     }
 

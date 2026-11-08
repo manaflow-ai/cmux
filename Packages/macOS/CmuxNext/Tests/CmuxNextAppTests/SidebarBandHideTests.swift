@@ -123,9 +123,10 @@ import Testing
         #expect(band.contains("Show Spaces"))
         #expect(!band.contains("Show Profile Button"))
         _ = h.services.registry.perform("sidebar.spaces.show")
-        await h.until { !h.sidebar.profileBar.isHidden && h.saved("showSpaces") == true }
+        // Shown is the default: the write removes the key (#38119), so cmux.json keeps no copy.
+        await h.until { !h.sidebar.profileBar.isHidden && h.saved("showSpaces") == nil }
         #expect(!h.sidebar.profileBar.isHidden)
-        #expect(h.saved("showSpaces") == true)
+        #expect(h.saved("showSpaces") == nil, "shown is the default: sidebar.showSpaces leaves cmux.json")
     }
 
     @Test func theProfileButtonHidesFromItsMenuAndTheBandShowsItAgain() async throws {

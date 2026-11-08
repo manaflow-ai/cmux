@@ -41,11 +41,13 @@ import Testing
         for descriptor in SettingsSchema.all {
             let key = JSONValue.string(descriptor.id)
             let before = settings.validatedWrites[descriptor.id, default: 0]
+            // A write of the default removes the key (#38119): the file then keeps nothing.
+            let stored: JSONValue? = settings.isUnsetValue(descriptor.sampleValue, of: descriptor) ? nil : descriptor.sampleValue
             let set = await call(router, "settings.set", ["path": key, "value": descriptor.sampleValue, "confirm": true])
             #expect((try? set.get()) != nil, "\(descriptor.id): \(set)")
             #expect(settings.validatedWrites[descriptor.id, default: 0] == before + 1, "\(descriptor.id) skipped the settings owner")
             let read = try await settings.file.value(at: descriptor.path)
-            #expect(read == descriptor.sampleValue, "\(descriptor.id)")
+            #expect(read == stored, "\(descriptor.id)")
             guard case .failure(let refused) = await call(router, "settings.set", ["path": key, "value": ["wrong": true]]) else {
                 Issue.record("\(descriptor.id) accepted a value of the wrong type")
                 continue
