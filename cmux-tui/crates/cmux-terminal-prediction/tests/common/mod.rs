@@ -514,8 +514,10 @@ impl PredictionBreakRig {
     fn sync(&mut self) {
         let glyphs = self.engine.glyphs();
         let cursor = self.screen.cursor;
-        self.overlay =
-            glyphs.iter().map(|glyph| (cursor + i64::from(glyph.offset), glyph.character)).collect();
+        self.overlay = glyphs
+            .iter()
+            .map(|glyph| (cursor + i64::from(glyph.offset), glyph.character))
+            .collect();
         self.is_tracking_frames = !glyphs.is_empty();
     }
 
@@ -599,7 +601,8 @@ impl PredictionBreakRig {
             } else if self.hidden_after_delete.contains(&column) {
                 self.resurrected_now = true;
                 if self.resurrections.len() < 20 {
-                    let shown_after_prompt = visible.get(Self::prompt_width()..).unwrap_or_default();
+                    let shown_after_prompt =
+                        visible.get(Self::prompt_width()..).unwrap_or_default();
                     self.resurrections.push(RigFinding {
                         time,
                         column,
@@ -745,7 +748,8 @@ impl RigScript {
     pub fn press_after(&mut self, key: RigKey, gap_milliseconds: i64) {
         self.clock += gap_milliseconds * 1000;
         let jitter = self.jitter;
-        let trip = self.round_trip + if jitter > 0 { self.random.int_in(-jitter..=jitter) } else { 0 };
+        let trip =
+            self.round_trip + if jitter > 0 { self.random.int_in(-jitter..=jitter) } else { 0 };
         let uplink = (trip / 2).max(1);
         self.keystrokes.push(RigKeystroke {
             key,

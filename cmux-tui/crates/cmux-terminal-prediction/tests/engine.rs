@@ -1,6 +1,8 @@
 //! Port of classic cmux's `TerminalPredictionEngineTests.swift`.
 
-use cmux_terminal_prediction::{PredictionConfiguration, Standing, Status, TerminalPredictionEngine};
+use cmux_terminal_prediction::{
+    PredictionConfiguration, Standing, Status, TerminalPredictionEngine,
+};
 use std::time::Duration;
 
 fn ms(milliseconds: u64) -> Duration {

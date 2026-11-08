@@ -8,6 +8,7 @@
 
 mod common;
 
+use SimulatedKey::{Backspace, Character};
 use cmux_terminal_prediction::{PredictionConfiguration, Standing, TerminalPredictionEngine};
 use common::{
     SimulatedEraseForm, SimulatedKey, SimulatedLineEditor, SimulatedScreen, SimulationRandom,
@@ -17,7 +18,6 @@ use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::fmt;
 use std::ops::RangeInclusive;
-use SimulatedKey::{Backspace, Character};
 
 /// One keystroke and every random choice that follows from it, so a case
 /// shrinks by deleting keystrokes without disturbing the others' timing.
@@ -81,7 +81,11 @@ impl fmt::Display for SimulationFailure {
 enum SimulationEvent {
     Keystroke(usize),
     /// A read from the PTY: the tee and ghostty's parser see it at once.
-    Read { bytes: Vec<u8>, drain_delay: i64, render_delay: i64 },
+    Read {
+        bytes: Vec<u8>,
+        drain_delay: i64,
+        render_delay: i64,
+    },
     /// The main actor drains the tee's inbox into the engine.
     Drain,
     /// A rendered frame reaches the main actor.
@@ -195,7 +199,8 @@ impl PredictionSimulation {
         if self.simulation_case.coalesces_typeahead {
             let mut group: Option<TypeaheadGroup> = None;
             for (keystroke, &arrival) in keystrokes.iter().zip(&arrivals) {
-                if let Some(full) = group.take_if(|group| arrival > group.start + TYPEAHEAD_WINDOW) {
+                if let Some(full) = group.take_if(|group| arrival > group.start + TYPEAHEAD_WINDOW)
+                {
                     self.flush_group(&mut remote, full, &mut replied_at);
                 }
                 group
@@ -375,7 +380,8 @@ impl PredictionSimulation {
                 standing: glyph.standing,
             })
             .collect();
-        self.trace.push(format!("    overlay {} at cursor {cursor}", describe_overlay(&self.overlay)));
+        self.trace
+            .push(format!("    overlay {} at cursor {cursor}", describe_overlay(&self.overlay)));
         if self.overlay.iter().any(|glyph| glyph.standing == Standing::Speculative) {
             self.predicted_events += 1;
         }
@@ -507,10 +513,13 @@ impl PredictionSimulation {
             Standing::Speculative => {
                 // Where the remote will put it once every typed key is echoed.
                 let row = self.intended.row();
-                let landing = usize::try_from(column).ok().and_then(|index| row.get(index).copied());
+                let landing =
+                    usize::try_from(column).ok().and_then(|index| row.get(index).copied());
                 if landing != Some(character) {
-                    let holds = landing
-                        .map_or_else(|| "nothing".to_owned(), |byte| format!("'{}'", char::from(byte)));
+                    let holds = landing.map_or_else(
+                        || "nothing".to_owned(),
+                        |byte| format!("'{}'", char::from(byte)),
+                    );
                     return Some(format!(
                         "speculative '{shown}' drawn at column {column}, which will hold {holds}"
                     ));
@@ -519,8 +528,10 @@ impl PredictionSimulation {
             Standing::Confirmed => {
                 let actual = self.view(seen_by_engine).character(column);
                 if actual != Some(character) {
-                    let holds = actual
-                        .map_or_else(|| "nothing".to_owned(), |byte| format!("'{}'", char::from(byte)));
+                    let holds = actual.map_or_else(
+                        || "nothing".to_owned(),
+                        |byte| format!("'{}'", char::from(byte)),
+                    );
                     return Some(format!(
                         "confirmed '{shown}' drawn at column {column}, which holds {holds}"
                     ));
@@ -615,11 +626,7 @@ fn make(seed: u64) -> SimulationCase {
             }
             6 => {
                 // A held key: the initial delay, then autorepeat.
-                let key = if builder.random.bool() {
-                    Backspace
-                } else {
-                    builder.character()
-                };
+                let key = if builder.random.bool() { Backspace } else { builder.character() };
                 let gap = builder.random.int_in(20_000..=200_000);
                 builder.add(key, gap);
                 for _ in 0..builder.random.int_in(2..=12) {

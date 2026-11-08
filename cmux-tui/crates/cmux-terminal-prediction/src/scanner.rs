@@ -145,7 +145,8 @@ impl TerminalOutputScanner {
         let mut skim = OutputSkim::default();
         let mut index = 0;
         while index < bytes.len() {
-            if self.state == State::Ground && self.detour_bytes.is_none() && skim.touched_the_screen {
+            if self.state == State::Ground && self.detour_bytes.is_none() && skim.touched_the_screen
+            {
                 // Text, controls and newlines only touch the screen, which is
                 // already known; only an escape can switch screens.
                 match bytes[index..].iter().position(|&byte| byte == 0x1B) {
@@ -267,7 +268,11 @@ impl TerminalOutputScanner {
                 // Designating ASCII into G0-G3 changes no cell. Any other set
                 // (DEC line drawing, say) changes how later printables render.
                 let designates_ascii = (0x28..=0x2B).contains(&intermediate) && byte == b'B';
-                Some(if designates_ascii { OutputSignal::Ignorable } else { OutputSignal::Disruptive })
+                Some(if designates_ascii {
+                    OutputSignal::Ignorable
+                } else {
+                    OutputSignal::Disruptive
+                })
             }
             State::ControlSequence => {
                 // Parameter and intermediate bytes accumulate; 0x40..=0x7E ends it.
@@ -359,9 +364,18 @@ fn classify_control_sequence(parameters: &[u8], overflowed: bool, final_byte: u8
     let default_or_zero = parameters.is_empty() || parameters == b"0";
     match final_byte {
         b'D' if default_or_one => return OutputSignal::CursorLeft,
-        b'D' if !overflowed && parameters.len() <= 3 && parameters.iter().all(u8::is_ascii_digit) => {
-            let count = parameters.iter().fold(0usize, |count, digit| count * 10 + usize::from(digit - b'0'));
-            return if count <= 1 { OutputSignal::CursorLeft } else { OutputSignal::CursorLeftBy(count) };
+        b'D' if !overflowed
+            && parameters.len() <= 3
+            && parameters.iter().all(u8::is_ascii_digit) =>
+        {
+            let count = parameters
+                .iter()
+                .fold(0usize, |count, digit| count * 10 + usize::from(digit - b'0'));
+            return if count <= 1 {
+                OutputSignal::CursorLeft
+            } else {
+                OutputSignal::CursorLeftBy(count)
+            };
         }
         b'P' if default_or_one => return OutputSignal::ClearAtCursor,
         b'K' if default_or_zero => return OutputSignal::ClearAtCursor,

@@ -258,8 +258,11 @@ fn one_stall_does_not_turn_prediction_off_until_the_user_pauses() {
     for index in 0..40_u64 {
         let typed_at = 1_000 + index * 120;
         // The fifth key's echo stalls 2 s; everything behind it queues.
-        let echo_at =
-            if index < 4 { typed_at + 300 } else { u64::max(1_000 + 4 * 120 + 2_300, typed_at + 300) };
+        let echo_at = if index < 4 {
+            typed_at + 300
+        } else {
+            u64::max(1_000 + 4 * 120 + 2_300, typed_at + 300)
+        };
         let byte = b'a' + (index % 26) as u8;
         events.push((typed_at, 1, byte));
         events.push((echo_at, 0, byte));

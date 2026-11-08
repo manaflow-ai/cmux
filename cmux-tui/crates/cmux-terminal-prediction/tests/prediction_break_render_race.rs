@@ -34,7 +34,11 @@ fn a_drain_that_beats_the_parser_draws_echoed_glyphs_over_the_cells_to_their_lef
     let mut rig = PredictionBreakRig::new(script().keystrokes);
     rig.parse_lag_micros = 3_000;
     rig.run();
-    assert!(rig.wrong_text.is_empty(), "{}", rig.wrong_text[..rig.wrong_text.len().min(6)].join("\n"));
+    assert!(
+        rig.wrong_text.is_empty(),
+        "{}",
+        rig.wrong_text[..rig.wrong_text.len().min(6)].join("\n")
+    );
 }
 
 /// A frame presented between the drain and the parse retires the held

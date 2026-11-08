@@ -86,8 +86,8 @@ fn no_caret_left_of_the_cursor_while_a_retracted_echo_awaits_its_erase() {
     assert_eq!(layout.cell_count, 1);
 
     // An ordinary held confirmation keeps its caret on the cursor.
-    let ordinary = PredictionOverlayLayout::new(&glyphs(&[-1], Standing::Confirmed), 5, 80)
-        .expect("a layout");
+    let ordinary =
+        PredictionOverlayLayout::new(&glyphs(&[-1], Standing::Confirmed), 5, 80).expect("a layout");
     assert_eq!(ordinary.caret_offset, Some(0));
 }
 

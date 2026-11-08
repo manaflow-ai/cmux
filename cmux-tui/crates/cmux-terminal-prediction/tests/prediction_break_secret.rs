@@ -74,7 +74,10 @@ fn type_ahead_into_a_password_prompt_is_not_drawn() {
     }
     // ssh turned echo off at 2 650 remote time; its prompt is still in flight.
     let drawn = s.drawn();
-    assert!(drawn.is_empty(), "password characters drawn in clear before the prompt arrived: \"{drawn}\"");
+    assert!(
+        drawn.is_empty(),
+        "password characters drawn in clear before the prompt arrived: \"{drawn}\""
+    );
 }
 
 /// sudo with `pwfeedback`, npm/inquirer and most TUI prompts mask each

@@ -139,7 +139,9 @@ impl Entry {
 
     /// Whether its cell is drawn blank: deleted by the user, not yet by the remote.
     fn is_blanked(&self) -> bool {
-        self.is_glyph() && !self.is_hidden && (self.is_masked || (self.is_retracted && self.is_displayed))
+        self.is_glyph()
+            && !self.is_hidden
+            && (self.is_masked || (self.is_retracted && self.is_displayed))
     }
 
     /// Whether the overlay covers its cell at all.
@@ -166,7 +168,10 @@ impl Entry {
     }
 
     fn is_held_confirmation(&self) -> bool {
-        self.is_glyph() && self.standing == Standing::Confirmed && !self.is_retracted && !self.is_masked
+        self.is_glyph()
+            && self.standing == Standing::Confirmed
+            && !self.is_retracted
+            && !self.is_masked
     }
 }
 
@@ -217,7 +222,11 @@ impl Default for TerminalPredictionEngine {
 }
 
 impl TerminalPredictionEngine {
-    pub fn new(configuration: PredictionConfiguration, is_enabled: bool, is_remote_surface: bool) -> Self {
+    pub fn new(
+        configuration: PredictionConfiguration,
+        is_enabled: bool,
+        is_remote_surface: bool,
+    ) -> Self {
         Self {
             configuration,
             is_enabled,
@@ -256,24 +265,38 @@ impl TerminalPredictionEngine {
     /// echo landed in. Speculative glyphs start at offset 0. Entries typed
     /// before the run armed are never drawn, but still occupy their cell.
     pub fn glyphs(&self) -> Vec<PredictedGlyph> {
-        let cursor = self.entries.iter().map(Entry::echoed_advance).sum::<i32>() - self.rewound.len() as i32;
+        let cursor =
+            self.entries.iter().map(Entry::echoed_advance).sum::<i32>() - self.rewound.len() as i32;
         let mut cell = 0;
         let mut drawn = Vec::new();
         for entry in &self.entries {
             if entry.is_blanked() {
-                drawn.push(PredictedGlyph { character: b' ', offset: cell - cursor, standing: Standing::Erased });
+                drawn.push(PredictedGlyph {
+                    character: b' ',
+                    offset: cell - cursor,
+                    standing: Standing::Erased,
+                });
             } else if entry.is_drawn()
                 && let Keystroke::Glyph(character) = entry.keystroke
             {
-                drawn.push(PredictedGlyph { character, offset: cell - cursor, standing: entry.standing });
+                drawn.push(PredictedGlyph {
+                    character,
+                    offset: cell - cursor,
+                    standing: entry.standing,
+                });
             }
             cell += entry.cell_advance();
         }
         // A glyph typed after a Backspace lands on the cell the blank masks;
         // the glyph is what the cell will show, so the blank gives way.
-        let lettered: Vec<i32> =
-            drawn.iter().filter(|glyph| glyph.standing != Standing::Erased).map(|glyph| glyph.offset).collect();
-        drawn.retain(|glyph| glyph.standing != Standing::Erased || !lettered.contains(&glyph.offset));
+        let lettered: Vec<i32> = drawn
+            .iter()
+            .filter(|glyph| glyph.standing != Standing::Erased)
+            .map(|glyph| glyph.offset)
+            .collect();
+        drawn.retain(|glyph| {
+            glyph.standing != Standing::Erased || !lettered.contains(&glyph.offset)
+        });
         drawn
     }
 
@@ -292,7 +315,8 @@ impl TerminalPredictionEngine {
     /// timer for this; otherwise a prediction made just before the link died
     /// would stay drawn until the user typed again.
     pub fn next_expiry(&self) -> Option<Duration> {
-        let hold_ends = self.layout_held_since.map(|since| since + self.configuration.confirmation_hold);
+        let hold_ends =
+            self.layout_held_since.map(|since| since + self.configuration.confirmation_hold);
         if !self.entries.iter().any(Entry::is_on_screen) {
             return hold_ends;
         }
@@ -331,7 +355,9 @@ impl TerminalPredictionEngine {
         }
         match self.smoothed_echo_latency {
             None => Status::Listening,
-            Some(latency) if latency <= self.configuration.engage_above_echo_latency => Status::LinkIsFastEnough,
+            Some(latency) if latency <= self.configuration.engage_above_echo_latency => {
+                Status::LinkIsFastEnough
+            }
             Some(_) => Status::Predicting,
         }
     }
@@ -420,7 +446,8 @@ impl TerminalPredictionEngine {
         // their erases, which occupy no cells, so it is the one the remote erases.
         let index = self.entries.iter().rposition(|entry| entry.is_glyph() && !entry.is_retracted);
         let Some(index) = index.filter(|&index| {
-            self.entries[index].is_drawn() && self.entries.len() < self.configuration.maximum_speculative_glyphs
+            self.entries[index].is_drawn()
+                && self.entries.len() < self.configuration.maximum_speculative_glyphs
         }) else {
             if self.raise_barrier_if_in_flight(now) {
                 return expired;
@@ -431,7 +458,11 @@ impl TerminalPredictionEngine {
         // retracted the same way: until the erase, its cell is blank.
         self.entries[index].is_retracted = true;
         self.entries[index].confirmed_at = None;
-        self.entries.push(Entry::new(Keystroke::Erase(EraseProgress::AwaitingMoveLeft), now, false));
+        self.entries.push(Entry::new(
+            Keystroke::Erase(EraseProgress::AwaitingMoveLeft),
+            now,
+            false,
+        ));
         true
     }
 
@@ -448,7 +479,10 @@ impl TerminalPredictionEngine {
         }
         let mut changed = false;
         for entry in &mut self.entries {
-            if entry.standing == Standing::Speculative && entry.is_glyph() && !entry.is_retracted && !entry.is_masked
+            if entry.standing == Standing::Speculative
+                && entry.is_glyph()
+                && !entry.is_retracted
+                && !entry.is_masked
             {
                 entry.is_masked = true;
                 changed = true;
@@ -588,7 +622,9 @@ impl TerminalPredictionEngine {
                 self.hide_all(counting, now)
             }
             OutputSignal::Printable(byte) => self.consume_printable(byte, now),
-            OutputSignal::CursorLeft if !self.is_awaiting_erase() && !self.is_awaiting_barrier() => {
+            OutputSignal::CursorLeft
+                if !self.is_awaiting_erase() && !self.is_awaiting_barrier() =>
+            {
                 self.rewind(1, now)
             }
             OutputSignal::CursorLeftBy(count) => {
@@ -601,8 +637,14 @@ impl TerminalPredictionEngine {
                 self.rewind(count, now)
             }
             // Cleared what it moved back over; a rewrite puts it back.
-            OutputSignal::ClearAtCursor if !self.rewound.is_empty() && !self.is_awaiting_erase() => false,
-            OutputSignal::CursorLeft | OutputSignal::ClearAtCursor => self.consume_erase(signal, now),
+            OutputSignal::ClearAtCursor
+                if !self.rewound.is_empty() && !self.is_awaiting_erase() =>
+            {
+                false
+            }
+            OutputSignal::CursorLeft | OutputSignal::ClearAtCursor => {
+                self.consume_erase(signal, now)
+            }
         }
     }
 
@@ -647,7 +689,9 @@ impl TerminalPredictionEngine {
             Keystroke::Barrier => return self.resolve_barrier(now),
             // Mid-erase, the only printable a line editor sends is the space of
             // `BS SP BS`; the erase withdraws on anything else.
-            Keystroke::Erase(_) => return self.advance_erase(index, OutputSignal::Printable(byte), now),
+            Keystroke::Erase(_) => {
+                return self.advance_erase(index, OutputSignal::Printable(byte), now);
+            }
             Keystroke::Glyph(expected) => expected,
         };
         if expected != byte {
@@ -711,7 +755,8 @@ impl TerminalPredictionEngine {
 
     /// Whether the next echo expected is (the rest of) an erase.
     fn is_awaiting_erase(&self) -> bool {
-        self.first_speculative().is_some_and(|index| matches!(self.entries[index].keystroke, Keystroke::Erase(_)))
+        self.first_speculative()
+            .is_some_and(|index| matches!(self.entries[index].keystroke, Keystroke::Erase(_)))
     }
 
     /// Advances the erase at `index`, the next echo expected. A mismatch
@@ -755,7 +800,12 @@ impl TerminalPredictionEngine {
 
     /// Drops everything. `sending_keystroke`: the withdrawal is for a key sent
     /// now, whose echo is as untracked as those of the entries dropped.
-    fn withdraw_all(&mut self, counting_misprediction: bool, now: Duration, sending_keystroke: bool) -> bool {
+    fn withdraw_all(
+        &mut self,
+        counting_misprediction: bool,
+        now: Duration,
+        sending_keystroke: bool,
+    ) -> bool {
         let was_visible = self.entries.iter().any(Entry::is_drawn);
         let was_on_screen = self.any_on_screen();
         if counting_misprediction && was_visible {
@@ -767,11 +817,16 @@ impl TerminalPredictionEngine {
         let newest_untracked = if sending_keystroke {
             Some(now)
         } else {
-            self.entries.iter().filter(|entry| entry.standing == Standing::Speculative).map(|e| e.typed_at).max()
+            self.entries
+                .iter()
+                .filter(|entry| entry.standing == Standing::Speculative)
+                .map(|e| e.typed_at)
+                .max()
         };
         if let Some(newest) = newest_untracked {
             let deadline = newest + self.untracked_echo_settle();
-            self.untracked_echo_deadline = Some(self.untracked_echo_deadline.map_or(deadline, |d| d.max(deadline)));
+            self.untracked_echo_deadline =
+                Some(self.untracked_echo_deadline.map_or(deadline, |d| d.max(deadline)));
         }
         self.entries.clear();
         self.end_run();
@@ -825,17 +880,17 @@ impl TerminalPredictionEngine {
 
     /// Whether the next output answers a barrier rather than a prediction.
     fn is_awaiting_barrier(&self) -> bool {
-        self.first_speculative().is_some_and(|index| self.entries[index].keystroke == Keystroke::Barrier)
+        self.first_speculative()
+            .is_some_and(|index| self.entries[index].keystroke == Keystroke::Barrier)
     }
 
     /// Puts a barrier behind the glyphs in flight, when the user can see any,
     /// so they stay drawn until their own echoes confirm them. Returns whether
     /// it did; without one the caller withdraws.
     fn raise_barrier_if_in_flight(&mut self, now: Duration) -> bool {
-        let in_flight = self
-            .entries
-            .iter()
-            .any(|entry| (entry.is_drawn() && entry.standing == Standing::Speculative) || entry.is_blanked());
+        let in_flight = self.entries.iter().any(|entry| {
+            (entry.is_drawn() && entry.standing == Standing::Speculative) || entry.is_blanked()
+        });
         if !in_flight {
             return false;
         }
@@ -855,7 +910,8 @@ impl TerminalPredictionEngine {
 
     fn extend_untracked_deadline(&mut self, now: Duration) {
         let deadline = now + self.untracked_echo_settle();
-        self.untracked_echo_deadline = Some(self.untracked_echo_deadline.map_or(deadline, |d| d.max(deadline)));
+        self.untracked_echo_deadline =
+            Some(self.untracked_echo_deadline.map_or(deadline, |d| d.max(deadline)));
     }
 
     /// How long a keystroke may go unechoed before what was drawn for it is
@@ -881,7 +937,8 @@ impl TerminalPredictionEngine {
             self.suspended_until = None;
         }
         let hold = self.configuration.confirmation_hold;
-        let is_stale = |entry: &Entry| entry.confirmed_at.is_some_and(|at| now.saturating_sub(at) > hold);
+        let is_stale =
+            |entry: &Entry| entry.confirmed_at.is_some_and(|at| now.saturating_sub(at) > hold);
         let mut stale_confirmation = self.entries.iter().any(is_stale);
         if self.layout_held_since.is_some_and(|since| now.saturating_sub(since) > hold) {
             // No frame came to release the layout: re-anchor now.
@@ -899,7 +956,10 @@ impl TerminalPredictionEngine {
         let expired: Vec<Entry> = self
             .entries
             .iter()
-            .filter(|entry| entry.standing == Standing::Speculative && now.saturating_sub(entry.typed_at) > lifetime)
+            .filter(|entry| {
+                entry.standing == Standing::Speculative
+                    && now.saturating_sub(entry.typed_at) > lifetime
+            })
             .copied()
             .collect();
         if expired.is_empty() {

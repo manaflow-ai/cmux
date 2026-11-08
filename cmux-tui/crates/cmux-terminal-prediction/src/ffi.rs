@@ -61,7 +61,11 @@ fn instant(now_us: u64) -> Duration {
 }
 
 /// Runs `body` on the handle, or answers `fallback` for a null handle or a panic.
-fn with<T>(prediction: *const CmuxTerminalPrediction, fallback: T, body: impl FnOnce(&CmuxTerminalPrediction) -> T) -> T {
+fn with<T>(
+    prediction: *const CmuxTerminalPrediction,
+    fallback: T,
+    body: impl FnOnce(&CmuxTerminalPrediction) -> T,
+) -> T {
     if prediction.is_null() {
         return fallback;
     }
@@ -93,10 +97,17 @@ pub extern "C" fn cmux_terminal_prediction_abi_version() -> u32 {
 /// and `remote` (the terminal's shell runs on another machine). Free it with
 /// `cmux_terminal_prediction_free`.
 #[unsafe(no_mangle)]
-pub extern "C" fn cmux_terminal_prediction_new(enabled: bool, remote: bool) -> *mut CmuxTerminalPrediction {
+pub extern "C" fn cmux_terminal_prediction_new(
+    enabled: bool,
+    remote: bool,
+) -> *mut CmuxTerminalPrediction {
     catch_unwind(|| {
         Box::into_raw(Box::new(CmuxTerminalPrediction {
-            engine: Mutex::new(TerminalPredictionEngine::new(PredictionConfiguration::default(), enabled, remote)),
+            engine: Mutex::new(TerminalPredictionEngine::new(
+                PredictionConfiguration::default(),
+                enabled,
+                remote,
+            )),
             active: AtomicBool::new(enabled && remote),
         }))
     })
@@ -145,7 +156,9 @@ pub unsafe extern "C" fn cmux_terminal_prediction_set(
 /// # Safety
 /// `prediction` is null or a live handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_terminal_prediction_active(prediction: *const CmuxTerminalPrediction) -> bool {
+pub unsafe extern "C" fn cmux_terminal_prediction_active(
+    prediction: *const CmuxTerminalPrediction,
+) -> bool {
     with(prediction, false, |prediction| prediction.active.load(Ordering::Relaxed))
 }
 
@@ -177,7 +190,8 @@ pub unsafe extern "C" fn cmux_terminal_prediction_sent(
     // SAFETY: the caller's contract.
     let bytes = unsafe { slice(bytes, len) };
     with(prediction, false, |prediction| {
-        prediction.active.load(Ordering::Relaxed) && prediction.engine().sent(bytes, instant(now_us))
+        prediction.active.load(Ordering::Relaxed)
+            && prediction.engine().sent(bytes, instant(now_us))
     })
 }
 
@@ -195,7 +209,8 @@ pub unsafe extern "C" fn cmux_terminal_prediction_output(
     // SAFETY: the caller's contract.
     let bytes = unsafe { slice(bytes, len) };
     with(prediction, false, |prediction| {
-        prediction.active.load(Ordering::Relaxed) && prediction.engine().observed_output(bytes, instant(now_us))
+        prediction.active.load(Ordering::Relaxed)
+            && prediction.engine().observed_output(bytes, instant(now_us))
     })
 }
 
@@ -222,7 +237,8 @@ pub unsafe extern "C" fn cmux_terminal_prediction_presented_frame(
     now_us: u64,
 ) -> bool {
     with(prediction, false, |prediction| {
-        prediction.active.load(Ordering::Relaxed) && prediction.engine().presented_frame(instant(now_us))
+        prediction.active.load(Ordering::Relaxed)
+            && prediction.engine().presented_frame(instant(now_us))
     })
 }
 
@@ -231,7 +247,10 @@ pub unsafe extern "C" fn cmux_terminal_prediction_presented_frame(
 /// # Safety
 /// `prediction` is null or a live handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_terminal_prediction_tick(prediction: *const CmuxTerminalPrediction, now_us: u64) -> bool {
+pub unsafe extern "C" fn cmux_terminal_prediction_tick(
+    prediction: *const CmuxTerminalPrediction,
+    now_us: u64,
+) -> bool {
     with(prediction, false, |prediction| prediction.engine().tick(instant(now_us)))
 }
 
@@ -245,7 +264,9 @@ pub unsafe extern "C" fn cmux_terminal_prediction_next_expiry(
     prediction: *const CmuxTerminalPrediction,
     out_us: *mut u64,
 ) -> bool {
-    let Some(at) = with(prediction, None, |prediction| prediction.engine().next_expiry()) else { return false };
+    let Some(at) = with(prediction, None, |prediction| prediction.engine().next_expiry()) else {
+        return false;
+    };
     if !out_us.is_null() {
         // SAFETY: the caller's contract.
         unsafe { *out_us = u64::try_from(at.as_micros()).unwrap_or(u64::MAX) };
@@ -259,7 +280,9 @@ pub unsafe extern "C" fn cmux_terminal_prediction_next_expiry(
 /// # Safety
 /// `prediction` is null or a live handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_terminal_prediction_holds_layout(prediction: *const CmuxTerminalPrediction) -> bool {
+pub unsafe extern "C" fn cmux_terminal_prediction_holds_layout(
+    prediction: *const CmuxTerminalPrediction,
+) -> bool {
     with(prediction, false, |prediction| prediction.engine().holds_layout_until_frame())
 }
 
@@ -269,7 +292,10 @@ pub unsafe extern "C" fn cmux_terminal_prediction_holds_layout(prediction: *cons
 /// # Safety
 /// `prediction` is null or a live handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_terminal_prediction_status(prediction: *const CmuxTerminalPrediction, now_us: u64) -> u8 {
+pub unsafe extern "C" fn cmux_terminal_prediction_status(
+    prediction: *const CmuxTerminalPrediction,
+    now_us: u64,
+) -> u8 {
     with(prediction, 0, |prediction| prediction.engine().status(instant(now_us)) as u8)
 }
 
@@ -283,7 +309,9 @@ pub unsafe extern "C" fn cmux_terminal_prediction_echo_latency(
     prediction: *const CmuxTerminalPrediction,
     out_us: *mut u64,
 ) -> bool {
-    let Some(latency) = with(prediction, None, |prediction| prediction.engine().observed_echo_latency()) else {
+    let Some(latency) =
+        with(prediction, None, |prediction| prediction.engine().observed_echo_latency())
+    else {
         return false;
     };
     if !out_us.is_null() {

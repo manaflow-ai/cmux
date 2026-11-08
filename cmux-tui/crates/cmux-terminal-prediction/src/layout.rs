@@ -42,7 +42,11 @@ impl PredictionOverlayLayout {
         let last = on_row.iter().map(|glyph| glyph.offset).max()?;
         // Typing continues after the last live glyph, or, when every drawn cell
         // is a deleted one, at the first of those.
-        let last_typed = glyphs.iter().filter(|glyph| glyph.standing != Standing::Erased).map(|glyph| glyph.offset).max();
+        let last_typed = glyphs
+            .iter()
+            .filter(|glyph| glyph.standing != Standing::Erased)
+            .map(|glyph| glyph.offset)
+            .max();
         let caret = match last_typed {
             Some(offset) => offset + 1,
             None => glyphs.iter().map(|glyph| glyph.offset).min()?,
@@ -50,7 +54,8 @@ impl PredictionOverlayLayout {
         // Left of the cursor with nothing speculative, the caret would mark where
         // typing resumes once a pending erase lands, beside the live cursor
         // ghostty already draws. Only a drawn prediction justifies a second one.
-        let caret_is_ahead = caret >= 0 || glyphs.iter().any(|glyph| glyph.standing == Standing::Speculative);
+        let caret_is_ahead =
+            caret >= 0 || glyphs.iter().any(|glyph| glyph.standing == Standing::Speculative);
         let caret_offset = (caret_is_ahead && cursor_column + caret < columns).then_some(caret);
         Some(Self {
             glyphs: on_row,
