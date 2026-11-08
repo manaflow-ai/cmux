@@ -289,7 +289,18 @@ final class ScreenContentView: NSView {
         // An animated width or ratio change (a preset, an equalize) is carried too: its camera may re-anchor (M8).
         // A viewport resize under a spring (`rebasing`) is not: each frame moves with its target, and putting it
         // back where it showed (`settleCarried`) would undo that and leave it chasing the moved target.
-        let carried = !arrivals.isEmpty || departing || returning || (animate && !structural && !rebasing)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // CLOSE VARIANTS film selector (never ships): V1, V3, V4 and V5 put the survivors at their final frames now. Not
+        // carried: `settleCarried` would put each survivor back where it showed and spring it from there (the 00:4xZ films:
+        // the survivor slid on the close spring beside the window colour, and its grid went out only when it landed). A
+        // snapped close takes the held-snap path (`holdsSnapForContent`): the sizes are drawn ahead in this turn, the old
+        // picture (the closed pane included, `snapDeparted`) stays until the next tick, then the final layout in one pass.
+        let film = departing ? filmCloseVariant : nil
+        let filmSnaps = film != nil
+        #else
+        let filmSnaps = false
+        #endif
+        let carried = (!arrivals.isEmpty || departing || returning || (animate && !structural && !rebasing)) && !filmSnaps
         // Strip springs run in strip coordinates and fixed ones in the view's: a moved strip origin (a dock
         // that came or went) or a pane changing sides (a zoom shows its pane fixed) keeps it where it showed.
         let offset = scroll.value
@@ -299,13 +310,6 @@ final class ScreenContentView: NSView {
         closingPanes.carry(drift: drift, viewShift: carried ? baseGeometry.viewShift(offset: offset) : nil)
         // A release seeds only the layout it made (`releasedDivider` from this gesture, not a stale one).
         if let released = releasedDivider, CACurrentMediaTime() - released.time > 0.5 { releasedDivider = nil }
-        #if DEBUG || CMUX_BENCH_HOOKS
-        // CLOSE VARIANTS film selector (never ships): V1, V3, V4 and V5 put the survivors at their final frames now.
-        let film = departing ? filmCloseVariant : nil
-        let filmSnaps = film != nil
-        #else
-        let filmSnaps = false
-        #endif
         let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits) && !filmSnaps
         // A structural change that snaps may show at the next tick, its terminals drawn ahead (CLOSE MOTION 3).
         let holdsSnap = snapWaitsForFrame && structural && !animateFrames
