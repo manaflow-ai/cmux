@@ -39,6 +39,8 @@ nonisolated enum ChromiumAccessibilityPress {
         let note: (AnyObject) -> Void = { element in
             // AppKit sends accessibility actions on the main thread; anywhere else only presses.
             guard Thread.isMainThread else { return }
+            // crash-allow: read only inside this call, on the main thread AppKit sent the action on; it never leaves it.
+            nonisolated(unsafe) let element = element
             MainActor.assumeIsolated { pressed(Self.window(of: element), Self.frame(of: element)) } // main-proof: guarded by Thread.isMainThread
         }
         if let existing = class_getInstanceMethod(elementClass, performPress) {
