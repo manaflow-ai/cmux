@@ -100,7 +100,7 @@ extension AppActions {
         bindHomeGroups(services)
         bindHomeMessaging(services)
         // Edit Chief…, Set Chief Model…, Set Chief Effort… and Make Agent a Chief… (`cmux chief edit|engine|adopt`).
-        HomeChiefRegistryActions(connection: { services.home.connection }, rows: { services.home.homeStore.rows.filter { !services.home.isCloudConversation($0.id) } },
+        HomeChiefRegistryActions(connection: { services.home.connection }, conversations: { services.home.homeStore.rows.filter { !services.home.isCloudConversation($0.id) }.map(\.summary) },
                                  deleted: { services.home.directory.deletedLocalChiefs }, openEditor: { chief in
             guard !services.home.dock.isClassic else { return HomeChiefRegistryStrings.editNeedsChannels }
             openChannelsRoute("/chief/\(chief)/edit", services) { _ in services.registry.refuse(HomeChiefRegistryStrings.editNeedsChannels) }

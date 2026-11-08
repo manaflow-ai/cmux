@@ -57,10 +57,7 @@ import Testing
         #expect(HistorySite.host(nil) == nil)
     }
 
-    private func row(_ id: String, _ participants: [Participant]) -> InboxRow {
-        let summary = ConversationSummary(id: ConversationID(id), owner: .local, participants: participants,
-                                          createdAt: .distantPast, updatedAt: .distantPast)
-        return InboxRow(summary: summary, kind: .group, title: id, preview: "", previewAuthor: nil,
-                        timestamp: .distantPast, unread: 0, isPinned: false, isSending: false, hasFailedSend: false, isTyping: false)
+    private func row(_ id: String, _ participants: [Participant]) -> CmuxHomeCore.ConversationSummary {
+        CmuxHomeCore.ConversationSummary(id: ConversationID(id), owner: .local, participants: participants, createdAt: .distantPast, updatedAt: .distantPast)
     }
 }

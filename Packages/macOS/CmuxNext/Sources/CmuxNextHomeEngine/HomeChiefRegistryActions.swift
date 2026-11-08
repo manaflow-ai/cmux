@@ -11,19 +11,19 @@ import Foundation
 @MainActor
 public struct HomeChiefRegistryActions {
     private let connection: @MainActor () -> DaemonConnection?
-    private let rows: @MainActor () -> [InboxRow]
+    private let conversations: @MainActor () -> [CmuxHomeCore.ConversationSummary]
     private let deleted: @MainActor () -> Set<String>
     private let openEditor: @MainActor (String) -> String?
 
     /// - Parameters:
     ///   - connection: The app's trusted connection to this Mac's Chief owner; nil while it is not connected.
-    ///   - rows: The Home list's conversations of this Mac (no cloud one).
+    ///   - conversations: The Home list's conversations of this Mac (no cloud one).
     ///   - deleted: This Mac's deleted Chiefs, which the list still names until it reads again.
     ///   - openEditor: Opens Chief `id`'s editor page (Home's `#/chief/<id>/edit`); the refusal when it cannot.
-    public init(connection: @escaping @MainActor () -> DaemonConnection?, rows: @escaping @MainActor () -> [InboxRow],
+    public init(connection: @escaping @MainActor () -> DaemonConnection?, conversations: @escaping @MainActor () -> [CmuxHomeCore.ConversationSummary],
                 deleted: @escaping @MainActor () -> Set<String>, openEditor: @escaping @MainActor (String) -> String?) {
         self.connection = connection
-        self.rows = rows
+        self.conversations = conversations
         self.deleted = deleted
         self.openEditor = openEditor
     }
@@ -32,10 +32,10 @@ public struct HomeChiefRegistryActions {
     /// answers the ``ActionSuggestions/localChiefs`` and ``ActionSuggestions/adoptableAgents`` picks.
     public func bind(into registry: ActionRegistry) {
         let suggestions = registry.argumentSuggestions
-        registry.argumentSuggestions = { [rows, deleted] source in
+        registry.argumentSuggestions = { [conversations, deleted] source in
             switch source {
-            case ActionSuggestions.localChiefs: HomeChiefPicks.localChiefs(in: rows(), deleted: deleted())
-            case ActionSuggestions.adoptableAgents: HomeChiefPicks.adoptableAgents(in: rows())
+            case ActionSuggestions.localChiefs: HomeChiefPicks.localChiefs(in: conversations(), deleted: deleted())
+            case ActionSuggestions.adoptableAgents: HomeChiefPicks.adoptableAgents(in: conversations())
             default: suggestions?(source) ?? []
             }
         }
