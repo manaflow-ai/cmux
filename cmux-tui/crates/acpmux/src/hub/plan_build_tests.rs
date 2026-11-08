@@ -69,3 +69,13 @@ fn numstat_counts_and_caps_the_list() {
     }
     assert_eq!((many.files.len(), many.more, many.added), (MAX_FILES, 5, (MAX_FILES + 5) as u64));
 }
+
+#[test]
+fn a_plan_only_in_the_acp_subject_is_read_too() {
+    let ask = json!({"sessionId": "s", "subject": {"type": "tool_call", "toolCall": {
+        "kind": "switch_mode", "rawInput": {"plan": "Step one"}}}});
+    assert_eq!(plan_of(&ask).as_deref(), Some("Step one"));
+    let command = json!({"sessionId": "s", "subject": {"type": "command", "toolCall": {
+        "kind": "switch_mode", "rawInput": {"plan": "Step one"}}}});
+    assert_eq!(plan_of(&command), None, "only a tool call subject");
+}

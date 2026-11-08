@@ -11,8 +11,10 @@
 //!   plan's own chat stops instead of building it too and stays free. A start the sub-session
 //!   limits refuse leaves the card waiting, and says why.
 //! - The plan text is the pending ask's own (`pending_plan`): a caller never supplies it.
-//! - Each build is tagged [`BUILD_TAG`] with its build id, so `compare` and `keep` find a
-//!   build's sessions after a restart. The plan's chat gets a `mux` record of kind
+//! - Each build is recorded on the plan's chat ([`PlanBuildRecord`], its saved metadata), so
+//!   `compare` and `keep` find a build's sessions, worktree root and base after a restart. That
+//!   record is acpmux's alone: a build's agent can set its own chat's tags, never the record. The
+//!   plan's chat also gets a `mux` record of kind
 //!   [`RECORD_KIND`]: `{event: "started", buildId, target, permissionId, builds, failed}` once,
 //!   and `{event: "kept", buildId, keptSessionId, archived}` when one is kept.
 //! - `compare` reads each build's change against where its branch left its base (`git merge-base`)
@@ -26,6 +28,7 @@ use super::{Hub, Session};
 use crate::rpc::RpcError;
 use crate::store::SessionStatus;
 use cmux_json::JsonSet as _;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -33,15 +36,9 @@ use std::time::{Duration, Instant};
 
 /// The `mux` record kind on the plan's chat.
 pub const RECORD_KIND: &str = "plan_build";
-/// The tag on each build's session: its build id.
-pub const BUILD_TAG: &str = "planBuild";
-/// The tag on the kept build: when it was kept.
+/// The tag on the kept build, for the chat lists only: which build is kept is the plan's own
+/// record ([`PlanBuildRecord::kept`]), never a tag a chat's agent can set.
 pub const KEPT_TAG: &str = "planBuildKept";
-/// The tag on each build: the branch its worktree was made from.
-pub const BASE_TAG: &str = "planBuildBase";
-/// The tag on each build: its worktree's root, from the start (the session records its worktree
-/// only later, and its folder is the started-from folder's place in the worktree).
-pub const ROOT_TAG: &str = "planBuildRoot";
 /// The tag the chat lists hide a session by (`server/requests.rs` `ARCHIVED_TAG`).
 pub(crate) const ARCHIVED_TAG: &str = "archived";
 /// Most harnesses one compare starts: the card offers two.
@@ -50,6 +47,39 @@ pub const MAX_COMPARE: usize = 3;
 const MAX_FILES: usize = 200;
 /// The longest one build's git read takes before it is given up.
 const GIT_LIMIT: Duration = Duration::from_secs(10);
+
+/// One plan build, kept on the plan's chat (`SessionMeta::plan_builds`) by acpmux alone: which
+/// chats are its builds, and each one's worktree root and base as its start made them. Tags would
+/// not do: a build's agent can set its own chat's tags (`_acpmux/tag`), and compare runs git in
+/// the root it names.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanBuildRecord {
+    pub build_id: String,
+    pub builds: Vec<PlanBuildEntry>,
+    /// The build kept (`_acpmux/plan/keep`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept: Option<String>,
+}
+
+/// Whether a chat has no plan builds (`SessionMeta::plan_builds` is then left out).
+pub(crate) fn no_records(records: &Arc<Vec<PlanBuildRecord>>) -> bool {
+    records.is_empty()
+}
+
+/// One build of a [`PlanBuildRecord`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanBuildEntry {
+    pub session_id: String,
+    /// Its worktree's root, from the start (the chat's folder is the started-from folder's place
+    /// in the worktree).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<PathBuf>,
+    /// The branch its worktree was made from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+}
 
 /// Where an approved plan is built.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,7 +116,12 @@ fn refused(reason: &str, message: impl Into<String>) -> RpcError {
 /// acpmux attached (`_meta.acpmux.plan.markdown`), else for Claude Code's ExitPlanMode or a
 /// `switch_mode` ask its input's `plan`, else its text content. None for any other ask.
 pub(crate) fn plan_of(request: &Value) -> Option<String> {
-    let tool = request.get("toolCall")?;
+    // ACP v2 may carry the call only as its subject, as the card reads it too.
+    let subject = request
+        .get("subject")
+        .filter(|s| s.get("type").and_then(Value::as_str) == Some("tool_call"))
+        .and_then(|s| s.get("toolCall"));
+    let tool = request.get("toolCall").or(subject)?;
     let text = |v: Option<&Value>| {
         v.and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned)
     };
@@ -237,26 +272,33 @@ impl Hub {
         Ok((plan, pending.request.clone()))
     }
 
-    /// The sessions of build `build_id` started from `parent`, oldest first.
-    fn plan_builds(&self, parent: &str, build_id: &str) -> Vec<Arc<Session>> {
-        let mut builds: Vec<(u64, Arc<Session>)> = self
-            .sessions()
-            .into_iter()
-            .filter_map(|s| {
-                let m = s.meta.lock().unwrap_or_else(|e| e.into_inner());
-                let ours = m.subsession.as_ref().is_some_and(|l| l.started_by == parent)
-                    && m.tags.get(BUILD_TAG).is_some_and(|t| t.value == build_id);
-                let created = m.created_at;
-                drop(m);
-                ours.then_some((created, s))
+    /// The record of build `build_id` on `parent`, and its builds that are still sub-sessions of
+    /// `parent`, in the order they started.
+    fn plan_builds(
+        &self,
+        parent: &Session,
+        build_id: &str,
+    ) -> Option<(PlanBuildRecord, Vec<(Arc<Session>, PlanBuildEntry)>)> {
+        let record =
+            parent.read_meta(|m| m.plan_builds.iter().find(|r| r.build_id == build_id).cloned())?;
+        let builds = record
+            .builds
+            .iter()
+            .filter_map(|entry| {
+                let s =
+                    self.resolve(&entry.session_id).ok().filter(|s| s.id == entry.session_id)?;
+                let ours = s.read_meta(|m| {
+                    m.subsession.as_ref().is_some_and(|l| l.started_by == parent.id)
+                });
+                ours.then(|| (s, entry.clone()))
             })
             .collect();
-        builds.sort_by_key(|(created, _)| *created);
-        builds.into_iter().map(|(_, s)| s).collect()
+        Some((record, builds))
     }
 
     /// Starts the builds of `plan` from `parent` (`worktree`: one, `compare`: one per harness),
-    /// each tagged with `build_id`. The starts that failed come back as `{harness, error}`.
+    /// recorded on `parent` as `build_id` ([`PlanBuildRecord`]). The starts that failed come back
+    /// as `{harness, error}`.
     pub(crate) async fn start_plan_builds(
         self: &Arc<Self>,
         parent: &Arc<Session>,
@@ -270,6 +312,7 @@ impl Hub {
         let prompt = build_prompt(plan, &chat.name, target);
         let mut started = Vec::new();
         let mut failed = Vec::new();
+        let mut entries = Vec::new();
         for harness in harnesses {
             let name = match target {
                 Target::Compare => format!("build-{harness}"),
@@ -296,20 +339,14 @@ impl Hub {
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_owned();
-                    if let Ok(child) = self.resolve(&id) {
-                        let mut set = serde_json::Map::new();
-                        set.insert(BUILD_TAG.into(), Value::String(build_id.to_owned()));
-                        for (tag, field) in
-                            [(BASE_TAG, "/worktree/base"), (ROOT_TAG, "/worktree/root")]
-                        {
-                            if let Some(v) = reply.pointer(field).and_then(Value::as_str) {
-                                set.insert(tag.into(), Value::String(v.to_owned()));
-                            }
-                        }
-                        if let Err(e) = self.set_tags_answered(&child, Some(&set), &[], None) {
-                            tracing::warn!(session = %id, error = %e.message, "plan build tag");
-                        }
-                    }
+                    let text = |field: &str| {
+                        reply.pointer(field).and_then(Value::as_str).map(str::to_owned)
+                    };
+                    entries.push(PlanBuildEntry {
+                        session_id: id.clone(),
+                        root: text("/worktree/root").map(PathBuf::from),
+                        base: text("/worktree/base"),
+                    });
                     started.push(json!({
                         "sessionId": id,
                         "name": reply.get("name"),
@@ -328,6 +365,15 @@ impl Hub {
                 })),
             }
         }
+        if !entries.is_empty() {
+            let record =
+                PlanBuildRecord { build_id: build_id.to_owned(), builds: entries, kept: None };
+            {
+                let mut meta = parent.meta.lock().unwrap_or_else(|e| e.into_inner());
+                Arc::make_mut(&mut meta.plan_builds).push(record);
+            }
+            self.save_meta(parent);
+        }
         (started, failed)
     }
 
@@ -342,24 +388,18 @@ impl Hub {
         parent: &Session,
         build_id: &str,
     ) -> Result<Value, RpcError> {
-        let builds = self.plan_builds(&parent.id, build_id);
-        if builds.is_empty() {
+        let Some((record, builds)) = self.plan_builds(parent, build_id) else {
             return Err(RpcError::not_found(format!("no plan build {build_id:?} in this chat")));
-        }
+        };
         let mut rows = Vec::with_capacity(builds.len());
-        let mut kept = Value::Null;
-        for s in &builds {
+        let kept = json!(record.kept);
+        for (s, entry) in &builds {
             let m = s.meta();
             let archived = m.tags.contains_key(ARCHIVED_TAG);
-            if m.tags.contains_key(KEPT_TAG) {
-                kept = json!(s.id);
-            }
-            let tagged_root = m.tags.get(ROOT_TAG).map(|t| PathBuf::from(&t.value));
-            let (root, branch) = match &m.worktree {
-                Some(w) => (tagged_root.unwrap_or_else(|| w.root.clone()), w.branch.clone()),
-                None => (tagged_root.unwrap_or_else(|| m.cwd.clone()), None),
-            };
-            let base = m.tags.get(BASE_TAG).map(|t| t.value.clone());
+            // The root and base its start recorded: git runs nowhere a chat's agent names.
+            let branch = m.worktree.as_ref().and_then(|w| w.branch.clone());
+            let root = entry.root.clone();
+            let base = entry.base.clone();
             let mut row = json!({
                 "sessionId": s.id,
                 "name": m.name,
@@ -371,14 +411,13 @@ impl Hub {
                 "base": base,
                 "root": root,
             });
-            let read = match base {
-                Some(base) => {
-                    let root: PathBuf = root.clone();
+            let read = match (root, base) {
+                (Some(root), Some(base)) => {
                     tokio::task::spawn_blocking(move || read_change(&root, &base))
                         .await
                         .unwrap_or_else(|e| Err(e.to_string()))
                 }
-                None => Err("this build has no base recorded".to_owned()),
+                _ => Err("this build has no worktree recorded".to_owned()),
             };
             match read {
                 Ok(change) => {
@@ -400,18 +439,42 @@ impl Hub {
         Ok(json!({"buildId": build_id, "keptSessionId": kept, "builds": rows}))
     }
 
-    /// The builds of `build_id` other than `keep`, after checking `keep` is one of them.
+    /// Records `keep` as the kept build of `build_id` and returns it with the other builds.
+    /// `keep` must be one of them; keeping the kept build again answers the same, and keeping
+    /// another after one was kept is refused (`plan_build.already_kept`).
     pub(crate) fn plan_keep_others(
         &self,
         parent: &Session,
         build_id: &str,
         keep: &str,
     ) -> Result<(Arc<Session>, Vec<Arc<Session>>), RpcError> {
-        let builds = self.plan_builds(&parent.id, build_id);
-        let kept = builds.iter().find(|s| s.id == keep).cloned().ok_or_else(|| {
-            RpcError::invalid_params("keep must be one of this plan build's chats")
+        let (_, builds) = self.plan_builds(parent, build_id).ok_or_else(|| {
+            RpcError::not_found(format!("no plan build {build_id:?} in this chat"))
         })?;
-        Ok((kept, builds.into_iter().filter(|s| s.id != keep).collect()))
+        let kept =
+            builds.iter().find(|(s, _)| s.id == keep).map(|(s, _)| s.clone()).ok_or_else(|| {
+                RpcError::invalid_params("keep must be one of this plan build's chats")
+            })?;
+        {
+            let mut meta = parent.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let records = Arc::make_mut(&mut meta.plan_builds);
+            let Some(record) = records.iter_mut().find(|r| r.build_id == build_id) else {
+                return Err(RpcError::not_found(format!(
+                    "no plan build {build_id:?} in this chat"
+                )));
+            };
+            match record.kept.as_deref() {
+                Some(earlier) if earlier != keep => {
+                    return Err(refused(
+                        "plan_build.already_kept",
+                        "another build of this plan was already kept",
+                    ));
+                }
+                _ => record.kept = Some(keep.to_owned()),
+            }
+        }
+        self.save_meta_answered(parent)?;
+        Ok((kept, builds.into_iter().map(|(s, _)| s).filter(|s| s.id != keep).collect()))
     }
 }
 
