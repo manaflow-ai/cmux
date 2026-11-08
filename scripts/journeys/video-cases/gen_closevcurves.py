@@ -27,7 +27,7 @@ from gen_closecurves import VIEW_SETTINGS  # noqa: E402
 LABELS = {"K1": "bezier 0.2,0,0,1 80 ms", "K2": "bezier 0.2,0,0,1 100 ms", "K3": "bezier 0.2,0,0,1 120 ms",
           "K4": "bezier 0.22,1,0.36,1 100 ms", "K5": "bezier 0.65,0,0.35,1 120 ms", "K6": "spring 0.15 s damping 1",
           "K7": "spring 0.18 s damping 0.9", "K8": "spring 0.2 s damping 0.8", "K9": "spring 0.25 s damping 0.7",
-          "K10": "linear 100 ms"}
+          "K10": "linear 100 ms", "CUR": "spring 0.23 s damping 0.95 (current)"}
 MODE = {"nvim": "ALT", "claude": "MAIN", "htop": "ALT"}
 RESET = {"do": "rpc", "method": "debug.frames", "params": {"action": "close_variant V0 nocurve 150 bezier"},
          "title": "clean-up: the film selector back to V0"}
@@ -50,6 +50,39 @@ def films(variant, curve, tag, view, layouts, progs):
             index.append({"film": name, "scenario": scen, "program": prog, "mode": MODE[prog], "variant": variant, "ms": 0,
                           "curve": "named", "curve_id": curve, "journey": tag,
                           "label": f"{variant} {curve} {LABELS[curve]} | {scen} {prog}"})
+    return steps, index
+
+
+def v6_films(curve, tag, view, layouts):
+    """m67 V6 layouts: S1 (close left) and R2 (close top) once per survivor program; R3 (close middle: nvim above,
+    Claude Code below) and G4 (2x2, close top-left: nvim, zsh, Claude Code) with both programs at once."""
+    steps, index = [], []
+    pv = "v" if view else "m"
+    for scen in layouts:
+        sets = [("nvim",), ("claude",)] if scen in ("S1", "R2") else [("nvim", "claude")]
+        for progs in sets:
+            ptag = "-".join(progs)
+            base = f"{pv}-v6{curve.lower()}-{scen.lower()}-{ptag}"
+            name = f"cf-v6-{curve.lower()}-{scen.lower()}-{ptag}-{'view' if view else 'meas'}"
+            if scen in ("S1", "R2"):
+                a, x = base, base + "-x"
+                s = CL.new_ws(a, progs[0], f"V6 {curve} {scen} {ptag}") + CL.split(a, "splitLeft" if scen == "S1" else "splitUp", x, "zsh")
+                surv = (a,)
+            elif scen == "R3":
+                t, b, x = base + "-t", base + "-b", base + "-x"
+                s = (CL.new_ws(t, "nvim", f"V6 {curve} R3") + CL.split(t, "splitDown", b, "claude")
+                     + CL.split(t, "splitDown", x, "zsh"))
+                surv = (t, b)
+            else:
+                tr, br, bl, x = base + "-tr", base + "-br", base + "-bl", base + "-x"
+                s = (CL.new_ws(tr, "nvim", f"V6 {curve} G4") + CL.split(tr, "splitDown", br, "claude")
+                     + CL.split(br, "splitLeft", bl, None) + CL.split(tr, "splitLeft", x, "zsh"))
+                surv = (tr, bl, br)
+            steps += s + CL.film(name, x, surv) + [read(name)]
+            mode = "+".join(dict.fromkeys(MODE[p] for p in progs))
+            index.append({"film": name, "scenario": scen, "program": ptag, "mode": mode, "variant": "V6", "ms": 0,
+                          "curve": "named", "curve_id": curve, "journey": tag,
+                          "label": f"V6 {curve} {LABELS[curve]} | {scen} {ptag}"})
     return steps, index
 
 
@@ -79,9 +112,23 @@ def main():
     ap.add_argument("--set", default="")
     ap.add_argument("--accept", default="")
     ap.add_argument("--tag", default="f")
+    ap.add_argument("--v6", default="", help="curves for V6 (m67): CUR,K2,K6,K8")
+    ap.add_argument("--layouts", default="S1,R2,R3,G4")
     o = ap.parse_args()
     view_idx, meas_idx = [], []
     pairs = [x.split(":") for x in (o.accept or o.set).split(",") if x]
+    lays = [x for x in o.layouts.split(",") if x]
+    for curve in [c for c in o.v6.split(",") if c]:
+        jid = f"cv-{o.tag}-v6-{curve.lower()}"
+        v, m = v6_films(curve, jid, True, lays), v6_films(curve, jid, False, lays)
+        spec, _ = journey(jid, "V6", curve, f"CLOSE VARIANTS 2 m67: V6 grow + fade on {curve}, {'/'.join(lays)}, VIEW then MEASURE", v, m)
+        spec["budget_seconds"] = 480
+        with open(os.path.join(o.out, f"{jid}.json"), "w") as fh:
+            json.dump(spec, fh, indent=1)
+            fh.write("\n")
+        view_idx += v[1]
+        meas_idx += m[1]
+        print(jid, spec["recordings"])
     if o.accept:
         jid = f"cv-{o.tag}-acc"
         steps_all, idx_all = None, []
