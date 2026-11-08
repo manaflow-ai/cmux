@@ -22,6 +22,7 @@ const message = (text: string, name = "release-rings-32") => ({ name, sessionId:
 const waiting = (id: string, text: string, name?: string) =>
   ({ id, kind: "incoming", incoming: { kind: "message", message: message(text, name) } }) as unknown as AcpmuxRow;
 // A sender's name wider than a 320px pane's line (cmux#37653 review): its chip is cut with an ellipsis.
+// At a 640px line the same name fits whole beside part of a long first line (cmux#38642 review).
 const LONG_NAME = "release-rings-coordinator-for-the-nightly-and-the-promote-builds";
 // A first line far wider than the row: it, not the sender's name, gives way (cmux#37653 review).
 const LONG =
@@ -72,6 +73,11 @@ createRoot(document.getElementById("root")!).render(
     <div style={{ position: "absolute", top: 680, width: 320 }}>
       <div className="acpmux-row" data-testid="narrow-sender" style={{ top: 0 }}>
         {draw(waiting("r-3", "Done.", LONG_NAME))}
+      </div>
+    </div>
+    <div style={{ position: "absolute", top: 720, width: 640 }}>
+      <div className="acpmux-row" data-testid="middle-sender" style={{ top: 0 }}>
+        {draw(waiting("r-4", LONG, LONG_NAME))}
       </div>
     </div>
     <SubsessionContext.Provider value={{ store: chats, open: () => {} }}>

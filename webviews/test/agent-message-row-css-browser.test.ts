@@ -117,6 +117,39 @@ await requireBrowserLane("agent-message-row-css-browser.test.ts", async () => {
       expect(sizes.chevron.right).toBeLessThanOrEqual(sizes.lineEnd + 0.5);
     });
 
+    // At a middle width the first line gives way first: its preview is cut while the sender's name
+    // still fits whole, so an ordinary narrow row never cuts the name (cmux#38642 review: a sender
+    // shrinking at 1 took its share of every overflow from the first pixel).
+    test("a sender's name stays whole while its first line still has room to give", async () => {
+      const sizes = await page
+        .getByTestId("middle-sender")
+        .locator(".cv-agentmsg__line")
+        .evaluate((line) => {
+          const tag = line.querySelector<HTMLElement>(".cv-received__sender > .cv-agent-tag")!;
+          const label = tag.querySelector<HTMLElement>(".cv-agent-tag__label") ?? tag;
+          const preview = line.querySelector<HTMLElement>(".cv-agentmsg__preview")!;
+          return {
+            text: label.textContent ?? "",
+            // Fractional widths: the sender's weighted share of the overflow is under a pixel, which
+            // scrollWidth's rounding hides, yet it is enough to draw the ellipsis.
+            nameCut: (() => {
+              const words = document.createRange();
+              words.selectNodeContents(label);
+              return words.getBoundingClientRect().width - label.getBoundingClientRect().width;
+            })(),
+            previewCut: preview.scrollWidth > preview.clientWidth,
+            previewWidth: preview.getBoundingClientRect().width,
+            chevron: line.querySelector(".cv-agentmsg__chevron")!.getBoundingClientRect().toJSON() as DOMRect,
+            lineEnd: line.getBoundingClientRect().right,
+          };
+        });
+      expect(sizes.text).toContain("release-rings-coordinator");
+      expect(sizes.previewCut).toBe(true);
+      expect(sizes.previewWidth).toBeGreaterThan(0);
+      expect(sizes.nameCut).toBeLessThanOrEqual(0.01);
+      expect(sizes.chevron.right).toBeLessThanOrEqual(sizes.lineEnd + 0.5);
+    });
+
     // A sent message draws as a received one (cmux#37879) on the one message row: its own rules in
     // AgentMessageRow.css reach it. A merge once left a rule above them unclosed, nesting them all
     // under a button's selector, where none of them matched (cmux#37653 review).
