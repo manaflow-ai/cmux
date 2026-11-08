@@ -336,16 +336,7 @@ pub(super) fn gate(hub: &Hub, conn: &Conn, m: &str, params: Value) -> Result<Val
     let Some(carrier) = conn.carrier.as_ref() else {
         return Ok(params);
     };
-    let admitted = admit(carrier, m, params).and_then(|params| {
-        if carrier.role == Role::Team
-            && let Some(id) = params.get("sessionId").and_then(Value::as_str)
-            && hub.resolve(id).is_ok_and(|s| s.id != id)
-        {
-            return Err(team_refused(m, "names a chat this teammate was not given"));
-        }
-        strictest_modes(hub, carrier, m, &params)?;
-        Ok(params)
-    });
+    let admitted = scoped(hub, carrier, m, params);
     match &admitted {
         Ok(params) => audit(conn, carrier, m, params, None),
         Err(e) => audit(conn, carrier, m, &Value::Null, Some(e)),
@@ -353,18 +344,44 @@ pub(super) fn gate(hub: &Hub, conn: &Conn, m: &str, params: Value) -> Result<Val
     admitted
 }
 
-/// Whether a carrier connection's notification goes on: a teammate's only when it is a
-/// `session/cancel` of a chat it was given.
-pub(super) fn takes_notification(conn: &Conn, m: &str, params: Option<&Value>) -> bool {
-    notification_admitted(conn.carrier.as_ref(), m, params)
+/// [`gate`] without the log: [`admit`], then for a teammate the chat it names must be that very
+/// session here, and a prompt runs only in the strictest asking modes.
+fn scoped(hub: &Hub, carrier: &Attested, m: &str, params: Value) -> Result<Value, RpcError> {
+    let params = admit(carrier, m, params)?;
+    if carrier.role == Role::Team
+        && let Some(id) = params.get("sessionId").and_then(Value::as_str)
+        && hub.resolve(id).is_ok_and(|s| s.id != id)
+    {
+        return Err(team_refused(m, "names a chat this teammate was not given"));
+    }
+    strictest_modes(hub, carrier, m, &params)?;
+    Ok(params)
 }
 
-/// [`takes_notification`] for the person a connection's carrier attested, if any.
-fn notification_admitted(carrier: Option<&Attested>, m: &str, params: Option<&Value>) -> bool {
+/// Whether a carrier connection's notification goes on: a teammate's only when it is a
+/// `session/cancel` that passes [`gate`] (a chat it was given, by the exact id of a session
+/// here), logged like the request form.
+pub(super) fn takes_notification(hub: &Hub, conn: &Conn, m: &str, params: Option<&Value>) -> bool {
+    match conn.carrier.as_ref() {
+        Some(c) if c.role == Role::Team && m == method::SESSION_CANCEL => {
+            gate(hub, conn, m, params.cloned().unwrap_or(Value::Null)).is_ok()
+        }
+        carrier => notification_admitted(hub, carrier, m, params),
+    }
+}
+
+/// [`takes_notification`] for the person a connection's carrier attested, if any, without the log.
+fn notification_admitted(
+    hub: &Hub,
+    carrier: Option<&Attested>,
+    m: &str,
+    params: Option<&Value>,
+) -> bool {
     let Some(carrier) = carrier.filter(|c| c.role == Role::Team) else {
         return true;
     };
-    m == method::SESSION_CANCEL && admit(carrier, m, params.cloned().unwrap_or(Value::Null)).is_ok()
+    m == method::SESSION_CANCEL
+        && scoped(hub, carrier, m, params.cloned().unwrap_or(Value::Null)).is_ok()
 }
 
 /// How a Web or Peer connection's prompt reached this daemon (`prompt_provenance::TRANSPORT`):

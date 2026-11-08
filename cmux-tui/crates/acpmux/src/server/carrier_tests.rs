@@ -699,9 +699,11 @@ async fn a_teammate_attaches_its_chat_and_hears_nothing_of_another() {
 
 #[test]
 fn a_teammates_cancel_notification_goes_on_only_for_a_chat_it_was_given() {
+    let hub = test_hub();
     let who = teammate();
-    let cancel =
-        |params: Value| notification_admitted(Some(&who), method::SESSION_CANCEL, Some(&params));
+    let cancel = |params: Value| {
+        notification_admitted(&hub, Some(&who), method::SESSION_CANCEL, Some(&params))
+    };
     assert!(cancel(json!({"sessionId": "chat-a"})));
     assert!(cancel(json!({"sessionId": "c"})));
     for params in [
@@ -715,20 +717,20 @@ fn a_teammates_cancel_notification_goes_on_only_for_a_chat_it_was_given() {
     ] {
         assert!(!cancel(params.clone()), "{params}");
     }
-    assert!(!notification_admitted(Some(&who), method::SESSION_CANCEL, None));
+    assert!(!notification_admitted(&hub, Some(&who), method::SESSION_CANCEL, None));
     // No other notification of a teammate's goes on, for its chat or another.
     for m in
         ["_acpmux/typing", "_acpmux/view", "$/cancel_request", "session/update", "_acpmux/attach"]
     {
         assert!(
-            !notification_admitted(Some(&who), m, Some(&json!({"sessionId": "chat-a"}))),
+            !notification_admitted(&hub, Some(&who), m, Some(&json!({"sessionId": "chat-a"}))),
             "{m}"
         );
     }
     // An owner's, and a connection's with no carrier, go on as before.
     let any = json!({"sessionId": "chat-b"});
-    assert!(notification_admitted(Some(&owner()), "_acpmux/typing", Some(&any)));
-    assert!(notification_admitted(None, "_acpmux/typing", Some(&any)));
+    assert!(notification_admitted(&hub, Some(&owner()), "_acpmux/typing", Some(&any)));
+    assert!(notification_admitted(&hub, None, "_acpmux/typing", Some(&any)));
 }
 
 /// A memory hub whose owner relaxed the Web's modes: `webAskingModes` adds Claude's `review`
@@ -846,4 +848,35 @@ async fn a_teammates_prompt_to_a_local_claude_chat_it_was_given_is_refused() {
     assert_eq!(reply["error"]["data"]["reason"], "remote.local_claude_session", "{reply}");
     drop(send);
     tokio::time::timeout(WAIT, server).await.unwrap().unwrap();
+}
+
+/// A teammate stops a chat its grant names, one this machine started included (the teammate verb
+/// `agent-session-cancel`), as a request and as a notification; any other chat is refused, by
+/// the carrier gate, before the remote guard's Stop rule.
+#[tokio::test]
+async fn a_teammate_cancels_a_local_chat_it_was_given_and_no_other() {
+    let hub = hub_with_chats();
+    assert!(!hub.resolve("chat-a").unwrap().meta().remote_origin);
+    // `chat-x` is in the grant but is only a prefix of `chat-xyz`.
+    let who = Attested { chats: vec!["chat-a".into(), "chat-x".into()], ..teammate() };
+    let (send, inbound) = tokio::sync::mpsc::channel(8);
+    let (out, mut recv) = tokio::sync::mpsc::channel(256);
+    let server = tokio::spawn(serve_attested(hub.clone(), inbound, out, who.clone()));
+    ask(&send, &mut recv, 0, "initialize", json!({"protocolVersion": 1})).await;
+    let mine = ask(&send, &mut recv, 1, "session/cancel", json!({"sessionId": "chat-a"})).await;
+    assert!(mine.get("error").is_none(), "{mine}");
+    for (id, chat) in [(2, "chat-b"), (3, "chat-x"), (4, "alias")] {
+        let reply = ask(&send, &mut recv, id, "session/cancel", json!({"sessionId": chat})).await;
+        assert_eq!(reply["error"]["data"]["reason"], "carrier.team_refused", "{chat}: {reply}");
+    }
+    drop(send);
+    tokio::time::timeout(WAIT, server).await.unwrap().unwrap();
+    // The notification form: the same rule, the exact id included.
+    let cancel = |chat: &str| {
+        let params = json!({"sessionId": chat});
+        notification_admitted(&hub, Some(&who), method::SESSION_CANCEL, Some(&params))
+    };
+    assert!(cancel("chat-a"));
+    assert!(!cancel("chat-b"));
+    assert!(!cancel("chat-x"), "a prefix in the grant never stops chat-xyz");
 }
