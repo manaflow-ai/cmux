@@ -29,6 +29,7 @@ use cmux_classic_import::plan::{self, Mode, Preview};
 use cmux_classic_import::read;
 use cmux_classic_import::source::{Finder, RunningProbe, Source, seconds};
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::{ParsedResourceRequest, mutation_result, resource_operation_error};
@@ -44,6 +45,9 @@ pub const CAPABILITY: &str = "classic-import-v1";
 
 /// Why there is no plan when the ledger is a newer build's.
 pub(crate) const NEWER_LEDGER: &str = "ledger from a newer cmux";
+/// Only the verified app runs these (`request_origin::USER_ONLY_OPERATIONS`).
+pub(crate) const PLAN_OPERATION: &str = "classic_import.plan";
+pub(crate) const RECORD_OPERATION: &str = "classic_import.record";
 pub(crate) const UNREADABLE_LEDGER: &str = "ledger could not be read";
 
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
@@ -443,25 +447,35 @@ impl Mux {
         };
         let folder = places.folder(&record.bundle_id).map_err(anyhow::Error::from)?;
         // Classic's files are copied before the commit, with no lock held (a
-        // session can be hundreds of megabytes); only classic's own session
-        // files are copied.
-        if let Event::Begin { backups, .. } = &record.event {
-            let finder = places.finder(&record.bundle_id);
-            let files: Vec<PathBuf> = backups.iter().map(PathBuf::from).collect();
-            if let Some(stray) = files.iter().find(|file| !finder.is_session_file(file)) {
-                anyhow::bail!(
-                    "bad request: {} is not one of classic's session files",
-                    stray.display()
-                );
+        // session can be hundreds of megabytes), into a staged folder that
+        // becomes a backup only inside the commit: a replayed step keeps
+        // nothing and rotates nothing. Only classic's own session files are
+        // copied.
+        let key: String = Sha256::digest(mutation.id.as_bytes())
+            .iter()
+            .take(8)
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let staged = match &record.event {
+            Event::Begin { backups, .. } => {
+                let finder = places.finder(&record.bundle_id);
+                let files: Vec<PathBuf> = backups.iter().map(PathBuf::from).collect();
+                if let Some(stray) = files.iter().find(|file| !finder.is_session_file(file)) {
+                    anyhow::bail!(
+                        "bad request: {} is not one of classic's session files",
+                        stray.display()
+                    );
+                }
+                let mut nonce = [0u8; 4];
+                getrandom::fill(&mut nonce).map_err(|error| anyhow::anyhow!("{error}"))?;
+                let name = format!("{key}-{}", u32::from_le_bytes(nonce));
+                folder.stage(&files, &name)?
             }
-            let suffix: String =
-                mutation.id.chars().filter(char::is_ascii_alphanumeric).take(8).collect();
-            let now = seconds(std::time::SystemTime::now()) as i64;
-            folder.backup(&files, &ledger::backup_stamp(now, &suffix))?;
-        }
-        self.commit_state(
+            _ => None,
+        };
+        let commit = self.commit_state(
             mutation,
-            "classic_import.record",
+            RECORD_OPERATION,
             &record.fingerprint,
             None,
             StateEffects::EVENTS_ONLY,
@@ -470,6 +484,9 @@ impl Mux {
                 let changed = record
                     .apply(folder.load(), places, now)
                     .map_err(|reason| anyhow::anyhow!("bad request: {reason}"))?;
+                if let Some(staged) = &staged {
+                    folder.keep(staged, &ledger::backup_stamp(now as i64, &key))?;
+                }
                 if let Some(ledger) = &changed {
                     folder.save(ledger)?;
                 }
@@ -482,7 +499,12 @@ impl Mux {
                 });
                 Ok(StateChanges::new(result, Vec::new()))
             },
-        )
+        );
+        // Kept copies were renamed away; a replay's or a failed step's are dropped.
+        if let Some(staged) = &staged {
+            let _ = std::fs::remove_dir_all(staged);
+        }
+        commit
     }
 }
 

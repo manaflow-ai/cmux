@@ -59,6 +59,11 @@ pub fn seconds(time: SystemTime) -> f64 {
     }
 }
 
+/// Whether `path` is a regular file itself, not a link to one.
+pub(crate) fn is_regular(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
+}
+
 fn modified(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).ok()?.modified().ok()
 }
@@ -123,7 +128,11 @@ impl Finder {
         };
         let mut files = vec![self.primary(&channel), self.previous(&channel)];
         files.extend(self.newest_archive(&channel));
-        files.into_iter().filter(|file| file.exists()).map(|file| (file, channel.clone())).collect()
+        files
+            .into_iter()
+            .filter(|file| is_regular(file))
+            .map(|file| (file, channel.clone()))
+            .collect()
     }
 
     /// `channel`'s newest `session-history` archive.
@@ -161,15 +170,25 @@ impl Finder {
         })
     }
 
-    /// Whether `path` is one of classic's session files under this finder's
-    /// folder (a session file, its copy, or an archive), so a caller may only
-    /// ever name classic's own files for a backup.
+    /// Whether `path` is exactly one of the files a run of some classic
+    /// channel reads (its session file, `-previous` copy or newest archive),
+    /// a regular file, not a link, in classic's own folder. A caller may
+    /// only ever name these for a backup or a resume.
     pub fn is_session_file(&self, path: &Path) -> bool {
-        let Some(name) = path.file_name().and_then(|name| name.to_str()) else { return false };
-        let parent = path.parent();
-        let in_folder = parent == Some(self.folder().as_path())
-            || parent == Some(self.folder().join("session-history").as_path());
-        in_folder && name.starts_with("session-") && name.ends_with(".json") && !name.contains('/')
+        if !is_regular(path) {
+            return false;
+        }
+        let folder = self.folder();
+        let Some(parent) = path.parent().and_then(|parent| parent.canonicalize().ok()) else {
+            return false;
+        };
+        let in_folder = [folder.clone(), folder.join("session-history")]
+            .iter()
+            .any(|allowed| allowed.canonicalize().is_ok_and(|allowed| allowed == parent));
+        in_folder
+            && CHANNELS
+                .iter()
+                .any(|channel| self.candidates(Some(channel)).iter().any(|(file, _)| file == path))
     }
 
     fn folder(&self) -> PathBuf {
@@ -328,6 +347,37 @@ mod tests {
         assert!(
             !finder.is_session_file(&root.path().join("elsewhere/session-com.cmuxterm.app.json"))
         );
+    }
+
+    /// Only the exact files a run reads count: not a link to another file,
+    /// not an older archive, not a look-alike name, not a path through `..`.
+    #[test]
+    fn a_session_file_is_a_regular_file_a_run_reads_and_nothing_else() {
+        let root = tempfile::tempdir().unwrap();
+        let secret = write(root.path(), "elsewhere/secret.json", None);
+        let primary = root.path().join("support/cmux/session-com.cmuxterm.app.json");
+        std::fs::create_dir_all(primary.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&secret, &primary).unwrap();
+        let older = write(
+            root.path(),
+            "support/cmux/session-history/session-com.cmuxterm.app-1000-w1-p1.json",
+            None,
+        );
+        write(
+            root.path(),
+            "support/cmux/session-history/session-com.cmuxterm.app-2000-w1-p1.json",
+            None,
+        );
+        let look_alike = write(root.path(), "support/cmux/session-evil.json", None);
+        let finder = Finder::new(&root.path().join("support"), Some("com.cmuxterm.app"));
+        assert!(!finder.is_session_file(&primary));
+        assert!(finder.candidates(None).iter().all(|(file, _)| file != &primary));
+        assert!(!finder.is_session_file(&older));
+        assert!(!finder.is_session_file(&look_alike));
+        let through = root.path().join(
+            "support/cmux/session-history/../session-history/session-com.cmuxterm.app-2000-w1-p1.json",
+        );
+        assert!(!finder.is_session_file(&through));
     }
 
     #[test]

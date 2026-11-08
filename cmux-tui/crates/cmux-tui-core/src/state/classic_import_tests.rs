@@ -305,3 +305,85 @@ fn a_resumed_run_plans_from_the_save_it_started_with() {
     let fallback = plan(&mux, &home, Mode::Automatic);
     assert!(!keys(&fallback).contains(started.last().unwrap()), "{fallback}");
 }
+
+/// A replayed `begin` makes no second backup, so it never rotates out the
+/// copy the in-progress run started from, even after classic saved again
+/// and with retention full.
+#[test]
+fn a_replayed_begin_after_later_saves_keeps_the_backup_the_run_needs() {
+    let mux = Mux::new_for_test("classic-import-replay-backup", SurfaceOptions::default());
+    let home = home(true);
+    let first = plan(&mux, &home, Mode::Automatic);
+    let original = std::fs::read(home.session()).unwrap();
+    record(&mux, &home, begin(&first), "once-begin");
+    let backups = home.ledger().parent().unwrap().join("backups");
+    let kept = |backups: &Path| -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(backups)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    };
+    let ours = kept(&backups);
+    assert_eq!(ours.len(), 1, "{ours:?}");
+    // Four later runs' backups fill retention (they sort after ours).
+    for index in 0..4 {
+        std::fs::create_dir_all(backups.join(format!("29990101T00000{index}Z-later"))).unwrap();
+    }
+    for save in 0..3 {
+        std::fs::write(
+            home.session(),
+            format!("{{\"version\":1,\"createdAt\":{save},\"windows\":[]}}"),
+        )
+        .unwrap();
+        let replay = record(&mux, &home, begin(&first), "once-begin");
+        assert_eq!(replay["replayed"], true);
+    }
+    let after = kept(&backups);
+    assert_eq!(after.len(), 5, "{after:?}");
+    assert!(after.contains(&ours[0]), "{after:?}");
+    assert_eq!(
+        std::fs::read(backups.join(&ours[0]).join("session-com.cmuxterm.app.json")).unwrap(),
+        original
+    );
+}
+
+/// The daemon's origin gate keeps agents and pages off both operations:
+/// they read classic's session and write the app's ledger and backups.
+#[test]
+fn only_the_verified_app_runs_the_move_from_classic() {
+    use crate::request_origin::{RequestOrigin, require_origin};
+    for operation in ["classic_import.plan", "classic_import.record"] {
+        for origin in [RequestOrigin::Page, RequestOrigin::Agent, RequestOrigin::App] {
+            assert!(require_origin(operation, origin).is_err(), "{operation} {origin:?}");
+        }
+        assert!(require_origin(operation, RequestOrigin::User).is_ok());
+    }
+}
+
+/// `begin` copies only the exact session files a run reads: a link named
+/// like classic's session is refused.
+#[test]
+fn begin_refuses_a_link_in_place_of_classics_session() {
+    let mux = Mux::new_for_test("classic-import-link", SurfaceOptions::default());
+    let home = home(true);
+    let first = plan(&mux, &home, Mode::Automatic);
+    let secret = home.0.join("secret.json");
+    std::fs::write(&secret, "{}").unwrap();
+    std::fs::remove_file(home.session()).unwrap();
+    std::os::unix::fs::symlink(&secret, home.session()).unwrap();
+    let mut fields = begin(&first);
+    fields["bundle_id"] = json!(BUNDLE);
+    let record = Record::parse(fields.as_object().unwrap()).unwrap();
+    let mutation = WorkspaceMutation::new(
+        "link-begin".to_string(),
+        "resource-api",
+        crate::workspace_registry::Actor::Daemon,
+    )
+    .unwrap();
+    let error = mux.classic_import_record(Some(&home.places()), &mutation, &record).unwrap_err();
+    assert!(error.to_string().contains("not one of classic's session files"), "{error}");
+    assert!(!home.ledger().parent().unwrap().join("backups").exists());
+}

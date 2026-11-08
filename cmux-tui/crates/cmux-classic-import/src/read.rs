@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::decode::{self, Error, STABLE_BUNDLE_ID};
 use crate::model::Snapshot;
-use crate::source::{Finder, Source};
+use crate::source::{Finder, Source, is_regular};
 
 /// Classic's session as read, the save it came from, and the files to back up.
 #[derive(Debug, Clone, PartialEq)]
@@ -65,20 +65,23 @@ pub fn resume(finder: &Finder, source: &Source, backups: &Path, home: &Path) -> 
         .into_iter()
         .flatten()
         .flatten()
+        .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
         .map(|entry| entry.path().join(name))
-        .filter(|copy| copy.is_file())
+        .filter(|copy| is_regular(copy))
         .collect();
     // Stamps sort by time: the newest backup first.
     copies.sort_unstable_by(|a, b| b.cmp(a));
     let home_text = home.to_string_lossy();
-    for (index, path) in std::iter::once(original.clone()).chain(copies).enumerate() {
+    // The ledger's path is read only while it is still one of classic's own session files.
+    let original = finder.is_session_file(&original).then_some(original);
+    for path in original.into_iter().chain(copies) {
         let Ok(Some(snapshot)) = decode::read_file(&path, &home_text) else { continue };
         let Some(found) = finder.source(&path, &source.bundle_id, snapshot.created_at) else {
             continue;
         };
         // The file itself must still hold that save; a copy is that save
         // unless its own creation date says otherwise.
-        let same = if index == 0 {
+        let same = if path == Path::new(&source.path) {
             found.is_same_save(source)
         } else {
             source.created_at.is_none() || found.created_at == source.created_at

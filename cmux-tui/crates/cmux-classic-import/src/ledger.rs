@@ -201,35 +201,71 @@ impl Folder {
     /// returns it; none when none exists. Folders beyond [`KEPT_BACKUPS`]
     /// are removed, oldest first (only the migration's own copies).
     pub fn backup(&self, files: &[PathBuf], stamp: &str) -> std::io::Result<Option<PathBuf>> {
+        match self.stage(files, stamp)? {
+            Some(staged) => self.keep(&staged, stamp).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Copies the `files` that exist into a hidden `backups/.staging-<name>`
+    /// folder, which neither counts as a backup nor is read as one until
+    /// [`Folder::keep`] names it; none when none exists. A caller copies
+    /// big files here with no lock held, then keeps them only when its step
+    /// really runs (a replayed step removes the staged copy instead).
+    pub fn stage(&self, files: &[PathBuf], name: &str) -> std::io::Result<Option<PathBuf>> {
         let existing: Vec<&PathBuf> = files.iter().filter(|file| file.is_file()).collect();
         if existing.is_empty() {
             return Ok(None);
         }
-        if stamp.is_empty() || stamp.contains('/') || stamp.starts_with('.') {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "a backup stamp is one folder name",
-            ));
-        }
-        let folder = self.backups_path().join(stamp);
+        let folder = self.backups_path().join(format!(".staging-{}", one_folder(name)?));
+        let _ = std::fs::remove_dir_all(&folder);
         std::fs::create_dir_all(&folder)?;
         for file in existing {
-            let Some(name) = file.file_name() else { continue };
-            let copy = folder.join(name);
-            if !copy.exists() {
-                std::fs::copy(file, copy)?;
-            }
+            let Some(file_name) = file.file_name() else { continue };
+            std::fs::copy(file, folder.join(file_name))
+                .inspect_err(|_| drop(std::fs::remove_dir_all(&folder)))?;
         }
-        let mut all: Vec<String> = std::fs::read_dir(self.backups_path())?
-            .flatten()
-            .filter_map(|entry| entry.file_name().into_string().ok())
-            .collect();
+        Ok(Some(folder))
+    }
+
+    /// Names the `staged` copies `backups/<stamp>` and removes the folders
+    /// beyond [`KEPT_BACKUPS`], oldest first (only the migration's own copies).
+    pub fn keep(&self, staged: &Path, stamp: &str) -> std::io::Result<PathBuf> {
+        let folder = self.backups_path().join(one_folder(stamp)?);
+        if folder.exists() {
+            let _ = std::fs::remove_dir_all(staged);
+        } else {
+            std::fs::rename(staged, &folder)?;
+        }
+        let mut all: Vec<String> = self.backup_folders();
         all.sort_by(|a, b| b.cmp(a));
         for old in all.iter().skip(KEPT_BACKUPS) {
             let _ = std::fs::remove_dir_all(self.backups_path().join(old));
         }
-        Ok(Some(folder))
+        Ok(folder)
     }
+
+    /// The kept backup folders' names (staged copies left out).
+    pub fn backup_folders(&self) -> Vec<String> {
+        std::fs::read_dir(self.backups_path())
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|name| !name.starts_with('.'))
+            .collect()
+    }
+}
+
+/// `name` when it is one plain folder name.
+fn one_folder(name: &str) -> std::io::Result<&str> {
+    if name.is_empty() || name.contains('/') || name.starts_with('.') {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "a backup stamp is one folder name",
+        ));
+    }
+    Ok(name)
 }
 
 /// A backup folder's name: the UTC time (`20261108T101500Z`) and `suffix`,
