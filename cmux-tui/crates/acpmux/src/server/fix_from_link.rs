@@ -75,9 +75,31 @@ pub async fn handle(
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("url is required"))?;
     let issue = parse_issue_url(url).map_err(RpcError::invalid_params)?;
-    let issue_context = fetch_issue(&issue, params.get("cwd").and_then(Value::as_str)).await?;
     let requested_cwd = params.get("cwd").and_then(Value::as_str).map(PathBuf::from);
     let checkout = find_checkout(&issue, requested_cwd).await?;
+    let harness = params.get("harness").and_then(Value::as_str).map(str::to_owned);
+    let model = params.get("model").and_then(Value::as_str).map(str::to_owned);
+    // Check the repository the person already has before creating anything in it. A newly-made
+    // worktree is trusted by construction, so gating only its path would bypass the source folder's
+    // unanswered trust decision.
+    let trust_params = json!({
+        "cwd": checkout,
+        "mcpServers": [],
+        "_meta": {"acpmux": {
+            "source": "github-issue",
+            "harness": harness,
+            "model": model,
+        }}
+    });
+    super::trust_gate::check(
+        hub,
+        conn.origin,
+        crate::rpc::method::SESSION_NEW,
+        &trust_params,
+        None,
+    )
+    .await?;
+    let issue_context = fetch_issue(&issue, checkout.to_str()).await?;
     let name =
         format!("{}-{}", issue.number, crate::subsession_worktree::slug(&issue_context.title));
     let branch = branch_name(&issue, &issue_context.title);
@@ -93,8 +115,6 @@ pub async fn handle(
     .map_err(|e| RpcError::internal(e.to_string()))?
     .map_err(|e| RpcError::invalid_params(format!("no worktree: {e}")))?;
 
-    let harness = params.get("harness").and_then(Value::as_str).map(str::to_owned);
-    let model = params.get("model").and_then(Value::as_str).map(str::to_owned);
     let mut new_params = json!({
         "cwd": ensured.worktree.cwd,
         "mcpServers": [],
@@ -108,11 +128,6 @@ pub async fn handle(
             meta.insert("model".into(), json!(model));
         }
     }
-    // Apply the folder-trust gate before the internal dispatch. The outer
-    // action already passed the caller/person and remote checks, and this
-    // nested start must not turn the link into an untrusted privileged start.
-    super::trust_gate::check(hub, conn.origin, crate::rpc::method::SESSION_NEW, &new_params, None)
-        .await?;
     let created = Box::pin(super::requests::dispatch_request(
         hub,
         conn,
@@ -227,20 +242,24 @@ async fn find_checkout(
     let issue = issue.clone();
     tokio::task::spawn_blocking(move || {
         let home = dirs::home_dir().ok_or_else(|| RpcError::not_found("no home folder"))?;
-        if let Some(path) = requested.as_deref()
-            && let Ok(root) = git_root(path)
-        {
+        if let Some(path) = requested {
+            let root = git_root(&path).map_err(|_| {
+                RpcError::not_found(format!(
+                    "selected folder is not a Git checkout: {}",
+                    path.display()
+                ))
+            })?;
             // A picked folder is authoritative when it has no origin (for example a
-            // freshly-created fixture), but never lets an unrelated checkout receive
-            // another repository's issue.
+            // freshly-created fixture), but never silently falls back to another checkout.
             if repo_matches(&root, &issue) || origin_remote(&root).is_none() {
                 return Ok(root);
             }
+            return Err(RpcError::not_found(format!(
+                "selected folder does not check out {}/{}",
+                issue.owner, issue.repo
+            )));
         }
         let mut candidates = Vec::new();
-        if let Some(path) = requested {
-            candidates.push(path);
-        }
         candidates
             .extend(crate::worktree_sessions::on_disk(&home, None).into_iter().map(|s| s.cwd));
         for root in crate::worktree_sessions::default_roots(&home) {
