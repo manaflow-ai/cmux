@@ -739,6 +739,9 @@ git worktree create [TARGET] [--name <name>] [--base <revision>]
 git worktree apply [TARGET]
 git worktree remove [TARGET] [--discard]
 git worktree setup [TARGET] [--since <offset>]
+git comments list [--root <path>]
+git comments save [--root <path>] --comment <json-object>
+git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 conversation list                                             (cmux-tui only)
 conversation <conv_id> get [--tail <0..500>]
@@ -1119,6 +1122,15 @@ meanwhile), `port`, `exit_code`, what `include` copied, and the `output` from
 byte `--since` (at most its last 64 KiB) with `output_start` and `output_end`
 (decimal strings); the next read passes `output_end` as `--since`. Setup stops
 after 30 minutes.
+
+`git comments list|save|delete` (`diff.comments.list|save|delete`, capability
+`diff-comments-v1`) read and change the diff page's review comments, which the
+session host keeps per worktree root: `--root`, made absolute against the
+current directory, which is the default. `save` sends `--comment` (a JSON
+object, kept as given; its `id` names a saved comment to replace) and the
+session host sets `createdAt` and `updatedAt`. `delete` names the ids to
+remove (at most 500); `--versions-json` maps an id to the `updatedAt` read, and
+a comment edited since is kept. Unknown ids are ignored.
 
 ## Local sidebar plugins
 

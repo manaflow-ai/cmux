@@ -1,4 +1,4 @@
-//! `git status|diff|branches|files|list|checkpoint|commit|push|worktree create|apply|remove|setup`: the session host's git operations. The repository
+//! `git status|diff|branches|files|list|checkpoint|commit|push|worktree create|apply|remove|setup`: the session host's git operations, and `git comments` (the diff page's review comments, `comments.rs`). The repository
 //! is the one `--path` is in, or the working directory of the terminal a
 //! `--workspace`, `--screen`, `--pane`, `--tab` or `--terminal` selector
 //! names; with none of them, the current directory's.
@@ -23,6 +23,10 @@ const TARGETS: &[(&str, &str)] = &[
 /// `git status`, `git diff [<path>...]`, `git branches`, `git files <query>...` and
 /// `git list`.
 pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    // Comments are keyed by a worktree root, not a repository target.
+    if let ["comments", action @ ..] = words {
+        return comments::parse(action, flags);
+    }
     let mut params = Map::new();
     let selectors = target(flags, &mut params)?;
     let operation = match words {
@@ -142,6 +146,7 @@ fn target(flags: &mut Flags, params: &mut Map<String, Value>) -> Result<Selector
 }
 
 mod checkpoint;
+mod comments;
 #[cfg(test)]
 mod tests;
 mod write;
