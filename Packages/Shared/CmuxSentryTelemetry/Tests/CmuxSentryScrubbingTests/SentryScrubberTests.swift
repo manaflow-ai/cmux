@@ -16,6 +16,13 @@ import Testing
         )
     }
 
+    /// A home that is the users' directory itself must not hide the user name from the generic rule.
+    @Test(arguments: ["/Users", "/home", "/Users/"])
+    func aHomeThatIsTheUsersDirectoryKeepsNoName(home: String) {
+        let scrubbed = SentryScrubber(homeDirectory: home).scrub("at /Users/alice/project and /home/alice/project")
+        #expect(!scrubbed.contains("alice"))
+    }
+
     @Test func redactsAnyUsersPathEvenWhenNotTheRuntimeHome() {
         // Stack frames carry the build machine's home, which is not the runtime
         // home dir; the generic /Users/<name>/ rule must still catch it.

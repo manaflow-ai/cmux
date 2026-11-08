@@ -148,6 +148,11 @@ mod tests {
         assert_eq!(scrub("at /Users/al/project and /Users/al", home), "at ~/project and ~");
         assert_eq!(scrub(r#"open "/Users/al" failed"#, home), r#"open "~" failed"#);
         assert_eq!(scrub("at /users/bob/src", None), "at /Users/<redacted>/src");
+        // A home that is the users' directory itself must not hide the name (cmux#38555 review 7 F1).
+        for home in ["/home", "/Users", "/home/"] {
+            let out = scrub("at /home/alice/project and /Users/alice/x", Some(home));
+            assert!(!out.contains("alice"), "{home}: {out}");
+        }
     }
 
     #[test]
