@@ -8,7 +8,7 @@ import type { ViteDevServer } from "vite";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-type PromptCall = { method: string; params?: { prompt?: unknown } };
+type PromptCall = { method: string; params?: { text?: unknown; prompt?: unknown } };
 
 await requireBrowserLane("ime-composer-probes.browser.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -124,13 +124,11 @@ await requireBrowserLane("ime-composer-probes.browser.test.ts", async () => {
       await dispatchSubmitReturn(page);
       await page.waitForFunction(() => {
         const log = (window as unknown as { cmuxGalleryLog: PromptCall[] }).cmuxGalleryLog;
-        return log.some(({ method }) => method === "acpmux session/prompt");
+        return log.some(({ method }) => method === "chat.send");
       });
       const result = await page.evaluate(() => {
         const log = (window as unknown as { cmuxGalleryLog: PromptCall[] }).cmuxGalleryLog;
-        const prompts = log
-          .filter(({ method }) => method === "acpmux session/prompt")
-          .map(({ params }) => params?.prompt);
+        const prompts = log.filter(({ method }) => method === "chat.send").map(({ params }) => params?.text ?? params?.prompt);
         return {
           prompts,
           draft: document.querySelector<HTMLElement>(".acpmux-md")?.textContent ?? "",
