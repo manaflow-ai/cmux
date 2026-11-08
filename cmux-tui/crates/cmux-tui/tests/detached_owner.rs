@@ -121,9 +121,10 @@ fn owner_command_line(pid: u64) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-/// Reaping is opt-in (`--terminal-reap-grace-seconds`), and the cmux-next app
-/// starts its daemon only through `server ensure`, so ensure must hand the
-/// grace to the owner it spawns. Without the option the owner never reaps.
+/// The cmux-next app starts its daemon only through `server ensure`, so
+/// ensure must hand the grace to the owner it spawns. Without the option an
+/// owner ensure spawns reaps with the default grace (30 s): it used to reap
+/// nothing, and every closed tab's shell ran until the session ended (W5-O).
 #[test]
 fn cmux_next_ensure_starts_the_owner_with_the_reap_grace() {
     let fixture = EnsureFixture::new("reap");
@@ -138,13 +139,13 @@ fn cmux_next_ensure_starts_the_owner_with_the_reap_grace() {
         "owner argv lacks the reap grace: {command_line}"
     );
 
-    let plain = EnsureFixture::new("noreap");
+    let plain = EnsureFixture::new("defaultreap");
     let started = plain.run("ensure");
     let pid = started["pid"].as_u64().expect("owner pid");
     let command_line = owner_command_line(pid);
     assert!(
-        !command_line.contains("--terminal-reap-grace-seconds"),
-        "an owner started without the option must not reap: {command_line}"
+        command_line.contains("--terminal-reap-grace-seconds 30"),
+        "an owner started without the option reaps with the default grace: {command_line}"
     );
 }
 

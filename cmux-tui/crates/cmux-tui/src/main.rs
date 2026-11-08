@@ -2778,10 +2778,12 @@ fn run_server(
     #[cfg(unix)]
     cmux_tui_core::server::start_link_share_bridge(&mux, share_room::url().as_deref());
     // Ends terminals that have had no tab placement for the reap grace
-    // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close
-    // has always left the terminal running unplaced, and clients built
-    // before the reaper (and Cloud supervisors) rely on that, so only a
-    // daemon started with `--terminal-reap-grace-seconds` reaps.
+    // period and are not marked keep (`terminal-reap-v1`). A daemon started
+    // without `--terminal-reap-grace-seconds` does not reap, as before, for
+    // the launchers that start one directly (Cloud supervisors, remote
+    // daemons); every owner a local client starts (`cmux`, `cmux-tui`,
+    // `daemon ensure`) gets the option, 30 s unless the client names another
+    // (local_owner.rs, W5-O).
     let terminal_reaper = match args.terminal_reap_grace {
         Some(grace) => {
             mux.set_terminal_reap_grace(grace)?;
