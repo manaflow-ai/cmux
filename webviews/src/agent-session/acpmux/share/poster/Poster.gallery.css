@@ -1,0 +1,12 @@
+/* The gallery's stage for the run poster: the poster at the stage's width, the dialog centered. */
+.poster-gallery__image {
+  display: block;
+  width: 100%;
+  max-width: 1200px;
+  height: auto;
+  margin: 0 auto;
+}
+.poster-gallery__dialog {
+  position: relative;
+  margin: 0 auto;
+}

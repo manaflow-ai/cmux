@@ -424,7 +424,10 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentShareInviteSheetModel.swift",
         "webviews/src/agent-session/guest/",
         "webviews/src/agent-session/acpmux/share/ShareNudge.tsx",
-        "webviews/src/agent-session/acpmux/share/shareNudgeModel.ts"
+        "webviews/src/agent-session/acpmux/share/shareNudgeModel.ts",
+        "webviews/src/agent-session/acpmux/share/poster/Poster.tsx",
+        "webviews/src/agent-session/acpmux/share/poster/PosterDialog.tsx",
+        "webviews/src/agent-session/acpmux/share/poster/poster.css"
       ]
     },
     "icons": {
