@@ -101,11 +101,18 @@ import Testing
         pass(window, view)
         try expectAtNewest(view, "shown again")
 
-        // The window's Chief panel borrows the chat beside a link it opened (and gives it back), out of its
-        // pane and into the panel in one turn (ChiefPanelView.hold): it stays on screen, so the reader keeps
-        // their place.
+        // The window's Chief panel borrows the chat beside a link it opened: the link's workspace shows and
+        // Home is parked hidden, then the chat moves out of it into the visible panel in one turn
+        // (WindowRootView.show, ChiefPanelView.hold). It stays on screen, so the reader keeps their place.
+        let home = NSView(frame: container.bounds)
+        container.addSubview(home)
+        view.removeFromSuperview()
+        home.addSubview(view)
+        await settle()
         try await scrollUp(window, view, "scrolled up before the Chief panel takes it")
         let before = try place(view, "before the Chief panel takes it").back
+        home.isHidden = true
+        await settle()
         let panel = NSView(frame: container.bounds)
         container.addSubview(panel)
         view.removeFromSuperview()
