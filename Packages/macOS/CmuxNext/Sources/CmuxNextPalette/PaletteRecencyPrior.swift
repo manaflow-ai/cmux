@@ -33,7 +33,9 @@ public nonisolated struct PaletteRecencyPrior: Sendable, Equatable {
 
     /// The decay part of the bias of a row last used at `lastUsed` (nil: never), seen at `now`.
     public func decay(lastUsed: Date?, now: Date) -> Int {
-        0
+        guard let lastUsed, halfLife > 0 else { return 0 }
+        let age = max(0, now.timeIntervalSince(lastUsed))
+        return Int((maximum * exp2(-age / halfLife)).rounded())
     }
 
     /// The recency bias of each used row: its ``decay(lastUsed:now:)`` plus a place boost (16 for
@@ -44,6 +46,17 @@ public nonisolated struct PaletteRecencyPrior: Sendable, Equatable {
     ///   - now: The time the palette ranks at.
     /// - Returns: The bias of each row in `uses`; a row not listed has none.
     public func biases(_ uses: [(id: String, lastUsed: Date)], now: Date) -> [String: Int] {
-        [:]
+        var latest: [String: Date] = [:]
+        for use in uses where latest[use.id].map({ $0 < use.lastUsed }) ?? true { latest[use.id] = use.lastUsed }
+        var biases: [String: Int] = [:]
+        for (place, use) in latest.sorted(by: { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }).enumerated() {
+            biases[use.key] = decay(lastUsed: use.value, now: now) + max(0, Self.placeBoost - Self.placeStep * place)
+        }
+        return biases
     }
+
+    /// The most recently used row's place boost, the same as Search Tabs' recency boost.
+    static let placeBoost = 16
+    /// The place boost shrinks by this much per place down.
+    static let placeStep = 2
 }
