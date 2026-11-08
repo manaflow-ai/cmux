@@ -7,14 +7,23 @@
 # Around a deploy (cmux-vm.yml): JOURNEY_PHASE=baseline before it (never fails the job), then
 # JOURNEY_PHASE=after: exit 3 when a step that passed on the baseline fails now (the deploy's own red,
 # which rolls the Worker back), 1 for a red that was already red before, 0 when green.
+#
+# Every run but a baseline ends with one annotation titled "Cloud journey verdict", message
+# `target=TARGET result=pass|red|regressed|not-run`: NOW's cloud_deploy_gate (cmuxterm-hq
+# tools/fleet-reconcilers/now_cloud_deploy_gate.py) counts a deploy as proven only by a pass verdict in
+# its run, because a step's own conclusion is green on "not run" and on an old red.
 set -euo pipefail
 : "${TARGET:?TARGET is a cloud-journey.ts --backend name}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out="${RUNNER_TEMP:-$(mktemp -d)}/cloud-journey"
 summary="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+verdict() { # result
+  [ "${JOURNEY_PHASE:-}" = baseline ] || echo "::notice title=Cloud journey verdict::target=$TARGET result=$1"
+}
 if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ]; then
   echo "::notice title=Cloud journey not run::this job's environment holds no agent test account (CMUX_*_STACK_EMAIL/_PASSWORD)"
   printf 'Cloud journey on `%s` not run: no agent test account in this environment.\n' "$TARGET" >> "$summary"
+  verdict not-run
   exit 0
 fi
 phase="${JOURNEY_PHASE:-}"
@@ -46,5 +55,6 @@ if [ -n "${PRODUCT_TEAM:-}" ]; then
   run product-team --team "$PRODUCT_TEAM"
 fi
 if [ "$phase" = baseline ]; then exit 0; fi
-if [ "$regressed" = 1 ]; then exit 3; fi
+if [ "$regressed" = 1 ]; then verdict regressed; exit 3; fi
+if [ "$status" = 0 ]; then verdict pass; else verdict red; fi
 exit "$status"
