@@ -171,6 +171,10 @@
       "mark": "close1"
     },
     {
+      "do": "use",
+      "name": "t"
+    },
+    {
       "do": "expect",
       "title": "Cmd-W on pinned b0: it closes, pinned T (the tab before) is selected",
       "since": "close1",
@@ -200,16 +204,16 @@
       ]
     },
     {
-      "do": "use",
-      "name": "t"
-    },
-    {
       "do": "key",
       "key": "w",
       "modifiers": [
         "cmd"
       ],
       "mark": "close2"
+    },
+    {
+      "do": "use",
+      "name": "b1"
     },
     {
       "do": "expect",
@@ -239,10 +243,6 @@
           }
         }
       ]
-    },
-    {
-      "do": "use",
-      "name": "b1"
     },
     {
       "do": "neutral_prompt"
