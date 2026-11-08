@@ -1536,8 +1536,33 @@
   overflow-x: auto;
   overflow-y: hidden;
 }
+/* The edge with more table past it fades out (sideways.ts marks it): the right edge, and the left
+   once scrolled (user 2026-11-07: "markdown missing fade now"). A mask, so the fade takes the
+   bubble's or the transcript's own background in light and dark; eased stops, so it never bands. */
+.cv-table-wrap {
+  --cv-table-fade-left: 0px;
+  --cv-table-fade-right: 0px;
+}
+.cv-table-wrap[data-more-left] {
+  --cv-table-fade-left: var(--cv-table-fade, 24px);
+}
 .cv-table-wrap[data-more-right] {
-  mask-image: linear-gradient(to left, transparent, #000 32px);
+  --cv-table-fade-right: var(--cv-table-fade, 24px);
+}
+.cv-table-wrap:is([data-more-left], [data-more-right]) {
+  --cv-table-mask: linear-gradient(
+    to right,
+    rgb(0 0 0 / 0) 0,
+    rgb(0 0 0 / 0.45) calc(var(--cv-table-fade-left) * 0.3),
+    rgb(0 0 0 / 0.8) calc(var(--cv-table-fade-left) * 0.6),
+    #000 var(--cv-table-fade-left),
+    #000 calc(100% - var(--cv-table-fade-right)),
+    rgb(0 0 0 / 0.8) calc(100% - var(--cv-table-fade-right) * 0.6),
+    rgb(0 0 0 / 0.45) calc(100% - var(--cv-table-fade-right) * 0.3),
+    rgb(0 0 0 / 0) 100%
+  );
+  -webkit-mask-image: var(--cv-table-mask);
+  mask-image: var(--cv-table-mask);
 }
 /* Columns fit their text (Leo, 2026-10-20: stretching the table to the column left a wide gap
    between a label and its value): the table is no wider than its text, and no wider than the
