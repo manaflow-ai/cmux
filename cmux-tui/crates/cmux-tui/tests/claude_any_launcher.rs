@@ -195,11 +195,14 @@ impl Daemon {
         }));
         let terminal = created["terminal_id"].as_str().unwrap().to_owned();
         let incarnation = created["terminal_incarnation"].as_str().unwrap().to_owned();
-        self.terminals.push((terminal.clone(), incarnation));
-        if let Some(surface) = created["surface"].as_u64() {
-            self.surfaces.push((tag.to_owned(), surface));
-        }
-        if terminal.starts_with("term_") { terminal } else { format!("term_{terminal}") }
+        self.terminals.push((terminal, incarnation));
+        let surface = created["surface"].as_u64().unwrap();
+        self.surfaces.push((tag.to_owned(), surface));
+        // `run` answers with the host's terminal id; the CLI and the agent
+        // roster use the public one, which the workspace tree gives.
+        let tree = self.request(serde_json::json!({"id": 3, "cmd": "list-workspaces"}));
+        public_terminal(&tree, surface)
+            .unwrap_or_else(|| panic!("surface {surface} has no public terminal id: {tree}"))
     }
 
     /// The screen of the terminal named `tag`, for a failure message.
@@ -262,6 +265,26 @@ impl Drop for Daemon {
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+/// The public terminal id (`terminal_resource_id`) of the tab of `surface`
+/// in a workspace tree.
+fn public_terminal(value: &serde_json::Value, surface: u64) -> Option<String> {
+    match value {
+        serde_json::Value::Object(map) => {
+            if map.get("surface").and_then(serde_json::Value::as_u64) == Some(surface)
+                && let Some(id) =
+                    map.get("terminal_resource_id").and_then(serde_json::Value::as_str)
+            {
+                return Some(id.to_owned());
+            }
+            map.values().find_map(|child| public_terminal(child, surface))
+        }
+        serde_json::Value::Array(items) => {
+            items.iter().find_map(|child| public_terminal(child, surface))
+        }
+        _ => None,
     }
 }
 
