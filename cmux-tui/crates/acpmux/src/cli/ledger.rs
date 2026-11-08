@@ -46,7 +46,11 @@ fn text(args: &LedgerArgs, answer: &Value) -> String {
         money(&t["tableCostUsd"]),
         t["unpricedTurns"],
     );
-    let groups = answer["rollups"][&args.by].as_array().cloned().unwrap_or_default();
+    let groups = answer["rollups"]
+        .get(args.by.as_str())
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     for g in groups.iter().take(args.limit) {
         let name = g["label"].as_str().or_else(|| g["key"].as_str()).unwrap_or("?");
         out.push_str(&format!(
