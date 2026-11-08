@@ -74,11 +74,7 @@ export default componentEntry<{ look: TimeBreakdownLook }>({
     async () =>
     ({ look }: { look: TimeBreakdownLook }) => (
       <div className="acpmux-shell" style={{ padding: 16 }}>
-        <TimeBreakdown
-          breakdown={breakdown}
-          look={look}
-          onShowTurn={(turnId) => console.info("reveal", turnId)}
-        />
+        <TimeBreakdown breakdown={breakdown} look={look} onShowTurn={(turnId) => console.info("reveal", turnId)} />
       </div>
     ),
   variants: {

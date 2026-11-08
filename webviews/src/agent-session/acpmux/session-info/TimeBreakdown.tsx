@@ -37,15 +37,9 @@ export const TimeBreakdown = memo(function TimeBreakdown({
   look?: TimeBreakdownLook;
 }) {
   const spans = breakdown.spans.filter((span) => span.endAt >= span.startAt);
-  if (
-    !spans.length &&
-    !breakdown.categories.some((category) => category.wallMs > 0)
-  )
-    return null;
+  if (!spans.length && !breakdown.categories.some((category) => category.wallMs > 0)) return null;
   const maxMs = Math.max(1, ...spans.map((span) => span.endAt - span.startAt));
-  const categories = breakdown.categories.filter(
-    (category) => category.wallMs > 0,
-  );
+  const categories = breakdown.categories.filter((category) => category.wallMs > 0);
   const spanButton = (span: AcpmuxTimeSpan, index: number) => {
     const ms = span.endAt - span.startAt;
     const title = `${LABELS[span.category] ?? span.category} · ${duration(ms)}${span.turnId ? ` · turn ${span.turnId}` : ""}`;
@@ -66,31 +60,19 @@ export const TimeBreakdown = memo(function TimeBreakdown({
     );
   };
   return (
-    <section
-      className="acpmux-time-breakdown"
-      data-look={look}
-      aria-label="Where the time went"
-    >
+    <section className="acpmux-time-breakdown" data-look={look} aria-label="Where the time went">
       <div className="acpmux-time-breakdown__heading">
         <span>Where the time went</span>
-        <span className="acpmux-time-breakdown__total">
-          {duration(breakdown.totalMs)}
-        </span>
+        <span className="acpmux-time-breakdown__total">{duration(breakdown.totalMs)}</span>
       </div>
-      {look === "stacked" && (
-        <div className="acpmux-time-breakdown__stack">
-          {spans.map(spanButton)}
-        </div>
-      )}
+      {look === "stacked" && <div className="acpmux-time-breakdown__stack">{spans.map(spanButton)}</div>}
       {look === "lanes" && (
         <div className="acpmux-time-breakdown__lanes">
           {categories.map((category) => (
             <div className="acpmux-time-breakdown__lane" key={category.id}>
               <span>{LABELS[category.id] ?? category.id}</span>
               <div className="acpmux-time-breakdown__lane-bars">
-                {spans
-                  .filter((span) => span.category === category.id)
-                  .map(spanButton)}
+                {spans.filter((span) => span.category === category.id).map(spanButton)}
               </div>
             </div>
           ))}
@@ -122,9 +104,7 @@ export const TimeBreakdown = memo(function TimeBreakdown({
         ))}
       </div>
       {!breakdown.tokensComplete && (
-        <small className="acpmux-time-breakdown__hint">
-          Token totals update when a turn reports usage.
-        </small>
+        <small className="acpmux-time-breakdown__hint">Token totals update when a turn reports usage.</small>
       )}
       <span className="acpmux-time-breakdown__scale" aria-hidden="true">
         {maxMs > 1 ? "Recent turns" : ""}

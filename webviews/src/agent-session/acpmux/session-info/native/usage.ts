@@ -20,7 +20,15 @@ const elapsed = (ms: number) => {
   const seconds = Math.floor((ms % 60_000) / 1_000);
   return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
 };
-const timeLabel = (id: string) => ({ read: "Reading", edit: "Editing", run: "Commands", think: "Thinking", person: "You", model: "Model" })[id] ?? id;
+const timeLabel = (id: string) =>
+  ({
+    read: "Reading",
+    edit: "Editing",
+    run: "Commands",
+    think: "Thinking",
+    person: "You",
+    model: "Model",
+  })[id] ?? id;
 
 function ownRows(
   stats: SessionUsageStats,
@@ -171,7 +179,11 @@ export function usageSection(
   const rows: NativeInfoRow[] = [];
   if (input.own) rows.push(...ownRows(input.own, t, input.locale, actions, input.onCompact, input.onShowSubagents));
   if (input.timeBreakdown) {
-    rows.push({ id: "time:head", title: "Where the time went", trailing: elapsed(input.timeBreakdown.totalMs) });
+    rows.push({
+      id: "time:head",
+      title: "Where the time went",
+      trailing: elapsed(input.timeBreakdown.totalMs),
+    });
     for (const category of input.timeBreakdown.categories.filter((category) => category.wallMs > 0)) {
       const turnId = input.timeBreakdown.spans.find((span) => span.category === category.id)?.turnId;
       rows.push({
