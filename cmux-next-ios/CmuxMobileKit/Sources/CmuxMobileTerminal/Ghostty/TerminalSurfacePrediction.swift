@@ -82,6 +82,9 @@ final class TerminalSurfacePrediction {
         guard on != enabled else { return }
         enabled = on
         _ = engine.set(enabled: on, remote: true)
+        // A fresh engine knows no screen mode yet: a full-screen program
+        // already running keeps prediction off.
+        engine.seedAlternateScreen(active: view?.showsAlternateScreen ?? false)
         refresh()
     }
 
@@ -90,10 +93,16 @@ final class TerminalSurfacePrediction {
     func refresh() {
         expiry?.invalidate()
         expiry = nil
-        // Output took away blanks the frame on screen still shows: keep the
-        // overlay as it is until the next presented frame.
-        if engine.holdsLayout() { return }
         let now = Self.now()
+        // Output took away blanks the frame on screen still shows: keep the
+        // overlay as it is until the next presented frame, still waking for
+        // the engine's own deadline if no frame comes (the tick lets a hold
+        // that outlived it go).
+        _ = engine.tick(nowUs: now)
+        if engine.holdsLayout() {
+            armExpiry(now: now)
+            return
+        }
         guard let view, let cursor = view.predictionCursor(),
               let layout = engine.layout(nowUs: now, cursorColumn: Int32(cursor.column), columns: Int32(cursor.columns))
         else {
@@ -101,6 +110,11 @@ final class TerminalSurfacePrediction {
             return
         }
         overlay.show(layout, cursorCell: cursor.cell, fontSize: CGFloat(CmuxMobilePreferences.terminalFontSize()))
+        armExpiry(now: now)
+    }
+
+    /// The one timer, for the engine's next deadline; none when it has none.
+    private func armExpiry(now: UInt64) {
         guard let due = engine.nextExpiryUs() else { return }
         let delay = Double(due > now ? due - now : 0) / 1_000_000
         expiry = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
