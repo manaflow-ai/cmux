@@ -123,6 +123,9 @@ public final class FrameScheduler: NSObject {
     private let stall: DemandTimer
     private var stalls = 0
     private var lastTimestamp: CFTimeInterval?
+    /// The last display-link frame's vsync time and the display's refresh period: the display's frame grid, kept while
+    /// the link is paused (`MotionFrameClock` starts a move on the grid's next frame). Nil before the first link frame.
+    public private(set) var lastVsync: (timestamp: CFTimeInterval, interval: Double)?
     /// The time the last frame showed (``FrameTick/targetTimestamp``).
     private var lastTarget: CFTimeInterval?
     private let mediaTime: @MainActor () -> CFTimeInterval
@@ -376,6 +379,7 @@ public final class FrameScheduler: NSObject {
         let firstElapsed = interval ?? (1.0 / 60.0)
         let elapsed = lastTimestamp.map { now - $0 } ?? firstElapsed
         lastTimestamp = now
+        if let timestamp, let interval { lastVsync = (timestamp, interval) }
         // The time the frame shows (a synthesized one shows when it is made) and the motion to it from the time the
         // previous frame showed: a late frame catches up on the curve (FRAME OWNER S2), at most `catchUpLimit`.
         let target = timestamp.map { $0 + (interval ?? 0) } ?? mediaTime()

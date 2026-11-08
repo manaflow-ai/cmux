@@ -140,6 +140,8 @@ public final class TabStripView: NSView {
     var slotIndexCache: TabSlotIndex?
     /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).
     var movesInFlight: Set<Int> = []
+    /// When a move's curve starts (`TabStripMove.begin`); nil: the window's display frames. Tests give a frame grid.
+    var frameClock: MotionFrameClock?
     /// Tabs pinned or unpinned whose move is in flight: they draw above both regions, unclipped by the pinned band's
     /// edge, until every strip move ends (`TabStripView+PinMotion`).
     var pinFlights: Set<TabID> = []

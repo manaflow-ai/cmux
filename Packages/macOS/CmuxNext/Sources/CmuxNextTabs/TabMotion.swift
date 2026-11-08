@@ -31,7 +31,7 @@ struct TabStripMove {
     var isScroll = false
     /// The media time every animation of the change starts at (set on each, so `MotionPath` sums the
     /// moves in flight exactly; Core Animation would otherwise start them at the commit).
-    let begin = CACurrentMediaTime()
+    var begin = CACurrentMediaTime()
 
     /// Key prefix of every animation a strip move adds (`cancel(_:)`).
     static let keyPrefix = "tab.move."
