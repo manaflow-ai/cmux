@@ -57,4 +57,17 @@ struct CloudMachineCapabilityTests {
         #expect(machine.allows(.exec))
         #expect(!machine.allows(.snapshot))
     }
+
+    /// A record whose `provider_operations` lists `desktop` while its own `desktop` is false opens no
+    /// desktop: only the record's `desktop` says the machine serves one.
+    @Test func aPromotedDesktopOperationOpensNoDesktop() throws {
+        let record = JSONValue.object([
+            "id": .string("m-promoted"), "status": .string("running"), "desktop": .bool(false),
+            "provider_operations": .array([.string("desktop"), .string("exec")]),
+        ])
+        let machine = try #require(CloudMachine(next: record))
+
+        #expect(!machine.servesDesktop)
+        #expect(!machine.opensCarrierDesktop)
+    }
 }

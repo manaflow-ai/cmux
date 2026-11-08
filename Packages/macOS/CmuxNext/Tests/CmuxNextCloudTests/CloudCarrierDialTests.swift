@@ -421,6 +421,32 @@ import Testing
         func current() -> Int { value }
     }
 
+    /// An account end (``CloudCarrierStreams/endAll()``) closes a running serve child at once and fences its
+    /// serve: the old account's socket is handed to no one, and no new child starts for it.
+    @Test func anAccountEndClosesTheServeAndFencesItsSocket() async throws {
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\ncat >/dev/null\necho ended >> \"$d/launches\"\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let streams = CloudCarrierStreams()
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux)), streams: streams) {
+            ["CMUX_CLOUD_ACCESS_TOKEN": "t-1"]
+        }
+        let socket = "/tmp/cmux-link-0123456789ab.sock"
+        let serve = CloudCarrierServe(connector: connector, socket: socket) { _ in }
+        #expect(try await serve.socketPath() == socket)
+        #expect(streams.count == 1, "the running child is held")
+        await streams.endAll().value
+        let launches = folder.appendingPathComponent("launches")
+        let deadline = ContinuousClock.now + .seconds(5)
+        while (try? String(contentsOf: launches, encoding: .utf8)) != "launched\nended\n", ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(try String(contentsOf: launches, encoding: .utf8) == "launched\nended\n", "the child's stdin closed")
+        await #expect(throws: CloudLinkError.disconnected(reason: "closed")) { try await serve.socketPath(keepingRefusal: true) }
+        #expect(try String(contentsOf: launches, encoding: .utf8) == "launched\nended\n", "no new child")
+        await serve.stop()
+    }
+
     private static func standIn(_ body: String) throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ccd-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

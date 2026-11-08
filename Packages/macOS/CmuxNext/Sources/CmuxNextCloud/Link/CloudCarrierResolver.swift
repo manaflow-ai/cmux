@@ -75,6 +75,8 @@ public actor CloudCarrierServe {
     private var ownershipObserver: (@Sendable (CloudCallerOwnership) async -> Void)?
     /// The last token the child got (environment or stdin).
     private var sentToken: String?
+    /// The current child's hold in its connector's ``CloudCarrierStreams``: an account end stops it at once.
+    private var held: Int?
     /// Writes the next token line while the child runs; cancelled when it exits.
     private let refresher = DemandTimer(owner: "CloudCarrierServe.tokenRefresh")
     /// Whether the token refresh runs (it ends with the child).
@@ -112,11 +114,17 @@ public actor CloudCarrierServe {
     /// last one exited). Throws ``CloudLinkError`` when it does not get ready. `keepingRefusal`: another
     /// client asks (the Cloud app server), so the refusal the session's own connect reads stays.
     public func socketPath(keepingRefusal: Bool = false) async throws -> String {
+        // An account end fenced this serve: its socket belongs to the old account.
+        guard !connector.isFenced else { throw Self.stopped }
         if !keepingRefusal { refused = nil }
         if let starting { return try await starting.value }
         let mine = generation
         if ready, let child, child.isRunning {
-            let token = try? await connector.environment()["CMUX_CLOUD_ACCESS_TOKEN"]
+            var token: String?
+            do { token = try await connector.environment()["CMUX_CLOUD_ACCESS_TOKEN"] } catch let error as CloudLinkError where error == CloudCarrierDial.Connector.fenced {
+                // Another account is signed in now: the old account's socket is handed to no one.
+                throw Self.stopped
+            } catch {}
             guard mine == generation else { throw Self.stopped }
             if ready, child === self.child, child.isRunning {
                 // A token lookup that failed keeps the healthy child on its last token (as refreshToken does).
@@ -143,6 +151,12 @@ public actor CloudCarrierServe {
         child?.closeInput()
         refresher.cancel()
         refreshing = false
+        release()
+    }
+
+    private func release() {
+        if let held { connector.streams?.release(held) }
+        held = nil
     }
 
     private static let stopped = CloudLinkError.disconnected(reason: "closed")
@@ -160,6 +174,7 @@ public actor CloudCarrierServe {
         guard exited === child else { return }
         refresher.cancel()
         refreshing = false
+        release()
     }
 
     /// The next token line, a minute before the last token expires; nothing once the child is gone.
@@ -209,6 +224,10 @@ public actor CloudCarrierServe {
         }
         do {
             try child.startHoldingInput()
+            // It carries this account's token: an account end (``CloudCarrierStreams/endAll()``) closes it,
+            // and one that came first closes it now (its ready wait then fails).
+            release()
+            held = connector.streams?.hold(generation: connector.generation) { [child] in child.closeInput() }
         } catch {
             // It never ran (ChildProcess recorded its exit): keep no child for the next launch to wait on.
             if self.child === child { self.child = nil }

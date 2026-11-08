@@ -160,12 +160,20 @@ public struct CloudCarrierDial: Equatable, Sendable {
 
         /// Nil without the bundled CLI or for an id that is not a machine's.
         /// `stateDirectory`: the build's daemon state directory (nil: cmux-tui's default).
+        /// Its children get a token only for the account signed in when it was made: after a sign-out or an
+        /// account or team switch (or an end of `streams`), ``environment`` throws ``fenced``, so a carrier
+        /// of the old account never gets the new account's token.
+        @MainActor
         public init?(machine: String, service: Service, cli: URL?, auth: CloudAuth, platform: URL, team: String?, stateDirectory: URL?,
                      streams: CloudCarrierStreams? = nil) {
             guard let cli, let dial = CloudCarrierDial(machine: machine, service: service) else { return nil }
-            (self.cli, self.dial, self.streams, generation) = (cli, dial, streams, streams?.generation ?? 0)
+            let (generation, account) = (streams?.generation ?? 0, auth.accountKey)
+            (self.cli, self.dial, self.streams, self.generation) = (cli, dial, streams, generation)
             environment = {
-                CloudCarrierDial.environment(platform: platform, accessToken: try await auth.tokens().access, team: team, stateDirectory: stateDirectory)
+                let access = try await auth.tokens().access
+                // Checked after the token is read: a switch during the read hands it to no one.
+                guard await auth.accountKey == account, (streams?.generation ?? 0) == generation else { throw Self.fenced }
+                return CloudCarrierDial.environment(platform: platform, accessToken: access, team: team, stateDirectory: stateDirectory)
             }
         }
 

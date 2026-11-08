@@ -57,7 +57,7 @@ final class CloudService {
     /// The app's `cmux-tui` (the moves', the carrier's) and its daemon's state directory (the carrier's `CMUX_TUI_STATE_DIR`).
     @ObservationIgnored let binary: URL?
     @ObservationIgnored let tuiState: URL?
-    @ObservationIgnored let desktopStreams = CloudCarrierStreams() // Open Desktop's dials and streams; an account end or Cloud turned off ends them.
+    @ObservationIgnored let desktopStreams = CloudCarrierStreams() // The account's carriers (desktop dials, streams, serves); its end or Cloud turned off ends them.
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
@@ -302,10 +302,9 @@ final class CloudService {
         observers.append(Task { [weak self] in
             guard let self else { return }
             await auth.awaitRestored()
-            // The account and selected team: a team switch stays signed in but must fence the old
-            // link, machine wire and desktop dials (before any await, so none dials with the new token).
+            var scope: String?? // The account and team: a change fences the old link, machine wire and carriers before any await.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
-                self.desktopStreams.endAll()
+                if let scope, scope != accountScope { self.desktopStreams.endAll() }; scope = accountScope
                 if accountScope != nil {
                     self.machineWire.stop()
                     // mayCallCloud also fences a managed team that is missing: no socket without its team scope.
@@ -629,7 +628,7 @@ final class CloudService {
         guard !policyDisabled else { return nil }
         // The carrier: one `cmux carrier serve` for the session; the record's creator is a platform user id (`user_…`).
         let serve = CloudCarrierDial.Connector(machine: machine.id, service: .mux, cli: binary, auth: auth, platform: configuration.relayAPIBaseURL(),
-                                               team: machine.team, stateDirectory: tuiState).map { CloudCarrierServe(connector: $0, paths: paths) }
+                                               team: machine.team, stateDirectory: tuiState, streams: desktopStreams).map { CloudCarrierServe(connector: $0, paths: paths) }
         let resolver = CloudCarrierResolver(serve: serve) { @MainActor [weak self, id = machine.id] in
             CloudCallerOwnership(creator: self?.machines.session(id)?.machine.createdBy, caller: self?.auth.platformUserID)
         }

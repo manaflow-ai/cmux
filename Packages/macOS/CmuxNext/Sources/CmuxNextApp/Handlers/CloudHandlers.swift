@@ -31,7 +31,7 @@ enum CloudHandlers {
         CloudMachineStage.gatePowerActions(into: registry, context: context)
         // Open Desktop on a machine without a desktop: out of its menu, its run refused with why.
         ActionTargetVisibility.gate("cloudOpenDesktop", in: registry) { invocation in
-            (try? machine(invocation, context)).flatMap { $0.machine.allows(.desktop) ? nil : CloudStrings.desktopUnavailable($0.machine.title) }
+            (try? machine(invocation, context)).flatMap { $0.machine.opensCarrierDesktop ? nil : CloudStrings.desktopUnavailable($0.machine.title) }
         }
         // Any catalog row added later without a handler stays covered.
         registry.bindUnavailable(registry.unboundActionIDs(in: [.cloud]), ActionFailure(message: MiscHandlerStrings.cloud))
