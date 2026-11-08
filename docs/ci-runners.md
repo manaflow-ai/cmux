@@ -825,8 +825,8 @@ app-host job is waiting for.
   macOS tests. Attempt 1 takes `CI_LIGHT_LANE_RUNNER` (the light minis, plain
   M4s that still beat a 6 vCPU Blacksmith machine), or `CI_SIDE_LANE_RUNNER`
   when it is unset; a retry takes the job's Blacksmith default.
-- Std lanes: `cmux-tui.yml`'s macOS `lint`, `test` and `cdp-browser-smoke`,
-  `reload-build.yml` (when its runner input is `auto` or the old Blacksmith
+- Std lanes: `cmux-tui.yml`'s macOS `lint` and `test` (its `cdp-browser-smoke` runs
+  only on Linux), `reload-build.yml` (when its runner input is `auto` or the old Blacksmith
   default), and `app-host-test-rerun.yml` for products this repository's CI
   built on macOS 26. Attempt 1 takes `CI_SIDE_LANE_RUNNER`; a retry takes Blacksmith.
 
@@ -907,7 +907,7 @@ work on the trusted worker. Main's nightly runner selection is unchanged.
 | `iroh-release-gate.yml` `simulator-e2e` | Blacksmith macOS 15 | staging or production secrets in `$HOME`, shared user DerivedData, keychain and console-session changes |
 | `test-ios.yml`, `ios-screenshots.yml` | owned via `ios_runner_pool.py` behind `CI_IOS_OWNED=1` | needs the `glaeda-ios-sim` label (an iOS 26.x simulator runtime) |
 | `app-host-test-rerun.yml` `rerun` | `CI_SIDE_LANE_RUNNER` for macOS 26 products, attempt 1 only; macOS 15 products on Blacksmith macOS 15 | gui; it takes the product's root itself (`glaeda-canonical-root take`) |
-| `cmux-tui.yml` macOS `lint`, `test`, `cdp-browser-smoke` | `CI_SIDE_LANE_RUNNER`, attempt 1 only | isolated (glaeda classes them by workflow and id) |
+| `cmux-tui.yml` macOS `lint`, `test` | `CI_SIDE_LANE_RUNNER`, attempt 1 only | isolated (glaeda classes them by workflow and id) |
 | `cmux-tui.yml` release-path dogfood `build` (`cmux-tui-build-package.yml`) | Blacksmith macOS 15 | the release packaging build, shared with the release and nightly callers; its matrix is planned once, so a re-run could not leave the minis |
 | `ci-macos.yml` `release-build` | owned side lane via the picker (`release-build`, the picked std pool's side label, never the light pool), pull requests (attempt 1 or a manual re-run) and main's full-suite dispatch (attempt 1); else `MACOS_RUNNER_26` | isolated: an unsigned universal Release into its own DerivedData, Xcode 26.6 |
 | `reload-build.yml` `build` | `CI_SIDE_LANE_RUNNER` for a macOS build when the runner input is `auto` or `blacksmith-6vcpu-macos-26`, attempt 1 only (iOS builds take Blacksmith); any other label as given | isolated: a Debug build into the workspace |
