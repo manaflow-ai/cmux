@@ -176,6 +176,9 @@ public final class BookmarksBarHostView: NSView {
         // Another profile's row must not show for a frame: the page shows once it laid out this
         // tab's row (the strip's fill stands in, as the native bar's did before its tree loaded).
         page.view.alphaValue = page.bar.drawnProfile == profile ? 1 : 0
+        // A page that last drew this profile reports nothing new (its row did not change): the
+        // bar takes its last report, so item frames and menu anchors are this page's.
+        if let last = page.bar.lastLayout, last.profile == profile { shown = last }
         page.bar.onLayout = { [weak self, weak page] layout in
             // A report for the profile the page drew before it came here is stale: the page stays
             // hidden until it reports this tab's profile.
@@ -192,6 +195,7 @@ public final class BookmarksBarHostView: NSView {
     private func giveBack() {
         guard let page else { return }
         self.page = nil
+        shown = BookmarksBarProvider.Layout()
         pages.giveBack(page)
     }
 }
@@ -237,6 +241,8 @@ public final class BookmarksBarProvider: PageProvider {
     /// The profile whose row the page drew last (set by the bar view on each layout).
     public var drawnProfile: String?
     var onLayout: (@MainActor (Layout) -> Void)?
+    /// The page's last layout report (the page sends one only when its row changes).
+    public private(set) var lastLayout: Layout?
     /// The menu on screen and its rows' folders (kept while it is open).
     private var openMenu: BookmarksBarMenu?
     /// The gesture the last write spent (one write per key or pointer event).
@@ -263,6 +269,19 @@ public final class BookmarksBarProvider: PageProvider {
         }
     }
 
+    /// Whether `operation` keeps to the bar whose items are `bar` (the profile's own, read by the app,
+    /// never the page's word): a create at a slot of it, or a move of one of its items to another.
+    static func staysOnBar(_ operation: BookmarkOperation, bar: [BookmarkNode]) -> Bool {
+        switch operation {
+        case .create(_, let index?):
+            index <= bar.count
+        case .move(let id, _, let index):
+            bar.contains { $0.id == id } && index < bar.count
+        default:
+            false
+        }
+    }
+
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let host else { throw PageError.closed }
         switch op {
@@ -272,8 +291,12 @@ public final class BookmarksBarProvider: PageProvider {
             guard let page, let anchor = params["anchor"], params["profile"]?.stringValue == pageHost.profile,
                   let rows = params["rows"]?.arrayValue.map(BookmarksBarMenu.rows) else { return .object([:]) }
             let number = { (key: String) in CGFloat(anchor[key]?.doubleValue ?? 0) }
-            let menu = BookmarksBarMenu(host: host, profile: pageHost.profile, tabKey: pageHost.tabKey, rows: rows,
-                                        title: params["title"]?.stringValue ?? "")
+            let profile = pageHost.profile, tabKey = pageHost.tabKey
+            // The page may be lent to another tab while the menu is open: a pick then does nothing.
+            let menu = BookmarksBarMenu(host: host, profile: profile, tabKey: tabKey, rows: rows,
+                                        title: params["title"]?.stringValue ?? "") { [weak pageHost] in
+                pageHost?.tabKey == tabKey && pageHost?.profile == profile
+            }
             openMenu = menu
             defer { if openMenu === menu { openMenu = nil } }
             await page.presentMenu(menu.menu, atPagePoint: CGPoint(x: number("x"), y: number("y") + number("height") + 2))
@@ -295,17 +318,20 @@ public final class BookmarksBarProvider: PageProvider {
                             width: CGFloat(item["width"]?.doubleValue ?? 0))
             }
             layout.overflow = (params["overflow"]?.arrayValue ?? []).compactMap(\.stringValue)
+            lastLayout = layout
             onLayout?(layout)
             return .object([:])
         case Self.prefix + "apply":
             guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: "A bookmarks bar edit needs a click or a drop.")
             }
-            guard let operation = params["op"].flatMap(Self.operation) else {
-                throw PageError.invalidParams("a create or a move on the bookmarks bar")
+            let profile = pageHost.profile
+            guard let operation = params["op"].flatMap(Self.operation),
+                  Self.staysOnBar(operation, bar: host.bookmarkTree(profile).children(of: BookmarkRoot.bar.rawValue)) else {
+                throw PageError.invalidParams("a create on the bookmarks bar, or a move of one of its items along it")
             }
             spentGesture = event
-            try host.bookmarkBarApply(operation, profile: pageHost.profile)
+            try host.bookmarkBarApply(operation, profile: profile)
             return .object([:])
         case Self.prefix + "refused":
             host.bookmarkBarRefused(params["message"]?.stringValue ?? "")
@@ -332,14 +358,18 @@ final class BookmarksBarMenu: NSObject, NSMenuDelegate {
     private weak var host: (any BookmarksBarHost)?
     private let profile: String
     private let tabKey: String
+    /// Whether the bar that opened the menu still shows `profile` in tab `tabKey`.
+    private let isCurrent: @MainActor () -> Bool
     private let rows: [Row]
     private var children: [BookmarksBarMenu] = []
     let menu: NSMenu
 
-    init(host: any BookmarksBarHost, profile: String, tabKey: String, rows: [Row], title: String) {
+    init(host: any BookmarksBarHost, profile: String, tabKey: String, rows: [Row], title: String,
+         isCurrent: @escaping @MainActor () -> Bool = { true }) {
         self.host = host
         self.profile = profile
         self.tabKey = tabKey
+        self.isCurrent = isCurrent
         self.rows = rows
         menu = NSMenu(title: title)
         super.init()
@@ -393,7 +423,8 @@ final class BookmarksBarMenu: NSObject, NSMenuDelegate {
             case .folder(let node, let rows):
                 let item = NSMenuItem(title: node.title, action: nil, keyEquivalent: "")
                 item.image = host.bookmarkFolderIcon(node, side: side) ?? NSImage.icon(.folder, size: side)
-                let child = BookmarksBarMenu(host: host, profile: profile, tabKey: tabKey, rows: rows, title: node.title)
+                let child = BookmarksBarMenu(host: host, profile: profile, tabKey: tabKey, rows: rows, title: node.title,
+                                             isCurrent: isCurrent)
                 children.append(child)
                 item.submenu = child.menu
                 menu.addItem(item)
@@ -417,13 +448,14 @@ final class BookmarksBarMenu: NSObject, NSMenuDelegate {
     }
 
     @objc private func open(_ sender: NSMenuItem) {
-        guard let host, let id = sender.representedObject as? String, let node = links.first(where: { $0.id == id }) else { return }
+        guard let host, isCurrent(), let id = sender.representedObject as? String,
+              let node = links.first(where: { $0.id == id }) else { return }
         host.openBookmark(node, profile: profile, disposition: .from(NSApp.currentEvent?.modifierFlags ?? []), fromTab: tabKey)
     }
 
     /// Every link directly in the folder: the first in a new tab, the rest behind it.
     @objc private func openAll(_ sender: NSMenuItem) {
-        guard let host else { return }
+        guard let host, isCurrent() else { return }
         for (index, node) in links.enumerated() {
             host.openBookmark(node, profile: profile, disposition: index == 0 ? .newTab : .backgroundTab, fromTab: tabKey)
         }

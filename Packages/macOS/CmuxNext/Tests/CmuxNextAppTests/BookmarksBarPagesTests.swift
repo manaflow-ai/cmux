@@ -166,7 +166,7 @@ struct BookmarksBarPagesTests {
         let bookmarks = services.bookmarks
         #expect(bookmarks.usesDaemon)
         var tree = BookmarkTree()
-        let folder = BookmarkNode.folder("Work", in: BookmarkRoot.other.rawValue)
+        let folder = BookmarkNode.folder("Work", in: BookmarkRoot.bar.rawValue)
         try tree.apply(.create(folder, index: nil))
         bookmarks.trees["default"] = tree
         bookmarks.fetched.insert("default")
@@ -203,4 +203,108 @@ struct BookmarksBarPagesTests {
         _ = try await provider.call(op, params: move, context: click)
         #expect(bookmarks.tree("default").children(of: BookmarkRoot.bar.rawValue).map(\.id) == [folder.id, created.id])
     }
+
+    /// A page lent to another bar of the same profile reports nothing new (its row is the same):
+    /// the new bar takes the page's last report, so its item frames are right at once.
+    @Test func aPageLentToAnotherBarOfTheSameProfileKeepsItsLayout() async throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = BookmarksBarHostView(tabKey: "tab-a", pages: pages, profile: { "default" })
+        let second = BookmarksBarHostView(tabKey: "tab-b", pages: pages, profile: { "default" })
+        let window = Self.window()
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        content.addSubview(first)
+        let provider = try #require(first.page?.bar)
+        _ = try await provider.call(BookmarksBarProvider.prefix + "layout", params: .object([
+            "profile": .string("default"),
+            "visible": .array([.object(["id": .string("bm_a"), "title": .string("GitHub"), "x": .number(2), "width": .number(70)])]),
+            "overflow": .array([]),
+        ]), context: PageCallContext(page: PageDescriptor.bookmarksBar.id))
+        first.removeFromSuperview()
+        #expect(first.visibleTitles.isEmpty, "a bar without its page shows nothing")
+        content.addSubview(second)
+        #expect(second.page?.bar === provider)
+        #expect(second.visibleTitles == ["GitHub"])
+        #expect(second.itemFrameOnScreen("bm_a")?.width == 70)
+        second.removeFromSuperview()
+    }
+
+    /// The bar writes only its own row: a move of a node elsewhere (Other Bookmarks, another
+    /// profile's bar) or to a slot past the row is refused and never reaches the app's write.
+    @Test func aMoveOfANodeOffThisBarIsRefused() async throws {
+        let host = FakeBarHost()
+        let url = try #require(URL(string: "https://example.com/"))
+        let a = BookmarkNode.bookmark("A", url: url, in: BookmarkRoot.bar.rawValue)
+        let b = BookmarkNode.bookmark("B", url: url, in: BookmarkRoot.bar.rawValue)
+        let other = BookmarkNode.folder("Elsewhere", in: BookmarkRoot.other.rawValue)
+        let foreign = BookmarkNode.bookmark("X", url: url, in: BookmarkRoot.bar.rawValue)
+        var tree = BookmarkTree()
+        for node in [a, b, other] { try tree.apply(.create(node, index: nil)) }
+        host.trees["default"] = tree
+        var second = BookmarkTree()
+        try second.apply(.create(foreign, index: nil))
+        host.trees["p2"] = second
+        let pageHost = BookmarkPageHostProvider(host: host, tabKey: "tab")
+        pageHost.profileOverride = { "default" }
+        let provider = BookmarksBarProvider(host: host, pageHost: pageHost)
+        var event: TimeInterval = 0
+        func apply(_ op: [String: CmuxNextSettings.JSONValue]) async throws {
+            event += 1
+            _ = try await provider.call(BookmarksBarProvider.prefix + "apply", params: .object(["op": .object(op)]),
+                                        context: PageCallContext(page: PageDescriptor.bookmarksBar.id, userGesture: true, gestureEvent: event))
+        }
+        let move = { (id: String, index: Double) -> [String: CmuxNextSettings.JSONValue] in
+            ["op": .string("move"), "bookmark": .string(id), "parent": .string("bar"), "index": .number(index)]
+        }
+        for (id, index) in [(other.id, 0.0), (foreign.id, 0), (a.id, 2)] {
+            await #expect(throws: PageError.self, "move \(id) to \(index)") { try await apply(move(id, index)) }
+        }
+        await #expect(throws: PageError.self, "a create past the row") {
+            try await apply(["op": .string("create"), "parent": .string("bar"), "index": .number(3),
+                             "title": .string("New"), "url": .string("https://new.example/")])
+        }
+        #expect(host.applied.isEmpty)
+        try await apply(move(a.id, 1))
+        #expect(host.applied == [.move(id: a.id, parent: BookmarkRoot.bar.rawValue, index: 1)])
+    }
+
+    /// A pick in a bar menu opens nothing once the bar's page shows another tab or profile.
+    @Test func aBarMenuPickOpensNothingAfterTheBarMovedOn() throws {
+        _ = NSApplication.shared
+        let host = FakeBarHost()
+        let url = try #require(URL(string: "https://example.com/"))
+        let node = BookmarkNode.bookmark("A", url: url, in: BookmarkRoot.bar.rawValue)
+        var current = true
+        let menu = BookmarksBarMenu(host: host, profile: "default", tabKey: "tab", rows: [.bookmark(node)], title: "Work") { current }
+        menu.menuNeedsUpdate(menu.menu)
+        menu.menu.performActionForItem(at: 0)
+        #expect(host.opened == [node.id])
+        current = false
+        menu.menu.performActionForItem(at: 0)
+        #expect(host.opened == [node.id], "the tab or profile changed: the pick is dropped")
+    }
+}
+
+/// A bar host that records what the bar asks of the app.
+@MainActor
+private final class FakeBarHost: BookmarksBarHost {
+    var trees: [String: BookmarkTree] = [:]
+    var applied: [BookmarkOperation] = []
+    var opened: [String] = []
+
+    func bookmarkProfile(ofTab key: String) -> String { "default" }
+    func bookmarkTree(_ profile: String) -> BookmarkTree { trees[profile] ?? BookmarkTree() }
+    func bookmarkOwnerTree(_ profile: String) async throws -> BookmarkTree { bookmarkTree(profile) }
+    var bookmarkFolderIconsSupported: Bool { false }
+    func bookmarkFavicon(_ node: BookmarkNode, profile: String) -> CGImage? { nil }
+    func bookmarkFolderIcon(_ node: BookmarkNode, side: CGFloat) -> NSImage? { nil }
+    var bookmarkIconRevision: Int { 0 }
+    func openBookmark(_ node: BookmarkNode, profile: String, disposition: BookmarkOpenDisposition, fromTab key: String) {
+        opened.append(node.id)
+    }
+    func bookmarkBarContextMenu(bookmark: String?) -> NSMenu? { nil }
+    func bookmarkBarRefused(_ message: String) {}
+    func bookmarkBarApply(_ operation: BookmarkOperation, profile: String) throws { applied.append(operation) }
 }
