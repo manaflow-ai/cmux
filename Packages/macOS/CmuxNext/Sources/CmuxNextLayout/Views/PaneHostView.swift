@@ -16,7 +16,7 @@ import QuartzCore
 /// `OverlayPlane`, not in this view, so they draw above content that is a
 /// child window (Chromium pages); the root keeps them on this view's
 /// displayed frame.
-final class PaneHostView: NSView, RestingPlacement {
+final class PaneHostView: NSView, RestingPlacement, ParkingContainer {
     private(set) var pane: PaneID
     let content: NSView
     let chrome = PaneOverlayView()
@@ -480,8 +480,14 @@ final class PaneHostView: NSView, RestingPlacement {
     /// not take clicks meant for the view beside the area. Nil outside an area.
     var areaHitClip: CGRect?
 
+    /// Covered by paint: a zoom covers this pane, which stays in the tree, unhidden, at opacity 0. Set only by
+    /// ``coverByPaint(_:)`` (PaneHostView+PaintCover.swift).
+    var isCoveredByPaint = false
+
+    override func accessibilityChildren() -> [Any]? { isCoveredByPaint ? [] : super.accessibilityChildren() }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if showsClosingGround { return nil }
+        if showsClosingGround || isCoveredByPaint { return nil }
         if let areaHitClip, !areaHitClip.contains(convert(point, from: superview)) { return nil }
         return super.hitTest(point)
     }

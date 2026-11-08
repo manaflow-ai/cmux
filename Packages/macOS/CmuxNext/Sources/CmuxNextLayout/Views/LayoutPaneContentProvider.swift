@@ -31,9 +31,10 @@ public protocol LayoutPaneContentProvider: AnyObject {
     /// Whether a zoom may cover this pane by paint only (ZOOM VARIANTS 9): its host stays unhidden at opacity 0, takes no
     /// click and lists nothing to accessibility, and parks its subtree (``ParkingContainer``), so the unzoom's key turn
     /// flips no `isHidden` (no AppKit hidden-ancestor walk, cursor-rect or drag-region rebuild). Only for content that
-    /// stops on parking as on a hide (a terminal, a ``ParkingObserver``); content that needs the hide itself (a page
-    /// window orders out on `viewDidHide`) answers false and hides as before.
-    func coversByPaint(_ pane: PaneID) -> Bool
+    /// stops on parking as on a hide; content that needs the hide itself (a page window orders out on `viewDidHide`)
+    /// answers false and hides as before. By default: the shown part of `content` has a ``ParkingObserver`` (a terminal
+    /// surface; a pane shows one tab's view at a time, so a page, chat or Settings tab has none).
+    func coversByPaint(_ pane: PaneID, content: NSView) -> Bool
 }
 
 extension LayoutPaneContentProvider {
@@ -41,7 +42,7 @@ extension LayoutPaneContentProvider {
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
     public func retainContentView(_ view: NSView, for pane: PaneID, retired: Bool) {}
     public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
-    public func coversByPaint(_ pane: PaneID) -> Bool { false }
+    public func coversByPaint(_ pane: PaneID, content: NSView) -> Bool { PaneHostView.showsParkingObserver(content) }
 }
 
 /// Pasteboard type for tab drags the layout accepts through AppKit drag and
@@ -162,9 +163,14 @@ final class LayoutViewContext {
         if let entry = retired.removeValue(forKey: pane) {
             // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
             runClosingWork(of: pane, now: true)
-            entry.host.isHidden = false
-            entry.host.endClosingGround()
-            entry.host.chrome.isHidden = false
+            if entry.host.isCoveredByPaint {
+                // A zoom covered it by paint (`retire`): paint and parking only, no `isHidden` flip in the unzoom's turn.
+                entry.host.coverByPaint(false)
+            } else {
+                entry.host.isHidden = false
+                entry.host.endClosingGround()
+                entry.host.chrome.isHidden = false
+            }
             // Its ring is placed again by the next overlay sync, whatever it last showed.
             entry.host.overlaySyncKey = nil
             hosts[pane] = entry.host
@@ -225,10 +231,16 @@ final class LayoutViewContext {
     /// with it; a hidden terminal stops drawing), released at `until`. A pane with no host does nothing.
     /// `showsGround` (FRAME OWNER S3c, a springing close off a canvas): the host stays shown with only
     /// its own ground, its content hidden now as above, on the frame its screen collapses (`ClosingPanes`).
+    /// A zoom's covered pane whose content stops on parking (``LayoutPaneContentProvider/coversByPaint(_:)``) is
+    /// covered by paint instead (``PaneHostView/coverByPaint(_:)``): the unzoom then flips no `isHidden`.
     func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement = .landing, showsGround: Bool = false) {
         guard let host = hosts.removeValue(forKey: pane) else { return }
-        if showsGround { host.showClosingGround() } else { host.isHidden = true }
-        host.chrome.isHidden = true
+        if until == .zoom, !showsGround, provider?.coversByPaint(pane, content: host.content) == true {
+            host.coverByPaint(true)
+        } else {
+            if showsGround { host.showClosingGround() } else { host.isHidden = true }
+            host.chrome.isHidden = true
+        }
         retired[pane] = (host, screen, until)
         // A close took it out of the layout now: the provider's shown panes lose it in this update, only its teardown
         // waits. A zoom's covered pane is still in the layout (its focus topology, theme, suspend): the provider keeps it.

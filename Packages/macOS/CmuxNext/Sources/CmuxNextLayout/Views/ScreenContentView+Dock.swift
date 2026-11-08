@@ -35,7 +35,7 @@ extension ScreenContentView {
         for case let host as PaneHostView in subviews.reversed() {
             let overlapping = front.filter { $0.intersection(host.frame).width > 0.5 && $0.intersection(host.frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
-            guard !host.isHidden && host.alphaValue > 0.99 else { continue }
+            guard !host.isHidden && !host.isCoveredByPaint && host.alphaValue > 0.99 else { continue }
             front.append(host.frame)
         }
         return covers

@@ -35,7 +35,7 @@ extension ScreenContentView {
         }
         var panes: [Any] = [], dividers: [Any] = [], closing: [Any] = []
         for (index, subview) in screen.subviews.enumerated() {
-            if let host = subview as? PaneHostView, !host.isHidden {
+            if let host = subview as? PaneHostView, !host.isHidden, !host.isCoveredByPaint {
                 var visible = host.frame
                 if let mask = host.layer?.mask { visible = visible.intersection(mask.frame.offsetBy(dx: host.frame.minX, dy: host.frame.minY)) }
                 let rect = visible.isNull ? CGRect.zero : visible

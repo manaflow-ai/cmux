@@ -25,6 +25,7 @@ struct FilmZoomCoverByPaintTests {
         func parkingDidChange() { parkingChanges += 1 }
     }
 
+    /// The default rule answers: each pane's content is a ``ParkingObserver``.
     final class Panes: LayoutPaneContentProvider {
         var probes: [PaneID: Probe] = [:]
         func makeContentView(for pane: PaneID) -> NSView {
@@ -32,7 +33,6 @@ struct FilmZoomCoverByPaintTests {
             probes[pane] = probe
             return probe
         }
-        func coversByPaint(_ pane: PaneID) -> Bool { true }
     }
 
     final class Screen {

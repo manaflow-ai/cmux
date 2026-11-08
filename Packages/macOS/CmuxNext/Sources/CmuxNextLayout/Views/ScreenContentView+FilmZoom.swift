@@ -281,7 +281,7 @@ extension ScreenContentView {
         for host in fadingHosts {
             for layer in [host.layer, host.chrome.layer].compactMap({ $0 }) {
                 layer.removeAnimation(forKey: "opacity")
-                layer.opacity = 1
+                layer.opacity = host.isCoveredByPaint ? 0 : 1 // a pane covered by paint stays at 0 until the unzoom
             }
         }
         CATransaction.commit()
