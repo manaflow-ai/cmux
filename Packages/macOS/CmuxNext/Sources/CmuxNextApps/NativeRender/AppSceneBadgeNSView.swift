@@ -15,7 +15,7 @@ final class AppSceneBadgeNSView: AppSceneNodeNSView {
         badge.configure(text: node.string("text"), tone: node.props["tone"])
     }
 
-    override func updateLayer() { badge.applyColors() }
+    override func paint() { badge.applyColors() }
 
     override var contentNaturalWidth: CGFloat? { badge.isHidden ? 0 : badge.fittingSize.width }
     override func contentHeight(width: CGFloat) -> CGFloat { badge.isHidden ? 0 : badge.fittingSize.height }

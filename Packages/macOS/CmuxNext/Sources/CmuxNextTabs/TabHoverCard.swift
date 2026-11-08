@@ -36,6 +36,9 @@ final class TabHoverCardController: HoverCardSource {
     /// each hover so a Settings change applies at once. Every tab waits the
     /// same, as a sidebar row does (no width scaling, cx-23e1f).
     var delay: Duration { DesignSettings.shared.hoverCardDelay }
+    /// How the card's first show plays; nil reads `TabTunables.hoverCardEntrance` on each show
+    /// (the tab bar playground's Hover Card page pins one per strip).
+    var entrance: HoverCardEntrance?
     /// Like a browser's tab preview (Leo 2026-10-14): leaving the tab hides its card at once,
     /// and another tab reached within the reshow window shows its card at once.
     var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
@@ -183,7 +186,9 @@ final class TabHoverCardController: HoverCardSource {
         if newCard, case .tab = content { startSampling(tab, card: id) }
         // The card hangs from its tab with no gap: it takes the tab's corners.
         return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip,
-                             cornerRadius: strip.metrics.cornerRadius) { [weak body] in body?.applyColors() }
+                             cornerRadius: strip.metrics.cornerRadius, entrance: entrance ?? TabTunables.hoverCardEntrance.value) { [weak body] in
+            body?.applyColors()
+        }
     }
 
     func hoverCardActivated(_ id: HoverTargetID) {
