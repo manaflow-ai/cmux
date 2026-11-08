@@ -114,3 +114,41 @@
 .ci-card[data-look="inline"] .ci-never.ui-btn {
   align-self: flex-start;
 }
+
+/* Keep in sync: a small box and its label under the detail, the whole line a click target; the
+   box fills with the accent when on. */
+.ci-keep {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-compact);
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  cursor: default;
+}
+.ci-keep:hover {
+  color: var(--ds-color-fg);
+}
+.ci-keep-box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-14);
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ds-color-fg) 36%, transparent);
+  background: transparent;
+  color: var(--ds-color-on-accent);
+}
+.ci-keep-box[data-checked] {
+  box-shadow: none;
+  background: var(--ds-color-accent);
+}
+.ci-keep-box:focus-visible {
+  outline: 1.5px solid var(--ds-color-focus);
+  outline-offset: 2px;
+}

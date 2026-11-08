@@ -1,6 +1,6 @@
 import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
-import { openFork } from "./conversation/openFork";
+import { openFork, openInOwnTab } from "./conversation/openFork";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
 import React, {
@@ -177,7 +177,8 @@ import { ChatUnavailableState } from "./ChatUnavailableState";
 import { useCloudChatRecovery } from "./useCloudChatRecovery";
 import { cloudChatRecoveryActive, cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
 import { cloudSendWakes, cloudTypingWakes, type CloudWakeState } from "./cloudWake";
-import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
+import { PastChat } from "./PastChat";
+import { type PastTurn, readPastTurns } from "./pastChatModel";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
 import { answerFromHome } from "./homeInboxModel";
@@ -185,7 +186,8 @@ import { HomeLists } from "./HomeLists";
 import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
-import { TrustAsk, trustedLabel } from "./TrustAsk";
+import { TrustAsk } from "./TrustAsk";
+import { trustedLabel } from "./trustAskModel";
 import { ElevationCard } from "./ElevationCard";
 import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
@@ -223,7 +225,7 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { type SummaryBackgroundTask, transcriptBackground } from "./summary/sessionSummary";
 import { openSourceFile } from "./session-info/sourcesSectionModel";
-import { useSessionInfo } from "./session-info/SessionInfo";
+import { useSessionInfo } from "./session-info/useSessionInfo";
 import { setRemoteControl, toggleRemoteControl, useRemoteControl } from "./remoteControl";
 import {
   type BackgroundCommand,
@@ -522,8 +524,8 @@ import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
+import { type WorkingCounts, WorkingCountsContext } from "./conversation/workingForModel";
 import { NewestSteerContext, takeBackSteer, takesSteersBack } from "./conversation/pendingSteerModel";
-import { type WorkingCounts, WorkingCountsContext } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
@@ -572,12 +574,14 @@ import { ShellActionsContext, type ShellActions } from "./shell/shellRowModel";
 import { SwitchNotice } from "./SwitchNotice";
 import { BACKGROUND_NOTICE_TEXT, useBackgroundNotice } from "./conversation/backgroundNotice";
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
-import { FolderChoice, showsFolderChoice } from "./FolderChoice";
+import { FolderChoice } from "./FolderChoice";
+import { showsFolderChoice } from "./folderChoiceModel";
 import { ownMachineFolders, type ExtraFolderDraft } from "./extraFolders";
 import { WorktreeFailure } from "./startFolder";
 import { type FolderAsk, confirmFolder, newWorktree, pickFolder } from "./startFolderModel";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
-import { MissingFolder, chooseChatFolder } from "./missingFolder";
+import { MissingFolder } from "./missingFolder";
+import { chooseChatFolder } from "./missingFolderModel";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { WatchBanner } from "./WatchBanner";
 import { ManagedBanner } from "./ManagedBanner";
@@ -7093,16 +7097,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const setMode = (modeId: string, ticket?: string) => client.setMode(modeId, ticket);
         /// `placement`: where the app opens it (AgentForkDestination: right, left, up, down,
         /// columnRight, columnLeft, row, tab, workspace, window); hand-offs explicitly retain a tab after this chat.
-        const openOwnTab = (sessionId: string, placement?: string) => {
-          if (mock) return Promise.resolve(false);
-          // The new tab draws this chat from the host's tail, and this page keeps it selected, so
-          // nothing else hands it over (tailCache.ts).
-          client.handOverCurrentTail();
-          return callNative("chat.openTab", { sessionId, placement: placement ?? "tab" }).then(
-            () => true,
-            () => false,
-          );
-        };
+        const openOwnTab = (sessionId: string, placement?: string) =>
+          mock ? Promise.resolve(false) : openInOwnTab(client, callNative, sessionId, placement);
         /// Settles when the turn ends. `accepted` runs once acpmux took the prompt; a sender that
         /// passes it (the composer) still holds the prompt until then, so a refusal loses nothing.
         /// Without it a refused prompt goes back into the composer.

@@ -619,6 +619,9 @@ def fleet_gateway(placed: Any, env: Mapping[str, str], runners: Sequence[Mapping
     until its timeout and report no verdict, so placement lists nothing and the job keeps its route
     (it waits on the owned label as before). No gateway (none idle, unread runners, a re-run) lists
     nothing either.
+
+    A kept job that a Blacksmith macOS label also took (next_macos_cascade.place() lists it so the fleet
+    builds it warm) leaves that label; a dropped one keeps it.
     """
     if not placed.fleet_jobs:
         return placed
@@ -626,7 +629,9 @@ def fleet_gateway(placed: Any, env: Mapping[str, str], runners: Sequence[Mapping
     room = (pool.live_owned_free(runners, [gateway])[gateway] - (taken or {}).get(gateway, 0)
             if gateway and runners is not None else 0)
     if room >= want:
-        return placed
+        fleet = set(placed.fleet_jobs)
+        return dataclasses.replace(placed, jobs={label: tuple(job for job in names if job not in fleet)
+                                                 for label, names in placed.jobs.items()})
     clients = ", ".join(f"{job}-fleet" for job in placed.fleet_jobs)
     where = f"`{gateway}`" if gateway else "the gateway"
     return dataclasses.replace(placed, fleet_jobs=(), why=(
@@ -730,7 +735,8 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     return 0
 
 
-def _main(env: Mapping[str, str] = os.environ) -> int:
+def read_runners(env: Mapping[str, str]) -> list[dict[str, Any]] | None:
+    """The org's runners, read live, or None when no token could read them."""
     runners = None
     repo = env.get("GITHUB_REPOSITORY", "")
     # The routing App first, then cmux-bot (ROUTE_TOKEN_FALLBACK) when the first read is refused.
@@ -751,6 +757,64 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
             break
         except Exception as error:  # noqa: BLE001 - fail open: keep today's route
             print(f"::warning title=side-lane placement::could not list runners with {name} ({error})")
+    return runners
+
+
+def rerun_fleet(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, str]:
+    """(the gateway label the fast tier's build-fleet client takes on a person's re-run, why), or ("", why).
+
+    A person's re-run carries attempt 1's macos-placement and its outputs (a successful job is not
+    re-run), so the fast tier took vars.MACOS_RUNNER_26, Blacksmith 6 vCPU, and fast-tier-fleet skipped
+    the stale gateway reading. On #38130 (run 42434830670) attempt 2 then ran out its 20 minutes on the
+    same cold build as attempt 1. cmux-next.yml's fast-tier-rerun-placement is skipped on attempt 1, so
+    a re-run evaluates it again and it reads the runners now: the client takes GATEWAY_LABEL (or a wider
+    class of it) while a runner there is idle for it, as attempt 1's fleet_gateway() requires, and the
+    tier only reports its verdict. The other gateway jobs skip on a re-run (their reading is attempt
+    1's), so the client needs one idle runner.
+
+    Nothing is listed on attempt 1 or the rescue's re-run (macos-placement places those), when the fast
+    tier does not run again in this attempt (FAST_TIER_STATUS, its status in this attempt, is
+    `completed`: its earlier result is carried), when that status is unread, or with no idle runner:
+    the tier keeps its re-run route.
+    """
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    if attempt == "1" or cascade.bot_rerun(env):
+        return "", f"attempt {attempt} is placed by macos-placement"
+    status = (env.get("FAST_TIER_STATUS") or "").strip()
+    if not status:
+        return "", "the fast tier's status in this attempt is unread, so it keeps its re-run route"
+    if status == "completed":
+        return "", "the fast tier does not run again in this attempt (its earlier result is carried)"
+    label = (env.get("GATEWAY_LABEL") or "").strip()
+    gateway = gateway_route({"GATEWAY_LABEL": label, "GATEWAY_JOBS": f"{FAST_JOB}-fleet"}, runners)
+    if not gateway:
+        why = "owned runners unread" if runners is None else f"no idle `{label or 'gateway'}` runner (or a wider class's)"
+        return "", f"{why}, so the fast tier keeps its re-run route"
+    return gateway, (f"{FAST_JOB}-fleet takes idle `{gateway}` (a warm owned build before a cold Blacksmith "
+                     "macOS one); the fast tier reports its verdict")
+
+
+def rerun_fleet_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
+    """Write rerun_fleet()'s reading in macos-placement's names: fleet_jobs, gateway_runner, gateway_attempt."""
+    gateway, why = rerun_fleet(env, runners)
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    print(f"fast tier re-run placement: {why}")
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"fleet_jobs={delimited((FAST_JOB,) if gateway else ())}\ngateway_runner={gateway}\n"
+                         f"gateway_attempt={attempt if gateway else ''}\n")
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"### Fast tier re-run placement\n\n{why}\n")
+    return 0
+
+
+def _main(env: Mapping[str, str] = os.environ) -> int:
+    runners = read_runners(env)
+    if (env.get("PLACEMENT") or "").strip() == "rerun-fleet":
+        return rerun_fleet_main(env, runners)
     if cascade.bot_rerun(env):
         return rerun_main(env, runners)
     fast = fast_route(env, runners)
