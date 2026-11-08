@@ -1263,6 +1263,12 @@ function TranscriptView({
     () => (index: number) => references.scopeOf(turnOpener(references.cache, rows, index)),
     [rows, references],
   );
+  /// The follow motion's arm (followMotion.experiment.ts), read once per transcript. Every arm but
+  /// `eased` (followGlide, the view before) chases each move of the rows in view (followChase.ts).
+  const [followArm] = useState(() => experimentArm(followMotion));
+  const chasing = followArm !== "eased";
+  const followChase = useRef<FollowChase>(undefined);
+  followChase.current ??= createFollowChase(followArm);
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -1278,6 +1284,9 @@ function TranscriptView({
   /// `path` names what turned following on, for the trace (followTrace.ts `arms`).
   const follow = (next: boolean, path = "other") => {
     if (next && !followingRef.current) followTrace.armed(path);
+    // Followed again: a chase the reader's input held goes on home, whether or not a layout pass
+    // comes after (followChase `resume`).
+    if (next && !followingRef.current) followChase.current?.resume();
     followingRef.current = next;
     onFollowingChange?.(next);
     setFollowing(next);
@@ -1328,6 +1337,7 @@ function TranscriptView({
     input: string | null = null,
   ) => {
     if (atLatest && !followingRef.current) followTrace.armed(path, input, top);
+    if (atLatest && !followingRef.current) followChase.current?.resume();
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
     // reader's latest state; React work itself is coalesced by scrollPacer.
     followingRef.current = atLatest;
@@ -1358,12 +1368,6 @@ function TranscriptView({
   /// Eases the followed view's steps with a streaming reply on the compositor (followGlide.ts).
   const followGlide = useRef<ReturnType<typeof createFollowGlide>>(undefined);
   followGlide.current ??= createFollowGlide();
-  /// The follow motion's arm (followMotion.experiment.ts), read once per transcript. Every arm but
-  /// `eased` (the glide above, the view before) chases each move of the rows in view (followChase.ts).
-  const [followArm] = useState(() => experimentArm(followMotion));
-  const chasing = followArm !== "eased";
-  const followChase = useRef<FollowChase>(undefined);
-  followChase.current ??= createFollowChase(followArm);
   /// A row in view and its layout top on screen (its box less the chase's translate) as of the last
   /// followed pass: the next pass measures how far the rows the reader sees moved from it.
   const chaseAnchor = useRef<{ id: string; top: number } | undefined>(undefined);
@@ -4023,7 +4027,9 @@ function TranscriptView({
       // where it is drawn, so nothing moves but the reader's own scroll (a snap home moved the rows
       // a frame before the scroll, streaming-parked-still.test.ts). Followed again, it goes on home.
       followGlide.current?.stop();
-      followChase.current?.hold();
+      // Input that leaves the view followed (a wheel or key at the bottom scrolls nothing, and no
+      // layout pass may come after) goes on home on the next frame instead of staying drawn away.
+      followChase.current?.hold(() => followingRef.current && jumpTarget.current === undefined);
       chaseAnchor.current = undefined;
       // Release the follow intent synchronously when a reader starts moving up. The browser can
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin

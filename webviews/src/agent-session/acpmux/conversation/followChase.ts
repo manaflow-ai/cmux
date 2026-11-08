@@ -94,8 +94,10 @@ export type FollowChase = {
   stop(): void;
   /// The reader took the view: the chase stops where the thread is drawn, so nothing moves but the
   /// reader's own scroll (a parked reader's view holds still, streaming-parked-still.test.ts). The
-  /// thread stays drawn there until `resume` (followed again) or `stop`.
-  hold(): void;
+  /// thread stays drawn there until `resume` (followed again) or `stop`. `following`, when given, is
+  /// asked once on the next display frame: input that left the view followed (a wheel or key at the
+  /// bottom, which scrolls nothing and brings no later layout pass) goes on home from there.
+  hold(following?: () => boolean): void;
   /// Followed again: a held chase goes on home from where it is drawn.
   resume(): void;
   /// The turn ended: the chase lands now, at once within a line of home, else within BURST_S at no
@@ -126,8 +128,15 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   let chunk = { from: 0, at: 0, duration: CHUNK_S };
   let frame: number | undefined;
   /// A send's rows, or anything in the `blocks` arm: it may pass under the glass composer while it
-  /// settles, so `below` holds nothing back until the chase rests (the trail bound still does).
+  /// settles, so `below` holds nothing back (the trail bound still does). Set by each `shift`: a
+  /// finite `below` after a send keeps to it again.
   let rising = false;
+  /// `hold(following)`: the one frame that asks whether the view is still followed.
+  let recheck: number | undefined;
+  const cancelRecheck = () => {
+    if (recheck !== undefined) thread?.ownerDocument.defaultView?.cancelAnimationFrame(recheck);
+    recheck = undefined;
+  };
   let last: number | undefined;
   let scale = 1;
   /// While the trail is past its bound: the speed (px/s) that brings it back within BURST_S of the
@@ -157,6 +166,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     }
   };
   const stop = () => {
+    cancelRecheck();
     if (frame !== undefined) thread?.ownerDocument.defaultView?.cancelAnimationFrame(frame);
     frame = undefined;
     last = undefined;
@@ -250,6 +260,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   };
   /// Runs the frame loop again from where the thread is drawn (after `hold`, or for `land`).
   const resume = () => {
+    cancelRecheck();
     if (x === 0 || frame !== undefined || !thread) return;
     const view = thread.ownerDocument.defaultView;
     const timeline = thread.ownerDocument.timeline?.currentTime;
@@ -260,7 +271,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     arm,
     outstanding: () => x,
     stop,
-    hold() {
+    hold(following) {
+      cancelRecheck();
       if (frame !== undefined) thread?.ownerDocument.defaultView?.cancelAnimationFrame(frame);
       frame = undefined;
       last = undefined;
@@ -268,7 +280,15 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       burst = 0;
       due = undefined;
       stepped = 0;
-      if (x === 0) stop();
+      if (x === 0) {
+        stop();
+        return;
+      }
+      if (!following || !thread) return;
+      recheck = thread.ownerDocument.defaultView?.requestAnimationFrame(() => {
+        recheck = undefined;
+        if (following()) resume();
+      });
     },
     resume,
     land() {
@@ -311,7 +331,9 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // A send's rows rise out from behind the composer (`below` unbounded). In the `blocks` arm
       // (the default) everything may pass under the glass composer while it settles, held only by
       // the trail bound; the `spring` arm keeps a line to `below`, the rest of it moving at once.
-      if ((arm === "blocks" && !held) || below === Number.POSITIVE_INFINITY) rising = true;
+      // Each move says which it is: a finite `below` after a send's rise keeps to it again (a rise
+      // kept to the chase's rest let later streamed text pass under the composer past the bound).
+      rising = (arm === "blocks" && !held) || below === Number.POSITIVE_INFINITY;
       // Within the bound before this move, a block that lands past it starts a stretch of its own
       // with all of BURST_S (the last stretch's deadline moved it up to a line a frame, its time
       // already spent).
@@ -341,6 +363,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       }
       chunk = { from: x, at: 0, duration: CHUNK_S };
       draw();
+      cancelRecheck();
       if (frame === undefined) {
         // Integrate from this frame's time: the first step lands one display frame on.
         const view = node.ownerDocument.defaultView;
