@@ -31,6 +31,28 @@ public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
             + NavigationPaletteProvider.sessionWords(session.map { PaletteNavigationEntry.acpPrefix + $0 })
     }
 
+    /// Whether a tab titled `title` only repeats its workspace's name `workspace` (case, accents and
+    /// edge spaces aside): Go to Workspace lists such a tab as its workspace's row when it is the
+    /// only one, and its words find that row.
+    public static func repeatsName(_ title: String, of workspace: String) -> Bool {
+        func folded(_ text: String) -> String {
+            text.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        }
+        let name = folded(workspace)
+        return !name.isEmpty && folded(title) == name
+    }
+
+    /// The one of `tabs` whose title (`title(tab)`) repeats the workspace's name `name`, nil when none
+    /// or several do: Go to Workspace lists that tab as the workspace's row, so its words find that row.
+    public static func loneRepeat<Tab>(_ tabs: [Tab], of name: String, title: (Tab) -> String) -> Tab? {
+        var found: Tab?
+        for tab in tabs where repeatsName(title(tab), of: name) {
+            guard found == nil else { return nil }
+            found = tab
+        }
+        return found
+    }
+
     public init(id: String, title: String, directory: String? = nil, isSelected: Bool = false, unreadCount: Int = 0,
                 groupName: String? = nil, machineName: String? = nil, agentID: String? = nil, keywords: [String] = [],
                 sidebarRank: Int? = nil, lastUsed: Date? = nil) {
