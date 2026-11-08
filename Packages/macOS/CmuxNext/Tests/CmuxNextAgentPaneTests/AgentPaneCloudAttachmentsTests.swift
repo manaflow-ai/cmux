@@ -101,6 +101,45 @@ import Testing
         #expect(events == ["uploaded", "opened", "removed"])
     }
 
+    /// Leo, 2026-11-08: "Can I upload files in there?" A PDF dropped from Finder on a new Cloud chat's
+    /// first send goes to the machine by its own path (no copy read into memory, so any size goes),
+    /// and its chip names only the machine's copy.
+    @MainActor @Test func aDroppedPdfOnTheFirstSendUploadsByPathAndRemapsToTheMachine() async throws {
+        let mac = "/Users/me/Downloads/report.pdf"
+        let pdf: JSONValue = .object(["id": .string("link:" + mac), "kind": .string("link"), "name": .string("report.pdf"),
+                                      "mimeType": .string(""), "size": .number(0), "path": .string(mac)])
+        let carry = try #require(AgentPaneCloudAttachments([pdf, image], files: [mac]))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-attachments-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var undone = false
+        let chips = try await carry.withUploaded(in: root, upload: { paths in
+            #expect(paths.count == 2)
+            #expect(paths.first == mac, "the dropped file goes by its own path")
+            #expect(paths.last?.hasPrefix(root.path) == true, "the image goes as its private copy")
+            return .init(paths: ["/work/0/report.pdf", "/work/1/screen.png"], undo: { undone = true })
+        }) { $0 }
+        #expect(!undone)
+        #expect(chips[0]["path"] == .string("/work/0/report.pdf"))
+        #expect(chips[0]["saved"] == .bool(true))
+        #expect(chips[0]["originalPath"] == nil)
+        #expect(chips[1]["originalPath"] == .string("/work/1/screen.png"))
+        #expect(!chips.contains { $0["path"] == .string(mac) || $0["originalPath"] == .string("/Users/me/Desktop/screen.png") })
+        #expect(carry.remapped(["/work/0/report.pdf"]) == nil, "every carried file needs its machine path")
+    }
+
+    /// A link chip whose path the pane never authorized (page script made it up) is still refused,
+    /// and a folder is refused in words that say folders.
+    @Test func aPageInventedPathOrAFolderIsStillRefused() {
+        let invented: JSONValue = .object(["id": .string("x"), "kind": .string("link"), "name": .string("id_ed25519"),
+                                           "path": .string("/Users/me/.ssh/id_ed25519")])
+        #expect(AgentPaneCloudAttachments([invented], files: ["/Users/me/Downloads/report.pdf"]) == nil)
+        #expect(AgentPaneCloudAttachments.refusal([invented]).contains("needs a local file"))
+        let folder: JSONValue = .object(["id": .string("link:/Users/me/docs"), "kind": .string("link"), "name": .string("docs/"),
+                                         "path": .string("/Users/me/docs")])
+        #expect(AgentPaneCloudAttachments([folder], files: ["/Users/me/docs"]) == nil)
+        #expect(AgentPaneCloudAttachments.refusal([image, folder]).hasPrefix("Folders"))
+    }
+
     @MainActor @Test func attachmentSeedIsTakenOnlyOnce() async {
         let seed = AgentPaneSeedSource(.init(prompt: "", promptAttachments: [image], promptBy: .person))
         #expect(!seed.holdsOnlyFolder)

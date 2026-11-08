@@ -36,6 +36,9 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// the pane once it checked that folder against its roots too (``AgentPaneHandOff``); nil when
     /// the page named no folder. The App copies only this folder, never one it finds anew.
     public var uploadRoot: String?
+    /// The Mac files this send's link chips may carry to the machine, set by the pane from what it
+    /// authorized itself (``AgentPaneModel/cloudCarriedFiles(_:)``); never read from the page.
+    public var carriedFiles: Set<String> = []
 
     public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil, reservationKey: String? = nil, gestureTicket: String? = nil) {
         (self.task, self.cwd, self.harness, self.model, self.key) = (task, cwd, harness, model, key)
@@ -230,8 +233,10 @@ struct AgentPaneHandOff {
             // the source of truth for the one live reservation; page state is only a hand-off hint.
             return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
         }
-        guard AgentPaneCloudAttachments(start.attachments) != nil else {
-            return AgentPaneReply.failure(code: "cloud_attachments", message: "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.")
+        var start = start
+        start.carriedFiles = await model.cloudCarriedFiles(start.attachments)
+        guard AgentPaneCloudAttachments(start.attachments, files: start.carriedFiles) != nil else {
+            return AgentPaneReply.failure(code: "cloud_attachments", message: AgentPaneCloudAttachments.refusal(start.attachments))
         }
         // The page names the folder the composer shows as the chat's, and the Send's gesture (`held`)
         // is the person's pick of it, as a typed folder's is for a chat that starts here
@@ -240,7 +245,6 @@ struct AgentPaneHandOff {
         // off this Mac, so each must be a real folder that is never home or above it. Leo, on a Cloud
         // start of a folder inside a Git working copy refused as "This folder isn't open in this
         // tab": "what's this". Nil: the App uses the tab's folder.
-        var start = start
         start.uploadRoot = nil
         if let cwd = start.cwd {
             let home = model.transport.homeFolder
