@@ -46,6 +46,25 @@ struct SidebarPinFlight {
         SidebarDragSpring.fly(view, from: start(now), token, now: now)
         let diagKeys = (view.layer?.animationKeys() ?? []).joined(separator: ",")
         pinDiag.notice("flight keys=\(diagKeys, privacy: .public)")
+        let diagLayer = view.layer.map(ObjectIdentifier.init)
+        for delay in [0.008, 0.03, 0.08] {
+            // concurrency-allow: diagnostic build only (not for merge): reads the flying layer later on the main queue
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak view] in
+                guard let view, let layer = view.layer else { return }
+                var chain: [String] = []
+                var node: NSView? = view
+                while let n = node {
+                    chain.append("\(type(of: n))(z\(n.layer?.zPosition ?? -1) clip\(n.clipsToBounds) m\(n.layer?.masksToBounds ?? false) a\(n.alphaValue) h\(n.isHidden) keys\((n.layer?.animationKeys() ?? []).joined(separator: "+")))")
+                    node = n.superview
+                    if chain.count > 4 { break }
+                }
+                let same = diagLayer == ObjectIdentifier(layer)
+                let shown = layer.presentation().map { NSStringFromPoint($0.position) } ?? "nil"
+                let model = NSStringFromPoint(layer.position)
+                let line = "t+\(delay) sameLayer=\(same) model=\(model) shown=\(shown) chain=\(chain.joined(separator: " < "))"
+                pinDiag.notice("flight later \(line, privacy: .public)")
+            }
+        }
         if let title { SidebarDragSpring.offset(title.view, by: title.offset, token, now: now) }
         if let layer = glyph?.layer { SidebarDragSpring.appear(layer, token, now: now) }
         for layer in revealed.compactMap(\.layer) { SidebarDragSpring.appear(layer, token, now: now) }
