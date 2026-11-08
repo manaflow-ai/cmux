@@ -135,6 +135,19 @@ pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<
         blocks.insert(first, text_block(agent_line(name)));
         return;
     }
+    // A suggested task's result (`offer_results.rs`) names no sender: it is that task's chat's
+    // reply, so the parent reads it as that task's, never the person's.
+    if let Some(p) =
+        provenance.filter(|p| p.get("kind").and_then(Value::as_str) == Some("offer_result"))
+    {
+        let title = p.get("title").and_then(Value::as_str).filter(|t| !t.trim().is_empty());
+        let name = title.map_or_else(
+            || "a suggested task".to_owned(),
+            |t| format!("the suggested task \"{}\"", t.trim()),
+        );
+        blocks.insert(first, text_block(agent_line(&name)));
+        return;
+    }
     if let Some(p) =
         provenance.filter(|p| p.get("kind").and_then(Value::as_str) == Some("unverified"))
     {
