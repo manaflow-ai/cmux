@@ -73,6 +73,7 @@ export function ShareDialogBody({
         />
         <Select
           className="share-dialog__role"
+          buttonClassName="ui-btn"
           label={t("share.roleFor")}
           value={role}
           options={roles}
@@ -80,7 +81,7 @@ export function ShareDialogBody({
           align="end"
           onChange={(value) => setRole(value as ShareRole)}
         />
-        <Button type="submit" variant="solid" disabled={!canInvite}>
+        <Button type="submit" disabled={!canInvite}>
           {t("share.invite")}
         </Button>
       </form>
@@ -111,6 +112,7 @@ export function ShareDialogBody({
           <span className="share-dialog__who">
             <Select
               className="share-dialog__access"
+              buttonClassName="ui-btn"
               label={t("share.general")}
               value={view.general}
               disabled={busy}
@@ -165,6 +167,7 @@ function PersonRow({
       </span>
       <Select
         className="share-dialog__role"
+        buttonClassName="ui-btn"
         label={t("share.roleOf", { account: row.account })}
         value={row.role}
         disabled={busy}
@@ -173,7 +176,7 @@ function PersonRow({
         options={roles}
         onChange={(value) => value !== row.role && onRole(row.account, value as ShareRole)}
       />
-      <Button variant="ghost" size="sm" danger disabled={busy} onClick={() => onRemove(row.account)}>
+      <Button variant="ghost" danger disabled={busy} onClick={() => onRemove(row.account)}>
         {t("share.remove")}
       </Button>
     </li>
