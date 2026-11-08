@@ -29,6 +29,9 @@ public final class AgentPaneGitLink {
     /// This Mac's link: the Changes view's git writes run here only for a chat it reads.
     public var isLocal: Bool { daemon.isLocal }
 
+    /// Whether the session host answers `diff.comments.send`, as its last handshake said.
+    public var sendsDiffComments: Bool { daemon.identity?.supports(DaemonCapability.diffCommentsSend.rawValue) == true }
+
     /// The operation's result as JSON for the page. Throws an
     /// ``AgentPaneGitFailure``: the session host's resource error, or why
     /// the read got no answer (no connection, a timeout).
