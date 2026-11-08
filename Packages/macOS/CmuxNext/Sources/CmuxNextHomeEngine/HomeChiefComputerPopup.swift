@@ -73,7 +73,8 @@ public final class HomeChiefComputerPopup: NSView {
     /// The popup is showing (tests).
     public var isShowing: Bool { !isHidden }
 
-    func update() {
+    /// Shows or hides the popup for the turn, the ✕ and ``isSuppressed`` (a panel that closed brings it back).
+    public func update() {
         let show = working && !dismissed && !isSuppressed() && section.shown?.acting == true
         section.watchesScreen = show
         guard show == isHidden else { return }

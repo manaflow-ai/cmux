@@ -32,6 +32,9 @@ public final class HomeChiefProfilePanel {
     /// The panel is open.
     public var isShown: Bool { !view.isHidden }
 
+    /// The panel is open at Computer: the chat's computer popup stays hidden under it (cmux issue 31488).
+    public var showsComputer: Bool { isShown && view.selectedTab == .computer }
+
     /// Opens the panel at `tab` (nil: the tab it showed last).
     public func open(_ tab: HomeChiefProfileTab?) {
         if let tab { view.select(tab) }

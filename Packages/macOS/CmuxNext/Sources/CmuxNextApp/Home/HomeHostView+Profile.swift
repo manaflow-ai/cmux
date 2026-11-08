@@ -43,7 +43,10 @@ extension HomeHostView {
         return true
     }
 
-    func closeProfile() { panel.close(keyboardTo: focusTarget) }
+    func closeProfile() {
+        panel.close(keyboardTo: focusTarget)
+        computerPopup.update()
+    }
 
     /// A new read of the Chief (a message, a turn, a move to the Cloud): the open panel follows it.
     func refreshProfile() {
