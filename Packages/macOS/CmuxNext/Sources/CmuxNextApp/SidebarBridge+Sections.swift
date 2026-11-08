@@ -65,7 +65,6 @@ extension SidebarBridge {
         }
     }
 
-    /// Runs `body` with this sidebar's window as the active one: its items act here (cmux#37371).
     private func inThisWindow(_ body: () -> Void) { services.windows.dispatching(eventFrom: state.flatMap { services.windows.controller(for: $0.id)?.window }, body) }
 
     /// What an app item's click runs (R63/R64): `cmux.apps.open {app}` (it

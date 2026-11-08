@@ -17,12 +17,6 @@ extension SidebarBridge {
         reveal(tab, in: pane, workspace: workspace, state: state)
     }
 
-    /// A hover card's tab row clicked in this window: shown here, as a pinned tab (cmux#37371).
-    func revealListedTab(_ tab: String, of workspace: String) {
-        guard let state, let daemon = services.machines.workspace(id: workspace)?.1, let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model) else { return }
-        reveal(model, in: pane, workspace: workspace, state: state)
-    }
-
     /// Focuses a tab of this window's current space showing `text` (an
     /// http or https page; anything else does nothing), else
     /// opens it in a new browser tab of the focused pane, on the profile
