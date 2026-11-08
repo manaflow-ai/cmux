@@ -143,4 +143,35 @@ import Testing
         }
         #expect(tones == [3, 4])
     }
+
+    /// Only the kinds the Mac reads a session from carry one (incomingMessage.ts): a session kind's
+    /// `from` and an `agent_message`'s `acp:` address. A kind this build does not know, an unverified
+    /// send and a tool's notice name no session even from an `acp:` address, so their tone is the name's.
+    @Test func onlyTheMacsKindsCarryASessionId() throws {
+        let unknown = try json(#"{"kind":"future_kind","from":"acp:0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a60","fromName":"lane-z"}"#)
+        let card = try #require(AgentIncoming.parse(text: "hello", provenance: unknown))
+        #expect(card.messages.first?.senderID == nil)
+        #expect(card.messages.first?.toneKey == "lane-z")
+        let unverified = try json(#"{"kind":"unverified","from":"acp:0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a60","to":"s-1","verified":false}"#)
+        #expect(try #require(AgentIncoming.parse(text: "[lane-q] hello", provenance: unverified)).messages.first?.senderID == nil)
+        let notice = try json(#"{"kind":"notice","from":"acp:0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a60","fromName":"land-ci","notice":{"sender":"land-ci","title":"CI red"}}"#)
+        #expect(try #require(AgentIncoming.parse(text: "CI red", provenance: notice)).messages.first?.senderID == nil)
+        // A digest part of an unknown kind names no session either.
+        let digest = try json(#"""
+        {"kind":"agent_digest","messages":[
+          {"from":"lane-z","provenance":{"kind":"future_kind","from":"acp:0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a60","fromName":"lane-z"}},
+          {"from":"coordinator","provenance":{"kind":"agent_message","from":"acp:0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a63","fromName":"coordinator"}}]}
+        """#)
+        let text = """
+        2 messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.
+
+        [agent message 1 of 2] from lane-z
+        one
+
+        [agent message 2 of 2] from coordinator
+        two
+        """
+        #expect(try #require(AgentIncoming.parse(text: text, provenance: digest)).messages.map(\.senderID)
+            == [nil, "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a63"])
+    }
 }

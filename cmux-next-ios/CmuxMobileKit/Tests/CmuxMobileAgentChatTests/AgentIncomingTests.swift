@@ -185,7 +185,7 @@ import Testing
 
     @Test func unknownKindFromAnAgentAddressIsItsCard() throws {
         let provenance = try json(#"{"kind":"future_kind","from":"acp:s-9","fromName":"lane-z"}"#)
-        #expect(AgentIncoming.parse(text: "hello", provenance: provenance)?.messages == [.init(sender: "lane-z", text: "hello", senderID: "s-9")])
+        #expect(AgentIncoming.parse(text: "hello", provenance: provenance)?.messages == [.init(sender: "lane-z", text: "hello")])
         // An unknown kind from no agent address stays the person's.
         #expect(AgentIncoming.parse(text: "hello", provenance: try json(#"{"kind":"future_kind","from":"s-1"}"#)) == nil)
         // A kind known as the person's stays theirs, whatever its address.
