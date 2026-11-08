@@ -101,7 +101,7 @@ fn run(socket: imp::Socket, alive: impl Fn() -> bool, mut changed: impl FnMut())
         };
         match imp::read(&socket, &mut buf, wait) {
             Read::Message(n) => {
-                if first.is_none() && imp::is_change(&buf[..n]) {
+                if first.is_none() && imp::is_change(buf.get(..n).unwrap_or_default()) {
                     first = Some(Instant::now());
                 }
             }
@@ -223,7 +223,10 @@ mod imp {
         if cfg!(target_os = "macos") {
             message.get(3).copied().map_or(0, u16::from)
         } else {
-            message.get(4..6).map_or(0, |b| u16::from_ne_bytes([b[0], b[1]]))
+            message
+                .get(4..6)
+                .and_then(|b| <[u8; 2]>::try_from(b).ok())
+                .map_or(0, u16::from_ne_bytes)
         }
     }
 }
