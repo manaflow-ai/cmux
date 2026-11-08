@@ -45,12 +45,13 @@ export function PendingSteer({
   return (
     <div className="cv-user__pending">
       <MessageFooterRow>
-        {/* Copy, Retry, Fork and the X show on hover, in the sent row's order; Send now stays
+        {/* Copy, Retry, Fork, Save and the X show on hover, in the sent row's order; Send now stays
             (Leo, 2026-11-03: "the copy is always showing for no reason... plus the order is wrong"). */}
         <span className="cv-user__queued-hover">
           {row.text?.trim() && <MessageCopy text={row.text} />}
           {queued?.retry}
           {queued?.fork}
+          {queued?.save}
           {promptId && unsteer && (
             <button
               type="button"

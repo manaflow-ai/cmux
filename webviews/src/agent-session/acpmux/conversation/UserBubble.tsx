@@ -310,6 +310,7 @@ export function UserBubble({
                 pending(actions, {
                   retry: retry && <PromptRetry rowId={row.id} prompt={resend} hasAttachment={retryAttachments} held />,
                   fork: forkButton,
+                  save: <SavePromptButton text={resend} />,
                 }))
             }
           >
