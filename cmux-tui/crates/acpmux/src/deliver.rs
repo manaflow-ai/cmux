@@ -63,6 +63,8 @@ pub async fn deliver(
         notice: None,
         relay: None,
         sender_harness: None,
+        subagent: None,
+        wake_or_fail: false,
     };
     queue_prompt(client, session, text, steer, provenance, &prompt).await
 }

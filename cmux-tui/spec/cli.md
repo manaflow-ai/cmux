@@ -74,7 +74,12 @@ opens only for the machine owner's grant; its refusal is `error_code` `service_r
 Each attempt then writes `cloud.connect route=carrier machine=<vm_id>
 phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>` on stderr and appends it to
 `<workspace state dir>/carrier/connect.log`, a file only the dial writes, never
-emptied or replaced (it stops growing at 4 MiB). One
+emptied or replaced (it stops growing at 4 MiB). A failed attempt's line ends in
+` detail=<code>` after `ms`, when the failure names one: one `[a-z0-9_]{1,24}` token, either
+the relay's WebSocket close code (`1013`), an HTTP status (`http_503`), the relay's error code
+(`slot_busy`), a fixed word (`connect_refused`, `tls`, `timeout`, `deadline`, `closed`,
+`rejected`, `io`, `daemon_key`), or else `other`. The failure's text stays in the reply
+line's `error_detail`; no ticket, grant or token reaches the route line. One
 deadline (`--deadline-ms`, default 180000) covers every step, with full-jitter
 retries inside it. Exit codes: 0, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake,
 6 service_refused, 64 usage. On a Mac the Noise key is a login Keychain item (accessible after first
@@ -718,7 +723,7 @@ attention clear --tab <tab_…>
 attention next [--after <tab_…>] [--focus]
 attention list
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
-git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
+git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch | --scope commits --base <commit> --head <commit>] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [--after-path <path>]
   [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
 git branches [TARGET] [--limit <n>]
@@ -739,6 +744,9 @@ git worktree create [TARGET] [--name <name>] [--base <revision>]
 git worktree apply [TARGET]
 git worktree remove [TARGET] [--discard]
 git worktree setup [TARGET] [--since <offset>]
+git comments list [--root <path>]
+git comments save [--root <path>] --comment <json-object>
+git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 conversation list                                             (cmux-tui only)
 conversation <conv_id> get [--tail <0..500>]
@@ -1119,6 +1127,15 @@ meanwhile), `port`, `exit_code`, what `include` copied, and the `output` from
 byte `--since` (at most its last 64 KiB) with `output_start` and `output_end`
 (decimal strings); the next read passes `output_end` as `--since`. Setup stops
 after 30 minutes.
+
+`git comments list|save|delete` (`diff.comments.list|save|delete`, capability
+`diff-comments-v1`) read and change the diff page's review comments, which the
+session host keeps per worktree root: `--root`, made absolute against the
+current directory, which is the default. `save` sends `--comment` (a JSON
+object, kept as given; its `id` names a saved comment to replace) and the
+session host sets `createdAt` and `updatedAt`. `delete` names the ids to
+remove (at most 500); `--versions-json` maps an id to the `updatedAt` read, and
+a comment edited since is kept. Unknown ids are ignored.
 
 ## Local sidebar plugins
 
