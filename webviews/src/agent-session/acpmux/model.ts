@@ -1565,8 +1565,7 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: num
   const stretches = runStretches(row, groups);
   return stretches.reduce((height, stretch) => {
     const start = stretchStart(row, stretch);
-    if (stretch.fold)
-      return height + toolRowHeight() + (start.lineOpen ? openRunStepsHeight(stretch.items, width) : 0);
+    if (stretch.fold) return height + toolRowHeight() + (start.lineOpen ? openRunStepsHeight(stretch.items, width) : 0);
     return height + stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group, width, start.groupsClosed), 0);
   }, 0);
 }
@@ -1574,7 +1573,8 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: num
 /// An open run line's steps (ToolRunSteps.tsx): a line per call, nothing for a quiet thought.
 function openRunStepsHeight(items: readonly AcpmuxActivity[], width: number): number {
   return items.reduce(
-    (sum, item) => sum + (!item.tool && item.kind !== "note" && isQuietThought(item) ? 0 : activityStepHeight(item, width)),
+    (sum, item) =>
+      sum + (!item.tool && item.kind !== "note" && isQuietThought(item) ? 0 : activityStepHeight(item, width)),
     0,
   );
 }

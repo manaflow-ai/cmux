@@ -157,9 +157,9 @@ test("a plain turn's opened run line starts closed, as before", async () => {
 
 // The estimate of an open run line is the rows it draws (review of cmux#37710): a run that keeps a
 // coordination card (a message to another agent) and a change waiting for permission in sight draws,
-// with `runOpen`, each stretch's line over its open groups, as a run of plain work does. Every one of
-// those rows is one 22px tool line (design/chat-transcript.md "One-line row pitch"), so the drawn
-// height is the count of `.cv-tool` lines times 22.
+// with `runOpen`, each stretch's line over its steps (ToolRunSteps.tsx, a line per call), as a run of
+// plain work does. Every one of those rows is one 22px tool line (design/chat-transcript.md "One-line row pitch"), so the drawn
+// height is the count of `.cv-tool` lines and sent-message rows (`.cv-sent-msg`) times 22.
 const LINE = 22;
 const read = (id: string): AcpmuxActivity => ({
   kind: "tool",
@@ -192,17 +192,17 @@ const mixedOpen = openRun("mixed", [
 ]);
 
 for (const [name, run, lines] of [
-  // "Ran 2 commands" over its two, the sent message, a line over a command and a read, the pending
+  // A line over its two commands, the sent message, a line over a command and a read, the pending
   // edit, and a line over a command and a read.
   ["a mixed stretch with a coordination card and a permission", mixedOpen, 11],
-  // The summary over "Ran 2 commands" and "Read 2 files", each over its calls.
-  ["a run of two groups", openRun("groups", [shell("a", "ls"), shell("b", "cat y"), read("r"), read("r2")]), 7],
+  // The summary over its four calls, one step each.
+  ["a run of two groups", openRun("groups", [shell("a", "ls"), shell("b", "cat y"), read("r"), read("r2")]), 5],
   // One group: its line over its calls.
   ["a run of one group", openRun("one", [shell("a", "ls"), shell("b", "cat y")]), 3],
 ] as const)
   test(`an open run line's estimate is the rows it draws: ${name}`, async () => {
     await render(run);
-    const drawn = host.querySelectorAll(".cv-tool").length;
+    const drawn = host.querySelectorAll(".cv-tool, .cv-sent-msg").length;
     expect(drawn).toBe(lines);
     expect([...layoutConversation([run], 720).heights][0]).toBe(drawn * LINE);
   });
