@@ -2180,7 +2180,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             resources: [
                 .process("Localizable.xcstrings"),
-                .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
         ),

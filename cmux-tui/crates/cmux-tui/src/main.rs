@@ -3153,6 +3153,7 @@ fn start_detached_owner_session(
         chief_tools_socket: None,
         chief_brains: None,
         websocket: None,
+        carried_env: Vec::new(),
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
     // A restore can take minutes on a loaded machine: say so once instead of
