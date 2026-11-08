@@ -76,6 +76,14 @@ pub fn load_or_create_at(state_dir: &Path) -> Result<NodeKeypair> {
     Ok(NodeKeypair { private_key: private, public_key: public })
 }
 
+/// The public half of the node key now in `state_dir`, or None when there is none or it cannot
+/// be read. Never creates one: the hub carrier's key check (`hub_carrier.rs`) uses it to see a
+/// key [`replace_at`] replaced.
+pub fn public_key_at(state_dir: &Path) -> Option<[u8; 32]> {
+    let private = read_key(&state_dir.join(KEY_FILE)).ok()?;
+    Some(PublicKey::from(&StaticSecret::from(*private)).to_bytes())
+}
+
 /// A fresh node key in `state_dir`, in place of the one there: what a box whose home was copied
 /// from another gets, so the two never answer with one WireGuard identity. Only the public half
 /// of the new key is returned; the old key's bytes are not read.
@@ -175,6 +183,8 @@ mod tests {
         let fresh = replace_at(dir.path()).unwrap();
         assert_ne!(copied.public_key, fresh.public_key);
         assert_eq!(load_or_create_at(dir.path()).unwrap().public_key, fresh.public_key);
+        // What the hub carrier's key check reads: the replacement, never the copied key.
+        assert_eq!(public_key_at(dir.path()), Some(fresh.public_key));
         // With no key yet, a replacement is a first key.
         let empty = tempfile::tempdir().unwrap();
         let first = replace_at(empty.path()).unwrap();

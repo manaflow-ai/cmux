@@ -12,6 +12,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64",
+ "blake2",
  "bytes",
  "chrono",
  "chrono-tz",

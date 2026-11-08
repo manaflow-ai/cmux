@@ -281,7 +281,11 @@ async fn hub_carrier_a_turn_streams_over_the_relay_and_survives_a_relay_reconnec
     )
     .await;
     let (key_a, key_b) = (random_key(), random_key());
-    let fast = Timings { control: Duration::from_secs(5), handshake: Duration::from_secs(5) };
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
     let tickets_b = Arc::new(FixedTickets {
         relay: route.clone(),
         peers: vec![public(&key_a)],
@@ -425,7 +429,11 @@ async fn hub_carrier_a_machine_the_platform_does_not_name_is_refused_in_the_hand
         }
     });
     let (key_b, key_stranger) = (random_key(), random_key());
-    let fast = Timings { control: Duration::from_secs(5), handshake: Duration::from_secs(5) };
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
     // B lets in no one: the platform named no other machine of its person.
     let carrier_b = HubCarrier::new(
         Arc::new(FixedTickets { relay: route.clone(), peers: vec![], asked: AtomicU64::new(0) }),
@@ -459,4 +467,69 @@ async fn hub_carrier_a_machine_the_platform_does_not_name_is_refused_in_the_hand
     }
     assert!(refused.contains("not one of this person's machines"), "{refused}");
     assert!(!reached.load(Ordering::SeqCst), "a refused circuit reached B's listener");
+}
+
+/// The node key is WireGuard's static key and the carrier's Noise static key; the acpmux owner
+/// allows that only while both protocols hash with BLAKE2s (`hub_carrier.rs` condition 1).
+#[test]
+fn hub_carrier_noise_hash_is_wireguards_blake2s() {
+    use acpmux::hub_carrier::{NOISE_PROTOCOL, WIREGUARD_NOISE_PROTOCOL};
+    use blake2::Digest;
+    let hash = |name: &str| name.rsplit('_').next().unwrap().to_owned();
+    assert_eq!(hash(NOISE_PROTOCOL), "BLAKE2s", "{NOISE_PROTOCOL}");
+    assert_eq!(hash(NOISE_PROTOCOL), hash(WIREGUARD_NOISE_PROTOCOL));
+    assert!(NOISE_PROTOCOL.starts_with("Noise_XX_25519_"), "{NOISE_PROTOCOL}");
+    // WireGuard's chaining key is BLAKE2s(CONSTRUCTION) (boringtun `INITIAL_CHAIN_KEY`, the
+    // WireGuard paper): the name above is the one WireGuard really hashes, with BLAKE2s.
+    let initial_chain_key: [u8; 32] = [
+        96, 226, 109, 174, 243, 39, 239, 192, 46, 195, 53, 226, 160, 37, 210, 208, 22, 235, 66, 6,
+        248, 114, 119, 245, 45, 56, 209, 152, 139, 120, 205, 54,
+    ];
+    let digest = blake2::Blake2s256::digest(WIREGUARD_NOISE_PROTOCOL.as_bytes());
+    assert_eq!(digest.as_slice(), initial_chain_key);
+}
+
+/// A replaced node key stops the carrier: its registration ends and it dials no more
+/// (`hub_carrier.rs` condition 3).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hub_carrier_a_replaced_node_key_stops_the_carrier() {
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+    let current = Arc::new(AtomicBool::new(true));
+    let check = current.clone();
+    let key = random_key();
+    let carrier = HubCarrier::with_key_check(
+        Arc::new(FixedTickets {
+            relay: route,
+            peers: vec![public(&key)],
+            asked: AtomicU64::new(0),
+        }),
+        key,
+        Timings { key_check: Duration::from_millis(50), ..Timings::default() },
+        Arc::new(move |_: &[u8; 32]| check.load(Ordering::SeqCst)),
+    );
+    let serving = carrier.serve("127.0.0.1:9".parse().unwrap());
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!serving.is_finished(), "the carrier serves while its key is the machine's");
+    current.store(false, Ordering::SeqCst);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !serving.is_finished() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the carrier kept serving with a replaced key");
+    let refused = carrier.dial(&public(&key)).await.unwrap_err();
+    assert!(refused.contains("replaced"), "{refused}");
 }

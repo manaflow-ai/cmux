@@ -25,6 +25,19 @@
 //! - Peers: a peer whose config names a WireGuard key reaches it through the carrier too
 //!   ([`HubCarrierSlot`]); [`HubCarrier::set_route`] names another.
 //!
+//! The node key in two protocols. `node.wg.key` is WireGuard's static key and this carrier's
+//! Noise XX static key. The acpmux owner allows that reuse on these conditions, and they bind
+//! every change here:
+//! 1. Both protocols stay BLAKE2s ([`NOISE_PROTOCOL`] and [`WIREGUARD_NOISE_PROTOCOL`] name the
+//!    same hash, and the two names keep their transcripts apart). If either suite changes, the
+//!    keys split. `tests/hub_carrier.rs` pins it.
+//! 2. The key is used only as a Noise static key: no signing, no raw DH and no KDF input
+//!    anywhere else.
+//! 3. A copied home stays off: `daemon.rs` starts no carrier while the clone check is unsettled
+//!    or the home is a copy, and a copy's join credential gets no ticket. A key replaced
+//!    (`mesh_node_key::replace_at`) while the carrier runs stops it: its key check
+//!    ([`HubCarrier::with_key_check`]) unregisters it and refuses its dials.
+//!
 //! Load: per machine one relay control socket (the registration, pinged a third of its lease);
 //! per live pair one relay circuit (two sockets) and one ticket call per dial. The dialer closes
 //! its allocation socket once the circuit is open.
@@ -54,6 +67,11 @@ use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use url::Url;
 use zeroize::Zeroizing;
+
+/// The carrier's Noise protocol (cmux-remote's handshake).
+pub const NOISE_PROTOCOL: &str = cmux_remote::crypto::NOISE_XX_PROTOCOL;
+/// WireGuard's Noise protocol (its CONSTRUCTION), whose static key the carrier reuses.
+pub const WIREGUARD_NOISE_PROTOCOL: &str = "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s";
 
 /// The largest relay frame: the Noise record limit, as the Cloud carrier uses.
 const MAX_FRAME_BYTES: usize = 65_535;
@@ -105,13 +123,22 @@ pub struct Timings {
     pub control: Duration,
     /// The Noise exchange.
     pub handshake: Duration,
+    /// How often a serving carrier checks that its key is still the machine's.
+    pub key_check: Duration,
 }
 
 impl Default for Timings {
     fn default() -> Self {
-        Self { control: Duration::from_secs(10), handshake: Duration::from_secs(10) }
+        Self {
+            control: Duration::from_secs(10),
+            handshake: Duration::from_secs(10),
+            key_check: Duration::from_secs(30),
+        }
     }
 }
+
+/// Whether the carrier's key is still the machine's node key (false once it was replaced).
+pub type KeyCheck = Arc<dyn Fn(&[u8; 32]) -> bool + Send + Sync>;
 
 /// Counters for the load a carrier puts on the relay (`acpmux peers --json` may show them).
 #[derive(Debug, Default)]
@@ -132,6 +159,7 @@ pub struct HubCarrier {
     routes: Mutex<HashMap<String, String>>,
     timings: Timings,
     stats: Arc<Stats>,
+    key_check: Option<KeyCheck>,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -152,7 +180,32 @@ impl HubCarrier {
             routes: Mutex::new(HashMap::new()),
             timings,
             stats: Arc::default(),
+            key_check: None,
         })
+    }
+
+    /// The carrier with `check`, asked before every dial and every `timings.key_check` while it
+    /// serves: once it says the key is no longer the machine's, dials are refused and the slot
+    /// is unregistered (condition 3 in the module doc).
+    pub fn with_key_check(
+        tickets: Arc<dyn Tickets>,
+        private_key: [u8; 32],
+        timings: Timings,
+        check: KeyCheck,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            tickets,
+            identity: StaticIdentity::from_private(private_key),
+            routes: Mutex::new(HashMap::new()),
+            timings,
+            stats: Arc::default(),
+            key_check: Some(check),
+        })
+    }
+
+    /// False once the machine's node key is no longer this carrier's.
+    pub fn key_current(&self) -> bool {
+        self.key_check.as_ref().is_none_or(|check| check(&self.identity.public_key()))
     }
 
     /// This machine's key as the hub knows it (`daemonId`): standard base64.
@@ -177,6 +230,9 @@ impl HubCarrier {
     /// One live path to `daemon`: a relay circuit with the Noise handshake done, its key pinned
     /// to the platform's `peer_key`, as a byte stream. The caller speaks WebSocket over it.
     pub async fn dial(&self, daemon: &str) -> Result<HubStream, String> {
+        if !self.key_current() {
+            return Err("the node key was replaced; this carrier is stopped".into());
+        }
         let answer = self.tickets.connect(daemon).await?;
         let pinned = key_bytes(answer.peer_key.as_deref().ok_or("the hub named no key to pin")?)
             .ok_or("the hub's peer key is not 32 bytes of base64")?;
@@ -272,6 +328,9 @@ impl HubCarrier {
         // The first answer names the relay and the slot; each later authentication asks again,
         // which also refreshes the keys let in (a revoked machine is out by the next one).
         let answer = loop {
+            if !self.key_current() {
+                return;
+            }
             match self.tickets.register().await {
                 Ok(answer) => break answer,
                 Err(e) => {
@@ -328,15 +387,31 @@ impl HubCarrier {
             }
         };
         tracing::info!("hub carrier: serving on the relay as {}", self.identity.fingerprint());
-        // Held until this task is aborted ([`HubServe`]'s drop), which drops it and unregisters.
+        // Held until this task is aborted ([`HubServe`]'s drop) or the key is replaced, which
+        // drops it and unregisters.
         let _registration = registration;
-        std::future::pending::<()>().await;
+        let mut every = tokio::time::interval(self.timings.key_check);
+        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            every.tick().await;
+            if !self.key_current() {
+                tracing::warn!("hub carrier: the node key was replaced; unregistering");
+                return;
+            }
+        }
     }
 }
 
 /// The running registration of [`HubCarrier::serve`]. Dropping it unregisters.
 pub struct HubServe {
     task: tokio::task::JoinHandle<()>,
+}
+
+impl HubServe {
+    /// True once the registration stopped for good (its key was replaced).
+    pub fn is_finished(&self) -> bool {
+        self.task.is_finished()
+    }
 }
 
 impl Drop for HubServe {
@@ -543,10 +618,23 @@ pub async fn start_configured(
             return None;
         }
     };
-    let carrier = HubCarrier::new(
+    // A copy of another machine's home never serves (condition 3), whatever its credential.
+    if tokio::task::spawn_blocking(crate::cli::cloud_join::copied_from_another_box)
+        .await
+        .unwrap_or(true)
+    {
+        tracing::warn!("hub carrier off: this home was copied from another machine");
+        return None;
+    }
+    let home = state_dir.to_path_buf();
+    let check: KeyCheck = Arc::new(move |public: &[u8; 32]| {
+        crate::cli::mesh_node_key::public_key_at(&home).is_some_and(|now| now == *public)
+    });
+    let carrier = HubCarrier::with_key_check(
         Arc::new(PlatformTickets { hub: client }),
         *keys.private_key(),
         Timings::default(),
+        check,
     );
     hub.hub_carrier.set(carrier.clone());
     Some(carrier.serve(websocket))

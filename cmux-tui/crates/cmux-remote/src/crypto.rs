@@ -17,6 +17,9 @@ use crate::link::{FrameLink, LinkError};
 
 const HANDSHAKE_NAME: &str = "cmux-remote-noise";
 const NOISE_XX: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
+/// The Noise protocol of a link without an invitation. acpmux's hub carrier pins its hash to
+/// WireGuard's, since it reuses the machine's WireGuard key as this static key.
+pub const NOISE_XX_PROTOCOL: &str = NOISE_XX;
 const NOISE_XX_PSK3: &str = "Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s";
 const NOISE_MAX_MESSAGE: usize = 65_535;
 const NOISE_TAG_BYTES: usize = 16;
