@@ -680,7 +680,7 @@ mod agent_messaging {
         lane.from_session = Some("s-b".into());
         let hint = reply_hint(&[&lane]).unwrap();
         assert!(
-            hint.contains("to answer lane-b, inbox_reply or `acpmux send lane-b \"…\"`"),
+            hint.contains("To answer lane-b, inbox_reply or `acpmux send lane-b \"…\"`"),
             "{hint}"
         );
         assert!(!hint.contains("goes back"), "nobody waits: {hint}");

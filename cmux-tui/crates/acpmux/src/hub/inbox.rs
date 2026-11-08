@@ -962,16 +962,16 @@ fn reply_hint(items: &[&Item]) -> Option<String> {
     let mut parts = Vec::new();
     if !waiting.is_empty() {
         parts.push(format!(
-            "your reply to this turn goes back to {}, waiting for it.",
+            "Your reply to this turn goes back to {}, waiting for it.",
             waiting.join(", ")
         ));
     }
     for name in &later {
-        parts.push(format!("to answer {name}, inbox_reply or `acpmux send {name} \"…\"`."));
+        parts.push(format!("To answer {name}, inbox_reply or `acpmux send {name} \"…\"`."));
     }
     for lead in &leads {
         parts.push(format!(
-            "a subagent reads only the reply to its own send; `acpmux send {lead}` reaches {lead} \
+            "A subagent reads only the reply to its own send; `acpmux send {lead}` reaches {lead} \
              itself."
         ));
     }
