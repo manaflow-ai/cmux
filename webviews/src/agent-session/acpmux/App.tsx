@@ -8848,7 +8848,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (!steerQueueOn) return;
     const onKey = (event: KeyboardEvent) => {
-      if (!(event.metaKey && event.shiftKey && event.key.toLowerCase() === "j")) return;
+      if (event.repeat || !(event.metaKey && event.shiftKey && event.key.toLowerCase() === "j")) return;
       event.preventDefault();
       setSteering((open) => !open);
     };
@@ -8869,10 +8869,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [steering, snapshot.sessions, steerNow, steerLog],
   );
   const steerActions = useMemo<SteerActions>(() => {
+    // Opens the chat and waits until it is the one drawn: Stop and Fork act on the drawn chat, which
+    // during a switch's hold is still the chat before.
     const openChat = async (sessionId: string) => {
-      if (directClient.current?.selectedSession === sessionId) return;
-      const selected = await callNative<string | undefined>("chat.select", { sessionId });
-      if (selected !== sessionId) throw new Error(translate("steerQueue.state.failed"));
+      if (directClient.current?.selectedSession !== sessionId) await callNative("chat.select", { sessionId });
+      if (!(await directClient.current?.shownAndAttached(sessionId)))
+        throw new Error(translate("steerQueue.state.failed"));
     };
     // Settles once acpmux took the prompt, as a composer send does (sendWhenTaken).
     const sendTo = (sessionId: string, text: string, steer: boolean) =>
@@ -8900,9 +8902,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         await openChat(item.sessionId);
         await callNative("chat.cancel");
       },
+      // A fork the chat refuses (nothing to fork yet) answers nothing, and says why in its own toast.
       fork: async (item) => {
         await openChat(item.sessionId);
-        await callNative("chat.forkTo", {});
+        if ((await callNative("chat.forkTo", {})) === undefined) throw new Error(translate("steerQueue.state.failed"));
       },
       open: (item) => {
         setSteering(false);

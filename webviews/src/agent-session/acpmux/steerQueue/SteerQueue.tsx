@@ -31,7 +31,8 @@ const DONE_MS = 2_400;
 
 /// The Steer queue (model.ts): a floating list over the chat, the field always focused, so the
 /// person moves with the arrows and acts with one key: Return steers (or opens a chat that waits on
-/// them), ⌘Return redirects, ⌘. stops, ⌘⇧Return forks, ⌘1-9 jumps to a row, Escape closes.
+/// them), ⌘Return redirects, ⌘. stops, ⌘⇧Return forks, a digit with nothing typed jumps to a row
+/// (⌘1-9 are the app's workspace keys), Escape closes.
 export function SteerQueue({
   items,
   now,
@@ -93,6 +94,8 @@ export function SteerQueue({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // The Enter or Escape that ends an input method's composition is the input method's.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     const command = event.metaKey || event.ctrlKey;
     const typed = text.trim();
     let used = true;
@@ -101,7 +104,7 @@ export function SteerQueue({
       else onClose();
     } else if (event.key === "ArrowDown" || (event.ctrlKey && event.key === "n")) move(index + 1);
     else if (event.key === "ArrowUp" || (event.ctrlKey && event.key === "p")) move(index - 1);
-    else if (command && /^[1-9]$/.test(event.key)) move(Number(event.key) - 1);
+    else if (!text && !command && !event.altKey && /^[1-9]$/.test(event.key)) move(Number(event.key) - 1);
     else if (!focused) used = false;
     else if (command && event.key === ".") {
       if (focused.running) run(focused, "stop", () => actions.stop(focused));
@@ -126,62 +129,71 @@ export function SteerQueue({
 
   return (
     <KeyboardScope className="acpmux-steer-queue ui-popup ui-glass" handleKeyDown={handleKeyDown}>
-      <div className="acpmux-steer-head">
-        <span>{t("steerQueue.title")}</span>
-        <span className="acpmux-steer-count">{items.length || ""}</span>
-      </div>
-      <div className="acpmux-steer-body" data-look={look}>
-        <Listbox
-          items={items}
-          getKey={(item) => item.sessionId}
-          textValue={(item) => item.title}
-          label={t("steerQueue.title")}
-          className="acpmux-steer-list"
-          rowClassName="acpmux-steer-row"
-          // The field keeps the keyboard; the list follows its focus (aria-activedescendant).
-          autoFocus={false}
-          activeIndex={index}
-          onActiveIndexChange={move}
-          itemAttributes={(item) => ({
-            "data-reason": item.reason,
-            "data-step": step?.sessionId === item.sessionId ? step.state : undefined,
-          })}
-          onOpen={(item) => {
-            setFocusId(item.sessionId);
-            field.current?.focus();
-          }}
-          renderItem={(item, at) => (
-            <SteerRow
-              item={item}
-              index={at}
-              now={now}
-              step={step?.sessionId === item.sessionId ? step : undefined}
-              look={look}
-            />
-          )}
-          empty={<div className="acpmux-steer-empty">{t("steerQueue.empty")}</div>}
+      {/* A press anywhere on the panel keeps the keyboard in the field: with focus on the page, keys
+          would reach the chat under the queue (its composer, a permission card's digits, Esc Esc). */}
+      <div
+        className="acpmux-steer-frame"
+        onMouseDown={(event) => {
+          if (event.target !== field.current) event.preventDefault();
+        }}
+      >
+        <div className="acpmux-steer-head">
+          <span>{t("steerQueue.title")}</span>
+          <span className="acpmux-steer-count">{items.length || ""}</span>
+        </div>
+        <div className="acpmux-steer-body" data-look={look}>
+          <Listbox
+            items={items}
+            getKey={(item) => item.sessionId}
+            textValue={(item) => item.title}
+            label={t("steerQueue.title")}
+            className="acpmux-steer-list"
+            rowClassName="acpmux-steer-row"
+            // The field keeps the keyboard; the list follows its focus (aria-activedescendant).
+            autoFocus={false}
+            activeIndex={index}
+            onActiveIndexChange={move}
+            itemAttributes={(item) => ({
+              "data-reason": item.reason,
+              "data-step": step?.sessionId === item.sessionId ? step.state : undefined,
+            })}
+            onOpen={(item) => {
+              setFocusId(item.sessionId);
+              field.current?.focus();
+            }}
+            renderItem={(item, at) => (
+              <SteerRow
+                item={item}
+                index={at}
+                now={now}
+                step={step?.sessionId === item.sessionId ? step : undefined}
+                look={look}
+              />
+            )}
+            empty={<div className="acpmux-steer-empty">{t("steerQueue.empty")}</div>}
+          />
+          {look === "split" && focused ? <SteerDetail item={focused} now={now} /> : null}
+        </div>
+        <input
+          ref={field}
+          className="acpmux-steer-field"
+          value={text}
+          placeholder={placeholder}
+          aria-label={placeholder}
+          spellCheck={false}
+          onChange={(event) => setText(event.target.value)}
         />
-        {look === "split" && focused ? <SteerDetail item={focused} now={now} /> : null}
-      </div>
-      <input
-        ref={field}
-        className="acpmux-steer-field"
-        value={text}
-        placeholder={placeholder}
-        aria-label={placeholder}
-        spellCheck={false}
-        onChange={(event) => setText(event.target.value)}
-      />
-      <div className="acpmux-steer-hints" aria-hidden>
-        {focused?.reason === "ask" ? (
-          <Hint keys="↩" label={t("steerQueue.hint.open")} />
-        ) : (
-          <Hint keys="↩" label={t(focused?.running ? "steerQueue.hint.steer" : "steerQueue.hint.reply")} />
-        )}
-        {focused?.running ? <Hint keys="⌘↩" label={t("steerQueue.hint.redirect")} /> : null}
-        {focused?.running ? <Hint keys="⌘." label={t("steerQueue.hint.stop")} /> : null}
-        {focused ? <Hint keys="⌘⇧↩" label={t("steerQueue.hint.fork")} /> : null}
-        <Hint keys="⎋" label={t("steerQueue.hint.close")} />
+        <div className="acpmux-steer-hints" aria-hidden>
+          {focused?.reason === "ask" ? (
+            <Hint keys="↩" label={t("steerQueue.hint.open")} />
+          ) : (
+            <Hint keys="↩" label={t(focused?.running ? "steerQueue.hint.steer" : "steerQueue.hint.reply")} />
+          )}
+          {focused?.running ? <Hint keys="⌘↩" label={t("steerQueue.hint.redirect")} /> : null}
+          {focused?.running ? <Hint keys="⌘." label={t("steerQueue.hint.stop")} /> : null}
+          {focused ? <Hint keys="⌘⇧↩" label={t("steerQueue.hint.fork")} /> : null}
+          <Hint keys="⎋" label={t("steerQueue.hint.close")} />
+        </div>
       </div>
     </KeyboardScope>
   );
@@ -219,7 +231,7 @@ function SteerRow({
         {look !== "compact" ? <span className="acpmux-steer-line">{item.line ?? ""}</span> : null}
         {said ? <span className="acpmux-steer-said">{said}</span> : null}
       </span>
-      <kbd className="acpmux-steer-key">⌘{index + 1}</kbd>
+      <kbd className="acpmux-steer-key">{index + 1}</kbd>
     </>
   );
 }

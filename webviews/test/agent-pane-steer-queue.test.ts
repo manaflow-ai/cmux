@@ -122,7 +122,7 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
     const page = await open(true);
     const ranked = await openQueue(page);
     const quiet = ranked.findIndex((row) => row.name === QUIET);
-    await page.keyboard.press(`Meta+${quiet + 1}`);
+    await page.keyboard.press(`${quiet + 1}`);
     expect((await rows(page))[quiet]?.selected).toBe(true);
     const line = "Check every theme in dark mode before the PR";
     await page.keyboard.type(line);
@@ -153,7 +153,7 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
     const page = await open(true);
     const ranked = await openQueue(page);
     const quiet = ranked.findIndex((row) => row.name === QUIET);
-    await page.keyboard.press(`Meta+${quiet + 1}`);
+    await page.keyboard.press(`${quiet + 1}`);
     await page.keyboard.press("Meta+.");
     await page.waitForFunction(
       (name) =>
@@ -172,10 +172,13 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
     await page.close();
   });
 
-  test("Escape with nothing typed closes it; the open chat's Stop is never pressed", async () => {
+  test("a press on the panel keeps the keyboard; Escape clears the line, then closes", async () => {
     const page = await open(true);
     await openQueue(page);
+    // A press on the panel's chrome keeps the keyboard in the field, never on the chat under it.
+    await page.click(".acpmux-steer-head");
     await page.keyboard.type("half a thought");
+    expect(await page.$eval(".acpmux-steer-field", (field) => (field as HTMLInputElement).value)).toBe("half a thought");
     await page.keyboard.press("Escape");
     expect(await page.$eval(".acpmux-steer-field", (field) => (field as HTMLInputElement).value)).toBe("");
     await page.keyboard.press("Escape");

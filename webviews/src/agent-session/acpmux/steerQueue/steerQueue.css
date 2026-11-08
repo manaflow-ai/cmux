@@ -30,6 +30,13 @@
   width: min(760px, calc(100% - 24px));
 }
 
+.acpmux-steer-frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .acpmux-steer-head {
   flex: none;
   display: flex;
