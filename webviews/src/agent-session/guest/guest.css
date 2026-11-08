@@ -27,8 +27,8 @@
 .guest-live__header{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--guest-inset);border-bottom:1px solid var(--agent-border)}
 [data-borders="none"] .guest-live__header{border-bottom:0}
 .guest-live__titles{flex:1;min-width:0}
-.guest-live__title{min-height:var(--text-body--line-height);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:600}
-.guest-live__owner{min-height:var(--text-detail--line-height);margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.guest-live__title{height:var(--text-body--line-height);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:600}
+.guest-live__owner{height:var(--text-detail--line-height);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 /* Connecting floats at the top of the transcript's area: it comes and goes without moving a row. */
 .guest-live__notice{position:absolute;top:0;left:0;right:0;margin:0;padding:8px var(--guest-inset);color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);text-align:center;background:var(--agent-page-bg);pointer-events:none}
 .guest-live__notice--failed{color:var(--agent-text);pointer-events:auto}
