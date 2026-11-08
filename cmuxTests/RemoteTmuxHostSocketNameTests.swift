@@ -198,7 +198,8 @@ import Testing
             "jsonrpc": "2.0", "id": 1, "method": method,
             "params": ["host": "dev@host", "transport": "et", "socket_name": "alpha", "session": session],
         ])
-        let responseText = TerminalController.shared.handleSocketLine(String(decoding: requestData, as: UTF8.self))
+        let request = try #require(String(data: requestData, encoding: .utf8))
+        let responseText = TerminalController.shared.handleSocketLine(request)
         let responseData = try #require(responseText.data(using: .utf8))
         let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
 
