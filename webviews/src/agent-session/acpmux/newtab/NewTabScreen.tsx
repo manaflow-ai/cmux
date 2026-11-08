@@ -334,6 +334,8 @@ type Props = NewTabScreenActions & {
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
   /// Saves files chosen from the New Tab plus menu when the session has no chat upload yet.
   upload?(files: File[]): Promise<UploadResult>;
+  /// A fix-from-link request failed while the New Tab remains mounted.
+  fixError?: string;
 };
 
 /// `/`, `/Users`, a home folder: never a chat's start folder (AgentPaneStartFolders drops them).
@@ -406,6 +408,7 @@ export function NewTabScreen(props: Props) {
   const [picked, setPicked] = useState(false);
   // No folder (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
+  const [fixing, setFixing] = useState(false);
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
   const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
@@ -2154,11 +2157,17 @@ export function NewTabScreen(props: Props) {
               <button
                 type="button"
                 className="nt-create-strip-item nt-fix-chip"
+                disabled={fixing}
                 onMouseDown={(event) => event.stopPropagation()}
-                onClick={() => props.onFixFromLink?.(fixFromLink.url)}
+                onClick={() => {
+                  if (fixing) return;
+                  setFixing(true);
+                  props.onFixFromLink?.(fixFromLink.url);
+                }}
               >
                 Fix in a new worktree
               </button>
+              {props.fixError && <p className="nt-fix-error" role="alert">{props.fixError}</p>}
             </div>
           )}
           {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
