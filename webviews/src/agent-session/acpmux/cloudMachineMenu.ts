@@ -100,10 +100,14 @@ export function cloudMachineRows(
   drawnFor?: string,
   /// The time the paused rows count the delete date from (tests pass their own).
   now: number = Date.now(),
+  /// Whether the pane still shows the chat the menu was drawn for: a row picked from a menu kept
+  /// open across a chat switch runs nothing, so Delete never lands on another chat's machine.
+  current: () => boolean = () => true,
 ): ChatMenuItem[] {
   if (!machine) return [];
   const run = (method: string) => () =>
     void (async () => {
+      if (!current()) return;
       const { session, running } = live();
       try {
         if (method === "cloudMachine.pause" && (session === undefined || session !== drawnFor)) return;
@@ -118,6 +122,8 @@ export function cloudMachineRows(
         const before = live();
         if (method === "cloudMachine.pause" && (session === undefined || before.session !== session || before.running))
           return;
+        // A stop awaited above may outlast a chat switch: check the chat again before the call.
+        if (!current()) return;
         await call(method, { id: machine.id });
       } catch {
         // The app refused (no gesture, the machine moved on): the list read shows its stage.

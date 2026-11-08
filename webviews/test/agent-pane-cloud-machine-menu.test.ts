@@ -299,3 +299,40 @@ test("the list reads a machine's delete date only as a positive number", () => {
   for (const odd of [null, undefined, "soon", -1, Number.NaN])
     expect(reply(odd)[0]).toEqual({ id: "vm", name: "n", stage: "paused" });
 });
+
+// Review of #38469: a menu kept open across a chat switch must not delete (or pause, or resume)
+// the machine of the chat it was drawn for once the pane shows another chat.
+test("a row picked after the pane switched chats runs nothing, Delete included", async () => {
+  for (const machine of [machines[0]!, machines[1]!]) {
+    let shown = true;
+    const calls: string[] = [];
+    let reads = 0;
+    const items = cloudMachineRows(
+      machine,
+      false,
+      t,
+      async (method) => void calls.push(method),
+      () => (reads += 1),
+      () => ({ session: "s1", running: false }),
+      async () => true,
+      "s1",
+      undefined,
+      () => shown,
+    );
+    // The chat switched while the menu stayed open.
+    shown = false;
+    for (const item of items)
+      if (item !== "separator" && item.onSelect) {
+        item.onSelect();
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    expect(calls).toEqual([]);
+    expect(reads).toBe(0);
+    // Back on the chat it was drawn for: Delete runs.
+    shown = true;
+    const remove = items.find((item) => item !== "separator" && item.key === "deleteMachine");
+    if (remove !== "separator") remove?.onSelect?.();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(calls).toEqual(["cloudMachine.delete"]);
+  }
+});
