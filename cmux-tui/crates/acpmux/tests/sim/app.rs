@@ -239,14 +239,24 @@ fn due(app: &Shared) -> (Vec<Prompt>, Option<Duration>) {
     (owed, next.map(|t| ready + t))
 }
 
-/// The daemon's own word that the app's chat is done: no turn running and nothing queued.
+/// The daemon's own word that the app's chat is done: no turn running or starting, nothing
+/// queued, and no automatic retry waiting or being decided.
 async fn chat_settled(app: &Shared, conn: &mut Conn) -> std::io::Result<bool> {
     let session = app.borrow().session.clone().unwrap_or_default();
     let listed = conn.call(app, acpmux::rpc::method::MUX_SESSIONS, json!({})).await?;
     let row = listed["sessions"]
         .as_array()
         .and_then(|rows| rows.iter().find(|r| r["sessionId"] == json!(session)));
-    Ok(row.is_some_and(|r| r["turn"].is_null() && r["queued"].as_u64().unwrap_or(0) == 0))
+    Ok(row.is_some_and(|r| {
+        r["turn"].is_null()
+            && r["queued"].as_u64().unwrap_or(0) == 0
+            && r["queue"].as_array().is_none_or(Vec::is_empty)
+            && r["retry"].is_null()
+            && !["starting", "retryDeciding", "waitsForSlot"]
+                .iter()
+                .any(|k| r[*k].as_bool() == Some(true))
+            && matches!(r["status"].as_str(), Some("ready" | "idle"))
+    }))
 }
 
 fn all_answered(app: &Shared) -> bool {
@@ -312,9 +322,14 @@ async fn session(app: &Shared, conn: &mut Conn, resend_flag: bool) -> std::io::R
             // Every send has its answer; the daemon may still be working (a turn a restart cut
             // goes on as its continuation). Stay until it has said nothing for SETTLE, so the
             // run ends on the daemon's settled state, not on the app's last answer.
+            // The last read found the chat settled, and nothing has come since.
+            let mut settled_once = false;
             loop {
                 match conn.next(SETTLE).await {
-                    Ok(msg) => conn.handle(app, &msg),
+                    Ok(msg) => {
+                        settled_once = false;
+                        conn.handle(app, &msg);
+                    }
                     Err(e) if e.to_string() == QUIET_ERROR => {
                         let calm = app.borrow().ready_at.map(|r| r + app.borrow().calm_after);
                         if calm.is_none_or(|c| now() < c) {
@@ -326,10 +341,14 @@ async fn session(app: &Shared, conn: &mut Conn, resend_flag: bool) -> std::io::R
                         // miss the daemon's crash, and with it the restart's continuation
                         // (seeds 2663130, 3000166). Ask the daemon: a dead connection fails
                         // the call and another is opened; a turn still running, or a prompt
-                        // still queued, is waited for.
-                        if chat_settled(app, conn).await? || now() > GIVE_UP {
+                        // still queued, is waited for. Two settled reads a quiet SETTLE apart:
+                        // one row is no atomic idle check (a dequeued prompt can be between
+                        // the queue and its turn).
+                        let settled = chat_settled(app, conn).await?;
+                        if (settled && settled_once) || now() > GIVE_UP {
                             return Ok(());
                         }
+                        settled_once = settled;
                     }
                     Err(e) => return Err(e),
                 }
