@@ -44,20 +44,20 @@ nonisolated final class FakeCloudAPI: Sendable {
     }
 
     /// A classic client (`stack`) on this fake.
-    func classic(team: String? = "team-1") -> CloudAPIClient {
+    @MainActor func classic(team: String? = "team-1") -> CloudAPIClient {
         let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
                                                        process: [:], isDebugBuild: true)
         return CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { team }, caller: caller)
     }
 
     /// A Worker machines client (`worker`) on this fake.
-    func worker(_ origin: String = "https://machines.standin.invalid", machineIO: CloudMachineIO? = nil) -> CloudAPIClient {
+    @MainActor func worker(_ origin: String = "https://machines.standin.invalid", machineIO: CloudMachineIO? = nil) -> CloudAPIClient {
         CloudAPIClient.workerMachines(baseURL: URL(string: origin) ?? URL(fileURLWithPath: "/dev/null"), accessToken: { "session-access" },
                                       teamID: { "team_cmux" }, caller: caller, machineIO: machineIO)
     }
 }
 
-extension JSONValue {
+nonisolated extension JSONValue {
     /// A whole number field, as the daemon reads it.
     var intValue: Int? { doubleValue.flatMap { Int(exactly: $0) } }
     var objectValue: [String: JSONValue]? {

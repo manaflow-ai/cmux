@@ -7,7 +7,7 @@ import Testing
 /// Provision API on Machine and the API key actions (#25594): the routes and bodies the client
 /// sends, the server answers they decode, and the fields a CLI or agent run gets back.
 @Suite struct CloudAPIClientProvisionAPITests {
-    static let key = #"{"id":"key-1","publicationId":"pub-1","name":"agent","hint":"wxyz","createdAt":"2026-10-26T12:00:00.000Z","expiresAt":null,"revokedAt":null}"#
+    nonisolated static let key = #"{"id":"key-1","publicationId":"pub-1","name":"agent","hint":"wxyz","createdAt":"2026-10-26T12:00:00.000Z","expiresAt":null,"revokedAt":null}"#
 
     /// The daemon's `cloud.vm.*` answers (cmux-cloud-api `classic.rs` already took `apiKeys` and `apiKey` out).
     static func api() -> FakeCloudAPI {
