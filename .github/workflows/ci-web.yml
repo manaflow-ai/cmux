@@ -533,7 +533,11 @@ jobs:
           # needed to narrow them: they ran 4 at a time on 16 vCPU before it, and its jobs / 4
           # took them to 2, which doubled the phase that is most of a shard's wall time. The
           # shard split reads these widths (run-webviews-tests.sh), so it balances on them.
-          CMUX_WEB_TEST_DEV_JOBS: "4"
+          # A pull request into feat-cmux-next runs them 6 at a time: on run 42520388932 a dev file
+          # took about as long 4 at once as alone (35 -> 17 s, 224 -> 196, 24 -> 22), and the split's
+          # model of that run puts the slowest shard at 564 s at 6 against 655 s at 4, on every
+          # webview head's verdict (pr-verdict-fast). Pushes and main keep 4.
+          CMUX_WEB_TEST_DEV_JOBS: ${{ github.base_ref == 'feat-cmux-next' && '6' || '4' }}
         run: |
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.
