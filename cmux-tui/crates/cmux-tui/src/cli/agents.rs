@@ -138,7 +138,8 @@ fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
         // `screen wait` and `terminal send` do (docs/cli-contract.md).
         Ok(value)
             if matches!(command, AgentCommand::Wait(_))
-                && (value["timed_out"] == true || value["matched"] == false) =>
+                && (value.get("timed_out").and_then(Value::as_bool) == Some(true)
+                    || value.get("matched").and_then(Value::as_bool) == Some(false)) =>
         {
             match wire::print_local_success(&value, global.output) {
                 0 => wire::wait_timeout::TIMEOUT_EXIT,
