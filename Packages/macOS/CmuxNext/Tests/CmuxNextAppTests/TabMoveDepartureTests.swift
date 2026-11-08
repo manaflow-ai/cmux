@@ -263,22 +263,26 @@ import Testing
         }
     }
 
-    /// F4: Move Pane to Dock with no dock moves the pane's other tabs into the new workspace (`TabMoves.join`) as Move
-    /// to Workspace moves a tab: in the join's turn its strip marks each as leaving by a move (`TabMoves.depart`), so
-    /// it drops them with no close. Run on a same-tree cmux-tui, where the strip showing the pane is found.
+    /// F4: Move Pane to Dock with no dock (and Move to New Window) moves the pane's other tabs into the new workspace
+    /// (`TabMoves.join`) as Move to Workspace moves a tab (`TabMoves.depart`: no close). Router review F1 on #38342 at
+    /// 7bbeb5ab: one move at a time, in order, and the join returns (its caller docks or opens the window) only once the
+    /// daemon has made every move. Run on a same-tree cmux-tui.
     @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .timeLimit(.minutes(3)))
     func joiningTabsIntoAWorkspaceMovesThemAsMoveToWorkspaceDoes() async throws {
         try await AppHarnessWindows.withApp { services, connection in
             let pane = try MoveToNewWindowTests.firstPane(services), store = services.daemon.store
-            let browser = try await MoveToNewWindowTests.browserTab(in: pane, services, connection)
+            var tabs: [TabModel] = []
+            for _ in 0..<3 { tabs.append(try await MoveToNewWindowTests.browserTab(in: pane, services, connection)) }
             // Made in the background (no focus), so the window keeps showing the pane.
             let created = try await connection.state.createWorkspace(name: "join", ephemeral: false, terminal: true, focus: false)
             try await PinnedPageTests.until({ store.workspaces.contains { $0.resourceID == created.workspaceID && $0.screens.contains { !$0.panes.isEmpty } } })
             let other = try #require(store.workspaces.first { $0.resourceID == created.workspaceID })
-            let strip = try #require(services.paneController(for: pane), "no controller shows the pane").stripModel
-            await TabMoves.join([browser][...], workspace: WorkspaceKey(rawValue: other.id), services: services)
-            #expect(strip.departures.contains(StripTabID(browser.id)), "the joined tab was left to close in its strip")
-            try await PinnedPageTests.until({ store.pane(holding: browser).flatMap { store.workspace(containing: $0.handle) } === other })
+            await TabMoves.join(tabs[...], workspace: WorkspaceKey(rawValue: other.id), services: services)
+            // The daemon's own tree as the join returns: every move made, in the join's order.
+            let tree = try await connection.listWorkspaces()
+            let landed = (tree.workspaces.first { $0.resourceID == created.workspaceID }?.screens ?? []).flatMap(\.panes).flatMap(\.tabs).map(\.surface)
+            let joined = tabs.map(\.surface)
+            #expect(landed.filter(joined.contains) == joined, "the join returned before its moves were made in order: \(landed) for \(joined)")
         }
     }
 
