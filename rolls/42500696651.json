@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42500696651",
+  "recorded_at": "2026-11-08T16:44:26Z",
+  "reason": "cmux-tui 4ac88b794861 changes the image's cmux-tui (pinned e4954b7bcf64)",
+  "dry_run": false,
+  "cmux_tui": "4ac88b7948614fde9d4f9451894ece8f8c2a0768",
+  "fixes": [
+    {
+      "sha": "4ac88b7948614fde9d4f9451894ece8f8c2a0768",
+      "mergedAt": "2026-11-08T16:20:16Z",
+      "subject": "Agent chat: the memory inbox offers what a chat learned for CLAUDE.md or AGENTS.md (#38571)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T16:44:26Z",
+    "snapshot_id": "sh-b92d50d39d08412a9101215effde6e2d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42500696651): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1cea87894ccc99110b76ffd97e1162b545909ed1",
+    "image": "cloud-native-auto-4ac88b79-42500696651-1",
+    "revision": "ci-42500696651-1",
+    "at": "2026-11-08T16:44:26Z"
+  },
+  "rolled_back": false
+}
