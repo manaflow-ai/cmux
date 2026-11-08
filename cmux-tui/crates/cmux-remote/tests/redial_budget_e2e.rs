@@ -12,7 +12,8 @@
 //! - a send's deadline holds while another send owns its lane through a recovery;
 //! - `await_ready` does not wait out a replay that holds the session lock;
 //! - a network change drops a transport discovery hung on the old network;
-//! - a heartbeat probe reads its own answer when the reader it waited on is cancelled.
+//! - a heartbeat probe reads its own answer when the reader it waited on is cancelled;
+//! - a network change interrupts a write stuck on the old route.
 //!
 //! Run (from `cmux-tui/`): `cargo test -p cmux-remote --test redial_budget_e2e`.
 
@@ -600,4 +601,32 @@ async fn a_probe_reads_its_answer_after_the_reader_is_cancelled() {
     let dials = h.group.dials_since(start) - connected;
     assert_eq!(dials, 0, "a healthy link was redialed {dials} times: {:?}", lock(&trace));
     assert_eq!(*h.client.subscribe_state().borrow(), ConnectionState::Connected);
+}
+
+/// A route that dies with a write stuck on it (the old network went away mid-send) is redialed
+/// within 2 s of the network change. The probe the change sends queues behind the stuck write
+/// and never goes out; the old code waited the full 4 s answer window for it (cmux#38303 F2).
+#[tokio::test(start_paused = true)]
+async fn a_network_change_interrupts_a_blocked_write() {
+    let h = harness(policy()).await;
+    tokio::time::sleep(Duration::from_millis(10_100)).await;
+    let trace = trace_states(&h.client);
+    h.group.freeze(true, true);
+    let plain = h.client.clone();
+    tokio::spawn(async move {
+        let _ = plain
+            .send(Lane::Interactive, 1, Bytes::from_static(b"stuck"), FrameFlags::empty())
+            .await;
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let changed = Instant::now();
+    h.client.network_changed();
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let first = h.group.first_dial_since(changed).expect("the blocked link was never redialed");
+    let took = first - changed;
+    assert!(
+        took <= Duration::from_millis(2_100),
+        "redialed {took:?} after the network change: {:?}",
+        lock(&trace)
+    );
 }

@@ -3852,7 +3852,8 @@ mod tests {
         ]
         .map(str::to_string);
         let parsed = parse_connect_flags(&args).unwrap();
-        assert_eq!(parsed.reconnect.maximum_attempts, Some(7));
+        // Accepted for old apps, but no cap: the link keeps redialing while it is held.
+        assert_eq!(parsed.reconnect.maximum_attempts, None);
         assert_eq!(parsed.reconnect.initial_delay, Duration::from_millis(25));
         assert_eq!(parsed.reconnect.maximum_delay, Duration::from_millis(400));
         assert_eq!(parsed.reconnect.attempt_timeout, Duration::from_secs(2));
