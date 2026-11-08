@@ -47,9 +47,10 @@ public struct HomeMessagesOutbox {
     }
 
     /// HomeStore's Not Delivered text sends leave its log for this outbox, each under its key: the
-    /// page shows them as not sent, with Retry, and never both pages' copies.
+    /// page shows them as not sent, with Retry, and never both pages' copies. One this outbox refuses
+    /// (past ``maxEntryBytes``) stays in the log, so it is never lost.
     public func adoptStoreSends() {
-        for send in store.takeFailedTextSends() { try? put(Self.row(send), for: send.conversation) }
+        store.handOverFailedTextSends { send in (try? put(Self.row(send), for: send.conversation)) != nil }
     }
 
     /// A HomeStore send as the page keeps one (outbox.ts `PendingSend`): its key, text and thread, not sent.

@@ -12,14 +12,14 @@ extension HomeStore {
         log.entries.first { $0.intent.key == key }.flatMap(HomeCachedSend.init)
     }
 
-    /// Every Not Delivered text send of the log (the native composer's, a first send a host made),
-    /// oldest first, taken out of the log.
-    public func takeFailedTextSends() -> [HomeCachedSend] {
-        let taken = log.entries.compactMap { entry -> HomeCachedSend? in
+    /// Hands every Not Delivered text send of the log (the native composer's, a first send a host
+    /// made), oldest first, to `keep`; each one leaves the log only once `keep` says it kept it, so a
+    /// send the web side refuses (too large to keep) stays here rather than being lost.
+    public func handOverFailedTextSends(to keep: (HomeCachedSend) -> Bool) {
+        let failed = log.entries.compactMap { entry -> HomeCachedSend? in
             guard case .failed = entry.state else { return nil }
             return HomeCachedSend(entry)
         }
-        for send in taken { discardFailed(send.key) }
-        return taken
+        for send in failed where keep(send) { discardFailed(send.key) }
     }
 }
