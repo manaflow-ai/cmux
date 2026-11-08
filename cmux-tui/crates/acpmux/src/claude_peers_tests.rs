@@ -124,7 +124,7 @@ fn deliver_authenticates_and_writes_the_message_to_the_inbox() {
 
 #[cfg(unix)]
 #[test]
-fn deliver_names_an_inbox_it_cannot_reach() {
+fn deliver_sends_nothing_without_a_key_and_names_an_inbox_it_cannot_reach() {
     let dir = scratch("unreachable");
     let peer = Peer {
         pid: 1,
@@ -136,6 +136,11 @@ fn deliver_names_an_inbox_it_cannot_reach() {
         version: None,
         socket: Some(dir.join("gone.sock")),
     };
+    let err = deliver(&dir, &peer, "x", "u", "f").unwrap_err();
+    assert!(err.contains("missing or unreadable"), "no key, nothing sent: {err}");
+    let key = key_file(&dir, 1, &dir.join("gone.sock"));
+    std::fs::write(key, json!({"peerToken": "0123456789abcdef0123456789abcdef"}).to_string())
+        .unwrap();
     let err = deliver(&dir, &peer, "x", "u", "f").unwrap_err();
     assert!(err.contains("could not reach"), "{err}");
 }

@@ -180,17 +180,20 @@ pub fn deliver(
 ) -> Result<(), String> {
     let socket = peer.socket.as_deref().ok_or("the session has no messaging socket")?;
     let key = key_file(config, peer.pid, socket);
-    let token = match std::fs::read(&key) {
-        Ok(bytes) if bytes.len() as u64 <= MAX_FILE => serde_json::from_slice::<Value>(&bytes)
-            .ok()
-            .and_then(|v| v.get("peerToken").and_then(Value::as_str).map(str::to_owned)),
-        _ => None,
-    };
+    // Claude Code drops what comes without its token: with no readable key, nothing is sent.
+    let token = std::fs::read(&key)
+        .ok()
+        .filter(|bytes| bytes.len() as u64 <= MAX_FILE)
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|v| v.get("peerToken").and_then(Value::as_str).map(str::to_owned))
+        .ok_or_else(|| {
+            format!("the session's inbox key {} is missing or unreadable", key.display())
+        })?;
     let mut stream = std::os::unix::net::UnixStream::connect(socket)
         .map_err(|e| format!("could not reach the session's inbox {}: {e}", socket.display()))?;
     stream.set_write_timeout(Some(IO_TIMEOUT)).map_err(|e| e.to_string())?;
     stream
-        .write_all(frames(token.as_deref(), text, uuid, from).as_bytes())
+        .write_all(frames(Some(&token), text, uuid, from).as_bytes())
         .map_err(|e| format!("could not write to the session's inbox: {e}"))?;
     let _ = stream.shutdown(std::net::Shutdown::Write);
     Ok(())

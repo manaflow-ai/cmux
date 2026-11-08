@@ -15,15 +15,14 @@ fn only_text_blocks_are_carried() {
 }
 
 #[test]
-fn a_delivery_is_found_by_its_uuid_in_its_own_session_only() {
-    pending().insert(
-        "u-find".into(),
-        Pending { session_id: "s1".into(), prompt_id: "p1".into(), text: "hi".into(), done: None },
-    );
+fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
+    let rx = deliveries().insert("u-find".into(), "s1", "p1", "hi");
     assert_eq!(delivered("s1", "u-find"), Some(("p1".into(), "hi".into())));
     assert_eq!(delivered("s2", "u-find"), None);
     answered("s1", "p1", "t1");
-    assert_eq!(delivered("s1", "u-find"), None, "an answered delivery is done");
+    assert_eq!(delivered("s1", "u-find"), None, "an answered delivery is shown already");
+    assert_eq!(rx.borrow().as_deref(), Some("t1"));
+    assert!(deliveries().of_prompt("s1", "p1").is_some(), "kept, so a resend finds it");
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -36,7 +35,13 @@ fn scratch(name: &str) -> PathBuf {
 /// A Claude Code stand-in: its registry entry and key, and an inbox that, for each message,
 /// appends the lines Claude Code writes for a peer message and its answer to the transcript.
 #[cfg(unix)]
-fn fake_claude(config: &std::path::Path, sid: &str, transcript: PathBuf) {
+fn fake_claude(
+    config: &std::path::Path,
+    sid: &str,
+    transcript: PathBuf,
+) -> Arc<std::sync::atomic::AtomicUsize> {
+    let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = count.clone();
     let pid = std::process::id();
     let sock = config.join("inbox.sock");
     let listener = std::os::unix::net::UnixListener::bind(&sock).unwrap();
@@ -47,6 +52,7 @@ fn fake_claude(config: &std::path::Path, sid: &str, transcript: PathBuf) {
         .unwrap();
     std::thread::spawn(move || {
         for conn in listener.incoming() {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let lines: Vec<Value> = std::io::BufReader::new(conn.unwrap())
                 .lines()
                 .map_while(Result::ok)
@@ -63,6 +69,7 @@ fn fake_claude(config: &std::path::Path, sid: &str, transcript: PathBuf) {
             writeln!(f, "{user}\n{answer}").unwrap();
         }
     });
+    count
 }
 
 /// The whole loop: a prompt to a watched Claude chat goes into the app's inbox, the app's
@@ -75,7 +82,7 @@ async fn a_prompt_to_a_watched_desktop_chat_is_delivered_and_its_answer_shown() 
     let config = scratch("roundtrip");
     let transcript = config.join("sid-1.jsonl");
     std::fs::write(&transcript, "").unwrap();
-    fake_claude(&config, "sid-1", transcript.clone());
+    let inbox = fake_claude(&config, "sid-1", transcript.clone());
 
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut cfg: Config = serde_json::from_value(json!({
@@ -134,6 +141,13 @@ async fn a_prompt_to_a_watched_desktop_chat_is_delivered_and_its_answer_shown() 
         "the answer shows"
     );
     assert!(events.iter().any(|e| e.kind == "turn_result" && e.msg["promptId"] == "p-desk"));
+
+    // The same prompt id again answers with the first turn and is not delivered twice.
+    let opts = PromptOptions { prompt_id: Some("p-desk".into()), ..Default::default() };
+    let blocks = vec![json!({"type": "text", "text": "ping from acpmux"})];
+    let again = hub.prompt_with(&session, blocks, "test", false, opts).await.unwrap();
+    assert_eq!(again["_meta"]["acpmux"]["turnId"], reply["_meta"]["acpmux"]["turnId"]);
+    assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
 /// A watched chat whose app is gone is still refused: Take Over runs it here.

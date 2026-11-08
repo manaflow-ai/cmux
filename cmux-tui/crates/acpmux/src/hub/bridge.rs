@@ -10,8 +10,9 @@
 //! any turn. Nothing is started and nothing is written to the transcript by acpmux.
 //!
 //! A chat whose app no longer runs it falls through to the refusal: Take Over runs it here.
-//! Deliveries waiting for their line are kept in memory; after a daemon restart the line still
-//! shows, as the app's own peer message is not shown, only its answer.
+//! Deliveries are kept in memory (the newest 256 answered ones too, so a resend is not delivered
+//! again). After a daemon restart, a delivered line the watch had not shown yet shows only its
+//! answer, as any other session's peer message does.
 
 use super::{Hub, PromptOptions, Session};
 use crate::rpc::RpcError;
@@ -19,49 +20,95 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
-use tokio::sync::oneshot;
+use tokio::sync::watch;
 
 /// Longest a delivered prompt's call waits for the app to end its turn. It is answered then
 /// with `answered: false`; the turn still shows when it ends.
 const ANSWER_WAIT: Duration = Duration::from_secs(30 * 60);
 
-/// A delivery the watch has not shown yet, by the uuid it was sent with.
+/// Most deliveries kept; past it the oldest answered ones go. A resend of a prompt id that went
+/// still finds its answer while it is kept.
+const KEPT: usize = 256;
+
+/// A delivery, by the uuid it was sent with: waiting for its transcript line and turn until
+/// `turn` holds the turn the watch showed it as, then kept so a resend is not delivered again.
 pub(super) struct Pending {
     pub(super) session_id: String,
     pub(super) prompt_id: String,
     pub(super) text: String,
-    done: Option<oneshot::Sender<String>>,
+    order: u64,
+    turn: watch::Sender<Option<String>>,
 }
 
-static PENDING: LazyLock<Mutex<HashMap<String, Pending>>> = LazyLock::new(Default::default);
+#[derive(Default)]
+struct Deliveries {
+    by_uuid: HashMap<String, Pending>,
+    next: u64,
+}
 
-fn pending() -> std::sync::MutexGuard<'static, HashMap<String, Pending>> {
+static PENDING: LazyLock<Mutex<Deliveries>> = LazyLock::new(Default::default);
+
+fn deliveries() -> std::sync::MutexGuard<'static, Deliveries> {
     PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// The delivery a transcript line with `uuid` in `session_id` shows, if acpmux sent it.
+impl Deliveries {
+    fn insert(
+        &mut self,
+        uuid: String,
+        session_id: &str,
+        prompt_id: &str,
+        text: &str,
+    ) -> watch::Receiver<Option<String>> {
+        let (turn, rx) = watch::channel(None);
+        self.next += 1;
+        let pending = Pending {
+            session_id: session_id.to_owned(),
+            prompt_id: prompt_id.to_owned(),
+            text: text.to_owned(),
+            order: self.next,
+            turn,
+        };
+        self.by_uuid.insert(uuid, pending);
+        while self.by_uuid.len() > KEPT {
+            let oldest = self
+                .by_uuid
+                .iter()
+                .filter(|(_, p)| p.turn.borrow().is_some())
+                .min_by_key(|(_, p)| p.order)
+                .map(|(k, _)| k.clone());
+            let Some(oldest) = oldest else { break };
+            self.by_uuid.remove(&oldest);
+        }
+        rx
+    }
+
+    fn of_prompt(&self, session_id: &str, prompt_id: &str) -> Option<(&String, &Pending)> {
+        self.by_uuid.iter().find(|(_, p)| p.session_id == session_id && p.prompt_id == prompt_id)
+    }
+}
+
+/// The delivery a transcript line with `uuid` in `session_id` shows, if acpmux sent it and the
+/// watch has not shown it yet.
 pub(super) fn delivered(session_id: &str, uuid: &str) -> Option<(String, String)> {
-    pending()
+    deliveries()
+        .by_uuid
         .get(uuid)
-        .filter(|p| p.session_id == session_id)
+        .filter(|p| p.session_id == session_id && p.turn.borrow().is_none())
         .map(|p| (p.prompt_id.clone(), p.text.clone()))
 }
 
-/// The watch ended the turn of `prompt_id`: its call answers with `turn_id`.
+/// The watch ended the turn of `prompt_id`: its call (and any resend's) answers with `turn_id`.
 pub(super) fn answered(session_id: &str, prompt_id: &str, turn_id: &str) {
-    let mut map = pending();
-    let Some(uuid) = map
-        .iter()
-        .find(|(_, p)| p.session_id == session_id && p.prompt_id == prompt_id)
-        .map(|(k, _)| k.clone())
-    else {
-        return;
-    };
-    if let Some(mut p) = map.remove(&uuid)
-        && let Some(done) = p.done.take()
-    {
-        let _ = done.send(turn_id.to_owned());
+    if let Some((_, p)) = deliveries().of_prompt(session_id, prompt_id) {
+        p.turn.send_replace(Some(turn_id.to_owned()));
     }
+}
+
+/// The turn `rx` names, once the watch shows it, within [`ANSWER_WAIT`].
+async fn turn_of(mut rx: watch::Receiver<Option<String>>) -> Option<String> {
+    let wait = rx.wait_for(Option::is_some);
+    tokio::time::timeout(ANSWER_WAIT, wait).await.ok()?.ok()?.clone()
 }
 
 /// The text of a prompt's content blocks; images and other blocks are not carried.
@@ -104,24 +151,18 @@ impl Hub {
             )));
         }
         let prompt_id = opts.prompt_id.clone().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
-        // The same prompt id again (a resend) is not delivered twice.
-        if pending().values().any(|p| p.session_id == session.id && p.prompt_id == prompt_id) {
+        // The same prompt id again (a resend) is not delivered twice: it answers with the first.
+        let resent =
+            deliveries().of_prompt(&session.id, &prompt_id).map(|(_, p)| p.turn.subscribe());
+        if let Some(rx) = resent {
             if let Some(f) = opts.on_accepted.take() {
                 f(json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true}));
             }
-            return Some(Ok(reply(&prompt_id, None, &peer)));
+            let turn_id = turn_of(rx).await;
+            return Some(Ok(reply(&prompt_id, turn_id.as_deref(), &peer)));
         }
         let uuid = uuid::Uuid::now_v7().to_string();
-        let (tx, rx) = oneshot::channel();
-        pending().insert(
-            uuid.clone(),
-            Pending {
-                session_id: session.id.clone(),
-                prompt_id: prompt_id.clone(),
-                text: text.clone(),
-                done: Some(tx),
-            },
-        );
+        let rx = deliveries().insert(uuid.clone(), &session.id, &prompt_id, &text);
         let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
         let from = crate::claude_peers::from_address(&sender);
         let (target, msg_uuid) = (peer.clone(), uuid.clone());
@@ -131,7 +172,7 @@ impl Hub {
         .await
         .unwrap_or_else(|e| Err(e.to_string()));
         if let Err(e) = sent {
-            pending().remove(&uuid);
+            deliveries().by_uuid.remove(&uuid);
             return Some(Err(RpcError::new(-32000, format!("bridge.undelivered: {e}"))
                 .with_data(json!({"reason": "bridge.undelivered"}))));
         }
@@ -146,10 +187,7 @@ impl Hub {
                 json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "state": "delivered", "bridged": true}),
             );
         }
-        let turn_id = tokio::time::timeout(ANSWER_WAIT, rx).await.ok().and_then(Result::ok);
-        if turn_id.is_none() {
-            pending().remove(&uuid);
-        }
+        let turn_id = turn_of(rx).await;
         Some(Ok(reply(&prompt_id, turn_id.as_deref(), &peer)))
     }
 }

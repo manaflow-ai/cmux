@@ -5,7 +5,7 @@
 //! takes prompts (`bridge.rs`).
 //!
 //! The chat's provenance comes from the registry entry the session wrote itself: tags
-//! `origin=<entrypoint>`, `origin.pid`, `origin.version`; it is created as a script's, never as
+//! `bridge=claude` (what clients read: replies go to the app), `origin=<entrypoint>`, `origin.pid`, `origin.version`; it is created as a script's, never as
 //! the person's or an agent's. A session already shown by a chat (watched, adopted, or this
 //! daemon's own harness) gets none.
 //!
@@ -124,6 +124,7 @@ fn name_of(peer: &Peer) -> String {
 /// Provenance tags, from the registry entry the session wrote.
 fn tags_of(peer: &Peer) -> Value {
     let mut tags = json!({
+        "bridge": "claude",
         "origin": peer.entrypoint.as_deref().unwrap_or("claude"),
         "origin.pid": peer.pid.to_string(),
     });
@@ -162,7 +163,7 @@ mod tests {
     fn provenance_tags_come_from_the_registry_entry() {
         assert_eq!(
             tags_of(&peer(None)),
-            json!({"origin": "claude-desktop", "origin.pid": "42", "origin.version": "2.1.310"})
+            json!({"bridge": "claude", "origin": "claude-desktop", "origin.pid": "42", "origin.version": "2.1.310"})
         );
     }
 }
