@@ -845,7 +845,12 @@ never matches) and when the command finishes first (`matched: false`, exit 1).
 reported none; a timeout still exits 124. `terminal <t> run [OPTIONS] --
 <command...>` (or `--text <command>`) is `send --wait prompt
 --exit-with-status`: it types the command into the terminal's shell, waits
-for it to finish, prints its output and exits with its status. `terminal <t>
+for it to finish, prints its output and exits with its status. Several words
+after `--` are an argv, the way exec and ssh take one: each word that needs
+it is single-quoted for a POSIX shell (`'\''` for an embedded quote), so
+`run -- sh -c 'echo a; exit 7'` types `sh -c 'echo a; exit 7'` and the
+`exit 7` never reaches the person's shell. One word after `--` (or `--text`)
+is a shell line typed as written: `run -- 'npm test && echo ok'`. `terminal <t>
 status` adds a `LAST COMMAND` line for a person; `--json` keeps the record
 list.
 

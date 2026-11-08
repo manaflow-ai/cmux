@@ -13,7 +13,9 @@
 //!   exits with the typed command's status (OSC 133 `D`).
 //! - `cmux terminal <t> run [OPTIONS] -- <command...>`: `send --wait prompt
 //!   --exit-with-status`: type a command into the terminal's shell, wait
-//!   for it to finish, print its output and exit with its status.
+//!   for it to finish, print its output and exit with its status. Several
+//!   words after `--` are an argv, each quoted for the shell; one word is a
+//!   shell line typed as written (`run_line`).
 //!
 //! The MCP tools `agents_terminal_list` and `agents_terminal_send`
 //! (mcp/terminal_talk_tools.rs) run the same code.
@@ -160,7 +162,7 @@ pub(in crate::cli) fn parse_send(
 pub(in crate::cli) fn parse_run(target: &str, flags: &[String]) -> Result<SendRequest, UsageError> {
     let split = flags.iter().position(|word| word == "--").unwrap_or(flags.len());
     let (options, argv) = flags.split_at(split);
-    let command = argv.split_first().map(|(_, command)| command.join(" "));
+    let command = argv.split_first().map(|(_, command)| run_line(command));
     let mut options = options.to_vec();
     if options.iter().any(|word| word == "--wait" || word.starts_with("--wait=")) {
         return Err(UsageError("terminal run waits for the prompt; it takes no --wait".into()));
@@ -182,6 +184,23 @@ pub(in crate::cli) fn parse_run(target: &str, flags: &[String]) -> Result<SendRe
     request.wait = Wait::Prompt;
     request.exit_with_status = true;
     Ok(request)
+}
+
+/// The line `run -- <command...>` types. One word is a shell line, typed as
+/// written: `run -- 'npm test && echo ok'`. More words are an argv, the way
+/// exec and ssh take one: each word is quoted as the shell needs, so
+/// `run -- sh -c 'echo a; exit 7'` runs `sh` with exactly those three
+/// arguments and the `exit 7` never reaches the person's shell. Plain words
+/// (`npm`, `--flag=x`, paths) stay unquoted so the typed line reads well.
+pub(in crate::cli) fn run_line(words: &[String]) -> String {
+    match words {
+        [line] => line.clone(),
+        words => words
+            .iter()
+            .map(|word| super::cloud_start_chat::shell_quote(word))
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
 }
 
 fn print_json(value: &Value) {
