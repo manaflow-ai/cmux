@@ -50,7 +50,12 @@ export function CookieImportCard({ model, onChoice, look = "split", glass = true
       <Button variant="subtle" size="sm" className="ci-answer" onClick={() => onChoice({ type: "notNow" })}>
         {model.notNowTitle}
       </Button>
-      <Button variant="solid" size="sm" className="ci-answer" onClick={() => onChoice(model.keepInSyncTitle ? { type: "import", keepInSync } : { type: "import" })}>
+      <Button
+        variant="solid"
+        size="sm"
+        className="ci-answer"
+        onClick={() => onChoice(model.keepInSyncTitle ? { type: "import", keepInSync } : { type: "import" })}
+      >
         {model.importTitle}
       </Button>
     </span>
