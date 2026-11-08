@@ -70,6 +70,12 @@ VM. The trust in `vmk` and `sub` is the carrier grant's: the platform signs it, 
 checks it, and the session host copies it. acpmux never holds a Cloud token and cannot see the
 signed grant: it trusts the header because only the daemon's user can open the socket.
 
+**The trust boundary is the session host's bridge, not acpmux.** The bridge verifies the
+signed grant and writes the header; acpmux trusts the header only because `carrier.sock` is
+open to the daemon's own user alone. The `/etc/cmux/vm-kind` marker, which the VM's user can
+write, only switches the carrier socket on: it grants nothing, and a header on the socket gives
+no more than the same user already has on the normal socket.
+
 **Requirement on the session host (S1):** it MUST copy `vmk`, `sub`, `team`, `chats` and `name` from
 the verified, signed carrier grant, and never from anything the client sends (a query, a
 frame, a header of its own). A teammate's `chats` is exactly what the grant names.
@@ -95,6 +101,11 @@ request, `_acpmux/process/*`, `_acpmux/peer_add` and `_acpmux/peer_remove`,
 `_acpmux/export` with a `dest`, `_acpmux/import` outside the bundle directory,
 `_acpmux/web_modes`, `_acpmux/web_token_rotate`, `_acpmux/btw`, a session env, a session
 route, a prompt's provenance, a cwd outside the web roots.
+
+Owner = Peer is for the Mac's acpmux (S3), a daemon that applies its own client's rules before
+it forwards. A phone or a web client that reaches the VM as the owner through the carrier MUST
+send `_meta.acpmux.via: "web"` on its requests, so acpmux holds them to the Web's rules
+(`remote_guard::control_of`), never the full Peer rules.
 
 ## Teammate
 
@@ -176,7 +187,8 @@ built exactly as the session host's bridge builds it, non-ASCII escapes included
 
 ## Audit
 
-- Each carrier connection, prompt, cancel, permission answer and refusal is logged at info
+- Each carrier connection, prompt, cancel, permission answer and refusal, and each
+  teammate's `_acpmux/attach` and `_acpmux/events` call, is logged at info
   with target `acpmux::carrier_audit`: the connection, the method, `vmk`, `sub`, `team`, `name`, the
   session, prompt, permission and option ids it names, and for a refusal its reason
   (`carrier.team_refused`, `carrier.team_mode_not_asking`).

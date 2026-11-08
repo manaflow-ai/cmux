@@ -377,7 +377,8 @@ pub(super) fn transport(conn: &Conn) -> &'static str {
     }
 }
 
-/// Log a refusal, prompt, cancel or permission answer with the person the carrier attested.
+/// Log a refusal, prompt, cancel or permission answer, and a teammate's attach or events call,
+/// with the person the carrier attested.
 pub(super) fn audit(
     conn: &Conn,
     carrier: &Attested,
@@ -392,7 +393,10 @@ pub(super) fn audit(
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND
     );
-    if !logged && refused.is_none() {
+    // A teammate's reads of a chat are logged too: who watched which chat.
+    let team_read =
+        carrier.role == Role::Team && matches!(m, method::MUX_ATTACH | method::MUX_EVENTS);
+    if !logged && !team_read && refused.is_none() {
         return;
     }
     let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or_default();
