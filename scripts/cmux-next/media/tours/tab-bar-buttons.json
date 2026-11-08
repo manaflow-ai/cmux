@@ -30,24 +30,15 @@
    "shot": false
   },
   {
-   "title": "A long terminal title",
-   "daemon": true,
+   "title": "Rename the first tab",
    "cmux": [
-    "workspace",
-    "name:Tabs",
-    "screen",
-    "current",
-    "pane",
-    "current",
     "tab",
     "current",
-    "terminal",
-    "current",
-    "write",
-    "--text",
-    "printf '\\033]0;Austin'\\''s Weekly Planning Review (7 days)\\007'; clear\r"
+    "rename",
+    "--name",
+    "Austin's Weekly Planning Review (7 days)"
    ],
-   "wait": 2,
+   "wait": 1,
    "shot": false
   },
   {
@@ -62,38 +53,95 @@
    "shot": false
   },
   {
-   "title": "Second long title",
+   "title": "Tab 0",
    "cmux": [
     "action",
     "run",
     "newSurface"
    ],
-   "wait": 2,
+   "wait": 1.5,
    "shot": false
   },
   {
-   "title": "Second long title text",
-   "daemon": true,
+   "title": "Rename tab 0",
    "cmux": [
-    "workspace",
-    "name:Tabs",
-    "screen",
-    "current",
-    "pane",
-    "current",
     "tab",
     "current",
-    "terminal",
-    "current",
-    "write",
-    "--text",
-    "printf '\\033]0;Austin'\\''s Weekly Planning Review (7 days)\\007'; clear\r"
+    "rename",
+    "--name",
+    "Quarterly roadmap and launch checklist"
    ],
-   "wait": 2,
+   "wait": 0.5,
    "shot": false
   },
   {
-   "title": "Tab bar at rest: long titles, top-right corner",
+   "title": "Tab 1",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Rename tab 1",
+   "cmux": [
+    "tab",
+    "current",
+    "rename",
+    "--name",
+    "Design review notes (Nov 7)"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab 2",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Rename tab 2",
+   "cmux": [
+    "tab",
+    "current",
+    "rename",
+    "--name",
+    "Release train: nightly build status"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab 3",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Rename tab 3",
+   "cmux": [
+    "tab",
+    "current",
+    "rename",
+    "--name",
+    "Leo's sidebar feedback thread"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab bar at rest: long titles fade at the end",
    "rpc": {
     "method": "debug.pointer_hover",
     "params": {
@@ -113,26 +161,6 @@
    "wait": 1.5
   },
   {
-   "title": "Hover the pane More",
-   "rpc": {
-    "method": "debug.pointer_hover",
-    "params": {
-     "identifier": "cmux.pane.more"
-    }
-   },
-   "wait": 1.5
-  },
-  {
-   "title": "Hover the plus",
-   "rpc": {
-    "method": "debug.pointer_hover",
-    "params": {
-     "identifier": "cmux.tabs.newTab"
-    }
-   },
-   "wait": 1.5
-  },
-  {
    "title": "Variant: Plates (before)",
    "rpc": {
     "method": "debug.tunables",
@@ -143,66 +171,17 @@
     }
    },
    "wait": 1,
-   "shot": false,
-   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+   "shot": false
   },
   {
-   "title": "Variant Plates (before): hover the chevron",
+   "title": "Plates (before): hover",
    "rpc": {
     "method": "debug.pointer_hover",
     "params": {
      "identifier": "cmux.tabs.newTabMenu"
     }
    },
-   "wait": 1.5,
-   "optional": "debug.tunables tabs.trailingButtons is new in this change"
-  },
-  {
-   "title": "Variant Plates (before): hover More",
-   "rpc": {
-    "method": "debug.pointer_hover",
-    "params": {
-     "identifier": "cmux.pane.more"
-    }
-   },
-   "wait": 1.5,
-   "optional": "debug.tunables tabs.trailingButtons is new in this change"
-  },
-  {
-   "title": "Variant: Glyphs only (default)",
-   "rpc": {
-    "method": "debug.tunables",
-    "params": {
-     "action": "set",
-     "key": "tabs.trailingButtons",
-     "value": "glyphs"
-    }
-   },
-   "wait": 1,
-   "shot": false,
-   "optional": "debug.tunables tabs.trailingButtons is new in this change"
-  },
-  {
-   "title": "Variant Glyphs only (default): hover the chevron",
-   "rpc": {
-    "method": "debug.pointer_hover",
-    "params": {
-     "identifier": "cmux.tabs.newTabMenu"
-    }
-   },
-   "wait": 1.5,
-   "optional": "debug.tunables tabs.trailingButtons is new in this change"
-  },
-  {
-   "title": "Variant Glyphs only (default): hover More",
-   "rpc": {
-    "method": "debug.pointer_hover",
-    "params": {
-     "identifier": "cmux.pane.more"
-    }
-   },
-   "wait": 1.5,
-   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+   "wait": 1.5
   },
   {
    "title": "Variant: Circles",
@@ -215,30 +194,17 @@
     }
    },
    "wait": 1,
-   "shot": false,
-   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+   "shot": false
   },
   {
-   "title": "Variant Circles: hover the chevron",
+   "title": "Circles: hover",
    "rpc": {
     "method": "debug.pointer_hover",
     "params": {
      "identifier": "cmux.tabs.newTabMenu"
     }
    },
-   "wait": 1.5,
-   "optional": "debug.tunables tabs.trailingButtons is new in this change"
-  },
-  {
-   "title": "Variant Circles: hover More",
-   "rpc": {
-    "method": "debug.pointer_hover",
-    "params": {
-     "identifier": "cmux.pane.more"
-    }
-   },
-   "wait": 1.5,
-   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+   "wait": 1.5
   },
   {
    "title": "Variant: Plus and More only",
@@ -251,43 +217,40 @@
     }
    },
    "wait": 1,
-   "shot": false,
-   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+   "shot": false
   },
   {
-   "title": "Variant Plus and More only: hover the chevron",
+   "title": "Plus and More only: hover",
    "rpc": {
     "method": "debug.pointer_hover",
     "params": {
      "identifier": "cmux.tabs.newTab"
     }
    },
-   "wait": 1.5,
-   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+   "wait": 1.5
   },
   {
-   "title": "Variant Plus and More only: hover More",
-   "rpc": {
-    "method": "debug.pointer_hover",
-    "params": {
-     "identifier": "cmux.pane.more"
-    }
-   },
-   "wait": 1.5,
-   "optional": "debug.tunables tabs.trailingButtons is new in this change"
-  },
-  {
-   "title": "Back to the default",
+   "title": "Variant: Glyphs only (default)",
    "rpc": {
     "method": "debug.tunables",
     "params": {
-     "action": "reset",
-     "key": "tabs.trailingButtons"
+     "action": "set",
+     "key": "tabs.trailingButtons",
+     "value": "glyphs"
     }
    },
    "wait": 1,
-   "shot": false,
-   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+   "shot": false
+  },
+  {
+   "title": "Glyphs only (default): hover",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.tabs.newTabMenu"
+    }
+   },
+   "wait": 1.5
   }
  ]
 }
