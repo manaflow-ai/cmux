@@ -316,7 +316,7 @@ test.each(["probe", "adapter"])("every %s cadence run must contribute a nonempty
   expect(validateEvidence(candidate, baseline(8), cadenceBudget).ok).toBe(false);
 });
 
-test("the gate workflow's --pages measure exactly the budget's expected cases", () => {
+test("the gate workflow's and bootstrap's --pages measure exactly the budget's expected cases", () => {
   const workflow = fs.readFileSync(path.join(import.meta.dir, "../../.github/workflows/cmux-next-web-perf.yml"), "utf8");
   const pages = workflow.match(/--pages "([^"]+)"/)?.[1].split(",") ?? [];
   const budgetFile = JSON.parse(fs.readFileSync(path.join(import.meta.dir, "latency/budget.json"), "utf8"));
@@ -324,6 +324,8 @@ test("the gate workflow's --pages measure exactly the budget's expected cases", 
     spec.actions.map((action) => `chromium/${spec.name}/${action.id ?? action.name}`),
   );
   expect(cases.sort()).toEqual([...budgetFile.expectedCases].sort());
+  const bootstrap = fs.readFileSync(path.join(import.meta.dir, "../../scripts/ci/web-perf-bootstrap.sh"), "utf8");
+  expect(bootstrap.match(/--pages "([^"]+)"/)?.[1].split(",")).toEqual(pages);
 });
 
 test("a checkout's origin without the .git suffix is accepted as manaflow-ai/cmux", () => {

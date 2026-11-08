@@ -24,7 +24,7 @@ test "$(git rev-parse HEAD)" = "$head_sha"
 bun install --frozen-lockfile
 "$snapshot/scripts/ci/ensure-system-chrome.sh"
 set +e
-bun scripts/latency/run.ts --ci --no-fail --engine chromium --page chat --runs 10 --base "$base_sha" \
+bun scripts/latency/run.ts --ci --no-fail --engine chromium --pages "chat flows,chat 3000 paged,chat 3000 resident,chat rail" --runs 10 --base "$base_sha" \
   --trace-dir "$evidence/traces" --json "$evidence/results.json" --require longTasks,reactCommits,cpu
 harness_status=$?
 bootstrap_status=1
