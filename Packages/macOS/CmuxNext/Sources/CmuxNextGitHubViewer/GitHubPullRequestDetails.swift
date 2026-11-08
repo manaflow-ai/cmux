@@ -216,22 +216,6 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
         return html
     }
 
-    /// GitHub's rendering of a body (`bodyHTML`: its Markdown and the HTML GitHub allows, sanitized,
-    /// images through GitHub's proxy), whole or not at all. The page parses it inertly and keeps only
-    /// its own allowlist (webviews/src/pages/github/githubHTML.ts).
-    static func html(_ value: Any?) -> String {
-        guard let text = value as? String, text.utf8.count <= maximumHTML else { return "" }
-        return text
-    }
-
-    /// `html` when the read's HTML budget still holds it whole (and less of the budget), else "".
-    static func spend(_ html: String, _ budget: inout Int) -> String {
-        let size = html.utf8.count
-        guard size <= budget else { return "" }
-        budget -= size
-        return html
-    }
-
     /// `value` when it is a github.com https link, the only kind the page opens.
     private static func link(_ value: Any?) -> String? {
         guard let text = value as? String, text.hasPrefix("https://github.com/"), !text.contains(where: \.isWhitespace) else { return nil }
