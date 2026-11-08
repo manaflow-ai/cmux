@@ -250,6 +250,8 @@ extension SidebarListViewComponents {
         // A pin or an unpin hands its workspace from a list row to a block item or back: the arriving view starts where
         // the leaving one is drawn now and moves on the rows' spring (`SidebarListView+PinFlight`).
         if opensRows, !adopting { showFlownItems(to: layout) }
+        let diagApply = "animated=\(animated) animate=\(animate) adopting=\(adopting) opensRows=\(opensRows) inserts=\(insertsWorkspace) rows=\(layout.rows.count) old=\(old.rows.count)"
+        pinDiag.notice("apply \(diagApply, privacy: .public)")
         let flightSources = pinFlightSources(from: old, to: layout, moves: opensRows && !adopting)
         if !flightSources.pins.isEmpty { for region in blockRegions { region.flyingWorkspaces = Set(flightSources.pins.keys) } }
         var flights: [SidebarPinFlight] = []
@@ -375,6 +377,8 @@ extension SidebarListViewComponents {
                 view.layoutSubtreeIfNeeded()
             }
             rowViews[key] = nil
+            let diagLeave = "\(key) pins=\(flightSources.pins(key)) suppressed=\(suppressed.contains(key))"
+            pinDiag.notice("leaving \(diagLeave, privacy: .public)")
             // A pinned row's block item took over its frame in this transaction: the row goes at once (one copy on screen).
             if flightSources.pins(key) {
                 recycle(view)

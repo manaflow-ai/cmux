@@ -173,6 +173,8 @@ struct RowMotion {
         // the rows it passes) is read and starts at that one instant: no step off the leaving view, one progress.
         let begin = flights.isEmpty ? nil : SidebarPinFlight.begin(in: list)
         SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list, token, travel: travel, begin: begin)
+        let diagAnimates = SidebarDragSpring.animates(in: list)
+        if !flights.isEmpty { pinDiag.notice("animate flights=\(flights.count, privacy: .public) animates=\(diagAnimates, privacy: .public)") }
         if let begin, SidebarDragSpring.animates(in: list) {
             for flight in flights { flight.start(token, now: begin) }
         }

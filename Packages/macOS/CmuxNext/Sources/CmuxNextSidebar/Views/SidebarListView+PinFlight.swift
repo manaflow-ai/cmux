@@ -1,6 +1,9 @@
 import AppKit
 import CmuxNextDesign
 import QuartzCore
+import os
+
+let pinDiag = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar.pindiag")
 
 // Pin and unpin motion (cmux-ad m70, Lawrence 2026-11-08: "animation when i pin stuff and unpin stuff is not very good.
 // like it needs to translate properly from its original position to new position").
@@ -38,7 +41,11 @@ struct SidebarPinFlight {
 
     /// Starts the flight at `now`, the move's one begin time: the view starts where the leaving view is drawn then.
     func start(_ token: MotionSpring, now: CFTimeInterval) {
+        let diagFrom = NSStringFromRect(start(now)), diagTo = NSStringFromRect(view.frame), diagType = String(describing: type(of: view))
+        pinDiag.notice("flight start view=\(diagType, privacy: .public) from=\(diagFrom, privacy: .public) to=\(diagTo, privacy: .public)")
         SidebarDragSpring.fly(view, from: start(now), token, now: now)
+        let diagKeys = (view.layer?.animationKeys() ?? []).joined(separator: ",")
+        pinDiag.notice("flight keys=\(diagKeys, privacy: .public)")
         if let title { SidebarDragSpring.offset(title.view, by: title.offset, token, now: now) }
         if let layer = glyph?.layer { SidebarDragSpring.appear(layer, token, now: now) }
         for layer in revealed.compactMap(\.layer) { SidebarDragSpring.appear(layer, token, now: now) }
@@ -126,6 +133,11 @@ extension SidebarListViewComponents {
     /// realized rows and the blocks' items are read (O(realized + pinned)). Empty when the apply does not move rows.
     func pinFlightSources(from old: SidebarLayout, to layout: SidebarLayout, moves: Bool) -> SidebarPinFlightSources {
         var sources = SidebarPinFlightSources()
+        let diagPinned = blockWorkspaces(blocks).map(\.rawValue).sorted().joined(separator: ",")
+        let diagLeaving = rowViews.keys.filter { layout.row(for: $0) == nil }.map { "\($0)" }.joined(separator: ",")
+        let diagClosing = subviews.compactMap { $0 as? SidebarRowView }.filter { $0.closingEnd != nil }.map { "\($0.key)" }.joined(separator: ",")
+        let diagState = "moves=\(moves) drag=\(drag != nil) settling=\(settling != nil) landing=\(landing != nil) infos=\(blocks?.infos.count ?? -1)"
+        pinDiag.notice("sources \(diagState, privacy: .public) pinned=[\(diagPinned, privacy: .public)] leaving=[\(diagLeaving, privacy: .public)] closing=[\(diagClosing, privacy: .public)]")
         guard moves, drag == nil, settling == nil, landing == nil else { return sources }
         let pinned = blockWorkspaces(blocks)
         for (key, view) in rowViews {
@@ -222,7 +234,15 @@ extension SidebarListViewComponents {
         for (id, source) in sources.pins {
             guard let block = rowViews.values.first(where: { ($0 as? SidebarBlockRowView)?.region.itemView(workspace: id) != nil })
                     as? SidebarBlockRowView,
-                  let item = block.region.itemView(workspace: id), let container = item.superview else { continue }
+                  let item = block.region.itemView(workspace: id), let container = item.superview else {
+                let diagBlocks = rowViews.values.compactMap { $0 as? SidebarBlockRowView }.map { block in
+                    block.region.itemViews.values.map { "\($0.info.workspace?.rawValue ?? "nil")/\($0.superview != nil)" }.joined(separator: ",")
+                }.joined(separator: "|")
+                pinDiag.notice("pinFlights no item for \(id.rawValue, privacy: .public) blocks=\(diagBlocks, privacy: .public)")
+                continue
+            }
+            let diagItem = NSStringFromRect(item.frame), diagSource = NSStringFromRect(source.frame(at: CACurrentMediaTime()))
+            pinDiag.notice("pinFlights item for \(id.rawValue, privacy: .public) frame=\(diagItem, privacy: .public) src=\(diagSource, privacy: .public)")
             // The block moves on the same spring from where it is drawn at the begin (its move is added first): the
             // item's start is the source less that, both at the begin.
             let start: @MainActor (CFTimeInterval) -> NSRect = { [weak self] time in
