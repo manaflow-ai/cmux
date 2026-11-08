@@ -38,7 +38,7 @@ impl Hub {
             (after != before).then_some(after)
         };
         if let Some(count) = count {
-            self.append(session, "mux", super::views::SUBAGENTS_RUNNING, json!({"count": count}));
+            self.subagents_running(session, count);
         }
     }
 
@@ -150,12 +150,7 @@ impl Hub {
             (before, live.running_count())
         };
         if running_after != running_before {
-            self.append(
-                session,
-                "mux",
-                super::views::SUBAGENTS_RUNNING,
-                json!({"count": running_after}),
-            );
+            self.subagents_running(session, running_after);
         }
         self.refresh_work_below(session);
     }

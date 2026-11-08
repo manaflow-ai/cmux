@@ -1908,6 +1908,16 @@ async fn dispatch_request_with_identity(
                 };
                 on_accepted = crate::sender_harness::on_kept(claim, write, on_accepted);
             }
+            // The caller waits for this prompt's reply and prints it (`readsReply`, `acpmux run`,
+            // `acpmux send --wait`): when the session a lane reports to sent it, that turn is
+            // read, and no lane report of it goes to the same session again
+            // (`hub/lane_report_reads.rs`). Held until this request returns.
+            let reply_reader = (flag(crate::cli::output::READS_REPLY_META) == Some(true))
+                .then(|| hub.lane_report_reply_reader(conn.caller(), &s.id, conn.ended.subscribe()))
+                .flatten();
+            if let Some(reader) = &reply_reader {
+                on_accepted = Some(reader.watch(on_accepted));
+            }
             let cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope> =
                 match params.get("cloud_turn") {
                     Some(value) => Some(
@@ -2027,6 +2037,8 @@ async fn dispatch_request_with_identity(
                 crate::suggestion_gate::withdraw(&s.id);
             }
             let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
+            // The turn ended (its read was decided) before the answer came back.
+            drop(reply_reader);
             if let Some(saved) = saved {
                 saved.settle(hub, &answer).await;
             }
