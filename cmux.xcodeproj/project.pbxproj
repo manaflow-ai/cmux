@@ -3313,9 +3313,6 @@
 		F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */; };
 		FE003107 /* RovoDevTranscriptPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003007 /* RovoDevTranscriptPreview.swift */; };
 		F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */; };
-		C7E60EEDB87438E6E0069BAE /* SafariBinaryCookie.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7264DBD0109B6858E8CF4AE /* SafariBinaryCookie.swift */; };
-		9095BA9603ADBC64309F9BBC /* SafariBinaryCookiesParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20109DE01A3FBF5E886F2DB /* SafariBinaryCookiesParser.swift */; };
-		A4568CF5D912FF1BDCF23BE7 /* SafariBinaryCookiesParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23FD7BDBBEF6A7D1CA9E887F /* SafariBinaryCookiesParserTests.swift */; };
 		C0DE1A080000000000000001 /* SavedLayoutDefinitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A080000000000000002 /* SavedLayoutDefinitionTests.swift */; };
 		C0DE1A020000000000000001 /* SavedLayoutStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A020000000000000002 /* SavedLayoutStore.swift */; };
 		C0DE1A070000000000000001 /* SavedLayoutStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */; };
@@ -7998,9 +7995,6 @@
 		F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevSessionIndexTests.swift; sourceTree = "<group>"; };
 		FE003007 /* RovoDevTranscriptPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreview.swift; sourceTree = "<group>"; };
 		F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreviewTests.swift; sourceTree = "<group>"; };
-		F7264DBD0109B6858E8CF4AE /* SafariBinaryCookie.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SafariBinaryCookie.swift; sourceTree = "<group>"; };
-		E20109DE01A3FBF5E886F2DB /* SafariBinaryCookiesParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SafariBinaryCookiesParser.swift; sourceTree = "<group>"; };
-		23FD7BDBBEF6A7D1CA9E887F /* SafariBinaryCookiesParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SafariBinaryCookiesParserTests.swift"; sourceTree = "<group>"; };
 		C0DE1A080000000000000002 /* SavedLayoutDefinitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutDefinitionTests.swift; sourceTree = "<group>"; };
 		C0DE1A020000000000000002 /* SavedLayoutStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutStore.swift; sourceTree = "<group>"; };
 		C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutStoreTests.swift; sourceTree = "<group>"; };
@@ -12695,8 +12689,6 @@
 				D4D9700C7689786CCDB82CAE /* TerminalController+AgentMessageClaim.swift */,
 				17A22999A4C0E113B255C2E7 /* NotificationsPopoverView.swift */,
 				067ED4C318664E11B67921F3 /* AppDelegate+NotificationsPopoverDigits.swift */,
-				F7264DBD0109B6858E8CF4AE /* SafariBinaryCookie.swift */,
-				E20109DE01A3FBF5E886F2DB /* SafariBinaryCookiesParser.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14349,7 +14341,6 @@
 				4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */,
 				2E93DBA33C7287FE3D7FA1BB /* NotificationPopoverRowLayoutTests.swift */,
 				C0C7EE23B232921D28CA56FD /* NotificationsPopoverDrawnRowsTests.swift */,
-				23FD7BDBBEF6A7D1CA9E887F /* SafariBinaryCookiesParserTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16929,8 +16920,6 @@
 				C46790000000000000000005 /* RosettaNativeRelaunch.swift in Sources */,
 				FE003105 /* RovoDevIndex.swift in Sources */,
 				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
-				C7E60EEDB87438E6E0069BAE /* SafariBinaryCookie.swift in Sources */,
-				9095BA9603ADBC64309F9BBC /* SafariBinaryCookiesParser.swift in Sources */,
 				C0DE1A020000000000000001 /* SavedLayoutStore.swift in Sources */,
 				F12748000000000000000003 /* SavingTextView+WordWrapShortcut.swift in Sources */,
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
@@ -19388,7 +19377,6 @@
 				C46790000000000000000007 /* RosettaNativeRelaunchTests.swift in Sources */,
 				F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */,
 				F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */,
-				A4568CF5D912FF1BDCF23BE7 /* SafariBinaryCookiesParserTests.swift in Sources */,
 				C0DE1A080000000000000001 /* SavedLayoutDefinitionTests.swift in Sources */,
 				C0DE1A070000000000000001 /* SavedLayoutStoreTests.swift in Sources */,
 				3C3FDDC0C744FA3350DA1D9B /* ScrollbackTestTerminal.swift in Sources */,

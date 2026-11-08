@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Decodes Safari's `Cookies.binarycookies` store into ``SafariBinaryCookie`` records.
 ///
@@ -18,10 +18,10 @@ import Foundation
 /// cookie: size | version | flags | has port | url off | name off | path off | value off
 ///         | comment off | comment URL off | expiry (LE f64) | creation (LE f64) | strings…
 /// ```
-struct SafariBinaryCookiesParser: Sendable {
+public struct SafariBinaryCookiesParser: Sendable {
     /// Why a store could not be decoded. Indices name the structure at fault so a
     /// caller can log them; they are not shown to users.
-    enum ParseError: Error, Equatable {
+    public enum ParseError: Error, Equatable {
         /// Fewer than eight bytes, so there is no magic number and page count.
         case tooShort
         /// The file does not start with `cook`.
@@ -43,7 +43,7 @@ struct SafariBinaryCookiesParser: Sendable {
     private static let httpOnlyFlag: UInt32 = 0x4
 
     /// Creates a parser. It holds no state, so one instance can decode many stores.
-    init() {}
+    public init() {}
 
     /// Decodes a whole `Cookies.binarycookies` file.
     ///
@@ -51,7 +51,7 @@ struct SafariBinaryCookiesParser: Sendable {
     /// - Returns: Every cookie in page order. Cookies with an empty name are
     ///   returned as stored; the caller decides whether to keep them.
     /// - Throws: ``ParseError`` when the file's structure is inconsistent.
-    func parse(_ data: Data) throws -> [SafariBinaryCookie] {
+    public func parse(_ data: Data) throws -> [SafariBinaryCookie] {
         let file = ByteReader(bytes: [UInt8](data))
         guard file.count >= 8 else { throw ParseError.tooShort }
         guard file.bytes(at: 0, count: 4) == Self.magic else { throw ParseError.invalidMagic }
