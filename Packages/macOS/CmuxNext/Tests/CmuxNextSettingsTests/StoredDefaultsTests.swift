@@ -53,6 +53,23 @@ import Testing
         #expect(try await settings.file.value(at: ChromeStyleSetting.configPath) == .string(ChromeStyleSetting.fallback.rawValue))
     }
 
+    /// Another editor's settings fill the code editor's keys (`editor.importFrom`, "auto" by
+    /// default): VS Code's `editor.wordWrap: "on"` applies unless cmux-next.json says otherwise, so a
+    /// pick of cmux's default stays stored; with the import off, it is removed.
+    @Test func anImportedEditorValueKeepsAnExplicitDefault() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "editor": { "wordWrap": "on" } }"#)
+        let wrap = try #require(SettingsSchema.descriptor(for: EditorSettingsSchema.wordWrapPath))
+
+        try await settings.setSetting(wrap, to: .string(EditorSettingsSchema.wordWrapDefault), by: .user)
+        #expect(try await settings.file.value(at: EditorSettingsSchema.wordWrapPath) == .string(EditorSettingsSchema.wordWrapDefault))
+
+        try await settings.file.set(.string("none"), at: EditorSettingsSchema.importFromPath)
+        await settings.reload()
+        try await settings.setSetting(wrap, to: .string(EditorSettingsSchema.wordWrapDefault), by: .user)
+        #expect(try await settings.file.value(at: EditorSettingsSchema.wordWrapPath) == nil)
+    }
+
     /// The default changed from "flat-sidebar-line" (stored by an old pick of the row's default) to
     /// the current one: the stored copy goes and the key follows the new default; a copy of the
     /// current default goes too; the theme, the background and a value that was never a default stay.
@@ -94,12 +111,14 @@ import Testing
     /// A null the first builds of this change stored for a default write goes once; a set value stays.
     @Test func strayNullsGoOnce() async throws {
         defer { try? FileManager.default.removeItem(at: home) }
-        let settings = try await controller(#"{ "appearance": { "chromeStyle": null }, "diff": { "layout": "split" } }"#)
+        let text = #"{ "appearance": { "chromeStyle": null }, "diff": { "layout": "split" }, "notifications": { "quietHours": null } }"#
+        let settings = try await controller(text)
         let marker = try marker()
 
         #expect(try await settings.dropStrayNulls(marker: marker) == ["appearance.chromeStyle"])
         #expect(try await settings.file.value(at: ["appearance"]) == nil)
         #expect(try await settings.file.value(at: ["diff", "layout"]) == .string("split"))
+        #expect(try await settings.file.value(at: ["notifications", "quietHours"]) == .null, "null is Off there, on purpose")
         try await settings.file.set(.null, at: ChromeStyleSetting.configPath)
         #expect(try await settings.dropStrayNulls(marker: marker).isEmpty)
     }

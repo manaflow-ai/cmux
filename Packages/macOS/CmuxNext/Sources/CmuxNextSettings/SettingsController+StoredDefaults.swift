@@ -108,14 +108,19 @@ extension SettingsController {
     /// The UserDefaults key that records `dropStrayNulls` ran on this channel.
     static let strayNullsDroppedKey = "settingsStrayNullsDropped.1"
 
-    /// Removes, once (`marker` records it), each schema key whose stored value is JSON null and
-    /// that refuses null. #38119's first builds stored null for a write of a default (a `nil` literal
-    /// typed as `JSONValue` is `.null`); it loads as the default, with a diagnostic. Returns the keys.
+    /// Removes, once (`marker` records it), each schema key whose stored value is JSON null, that
+    /// refuses null and whose null the last load reported invalid. #38119's first builds stored null
+    /// for a write of a default (a `nil` literal typed as `JSONValue` is `.null`); it loads as the
+    /// default, with that diagnostic. A null a parser takes on purpose (`notifications.quietHours:
+    /// null` is Off) has none and stays. Returns the keys.
     @discardableResult
     public func dropStrayNulls(marker: UserDefaults) async throws -> [String] {
         guard !marker.bool(forKey: Self.strayNullsDroppedKey) else { return [] }
         let root = try await file.document()
-        let stray = SettingsSchema.all.filter { root.value(at: $0.path) == .null && !$0.accepts(.null) && managedKeys[$0.id] == nil }
+        let invalid = Set(diagnostics.filter { $0.kind == .invalidValue && $0.file == nil }.map(\.path))
+        let stray = SettingsSchema.all.filter {
+            root.value(at: $0.path) == .null && !$0.accepts(.null) && invalid.contains($0.id) && managedKeys[$0.id] == nil
+        }
         // Rechecked at the write: a key someone set since the read above stays.
         let removed = stray.isEmpty ? [] : try await removeUnchanged(stray.map { (path: $0.path, value: JSONValue.null) }).removed
         marker.set(true, forKey: Self.strayNullsDroppedKey)

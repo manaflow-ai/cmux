@@ -217,10 +217,20 @@ public final class SettingsController {
         await reloadAfterWrite()
     }
 
-    /// Whether a layer below cmux-next.json (MDM recommended, the team's default) fills `key` when
-    /// the file leaves it unset, so only a value in the file keeps the person's choice of the default.
+    /// Whether a layer below cmux-next.json (MDM recommended, the team's default, another editor's
+    /// settings) fills `key` when the file leaves it unset, so only a value in the file keeps the
+    /// person's choice of the default.
     func layerBelowFileSets(_ key: String) -> Bool {
-        lastSource?.managed.recommended[key] != nil || teamPolicy.defaults[key] != nil
+        lastSource?.managed.recommended[key] != nil || teamPolicy.defaults[key] != nil || editorImportMayFill(key)
+    }
+
+    /// Whether `editor.importFrom` (not "none") may fill the code editor's `key` from another
+    /// editor's settings (VS Code's `editor.wordWrap: "on"`), which the app reads beside this
+    /// controller (`EditorSettingsSources`); a stored default is the override that beats it.
+    private func editorImportMayFill(_ key: String) -> Bool {
+        let importFrom = EditorSettingsSchema.importFromPath.joined(separator: ".")
+        guard key.hasPrefix("editor."), key != importFrom else { return false }
+        return EditorImportChoice(setting: snapshot.root.value(at: EditorSettingsSchema.importFromPath)?.stringValue) != .none
     }
 
     /// Writes a shortcut override for `id`; nil unbinds it.
