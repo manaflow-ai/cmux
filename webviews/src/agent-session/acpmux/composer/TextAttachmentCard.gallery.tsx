@@ -14,7 +14,7 @@ import type { ComposerAttachment } from "../attachments";
 import type { PlayContext } from "../../../gallery/play";
 
 type Look = "page" | "page-body" | "header" | "tile";
-type Props = { look: Look };
+type Props = { look: Look; only?: "file" };
 
 const transcript = [
   "Ran a command, read a file",
@@ -80,7 +80,7 @@ export default componentEntry<Props>({
   load: () =>
     import("./attachmentIntake").then(
       ({ AttachmentStrip }) =>
-        function TextCards({ look }: Props) {
+        function TextCards({ look, only }: Props) {
           return (
             <div
               className="acpmux-shell"
@@ -91,7 +91,7 @@ export default componentEntry<Props>({
               <div className="acpmux-composer">
                 <div className="acpmux-composer-box ui-glass" style={{ minHeight: 112 }}>
                   <AttachmentStrip
-                    attachments={attachments}
+                    attachments={only ? attachments.filter((each) => each.kind === "text") : attachments}
                     onRemove={() => {}}
                     onExpand={() => {}}
                     onKeepFile={() => {}}
@@ -105,6 +105,10 @@ export default componentEntry<Props>({
     ),
   variants: {
     page: { note: "Shipped: first lines in monospace, faded, over Pasted text · 40 lines.", props: { look: "page" } },
+    file: {
+      note: "A text file's card alone: its first lines from the top, its label pinned to the bottom.",
+      props: { look: "page", only: "file" },
+    },
     "page-menu": {
       note: "Right-click on the strip's paste card: Edit in Prompt, Keep as .txt, Remove.",
       props: { look: "page" },
