@@ -96,6 +96,7 @@ import {
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
+import { isRegroupHold } from "./conversation/keepOpenedLineModel";
 import {
   ANCHORED_COLLAPSE_EVENT,
   atFoldBottom,
@@ -4243,6 +4244,16 @@ function TranscriptView({
       if (!node || typeof header?.closest !== "function" || !node.contains(header) || !header.closest(".acpmux-row"))
         return;
       event.preventDefault();
+      // A line the reader opened that a new call's regroup moved in its row (KeepOpenedLine.tsx): held
+      // where it was drawn before the regroup, while the row settles. Following the latest row, the
+      // view stays on the latest row as before; a click's own hold already keeps its line.
+      const regroup = (event as CustomEvent<unknown>).detail;
+      if (isRegroupHold(regroup)) {
+        if (followingRef.current || foldHolding(foldAnchor.current)) return;
+        foldAnchor.current = { ...holdFold(header), top: regroup.top };
+        holdTop.current = node.scrollTop;
+        return;
+      }
       settleFold(header);
       const toggle = clicked && clicked.closest(".acpmux-row") === header.closest(".acpmux-row") ? clicked : header;
       const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(toggle, header);
