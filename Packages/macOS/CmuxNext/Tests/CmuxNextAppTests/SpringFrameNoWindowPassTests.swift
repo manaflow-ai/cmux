@@ -39,6 +39,10 @@ struct SpringFrameNoWindowPassTests {
         case appWindow
         /// The control: the same window with a plain content view and the layout by its autoresizing mask.
         case titledPlain
+        /// Diagnosis (P0 11 M2): `appWindow` with every view of the layout's subtree not translating its mask.
+        case appWindowTreeNoMask
+        /// Diagnosis (P0 11 M2): `appWindow` with only the pane classes (layout, screen, host, terminal) not translating.
+        case appWindowPaneClassesNoMask
 
         var description: String { rawValue }
 
@@ -49,11 +53,19 @@ struct SpringFrameNoWindowPassTests {
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
             switch self {
-            case .appWindow:
+            case .appWindow, .appWindowTreeNoMask, .appWindowPaneClassesNoMask:
                 let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()))
                 window.contentView = root
                 root.layoutSubtreeIfNeeded()
                 root.show(layout)
+                if self != .appWindow {
+                    var stack: [NSView] = [layout]
+                    while let view = stack.popLast() {
+                        stack.append(contentsOf: view.subviews)
+                        if self == .appWindowTreeNoMask || view is LayoutRootView || view is ScreenContentView || view is PaneHostView
+                            || view is TerminalSurfaceView { view.translatesAutoresizingMaskIntoConstraints = false }
+                    }
+                }
             case .titledPlain:
                 let content = NSView(frame: rect)
                 window.contentView = content
@@ -94,6 +106,12 @@ struct SpringFrameNoWindowPassTests {
         return counts.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value.with)/\($0.value.all)" }.joined(separator: ", ")
     }
 
+    /// Diagnosis: the layout's frame against its superview's bounds, and each pane host's frame.
+    static func frames(_ root: LayoutRootView) -> String {
+        let hosts = root.context.hosts.sorted { $0.key.rawValue < $1.key.rawValue }.map { "\($0.key.rawValue)=\(NSStringFromRect($0.value.frame))" }
+        return "layout \(NSStringFromRect(root.frame)) in \(root.superview.map { NSStringFromRect($0.bounds) } ?? "-"), hosts \(hosts)"
+    }
+
     @Test(arguments: Host.allCases)
     func aKeyResizeSpringFrameRunsNoWindowPass(host: Host) throws {
         LayoutPassGuard.shared.install()
@@ -130,6 +148,11 @@ struct SpringFrameNoWindowPassTests {
             + "[\(Self.autoresizingConstrained(under: frameView))], Auto Layout views [\(Self.constraintViews(in: rig.window))], "
             + "extra \(extra.count): \(extra.prefix(8))"
         print("M2DIAG \(found)")
+        let settled = Self.frames(rig.root)
+        rig.window.setContentSize(NSSize(width: 1000, height: 700))
+        rig.window.layoutIfNeeded()
+        rig.root.layoutSubtreeIfNeeded()
+        print("M2FRAMES host \(host): after spring [\(settled)], after window resize to 1000x700 [\(Self.frames(rig.root))]")
         #expect(frames > 2, "the press did not spring")
         #expect(framePasses == 0, "the window's frame view laid out \(framePasses)x in \(frames) spring frames. \(found)")
         #expect(extra.isEmpty, "\(extra.count) window-pass layouts of views whose size did not change. \(found)")
