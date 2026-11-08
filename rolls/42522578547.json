@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42522578547",
+  "recorded_at": "2026-11-08T21:03:12Z",
+  "reason": "cmux-tui 3127f433240f changes the image's cmux-tui (pinned 6175e7577ebd)",
+  "dry_run": false,
+  "cmux_tui": "3127f433240f23aebab32ecf5a8fa1101fe7e9fa",
+  "fixes": [
+    {
+      "sha": "3127f433240f23aebab32ecf5a8fa1101fe7e9fa",
+      "mergedAt": "2026-11-08T20:39:34Z",
+      "subject": "cmux chat / agents chat new: --attach FILE sends files with the first prompt (CLI and MCP) (#38768)"
+    },
+    {
+      "sha": "c8180602475e007335369eec39024224513fdc4e",
+      "mergedAt": "2026-11-08T20:39:23Z",
+      "subject": "Repo step test: a start with a ref or a script really waits for the fill (#38788)"
+    },
+    {
+      "sha": "d025c48b3383dfd175367ab254d89840eb28061e",
+      "mergedAt": "2026-11-08T20:39:11Z",
+      "subject": "cmux-wg: Reed-Solomon parity for ultra mode (rs:K:M) (#38826)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T21:03:12Z",
+    "snapshot_id": "sh-793d1a70a8ed4a1cbb46e50e75603696",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42522578547): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "33aa13f0b67bf4e081e69d5927f84a1547f76873",
+    "image": "cloud-native-auto-3127f433-42522578547-1",
+    "revision": "ci-42522578547-1",
+    "at": "2026-11-08T21:03:12Z"
+  },
+  "rolled_back": false
+}
