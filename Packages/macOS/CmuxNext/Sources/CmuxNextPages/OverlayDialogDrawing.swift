@@ -9,12 +9,14 @@ import CmuxNextWakeups
 /// keys and clicks with the same rules as before (`CmuxDialogKeys`).
 @MainActor
 public final class OverlayDialogDrawing: CmuxDialogDrawing {
-    // A dialog's page refuses page probes whatever it shows: a typed password, or a consent only the person answers.
-    let pool = OverlayPagePool(route: "/dialog", refusesProbes: true) { OverlayDialogProvider() }
+    let pool: OverlayPagePool<OverlayDialogProvider>
     private var views: [ObjectIdentifier: (container: OverlayDialogView, page: PageWebView)] = [:]
 
-    /// Draws `center`'s dialogs from now on: its host becomes an overlay host with this drawing.
-    public init(drawing center: CmuxDialogCenter) {
+    /// Draws `center`'s dialogs from now on: its host becomes an overlay host with this drawing. Its pages
+    /// run in `overlayProcess` (the app's one ``PageOverlayProcess``); nil gives each its own process.
+    public init(drawing center: CmuxDialogCenter, overlayProcess: PageOverlayProcess? = nil) {
+        // A dialog's page refuses page probes whatever it shows: a typed password, or a consent only the person answers.
+        pool = OverlayPagePool(route: "/dialog", refusesProbes: true, overlayProcess: overlayProcess) { OverlayDialogProvider() }
         center.host = CmuxDialogOverlayHost(drawing: self)
     }
 

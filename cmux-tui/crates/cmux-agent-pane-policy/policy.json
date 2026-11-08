@@ -19,6 +19,7 @@
     "_acpmux/process/list", "_acpmux/process/tail", "_acpmux/process/kill", "_acpmux/process/background",
     "_acpmux/session/auth", "_acpmux/route/list", "_acpmux/chat/route.set", "_acpmux/forum/rules", "_acpmux/resolve", "_acpmux/set_tools",
     "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
+    "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
     "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key", "_acpmux/agent_login/cancel"
   ],
   "notifications": ["session/cancel"],
@@ -32,7 +33,8 @@
     "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
     "_acpmux/watch_take_over",
     "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
-    "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override"
+    "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
+    "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats"
   ],
   "optionally_session_scoped": [
     "acp.trust.get", "acp.trust.set", "_acpmux/session/auth",
@@ -40,6 +42,7 @@
     "_acpmux/agent_login/cancel"
   ],
   "scoped_session_params": {"_acpmux/side": ["chat"]},
+  "primary_session_params": {"_acpmux/race/start": "parent", "_acpmux/race/get": "parent", "_acpmux/race/list": "parent", "_acpmux/race/cancel": "parent", "_acpmux/race/stats": "parent"},
   "optional_scoped_session_params": {"_acpmux/offer_respond": ["childSessionId"]},
   "source_scoped": [
     "acp.session.fork", "_acpmux/handoff_prepare", "_acpmux/handoff_draft", "_acpmux/handoff_start",
@@ -61,7 +64,8 @@
     "_acpmux/agent_hold": "always",
     "_acpmux/app_reply": "always",
     "_acpmux/agent_login/start": "always",
-    "_acpmux/agent_login/api_key": "always"
+    "_acpmux/agent_login/api_key": "always",
+    "_acpmux/race/start": "always"
   },
   "act_as_me_covers": ["session/prompt", "_acpmux/queue_approve"],
   "non_trusting_levels": ["untrusted", "unknown"],
@@ -141,6 +145,11 @@
     "_acpmux/session/auth": {"params": ["sessionId", "target", "refresh"], "acpmux": []},
     "_acpmux/chat/route.set": {"params": ["sessionId", "routeId", "when"], "acpmux": []},
     "_acpmux/subsession/limits": {"params": ["sessionId", "maxRunning"], "acpmux": []},
+    "_acpmux/race/start": {"params": ["parent", "prompt", "candidates", "reviewer"], "acpmux": []},
+    "_acpmux/race/get": {"params": ["parent", "raceId"], "acpmux": []},
+    "_acpmux/race/list": {"params": ["parent"], "acpmux": []},
+    "_acpmux/race/cancel": {"params": ["parent", "raceId"], "acpmux": []},
+    "_acpmux/race/stats": {"params": ["parent"], "acpmux": []},
     "_acpmux/mcp/reconnect": {"params": ["sessionId", "server"], "acpmux": []},
     "acp.session.fork": {"params": ["sessionId", "throughSeq", "live", "cancelToken"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId", "peer"], "acpmux": []},
