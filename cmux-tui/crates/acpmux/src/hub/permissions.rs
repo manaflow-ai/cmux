@@ -1237,7 +1237,7 @@ impl Hub {
                     && let Some(mode) =
                         offered[0].pointer("/_meta/acpmux/setsMode").and_then(Value::as_str)
                 {
-                    return Err(super::web_control::lasting_grant_refused(mode));
+                    return Err(super::web_control::mode_move_refused(mode));
                 }
                 let is_reject = matches!(kind, Some("reject_once" | "reject_always"));
                 // A remote browser cannot trust a folder on this machine

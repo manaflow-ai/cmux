@@ -214,7 +214,9 @@ const claudePlanAcceptEdits: AcpmuxPermission = {
 const keepPlanningNote: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Keep planning" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-feedback textarea"));
-  await ctx.type("Keep the retry inside uploadChunk; no new module.", { selector: ".acpmux-permission-feedback textarea" });
+  await ctx.type("Keep the retry inside uploadChunk; no new module.", {
+    selector: ".acpmux-permission-feedback textarea",
+  });
 };
 
 /// Grok's plan approval as acpmux builds it (hub xai.rs): "Ready to code?" with the plan.

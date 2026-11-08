@@ -124,11 +124,31 @@ fn mode_updates(out: &[Message]) -> Vec<String> {
         .collect()
 }
 
+/// The `mode` config option a `config_option_update` carries, if any.
+fn mode_options(out: &[Message]) -> Vec<String> {
+    out.iter()
+        .filter_map(|m| match m {
+            Message::Notification { params, .. } => params
+                .as_ref()
+                .and_then(|p| p.pointer("/update"))
+                .filter(|u| u["sessionUpdate"] == "config_option_update")
+                .and_then(|u| u["configOptions"].as_array())
+                .and_then(|o| o.iter().find(|o| o["id"] == "mode"))
+                .and_then(|o| o["currentValue"].as_str().map(str::to_owned)),
+            _ => None,
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn a_status_line_naming_a_new_mode_moves_the_chats_mode_once() {
     let t = Translator::new("acp-1".into(), "plan", "haiku", "default");
-    assert_eq!(mode_updates(&t.inbound(&status("acceptEdits")).await), ["acceptEdits"]);
+    let out = t.inbound(&status("acceptEdits")).await;
+    assert_eq!(mode_updates(&out), ["acceptEdits"]);
+    // The `mode` option moves with it, so a restore that replays options keeps Accept edits.
+    assert_eq!(mode_options(&out), ["acceptEdits"]);
     assert_eq!(*t.mode.lock().await, "acceptEdits");
     // The same mode again says nothing new.
-    assert!(mode_updates(&t.inbound(&status("acceptEdits")).await).is_empty());
+    let again = t.inbound(&status("acceptEdits")).await;
+    assert!(mode_updates(&again).is_empty() && mode_options(&again).is_empty());
 }

@@ -950,12 +950,21 @@ impl Translator {
                 // follows, so the hub's checks (the remote floor, the full-access bound) and the
                 // pane's mode menu read what Claude Code runs.
                 if let Some(mode) = line.get("permissionMode").and_then(Value::as_str) {
-                    let mut current = self.mode.lock().await;
-                    if *current != mode {
-                        *current = mode.to_owned();
+                    let moved = {
+                        let mut current = self.mode.lock().await;
+                        let moved = *current != mode;
+                        if moved {
+                            *current = mode.to_owned();
+                        }
+                        moved
+                    };
+                    // The chat's `mode` option moves too: a restore replays the saved options
+                    // after the saved mode, so a stale `mode: plan` there would win.
+                    if moved {
                         out.push(upd(
                             json!({"sessionUpdate": "current_mode_update", "currentModeId": mode}),
                         ));
+                        out.push(upd(json!({"sessionUpdate": "config_option_update", "configOptions": self.config_options_value().await})));
                     }
                 }
             }

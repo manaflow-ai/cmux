@@ -522,6 +522,15 @@ fn unsandboxed_refusal(session: &Session, meta: &crate::store::SessionMeta) -> O
     })
 }
 
+/// A Web permission answer that would also move the chat's mode (`mode`, one that does not ask):
+/// a plan approval's Approve and auto-accept edits (claude_stdio `PLAN_ACCEPT_EDITS`).
+pub(crate) fn mode_move_refused(mode: &str) -> RpcError {
+    RpcError::invalid_params(format!(
+        "a paired device can allow once or deny only; this answer also switches the chat to {mode}, which does not ask, and is refused"
+    ))
+    .with_data(json!({"reason": "remote.mode_move_refused", "mode": mode}))
+}
+
 /// A Web permission answer that would grant more than this one request
 /// (an `allow_always` or `reject_always` option, or the chat allowance).
 pub(crate) fn lasting_grant_refused(what: &str) -> RpcError {

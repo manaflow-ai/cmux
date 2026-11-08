@@ -190,7 +190,10 @@ export function PermissionCard({
     deny: denyOption,
     acceptEdits,
     others,
-  } = useMemo(() => permissionAnswers(permission.options, Boolean(permission.plan)), [permission.options, permission.plan]);
+  } = useMemo(
+    () => permissionAnswers(permission.options, Boolean(permission.plan)),
+    [permission.options, permission.plan],
+  );
   const alwaysScope = allowAlways && alwaysAllowScope(permission, allowAlways);
   const scopeText = external ? undefined : permissionScopeText(permission, t);
   /// The one scope line: the target the ask covers, then the Always allow rule.

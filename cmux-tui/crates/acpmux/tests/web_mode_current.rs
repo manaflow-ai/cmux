@@ -770,7 +770,7 @@ async fn a_paired_device_cannot_pick_a_plan_answer_that_moves_the_mode() {
     let (pid, nonce, inst) = pending_ask(&mut local, &s, 0).await;
     let sig = phone_signature(&key, &inst, &s, &pid, "acceptEdits", &nonce, exp);
     let r = web.call(respond, phone_allow(&s, &pid, "acceptEdits", &nonce, exp, &sig)).await;
-    assert_eq!(reason(&r), "remote.lasting_grant_refused", "{r}");
+    assert_eq!(reason(&r), "remote.mode_move_refused", "{r}");
     let r = web.call(respond, json!({"sessionId": s, "permissionId": pid, "optionId": "no"})).await;
     assert!(r.get("error").is_none(), "a deny: {r}");
     assert!(turns.reply(turn).await.get("error").is_none());
