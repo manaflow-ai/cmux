@@ -406,9 +406,11 @@ button.cv-agentmsg__name:focus-visible {
   margin-inline-start: var(--grid-gap);
 }
 /* A received message in the one row (IncomingMessageCard.tsx): its sender part is the name chip and
-   the machine after it, the mark is in the row's icon column. */
+   the machine after it, the mark is in the row's icon column. It fills that column, its glyph
+   centred, so its box is the tool rows' icon box whatever size the sender icon draws at
+   (SenderIcon.tsx sizes itself 12px; transcript-meta-columns-browser.test.ts). */
 .cv-agentmsg.cv-received .cv-agentmsg__icon > .cv-received__mark {
-  width: auto;
+  width: 100%;
   margin: 0;
 }
 .cv-agentmsg__sentence > .cv-received__sender {
