@@ -82,6 +82,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     public var showsPanelGlass: Bool { !backdrop.isHidden }
     /// The glass plate under the message box (see-through styles), in this view's coordinates; nil without one.
     public var composerPlate: NSRect? { plate.isHidden ? nil : plate.frame }
+    /// The corner radius the panel draws now (0 docked).
+    public var shapeCornerRadius: CGFloat { body.layer?.cornerRadius ?? 0 }
     /// The Chief view this panel shows now; nil while it is in Home's pane.
     public private(set) weak var chief: NSView?
 
