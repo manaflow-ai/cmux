@@ -278,11 +278,24 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onAppLink = newValue }
     }
 
-    /// cmux: a click on an agent's pill in an agents row: the host opens that agent's chat (the agent's
-    /// id, `a12`). Nil: a click on the row opens and closes its messages.
-    public var onAgentPill: ((String) -> Void)? {
+    /// cmux: a click on an agent's pill in an agents row: the host opens that agent (the agent's id, `a12`,
+    /// and the pill's frame in window coordinates, for a card over it). Nil: a click on the row opens and
+    /// closes its messages.
+    public var onAgentPill: ((String, CGRect) -> Void)? {
         get { controller.onAgentPill }
         set { controller.onAgentPill = newValue }
+    }
+
+    #if DEBUG
+    /// cmux: agent `peer`'s drawn pill in window coordinates, nil when none shows (`debug.home.drive`).
+    public func debugAgentPillFrame(_ peer: String) -> CGRect? { controller.debugAgentPillFrame(peer) }
+    #endif
+
+    /// cmux: the context menu of an agent's pill (its id): the host's items for that agent, such as Start now
+    /// on a queued one. None or nil: the message's own menu.
+    public var agentPillMenu: ((String) -> [NSMenuItem])? {
+        get { controller.agentPillMenu }
+        set { controller.agentPillMenu = newValue }
     }
 
     /// cmux: the pointer moved over the transcript, in screen coordinates (nil: it left). The

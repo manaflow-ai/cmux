@@ -317,7 +317,7 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
     await settle(page);
     // The message opens to its text first (its line is the click), as in the recording. Opened at
     // the end it grows down (Codex parity), so the view goes back to the latest row after it.
-    await page.click('[data-row-id="msg"] .cv-disclosure__toggle');
+    await page.click('[data-row-id="msg"] .cv-agentmsg__toggle');
     await settle(page);
     await page.locator(".acpmux-scroll").evaluate((node) => {
       node.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));

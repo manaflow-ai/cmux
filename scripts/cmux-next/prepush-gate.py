@@ -434,41 +434,38 @@ def read_lock(lock: Path) -> dict[str, tuple[str, str, str, str]]:
     return rows
 
 
-GITHUB_RELEASE_DOWNLOAD = re.compile(r"https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)")
-
-
-def fetch(url: str, out: Path, accept: str | None = None) -> None:
-    request = urllib.request.Request(url)
-    if accept:
-        request.add_header("Accept", accept)
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if token and url.startswith("https://api.github.com/"):
-        # Unredirected: the asset's redirect goes to a signed storage URL, which must not get the token.
-        request.add_unredirected_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(request, timeout=120) as response, open(out, "wb") as sink:
-        shutil.copyfileobj(response, sink)
+def release_download():
+    """scripts/ci/github_release_download.py: the copy install-git-hooks.sh puts beside the hook's copy of this
+    file, else this checkout's, else None. None in a hook installed before it: that install's refresh_checks.py
+    rewrites this file from feat-cmux-next but copies nothing from scripts/ci (#38454 review)."""
+    name = "cmux_github_release_download"
+    if name not in sys.modules:
+        script = Path(__file__).with_name("github_release_download.py")
+        if not script.is_file():
+            script = Path(__file__).resolve().parent.parent / "ci" / "github_release_download.py"
+        if not script.is_file():
+            return None
+        spec = importlib.util.spec_from_file_location(name, script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        sys.modules[name] = module
+    return sys.modules[name]
 
 
 def download(url: str, archive: Path) -> None:
-    """The pinned archive at `url`. A GitHub release download that fails is fetched once more through the
-    release-assets API, which serves the same file another way (2026-11-08: every release download answered 504
-    for every PR's fast gates while the API served the same bytes). The caller's sha256 check judges either."""
-    try:
-        fetch(url, archive)
+    """The pinned archive at `url`, through the release-assets API when its GitHub release download fails
+    (github_release_download.py). The caller's sha256 check judges either."""
+    fetcher = release_download()
+    if fetcher is None:
+        log("prepush-gate: github_release_download.py is not installed, so a failed release download is not retried "
+            "through the release-assets API; rerun scripts/install-git-hooks.sh")
+        with urllib.request.urlopen(url, timeout=120) as response, open(archive, "wb") as out:
+            shutil.copyfileobj(response, out)
         return
-    except OSError as error:  # urllib.error.URLError and HTTPError are OSErrors
-        match = GITHUB_RELEASE_DOWNLOAD.fullmatch(url)
-        if not match:
-            raise
-        log(f"prepush-gate: {url} failed ({error}); fetching it through the release-assets API")
-    owner, repo, tag, name = match.groups()
-    listing = archive.with_suffix(".release.json")
-    fetch(f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}", listing, "application/vnd.github+json")
-    assets = json.loads(listing.read_text(encoding="utf-8")).get("assets") or []
-    asset = next((a for a in assets if a.get("name") == name), None)
-    if asset is None:
-        raise SystemExit(f"prepush-gate: release {owner}/{repo} {tag} has no asset {name}")
-    fetch(asset["url"], archive, "application/octet-stream")
+    try:
+        fetcher.download(url, archive, log=lambda message: log(f"prepush-gate: {message}"))
+    except fetcher.NoAsset as error:
+        raise SystemExit(f"prepush-gate: {error}") from error
 
 
 def ensure_tool(lock: Path, tool: str) -> Path:

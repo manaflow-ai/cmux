@@ -43,10 +43,6 @@ const AGENT_REPORT_REASON: &str = "The agent_report MCP tool owns dispatched bri
 /// viewer.
 const REVIEW_POST_REASON: &str = "Posting a pull request review publishes under the person's GitHub account: agents leave drafts with git_review_comment, and the person posts them from the diff viewer.";
 
-/// The diff page's review comments are the person's, kept for the diff
-/// viewer; an agent drafts on a pull request review with git_review_comment.
-const DIFF_COMMENTS_REASON: &str = "The diff viewer's comments are the person's, kept by the session host for the diff page; agents leave review drafts with git_review_comment.";
-
 /// Read and mutation operations the curated `cmux` CLI does not offer
 /// (`cmux-tui`-only scopes), with the reason. The parity test checks that
 /// `cmux` refuses each one too.
@@ -83,9 +79,6 @@ const KEYBINDINGS_REASON: &str = "Keybindings are the user's, edited from the Ke
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("agent.report", AGENT_REPORT_REASON),
     ("git.review.post", REVIEW_POST_REASON),
-    ("diff.comments.list", DIFF_COMMENTS_REASON),
-    ("diff.comments.save", DIFF_COMMENTS_REASON),
-    ("diff.comments.delete", DIFF_COMMENTS_REASON),
     ("settings.schema", SETTINGS_REASON),
     ("settings.get", SETTINGS_REASON),
     ("settings.snapshot", SETTINGS_REASON),
@@ -286,14 +279,18 @@ const AGENT_MESSAGE_UNSEND_REASON: &str = "Agent messages go through `cmux agent
      taking one back is `cmux agent message unsend`, beside the send it undoes.";
 
 const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
-const SESSION_REASON: &str =
-    "Session plumbing in the cmux-tui-only scope; the curated cmux CLI omits it.";
-const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon); \
-     cmux-tui-only, and the cmux CLI's `server` scope does not send it.";
-const SESSION_SETTING_REASON: &str = "A session-wide setting in the cmux-tui-only scope.";
+// The `session` and `client` scopes are on the `cmux` CLI too since #38290 (an agent in a
+// cmux-tui pane reads its topology and cleans up with the `cmux` on its PATH); they stay
+// off MCP, which the catalog test allows for these two scopes only.
+const SESSION_REASON: &str = "Session plumbing: the `session` scope of the CLI, not an MCP tool.";
+const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon): \
+     only the CLI's `session` scope sends it, never an MCP tool.";
+const SESSION_SETTING_REASON: &str =
+    "A session-wide setting: the `session` scope of the CLI, not an MCP tool.";
 const JOURNAL_REASON: &str =
-    "Session journal plumbing for producers and hooks in the cmux-tui-only scope.";
-const CLIENT_REASON: &str = "Connection-scoped client records in the cmux-tui-only scope.";
+    "Session journal plumbing for producers and hooks: the CLI's `session` scope, not MCP.";
+const CLIENT_REASON: &str =
+    "Connection-scoped client records: the `client` scope of the CLI, not an MCP tool.";
 const PROJECTION_REASON: &str = "Frontend projection records the app writes; cmux-tui-only.";
 const PAIRING_REASON: &str =
     "Device pairing approval: a person approves a pairing, never an agent; cmux-tui-only.";

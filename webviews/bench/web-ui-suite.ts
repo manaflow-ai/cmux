@@ -14,22 +14,39 @@ import fs from "node:fs";
 import path from "node:path";
 import { PERF_ROW_MARK, type PerfRow } from "./perfRow";
 
-type Bench = { name: string; file: string; args: string[]; env?: Record<string, string>; timeoutMs: number };
+type Bench = {
+  name: string;
+  file: string;
+  args: string[];
+  env?: Record<string, string>;
+  timeoutMs: number;
+};
 
 /// Short arguments; the timeouts sum to 29.5 minutes, under perf-cron.py's 30-minute cap on the suite.
 /// Not here: thread-minimap-frame-cost (an A/B check of the VS Code Minimap against its own 1 ms budget,
 /// which exits non-zero by design when over it; its rail frame cost is covered by thread-rail-jump),
 /// diff-stream (the diff-viewer part already runs it) and thread-rail-drag (an adapter, not a bench).
 export const BENCHES: readonly Bench[] = [
-  { name: "agent-activity-groups", file: "agent-activity-groups.bench.ts", args: ["5", "50"], timeoutMs: 120_000 },
-  { name: "edit-turns-stream", file: "edit-turns-stream.bench.ts", args: ["5", "100"], timeoutMs: 120_000 },
+  {
+    name: "agent-activity-groups",
+    file: "agent-activity-groups.bench.ts",
+    args: ["5", "50"],
+    timeoutMs: 120_000,
+  },
+  {
+    name: "edit-turns-stream",
+    file: "edit-turns-stream.bench.ts",
+    args: ["5", "100"],
+    timeoutMs: 120_000,
+  },
   {
     name: "transcript-view-rows",
     file: "transcript-view-rows.bench.ts",
     args: ["500", "500", "3"],
     timeoutMs: 120_000,
   },
-  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
+  // chat-open takes about 18 s on the perf runner (2026-11-08); 165 s leaves the suite's sum where it was.
+  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 165_000 },
   { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
   {
     name: "transcript-scroll-frame",
@@ -37,7 +54,12 @@ export const BENCHES: readonly Bench[] = [
     args: ["3000", "2"],
     timeoutMs: 240_000,
   },
-  { name: "thread-rail-jump", file: "thread-rail-jump.bench.ts", args: ["1000", "5"], timeoutMs: 150_000 },
+  {
+    name: "thread-rail-jump",
+    file: "thread-rail-jump.bench.ts",
+    args: ["1000", "5"],
+    timeoutMs: 150_000,
+  },
   { name: "ui-stability", file: "ui-stability.bench.ts", args: ["2"], timeoutMs: 240_000 },
   // A turn that ends while the reader is scrolled up: CLS, the anchor's drift and rows folded away.
   {
@@ -48,7 +70,20 @@ export const BENCHES: readonly Bench[] = [
   },
   // Recorded and generated acpmux logs played into the pane at top speed: shift on open and while streaming, work per
   // token as rows grow (its slope), long tasks, heap and idle CPU.
-  { name: "transcript-replay", file: "transcript-replay.bench.ts", args: ["--turns", "600"], timeoutMs: 150_000 },
+  {
+    name: "transcript-replay",
+    file: "transcript-replay.bench.ts",
+    args: ["--turns", "600"],
+    timeoutMs: 150_000,
+  },
+  // 500 chats on the History page and 500 live chats (one per workspace) on the New Tab page: scroll frame work,
+  // React per frame, mount and a row's press to its paint.
+  {
+    name: "all-chats-list",
+    file: "all-chats-list.bench.ts",
+    args: ["3", "500"],
+    timeoutMs: 90_000,
+  },
 ];
 
 export type Failure = { bench: string; why: string; tail: string[] };
@@ -107,7 +142,13 @@ async function run(bench: Bench) {
     proc.exited,
   ]);
   clearTimeout(timer);
-  return { stdout, stderr, exit, timedOut, seconds: Math.round((performance.now() - started) / 1000) };
+  return {
+    stdout,
+    stderr,
+    exit,
+    timedOut,
+    seconds: Math.round((performance.now() - started) / 1000),
+  };
 }
 
 async function main() {
