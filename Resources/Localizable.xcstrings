@@ -674190,6 +674190,360 @@
           }
         }
       }
+    },
+    "browser.import.warning.noCookiesFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cookies file found for %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُعثر على ملف ملفات تعريف الارتباط لـ %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Cookie-Datei für %@ gefunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró ningún archivo de cookies para %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun fichier de cookies trouvé pour %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のCookieファイルが見つかりません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 쿠키 파일을 찾을 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到 %@ 的 Cookie 文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到 %@ 的 Cookie 檔案。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesUnreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the Safari cookies file %@. %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذرت قراءة ملف ملفات تعريف ارتباط Safari %@. %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Safari-Cookie-Datei %@ konnte nicht gelesen werden. %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el archivo de cookies de Safari %@. %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire le fichier de cookies Safari %@. %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SafariのCookieファイル %@ を読み取れませんでした。%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari 쿠키 파일 %@을(를) 읽을 수 없습니다. %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取 Safari Cookie 文件 %@。%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取 Safari Cookie 檔案 %@。%@"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesUnreadableGeneric": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check that cmux has permission to read your Safari data, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحقق من أن cmux لديه إذن لقراءة بيانات Safari، ثم حاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfen Sie, ob cmux die Berechtigung hat, Ihre Safari-Daten zu lesen, und versuchen Sie es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprueba que cmux tenga permiso para leer tus datos de Safari y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifiez que cmux a l'autorisation de lire vos données Safari, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxにSafariのデータを読み取る権限があることを確認してから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에 Safari 데이터를 읽을 권한이 있는지 확인한 다음 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请确认 cmux 有权限读取你的 Safari 数据，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請確認 cmux 有權限讀取你的 Safari 資料，然後再試一次。"
+          }
+        }
+      }
+    },
+    "safari.cookies.parse.error.corrupted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Safari cookies file appears to be corrupted. Try re-exporting it from Safari, then import again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يبدو أن ملف ملفات تعريف ارتباط Safari تالف. أعد تصديره من Safari، ثم استورده مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Safari-Cookie-Datei scheint beschädigt zu sein. Exportieren Sie sie erneut aus Safari und importieren Sie sie dann noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo de cookies de Safari parece estar dañado. Vuelve a exportarlo desde Safari y luego impórtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de cookies Safari semble être corrompu. Exportez-le à nouveau depuis Safari, puis relancez l'importation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SafariのCookieファイルが破損しているようです。Safariから書き出し直して、もう一度読み込んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari 쿠키 파일이 손상된 것 같습니다. Safari에서 다시 내보낸 다음 다시 가져오세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari Cookie 文件似乎已损坏。请从 Safari 重新导出，然后再次导入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari Cookie 檔案似乎已損毀。請從 Safari 重新匯出，然後再次匯入。"
+          }
+        }
+      }
+    },
+    "safari.cookies.parse.error.invalidMagic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file isn't a recognizable Safari cookies file."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الملف ليس ملف ملفات تعريف ارتباط Safari يمكن التعرف عليه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei ist keine erkennbare Safari-Cookie-Datei."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este archivo no es un archivo de cookies de Safari reconocible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce fichier n'est pas un fichier de cookies Safari reconnaissable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは認識できるSafariのCookieファイルではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일은 인식할 수 있는 Safari 쿠키 파일이 아닙니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个文件不是可识别的 Safari Cookie 文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個檔案不是可辨識的 Safari Cookie 檔案。"
+          }
+        }
+      }
+    },
+    "safari.cookies.parse.error.tooShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Safari cookies file appears incomplete. Try re-exporting it from Safari, then import again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يبدو أن ملف ملفات تعريف ارتباط Safari غير مكتمل. أعد تصديره من Safari، ثم استورده مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Safari-Cookie-Datei scheint unvollständig zu sein. Exportieren Sie sie erneut aus Safari und importieren Sie sie dann noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo de cookies de Safari parece estar incompleto. Vuelve a exportarlo desde Safari y luego impórtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de cookies Safari semble incomplet. Exportez-le à nouveau depuis Safari, puis relancez l'importation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SafariのCookieファイルが不完全なようです。Safariから書き出し直して、もう一度読み込んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari 쿠키 파일이 불완전한 것 같습니다. Safari에서 다시 내보낸 다음 다시 가져오세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari Cookie 文件似乎不完整。请从 Safari 重新导出，然后再次导入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari Cookie 檔案似乎不完整。請從 Safari 重新匯出，然後再次匯入。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
