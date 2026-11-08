@@ -749,16 +749,13 @@ extension TerminalController {
         // ~1000 bytes, so this is reachable with a real session rather than only by abuse.
         // The socket name rides the same line (`tmux -L <name> -CC …`), so a named server
         // leaves fewer bytes for the session. Normalized as the host is, so `default` costs
-        // nothing, matching the command the connection will actually build. The second check
-        // measures that command as rendered, quoting included: a `'` in the name costs three
-        // extra bytes on the wire that a length-only bound never sees.
+        // nothing, matching the command the connection will actually build. The command is
+        // measured as rendered, quoting included: a `'` in the name costs three extra bytes on
+        // the wire that a length-only bound never sees. Same budget and same comparison as the
+        // spawn gate (``RemoteTmuxETTransportProfile/commandLengthOverrun(sessionName:mode:)``),
+        // so a name that exactly fills the line passes both or neither.
         if transport == .et {
             let socketName = RemoteTmuxSocketName.normalized(params["socket_name"] as? String)
-            if session.utf8.count > RemoteTmuxETTransportProfile.maxSessionNameBytes(
-                mode: mode, socketName: socketName
-            ) {
-                return nil
-            }
             let rendered = RemoteTmuxETTransportProfile.controlStreamRemoteCommand(
                 sessionName: session, mode: mode, socketName: socketName
             )

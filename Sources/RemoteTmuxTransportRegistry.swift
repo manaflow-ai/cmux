@@ -738,6 +738,11 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
     /// Derived from the command this profile actually builds rather than guessed, so it cannot
     /// drift away from it. tmux itself accepts names far longer than this — roughly 1000 bytes —
     /// which is why an unbounded name reached et and silently delivered nothing.
+    ///
+    /// Exact, not conservative: a name of this length renders to precisely
+    /// ``deliverableCommandBytes``, which ``commandLengthOverrun(sessionName:mode:)`` accepts.
+    /// It used to hold one byte back, so the socket boundary refused a name the spawn gate
+    /// would then have run.
     static func maxSessionNameBytes(
         mode: RemoteTmuxControlAttachMode = .attach,
         socketName: String? = nil
@@ -745,7 +750,7 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         let overhead = controlStreamRemoteCommand(
             sessionName: "", mode: mode, socketName: socketName
         ).utf8.count
-        return max(0, deliverableCommandBytes - overhead - 1)
+        return max(0, deliverableCommandBytes - overhead)
     }
 
     /// etserver's default port is 2022, not ssh's 22.

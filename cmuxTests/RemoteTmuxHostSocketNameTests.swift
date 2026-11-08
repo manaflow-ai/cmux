@@ -112,15 +112,19 @@ import Testing
         #expect(overrun?.budget == budget)
         // The same name fits a default-server line, which is 12 bytes shorter.
         #expect(RemoteTmuxETTransportProfile().commandLengthOverrun(sessionName: oneTooLong, mode: .attach) == nil)
-        // The boundary's pre-check derives its own limit; it may be conservative but never
-        // admits a name the spawn gate would refuse.
-        #expect(RemoteTmuxETTransportProfile.maxSessionNameBytes(socketName: "alpha") <= budget - fixed)
+        // The boundary's limit is the same figure, so the two gates agree byte for byte.
+        #expect(RemoteTmuxETTransportProfile.maxSessionNameBytes(socketName: "alpha") == budget - fixed)
     }
 
     /// The socket boundary's pre-check applies the same budget, so an over-long name for a named
     /// et server is refused as invalid params instead of timing out at attach.
     @Test func socketBoundaryCountsTheSocketNameInTheSessionLengthCheck() {
         let unnamedLimit = String(repeating: "n", count: RemoteTmuxETTransportProfile.maxSessionNameBytes())
+        // A name at the limit fills the line exactly, and both gates accept it: the boundary
+        // must not refuse a name the spawn gate would run.
+        #expect(RemoteTmuxETTransportProfile.controlStreamRemoteCommand(sessionName: unnamedLimit, mode: .attach)
+            .utf8.count == RemoteTmuxETTransportProfile.deliverableCommandBytes)
+        #expect(RemoteTmuxETTransportProfile().commandLengthOverrun(sessionName: unnamedLimit, mode: .attach) == nil)
         #expect(TerminalController.remoteTmuxSessionName(
             from: ["session": unnamedLimit], transport: .et, mode: .attach) == unnamedLimit)
         #expect(TerminalController.remoteTmuxSessionName(
@@ -139,6 +143,16 @@ import Testing
             from: ["session": quoted], transport: .et, mode: .attach) == nil)
         #expect(TerminalController.remoteTmuxSessionName(
             from: ["session": quoted], transport: .ssh, mode: .attach) == quoted)
+        // The same rendering check applies with the socket flag on the line.
+        let namedLimit = String(
+            repeating: "n", count: RemoteTmuxETTransportProfile.maxSessionNameBytes(socketName: "alpha"))
+        let namedQuoted = String(namedLimit.dropLast()) + "'"
+        #expect(TerminalController.remoteTmuxSessionName(
+            from: ["session": namedLimit, "socket_name": "alpha"], transport: .et, mode: .attach) == namedLimit)
+        #expect(TerminalController.remoteTmuxSessionName(
+            from: ["session": namedQuoted, "socket_name": "alpha"], transport: .et, mode: .attach) == nil)
+        #expect(TerminalController.remoteTmuxSessionName(
+            from: ["session": namedQuoted, "socket_name": "alpha"], transport: .ssh, mode: .attach) == namedQuoted)
     }
 
     @Test func socketBoundaryBuildsAndRefusesSocketNames() {
