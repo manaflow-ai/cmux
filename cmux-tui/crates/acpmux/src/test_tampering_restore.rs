@@ -110,11 +110,9 @@ pub(crate) fn restore(
     if current.len() as u64 > MAX_FILE {
         return Err(refused("file_too_large"));
     }
-    if old != new
-        && !new.is_empty()
-        && line_matches(&current, new).is_empty()
-        && line_matches(&current, old).len() == 1
-    {
+    // A deletion's retained context is also present inside the restored old block.
+    // Check that block first: matching the context again would insert the test twice.
+    if old != new && !new.is_empty() && line_matches(&current, old).len() == 1 {
         return Ok(json!({"restored": true, "alreadyRestored": true}));
     }
     let restored = replacement(&current, old, new)?;
@@ -371,6 +369,34 @@ mod tests {
         assert!(restore(dir.path(), &report, 0, 0).is_err());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn one_sided_deletion_restore_does_not_duplicate_the_test_on_retry() {
+        let context = "// retained boundary";
+        for old in [
+            "// retained boundary\n#[test]\nfn removed() { assert!(true); }",
+            "#[test]\nfn removed() { assert!(true); }\n// retained boundary",
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("tests.rs");
+            std::fs::write(&path, format!("{context}\n")).unwrap();
+            let report =
+                json!({"files":[{"path":"tests.rs","findings":[{"old":old,"new":context}]}]});
+            let first = restore(dir.path(), &report, 0, 0).unwrap();
+            let expected = format!("{old}\n");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+            assert_eq!(
+                std::fs::read_to_string(first["recoveryPath"].as_str().unwrap()).unwrap(),
+                format!("{context}\n")
+            );
+            assert_eq!(line_matches(&expected, context).len(), 1);
+            let second = restore(dir.path(), &report, 0, 0).unwrap();
+            assert_eq!(second, json!({"restored":true,"alreadyRestored":true}));
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+            assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+        }
+    }
+
     #[test]
     fn path_escape_is_refused() {
         let dir = tempfile::tempdir().unwrap();
@@ -494,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn already_restored_requires_one_exact_old_block_and_no_new_block() {
+    fn old_block_matches_are_exact_and_line_bounded() {
         assert_eq!(line_matches("old\nold\n", "old").len(), 2);
         assert!(line_matches("prefix old\n", "old").is_empty());
         assert_eq!(line_matches("old\n", "old").len(), 1);
