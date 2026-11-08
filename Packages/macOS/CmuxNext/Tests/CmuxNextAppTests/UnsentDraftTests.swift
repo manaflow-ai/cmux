@@ -58,7 +58,7 @@ struct UnsentDraftTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
         let drafts = AgentUnsentDrafts(file: file, files: files)
-        drafts.windowOfTab = { $0 == "tab-1" || $0 == "tab-2" ? "window-1" : nil }
+        drafts.windowOfTab = { key, _ in key == "tab-1" || key == "tab-2" ? "window-1" : nil }
         let model = AgentPaneModel(host: MockAgentPaneHost())
         drafts.wire(model) { "tab-1" }
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "typed here"]))
@@ -83,7 +83,7 @@ struct UnsentDraftTests {
         // window's slot with the same text is never its to give up.
         relaunched.leave("second", inWindow: "window-2")
         let page = AgentPaneModel(host: MockAgentPaneHost())
-        relaunched.windowOfTab = { $0 == "tab-5" ? "window-2" : "window-1" }
+        relaunched.windowOfTab = { key, _ in key == "tab-5" ? "window-2" : "window-1" }
         relaunched.wire(page) { "tab-3" }
         #expect(page.newTabForPage == nil, "only a New Tab page gets it")
         // A New Tab page its host gave none (a workspace's first page, a restored one) reads its window's.
