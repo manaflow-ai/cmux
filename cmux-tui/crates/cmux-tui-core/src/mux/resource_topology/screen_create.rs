@@ -15,8 +15,10 @@ impl Mux {
         cwd: Option<String>,
         argv: Option<Vec<String>>,
         size: Option<(u16, u16)>,
-        focus: bool,
     ) -> anyhow::Result<CreatedTerminalEffect> {
+        // Absent only on the daemon's and the user's own new screens: the
+        // resource router sends `focus: false` for a caller that did not ask.
+        let focus = intent["fields"][SCREEN_CREATE_FOCUS_FIELD].as_bool().unwrap_or(true);
         let workspace_key = self
             .with_state(|state| state.workspace_by_id(workspace).map(|item| item.key.clone()))
             .with_context(|| format!("workspace {workspace} disappeared"))?;

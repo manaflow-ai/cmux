@@ -443,9 +443,9 @@ pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
             "--index",
             &index,
         ]);
-        backend
-            .request(None, plan(&step_words, Some(step_key(command_key, &step)))?)
-            .map_err(|failure| step_failure(failure, &step, made(&moved[..offset])))?;
+        backend.request(None, plan(&step_words, Some(step_key(command_key, &step)))?).map_err(
+            |failure| step_failure(failure, &step, made(moved.get(..offset).unwrap_or_default())),
+        )?;
     }
     if let Some(placeholder) = &placeholder {
         let close = words(&["tab", placeholder, "close"]);
