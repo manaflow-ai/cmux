@@ -75,6 +75,10 @@ describe("runbook steps", () => {
       "echo hello \\\nworld",
     );
     expect(runnableCommand("console", "$ cat <<EOF\n> one\n> EOF\none")).toBe("cat <<EOF\none\nEOF");
+    // Output is never run: a `> ` line after a finished command, a `# ` line, and an open quote's end.
+    expect(runnableCommand("console", "$ printf ok\n> echo side-effect\n# rm -rf /\nok")).toBe("printf ok");
+    expect(runnableCommand("console", "$ echo 'a\n> b'\na\nb\n> c")).toBe("echo 'a\nb'");
+    expect(runnableCommand("console", '$ echo "it\'s" # note\n> out')).toBe('echo "it\'s" # note');
   });
 
   test("the Run button asks before destructive commands only", () => {
@@ -95,6 +99,8 @@ describe("runbook steps", () => {
       "bash -c 'rm -rf /'",
       'sh -c "sudo make install"',
       "echo $(rm -rf build)",
+      "git push \\\n  --force origin main",
+      "rm \\\n  -rf build",
     ])
       expect(runAsks(command)).toBe(true);
     for (const command of [

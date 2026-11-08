@@ -71,10 +71,9 @@ export function MarkdownPage({
   const { t } = strings;
   // Whether the document has a runnable step: read once per document (a load, a reload or another
   // file), never per keystroke. A block typed into the open document counts after the next load.
-  const runnable = useMemo(
-    () => !!onRunAll && hasRunbookSteps(state.config?.text ?? ""),
-    [onRunAll, state.config?.text],
-  );
+  // A recovered draft is what the editor shows, so it decides.
+  const shownText = state.config?.recoveredText ?? state.config?.text ?? "";
+  const runnable = useMemo(() => !!onRunAll && hasRunbookSteps(shownText), [onRunAll, shownText]);
 
   if (state.phase === "empty" && emptyState) return emptyState();
 

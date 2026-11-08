@@ -28,27 +28,53 @@ export function isRunnableLanguage(language: string): boolean {
 
 /**
  * The command a block runs: its text as written, or for a session block (`console`) only its prompt
- * lines (`$ ` or `% `), without the prompt and without the output lines. A `> ` line right after a
- * command line is the shell's continuation prompt (an open quote, a heredoc, a trailing `\\`): its
- * `> ` goes too, so it never runs as a redirection. Empty when nothing runs.
+ * lines (`$ ` or `% `), without the prompt and without the output lines. A line counts as more of the
+ * command only while the shell would still read it (a trailing `\\`, an open quote, an open
+ * heredoc), and then its `> ` continuation prompt goes, so it never runs as a redirection. Any other
+ * line, `# ` and `> ` ones too, is output. Empty when nothing runs.
  */
 export function runnableCommand(language: string, text: string): string {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   if (!SESSION_LANGUAGES.has(fenceLanguage(language))) return lines.join("\n").trim();
   const commands: string[] = [];
-  let inCommand = false;
-  let continued = false;
+  let open: ShellOpen = { quote: null, heredoc: null, escaped: false };
   for (const line of lines) {
-    const prompt = /^\s*[$%#]\s+(.*)$/.exec(line);
-    const secondary = inCommand ? /^\s*>\s?(.*)$/.exec(line) : null;
-    if (prompt || secondary || continued) {
-      const command = prompt ? prompt[1]! : secondary ? secondary[1]! : line;
-      commands.push(command);
-      inCommand = true;
-      continued = /\\\s*$/.test(command);
-    } else inCommand = false;
+    const continued = open.quote !== null || open.heredoc !== null || open.escaped;
+    const prompt = continued ? null : /^\s*[$%]\s+(.*)$/.exec(line);
+    if (!prompt && !continued) continue;
+    const command = prompt ? prompt[1]! : line.replace(/^\s*>\s?/, "");
+    commands.push(command);
+    open = shellOpen(command, open);
   }
   return commands.join("\n").trim();
+}
+
+/** What a shell still waits for after a line: the end of a quote or of a heredoc, or a next line. */
+interface ShellOpen {
+  quote: "'" | '"' | null;
+  heredoc: string | null;
+  escaped: boolean;
+}
+
+function shellOpen(line: string, before: ShellOpen): ShellOpen {
+  if (before.heredoc !== null)
+    return { ...before, heredoc: line.trim() === before.heredoc ? null : before.heredoc, escaped: false };
+  let quote = before.quote;
+  let heredoc: string | null = null;
+  for (let at = 0; at < line.length; at++) {
+    const char = line[at]!;
+    if (quote === "'") {
+      if (char === "'") quote = null;
+    } else if (char === "\\") at++;
+    else if (quote === '"') {
+      if (char === '"') quote = null;
+    } else if (char === "'" || char === '"') quote = char;
+    else if (char === "#" && (at === 0 || /\s/.test(line[at - 1]!))) break;
+    else if (char === "<" && line[at + 1] === "<" && line[at + 2] !== "<") {
+      heredoc = /^<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1/.exec(line.slice(at))?.[2] ?? heredoc;
+    }
+  }
+  return { quote, heredoc, escaped: quote === null && /\\$/.test(line) };
 }
 
 /** Why the agent, or the Run button, asks before a step runs. */
@@ -92,6 +118,8 @@ const DECISION = /\b(if|unless|otherwise|depending|choose|either|whether|in case
 /** The risks of one step: its command, and the prose that leads into it. */
 export function stepRisks(command: string, lead = ""): StepRisk[] {
   const risks: StepRisk[] = [];
+  // A `\\` line continuation joins one command (`git push \\` then `--force`): match it as one line.
+  command = command.replace(/\\\r?\n\s*/g, " ");
   if (DESTRUCTIVE.some((pattern) => pattern.test(command))) risks.push("destructive");
   if (CREDENTIALS.some((pattern) => pattern.test(command))) risks.push("credentials");
   if (DECISION.test(lead)) risks.push("decision");
