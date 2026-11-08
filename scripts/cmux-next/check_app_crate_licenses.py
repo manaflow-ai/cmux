@@ -65,6 +65,7 @@ FIRST_PARTY_GPL = {
     "cmux-remote-browser",
     "cmux-sdk",
     "cmux-sdk-ffi",
+    "cmux-terminal-prediction",
     "cmux-window-rules",
 }
 

@@ -25,6 +25,8 @@
 //! (include/cmux_daemon_launch.h).
 //! `sdk` is the daemon client the `cmux` CLI uses (the cmux SDK), as a C ABI
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
+//! `terminal_prediction` is predictive local echo for a terminal whose shell runs
+//! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
 
 pub mod hover;
 pub mod motion;
@@ -39,3 +41,4 @@ pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_rd_ffi as rd;
 pub use cmux_sdk_ffi as sdk;
+pub use cmux_terminal_prediction::ffi as terminal_prediction;
