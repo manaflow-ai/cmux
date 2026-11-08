@@ -7239,8 +7239,3 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   color: var(--agent-muted);
   white-space: nowrap;
 }
-/* The answer's letter after its label (permissions/Panel.tsx), as the single card's keycaps. */
-.acpmux-ask-action .acpmux-keycap {
-  margin: 0 0 0 var(--ds-space-2);
-  line-height: 16px;
-}

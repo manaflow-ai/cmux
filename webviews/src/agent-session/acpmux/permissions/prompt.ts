@@ -3,7 +3,7 @@
 // as "bash -c '"), the command clamped to its first meaningful line with the full text one click
 // away, and three answers mapped onto the options the agent offered. Leo 2026-10-21: the card
 // drew a "bash -c '" title over the whole script and two list rows ("THIS IS NOT THE CORRECT UI").
-import { composerHasDraft, composerPromptOf, composerText } from "../composerTyped";
+import { composerHasDraft, composerPromptOf, promptHoldsDraft } from "../composerTyped";
 import type { Translate } from "../i18n";
 import type { AcpmuxPermission } from "../model";
 
@@ -215,10 +215,10 @@ export function permissionKeyAction(
   const nowhere = !element || element === doc?.body || element === doc?.documentElement;
   const letter = event.key.length === 1 ? PERMISSION_LETTERS[event.key.toLowerCase()] : undefined;
   // The composer with nothing typed is the ask's: its Return would send nothing and its Esc would
-  // only arm Stop. One typed character and the composer keeps every key.
+  // only arm Stop. One typed character or attached file and the composer keeps every key.
   const prompt = inCard ? null : composerPromptOf(element);
   if (prompt) {
-    if (feedbackOpen || composerText(prompt) !== "") return undefined;
+    if (feedbackOpen || promptHoldsDraft(prompt)) return undefined;
     if (event.key === "Enter") return "allow_once";
     if (event.key === "Escape") return "deny";
     return letter;

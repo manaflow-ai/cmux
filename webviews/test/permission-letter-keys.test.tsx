@@ -110,6 +110,18 @@ test("a half-written prompt keeps every key: typing yes into a draft never answe
   expect(["y", "a", "n"].map((name) => key(name, doc.body))).toEqual([undefined, undefined, undefined]);
 });
 
+test("a composer holding only attached files keeps every key too", () => {
+  const card = doc.createElement("fieldset");
+  const key = (name: string, target: Element) => permissionKeyAction({ key: name, target, ...plain }, card, false);
+  editor.setAttribute("data-draft-attachments", "");
+  try {
+    expect(["y", "a", "n", "Enter", "Escape"].map((name) => key(name, editor))).toEqual(Array(5).fill(undefined));
+    expect(["y", "a", "n"].map((name) => key(name, doc.body))).toEqual([undefined, undefined, undefined]);
+  } finally {
+    editor.removeAttribute("data-draft-attachments");
+  }
+});
+
 async function mountCard(permission: AcpmuxPermission) {
   const root = createRoot(host);
   const answers: string[] = [];

@@ -6,7 +6,6 @@ import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/toolRowModel";
 import { permissionDiffs, shellCommand } from "../direct";
 import { useT, type StringKey } from "../i18n";
-import { Keycap } from "../Keycap";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import { errorMessage } from "../transportErrors";
 import type { PermissionClientState, PermissionDecision, PermissionGroupItem } from "./protocol";
@@ -271,7 +270,8 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
   const receipt = pending.length === 0 && working && answered !== ended ? last : undefined;
   if (!pending.length && !receipt && !state.error) return null;
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
-  // The group the keys answer (respondToPending): the first one waiting, which shows the letters.
+  // The group the keys answer (respondToPending): the first one waiting, whose answers list the
+  // letters. No keycap is drawn: the pending command is one quiet row (Leo 2026-10-14), its answers small.
   const keyed = pending.find((group) => group.state === "pending");
   // acpmux refuses this reader's group allows (a chat on another machine, whose daemon allows only
   // from its own app): no Allow or Always that cannot count, and the reason in plain words.
@@ -303,7 +303,6 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
                     onClick={() => onRespond(group.groupId, group.revision, decision)}
                   >
                     {t(label)}
-                    {group === keyed && <Keycap>{LETTERS[decision].toUpperCase()}</Keycap>}
                   </button>
                 ))}
             </div>

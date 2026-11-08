@@ -23,7 +23,7 @@ import {
   type CardInput,
   type CardState,
 } from "./cardState";
-import { composerHasDraft, composerText } from "../composerTyped";
+import { composerHasDraft, promptHoldsDraft } from "../composerTyped";
 import "../needsYou/needsYou.css";
 import { HtmlPreview } from "./HtmlPreview";
 import { inlineText, plainText } from "./inlineText";
@@ -148,7 +148,7 @@ function keyboardIsIdle(document: Document): boolean {
   const active = document.activeElement;
   if (!active || active === document.body) return !composerHasDraft(document);
   const composer = active.closest(".acpmux-composer-prompt");
-  return composer !== null && composerText(composer) === "";
+  return composer !== null && !promptHoldsDraft(composer);
 }
 
 function enterReply(question: AgentQuestion, state: CardState): string | undefined {

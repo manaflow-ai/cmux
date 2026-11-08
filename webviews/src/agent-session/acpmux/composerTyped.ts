@@ -5,14 +5,20 @@
 /// The prompt's typed text, without the placeholder MarkdownField keeps beside the editor.
 export const composerText = (composer: Element) => composer.querySelector(".acpmux-md-root")?.textContent?.trim() ?? "";
 
+/// Whether a composer prompt holds a draft: typed text, or files attached (or still being read).
+export function promptHoldsDraft(composer: Element): boolean {
+  return composerText(composer) !== "" || composer.querySelector("[data-draft-attachments]") !== null;
+}
+
 /// The composer prompt `element` types into (its editor, under MarkdownField's root), if it is one.
 export function composerPromptOf(element: Element | null): Element | null {
   return element?.closest(".acpmux-md-root")?.closest(".acpmux-composer-prompt") ?? null;
 }
 
-/// Whether the page's composer holds a draft: text in the prompt, or a command in its shell field.
+/// Whether the page's composer holds a draft: in the prompt (promptHoldsDraft), or a command in its
+/// shell field.
 export function composerHasDraft(document: Document): boolean {
   const composer = document.querySelector(".acpmux-composer-prompt");
   const shell = document.querySelector<HTMLTextAreaElement>(".acpmux-shell-field");
-  return (composer !== null && composerText(composer) !== "") || Boolean(shell?.value.trim());
+  return (composer !== null && promptHoldsDraft(composer)) || Boolean(shell?.value.trim());
 }
