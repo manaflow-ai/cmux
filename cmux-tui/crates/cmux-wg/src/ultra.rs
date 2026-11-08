@@ -235,6 +235,9 @@ pub struct UltraCounters {
     pub recovered: AtomicU64,
     /// Repair bytes sent beyond the data itself.
     pub overhead_bytes: AtomicU64,
+    /// Bytes of the datagrams themselves, once each: the base the repair
+    /// bytes are an overhead on.
+    pub data_bytes: AtomicU64,
 }
 
 /// A snapshot of [`UltraCounters`].
@@ -245,6 +248,7 @@ pub struct UltraStats {
     pub parity_received: u64,
     pub recovered: u64,
     pub overhead_bytes: u64,
+    pub data_bytes: u64,
 }
 
 impl UltraCounters {
@@ -255,6 +259,7 @@ impl UltraCounters {
             parity_received: self.parity_received.load(Ordering::Relaxed),
             recovered: self.recovered.load(Ordering::Relaxed),
             overhead_bytes: self.overhead_bytes.load(Ordering::Relaxed),
+            data_bytes: self.data_bytes.load(Ordering::Relaxed),
         }
     }
 
@@ -613,6 +618,7 @@ impl UltraUnderlay {
 
     fn send_with(&mut self, datagram: &[u8], priority: Option<Priority>) {
         self.forward(datagram, priority);
+        UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
         match self.mode {
             UltraMode::Off => {}
             UltraMode::Duplicate { copies } => {

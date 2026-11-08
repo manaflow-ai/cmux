@@ -563,15 +563,17 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
 fn ultra_note(viewer: &WgNet, host: &WgNet) -> String {
     let (viewer, host) = (viewer.ultra_stats(), host.ultra_stats());
     format!(
-        "ultra {:?}: host parity {} copies {} overhead {} B rebuilt {}, viewer parity {} copies {} overhead {} B rebuilt {}",
+        "ultra {:?}: host parity {} copies {} overhead {} B of {} B rebuilt {}, viewer parity {} copies {} overhead {} B of {} B rebuilt {}",
         cmux_wg::UltraMode::from_env(),
         host.parity_sent,
         host.copies_sent,
         host.overhead_bytes,
+        host.data_bytes,
         host.recovered,
         viewer.parity_sent,
         viewer.copies_sent,
         viewer.overhead_bytes,
+        viewer.data_bytes,
         viewer.recovered,
     )
 }
