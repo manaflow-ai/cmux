@@ -19,12 +19,9 @@ export function cardOfHash(hash: string): string | null {
   return match ? match[1]! : null;
 }
 
-/** The attribute that marks a card's click-only control (Confirm): the panel takes a click for it
- * only inside that control's frame (WebCardPanel.isPersonClick). */
-export const PERSON_CLICK_ATTRIBUTE = "data-person-click";
-
-/** Reports `ref`'s size, and its click-only control's frame, to the panel whenever either changes
- * (the first layout included). */
+/** Reports `ref`'s size to the panel whenever it changes (the first layout included). A card's
+ * click-only control (Confirm) is not the page's: the panel lays it out in its own native footer
+ * under the page (WebCardPanel's PersonControl), so the size covers only the content above it. */
 export function useCardSize(client: PageClient | null, card: string, ref: RefObject<HTMLElement | null>): void {
   const last = useRef("");
   const report = () => {
@@ -32,19 +29,14 @@ export function useCardSize(client: PageClient | null, card: string, ref: RefObj
     if (!client || !element) return;
     const width = Math.ceil(element.offsetWidth);
     const height = Math.ceil(element.offsetHeight);
-    const control = element.querySelector(`[${PERSON_CLICK_ATTRIBUTE}]`)?.getBoundingClientRect();
-    const guard =
-      control && control.width > 0
-        ? { x: control.x, y: control.y, width: control.width, height: control.height }
-        : null;
-    const key = JSON.stringify([width, height, guard]);
+    const key = JSON.stringify([width, height]);
     if (key === last.current || height === 0) return;
     last.current = key;
-    void client.call(CardOps.resize, { card, width, height, ...(guard ? { guard } : {}) }).catch(() => {});
+    void client.call(CardOps.resize, { card, width, height }).catch(() => {});
   };
   const latest = useRef(report);
   latest.current = report;
-  // Every render may move the control without changing the card's size (a step's footer).
+  // A step change may resize the card before the observer runs.
   useLayoutEffect(() => latest.current());
   useLayoutEffect(() => {
     const element = ref.current;

@@ -1,7 +1,8 @@
 // l10n-allow-file: the browser dev loop's stand-in host, not shipped UI.
 // An in-memory server card host for the browser dev loop (`/server-cards/?mock#/pair-invite`): the
-// invite mints a moment after the card opens, a machine arrives a few seconds later, and Confirm
-// pairs it. The server surfaces' ops (`#/server-panel`, `#/add-server`) go to MockServerOwner.
+// invite mints a moment after the card opens and a machine arrives a few seconds later. Confirm is
+// the app panel's native button, so the dev loop stops at the review. The server surfaces' ops
+// (`#/server-panel`, `#/add-server`) go to MockServerOwner.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { CardOps } from "./host";
 import { arrivedStatus, mintingStatus, showingStatus } from "./pairInvite/fixtures";
@@ -36,14 +37,8 @@ export class MockServerCardsHost implements PageClient {
           approver: { ...this.status.approver, runChief: (params as { on?: boolean }).on === true },
         });
         return null as R;
-      case PairInviteOps.confirm: {
-        const name = (params as { name?: string }).name || this.status.approver.candidate?.name || "";
-        this.update({ ...this.status, approver: { ...this.status.approver, step: "approving", canApprove: false } });
-        this.later(600, () =>
-          this.update({ ...this.status, approver: { ...this.status.approver, step: "added", added: name } }),
-        );
+      case PairInviteOps.setName:
         return null as R;
-      }
       case CardOps.resize:
       case CardOps.close:
         return null as R;

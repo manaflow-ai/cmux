@@ -64,10 +64,10 @@ final class ServerMenuBarController: NSObject {
         item = statusItem
     }
 
-    /// Removes the item and closes its popover and Add Server card.
+    /// Removes the item and closes its popover and cards (Add Server; an open invite's session ends).
     func hide() {
         popover?.close()
-        if cards?.card == ServerPageProvider.route { cards?.dismiss() }
+        cards.take()?.dismiss()
         if running { provider?.model.stop() }
         running = false
         if let item { NSStatusBar.system.removeStatusItem(item) }
