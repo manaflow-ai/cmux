@@ -257,7 +257,7 @@ import Testing
     @Test func thePreviewNamesTheClassicAppAndItsSave() {
         let nightly = ClassicImportPlan(source: source(createdAt: 1_793_946_417, bundle: "com.cmuxterm.app.nightly"),
                                         migration: ClassicMigrationPlan(), classicRunning: true)
-        #expect(nightly.source == .nightly && nightly.source.appName == "cmux NIGHTLY")
+        #expect(nightly.source.appName == "cmux NIGHTLY" && nightly.source.fileName == "session-com.cmuxterm.app.nightly.json")
         #expect(nightly.savedAt == 1_793_946_417 && nightly.classicRunning)
         let stable = ClassicImportPlan(source: source(createdAt: 1), migration: ClassicMigrationPlan())
         #expect(stable.source.appName == "cmux" && !stable.classicRunning)
