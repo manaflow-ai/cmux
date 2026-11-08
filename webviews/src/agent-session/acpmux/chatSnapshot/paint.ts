@@ -100,8 +100,14 @@ function adoptShadowSheets(root: ParentNode, sheets: CSSStyleSheet[]): void {
 }
 
 function restoreScroll(root: ParentNode): void {
-  // Reads after every write: one layout for the whole copy.
-  const scrolled = Array.from(root.querySelectorAll<HTMLElement>(`[${SNAPSHOT_SCROLL_ATTRIBUTE}]`));
+  // Reads after every write: one layout for the whole copy. The copy's shadow roots too (capture.ts
+  // `shadowTemplate` keeps their offsets).
+  const scrolled: HTMLElement[] = [];
+  const collect = (scope: ParentNode) => {
+    scrolled.push(...Array.from(scope.querySelectorAll<HTMLElement>(`[${SNAPSHOT_SCROLL_ATTRIBUTE}]`)));
+    for (const element of Array.from(scope.querySelectorAll("*"))) if (element.shadowRoot) collect(element.shadowRoot);
+  };
+  collect(root);
   for (const element of scrolled) {
     const [top, left] = (element.getAttribute(SNAPSHOT_SCROLL_ATTRIBUTE) ?? "").split(",").map(Number);
     element.scrollTop = top || 0;

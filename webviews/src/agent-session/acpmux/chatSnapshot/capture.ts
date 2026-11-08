@@ -60,6 +60,18 @@ function shadowTemplate(doc: Document, shadow: ShadowRoot): HTMLTemplateElement 
   const template = doc.createElement("template");
   template.setAttribute("shadowrootmode", "open");
   template.innerHTML = shadow.innerHTML;
+  // Scroll offsets are not markup: a scrolled block inside the root (a code or diff block scrolled
+  // sideways) keeps its offsets as the light DOM's do (``planFor``).
+  const live = Array.from(shadow.querySelectorAll("*"));
+  const copied = Array.from(template.content.querySelectorAll("*"));
+  if (live.length === copied.length)
+    live.forEach((element, index) => {
+      if (element.scrollTop > 0 || element.scrollLeft > 0)
+        copied[index]!.setAttribute(
+          SNAPSHOT_SCROLL_ATTRIBUTE,
+          `${Math.round(element.scrollTop)},${Math.round(element.scrollLeft)}`,
+        );
+    });
   for (const node of Array.from(template.content.querySelectorAll(DROPPED))) node.remove();
   return template;
 }

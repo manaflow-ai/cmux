@@ -94,25 +94,33 @@ const SNAPSHOT_HOLD_MS = 10_000;
 /// Ends the drawn copy's input watch (``reportChatSnapshot``) while one runs.
 let stopCopyInput: (() => void) | undefined;
 
-/// How long the rest of a consumed press (its pointerup and click) is swallowed at most.
-const SWALLOW_GESTURE_MS = 1_000;
+/// How long after a consumed press is released its click may still come: the click is sent in the
+/// same turn as the release, so this only ends the watch when none comes (a drag off the target).
+const SWALLOW_AFTER_RELEASE_MS = 100;
 
 /// Swallows the rest of the press that ended the copy: its pointerup, mouseup and click reach
-/// nothing, so the live control under the press never sees half a gesture. Ends at the click, or
-/// after ``SWALLOW_GESTURE_MS`` when no click comes (a drag).
+/// nothing, so the live control under the press never sees half a gesture, however long the press
+/// is held. Ends at the click after the release, or shortly after a release with no click (a drag),
+/// a pointercancel, or the window losing focus (the release then never comes).
 function swallowGesture(): void {
-  const names = ["pointerup", "mouseup", "click", "auxclick", "dblclick"] as const;
+  const names = ["pointerup", "mouseup", "click", "auxclick", "dblclick", "contextmenu"] as const;
+  let timer: number | undefined;
   const swallow = (event: Event) => {
     event.preventDefault();
     event.stopImmediatePropagation();
     if (event.type === "click" || event.type === "auxclick") done();
+    else if (event.type === "pointerup" && timer === undefined)
+      timer = window.setTimeout(done, SWALLOW_AFTER_RELEASE_MS);
   };
-  const timer = window.setTimeout(() => done(), SWALLOW_GESTURE_MS);
   const done = () => {
     window.clearTimeout(timer);
     for (const name of names) window.removeEventListener(name, swallow, true);
+    window.removeEventListener("pointercancel", done, true);
+    window.removeEventListener("blur", done);
   };
   for (const name of names) window.addEventListener(name, swallow, { capture: true });
+  window.addEventListener("pointercancel", done, { capture: true });
+  window.addEventListener("blur", done);
 }
 
 /// Called as the bundle starts: when the copy shows, the host shows the page now, in one frame and

@@ -295,6 +295,31 @@ requestAnimationFrame(() => {
     await context.close();
   });
 
+  test("a press on the copy held past a second still reaches nothing under it", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const before = await written(await context.newPage());
+    const page = await context.newPage();
+    await relaunched(page, before.snapshot, "theme-1", { holdDraw: true });
+    await page.evaluate(() => {
+      const w = window as any;
+      w.presses = [];
+      const allow = document.createElement("button");
+      allow.style.cssText = "position:fixed;left:100px;top:300px;width:200px;height:60px;";
+      for (const name of ["pointerdown", "pointerup", "click"])
+        allow.addEventListener(name, () => w.presses.push(name));
+      document.getElementById("root")!.append(allow);
+    });
+    await page.mouse.move(200, 330);
+    await page.mouse.down();
+    // fixed-wait: the press is held past the old 1 s cut-off on purpose; the hold length is the behavior.
+    await page.waitForTimeout(1_300);
+    await page.mouse.up();
+    expect(await page.evaluate(() => (window as any).presses)).toEqual([]);
+    await page.mouse.click(200, 330);
+    expect(await page.evaluate(() => (window as any).presses)).toEqual(["pointerdown", "pointerup", "click"]);
+    await context.close();
+  });
+
   test("once the live page took over, the first press reaches it", async () => {
     const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
     const before = await written(await context.newPage());
@@ -347,6 +372,36 @@ requestAnimationFrame(() => {
     })) as string;
     expect(html.startsWith('<main id="root">')).toBe(true);
     expect(html).not.toContain("opacity");
+    await context.close();
+  });
+
+  test("a block scrolled inside a shadow root draws at its offset", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const writer = await context.newPage();
+    await writer.route("http://chat.test/a.html", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: htmlDocument(`<main id="root">${MARKUP()}<div id="code"></div></main>`),
+      }),
+    );
+    await writer.goto("http://chat.test/a.html");
+    await writer.addScriptTag({ content: capture });
+    const snapshot = await writer.evaluate(() => {
+      const shadow = document.getElementById("code")!.attachShadow({ mode: "open" });
+      shadow.innerHTML = `<div class="wide" style="width:200px;overflow-x:auto;white-space:pre">${"x".repeat(400)}</div>`;
+      shadow.querySelector(".wide")!.scrollLeft = 150;
+      return (globalThis as any).captureSnapshot(document, "theme-1");
+    });
+    const page = await context.newPage();
+    await relaunched(page, snapshot, "theme-1", { holdDraw: true });
+    const left = await page.evaluate(
+      () =>
+        document
+          .querySelector("cmux-chat-snapshot")!
+          .shadowRoot!.querySelector("#code")!
+          .shadowRoot!.querySelector(".wide")!.scrollLeft,
+    );
+    expect(left).toBe(150);
     await context.close();
   });
 
