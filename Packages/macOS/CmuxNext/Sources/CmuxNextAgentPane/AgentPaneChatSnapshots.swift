@@ -84,8 +84,14 @@ public final class AgentPaneChatSnapshots {
 
     /// Forgets every copy (sign-out, with the tails).
     func clear() {
+        newest.removeAll()
         disk?.clear()
     }
+
+    /// The `savedAt` of the newest copy kept per chat this launch: two pages can show one chat, and a
+    /// copy one of them captured before the other's is never kept over it, whichever arrives last.
+    /// One number per chat written to this launch.
+    private var newest: [String: Double] = [:]
 
     /// The ops the page sends: `chat.snapshot.put {sessionId, html, ...}` (no `html` forgets it) and
     /// `chat.snapshot.get {sessionId}`, which answers the kept copy or null.
@@ -106,6 +112,11 @@ public final class AgentPaneChatSnapshots {
         guard allowed, pageGeneration == AgentPaneTailCache.shared.generation, AgentPaneTailCache.shared.acceptsTails
         else { return ["kept": .bool(false)] }
         body["sessionId"] = nil
+        // A copy captured before the one kept (another page of the same chat wrote since) is dropped.
+        if case .number(let savedAt)? = body["savedAt"] {
+            if let kept = newest[session], savedAt < kept { return ["kept": .bool(false)] }
+            newest[session] = savedAt
+        }
         // Typed: an untyped `nil` could read as `JSONValue.null` (ExpressibleByNilLiteral). With no
         // markup, the page's reason (`miss`) is kept in its place, for the next document's record.
         let kept: JSONValue? = if case .string? = body["html"] {

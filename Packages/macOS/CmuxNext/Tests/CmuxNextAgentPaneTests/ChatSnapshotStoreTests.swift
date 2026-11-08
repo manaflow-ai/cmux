@@ -28,10 +28,12 @@ struct ChatSnapshotStoreTests {
         try await body(disk)
     }
 
-    private static func put(_ session: String, html: String?, allowed: Bool = true) async throws {
+    @discardableResult
+    private static func put(_ session: String, html: String?, allowed: Bool = true, savedAt: Double? = nil) async throws -> JSONValue {
         var params: [String: JSONValue] = ["sessionId": .string(session), "v": .number(1), "width": .number(800)]
         if let html { params["html"] = .string(html) }
-        _ = try await AgentPaneTailCache.shared.snapshots.reply("chat.snapshot.put", params: .object(params), op: "cmux.agent.chat.snapshot.put",
+        if let savedAt { params["savedAt"] = .number(savedAt) }
+        return try await AgentPaneTailCache.shared.snapshots.reply("chat.snapshot.put", params: .object(params), op: "cmux.agent.chat.snapshot.put",
                                                           allowed: allowed, pageGeneration: AgentPaneTailCache.shared.generation)
     }
 
@@ -131,6 +133,21 @@ struct ChatSnapshotStoreTests {
             let reload = try #require(await Self.served(resources))
             #expect(reload.contains("<main>second</main>"))
             #expect(!reload.contains("<main>first</main>"))
+        }
+    }
+
+    /// Two pages of one chat: a copy captured before the one kept is dropped, whichever arrives last.
+    @Test func anOlderCaptureNeverReplacesANewerOne() async throws {
+        try await Self.withDisk { disk in
+            let newer = try await Self.put("s-10", html: "<main>newer</main>", savedAt: 2_000)
+            #expect(newer["kept"] == .bool(true))
+            let older = try await Self.put("s-10", html: "<main>older</main>", savedAt: 1_000)
+            #expect(older["kept"] == .bool(false))
+            await disk.settled()
+            #expect(try await Self.get("s-10")["html"]?.stringValue == "<main>newer</main>")
+            try await Self.put("s-10", html: "<main>newest</main>", savedAt: 3_000)
+            await disk.settled()
+            #expect(try await Self.get("s-10")["html"]?.stringValue == "<main>newest</main>")
         }
     }
 

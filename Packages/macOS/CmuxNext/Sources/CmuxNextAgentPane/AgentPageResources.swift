@@ -85,6 +85,8 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
             guard let script = await resource(for: request) else { return nil }
             // The script holds the chat's transcript: only the page's own document may run it, never
             // a cross-origin frame inside it (a localhost preview) loading it as a no-cors script.
+            // The WebKit answer; Chromium's shim adds the same two headers to every cmux-page answer
+            // (CEFShim cmux_page_path.h `PageResponseHeaders`), the ready one too.
             return PageRangedResource(status: 200, headers: ["Content-Type": "text/javascript", "Cache-Control": "no-store",
                                                              "Content-Length": String(script.data.count),
                                                              "Cross-Origin-Resource-Policy": "same-origin",

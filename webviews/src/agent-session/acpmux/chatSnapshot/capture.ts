@@ -30,10 +30,14 @@ function planFor(element: Element, viewHeight: number): Plan | undefined {
     plan = { drop: false, scroll: `${Math.round(element.scrollTop)},${Math.round(element.scrollLeft)}` };
   // By tag, not `instanceof`: the page's realm is not always this module's (a test's window).
   const tag = element.tagName;
-  // No field's text is written (``scrubFields``); a box's checked state is not text.
-  if (tag === "INPUT" && (element as HTMLInputElement).checked) {
-    plan ??= { drop: false };
-    plan.checked = true;
+  // No field's text is written (``scrubFields``); a box's checked state is not text. Both ways: a
+  // box checked in the markup and unchecked since keeps its `checked` attribute in a clone.
+  if (tag === "INPUT") {
+    const type = (element as HTMLInputElement).type;
+    if (type === "checkbox" || type === "radio") {
+      plan ??= { drop: false };
+      plan.checked = (element as HTMLInputElement).checked;
+    }
   }
   const shadow = element.shadowRoot;
   if (shadow) {
@@ -136,7 +140,8 @@ export function captureSnapshot(doc: Document, theme: string): ChatSnapshot | un
       return;
     }
     if (plan.scroll) element.setAttribute(SNAPSHOT_SCROLL_ATTRIBUTE, plan.scroll);
-    if (plan.checked) element.setAttribute("checked", "");
+    if (plan.checked === true) element.setAttribute("checked", "");
+    else if (plan.checked === false) element.removeAttribute("checked");
     if (plan.shadow) {
       const adopted = plan.shadow.adoptedStyleSheets ?? [];
       const indexes = adopted.map((sheet) => {

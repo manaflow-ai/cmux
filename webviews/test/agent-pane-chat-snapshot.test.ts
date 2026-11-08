@@ -328,6 +328,25 @@ requestAnimationFrame(() => {
     await context.close();
   });
 
+  test("a box's checked state is written as it shows, both ways", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const page = await context.newPage();
+    const boxes = `<input type="checkbox" id="was-on" checked><input type="checkbox" id="was-off">`;
+    await page.route("http://chat.test/a.html", (route) =>
+      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}${boxes}</main>`) }),
+    );
+    await page.goto("http://chat.test/a.html");
+    await page.addScriptTag({ content: capture });
+    const html = (await page.evaluate(() => {
+      (document.getElementById("was-on") as HTMLInputElement).checked = false;
+      (document.getElementById("was-off") as HTMLInputElement).checked = true;
+      return (globalThis as any).captureSnapshot(document, "theme-1").html;
+    })) as string;
+    expect(html).toContain('<input type="checkbox" id="was-on">');
+    expect(html).toContain('<input type="checkbox" id="was-off" checked="">');
+    await context.close();
+  });
+
   test("a copy drawn under another theme draws nothing", async () => {
     const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
     const before = await written(await context.newPage());
