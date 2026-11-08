@@ -610,7 +610,7 @@ import { PermissionPanel } from "./permissions/Panel";
 import { groupAskedCalls, withoutAskedCalls } from "./permissions/askRows";
 import { withoutQuietThoughts } from "./conversation/thoughts";
 import type { PermissionDecision } from "./permissions/protocol";
-import { planBuildTarget } from "./permissions/planBuild";
+import { planBuildTarget, planFanoutVariants } from "./permissions/planBuild";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
@@ -7415,10 +7415,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             ),
           "chat.plan.compare": ({ buildId, sessionId }) =>
             client.planCompare(String(buildId), typeof sessionId === "string" && sessionId ? sessionId : undefined),
-          "chat.plan.keep": ({ buildId, keep, sessionId }) =>
+          "chat.plan.keep": ({ buildId, keep, sessionId, removeOthers }) =>
             client.planKeep(
               String(buildId),
               String(keep),
+              typeof sessionId === "string" && sessionId ? sessionId : undefined,
+              removeOthers === true,
+            ),
+          "chat.plan.fanout": ({ prompt, variants, sessionId }) =>
+            client.planFanout(
+              String(prompt),
+              planFanoutVariants(variants),
               typeof sessionId === "string" && sessionId ? sessionId : undefined,
             ),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
@@ -10664,6 +10671,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // ⌘↩ on an empty prompt answers a waiting tagged ask's first answer (NextStepCard.tsx),
             // never while a question or permission card waits.
             onEmptyCommandReturn={hasBottomAsk ? undefined : nextStepFire?.fire}
+            // Run on N agents: the prompt on 2 to 4 agents, each a sub-session of this chat in its
+            // own worktree (`_acpmux/plan/fanout`); the chat's builds card compares them. Only from
+            // a chat that exists here: a new chat, the Quick Composer, Cloud and Sandboxed have none.
+            runOnAgents={
+              !quick && snapshot.sessionId && !cloudPicked && !sandboxing
+                ? {
+                    catalog: pickerCatalog,
+                    run: (text, variants) =>
+                      callNative("chat.plan.fanout", { prompt: text, variants, sessionId: snapshot.sessionId }),
+                  }
+                : undefined
+            }
             prompt={prompt}
             handle={composerRef}
             onUnplacedQuotes={composerUnplacedQuotes}

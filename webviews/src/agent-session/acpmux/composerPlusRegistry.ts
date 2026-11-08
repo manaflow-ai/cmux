@@ -45,6 +45,8 @@ export type ComposerPlusRegistryOptions = {
   translate?: Translate;
   canCapture?: boolean;
   canChooseProject?: boolean;
+  /** The composer can run its prompt on several agents (Composer.tsx `runOnAgents`). */
+  canRunOnAgents?: boolean;
   planMode?: { id: string; name: string; description: string };
   /** The commands picked last that this chat's agent advertises, most recent first (recentCommands.ts). */
   recentCommands?: readonly SlashCommand[];
@@ -58,6 +60,7 @@ const COMMANDS = {
   chooseProject: "composer.chooseProject",
   planMode: "composer.planMode",
   mention: "composer.mention",
+  runOnAgents: "composer.runOnAgents",
   commands: "composer.commands",
   searchFiles: "searchFiles",
 } as const;
@@ -147,6 +150,18 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       icon: "folder",
       keywords: ["project", "folder", "cwd", "workspace"],
       action: { kind: "command", id: COMMANDS.chooseProject },
+    });
+  }
+
+  if (options.canRunOnAgents) {
+    rows.push({
+      id: "add.runOnAgents",
+      section: "add",
+      name: label("runOn.menu"),
+      description: description("runOn.menuHint"),
+      icon: "git.worktree",
+      keywords: ["run", "agents", "compare", "best", "worktree", "models", "parallel"],
+      action: { kind: "command", id: COMMANDS.runOnAgents },
     });
   }
 

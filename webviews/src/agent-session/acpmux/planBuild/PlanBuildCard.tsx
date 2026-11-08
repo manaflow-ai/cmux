@@ -2,7 +2,9 @@
 // and stacked when narrow, each its agent, its branch, where it stands, what it changed and its first
 // files, with Open and, when two agents built the same plan, Keep this one. Keeping one says so in its
 // column and archives the other: its chat is archived and its worktree goes to worktree care's archive
-// when idle (acpmux hub/worktree_care.rs), never deleted. Every column reserves its lines, so the card
+// when idle (acpmux hub/worktree_care.rs), never deleted. The composer's Run on N agents (target
+// `prompt`, 2 to 4 columns) draws the same card; its Keep also closes the others and removes their
+// worktrees at once, archived first so each can be restored. Every column reserves its lines, so the card
 // never changes height as diffs arrive or a build is kept: only words and colours change, together.
 // The diffs are read once when the card mounts and again only when a build's turn ends.
 
@@ -10,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { callNative } from "../callNative";
 import { openSessionAttributes } from "../conversation/menuParts";
 import { useT, type Translate } from "../i18n";
+import { harnessName } from "../permissions/planBuild";
 import { SenderIcon } from "../subagents/SenderIcon";
 import { agentTone } from "../subagents/agentTones";
 import {
@@ -30,15 +33,16 @@ export type PlanBuildCardProps = {
   onOpen(sessionId: string): void;
   /// Reads the builds' diffs (`chat.plan.compare`); the gallery passes a fixture.
   compare?: (sessionId: string, buildId: string) => Promise<unknown>;
-  /// Keeps one build and archives the rest (`chat.plan.keep`).
-  keep?: (sessionId: string, buildId: string, keep: string) => Promise<unknown>;
+  /// Keeps one build and archives the rest (`chat.plan.keep`); `removeOthers` also removes their
+  /// worktrees (a prompt's runs).
+  keep?: (sessionId: string, buildId: string, keep: string, removeOthers: boolean) => Promise<unknown>;
   /// A gallery's diffs, drawn without a read.
   diffs?: PlanBuildReply;
 };
 
 const nativeCompare = (sessionId: string, buildId: string) => callNative("chat.plan.compare", { sessionId, buildId });
-const nativeKeep = (sessionId: string, buildId: string, keep: string) =>
-  callNative("chat.plan.keep", { sessionId, buildId, keep });
+const nativeKeep = (sessionId: string, buildId: string, keep: string, removeOthers: boolean) =>
+  callNative("chat.plan.keep", { sessionId, buildId, keep, ...(removeOthers ? { removeOthers } : {}) });
 
 export function PlanBuildCard({
   build,
@@ -68,14 +72,19 @@ export function PlanBuildCard({
     );
   }, [given, sessionId, build.buildId, build.turnsEnded, build.keptSessionId]);
   const kept = build.keptSessionId ?? read?.keptSessionId;
-  const compared = build.target === "compare";
+  const prompted = build.target === "prompt";
+  const compared = build.target === "compare" || prompted;
+  const removed = new Set([...(build.removed ?? []), ...(read?.removed ?? [])]);
+  const title = prompted
+    ? t("planBuild.title.prompt", { n: build.builds.length })
+    : t(compared ? "planBuild.title.compare" : "planBuild.title.worktree");
   const notStarted = build.failed ?? [];
   const onKeep = (child: string) => {
     if (!sessionId || keeping || kept) return;
     setKeeping(child);
     setError(undefined);
     const mine = ++reads.current;
-    keep(sessionId, build.buildId, child).then(
+    keep(sessionId, build.buildId, child, prompted).then(
       (reply) => {
         const checked = planBuildReply(reply);
         if (checked && mine === reads.current) setRead(checked);
@@ -92,17 +101,15 @@ export function PlanBuildCard({
       className="acpmux-plan-builds"
       data-target={build.target}
       data-kept={kept ? "" : undefined}
-      aria-label={t(compared ? "planBuild.title.compare" : "planBuild.title.worktree")}
+      aria-label={title}
     >
       <header className="acpmux-plan-builds-head">
-        <span className="acpmux-plan-builds-title">
-          {t(compared ? "planBuild.title.compare" : "planBuild.title.worktree")}
-        </span>
+        <span className="acpmux-plan-builds-title">{title}</span>
         <span className="acpmux-plan-builds-note" role={error ? "alert" : undefined}>
           {error
             ? t("planBuild.keepFailed", { error })
             : kept
-              ? t("planBuild.keptNote")
+              ? t(prompted ? "planBuild.keptNoteRemoved" : "planBuild.keptNote")
               : notStarted.length
                 ? notStarted
                     .map((f) => t("planBuild.notStarted", { harness: f.harness, error: f.error ?? "" }))
@@ -116,15 +123,18 @@ export function PlanBuildCard({
             key={child.sessionId}
             t={t}
             child={child}
+            label={prompted ? runLabel(child) : undefined}
             diff={read?.builds.find((b) => b.sessionId === child.sessionId)}
             outcome={
               !kept
                 ? undefined
                 : kept === child.sessionId
                   ? "kept"
-                  : build.archived.includes(child.sessionId) || compared
-                    ? "archived"
-                    : undefined
+                  : removed.has(child.sessionId)
+                    ? "removed"
+                    : build.archived.includes(child.sessionId) || compared
+                      ? "archived"
+                      : undefined
             }
             canKeep={compared && build.builds.length > 1 && !kept && Boolean(sessionId)}
             keeping={keeping === child.sessionId}
@@ -136,6 +146,12 @@ export function PlanBuildCard({
       </div>
     </section>
   );
+}
+
+/// A prompt run's column name: its agent and model ("Claude · claude-opus-5-5").
+function runLabel(child: PlanBuildChild): string | undefined {
+  if (!child.harness) return undefined;
+  return [harnessName(child.harness), child.model].filter(Boolean).join(" · ");
 }
 
 /// A build's state: its sub-session records, or, while they still say running, acpmux's own read of
@@ -168,6 +184,7 @@ function statusText(t: Translate, child: PlanBuildChild, diff: PlanBuildDiff | u
 function PlanBuildColumn({
   t,
   child,
+  label,
   diff,
   outcome,
   canKeep,
@@ -178,8 +195,10 @@ function PlanBuildColumn({
 }: {
   t: Translate;
   child: PlanBuildChild;
+  /// The column's name, over the chat's own.
+  label?: string;
   diff?: PlanBuildDiff;
-  outcome?: "kept" | "archived";
+  outcome?: "kept" | "archived" | "removed";
   canKeep: boolean;
   keeping: boolean;
   busy: boolean;
@@ -198,14 +217,16 @@ function PlanBuildColumn({
         <span className="acpmux-plan-builds-icon" aria-hidden>
           <SenderIcon harness={child.harness} tone={agentTone(child.sessionId)} size={14} fallback="agent.chat" />
         </span>
-        <span className="acpmux-plan-builds-name">{child.name ?? child.harness ?? child.sessionId}</span>
+        <span className="acpmux-plan-builds-name">{label ?? child.name ?? child.harness ?? child.sessionId}</span>
         <span className="acpmux-plan-builds-state">
           <span className="acpmux-plan-builds-dot" aria-hidden />
           {outcome === "kept"
             ? t("planBuild.kept")
             : outcome === "archived"
               ? t("planBuild.archived")
-              : statusText(t, child, diff)}
+              : outcome === "removed"
+                ? t("planBuild.removed")
+                : statusText(t, child, diff)}
         </span>
       </div>
       <div className="acpmux-plan-builds-branch" title={branch}>

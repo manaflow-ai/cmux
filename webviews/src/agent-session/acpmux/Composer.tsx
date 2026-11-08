@@ -162,6 +162,10 @@ import {
   type EmojiShortcodes,
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
+import { Popover } from "../../ui/Popover";
+import { RunOnAgentsPanel } from "./runOnAgents/RunOnAgentsPanel";
+import type { RunVariant } from "./runOnAgents/runOnAgents";
+import type { PickerCatalog } from "./modelCatalogData";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -417,6 +421,10 @@ type Props = {
   /// ⌘Return on an empty prompt while no turn runs (where it does nothing else): a waiting tagged
   /// ask's first answer (NextStepCard.tsx).
   onEmptyCommandReturn?(): void;
+  /// Run on N agents (runOnAgents/RunOnAgentsPanel.tsx): the + menu's row, `/run-on` and ⌘⇧Return
+  /// open its panel over the composer; `run` starts the prompt on the picked agents and the prompt
+  /// clears once it resolves. Absent where a chat cannot start sub-sessions (New Tab, Quick Composer).
+  runOnAgents?: { catalog: PickerCatalog | undefined; run(text: string, variants: RunVariant[]): Promise<unknown> };
   /// A concrete `reason` keeps the prompt while the folder's trust question is open. An empty
   /// object only means the trust read is in flight; the daemon still authorizes each send.
   blocked?: SendBlock;
@@ -514,6 +522,7 @@ function ComposerFrame({
   onMode,
   onOpenInWindow,
   onEmptyCommandReturn,
+  runOnAgents,
   handle,
   onUnplacedQuotes,
   sessionId,
@@ -542,6 +551,9 @@ function ComposerFrame({
   // so a durable read retries as soon as that map is available again.
   const draftActionsVersion = useDraftActionsVersion();
   const [findingFiles, setFindingFiles] = useState(false);
+  /// The Run on N agents panel is open over the composer.
+  const [runningOn, setRunningOn] = useState(false);
+  const runOnButton = useRef<HTMLButtonElement>(null);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
   useEffect(() => setFindingFiles(false), [searchFiles]);
   // Search Files… (the app's command palette, cx-ncc.69) opens the same search the + menu does.
@@ -582,6 +594,14 @@ function ComposerFrame({
   const tRef = useRef(t);
   tRef.current = t;
   const field = useRef<MarkdownFieldHandle>(null);
+  const closeRunOn = () => {
+    setRunningOn(false);
+    field.current?.focus();
+  };
+  /// The composer's box, read when the Run on N agents popover is placed.
+  const composerAnchor = {
+    getBoundingClientRect: () => form.current?.getBoundingClientRect() ?? new DOMRect(),
+  };
   const fieldRef = useCallback(
     (handle: MarkdownFieldHandle | null) => {
       field.current = handle;
@@ -1471,6 +1491,13 @@ function ComposerFrame({
       sentAt.current = Date.now();
       return true;
     }
+    // `/run-on <prompt>`: the prompt stays in the composer and the Run on N agents panel opens for it.
+    if (owned?.action === "runOn" && runOnAgents) {
+      const rest = ownedArgs?.trim() ?? "";
+      edit(rest, rest.length);
+      setRunningOn(true);
+      return true;
+    }
     if (owned) {
       // Side questions and /side's prompt carry text only; staged files stay here for the main
       // turn. A file still being read counts too: /btw and /side must not cancel it.
@@ -1771,6 +1798,21 @@ function ComposerFrame({
     // sent from the composer stops the turn: only Stop and Esc do (Leo 2026-10-20). (The Quick
     // Composer keeps its own ⌘Return and Esc, below.)
     const quick = Boolean(onOpenInWindow);
+    // ⌘⇧Return opens Run on N agents for the prompt (its panel's Return runs it).
+    if (
+      runOnAgents &&
+      event.key === "Enter" &&
+      event.metaKey &&
+      event.shiftKey &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !shell &&
+      typedWords().trim()
+    ) {
+      event.preventDefault();
+      setRunningOn(true);
+      return;
+    }
     const commandReturn =
       event.key === "Enter" && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && !quick;
     if (commandReturn && queues && (text.trim() || attachments.length > 0)) {
@@ -2424,6 +2466,37 @@ function ComposerFrame({
       onBlur={blur}
       onContextMenuCapture={openChipMenu}
     >
+      {runOnAgents && (
+        // Over the composer, away from the chat; Escape or a press outside closes it.
+        <Popover
+          open={runningOn}
+          onOpenChange={(open) => {
+            if (!open) closeRunOn();
+          }}
+          anchor={composerAnchor}
+          side="top"
+          align="start"
+          label={t("runOn.title")}
+          initialFocus={runOnButton}
+        >
+          <RunOnAgentsPanel
+            catalog={runOnAgents.catalog}
+            prompt={typedWords()}
+            runRef={runOnButton}
+            onRun={(variants) => {
+              const prompt = typedWords().trim();
+              return runOnAgents.run(prompt, variants).then(() => {
+                // The prompt went to the runs: it is no draft any more, as a send's.
+                if (typedWords().trim() === prompt) edit("", 0);
+                noteDraftSent(persistedSession.current);
+                sentAt.current = Date.now();
+                closeRunOn();
+              });
+            }}
+            onClose={closeRunOn}
+          />
+        </Popover>
+      )}
       {remote.note && (
         <p className="acpmux-composer-remote-note" role="note">
           {t(remote.note)}
@@ -2669,6 +2742,7 @@ function ComposerFrame({
                   extensions: plusExtensions,
                   canCapture: Boolean(capture && allowImages),
                   canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
+                  canRunOnAgents: Boolean(runOnAgents) && !shell,
                   ...(planChoice && plan
                     ? { planMode: { id: plan.id, name: planChoice.name, description: t("picker.planHint") } }
                     : {}),
@@ -2696,6 +2770,7 @@ function ComposerFrame({
                   } else if (action === "composer.chooseProject") openPicker("Location");
                   else if (action === "composer.planMode" && modeId) togglePlan(modeId);
                   else if (action === "composer.mention") mention();
+                  else if (action === "composer.runOnAgents") setRunningOn(true);
                   else if (action === "searchFiles") setFindingFiles(true);
                   else if (action === "composer.commands") openCommands();
                 }}

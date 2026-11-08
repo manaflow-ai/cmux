@@ -723,6 +723,8 @@ pub mod method {
     pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";
     pub const MUX_PLAN_COMPARE: &str = "_acpmux/plan/compare";
     pub const MUX_PLAN_KEEP: &str = "_acpmux/plan/keep";
+    /// The composer's Run on N agents: one prompt on 2 to 4 agents, each in its own worktree.
+    pub const MUX_PLAN_FANOUT: &str = "_acpmux/plan/fanout";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";

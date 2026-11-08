@@ -165,7 +165,7 @@ import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIco
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
-import type { PlanBuildReply, PlanBuildTarget, PlanCompareReply } from "./permissions/planBuild";
+import type { PlanBuildReply, PlanBuildTarget, PlanCompareReply, PlanFanoutVariant } from "./permissions/planBuild";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -9868,11 +9868,33 @@ export class AcpmuxDirectClient {
     return (await this.request("_acpmux/plan/compare", { sessionId, buildId })) as PlanCompareReply;
   }
   /// Keeps one run of a plan build (`_acpmux/plan/keep`): its branch stays, the others are archived.
-  async planKeep(buildId: string, keep: string, session?: string): Promise<PlanCompareReply> {
+  /// `removeOthers` (the composer's runs) also closes the others and removes their worktrees.
+  async planKeep(buildId: string, keep: string, session?: string, removeOthers = false): Promise<PlanCompareReply> {
     const sessionId = session ?? this.actingSessionId;
     // l10n-allow: a refusal the compare card shows as its error; never a label.
     if (!sessionId) throw new Error("no chat to keep a build in");
-    return (await this.request("_acpmux/plan/keep", { sessionId, buildId, keep })) as PlanCompareReply;
+    return (await this.request("_acpmux/plan/keep", {
+      sessionId,
+      buildId,
+      keep,
+      ...(removeOthers ? { removeOthers: true } : {}),
+    })) as PlanCompareReply;
+  }
+  /// Runs the composer's prompt on 2 to 4 agents (`_acpmux/plan/fanout`), each a sub-session of this
+  /// chat in a worktree of its own; the chat's builds card shows them. Takes a gesture ticket for
+  /// that exact run, as a send does.
+  async planFanout(prompt: string, variants: PlanFanoutVariant[], session?: string): Promise<PlanBuildReply> {
+    const sessionId = session ?? this.actingSessionId;
+    // l10n-allow: refuses the run so the composer keeps the prompt; never shown.
+    if (!sessionId) throw new Error("no chat to run from");
+    const params = { sessionId, prompt, variants };
+    const ticket = await postNative<{ ticket?: string }>("transport.gesture", {
+      intent: { method: "_acpmux/plan/fanout", params },
+    }).then(
+      (reply) => reply?.ticket,
+      () => undefined,
+    );
+    return (await this.request("_acpmux/plan/fanout", { ...params, ...gestureMeta(ticket) })) as PlanBuildReply;
   }
   /// Answers a secret card: `value` provides it (acpmux keeps it in memory and gives the agent a
   /// one-use ref), none declines. The wire log never holds the value (wire.ts).

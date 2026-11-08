@@ -20,7 +20,11 @@
 //!   with git that runs nothing the repository names (`subsession_worktree::git_by`).
 //! - `keep` archives every other build's chat (the `archived` tag, as the sidebar's Archive). Its
 //!   worktree and branch stay: worktree care archives a quiet worktree before it removes one
-//!   (`worktree_care.rs`), so no unpushed work is deleted here.
+//!   (`worktree_care.rs`), so no unpushed work is deleted here. With `removeOthers` (the
+//!   composer's runs) the other builds' chats close and their worktrees go now
+//!   (`plan_discard`), archived first by worktree care so each can be restored.
+//! - `prompt` is the composer's Run on N agents: the same builds from a prompt the person typed,
+//!   sent to each build as it is, one build per variant (a harness, and its model and effort).
 
 use super::{Hub, Session};
 use crate::rpc::RpcError;
@@ -43,6 +47,12 @@ pub const BASE_TAG: &str = "planBuildBase";
 pub(crate) const ARCHIVED_TAG: &str = "archived";
 /// Most harnesses one compare starts: the card offers two.
 pub const MAX_COMPARE: usize = 3;
+/// Most variants one composer prompt runs on: each is a worktree and an agent's turn.
+pub const MAX_RUNS: usize = 4;
+/// The longest a Keep waits on the other builds' worktrees going.
+const DISCARD_LIMIT: Duration = Duration::from_secs(20);
+/// Between two tries at a worktree a closing agent still works in.
+const DISCARD_RETRY: Duration = Duration::from_secs(2);
 /// Most files a build's change lists; its totals count them all.
 const MAX_FILES: usize = 200;
 /// The longest one build's git read takes before it is given up.
@@ -56,6 +66,8 @@ pub enum Target {
     Here,
     Worktree,
     Compare,
+    /// The composer's Run on N agents: a typed prompt, no plan approval.
+    Prompt,
 }
 
 impl Target {
@@ -64,6 +76,7 @@ impl Target {
             "here" => Some(Self::Here),
             "worktree" => Some(Self::Worktree),
             "compare" => Some(Self::Compare),
+            "prompt" => Some(Self::Prompt),
             _ => None,
         }
     }
@@ -73,6 +86,34 @@ impl Target {
             Self::Here => "here",
             Self::Worktree => "worktree",
             Self::Compare => "compare",
+            Self::Prompt => "prompt",
+        }
+    }
+}
+
+/// One build's agent: a harness, and the model and effort it runs (None: the harness's default).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Variant {
+    pub harness: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
+impl Variant {
+    pub fn harness(harness: impl Into<String>) -> Self {
+        Self { harness: harness.into(), model: None, effort: None }
+    }
+
+    /// The build's chat name: `build-<harness>` for a compare, `run-<harness>[-<model>]` for a
+    /// prompt's run, `build-plan` for one build.
+    fn chat_name(&self, target: Target) -> String {
+        match target {
+            Target::Compare => format!("build-{}", self.harness),
+            Target::Prompt => match &self.model {
+                Some(model) => format!("run-{}-{model}", self.harness),
+                None => format!("run-{}", self.harness),
+            },
+            _ => "build-plan".to_owned(),
         }
     }
 }
@@ -92,7 +133,8 @@ pub(crate) fn plan_of(request: &Value) -> Option<String> {
     if let Some(attached) = text(tool.pointer("/_meta/acpmux/plan/markdown")) {
         return Some(attached);
     }
-    let exit_plan = tool.pointer("/_meta/claude/tool").and_then(Value::as_str) == Some("ExitPlanMode");
+    let exit_plan =
+        tool.pointer("/_meta/claude/tool").and_then(Value::as_str) == Some("ExitPlanMode");
     if !exit_plan && tool.get("kind").and_then(Value::as_str) != Some("switch_mode") {
         return None;
     }
@@ -130,8 +172,12 @@ pub(crate) fn compare_harnesses(chat: &str) -> Vec<String> {
     vec![chat.to_owned(), other.to_owned()]
 }
 
-/// The first prompt of a build: the plan, and where the build runs.
+/// The first prompt of a build: the plan, and where the build runs. A prompt's run gets the
+/// prompt as the person typed it.
 pub(crate) fn build_prompt(plan: &str, chat_name: &str, target: Target) -> String {
+    if target == Target::Prompt {
+        return plan.to_owned();
+    }
     let compared = if target == Target::Compare {
         " Another agent builds the same plan in a worktree of its own; the person compares the two and keeps one."
     } else {
@@ -200,9 +246,9 @@ fn read_change(root: &Path, base: &str) -> Result<Change, String> {
     for path in untracked.split('\0').filter(|p| !p.is_empty()) {
         let full = root.join(path);
         let lines = match std::fs::symlink_metadata(&full) {
-            Ok(meta) if meta.is_file() && meta.len() <= MAX_UNTRACKED_BYTES => std::fs::read(&full)
-                .map(|bytes| bytecount_lines(&bytes))
-                .unwrap_or(0),
+            Ok(meta) if meta.is_file() && meta.len() <= MAX_UNTRACKED_BYTES => {
+                std::fs::read(&full).map(|bytes| bytecount_lines(&bytes)).unwrap_or(0)
+            }
             Ok(_) => 1,
             Err(_) => 0,
         };
@@ -236,7 +282,10 @@ impl Hub {
     ) -> Result<(String, Value), RpcError> {
         let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
         let pending = state.pending.get(permission_id).ok_or_else(|| {
-            refused("plan_build.not_pending", "that plan approval is no longer waiting for an answer")
+            refused(
+                "plan_build.not_pending",
+                "that plan approval is no longer waiting for an answer",
+            )
         })?;
         let plan = plan_of(&pending.request)
             .ok_or_else(|| refused("plan_build.not_plan", "that ask is not a plan approval"))?;
@@ -261,14 +310,15 @@ impl Hub {
         builds.into_iter().map(|(_, s)| s).collect()
     }
 
-    /// Starts the builds of `plan` from `parent` (`worktree`: one, `compare`: one per harness),
-    /// each tagged with `build_id`. The starts that failed come back as `{harness, error}`.
+    /// Starts the builds of `plan` from `parent` (`worktree`: one, `compare` and `prompt`: one
+    /// per variant), each tagged with `build_id`. The starts that failed come back as
+    /// `{harness, model, error}`.
     pub(crate) async fn start_plan_builds(
         self: &Arc<Self>,
         parent: &Arc<Session>,
         plan: &str,
         target: Target,
-        harnesses: &[String],
+        variants: &[Variant],
         build_id: &str,
         local: bool,
     ) -> (Vec<Value>, Vec<Value>) {
@@ -276,17 +326,14 @@ impl Hub {
         let prompt = build_prompt(plan, &chat.name, target);
         let mut started = Vec::new();
         let mut failed = Vec::new();
-        for harness in harnesses {
-            let name = match target {
-                Target::Compare => format!("build-{harness}"),
-                _ => "build-plan".to_owned(),
-            };
+        for variant in variants {
+            let harness = &variant.harness;
             let req = super::subsessions::StartRequest {
                 prompt: prompt.clone(),
-                name: Some(name),
+                name: Some(variant.chat_name(target)),
                 harness: Some(harness.clone()),
-                model: None,
-                effort: None,
+                model: variant.model.clone(),
+                effort: variant.effort.clone(),
                 cwd: None,
                 worktree: true,
                 fork: false,
@@ -295,11 +342,16 @@ impl Hub {
             };
             match self.start_subsession(parent, req).await {
                 Ok(reply) => {
-                    let id = reply.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+                    let id = reply
+                        .get("sessionId")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
                     if let Ok(child) = self.resolve(&id) {
                         let mut set = serde_json::Map::new();
                         set.insert(BUILD_TAG.into(), Value::String(build_id.to_owned()));
-                        if let Some(base) = reply.pointer("/worktree/base").and_then(Value::as_str) {
+                        if let Some(base) = reply.pointer("/worktree/base").and_then(Value::as_str)
+                        {
                             set.insert(BASE_TAG.into(), Value::String(base.to_owned()));
                         }
                         if let Err(e) = self.set_tags_answered(&child, Some(&set), &[], None) {
@@ -311,11 +363,14 @@ impl Hub {
                         "name": reply.get("name"),
                         "shortName": reply.get("shortName"),
                         "harness": reply.get("harness"),
+                        "model": variant.model,
+                        "effort": variant.effort,
                         "worktree": reply.get("worktree"),
                     }));
                 }
                 Err(e) => failed.push(json!({
                     "harness": harness,
+                    "model": variant.model,
                     "error": e.message,
                     "reason": e.data.as_ref().and_then(|d| d.get("reason")).cloned(),
                 })),
@@ -357,6 +412,7 @@ impl Hub {
                 "name": m.name,
                 "shortName": m.subsession.as_ref().map(|l| l.short_name.clone()),
                 "harness": m.harness,
+                "model": m.model_request,
                 "status": build_status(m.status),
                 "archived": archived,
                 "branch": branch,
@@ -400,12 +456,79 @@ impl Hub {
         keep: &str,
     ) -> Result<(Arc<Session>, Vec<Arc<Session>>), RpcError> {
         let builds = self.plan_builds(&parent.id, build_id);
-        let kept = builds
-            .iter()
-            .find(|s| s.id == keep)
-            .cloned()
-            .ok_or_else(|| RpcError::invalid_params("keep must be one of this plan build's chats"))?;
+        let kept = builds.iter().find(|s| s.id == keep).cloned().ok_or_else(|| {
+            RpcError::invalid_params("keep must be one of this plan build's chats")
+        })?;
         Ok((kept, builds.into_iter().filter(|s| s.id != keep).collect()))
+    }
+
+    /// The builds a Keep let go, gone now: each chat closes, then worktree care archives its
+    /// worktree (its work restorable, as any reclaimed worktree) and removes it, with no quiet
+    /// time to wait out: the person chose to drop it. An agent still closing keeps its folder in
+    /// use for a moment, so a worktree care left is tried again, for at most [`DISCARD_LIMIT`].
+    /// Answers each build's `{sessionId, removed, error?}`.
+    pub(crate) async fn plan_discard(self: &Arc<Self>, others: &[Arc<Session>]) -> Vec<Value> {
+        let mut left: Vec<(String, PathBuf)> = Vec::new();
+        let mut rows = Vec::new();
+        for s in others {
+            if let Err(e) = self.kill(s, false).await {
+                tracing::warn!(session = %s.id, error = %e.message, "plan build close");
+            }
+            // Only a worktree its start made (its base recorded): never a folder it was opened in.
+            let m = s.meta();
+            let made = m.tags.contains_key(BASE_TAG);
+            match m.worktree.as_ref().map(|w| w.root.clone()).filter(|_| made) {
+                Some(root) => left.push((s.id.clone(), root)),
+                None => rows.push(
+                    json!({"sessionId": s.id, "removed": false, "error": "no worktree of its own"}),
+                ),
+            }
+        }
+        let by = Instant::now() + DISCARD_LIMIT;
+        let mut last_error: std::collections::HashMap<String, String> = Default::default();
+        while !left.is_empty() {
+            let only: Vec<PathBuf> = left.iter().map(|(_, root)| root.clone()).collect();
+            match self.care_discard(only).await {
+                Ok(report) => {
+                    for item in report.get("items").and_then(Value::as_array).into_iter().flatten()
+                    {
+                        let (Some(path), Some(reason)) = (
+                            item.get("path").and_then(Value::as_str),
+                            item.pointer("/outcome/error")
+                                .or_else(|| item.pointer("/verdict/reason"))
+                                .and_then(Value::as_str),
+                        ) else {
+                            continue;
+                        };
+                        last_error.insert(path.to_owned(), reason.to_owned());
+                    }
+                }
+                Err(e) => {
+                    for (_, root) in &left {
+                        last_error.insert(root.to_string_lossy().into_owned(), e.message.clone());
+                    }
+                }
+            }
+            left.retain(|(id, root)| {
+                let gone = !root.exists();
+                if gone {
+                    rows.push(json!({"sessionId": id, "removed": true}));
+                }
+                !gone
+            });
+            if left.is_empty() || Instant::now() + DISCARD_RETRY > by {
+                break;
+            }
+            tokio::time::sleep(DISCARD_RETRY).await;
+        }
+        for (id, root) in left {
+            let error = last_error
+                .remove(&*root.to_string_lossy())
+                .unwrap_or_else(|| "it stays".to_owned());
+            tracing::warn!(session = %id, root = %root.display(), %error, "plan build worktree kept");
+            rows.push(json!({"sessionId": id, "removed": false, "error": error}));
+        }
+        rows
     }
 }
 

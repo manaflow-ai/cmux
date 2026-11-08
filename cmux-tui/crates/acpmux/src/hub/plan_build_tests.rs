@@ -12,7 +12,8 @@ fn the_plan_is_read_as_the_card_reads_it() {
     let exit_plan = ask(json!({"kind": "switch_mode", "rawInput": {"plan": "  Step one  "},
         "_meta": {"claude": {"tool": "ExitPlanMode"}}}));
     assert_eq!(plan_of(&exit_plan).as_deref(), Some("Step one"));
-    let attached = ask(json!({"kind": "other", "_meta": {"acpmux": {"plan": {"markdown": "From file"}}}}));
+    let attached =
+        ask(json!({"kind": "other", "_meta": {"acpmux": {"plan": {"markdown": "From file"}}}}));
     assert_eq!(plan_of(&attached).as_deref(), Some("From file"));
     let from_text = ask(json!({"kind": "switch_mode", "content": [
         {"type": "content", "content": {"type": "text", "text": "A"}},
@@ -61,4 +62,19 @@ fn numstat_counts_and_caps_the_list() {
     assert_eq!(bytecount_lines(b"a\nb"), 2);
     assert_eq!(bytecount_lines(b"a\n"), 1);
     assert_eq!(bytecount_lines(b""), 0);
+}
+
+#[test]
+fn a_prompt_run_is_sent_as_typed_and_named_by_its_variant() {
+    assert_eq!(build_prompt("Fix the login", "shop", Target::Prompt), "Fix the login");
+    assert_eq!(Target::parse("prompt"), Some(Target::Prompt));
+    let opus = Variant {
+        harness: "claude".into(),
+        model: Some("opus".into()),
+        effort: Some("high".into()),
+    };
+    assert_eq!(opus.chat_name(Target::Prompt), "run-claude-opus");
+    assert_eq!(Variant::harness("codex").chat_name(Target::Prompt), "run-codex");
+    assert_eq!(Variant::harness("codex").chat_name(Target::Compare), "build-codex");
+    assert_eq!(Variant::harness("codex").chat_name(Target::Worktree), "build-plan");
 }

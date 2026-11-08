@@ -19,7 +19,8 @@ export type CmuxCommand = SlashCommand & {
     | "status"
     | "cd"
     | "resume"
-    | "login";
+    | "login"
+    | "runOn";
   descriptionKey?: SlashCommand["descriptionKey"];
 };
 
@@ -84,6 +85,14 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     hint: "<harness>",
     source: "cmux",
     action: "continue",
+  },
+  {
+    name: "run-on",
+    description: "",
+    descriptionKey: "runOn.slash",
+    hint: "<prompt>",
+    source: "cmux",
+    action: "runOn",
   },
   {
     name: "fork",
@@ -281,6 +290,7 @@ export function cmuxCommandRefusal(
     case "passThrough":
     case "resume":
     case "login":
+    case "runOn":
       return undefined;
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";

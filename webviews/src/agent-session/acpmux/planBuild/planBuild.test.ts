@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { PLAN_BUILD_KIND, planBuildHeight, planBuildReply, planBuildRowId, STACK_WIDTH } from "./planBuild";
+import {
+  PLAN_BUILD_KIND,
+  planBuildHeight,
+  planBuildReply,
+  planBuildRowId,
+  planBuildRows,
+  STACK_WIDTH,
+} from "./planBuild";
 import { PlanBuildRows } from "./planBuildRows";
 
 const started = {
@@ -131,4 +138,54 @@ test("a compare that started only one build says which harness did not start", (
   expect(rows.get(planBuildRowId("b1"))?.planBuild?.failed).toEqual([
     { harness: "codex", error: "width limit reached" },
   ]);
+});
+
+test("a prompt's runs: three columns, each with its model, and a Keep that removed the others", () => {
+  const rows = new Map<string, AcpmuxRow>();
+  const builds = new PlanBuildRows();
+  builds.reduce(
+    rows,
+    { at: 1 },
+    {
+      event: "started",
+      buildId: "r1",
+      target: "prompt",
+      builds: [
+        { sessionId: "a", harness: "claude", model: "claude-opus-5-5" },
+        { sessionId: "b", harness: "codex" },
+        { sessionId: "c", harness: "claude", model: "claude-sonnet-5-5" },
+      ],
+    },
+  );
+  const row = rows.get(planBuildRowId("r1"))!;
+  expect(row.planBuild?.target).toBe("prompt");
+  expect(row.planBuild?.builds.map((b) => b.model)).toEqual(["claude-opus-5-5", undefined, "claude-sonnet-5-5"]);
+  builds.reduce(
+    rows,
+    { at: 2 },
+    {
+      event: "kept",
+      buildId: "r1",
+      keptSessionId: "b",
+      archived: ["a", "c"],
+      removed: [
+        { sessionId: "a", removed: true },
+        { sessionId: "c", removed: false, error: "a process works in it" },
+      ],
+    },
+  );
+  const kept = rows.get(planBuildRowId("r1"))!.planBuild!;
+  expect(kept.keptSessionId).toBe("b");
+  expect(kept.removed).toEqual(["a"]);
+});
+
+test("three and four runs keep a fixed height: side by side, two by two, or stacked", () => {
+  const three = { builds: [1, 2, 3] } as never;
+  const four = { builds: [1, 2, 3, 4] } as never;
+  expect(planBuildRows(3, 760)).toBe(1);
+  expect(planBuildRows(3, 600)).toBe(3);
+  expect(planBuildRows(4, 600)).toBe(2);
+  expect(planBuildRows(4, STACK_WIDTH - 1)).toBe(4);
+  expect(planBuildHeight(three, 760)).toBe(planBuildHeight({ builds: [1, 2] } as never, 760));
+  expect(planBuildHeight(four, 600)).toBeGreaterThan(planBuildHeight(three, 760));
 });

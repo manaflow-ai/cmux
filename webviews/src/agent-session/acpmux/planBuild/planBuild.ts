@@ -7,7 +7,10 @@
 /// The mux record kind acpmux writes on the parent chat's log.
 export const PLAN_BUILD_KIND = "plan_build";
 
-export type PlanBuildTarget = "worktree" | "compare";
+/// `prompt` is the composer's Run on N agents (runOnAgents/runOnAgents.ts): the same card, from a
+/// typed prompt rather than a plan, where Keep this one also closes the others and removes their
+/// worktrees.
+export type PlanBuildTarget = "worktree" | "compare" | "prompt";
 
 /// Where a build's chat stands, from its sub-session records: running until a turn ends.
 export type PlanBuildState = "running" | "done" | "failed" | "cancelled";
@@ -17,6 +20,8 @@ export type PlanBuildChild = {
   sessionId: string;
   name?: string;
   harness?: string;
+  /// The model it runs, when the run named one (a prompt's runs).
+  model?: string;
   branch?: string;
   root?: string;
   base?: string;
@@ -31,6 +36,8 @@ export type PlanBuild = {
   builds: PlanBuildChild[];
   keptSessionId?: string;
   archived: string[];
+  /// The builds a Keep closed and whose worktrees it removed (a prompt's runs).
+  removed?: string[];
   /// Harnesses whose build was refused at the start, with acpmux's reason.
   failed?: { harness: string; error?: string }[];
   /// Bumped on every build's turn end: the card refetches its diffs when it changes.
@@ -51,7 +58,13 @@ export type PlanBuildDiff = {
   error?: string;
 };
 
-export type PlanBuildReply = { buildId: string; keptSessionId?: string; builds: PlanBuildDiff[] };
+export type PlanBuildReply = {
+  buildId: string;
+  keptSessionId?: string;
+  builds: PlanBuildDiff[];
+  /// Keep with removeOthers: the builds whose worktrees went.
+  removed?: string[];
+};
 
 const text = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -66,7 +79,8 @@ export const planBuildRowId = (buildId: string) => `plan-build-${buildId}`;
 /// A `started` record's build, or undefined for a record the card cannot draw.
 export function planBuildStarted(msg: Record<string, unknown>): PlanBuild | undefined {
   const buildId = text(msg.buildId);
-  const target = msg.target === "compare" || msg.target === "worktree" ? msg.target : undefined;
+  const target =
+    msg.target === "compare" || msg.target === "worktree" || msg.target === "prompt" ? msg.target : undefined;
   if (!buildId || !target || !Array.isArray(msg.builds)) return undefined;
   const builds: PlanBuildChild[] = [];
   for (const raw of msg.builds) {
@@ -77,6 +91,7 @@ export function planBuildStarted(msg: Record<string, unknown>): PlanBuild | unde
       sessionId,
       name: text(build.name),
       harness: text(build.harness),
+      model: text(build.model),
       branch: text(build.branch),
       root: text(build.root),
       base: text(build.base),
@@ -97,7 +112,14 @@ export function planBuildStarted(msg: Record<string, unknown>): PlanBuild | unde
 export function planBuildKept(build: PlanBuild, msg: Record<string, unknown>): PlanBuild {
   const kept = text(msg.keptSessionId);
   const archived = Array.isArray(msg.archived) ? msg.archived.filter((id): id is string => typeof id === "string") : [];
-  return { ...build, keptSessionId: kept ?? build.keptSessionId, archived };
+  const removed = Array.isArray(msg.removed)
+    ? msg.removed.flatMap((raw) => {
+        const row = object(raw);
+        const id = text(row?.sessionId);
+        return id && row?.removed === true ? [id] : [];
+      })
+    : [];
+  return { ...build, keptSessionId: kept ?? build.keptSessionId, archived, ...(removed.length ? { removed } : {}) };
 }
 
 /// `build` after a sub-session record of one of its builds (`subsession` `turn_ended`), or
@@ -153,7 +175,14 @@ export function planBuildReply(value: unknown): PlanBuildReply | undefined {
       error: text(build.error),
     });
   }
-  return { buildId, keptSessionId: text(reply.keptSessionId), builds };
+  const removed = Array.isArray(reply.removed)
+    ? reply.removed.flatMap((raw) => {
+        const row = object(raw);
+        const id = text(row?.sessionId);
+        return id && row?.removed === true ? [id] : [];
+      })
+    : [];
+  return { buildId, keptSessionId: text(reply.keptSessionId), builds, ...(removed.length ? { removed } : {}) };
 }
 
 /// How many files a column lists before "N more": the card's height never depends on a diff.
@@ -168,7 +197,20 @@ export function planBuildHeight(build: PlanBuild, width: number): number {
   // A column: its head (24), branch and stats lines (20 each), SHOWN_FILES + 1 file lines of 20,
   // its actions (28), 12px padding top and bottom and 8px gaps between its five parts.
   const column = 24 + 20 + 20 + (SHOWN_FILES + 1) * 20 + 28 + 24 + 4 * 8;
-  const stacked = build.builds.length > 1 && width < STACK_WIDTH;
+  const rows = planBuildRows(build.builds.length, width);
   // The card's heading (28) and its 1px edges, in 8px of row padding.
-  return 8 + 2 + 28 + (stacked ? column * build.builds.length + (build.builds.length - 1) : column);
+  return 8 + 2 + 28 + column * rows + (rows - 1);
+}
+
+/// Three columns side by side need this much (planBuild.css); narrower, they stack.
+export const THREE_WIDTH = 660;
+
+/// How many rows of columns `count` builds take at `width`: two and three side by side when they
+/// fit, four as two by two, each stacked when narrow.
+export function planBuildRows(count: number, width: number): number {
+  if (count <= 1) return 1;
+  if (width < STACK_WIDTH) return count;
+  if (count === 2) return 1;
+  if (count === 3) return width < THREE_WIDTH ? 3 : 1;
+  return Math.ceil(count / 2);
 }

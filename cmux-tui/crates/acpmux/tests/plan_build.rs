@@ -182,8 +182,11 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         )
         .await;
     assert_eq!(reason(&r), "plan_build.not_plan", "{r}");
-    app.ok("_acpmux/permission_respond", json!({"sessionId": chat, "permissionId": pid, "optionId": "no"}))
-        .await;
+    app.ok(
+        "_acpmux/permission_respond",
+        json!({"sessionId": chat, "permissionId": pid, "optionId": "no"}),
+    )
+    .await;
     app.said(rid).await;
 
     // Build here: the approval's allow, as Approve plan.
@@ -235,12 +238,19 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     let compared =
         app.ok("_acpmux/plan/compare", json!({"sessionId": chat, "buildId": build_id})).await;
     let row = |id: &str| {
-        compared["builds"].as_array().unwrap().iter().find(|b| b["sessionId"] == id).cloned().unwrap()
+        compared["builds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["sessionId"] == id)
+            .cloned()
+            .unwrap()
     };
     let (a, b) = (row(&first), row(&second));
     assert_eq!((a["added"].as_u64(), a["removed"].as_u64()), (Some(3), Some(0)), "{compared}");
     assert_eq!(b["added"].as_u64(), Some(1), "a committed change counts: {compared}");
-    let paths: Vec<&str> = a["files"].as_array().unwrap().iter().filter_map(|f| f["path"].as_str()).collect();
+    let paths: Vec<&str> =
+        a["files"].as_array().unwrap().iter().filter_map(|f| f["path"].as_str()).collect();
     assert!(paths.contains(&"LICENSE") && paths.contains(&"README.md"), "{compared}");
     assert_eq!(compared["keptSessionId"], Value::Null);
 
@@ -259,6 +269,62 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         .call("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": build_id, "keep": chat}))
         .await;
     assert!(r.get("error").is_some(), "only a build is kept: {r}");
+
+    // The composer's Run on N agents: one typed prompt on three agents, three worktrees.
+    let few = app
+        .call(
+            "_acpmux/plan/fanout",
+            json!({"sessionId": chat, "prompt": "Add a NOTICE", "variants": [{"harness": "fake"}]}),
+        )
+        .await;
+    assert!(few.get("error").is_some(), "one variant is no fan-out: {few}");
+    let five: Vec<Value> = (0..5).map(|_| json!({"harness": "fake"})).collect();
+    let many = app
+        .call(
+            "_acpmux/plan/fanout",
+            json!({"sessionId": chat, "prompt": "Add a NOTICE", "variants": five}),
+        )
+        .await;
+    assert!(many.get("error").is_some(), "at most four: {many}");
+    let three: Vec<Value> = (0..3).map(|_| json!({"harness": "fake"})).collect();
+    let ran = app
+        .ok(
+            "_acpmux/plan/fanout",
+            json!({"sessionId": chat, "prompt": "Add a NOTICE", "variants": three}),
+        )
+        .await;
+    assert_eq!(ran["target"], json!("prompt"), "{ran}");
+    let runs = ran["builds"].as_array().unwrap();
+    assert_eq!(runs.len(), 3, "{ran}");
+    let run_id = ran["buildId"].as_str().unwrap().to_owned();
+    let run_roots: Vec<String> =
+        runs.iter().map(|b| b["worktree"]["root"].as_str().unwrap().to_owned()).collect();
+    for (i, r) in run_roots.iter().enumerate() {
+        assert!(Path::new(r).join("README.md").is_file(), "{ran}");
+        std::fs::write(Path::new(r).join("NOTICE"), format!("run {i}\n")).unwrap();
+    }
+    let compared =
+        app.ok("_acpmux/plan/compare", json!({"sessionId": chat, "buildId": run_id})).await;
+    assert!(
+        compared["builds"].as_array().unwrap().iter().all(|b| b["added"].as_u64() == Some(1)),
+        "{compared}"
+    );
+    // Keep the second and drop the rest: their chats close and their worktrees go, archived.
+    let keep = runs[1]["sessionId"].as_str().unwrap().to_owned();
+    let kept = app
+        .ok(
+            "_acpmux/plan/keep",
+            json!({"sessionId": chat, "buildId": run_id, "keep": keep, "removeOthers": true}),
+        )
+        .await;
+    assert_eq!(kept["keptSessionId"], json!(keep), "{kept}");
+    let removed = kept["removed"].as_array().unwrap();
+    assert_eq!(removed.len(), 2, "{kept}");
+    assert!(removed.iter().all(|r| r["removed"] == json!(true)), "{kept}");
+    assert!(!Path::new(&run_roots[0]).exists() && !Path::new(&run_roots[2]).exists(), "{kept}");
+    assert!(Path::new(&run_roots[1]).join("NOTICE").is_file(), "the kept run stays");
+    // The plan builds' Keep above, without removeOthers, left its other worktree.
+    assert!(Path::new(&roots[0]).join("LICENSE").is_file());
 
     let _ = std::fs::remove_dir_all(&root);
 }
