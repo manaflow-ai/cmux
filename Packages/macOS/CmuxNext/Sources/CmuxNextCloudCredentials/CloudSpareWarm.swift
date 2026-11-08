@@ -1,6 +1,6 @@
-import CmuxNextCloud
-import Foundation
-import OSLog
+public import CmuxNextCloud
+public import Foundation
+public import os
 
 /// Leo, Cloud V0 item 1: "harness login attached in advance". On the person's intent (the composer picks Cloud, or the
 /// app comes to the front signed in) Rust warms their paused spare (`cmux link start-chat warm-spare`, which also picks
