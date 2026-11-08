@@ -62,13 +62,13 @@ public struct DaemonBridge: Hashable, Sendable {
         let envp = environment.isEmpty ? nil
             : ProcessInfo.processInfo.environment.merging(environment) { $1 }.map { strdup("\($0.key)=\($0.value)") } + [nil]
         defer { for pointer in envp ?? [] { free(pointer) } }
-        let spawned = if let envp { blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, envp) }
+        let status = if let envp { blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, envp) }
             else { blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, environ) }
         Darwin.close(theirs)
         Darwin.close(errWrite)
-        guard spawned == 0 else {
+        guard status == 0 else {
             Darwin.close(mine); Darwin.close(errRead)
-            throw .launchFailed("spawn \(executable): \(String(cString: strerror(spawned)))")
+            throw .launchFailed("spawn \(executable): \(String(cString: strerror(status)))")
         }
         let child = BridgeChild(pid: pid, stderr: errRead)
         spawned { [weak child] in child?.kill() }
