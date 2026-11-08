@@ -44,7 +44,7 @@
         "current",
         "write",
         "--text",
-        "clear; python3 {repo}/scripts/cmux-next/media/fixtures/terminal-selection/mouse_tui.py\r"
+        "clear; python3 scripts/cmux-next/media/fixtures/terminal-selection/mouse_tui.py\r"
       ],
       "wait": 3
     },
@@ -214,27 +214,6 @@
         "c"
       ],
       "wait": 1.5
-    },
-    {
-      "title": "Quit the program; mouse reporting off",
-      "daemon": true,
-      "cmux": [
-        "workspace",
-        "name:Select",
-        "screen",
-        "current",
-        "pane",
-        "current",
-        "tab",
-        "current",
-        "terminal",
-        "current",
-        "write",
-        "--text",
-        "q"
-      ],
-      "wait": 1.5,
-      "shot": false
     }
   ]
 }
