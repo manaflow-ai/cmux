@@ -184,9 +184,13 @@
   border-inline-end: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
 }
 .acpmux-cols-list:last-child { border: 0; }
+/* The trailing padding counts on the scroller's lane, so the lane is reserved from the first layout:
+   WebKit otherwise lays the rows out to the full width and draws the themed scroller over their last
+   pixels, where a press lands on the list instead of the row. */
 .acpmux-cols-list[data-cmux-card-scroll] {
   --cmux-card-scroller: var(--cmux-scroller-size, 8px);
   padding-inline-end: max(0px, calc(var(--acpmux-cols-pad) - var(--cmux-card-scroller, 7px)));
+  scrollbar-gutter: stable;
 }
 .acpmux-cols-rail {
   display: flex;
