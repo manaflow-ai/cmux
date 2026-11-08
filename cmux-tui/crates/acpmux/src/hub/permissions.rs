@@ -1230,6 +1230,17 @@ impl Hub {
                 if control == Control::Web && !matches!(kind, Some("allow_once" | "reject_once")) {
                     return Err(super::web_control::lasting_grant_refused(kind.unwrap_or("?")));
                 }
+                // Nor one that also moves the chat's mode (a plan approval's Approve and
+                // auto-accept edits, claude_stdio `PLAN_ACCEPT_EDITS`): a paired device picks only
+                // modes that ask (cmux-mobile-host `acpmux_policy.rs`).
+                if control == Control::Web
+                    && let Some(mode) = offered
+                        .first()
+                        .and_then(|x| x.pointer("/_meta/acpmux/setsMode"))
+                        .and_then(Value::as_str)
+                {
+                    return Err(super::web_control::mode_move_refused(mode));
+                }
                 let is_reject = matches!(kind, Some("reject_once" | "reject_always"));
                 // A remote browser cannot trust a folder on this machine
                 // (`acp.trust.set` is refused for it too, `remote_guard.rs`).

@@ -524,6 +524,19 @@ impl Translator {
                             self.suggestions.lock().await.insert(rid.clone(), rules);
                             options.push(json!({"optionId": "allow_always", "name": "Allow for this session", "kind": "allow_always"}));
                         }
+                        // A plan approval can also leave plan mode for Accept edits, as
+                        // Claude Code's own prompt offers ("Yes, and auto-accept edits"):
+                        // a one-time allow that also sets the mode (outbound.rs).
+                        if name == "ExitPlanMode" {
+                            self.plan_asks.lock().await.insert(rid.clone());
+                            options.push(json!({
+                                "optionId": super::PLAN_ACCEPT_EDITS,
+                                "name": "Approve and auto-accept edits",
+                                "kind": "allow_once",
+                                // The mode it moves to: a Web answer may not pick it (hub permissions.rs).
+                                "_meta": {"acpmux": {"setsMode": "acceptEdits"}}
+                            }));
+                        }
                         options.push(json!({"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}));
                         let mut call = json!({
                             "toolCallId": req.get("tool_use_id"),
@@ -945,6 +958,28 @@ impl Translator {
                         out.push(upd(compaction_update("failed", line)))
                     }
                     _ => {}
+                }
+                // Claude Code moved its own mode (a plan approval that leaves plan mode, Approve
+                // and auto-accept edits): its status line names the new one, and the chat's mode
+                // follows, so the hub's checks (the remote floor, the full-access bound) and the
+                // pane's mode menu read what Claude Code runs.
+                if let Some(mode) = line.get("permissionMode").and_then(Value::as_str) {
+                    let moved = {
+                        let mut current = self.mode.lock().await;
+                        let moved = *current != mode;
+                        if moved {
+                            *current = mode.to_owned();
+                        }
+                        moved
+                    };
+                    // The chat's `mode` option moves too: a restore replays the saved options
+                    // after the saved mode, so a stale `mode: plan` there would win.
+                    if moved {
+                        out.push(upd(
+                            json!({"sessionUpdate": "current_mode_update", "currentModeId": mode}),
+                        ));
+                        out.push(upd(json!({"sessionUpdate": "config_option_update", "configOptions": self.config_options_value().await})));
+                    }
                 }
             }
             // The account's plan usage limits, newest per window (`usage_limits.rs`).

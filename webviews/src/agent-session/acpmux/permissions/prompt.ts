@@ -105,17 +105,32 @@ export type PermissionAnswers = {
   allowOnce?: PermissionOption;
   allowAlways?: PermissionOption;
   deny?: PermissionOption;
+  /// On a plan approval only: the allow that also leaves plan mode for Accept edits (acpmux
+  /// claude_stdio `PLAN_ACCEPT_EDITS`), drawn as Approve and auto-accept edits.
+  acceptEdits?: PermissionOption;
   others: PermissionOption[];
 };
 
-export function permissionAnswers(options: readonly PermissionOption[]): PermissionAnswers {
-  const first = (kind: KnownPermissionKind) => options.find((option) => permissionOptionKind(option) === kind);
+/// The option id of a plan approval's Approve and auto-accept edits: the mode it moves to, as
+/// acpmux offers it for Claude Code's ExitPlanMode (claude_stdio `PLAN_ACCEPT_EDITS`).
+export const PLAN_ACCEPT_EDITS = "acceptEdits";
+
+export function permissionAnswers(options: readonly PermissionOption[], plan = false): PermissionAnswers {
+  const acceptEdits = plan ? options.find((option) => option.id === PLAN_ACCEPT_EDITS && option.allow) : undefined;
+  const rest = acceptEdits ? options.filter((option) => option !== acceptEdits) : options;
+  const first = (kind: KnownPermissionKind) => rest.find((option) => permissionOptionKind(option) === kind);
   const allowOnce = first("allow_once");
   const allowAlways = first("allow_always") ?? first("allow_chat");
-  const denies = options.filter((option) => permissionOptionKind(option) === "deny");
+  const denies = rest.filter((option) => permissionOptionKind(option) === "deny");
   const deny = denies.find((option) => option.kind?.toLowerCase() === "reject_once") ?? denies[0];
   const taken = new Set([allowOnce, allowAlways, deny].filter(Boolean));
-  return { allowOnce, allowAlways, deny, others: options.filter((option) => !taken.has(option)) };
+  return {
+    allowOnce,
+    allowAlways,
+    deny,
+    ...(acceptEdits ? { acceptEdits } : {}),
+    others: rest.filter((option) => !taken.has(option)),
+  };
 }
 
 /// What an Always allow grant covers, in the agent's words: its rule (Claude Code's suggested

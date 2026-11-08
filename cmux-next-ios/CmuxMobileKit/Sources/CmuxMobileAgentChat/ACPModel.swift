@@ -401,7 +401,9 @@ public struct ACPPermissionRequest: Hashable, Sendable, Codable, Identifiable {
         // Without a single-use Allow the options stay as the agent sent them (acpmux's
         // refusal of a lasting grant then says why), rather than a lone Deny.
         guard options.contains(where: { $0.kind == .allowOnce }) else { return options }
-        return options.filter { $0.kind == .allowOnce || $0.kind == .rejectOnce }
+        // A plan approval's Approve and auto-accept edits also moves the chat to a mode that does
+        // not ask, which acpmux refuses from a paired device (hub permissions.rs `setsMode`).
+        return options.filter { ($0.kind == .allowOnce && $0.id != "acceptEdits") || $0.kind == .rejectOnce }
     }
 }
 

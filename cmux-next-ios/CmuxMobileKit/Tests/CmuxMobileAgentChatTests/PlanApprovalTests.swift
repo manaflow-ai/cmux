@@ -45,4 +45,15 @@ import Testing
         let plain = ACPPermissionRequest(id: "q", toolCall: toolCall, options: [allow, reject])
         #expect(plain.phoneOptions.map(plain.label(for:)) == ["Allow once", "Deny"])
     }
+
+    /// acpmux's Approve and auto-accept edits moves the chat to a mode that does not ask, which a
+    /// paired device may not pick: the phone shows Approve plan and Keep planning only.
+    @Test func approveAndAutoAcceptEditsStaysOnTheMac() throws {
+        let toolCall = try JSONDecoder().decode(ACPToolCall.self, from: Data(#"{"toolCallId":"t","title":"Approve plan","kind":"other"}"#.utf8))
+        let allow = ACPPermissionOption(id: "allow_once", name: "Answer", kind: .allowOnce)
+        let acceptEdits = ACPPermissionOption(id: "acceptEdits", name: "Approve and auto-accept edits", kind: .allowOnce)
+        let reject = ACPPermissionOption(id: "reject_once", name: "Reject", kind: .rejectOnce)
+        let planAsk = ACPPermissionRequest(id: "p", toolCall: toolCall, options: [allow, acceptEdits, reject], plan: Self.plan)
+        #expect(planAsk.phoneOptions.map(planAsk.label(for:)) == ["Approve plan", "Keep planning"])
+    }
 }

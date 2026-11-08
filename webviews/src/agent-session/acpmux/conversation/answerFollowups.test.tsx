@@ -174,4 +174,6 @@ test("F4: pinned questions show the stack but leave the composer's keys alone", 
   expect(bottomAsks(false, 2)).toEqual({ shows: true, holdsKeys: false });
   expect(bottomAsks(true, 0)).toEqual({ shows: true, holdsKeys: true });
   expect(bottomAsks(false, 0)).toEqual({ shows: false, holdsKeys: false });
+  // Review of #38410: the last plan's exit played in a stack that was already gone.
+  expect(bottomAsks(false, 0, true)).toEqual({ shows: true, holdsKeys: false });
 });

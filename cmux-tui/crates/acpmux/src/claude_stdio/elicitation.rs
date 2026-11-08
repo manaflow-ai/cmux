@@ -130,6 +130,7 @@ impl Translator {
         // Its direct writer may still be reading them after dropping `out`.
         self.elicitations.lock().await.remove(rid);
         self.suggestions.lock().await.remove(rid);
+        self.plan_asks.lock().await.remove(rid);
         self.inputs.lock().await.remove(rid);
         Some(id)
     }

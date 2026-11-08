@@ -667,7 +667,7 @@ import { callNative } from "./callNative";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
 import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
-import { PermissionAsk } from "./rows/PermissionAsk";
+import { PermissionAsk, PlanAsk } from "./rows/PermissionAsk";
 import { ChildAsk } from "./subagents/ChildAsk";
 import { childAsks } from "./subagents/childAsks";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
@@ -2329,6 +2329,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [trustRoute]);
   /// The ask whose card has a deny's instructions open: it stays the single card (`heldOnCard`).
   const [draftAsk, setDraftAsk] = useState<AcpmuxPermission>();
+  /// A plan ask is drawn in the bottom stack, its exit included (PlanAsk `onDrawn`).
+  const [planDrawn, setPlanDrawn] = useState(false);
   const individualPermission =
     heldOnCard(draftAsk, snapshot.permission, snapshot.permissionGroups) ??
     (askOnSingleCard(snapshot.permission, snapshot.permissionGroups) ? snapshot.permission : undefined);
@@ -9899,7 +9901,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     toolCards.length > 0,
   );
   // Pinned questions join the stack but never take the composer's keys (waitingAskStore.ts).
-  const bottomStack = bottomAsks(liveBottomAsk, pinnedAsks.length);
+  // An answered plan shrinks out in the stack (PlanAsk), which stays drawn until that has played.
+  const bottomStack = bottomAsks(liveBottomAsk, pinnedAsks.length, planDrawn && !individualPermission?.plan);
   const hasBottomAsk = bottomStack.holdsKeys;
   // A folder confirmation can be pending while the New Tab stays mounted. Keep the same ask in
   // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
@@ -9963,6 +9966,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         answers={answersTrust}
       />
     ) : undefined;
+  const permissionAsk = (permission: AcpmuxPermission, leaving = false) => (
+    <PermissionAsk
+      key={permission.permissionId}
+      permission={permission}
+      shortcuts={!leaving && cardTakesShortcuts(snapshot.permissionGroups)}
+      waiting={snapshot.permissionsWaiting}
+      harness={snapshot.summary?.harness}
+      fullAccessMode={fullAccessModeName(snapshot.summary)}
+      focusComposer={() => composerHandle.current?.focus()}
+      shownChat={shownChat}
+      alwaysAtSource={chatOnPeer(snapshot)}
+      onDraft={(open) => setDraftAsk(open ? permission : undefined)}
+    />
+  );
   const asks = bottomStack.shows ? (
     <div className="acpmux-permission acpmux-asks-stack">
       {pinnedAsks.length > 0 && (
@@ -10014,6 +10031,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           }}
         />
       )}
+      {/* Outside the block below: an answered plan stays drawn while it shrinks out. */}
+      {/* Keyed by chat: a plan answered in one chat never shrinks out over the next one (#38410 F1). */}
+      <PlanAsk
+        key={snapshot.sessionId}
+        permission={individualPermission?.plan ? individualPermission : undefined}
+        onDrawn={setPlanDrawn}
+      >
+        {(permission, leaving) => permissionAsk(permission, leaving)}
+      </PlanAsk>
       {(individualPermission || childAsk || secret || toolCards.length > 0) && (
         <>
           <ToolCards
@@ -10025,20 +10051,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               ).catch(() => undefined)
             }
           />
-          {individualPermission && (
-            <PermissionAsk
-              key={individualPermission.permissionId}
-              permission={individualPermission}
-              shortcuts={cardTakesShortcuts(snapshot.permissionGroups)}
-              waiting={snapshot.permissionsWaiting}
-              harness={snapshot.summary?.harness}
-              fullAccessMode={fullAccessModeName(snapshot.summary)}
-              focusComposer={() => composerHandle.current?.focus()}
-              shownChat={shownChat}
-              alwaysAtSource={chatOnPeer(snapshot)}
-              onDraft={(open) => setDraftAsk(open ? individualPermission : undefined)}
-            />
-          )}
+          {individualPermission && !individualPermission.plan && permissionAsk(individualPermission)}
           {childAsk && (
             <ChildAsk
               key={childAsk.ask.permission.permissionId}

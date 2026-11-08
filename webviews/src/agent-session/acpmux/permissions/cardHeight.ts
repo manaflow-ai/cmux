@@ -103,7 +103,7 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
   if (description) height += 4 + textHeight(description, room, body.size, body.lineHeight);
   // The plan's Markdown, inset 8 by 12 and scrolled past 320px.
   if (plan) height += 4 + Math.min(320, 16 + textHeight(plan, room - 24, detail.size, detail.size * 1.5));
-  const { allowOnce, allowAlways, deny, others } = permissionAnswers(permission.options);
+  const { allowOnce, allowAlways, deny, acceptEdits, others } = permissionAnswers(permission.options, Boolean(plan));
   const command = permissionCommand(permission);
   const scoped = !external && Boolean(permission.scope || (allowAlways && alwaysAllowScope(permission, allowAlways)));
   if (command || scoped) height += BAND;
@@ -128,6 +128,7 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
       ? [translate(plan ? "permission.plan.keepPlanning" : external ? "permission.external.skip" : "permission.deny")]
       : []),
     ...(external ? [translate("permission.external.openSettings")] : []),
+    ...(acceptEdits ? [translate("permission.plan.approveAcceptEdits")] : []),
   ];
   const taken = new Set(labels);
   // Buttons are 12px either side of their label.
