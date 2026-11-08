@@ -246,6 +246,11 @@ impl MachineAgent {
                         Ok(started) if started.generation == request.generation => {
                             if started.registered.pairing_code.is_some() {
                                 started.handle.close();
+                                // Report before the old worker tells its peer:
+                                // whoever sees the rejection can rely on it.
+                                self.reporter
+                                    .diagnostic(MachineAgentDiagnostic::MigrationPairingCode);
+                                self.reporter.migration_failed();
                                 try_send_worker_command(
                                     &workers,
                                     worker_id,
@@ -254,9 +259,6 @@ impl MachineAgent {
                                         code: error_code("invalid_migration"),
                                     },
                                 );
-                                self.reporter
-                                    .diagnostic(MachineAgentDiagnostic::MigrationPairingCode);
-                                self.reporter.migration_failed();
                                 continue;
                             }
                             let Some(replacement) = commit_migration_replacement(
@@ -274,6 +276,9 @@ impl MachineAgent {
                         }
                         Ok(started) => {
                             started.handle.close();
+                            self.reporter
+                                .diagnostic(MachineAgentDiagnostic::MigrationGenerationMismatch);
+                            self.reporter.migration_failed();
                             try_send_worker_command(
                                 &workers,
                                 worker_id,
@@ -282,11 +287,14 @@ impl MachineAgent {
                                     code: error_code("generation_mismatch"),
                                 },
                             );
-                            self.reporter
-                                .diagnostic(MachineAgentDiagnostic::MigrationGenerationMismatch);
-                            self.reporter.migration_failed();
                         }
                         Err(error) => {
+                            self.reporter.diagnostic(
+                                MachineAgentDiagnostic::MigrationReplacementStart(
+                                    generation_failure_kind(&error),
+                                ),
+                            );
+                            self.reporter.migration_failed();
                             try_send_worker_command(
                                 &workers,
                                 worker_id,
@@ -295,12 +303,6 @@ impl MachineAgent {
                                     code: error_code("migration_failed"),
                                 },
                             );
-                            self.reporter.diagnostic(
-                                MachineAgentDiagnostic::MigrationReplacementStart(
-                                    generation_failure_kind(&error),
-                                ),
-                            );
-                            self.reporter.migration_failed();
                         }
                     }
                 }
@@ -488,11 +490,12 @@ fn commit_migration_replacement(
     {
         return Some(replacement);
     }
+    // Report before either peer sees its connection close.
+    reporter.diagnostic(MachineAgentDiagnostic::MigrationCommitDelivery);
+    reporter.migration_failed();
     if let Some(worker) = workers.get(&worker_id) {
         worker.control.close();
     }
-    reporter.diagnostic(MachineAgentDiagnostic::MigrationCommitDelivery);
-    reporter.migration_failed();
     replacement.close();
     None
 }
