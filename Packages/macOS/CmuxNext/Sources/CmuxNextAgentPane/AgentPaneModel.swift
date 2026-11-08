@@ -33,6 +33,8 @@ public final class AgentPaneModel {
     /// while it connects or after it lost its connection. A prewarmed New Tab page serves a tab
     /// opening an existing chat only while this holds (`NewTabSparePool.takeConnectedSpare`).
     @ObservationIgnored public internal(set) var clientReady = false
+    /// The page's finish sound (`pane.finishSound`), with its own gap between sounds.
+    @ObservationIgnored let finishSound = AgentPaneFinishSound()
 
     /// The tab this pane shows (the store's id), asked each time: what a pane keeps per view, not per
     /// chat, is kept by it (its transcript's place, ``AgentPaneScrollAnchors``; its Session Info, the
@@ -545,7 +547,7 @@ public final class AgentPaneModel {
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
         case .editNewTab(let edit): guard let onEditNewTab else { return Self.unsupported(edit.method) }; onEditNewTab(edit); return AgentPaneReply.success()
         case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
-        case .finishSound(let kind): AgentPaneFinishSound.play(kind); return AgentPaneReply.success()
+        case .finishSound(let kind): finishSound.play(kind); return AgentPaneReply.success()
         case .readAloud(let command):
             guard let readAloud else { return Self.unsupported("readAloud") }
             if case .speak(let id, let text, let language) = command { readAloud.speak(text, id: id, language: language, owner: self) } else { readAloud.stop() }
