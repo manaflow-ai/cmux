@@ -389,7 +389,8 @@ const Row = memo(function Row({
   const when = age(item.at, now, t);
   const where = item.host ?? t("waiting.thisMac");
   const showsAnswers = look === "cards" || selected;
-  const keyOf = (tone: "allow" | "deny") => (selected ? (tone === "allow" ? allowKey : denyKey) : undefined);
+  const acceptKey = selected ? allowKey : undefined;
+  const changesKey = selected ? denyKey : undefined;
   return (
     // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- a click picks the row; the list owns the keys (j/k, Return)
     <li
@@ -444,26 +445,26 @@ const Row = memo(function Row({
                     className="wq-button"
                     data-tone="allow"
                     tabIndex={-1}
-                    aria-keyshortcuts={keyOf("allow")}
+                    aria-keyshortcuts={acceptKey}
                     onClick={() => onVerdict(item, "accept")}
                   >
-                    {keyOf("allow") && <Keycap>{keyOf("allow")}</Keycap>}
+                    {acceptKey && <Keycap>{acceptKey}</Keycap>}
                     {t("waiting.pr.accept")}
                   </button>
                   <button
                     type="button"
                     className="wq-button"
                     tabIndex={-1}
-                    aria-keyshortcuts={keyOf("deny")}
+                    aria-keyshortcuts={changesKey}
                     onClick={() => onComment({ id: item.id, text: "" })}
                   >
-                    {keyOf("deny") && <Keycap>{keyOf("deny")}</Keycap>}
+                    {changesKey && <Keycap>{changesKey}</Keycap>}
                     {t("waiting.pr.changes")}
                   </button>
                 </>
               ) : answers.length > 0 ? (
                 answers.map((each) => {
-                  const key = each.tone === "choice" ? undefined : keyOf(each.tone);
+                  const key = each.tone === "allow" ? acceptKey : each.tone === "deny" ? changesKey : undefined;
                   return (
                     <button
                       key={each.id}
