@@ -137,28 +137,38 @@ fn folder_beneath(root: &Path, rel: &str) -> Option<(std::os::fd::OwnedFd, std::
     Some((dir, CString::new(last).ok()?))
 }
 
+/// The temporary copy's mode until it takes the file's own.
+#[cfg(unix)]
+const OWNER_ONLY: libc::c_uint = 0o600;
+
 /// What a file was when it was read: [`replace_beneath`] replaces it only while it still is.
+#[cfg(unix)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Stamp {
-    dev: u64,
-    ino: u64,
-    size: i64,
-    mtime: i64,
-    mtime_nsec: i64,
+    dev: libc::dev_t,
+    ino: libc::ino_t,
+    size: libc::off_t,
+    mtime: libc::time_t,
+    mtime_nsec: libc::c_long,
 }
 
 #[cfg(unix)]
 impl Stamp {
     fn of(st: &libc::stat) -> Self {
         Self {
-            dev: st.st_dev as u64,
-            ino: st.st_ino as u64,
-            size: st.st_size as i64,
-            mtime: st.st_mtime as i64,
-            mtime_nsec: st.st_mtime_nsec as i64,
+            dev: st.st_dev,
+            ino: st.st_ino,
+            size: st.st_size,
+            mtime: st.st_mtime,
+            mtime_nsec: st.st_mtime_nsec,
         }
     }
 }
+
+/// Elsewhere nothing is read for an edit, so nothing is stamped.
+#[cfg(not(unix))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Stamp;
 
 /// The whole of `rel` beneath `root` and its [`Stamp`], for an edit: `None` only when there is
 /// no such file. Any other failure (no permission, a read error, a non-file, more than `max`
@@ -200,13 +210,14 @@ pub(crate) fn read_whole_beneath(
     if st.st_mode & libc::S_IFMT != libc::S_IFREG {
         return Err(format!("{rel} is not a regular file; edit it by hand"));
     }
-    if st.st_size as u64 > max {
+    let size = u64::try_from(st.st_size).unwrap_or(u64::MAX);
+    if size > max {
         return Err(format!("{rel} is over {} KB; edit it by hand", max / 1024));
     }
     let mut bytes = Vec::new();
-    std::io::Read::read_to_end(&mut std::io::Read::take(&file, max + 1), &mut bytes)
+    std::io::Read::read_to_end(&mut std::io::Read::take(&file, max.saturating_add(1)), &mut bytes)
         .map_err(|e| format!("{rel} could not be read: {e}"))?;
-    if bytes.len() as i64 != st.st_size as i64 {
+    if u64::try_from(bytes.len()).ok() != Some(size) {
         return Err(format!("{rel} changed while it was read; try again"));
     }
     Ok(Some((bytes, Stamp::of(&st))))
@@ -257,7 +268,7 @@ pub(crate) fn replace_beneath(
             dir.as_raw_fd(),
             tmp.as_ptr(),
             libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            0o600 as libc::c_uint,
+            OWNER_ONLY,
         )
     };
     if fd < 0 {
@@ -268,7 +279,7 @@ pub(crate) fn replace_beneath(
     let written = std::io::Write::write_all(&mut file, bytes)
         .and_then(|()| {
             // SAFETY: `file` is open; `mode` is a permission mask.
-            if unsafe { libc::fchmod(file.as_raw_fd(), mode as libc::mode_t) } == 0 {
+            if unsafe { libc::fchmod(file.as_raw_fd(), mode) } == 0 {
                 Ok(())
             } else {
                 Err(std::io::Error::last_os_error())

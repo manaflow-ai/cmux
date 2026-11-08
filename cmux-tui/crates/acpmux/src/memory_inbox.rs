@@ -163,11 +163,16 @@ pub fn is_correction(text: &str) -> bool {
 
 /// "use X, not Y" and "use X not Y".
 fn says_use_not(text: &str) -> bool {
-    text.match_indices("use ").any(|(at, _)| {
-        let after = &text[at + 4..];
-        let words: Vec<&str> = after.split_whitespace().take(4).collect();
-        words.iter().skip(1).any(|w| *w == "not")
-    })
+    let mut words = text.split_whitespace().peekable();
+    while let Some(word) = words.next() {
+        if word == "use" {
+            // The word used, then "not" within the next three.
+            if words.clone().skip(1).take(3).any(|w| w.trim_matches(',') == "not") {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Words of a line, lower-cased, without punctuation or list markers: what two facts compare by.
@@ -236,26 +241,30 @@ pub fn with_facts(existing: &str, facts: &[String]) -> String {
         return out;
     };
     // The section ends at the next heading of its level or above.
+    let body = start.saturating_add(1);
     let end = lines
         .iter()
         .enumerate()
-        .skip(start + 1)
+        .skip(body)
         .find(|(_, l)| l.starts_with("# ") || l.starts_with("## "))
-        .map(|(i, _)| i)
-        .unwrap_or(lines.len());
+        .map_or(lines.len(), |(i, _)| i);
     // After its last non-blank line.
-    let mut at = end;
-    while at > start + 1 && lines[at - 1].trim().is_empty() {
-        at -= 1;
-    }
-    let mut out: Vec<String> = lines[..at].iter().map(|l| (*l).to_owned()).collect();
-    if at == start + 1 {
+    let at = lines
+        .iter()
+        .enumerate()
+        .take(end)
+        .skip(body)
+        .rev()
+        .find(|(_, l)| !l.trim().is_empty())
+        .map_or(body, |(i, _)| i.saturating_add(1));
+    let mut out: Vec<String> = lines.iter().take(at).map(|l| (*l).to_owned()).collect();
+    if at == body {
         out.push(String::new());
     }
     out.extend(bullets);
-    if at < lines.len() {
+    if end < lines.len() {
         out.push(String::new());
-        out.extend(lines[end..].iter().map(|l| (*l).to_owned()));
+        out.extend(lines.iter().skip(end).map(|l| (*l).to_owned()));
     }
     let mut text = out.join("\n");
     text.push('\n');
