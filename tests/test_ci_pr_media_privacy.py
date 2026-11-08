@@ -611,8 +611,9 @@ class WriterInventoryTests(unittest.TestCase):
     CHECKS_ITSELF = {"scripts/pr-media.py"}
     # Writes only through scripts/pr-media.py, which checks.
     THROUGH_PR_MEDIA_PY = {"scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py",
-                           "scripts/cmux-next/media/whats-new-clips.py",
+                           "scripts/cmux-next/media/whats-new-clips.py", "scripts/cmux-next/media/whats-new-gallery.py",
                            ".github/workflows/cmux-next-media.yml", ".github/workflows/nightly.yml",
+                           ".github/workflows/whats-new-gallery.yml",
                            ".github/actions/pr-media-publish/action.yml"}
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", "scripts/ci/prune_pr_media.py",
@@ -939,13 +940,15 @@ class FeatWorkflowTests(unittest.TestCase):
     WRITER_JOBS = {
         ".github/workflows/cmux-next-media.yml": {"publish": "scripts/cmux-next/media/publish.py"},
         ".github/workflows/nightly.yml": {"publish-nightly-reel": "scripts/cmux-next/media/reel.py"},
+        ".github/workflows/whats-new-gallery.yml": {"publish": "scripts/cmux-next/media/whats-new-gallery.py"},
     }
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {".github/workflows/pr-media-prune.yml"}
     ACTION_USE = "./.github/actions/pr-media-publish"
     NEEDED = (".github/actions/pr-media-publish", "scripts/pr-media.py", "scripts/ci/pr_media_privacy.py",
               "scripts/ci/pr_media_gate.py", "scripts/ci/pr_media_ocr_tesseract.py", "scripts/ci/pr_media_ocr.swift")
-    WRITERS = ("scripts/pr-media.py", "scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py")
+    WRITERS = ("scripts/pr-media.py", "scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py",
+               "scripts/cmux-next/media/whats-new-gallery.py")
 
     @staticmethod
     def runs_a_writer(run: str, script: str | None = None) -> bool:
@@ -960,17 +963,22 @@ class FeatWorkflowTests(unittest.TestCase):
                 # reel.py without --publish only builds the reel.
                 if name.endswith("media/reel.py") and "--publish" not in run[found.start():found.start() + 400]:
                     continue
+                # whats-new-gallery.py writes only in its `publish` command (plan and manifest read).
+                if name.endswith("media/whats-new-gallery.py") and not re.match(r"\s*publish\b", run[found.end():]):
+                    continue
                 return True
         return False
 
     def test_the_writer_shapes_are_recognized(self) -> None:
         for run in ("python3 scripts/pr-media.py --pr 1 a.png", "./scripts/pr-media.py --pr 1 a.png",
                     "python3 -u scripts/cmux-next/media/publish.py --repo r",
-                    "python3 scripts/cmux-next/media/reel.py --build 1 --publish"):
+                    "python3 scripts/cmux-next/media/reel.py --build 1 --publish",
+                    "python3 scripts/cmux-next/media/whats-new-gallery.py publish --plan p --results r"):
             with self.subTest(run=run):
                 self.assertTrue(self.runs_a_writer(run))
         for run in ("[ -f scripts/cmux-next/media/publish.py ] && echo yes", "# scripts/pr-media.py uploads",
-                    "python3 scripts/cmux-next/media/reel.py --build 1 --dry-run"):
+                    "python3 scripts/cmux-next/media/reel.py --build 1 --dry-run",
+                    "python3 scripts/cmux-next/media/whats-new-gallery.py plan --out p.json"):
             with self.subTest(run=run):
                 self.assertFalse(self.runs_a_writer(run))
 

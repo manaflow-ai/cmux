@@ -176,6 +176,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     public var serverRevision: String?
     /// When the machine last started running; nil while it is paused.
     public var runningSince: Date?
+    /// When the server deletes the machine if it stays paused (the record's `evict_at`); nil when
+    /// the record does not say (an older server, or one not deleting paused machines yet).
+    public var evictAt: Date?
     /// The auto-size pick a create with `autosize` answered.
     public var sizePick: CloudSizePick?
     /// Why the last pause, resume or resize failed; nil when it did not.
@@ -193,7 +196,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, team, address, size
         case declaredCapabilities = "capabilities"
-        case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, sizePick
+        case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, evictAt, sizePick
         case lastChangeFailure = "error"
         case pendingChange, pendingMutationID, failedMutationID, servesDesktop
     }
