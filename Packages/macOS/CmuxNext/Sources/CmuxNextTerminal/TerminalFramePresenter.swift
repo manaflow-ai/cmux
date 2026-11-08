@@ -150,6 +150,10 @@ final class TerminalFramePresenter {
     /// span), before this turn's sizes drawn ahead go to Ghostty. What Ghostty drew last is the frame just presented then.
     var presentedHook: ((TerminalSurfaceView) -> Void)?
 
+    /// Tests: called in the pass just before it tries to present a request's frame, with what Ghostty said of it
+    /// (READY_PROGRAM: drawn after the program's output at its grid; READY: the size only).
+    var presentingHook: ((TerminalSurfaceView, ghostty_host_frame_e) -> Void)?
+
     /// What this presenter holds for `view` (`debug.motion` trace): "request" (a size waits for its frame), "watch"
     /// (its shown size changed outside a present), "commit" (its commit is reported at the next refresh), or "-".
     func debugState(of view: TerminalSurfaceView) -> String {
@@ -186,7 +190,8 @@ final class TerminalFramePresenter {
             case GHOSTTY_HOST_FRAME_HIDDEN:
                 // Shown again, it is watched again (``TerminalSurfaceView/updateOcclusion()``).
                 watched[id] = nil
-            case GHOSTTY_HOST_FRAME_READY where view.frameOwnership.ahead == nil:
+            case GHOSTTY_HOST_FRAME_READY where view.frameOwnership.ahead == nil,
+                 GHOSTTY_HOST_FRAME_READY_PROGRAM where view.frameOwnership.ahead == nil:
                 // Its bounds already have the host size (they were given without a present): the frame fits them. Not a
                 // frame drawn ahead: it waits for the bounds of its refresh.
                 CATransaction.lock()
@@ -232,10 +237,14 @@ final class TerminalFramePresenter {
                 continue
             }
             let age = epoch &- request.epoch
+            let state = view.hostFrame(present: false)
             if waitingGroups.contains(request.epoch), age < Self.groupTicks {
-                if Self.isReady(view.hostFrame(present: false)) { stats.groupWaits += 1 }
+                if Self.isReady(state) { stats.groupWaits += 1 }
                 continue
             }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            presentingHook?(view, state)
+            #endif
             // Ghostty's call-site rule: the present and the new bounds under the Core Animation lock, so no off-main
             // commit of another terminal can ship this one's new frame with its old bounds in between.
             CATransaction.lock()
@@ -304,7 +313,7 @@ final class TerminalFramePresenter {
     }
 
     private static func isReady(_ state: ghostty_host_frame_e) -> Bool {
-        state == GHOSTTY_HOST_FRAME_READY || state == GHOSTTY_HOST_FRAME_SHOWN
+        state == GHOSTTY_HOST_FRAME_READY || state == GHOSTTY_HOST_FRAME_READY_PROGRAM || state == GHOSTTY_HOST_FRAME_SHOWN
             || state == GHOSTTY_HOST_FRAME_NONE || state == GHOSTTY_HOST_FRAME_HIDDEN
     }
 }

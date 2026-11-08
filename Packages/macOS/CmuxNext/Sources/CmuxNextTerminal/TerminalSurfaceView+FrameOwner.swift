@@ -233,7 +233,7 @@ extension TerminalSurfaceView {
         guard isShown, let presenter = framePresenter else { return applyHeldScale() }
         guard !presenter.isWaiting(self) else { return }
         switch hostFrame(present: false) {
-        case GHOSTTY_HOST_FRAME_READY, GHOSTTY_HOST_FRAME_PENDING, GHOSTTY_HOST_FRAME_HELD:
+        case GHOSTTY_HOST_FRAME_READY, GHOSTTY_HOST_FRAME_READY_PROGRAM, GHOSTTY_HOST_FRAME_PENDING, GHOSTTY_HOST_FRAME_HELD:
             presenter.request(self)
         default:
             applyHeldScale()
