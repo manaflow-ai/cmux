@@ -23,6 +23,15 @@ struct GhosttyRuntimeFontTests {
         #expect(lines == ["font-size = 14"])
     }
 
+    @Test func quotedFallbackFamilyNamesRemainValidConfigValues() {
+        let lines = GhosttyRuntime.fontOverrideLines(
+            .init(family: "Font #1"), fallbackFamilies: ["Mono = Wide", "Quote \"Mono\""]
+        )
+        #expect(lines.contains("font-family = \"Font #1\""))
+        #expect(lines.contains("font-family = \"Mono = Wide\""))
+        #expect(lines.contains("font-family = \"Quote \\\"Mono\\\"\""))
+    }
+
     @Test func glyphProbeReportsTheFixedPromptSamples() {
         let probe = GhosttyGlyphWidthProbe(family: "Menlo", size: 13, fallbackFamilies: ["Symbols Nerd Font Mono", "Noto Sans Mono CJK JP"])
         #expect(probe.measurements.map(\.sample.name) == ["ASCII", "CJK", "Nerd Font", "Emoji"])

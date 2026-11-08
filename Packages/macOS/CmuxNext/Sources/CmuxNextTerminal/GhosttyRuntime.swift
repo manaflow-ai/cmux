@@ -220,7 +220,7 @@ public final class GhosttyRuntime {
         for line in themeLines(theme ?? themeOverride, isDark: colorSchemeIsDark, edits: themeEdits) + highlightLines(themeEdits.highlight) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
-        let fallbackFamilies = GhosttyConfigFontFamily.families(inFiles: Self.loadedFiles(of: config))
+        let fallbackFamilies = fontOverride.family == nil ? [] : GhosttyConfigFontFamily.families(inFiles: Self.loadedFiles(of: config))
         for line in fontOverrideLines(fontOverride, fallbackFamilies: fallbackFamilies) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
