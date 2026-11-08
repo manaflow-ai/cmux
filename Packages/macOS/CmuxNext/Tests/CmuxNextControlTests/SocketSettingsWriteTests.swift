@@ -42,9 +42,11 @@ import Testing
             let key = JSONValue.string(descriptor.id)
             // The expectation reads the default, not `isUnsetValue`: a write path that dropped every key would
             // also make `isUnsetValue` say "unset", and the round trip would then prove nothing. No MDM or team
-            // layer sets a key here, so the build's default is the unset value.
+            // layer sets a key here, so the build's default is the unset value, except for a key whose reader
+            // fills an unset key itself (`unsetIsNotDefault`): a written default stays stored there.
             let defaultValue = settings.defaultValue(of: descriptor)
-            if descriptor.sampleValue == defaultValue {
+            let defaultLeavesNoKey = descriptor.sampleValue == defaultValue && !SettingsSchema.unsetIsNotDefault(descriptor.id)
+            if defaultLeavesNoKey {
                 // The sample is the default, whose write leaves no key (#38119): first write a value that is not
                 // the default and read it back, so the file is proven to store this setting.
                 guard let other = descriptor.otherSampleValues.first(where: { descriptor.accepts($0) && $0 != defaultValue }) else {
@@ -58,7 +60,7 @@ import Testing
             let before = settings.validatedWrites[descriptor.id, default: 0]
             // A write of the default removes the key (#38119): the file then keeps nothing. `.none`, not a nil
             // literal: JSONValue is ExpressibleByNilLiteral, so `nil` here would be the JSON null, `.null`.
-            let stored: JSONValue? = descriptor.sampleValue == defaultValue ? .none : .some(descriptor.sampleValue)
+            let stored: JSONValue? = defaultLeavesNoKey ? .none : .some(descriptor.sampleValue)
             let set = await call(router, "settings.set", ["path": key, "value": descriptor.sampleValue, "confirm": true])
             #expect((try? set.get()) != nil, "\(descriptor.id): \(set)")
             #expect(settings.validatedWrites[descriptor.id, default: 0] == before + 1, "\(descriptor.id) skipped the settings owner")
