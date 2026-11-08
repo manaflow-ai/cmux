@@ -361,10 +361,14 @@ async fn queue_prompt_once(
 /// With `--supersede`, a second line says how many of the sender's queued prompts it replaced.
 pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
     let steered = accepted.get("steer") == Some(&json!(true));
-    let mut lines = vec![if steered { "steered" } else { "queued" }.to_owned()];
-    if accepted.get(HELD_IN_INBOX) == Some(&json!(true)) {
-        lines[0] = HELD_LINE.to_owned();
-    }
+    let first = if accepted.get(HELD_IN_INBOX) == Some(&json!(true)) {
+        HELD_LINE
+    } else if steered {
+        "steered"
+    } else {
+        "queued"
+    };
+    let mut lines = vec![first.to_owned()];
     if supersede {
         // An older daemon (or a peer running one) ignores the key and says nothing.
         lines.push(match accepted.get("replaced").and_then(Value::as_u64) {
