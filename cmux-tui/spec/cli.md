@@ -1043,6 +1043,13 @@ daemon's order. Within a group the most recently updated agent comes first,
 and equal times fall back to the agent id. `--limit <n>` (at least 1) keeps
 the first `n` ranked rows.
 
+Without `--terminal` the list is the caller's session: its terminal agents
+and the acpmux chats created in one of its workspaces (the chat's
+`createdBy.workspace` is a workspace `key` of `workspace.list`). Chats of
+other sessions, such as the desktop app's, and chats with no workspace on
+record are left out; `--all-sessions` lists every session's terminal agents
+and every acpmux chat on the machine.
+
 The command also reads `terminal.list` on the same connection, so each row
 can show its terminal's title and folder. A refused or failed terminal read
 leaves those out. AGE is the time since the agent's `updated_at_ms`, its
