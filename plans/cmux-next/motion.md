@@ -354,7 +354,7 @@ rest).
 | Browser progress line | CATransaction 0.2 s | `move` (timed equivalent) | 200 ms | 192 ms | - |
 | strip column scroll (reveal, wheel, fling) | display-link spring 0.42/0.96 | `scroll` | 458 / 592 ms | 208 / 267 ms | 366-377 ms (reveal of a full-width column; rest is longer for long travel) |
 | Screen switch | display-link spring 0.38/0.92 | `screen` | 367 / 475 ms | 208 / 267 ms | 244-249 ms |
-| Splits (Cmd-D, Cmd-Shift-D) | one frame | `split` (0.11 / 0.95 since 2026-11-08; 0.28 from 2026-10-19, was `move`): the new pane grows from the far edge of the pane it split while its whole even chain makes room on the same spring, and the divider slides in from that edge (cx-f6i7, split-spring-animation) | 0 | 77 ms (95%) / 147 ms (700 pt) | - |
+| Splits (Cmd-D, Cmd-Shift-D) | one frame | `split` (0.11 / 0.95 since 2026-11-08; 0.28 from 2026-10-19, was `move`): the new pane grows from the far edge of the pane it split while its whole even chain makes room on the same spring, and the divider slides in from that edge (cx-f6i7, split-spring-animation) | 0 | 77 ms (95%) / 175 ms (700 pt) | - |
 | Pane close, move | one frame | one frame (unchanged) | 0 | 0 | - |
 | Pane ratio, equalize, width presets, pane zoom | display-link spring 0.34/0.88 | `move` | 292 / 483 ms | 192 / 250 ms | 258 ms (column width preset) |
 | Drop-zone overlay | display-link spring 0.20/0.90 | `track` | 192 / 250 ms | 117 / 167 ms | - |
