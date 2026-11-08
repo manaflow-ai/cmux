@@ -98,6 +98,7 @@ mod inference_gateway;
 #[cfg(unix)]
 mod inference_setup;
 mod internal;
+mod keys_help;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
@@ -927,7 +928,9 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands" | "docs" | "run") => {
+            Some(scope)
+                if matches!(scope.as_str(), "start" | "shorthands" | "docs" | "run" | "keys") =>
+            {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if surface.accepts(shorthand::scope(scope)) => {
@@ -1315,6 +1318,7 @@ fn scope_help_for(
 ) -> Cow<'static, str> {
     let text = code_mode::scope_help(scope).unwrap_or_else(|| match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
+        "keys" => Cow::Owned(keys_help::help(&crate::config::load().keys, catalog)),
         machine_server::HELP_TOPIC => Cow::Owned(machine_server::help()),
         "docs" => Cow::Borrowed(docs::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),

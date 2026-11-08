@@ -59,8 +59,8 @@ fn agent_rows_name_harness_state_title_and_workspace_and_skip_plain_shells() {
     assert_eq!(
         summary,
         [
-            ("term_c0dec000000000000000000000000004", "codex", "waiting-for-input", None),
-            ("term_0005e000000000000000000000000002", "muse", "busy", None),
+            ("term_c0dec000000000000000000000000004", "codex", "blocked", None),
+            ("term_0005e000000000000000000000000002", "muse", "working", None),
             ("term_c1a0de00000000000000000000000001", "claude", "idle", Some("sr2 costs")),
         ]
     );
@@ -104,11 +104,11 @@ fn agent_rows_carry_the_shared_status_and_done_until_seen() {
     assert_eq!(
         summary,
         [
-            ("codex", "blocked", "waiting-for-input"),
+            ("codex", "blocked", "blocked"),
             ("claude", "done", "idle"),
-            ("muse", "working", "busy")
+            ("muse", "working", "working")
         ],
-        "the old state word stays for compatibility"
+        "the send wait's state uses the shared words"
     );
     let table = roster::table(&rows, 1_000);
     assert!(table.lines().nth(2).is_some_and(|line| line.contains(" done ")), "{table}");
@@ -133,8 +133,8 @@ fn agent_table_has_one_header_and_one_line_per_agent() {
 
 #[test]
 fn agent_states_map_records_and_program_status_words() {
-    assert_eq!(AgentState::from_record("working"), Some(AgentState::Busy));
-    assert_eq!(AgentState::from_record("blocked"), Some(AgentState::WaitingForInput));
+    assert_eq!(AgentState::from_record("working"), Some(AgentState::Working));
+    assert_eq!(AgentState::from_record("blocked"), Some(AgentState::Blocked));
     assert_eq!(AgentState::from_record("done"), Some(AgentState::Idle));
     assert_eq!(AgentState::from_record("ended"), Some(AgentState::Ended));
     assert_eq!(AgentState::from_record("nonsense"), None);
@@ -251,7 +251,7 @@ fn settle_ends_on_a_dialog_and_on_exit() {
     let later = start + Duration::from_millis(200);
     let mut settle = Settle::new(Wait::Idle, Duration::from_millis(100), start);
     let dialog = Sample { waiting_for_input: true, busy: true, ..idle_sample("1") };
-    assert_eq!(settle.observe(&dialog, later), Verdict::Done(AgentState::WaitingForInput));
+    assert_eq!(settle.observe(&dialog, later), Verdict::Done(AgentState::Blocked));
     let mut settle = Settle::new(Wait::Prompt, Duration::from_millis(100), start);
     assert_eq!(settle.observe(&idle_sample("1"), later), Verdict::Pending);
     let prompt = Sample { prompt: true, ..idle_sample("1") };
@@ -518,7 +518,7 @@ fn send_stopped_at_a_dialog_anchors_a_message_with_inline_code() {
     let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
     let message = "Run the shell command `touch /tmp/w4i-perm` now.";
     let receipt = send::run(&daemon, None, &quick(message)).expect("sent");
-    assert_eq!(receipt["state"], "waiting-for-input");
+    assert_eq!(receipt["state"], "blocked");
     assert_eq!(receipt["anchored"], true, "{receipt}");
     let output = receipt["output"].as_str().unwrap_or_default();
     assert!(output.starts_with("⏺ Bash(touch /tmp/w4i-perm)"), "{output}");
@@ -536,7 +536,7 @@ fn send_stopped_at_a_dialog_without_an_echo_answers_only_what_came_after_the_sen
  Do you want to proceed?\n ❯ 1. Yes\n   2. No";
     let daemon = dialog_daemon(&[(1, before), (2, after)]);
     let receipt = send::run(&daemon, None, &quick("never echoed as typed")).expect("sent");
-    assert_eq!(receipt["state"], "waiting-for-input");
+    assert_eq!(receipt["state"], "blocked");
     assert_eq!(receipt["anchored"], false, "{receipt}");
     let output = receipt["output"].as_str().unwrap_or_default();
     assert!(output.contains("⏺ Bash(touch /tmp/w4i-perm)"), "{output}");

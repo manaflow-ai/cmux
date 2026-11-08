@@ -255,6 +255,9 @@ cursor's line after the call, never a typed command's echo or older output. keep
 when it has no tab; keep off lets it end after the reap grace period.
 status prints the program status records (OSC 7501) the terminal's
 programs reported: state, progress, kind, app, title and msg per record id.
+STATE is the word list --agents shows (a finished turn somebody viewed is
+idle, one nobody viewed done); --json keeps the program's own word as state
+and adds that word as status.
 wait --until prompt returns when the shell shows its prompt; --until idle
 when no command runs and no program reports work. Both need OSC 133 shell
 integration to see commands, and print the terminal record; a passed
@@ -265,8 +268,8 @@ list --agents lists the terminals that run a coding agent (Claude Code,
 Codex, or a program reporting OSC 7501 status): name, harness, state
 (blocked, done, working, idle, unknown, ended), age, workspace and title.
 done is a finished turn nobody has viewed yet; viewing the tab makes it idle.
-The JSON rows carry that word as status and the older word (busy, idle,
-waiting-for-input, ended) as state, and add the tab, the pane and the
+The JSON rows carry that word as status (state is a deprecated alias with
+the same word), and add the agent's name, the tab, the pane and the
 agent's last reply.
 resume starts an agent that exited again with its recorded harness session
 (claude --resume <id>, codex resume <id>), in the same pane by default, and

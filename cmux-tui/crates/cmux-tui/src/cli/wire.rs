@@ -685,6 +685,7 @@ fn run_response(
                         _ => result,
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
+                    let result = program_status_view::with_agent_status(reader, plan, result);
                     return super::agent_input_hint::print_result(global, plan, reader, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
@@ -882,7 +883,12 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
         && plan.view == super::command::ResponseView::TerminalProgramStatus)
         .then(|| result.pointer("/extra/last_command").cloned())
         .flatten();
-    let result = plan.view.project(result);
+    let mut result = plan.view.project(result);
+    if global.output == OutputMode::Human
+        && plan.view == super::command::ResponseView::TerminalProgramStatus
+    {
+        result = program_status_view::human_records(result);
+    }
     if global.output == OutputMode::Human
         && plan.view == super::command::ResponseView::ScreenText
         && let Some(text) = result.get("text").and_then(Value::as_str)

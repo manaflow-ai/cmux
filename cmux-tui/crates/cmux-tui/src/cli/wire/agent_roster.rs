@@ -115,7 +115,18 @@ pub(super) fn with_terminals(
     } else {
         result
     };
-    shape(result, &terminals, &unseen_terminals(&notifications), view, unix_ms())
+    let tabs = super::super::resolve::read(reader, ResourceOperation::TabList, route_of(plan))
+        .ok()
+        .and_then(|tabs| tabs.as_array().cloned())
+        .unwrap_or_default();
+    let mut roster = shape(result, &terminals, &unseen_terminals(&notifications), view, unix_ms());
+    add_names(&mut roster, &terminals, &tabs);
+    roster
+}
+
+/// The session route of `plan`'s request, for the reads that join it.
+fn route_of(plan: &RequestPlan) -> Map<String, Value> {
+    plan.params.as_object().map(super::super::resolve::route).unwrap_or_default()
 }
 
 /// `notification.list`'s largest `limit`: a session keeps at most this many.
@@ -231,7 +242,7 @@ fn acp_state(status: &str) -> &'static str {
 }
 
 /// [`with_terminals`] for `--all-sessions`: `agents` is the joined rows,
-/// `terminals` every session's terminals and `notifications` every
+/// `terminals` and `tabs` every session's terminals and tabs, and `notifications` every
 /// session's notifications. Without a terminal selector every acpmux chat
 /// on this machine joins them, whatever its workspace, filtered by
 /// `params.state` as the daemons filtered their rows.
@@ -239,6 +250,7 @@ pub(in crate::cli) fn across(
     view: ResponseView,
     agents: Value,
     terminals: &[Value],
+    tabs: &[Value],
     notifications: &[Value],
     params: &Value,
 ) -> Value {
@@ -250,7 +262,9 @@ pub(in crate::cli) fn across(
     } else {
         agents
     };
-    shape(agents, terminals, &unseen_terminals(notifications), view, unix_ms())
+    let mut roster = shape(agents, terminals, &unseen_terminals(notifications), view, unix_ms());
+    add_names(&mut roster, terminals, tabs);
+    roster
 }
 
 /// What a machine-readable mode prints. `--json` stays the bare ranked
@@ -357,8 +371,22 @@ pub(super) fn shape(
     json!({"agents": agents, "counts": counts})
 }
 
-/// Adds each terminal agent's `name` (W5-Q): not yet.
-pub(super) fn add_names(_result: &mut Value, _terminals: &[Value], _tabs: &[Value]) {}
+/// Adds each terminal agent's `name` (W5-Q): its tab's name when that is an
+/// agent name, the name `terminal list --agents` shows (roster_names.rs),
+/// else null. An acpmux chat keeps its own `name`.
+pub(super) fn add_names(result: &mut Value, terminals: &[Value], tabs: &[Value]) {
+    let facts = super::super::terminal_talk::roster_names::facts(
+        &json!({"tabs": tabs, "terminals": terminals}),
+    );
+    let Some(agents) = result.get_mut("agents").and_then(Value::as_array_mut) else { return };
+    for agent in agents {
+        let Some(terminal) = agent.get("terminal_id").and_then(Value::as_str) else { continue };
+        let name = facts.get(terminal).and_then(|facts| facts.name()).map(str::to_owned);
+        if let Some(object) = agent.as_object_mut() {
+            object.insert("name".into(), json!(name));
+        }
+    }
+}
 
 /// The human roster: a counts line, then one row per agent. `home` is
 /// shown as `~` in FOLDER.
@@ -381,9 +409,13 @@ pub(super) fn human(result: &Value, home: Option<&str>) -> String {
     output.push('\n');
 
     let sessions = agents.iter().any(|agent| agent.get("session").is_some());
+    let names = agents.iter().any(|agent| agent.get("name").and_then(Value::as_str).is_some());
     let mut header = Vec::new();
     if sessions {
         header.push("SESSION");
+    }
+    if names {
+        header.push("NAME");
     }
     header.extend(["STATE", "AGE", "AGENT", "TITLE", "FOLDER", "TERMINAL"]);
     let rows = agents
@@ -392,6 +424,9 @@ pub(super) fn human(result: &Value, home: Option<&str>) -> String {
             let mut row = Vec::new();
             if sessions {
                 row.push(cell(agent.get("session")));
+            }
+            if names {
+                row.push(cell(agent.get("name").filter(|name| !name.is_null())));
             }
             row.push(status_word(agent).to_owned());
             row.push(agent["age_ms"].as_u64().map_or_else(|| "-".to_owned(), age_text));
