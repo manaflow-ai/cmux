@@ -16,7 +16,7 @@ final class HomeWidgetSymbols: @unchecked Sendable {
 
     /// Fills the symbol `name` in `rect` (a flipped, top-left origin context) with `color`.
     func draw(_ name: String, in rect: CGRect, color: UIColor, ctx: CGContext) {
-        guard let mask = mask(name, points: Int(rect.height.rounded())) else { return }
+        guard let points = Int(exactly: rect.height.rounded()), let mask = mask(name, points: points) else { return }
         let aspect = CGFloat(mask.width) / CGFloat(max(1, mask.height))
         let width = min(rect.width, rect.height * aspect), height = width / aspect
         let target = CGRect(x: rect.midX - width / 2, y: rect.midY - height / 2, width: width, height: height)
@@ -38,7 +38,8 @@ final class HomeWidgetSymbols: @unchecked Sendable {
         // Twice the point size: sharp at 2x without a per-scale cache.
         let size = CGSize(width: image.size.width * 2, height: image.size.height * 2)
         guard size.width >= 1, size.height >= 1,
-              let ctx = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
+              let width = Int(exactly: size.width.rounded(.up)), let height = Int(exactly: size.height.rounded(.up)),
+              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return nil }
         let graphics = NSGraphicsContext(cgContext: ctx, flipped: false)
         NSGraphicsContext.saveGraphicsState()

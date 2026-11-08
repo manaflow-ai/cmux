@@ -1,7 +1,6 @@
 import CmuxHomeRender
-import CmuxNextApps
 import Testing
-@testable import CmuxNextApp
+@testable import CmuxNextApps
 
 /// A chat widget's scene as the snapshot Home draws (plans/cmux-next/chat-widgets-DESIGN.md
 /// section 4): the PR card's tree from samples/apps/pr-card.

@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxHomeRender
 import CoreGraphics
+import CoreText
 import Foundation
 import os
 
@@ -29,7 +30,12 @@ final class HomeWidgetRowProvider: TranscriptCustomRowProvider {
     /// Each shown widget's latest snapshot, by key: the projection writes it on main from the host,
     /// and the mapping reads it wherever it maps parts.
     // Lock carve-out: `part(_:key:)` is a synchronous read from the mapping (any thread); a small map.
-    private let snapshots = OSAllocatedUnfairLock<[String: HomeWidgetSnapshot]>(initialState: [:])
+    private let snapshots = OSAllocatedUnfairLock(initialState: Snapshots())
+
+    /// The lock's state: the latest snapshot by widget key.
+    private struct Snapshots {
+        var byKey: [String: HomeWidgetSnapshot] = [:]
+    }
 
     init(host: (any HomeWidgetHosting)?) {
         self.host = host
@@ -46,22 +52,23 @@ final class HomeWidgetRowProvider: TranscriptCustomRowProvider {
 
     /// The bubble for `widget` at `key` (`<message id>#<part index>`), with its latest snapshot.
     func part(_ widget: ChatWidget, key: String) -> Part? {
-        Self.custom(Payload(key: key, fallback: widget.fallback, snapshot: snapshots.withLock { $0[key] }))
+        let snapshot = snapshots.withLock { (state: inout Snapshots) in state.byKey[key] }
+        return Self.custom(Payload(key: key, fallback: widget.fallback, snapshot: snapshot))
     }
 
     /// Records `snapshot` for `key`; true when it changed.
     @discardableResult
     func store(_ snapshot: HomeWidgetSnapshot?, for key: String) -> Bool {
-        snapshots.withLock { map in
-            guard map[key] != snapshot else { return false }
-            map[key] = snapshot
+        snapshots.withLock { (state: inout Snapshots) in
+            guard state.byKey[key] != snapshot else { return false }
+            state.byKey[key] = snapshot
             return true
         }
     }
 
     /// Drops the snapshots of widgets no transcript shows.
     func forget(except keys: Set<String>) {
-        snapshots.withLock { map in map = map.filter { keys.contains($0.key) } }
+        snapshots.withLock { (state: inout Snapshots) in state.byKey = state.byKey.filter { keys.contains($0.key) } }
     }
 
     /// `<message id>#<part index>`: the widget's mount and storage key.
@@ -99,7 +106,9 @@ final class HomeWidgetRowProvider: TranscriptCustomRowProvider {
     func tapped(_ part: CustomPart, ref: PartRef, at point: CGPoint, width: CGFloat) -> Bool {
         guard let p = Self.payload(part), let snapshot = p.snapshot,
               let node = HomeWidgetLayout(snapshot, width: width).node(at: point) else { return false }
-        MainActor.assumeIsolated { host?.tap(key: p.key, node: node) }
+        // A click arrives on main; the hop keeps the host's isolation checked.
+        let host = self.host
+        Task { @MainActor in host?.tap(key: p.key, node: node) }
         return true
     }
 
