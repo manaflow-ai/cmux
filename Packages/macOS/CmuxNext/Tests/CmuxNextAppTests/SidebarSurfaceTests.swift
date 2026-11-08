@@ -29,7 +29,7 @@ extension MainPaneGutterSuites {
 
         /// Loads `json` as the cmux.json, the way a settings load applies it. These cases measure the
         /// `default` chrome style's surfaces (curved main pane), so a file without
-        /// `appearance.chromeStyle` pins it: the app's default is flat-sidebar-line since 2026-10-16.
+        /// `appearance.chromeStyle` pins it: the app's default is flat (no card) since 2026-11-07.
         @discardableResult
         func load(_ json: JSONValue) -> [SettingsDiagnostic] {
             var members = json.objectValue ?? [:]
@@ -181,8 +181,8 @@ extension MainPaneGutterSuites {
             #expect(same(mainPaneBackground(root), pane))
         }
 
-        /// Every window style on one surface (all but the two shaded ones, `two-tone` and
-        /// `floating`, whose sidebar shares the shaded window chrome) draws the sidebar in the
+        /// Every window style on one surface (all but the shaded ones, `two-tone`, `floating` and
+        /// `blocks`, whose sidebar shares the shaded window chrome) draws the sidebar in the
         /// window's own color and parts it with a hairline on its edge; `bare` keeps no lines.
         @Test(arguments: ChromeStyle.allCases)
         func everyWindowStyleDrawsTheSidebarOnTheWindowsColor(style: ChromeStyle) async {
@@ -191,7 +191,7 @@ extension MainPaneGutterSuites {
             let (window, root) = openRoot()
             defer { window.close() }
             let surface = root.themeTokens.surfaceBackground.withAlpha(1)
-            if style == .twoTone || style == .floating {
+            if style == .twoTone || style == .floating || style == .blocks {
                 // The sidebar is the shaded chrome itself: the color of the window's titlebar band.
                 let titlebar = background(at: CGPoint(x: root.contentHost.frame.midX, y: root.bounds.maxY - 1), in: root)
                 await settle(root) { same(sidebarBackground(root), titlebar) }

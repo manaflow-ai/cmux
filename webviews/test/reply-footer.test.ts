@@ -224,14 +224,18 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
             const footer = document.querySelector<HTMLElement>(selector)!;
             const actions = footer.querySelector<HTMLElement>(".cv-turn-actions")!.getBoundingClientRect();
             const box = footer.getBoundingClientRect();
-            const above = [...document.querySelectorAll<HTMLElement>("article.acpmux-row")]
+            const aboveRow = [...document.querySelectorAll<HTMLElement>("article.acpmux-row")]
               .filter((row) => row !== footer && row.getBoundingClientRect().height > 0)
-              .map((row) => row.getBoundingClientRect())
-              .filter((rect) => rect.bottom <= box.top + 0.5)
-              .sort((a, b) => b.bottom - a.bottom)[0]!;
+              .filter((row) => row.getBoundingClientRect().bottom <= box.top + 0.5)
+              .sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom)[0]!;
+            const above = aboveRow.getBoundingClientRect();
+            // Under a closed "Worked for" line the row's own room under its rule stands in for the 8,
+            // so the stack adds none (transcriptGrid.ts MARK_WORKED, #37727).
+            const worked = aboveRow.querySelector(".cv-worked.has-divider") !== null;
             return {
               gap: actions.top - above.bottom,
-              footerGap: length("--grid-gap-footer"),
+              footerGap: worked ? 0 : length("--grid-gap-footer"),
+              worked,
               rowHeight: box.height,
               actionsHeight: actions.height,
               control: length("--grid-transcript-footer-control"),
@@ -256,17 +260,46 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await button.waitFor({ timeout: 10_000 });
         const fit = await button.evaluate((el) => ({
           width: el.getBoundingClientRect().width,
+          height: el.getBoundingClientRect().height,
           scroll: el.scrollWidth,
           client: el.clientWidth,
           glyph: el.querySelector("svg")?.getBoundingClientRect().width ?? 0,
+          fontSize: getComputedStyle(el).fontSize,
+          captionSize: (() => {
+            const probe = document.createElement("span");
+            probe.style.fontSize = "var(--text-caption)";
+            document.body.append(probe);
+            const size = getComputedStyle(probe).fontSize;
+            probe.remove();
+            return size;
+          })(),
+          paddingInline: `${getComputedStyle(el).paddingLeft} ${getComputedStyle(el).paddingRight}`,
+          title: el.getAttribute("title"),
         }));
         console.log(`REPLY_FOOTER ${theme.file} continue ${JSON.stringify(fit)}`);
         expect(fit.width).toBeGreaterThan(40);
+        expect(Math.abs(fit.height - 24)).toBeLessThanOrEqual(TOLERANCE);
         expect(fit.scroll).toBeLessThanOrEqual(fit.client + 1);
         expect(fit.glyph).toBeLessThan(20);
+        expect(fit.fontSize).toBe(fit.captionSize);
+        expect(fit.paddingInline).toBe("2px 2px");
+        expect(fit.title).toBeNull();
+        await still(page, `${theme.file}-stopped-after`);
       } finally {
         await page.close();
       }
     });
+
+    for (const variant of ["footer-before", "footer-chosen", "footer-roomy"]) {
+      test(`captures the stopped footer gallery arm (${variant}, ${theme.name})`, async () => {
+        const page = await open(variant, theme.name, "agent-pane.stopped-turn");
+        try {
+          await page.locator(".cv-turn-continue").waitFor({ timeout: 10_000 });
+          await still(page, `${theme.file}-${variant}`);
+        } finally {
+          await page.close();
+        }
+      });
+    }
   }
 });

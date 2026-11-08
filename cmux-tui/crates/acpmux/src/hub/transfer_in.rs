@@ -126,7 +126,7 @@ impl Hub {
 
     /// Recover an outer session store staged for a replacement before a daemon crash.
     pub(super) fn recover_staged_replacements(&self) {
-        let Some(probe) = self.store.session_dir("__cmux_harness_recovery_probe__") else {
+        let Some(probe) = self.store.session_path("__cmux_harness_recovery_probe__") else {
             return;
         };
         let Some(root) = probe.parent() else { return };

@@ -88,7 +88,7 @@ enum SurfaceDiagnosticsReport {
             "last_frames": .object(services.cache.lastFrames.report.mapValues { JSONValue($0) }),
             "parked_workspaces": JSONValue(services.windows.controllers.reduce(0) { $0 + $1.parked.count }),
             "hibernated_workspaces": JSONValue(services.workspaceHibernation.hibernated.count),
-            "workspaces_hibernated_total": JSONValue(services.workspaceHibernation.hibernatedCount),
+            "workspaces_hibernated_total": JSONValue(services.workspaceHibernation.hibernatedCount), "terminals_freed_total": JSONValue(services.workspaceHibernation.freedCount),
             "workspace_pages": .object((services.cache.hibernation?.workspacePageOutcomes ?? [:]).mapValues { JSONValue($0) }),
             "hibernation": hibernation(services),
         ]

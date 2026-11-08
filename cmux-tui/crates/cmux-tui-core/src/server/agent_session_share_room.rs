@@ -689,10 +689,16 @@ fn host(mux: &Arc<Mux>, share_id: &str) {
 /// socket sends `end` and its queued `DELETE` runs.
 pub(super) fn ended(shares: &LinkShares, ended: &[(String, Option<String>)]) {
     let Some(mux) = shares.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade() else { return };
+    // One reconcile per share, however many of its guests ended (forgotten guests come by the
+    // hundred, `forget_gone`).
+    let mut reconciled = std::collections::HashSet::new();
     for (share_id, guest) in ended {
         shares.bridge.forget(share_id, guest.as_deref());
         if guest.is_some() {
             // An ended share's own entry sends `end`; its kicks are moot.
+            if !reconciled.insert(share_id.as_str()) {
+                continue;
+            }
             if view(&mux, share_id).is_some_and(|v| v.state == ShareState::Active) {
                 shares.bridge.command(share_id, Cmd::Reconcile);
             }
@@ -1177,7 +1183,10 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
             *ready = true;
             reconcile(mux, share_id)
         }
-        // The room sends a redeem only after the daemon's `guests`.
+        // The room sends a redeem only after the daemon's `guests`. It is the room's own frame on
+        // the host socket (authenticated by the host token), never a guest's: a guest's browser
+        // reaches the daemon only as `guest_*` frames (`Guests::room`), which never redeem. So
+        // `account` and `avatar_url` here are the room's attestation of its verified sign-in.
         "redeem" if *ready => {
             let field =
                 |name: &str| frame.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -1186,8 +1195,11 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 secret: field("secret"),
                 name: field("name"),
                 attempt_id: field("attempt_id"),
-                // The account the room signed in, for an invite (no secret then).
+                // The account the room signed in: an invitee's (no secret then), or a signed-in
+                // guest's who joins by the link (with the secret).
                 account: frame.get("account").and_then(Value::as_str).map(str::to_owned),
+                // That account's profile picture (`https://`, else dropped by the redeem).
+                avatar_url: frame.get("avatar_url").and_then(Value::as_str).map(str::to_owned),
             };
             let directory = mux.session_state_directory();
             let redeemed = shares(mux).redeem(directory.as_deref(), redeem);
@@ -1197,8 +1209,9 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 Ok(guest) => {
                     let mut answer = json!({"v": 1, "t": "redeemed", "request_id": request_id,
                         "guest_id": guest.get("guest_id")});
-                    // An invitee's role, so a view invitee's page has no composer; nothing else
-                    // about the account reaches the room. A link guest's answer has no role.
+                    // The guest's role (an anonymous link guest's is always `view`), so a view
+                    // guest's page has no composer; nothing else about the account reaches the
+                    // room.
                     if let Some(role) = guest.get("role") {
                         answer["role"] = role.clone();
                     }

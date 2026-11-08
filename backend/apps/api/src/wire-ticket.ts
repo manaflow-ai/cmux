@@ -64,6 +64,18 @@ export class WireTicketDO extends DurableObject<Env> {
     return record.expires_at > now ? { principal: record.principal, scope: record.scope ?? "user" } : null
   }
 
+  /**
+   * Records `key` until `expiresAt` unless it is already recorded: true the first time only. Read and write
+   * happen in one turn of the object, so two callers never both get true. ci-session.ts refuses a replayed
+   * GitHub Actions token this way, on its own object (never a ticket shard). The alarm drops expired keys.
+   */
+  async claimOnce(key: string, expiresAt: number, now: number): Promise<boolean> {
+    const record = await this.ctx.storage.get<{ expires_at: number }>(key)
+    if (record && record.expires_at > now) return false
+    await this.put(key, { expires_at: expiresAt } as TicketRecord)
+    return true
+  }
+
   override async alarm(): Promise<void> {
     const now = Date.now()
     const all = await this.ctx.storage.list<TicketRecord>()

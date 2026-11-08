@@ -24,6 +24,12 @@ export interface MuxHead {
   readonly owner_user: string | null
   readonly brain: "local" | "cloud"
   readonly brain_host: string | null
+  /**
+   * A channel Chief's one conversation (plans/cmux-next/chief-channels-DESIGN.md 1): set once at bind, and
+   * `mux.wake` from any other conversation is dropped, so the Chief never reads or answers outside it.
+   * Absent: an ordinary Chief, woken from every conversation it is in.
+   */
+  readonly channel?: string
   /** Wake rows not yet acked. */
   readonly pending: number
   readonly next_n: number
@@ -111,19 +117,22 @@ export const muxDomain: Domain<MuxHead, Params> = {
     if (PROJECTION_OPS.has(op)) return head.agent === null ? refuse("mux.unbound") : reduceProjection(head, op, params, ctx)
     switch (op) {
       case "mux.bind": {
-        const { agent, owner_user, brain } = params
+        const { agent, owner_user, brain, channel } = params
         if (!str(agent) || !agent.startsWith("agent_") || !str(owner_user) || (brain !== "local" && brain !== "cloud")) return refuse("invalid_params")
+        if (channel !== undefined && !(str(channel) && channel.startsWith("conv_"))) return refuse("invalid_params")
         if (head.agent !== null) {
-          if (head.agent !== agent || head.owner_user !== owner_user) return refuse("mux.bound", "this object belongs to another chief")
+          if (head.agent !== agent || head.owner_user !== owner_user || (channel ?? null) !== (head.channel ?? null)) return refuse("mux.bound", "this object belongs to another chief")
           return { ok: true, state: head, value: head, changed: false }
         }
-        const next: MuxHead = { ...head, agent, owner_user, brain }
+        const next: MuxHead = { ...head, agent, owner_user, brain, ...(channel === undefined ? {} : { channel: channel as string }) }
         return { ok: true, state: next, value: next }
       }
       case "mux.wake": {
         const { conversation, seq, reason } = params
         if (head.agent === null) return refuse("mux.unbound")
         if (!str(conversation) || !seqOf(seq) || !REASONS.has(reason as WakeReason)) return refuse("invalid_params")
+        // A channel Chief answers only in its channel: a wake from elsewhere is not queued (no error: the sender's outbox must not retry it).
+        if (head.channel !== undefined && conversation !== head.channel) return { ok: true, state: head, value: null, changed: false }
         const key = `${conversation}:${seq}`
         const queue = head.queues[conversation] ?? { cursor: 0, pending: [], touched: 0 }
         if (seq <= queue.cursor || queue.pending.includes(seq)) return { ok: true, state: head, value: null, changed: false }

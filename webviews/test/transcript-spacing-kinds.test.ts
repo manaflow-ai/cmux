@@ -154,6 +154,11 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
 
   const open = async (theme: string, variant = VARIANT) => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 1200 }, deviceScaleFactor: 2 });
+    // Leo's capture of a Claude chat, as Claude's in-place runs draw it (claudeTurnFold.experiment.ts
+    // arm "runs"); by default a finished Claude turn folds under Worked for (Codex parity).
+    await page.addInitScript(() => {
+      globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "claude-turn-fold": "runs" };
+    });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1100, theme, reducedMotion: "true" })}`,

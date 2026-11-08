@@ -615,7 +615,7 @@ export class HandDO extends DurableObject<Env> {
 
   /** An ephemeral frame to the owner's own sockets (UserDO.handFrame); best effort. */
   private ownerFrame(owner: string, frame: { readonly t: "hand-approval-pending" | "hand-approval-settled" | "hand-presence-key" } & Record<string, unknown>) {
-    const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(owner)) as unknown as { handFrame(entity: string, f: typeof frame): Promise<void> }
+    const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(owner))
     this.ctx.waitUntil(user.handFrame(owner, frame).catch(() => undefined))
   }
 
@@ -658,7 +658,7 @@ export class HandDO extends DurableObject<Env> {
     const due = sql.exec<{ key: string; target: string; body: string; tries: number; first_at: number }>(`SELECT key, target, body, tries, first_at FROM hand_outcome WHERE next_at <= ? ORDER BY next_at LIMIT 50`, now).toArray()
     await Promise.all(
       due.map(async (r) => {
-        const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(r.target)) as unknown as { agentOutcome(o: unknown): Promise<unknown> }
+        const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(r.target))
         if (await brain.agentOutcome(JSON.parse(r.body)).then(() => true, () => false)) return void sql.exec(`DELETE FROM hand_outcome WHERE key = ?`, r.key)
         if (now - r.first_at > OUTCOME_GIVE_UP_MS) {
           console.error(JSON.stringify({ msg: "hand.agent_outcome_dropped", key: r.key, tries: r.tries + 1 }))

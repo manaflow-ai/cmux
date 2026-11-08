@@ -65,6 +65,7 @@ fn vt_state_wire_prefix_identifies_attach_before_large_replay_data() {
         kitty_state: KittyReplayState::disabled(),
         colors: Value::Null,
         pending_sequence: Arc::from([]),
+        history_rows_omitted: None,
     };
 
     let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
@@ -73,6 +74,29 @@ fn vt_state_wire_prefix_identifies_attach_before_large_replay_data() {
     let decoded: Value = serde_json::from_str(&serialized).unwrap();
     assert_eq!(decoded["data"], base64::engine::general_purpose::STANDARD.encode(replay));
     assert!(decoded.get("pending").is_none(), "a boundary replay must not add `pending`");
+    assert!(decoded.get("history_rows_omitted").is_none(), "a whole replay names no omission");
+}
+
+/// A tail replay (`attach-replay-history-rows-v1`) says how many older rows
+/// it left out, after the fields every viewer already reads.
+#[test]
+fn a_tail_vt_state_names_the_history_rows_it_left_out() {
+    let message = VtStateMessage {
+        surface: 7,
+        cols: 80,
+        rows: 24,
+        replay: Arc::from(&b"screen"[..]),
+        kitty_image_aliases: Vec::new(),
+        kitty_state: KittyReplayState::disabled(),
+        colors: Value::Null,
+        pending_sequence: Arc::from([]),
+        history_rows_omitted: Some(9_721),
+    };
+    let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
+    assert!(serialized.starts_with(r#"{"event":"vt-state","surface":7,"#), "{}", &**serialized);
+    let decoded: Value = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(decoded["history_rows_omitted"], 9_721);
+    assert_eq!(decoded["data"], base64::engine::general_purpose::STANDARD.encode(b"screen"));
 }
 
 #[test]
@@ -87,6 +111,7 @@ fn attach_replays_carry_the_pending_sequence_after_their_colors() {
         kitty_state: KittyReplayState::disabled(),
         colors: json!({"foreground": "#010203"}),
         pending_sequence: Arc::from(&b"\x1b[1;3"[..]),
+        history_rows_omitted: None,
     };
     let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
     let decoded: Value = serde_json::from_str(&serialized).unwrap();
@@ -224,6 +249,7 @@ fn vt_state_streaming_releases_partial_global_budget_on_overflow() {
         kitty_state: KittyReplayState::disabled(),
         colors: Value::Null,
         pending_sequence: Arc::from([]),
+        history_rows_omitted: None,
     };
 
     let error = service
@@ -922,8 +948,11 @@ fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
     }
     let over = RESOURCE_WAITS_PER_CLIENT_CAPACITY;
     assert!(handle_connection_message(&mux, client, &wait(over), &writer, &scheduler));
-    let identify = json!({"id":"identify","cmd":"identify"}).to_string();
-    assert!(handle_connection_message(&mux, client, &identify, &writer, &scheduler));
+    // A request that goes through the connection's queue, as the waits do: a plain `identify`
+    // is answered on the reader before the queue (#33273), so it would race the refusal and
+    // prove nothing about the queue.
+    let later = json!({"id":"later","cmd":"list-workspaces"}).to_string();
+    assert!(handle_connection_message(&mux, client, &later, &writer, &scheduler));
 
     let refused = pop_json(&outbound);
     assert_eq!(refused["id"], json!(over), "the wait over capacity was not answered first");
@@ -932,9 +961,9 @@ fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
         refused["error"].as_str().is_some_and(|error| error.contains("wait-for")),
         "the refusal does not name wait-for: {refused}"
     );
-    let identified = pop_json(&outbound);
-    assert_eq!(identified["id"], "identify", "identify waited behind pending waits");
-    assert_eq!(identified["ok"], true, "{identified}");
+    let answered = pop_json(&outbound);
+    assert_eq!(answered["id"], "later", "a queued request waited behind pending waits");
+    assert_eq!(answered["ok"], true, "{answered}");
     assert!(outbound.try_pop().is_none(), "a wait answered before its pattern or timeout");
     // A one-shot check does not wait: it runs in request order and is not
     // refused for want of a worker.

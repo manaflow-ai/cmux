@@ -96,6 +96,17 @@ public final class DesktopWallpaperWatch {
         }
     }
 
+    /// The Wallpaper group palette is chosen (`sidebar.groupPalette`): pictures are sampled for it even with
+    /// `appearance.wallpaperTint` off, and each color lands in `DesignSettings.groupWallpaperTint`, so the sidebar's
+    /// groups repaint when the desktop picture changes. The window's own tint still follows only `tintEnabled`.
+    public var samplesForGroups = false {
+        didSet {
+            guard samplesForGroups != oldValue else { return }
+            DesignSettings.shared.groupWallpaperTint = samplesForGroups ? tint : nil
+            if samplesForGroups { sampleIfNeeded() }
+        }
+    }
+
     private let read: @MainActor () async -> Reading?
     private let sample: @Sendable (Reading) async -> WallpaperTint?
     private let defaults: UserDefaults?
@@ -235,7 +246,7 @@ public final class DesktopWallpaperWatch {
     /// true: the views re-applied), else one sample off the main actor, when none is under way.
     @discardableResult
     private func sampleIfNeeded() -> Bool {
-        guard tintEnabled, let reading = current, published != reading, !isHidden() else { return false }
+        guard tintEnabled || samplesForGroups, let reading = current, published != reading, !isHidden() else { return false }
         if let known = colors[reading] {
             publish(known, for: reading)
             return true
@@ -271,6 +282,7 @@ public final class DesktopWallpaperWatch {
         tint = color
         published = reading
         if let color { defaults?.set([color.red, color.green, color.blue], forKey: Self.lastTintKey) }
+        if samplesForGroups { DesignSettings.shared.groupWallpaperTint = color }
         refreshViews()
     }
 

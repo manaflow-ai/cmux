@@ -288,7 +288,7 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
 }
 
 #[cfg(unix)]
-fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> {
+pub(crate) fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     let metadata = file.metadata()?;

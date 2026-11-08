@@ -89,6 +89,8 @@ env:
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   contract:
@@ -663,24 +665,33 @@ jobs:
           "$JAVA_HOME_17_X64/bin/java" -version
           "$JAVA_HOME_17_X64/bin/javac" -version
 
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Set up Zig for Ghostty
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.16.0
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
 
       - name: Install TypeScript adapter build tools
         working-directory: cmux-tui/bindings/typescript
         run: npm ci --no-audit --no-fund
 
-      # The build reads only the cmux-tui tree, the ghostty submodule, and the
-      # zig and Rust toolchains pinned here and in cmux-tui/rust-toolchain.toml.
+      # The build reads only the cmux-tui tree, the ghostty submodules, and the
+      # zig and Rust toolchains (the Zig that the ghostty-next gitlink's
+      # build.zig.zon names, and cmux-tui/rust-toolchain.toml).
       # Keyed on exactly those, an unchanged tree skips a five-minute compile,
       # which is every run started by a workflow-only edit.
       - name: Key the headless cmux-tui build
         id: headless-key
         run: |
           set -euo pipefail
-          echo "key=cmux-tui-headless-v1-${RUNNER_OS}-${RUNNER_ARCH}-zig0.16.0-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
+          echo "key=cmux-tui-headless-v2-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the headless cmux-tui build
         id: headless-cache
@@ -705,8 +716,10 @@ jobs:
       - name: Build exact headless cmux-tui
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         working-directory: cmux-tui
+        env:
+          GHOSTTY_ZIG_REQUIRED: ${{ steps.ghostty-zig-version.outputs.version }}
         run: |
-          test "$(zig version)" = "0.16.0"
+          test "$(zig version)" = "$GHOSTTY_ZIG_REQUIRED"
           cargo build -p cmux-tui --bin cmux-tui --locked
 
       # Pull request caches stay read-only. main publishes the build they reuse,

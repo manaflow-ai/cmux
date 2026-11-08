@@ -8,7 +8,7 @@ use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use cmux_link::LINK_PORT;
 use cmux_link::connect_info::{
@@ -450,6 +450,42 @@ pub(super) async fn apply_cloud_event<O: Overlay, S: ConnectInfoSource>(
     }
 }
 
+/// How long a dial to a running machine keeps trying for a handshake after
+/// its refetch. A new machine's receiver admits no device until its first
+/// receiver policy read answers, and production reads took 5-19 s after the
+/// bind (start-matrix-production 42279589445, 2026-11-06): two 5 s tries
+/// ended the first dial before the machine could answer, and nothing dialed
+/// again. A machine in any other state (paused, starting, failed...) is
+/// reported at once.
+const RUNNING_HANDSHAKE_WAIT: Duration = Duration::from_secs(45);
+/// The pause between those tries, so a connect that fails at once does not spin.
+const HANDSHAKE_RETRY_PAUSE: Duration = Duration::from_secs(1);
+
+/// The pauses before asking again for a link token the broker could not
+/// mint ("the Cloud broker is unavailable", seen on a person's Mac on
+/// 2026-11-06): a few seconds in all, then the dial is refused.
+const TOKEN_RETRY_PAUSES: [Duration; 3] =
+    [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)];
+
+/// A refused Cloud dial: the typed code, and what failed in `error_detail`
+/// and on this link's stderr (the app keeps it in the link's `link.log`).
+/// Both get the same clipped, one-line detail (`failed_because`), never the
+/// raw text.
+async fn refuse<C: AsyncWrite + Unpin>(
+    caller: &mut C,
+    host: &str,
+    service: Service,
+    error: DialError,
+    detail: &str,
+) {
+    let refused = DialReply::failed_because(error, detail);
+    eprintln!(
+        "cmux link: dial {host} {service:?} refused ({error:?}): {}",
+        refused.error_detail.as_deref().unwrap_or("")
+    );
+    reply(caller, refused).await;
+}
+
 /// Serve one `link.dial` for a Cloud host id: the record (cached), the
 /// handshake, then a freshly minted token for this attempt's one hello.
 pub(super) async fn serve_cloud_dial<C, O, S>(
@@ -463,53 +499,107 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
     S: ConnectInfoSource,
 {
     let host = request.host.as_str();
-    let mut refresh = false;
+    let service = request.service;
+    let began = tokio::time::Instant::now();
+    let mut tries = 0u32;
     let (resolved, mut stream) = loop {
-        let resolved = match resolver.resolve(host, refresh).await {
+        // The second try reads a fresh record; later ones keep that one.
+        let resolved = match resolver.resolve(host, tries == 1).await {
             Ok(resolved) => resolved,
-            Err(error) => return reply(&mut caller, DialReply::failed(error.dial_error())).await,
+            Err(error) => {
+                let detail = format!("connect_info: {}", error.detail());
+                return refuse(&mut caller, host, service, error.dial_error(), &detail).await;
+            }
         };
-        if !resolved.info.allows(request.service) {
-            return reply(&mut caller, DialReply::failed(DialError::NotAuthorized)).await;
+        // connect_info never lists `desktop` (clients before it read that list
+        // strictly); the platform's link_token mint is its only authority.
+        if service != Service::Desktop && !resolved.info.allows(service) {
+            let detail = format!("the machine's connect_info does not allow {service:?}");
+            return refuse(&mut caller, host, service, DialError::NotAuthorized, &detail).await;
         }
         let remote = SocketAddr::new(IpAddr::V6(resolved.info.peer.overlay_address), LINK_PORT);
         // Peer setup is not cut by the connect deadline, so a half-applied
         // change cannot be left behind (it bounds its own tunnel start).
-        let configured = overlay.set_cloud_peer(host, resolved.key, &resolved.info).await;
-        if configured.is_ok()
-            && let Ok(Ok(stream)) =
-                tokio::time::timeout(DIAL_TIMEOUT, overlay.connect(remote)).await
-        {
-            break (resolved, stream);
-        }
-        // Rule 3: a handshake failure fetches once more before it reports.
-        if refresh {
-            let error = if resolved.info.is_paused() {
-                DialError::HostPaused
-            } else {
-                DialError::Unreachable
+        let (failed, handshake) =
+            match overlay.set_cloud_peer(host, resolved.key, &resolved.info).await {
+                Err(error) => (format!("the tunnel peer setup failed: {error}"), false),
+                Ok(_) => {
+                    // The tries after the refetch end with the wait, not past it:
+                    // the time left is read after the peer setup, which can be slow.
+                    let budget = if tries < 1 {
+                        DIAL_TIMEOUT
+                    } else {
+                        DIAL_TIMEOUT.min(RUNNING_HANDSHAKE_WAIT.saturating_sub(began.elapsed()))
+                    };
+                    match tokio::time::timeout(budget, overlay.connect(remote)).await {
+                        Ok(Ok(stream)) => break (resolved, stream),
+                        Ok(Err(error)) => (format!("connect to {remote}: {error}"), true),
+                        Err(_) => (
+                            format!("no handshake with {remote} within {} s", budget.as_secs()),
+                            true,
+                        ),
+                    }
+                }
             };
-            return reply(&mut caller, DialReply::failed(error)).await;
+        tries += 1;
+        // Rule 3: a handshake failure fetches once more before it reports.
+        if tries == 1 {
+            continue;
         }
-        refresh = true;
+        // A running machine may still be reading its first receiver policy; a
+        // peer setup that failed is not that, and is reported at once.
+        if handshake
+            && resolved.info.state == "running"
+            && began.elapsed() + HANDSHAKE_RETRY_PAUSE < RUNNING_HANDSHAKE_WAIT
+        {
+            tokio::time::sleep(HANDSHAKE_RETRY_PAUSE).await;
+            continue;
+        }
+        let error =
+            if resolved.info.is_paused() { DialError::HostPaused } else { DialError::Unreachable };
+        let detail = format!(
+            "{failed}, {tries} tries in {} s (after a fresh connect_info, state {})",
+            began.elapsed().as_secs(),
+            resolved.info.state
+        );
+        return refuse(&mut caller, host, service, error, &detail).await;
     };
-    // One fresh token per attempt, used once, never kept.
-    let grant = match resolver.token(host, request.service).await {
-        Ok(grant) => grant,
-        Err(error) => return reply(&mut caller, DialReply::failed(error.dial_error())).await,
+    // One fresh token per attempt, used once, never kept. A mint the broker
+    // could not answer is asked again a few times before the dial is refused.
+    let mut pauses = TOKEN_RETRY_PAUSES.iter();
+    let grant = loop {
+        match resolver.token(host, service).await {
+            Ok(grant) => break grant,
+            Err(error) => {
+                if matches!(error, ConnectInfoError::Unavailable(_))
+                    && let Some(pause) = pauses.next()
+                {
+                    tokio::time::sleep(*pause).await;
+                    continue;
+                }
+                let detail = format!("link_token: {}", error.detail());
+                return refuse(&mut caller, host, service, error.dial_error(), &detail).await;
+            }
+        }
     };
     let hello = ServiceHello {
         service: request.service,
         link_token: Some(grant.token),
         epoch: Some(grant.epoch),
     };
-    if stream.write_all(line(&hello).as_bytes()).await.is_err() {
-        return reply(&mut caller, DialReply::failed(DialError::Unreachable)).await;
+    if let Err(error) = stream.write_all(line(&hello).as_bytes()).await {
+        let detail = format!("the service hello to the machine failed: {error}");
+        return refuse(&mut caller, host, service, DialError::Unreachable, &detail).await;
     }
     let path_state = overlay.path_state(&resolved.key).await;
     if caller.write_all(line(&DialReply::connected(path_state)).as_bytes()).await.is_err() {
         return;
     }
+    // A machine that refuses the stream says why in its first line; name it
+    // here (link.log) and pass it on, so the caller reads more than an EOF.
+    let mut stream = super::refusal_watch::RefusalWatch::new(stream, |refusal| {
+        eprintln!("cmux link: {host} refused the {service:?} stream: {refusal}");
+    });
     let _ = tokio::io::copy_bidirectional(&mut caller, &mut stream).await;
 }
 

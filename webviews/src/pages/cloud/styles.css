@@ -85,9 +85,8 @@ select {
   overflow-wrap: anywhere;
 }
 
-/* The classic migration banner and a plan refusal: one row, text then actions. */
-.cloud-migration,
-.cloud-plan-notice {
+/* The classic migration banner: one row, text then actions. */
+.cloud-migration {
   display: flex;
   gap: 12px;
   align-items: center;
@@ -99,12 +98,13 @@ select {
   color: var(--cloud-text);
 }
 
-.cloud-create-sheet .cloud-plan-notice {
-  margin: 12px 0 0;
+/* A plan refusal is the shared notice's warning (ui/notice.css); the page only places it. */
+.cloud-plan-notice {
+  margin: 12px 16px 0;
 }
 
-.cloud-plan-notice {
-  border-color: color-mix(in srgb, var(--cloud-warn) 60%, transparent);
+.cloud-create-sheet .cloud-plan-notice {
+  margin: 12px 0 0;
 }
 
 .cloud-migration-text {
@@ -584,10 +584,7 @@ select {
   color: inherit;
   width: min(460px, 100%);
   padding: 18px;
-  border-radius: 12px;
-  background: var(--cloud-elevated);
-  border: 1px solid var(--cloud-separator);
-  box-shadow: var(--elevation-2);
+  /* The glass (.ui-glass .ui-glass-floats) in the sheet role's veil, radius and depth (ui/popupSurface.css .ui-dialog.ui-glass). */
 }
 
 .cloud-sheet-title {

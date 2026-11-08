@@ -7,7 +7,9 @@ nonisolated struct PaletteRankerBridgeRequest: Encodable {
     let version: Int?
     let query: String?
     let sectionOrders: [Int]
-    let frecency: PaletteRankerBridgeFrecency
+    /// The history sent with this request; nil when it names an installed `historyRevision`.
+    let frecency: PaletteRankerBridgeFrecency?
+    let historyRevision: Int64?
     let now: Double
     let showsRecent: Bool
     let keepsSectionOrder: Bool

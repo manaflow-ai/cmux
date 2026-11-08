@@ -216,7 +216,7 @@ fn write_all_at(file: &std::fs::File, mut offset: u64, mut bytes: &[u8]) -> io::
 /// durable. A call a signal interrupts (EINTR) is made again, as std does. std's `sync_data` and
 /// `sync_all` are both `F_FULLFSYNC` here, so they are not used.
 #[cfg(target_os = "macos")]
-fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
+pub fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
     use std::os::fd::AsRawFd;
     let fd = file.as_raw_fd();
     let command = match level {
@@ -256,7 +256,7 @@ fn retry_interrupted(call: impl Fn() -> libc::c_int) -> io::Result<()> {
 /// [`SyncLevel`] elsewhere: `fdatasync` (Linux; it also flushes a volatile drive cache) or `fsync`;
 /// `FlushFileBuffers` on Windows for both.
 #[cfg(not(target_os = "macos"))]
-fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
+pub fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
     match level {
         SyncLevel::Barrier => file.sync_data(),
         SyncLevel::Full => file.sync_all(),

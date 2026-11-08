@@ -5,7 +5,7 @@ import React, { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { ChatAccounts, NewChatAccount } from "./chatAccounts";
-import type { QuickFamily, QuickModel } from "./QuickModelMenu";
+import type { QuickFamily, QuickModel } from "./quickModelMenuModel";
 import { authText, type SessionAuth } from "./sessionAuth";
 import { translate } from "./i18n";
 
@@ -429,7 +429,7 @@ test("the account card lists only the other accounts, then Add account…", asyn
     (node) => node.textContent === "Add account…",
   )!;
   await click(add);
-  expect(document.querySelector('[role="dialog"][aria-label="Add account"]')).not.toBeNull();
+  expect(document.querySelector('[role="dialog"].acpmux-add-account')).not.toBeNull();
   expect(calls.added).toHaveLength(0);
 });
 

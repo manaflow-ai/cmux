@@ -340,19 +340,18 @@ final class HoverCardPanel: NSPanel {
         let fitting = glass.fittingSize
         let size = CGSize(width: (fitting.width * scale).rounded(.up) / scale, height: (fitting.height * scale).rounded(.up) / scale)
         let screen = parentWindowRef?.screen ?? NSScreen.main
-        let alignment = HoverCardEscapeGeometry.currentAlignment
         let rest = Self.rest(for: placement, anchor: anchor, size: size, screen: screen?.frame,
                              visible: screen?.visibleFrame, window: parentWindowRef?.frame,
-                             margin: Metrics.space2, scale: scale, rowAlignment: alignment)
+                             margin: Metrics.space2, scale: scale)
         let origin = rest.origin
         isLeading = rest.isLeading
         restingPlacement = rest.placement
-        // A row card keeps its geometry (`HoverCardEscapeGeometry`: its row, frame, gap strip, and the
-        // escape slot under the Debug middle layout); `rest` placed it the same way.
+        // A row card keeps its geometry (`HoverCardEscapeGeometry`: its row, frame and gap strip);
+        // `rest` placed it the same way.
         escapeGeometry = placement == .besideRow
             ? HoverCardEscapeGeometry(anchor: anchor, cardSize: size,
                                       visible: screen.map { HoverCardEscapeGeometry.room(visible: $0.visibleFrame, window: parentWindowRef?.frame, margin: Metrics.space2) },
-                                      scale: scale, alignment: alignment)
+                                      scale: scale)
             : nil
         // R131: the window moves in the same frame (a window-frame slide restarted on every tab
         // trailed the pointer); a retarget's slide runs inside it (`slide(from:)`).

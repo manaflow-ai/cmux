@@ -6,9 +6,10 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import type { StreamOptions } from "./streamDebug";
-import type { LoadRunOptions } from "./loadDebug";
-import { shownPresence } from "./multiplayer/LivePresence";
+import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
+import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
+import { tickWatch } from "./tickWatch";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 import type { IdleProbeOptions } from "./idleProbe";
@@ -41,6 +42,9 @@ export type AcpmuxDebug = {
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
   perfStats(options?: { raw?: boolean }): Record<string, unknown>;
+  /// The transcript's frames while real wheel input scrolls it (tickWatch.ts): starts a watch, or with
+  /// `stop` ends it and returns its frames, work, wheel events and the page's own offset writes.
+  tickWatch(options?: { stop?: boolean; nominal_ms?: number }): Record<string, unknown>;
   agentLatency(): Record<string, unknown>;
   typingStats(): Record<string, unknown>;
   resetTyping(): Record<string, unknown>;
@@ -50,6 +54,8 @@ export type AcpmuxDebug = {
   acpLog(options?: { limit?: number }): Record<string, unknown>;
   /** The wire log as JSON Lines. */
   acpLogExport(): string;
+  /** Shows `text` as a pane toast, as a refusal or a click's feedback does (captures drive the toasts with it). */
+  toast(text: string): Record<string, unknown>;
   /** Automation (automation.ts): the chat state a script reads, and the verbs it drives. */
   chatState(): Record<string, unknown>;
   sendPrompt(text: string): Promise<Record<string, unknown>>;
@@ -72,10 +78,12 @@ export type AcpmuxDebug = {
   idleProbe(options?: IdleProbeOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
-  /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
-  loadSeed(turns?: number): Promise<Record<string, unknown>>;
+  /** Opens a mock session of `turns` heavy turns (or `light` ones, two rows each, opened whole) through the real client (loadDebug.ts). */
+  loadSeed(turns?: number, options?: { light?: boolean }): Promise<Record<string, unknown>>;
   /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
+  /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
+  loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
 };
 
 const NO_AUTOMATION = { error: "the page has no automation host" };
@@ -115,7 +123,11 @@ export function createAcpmuxDebug(
     /// `fields`: the snapshot fields a fixture's rows need beside them (a waiting steer's `newestOwnSteer`).
     replaceRows(rows: AcpmuxRow[], fields?: SeedSnapshotFields): void;
     rowCount(): number;
+    /// The shown transcript's row ids (loadDebug.ts `loadTick` tells the history from the new turn).
+    rowIds?(): string[];
     sessionId?(): string | undefined;
+    /// The pane's toasts (paneNotices `transient`).
+    toast?(text: string): void;
     automation?: automation.AutomationHost;
   },
   wire: AcpWireLog = acpWire,
@@ -272,6 +284,8 @@ export function createAcpmuxDebug(
 
     flingStats,
 
+    tickWatch,
+
     perfStats(options = {}) {
       acpmuxPerf.enable();
       return {
@@ -337,6 +351,11 @@ export function createAcpmuxDebug(
 
     acpLogExport() {
       return wire.exportJsonl({ sessionId: host.sessionId?.() });
+    },
+
+    toast(text) {
+      host.toast?.(text);
+      return { shown: host.toast != null, text };
     },
 
     chatState() {
@@ -406,15 +425,19 @@ export function createAcpmuxDebug(
       const { runStream } = await import("./streamDebug");
       return runStream(host.replaceRows, options);
     },
-    async loadSeed(turns = 5000) {
+    async loadSeed(turns = 5000, options = {}) {
       const automationHost = host.automation;
       if (!automationHost) return NO_AUTOMATION;
       const { loadSeed } = await import("./loadDebug");
-      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns);
+      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns, options);
     },
     async loadRun(options = {}) {
       const { loadRun } = await import("./loadDebug");
       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
+    },
+    async loadTick(options = {}) {
+      const { loadTick } = await import("./loadDebug");
+      return loadTick({ sessionId: () => host.sessionId?.(), rowIds: () => host.rowIds?.() ?? [] }, options);
     },
   };
 }

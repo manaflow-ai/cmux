@@ -16,7 +16,7 @@ extension SidebarListViewComponents {
     func revealRow(_ id: WorkspaceID, centre: Bool) -> Bool {
         let key = SidebarRowKey.workspace(id)
         if displayed.row(for: key) == nil, let workspace = model.workspace(id) {
-            let lists = model.revealLists(of: id)
+            var lists = model.revealLists(of: id)
             var folds: Set<SidebarDoneFoldID> = []
             if workspace.isArchived { folds.insert(.archive) }
             for list in lists {
@@ -27,6 +27,8 @@ extension SidebarListViewComponents {
                 openDoneFolds.formUnion(folds)
                 reload(animated: true)
             }
+            // Projects and Recents folds groups past five behind one Show more: opening it can draw the row.
+            if model.grouping.groupsByRecents { lists.append(.projects) }
             if displayed.row(for: key) == nil, !Set(lists).isSubset(of: openShowMore) {
                 openShowMore.formUnion(lists)
                 reload(animated: true)

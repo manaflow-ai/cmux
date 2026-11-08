@@ -102,13 +102,17 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var blockHeights: [String: CGFloat] = [:]
     /// Document sections folded by their header: their groups do not list.
     public var collapsedDocSections: Set<String> = []
-    /// Document sections whose block draws no item (at most a title): during a drag (`showEmptyPinned`)
-    /// each opens a one-row drop zone under its title, so an empty section always takes a drop.
+    /// Document sections whose block draws no item (at most a title) during a drag: each opens a one-row drop
+    /// zone under its title. A section the drag empties keeps it in the dragged rows' place; an empty section has
+    /// one only while the drag reaches it (`SidebarEmptyZones`).
     public var emptyDocSections: Set<String> = []
     /// When set, only these workspaces show; containers force-expand.
     public var filterMatches: Set<WorkspaceID>?
-    /// Show the drop zone for an empty pinned section.
+    /// Show the drop zone for an empty pinned section: only while a drag reaches the list's top edge
+    /// (`SidebarEmptyZones`), or for a drag that empties it, never for a drag's start alone.
     public var showEmptyPinned = false
+    /// A workspace or document drag runs: the Archive stays closed (its rows take no drop).
+    public var dragClosesArchive = false
     /// Live gap to open, and its height.
     public var gap: DropPosition?
     public var gapHeight: CGFloat = 0
@@ -168,7 +172,7 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// `sidebar.sessionTree`: a workspace started by another's agent lists under it, and rows
     /// carry their pull requests and keycaps. Nil (off) draws the list as before.
     public var sessionTree: SidebarSessionTreeState?
-    /// Each row's pull request badge (`sidebar.pullRequestBadges`), drawn with the tree off too.
+    /// Each row's pull request badge, drawn with the tree off too.
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// The session tree's keycaps: each workspace's Command-number (`SidebarItemOrder`).
     public var keycaps: [WorkspaceID: Int] = [:]
@@ -178,7 +182,7 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// The session tree's chat history (`SidebarChatHistoryState`): Pinned above the workspaces,
     /// Earlier under them. Nil (the tree off, or a filter) draws neither.
     public var chatHistory: SidebarChatHistoryState?
-    /// `sidebar.doneFold`: workspaces marked Done fold into a "Done (N)" row at the end of their list.
+    /// The Done fold: workspaces marked Done fold into a "Done (N)" row at the end of their list.
     public var foldsDone = false
     /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
     /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.

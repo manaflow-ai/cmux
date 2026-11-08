@@ -41,15 +41,15 @@ extension ScreenContentView {
         resizeGesture = .active
     }
 
-    /// The pointer let go (or the drag was cancelled): the end waits for the release's layout and its landing.
+    /// The pointer let go (or the drag was cancelled): the contents hear it now; the end waits for the release's landing.
     func resizeGestureReleased() {
         guard resizeGesture == .active else { return }
         resizeGesture = .releasing
+        for listener in resizeGestureListeners { listener.view?.paneResizeGestureReleased() }
         context.requestFrames()
     }
 
-    /// `LayoutRootView.sync` applied the model with its gesture flag: once it is off, the release's
-    /// layout (and the spring it starts) is in this screen.
+    /// `LayoutRootView.sync` applied the model with its gesture flag: once off, the release's layout is in this screen.
     func resizeGestureModelSynced(gestureActive: Bool) {
         guard resizeGesture == .releasing, !gestureActive else { return }
         resizeGesture = .landing

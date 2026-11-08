@@ -48,12 +48,12 @@ nonisolated enum AppsStrings {
     static func unknownApp(_ id: String) -> String { String(format: t("apps.client.unknownApp", "No app %@"), id) }
     static var unavailableHelp: String { t("apps.store.disconnected.help", "Nothing can change until then.") }
 
-    private static var notConnected: String { t("apps.store.disconnected.notConnected", "cmux-tui is not connected") }
+    private static var notConnected: String { t("apps.store.disconnected.notConnected", "This machine isn't connected") }
 
     /// Why the app supervisor cannot be reached (store banner, app sections).
     static func unavailable(_ reason: AppsUnavailableReason) -> String {
         switch reason {
-        case .needsNewerDaemon: t("apps.store.disconnected.needsNewer", "Needs a newer cmux-tui")
+        case .needsNewerDaemon: t("apps.store.disconnected.needsNewer", "Needs a newer cmux")
         case .notConnected: notConnected
         case .notReady(let cause): "\(notConnected): \(cause)"
         case .turnedOff(let reason): reason

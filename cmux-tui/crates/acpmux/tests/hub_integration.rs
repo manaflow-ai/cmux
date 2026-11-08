@@ -1710,6 +1710,8 @@ mod lifecycle_fixes;
 mod quit_spawn;
 #[path = "hub_integration/session_hibernate.rs"]
 mod session_hibernate;
+#[path = "hub_integration/start_retry.rs"]
+mod start_retry;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;

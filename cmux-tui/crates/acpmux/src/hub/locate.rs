@@ -77,6 +77,16 @@ impl Hub {
                     let exact_all = by_key_exact(&summaries, query, &own);
                     if !exact_all.is_empty() {
                         (None, exact_all)
+                    } else if names_hosts
+                        && (!crate::beads::is_bead_id(query)
+                            || by_bead(&summaries, query).is_empty())
+                        && let Some(route) = self.key_route(query)?.filter(|route| route != query)
+                    {
+                        // No exact name or id, and no session carries it as a bead (`by_key`
+                        // reads those first): the one session every other command finds for it
+                        // (`hub/key_route.rs`: another case before a prefix, a prefix here before
+                        // a name without separators); several are refused, never picked.
+                        return self.locate(&route, false, names_hosts);
                     } else {
                         (None, by_key(&summaries, query, &own))
                     }
@@ -432,17 +442,34 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     by_short_name(summaries.iter().collect(), key)
 }
 
+/// The sessions `key` names exactly: an id first, then a whole name on any host before
+/// `HOST/NAME` is read as a host and a name on it, as `by_key` reads them (a local `coord/lane`
+/// is never peer `coord`'s `lane-extra`, which the loose `key_route` would find next, and a
+/// session named `hb/ID` never hides peer `hb`'s session `ID`).
 fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     if let Some((host, rest)) = key.split_once('/') {
+        let ids: Vec<&Value> = summaries
+            .iter()
+            .filter(|s| {
+                s["qualifiedSessionId"].as_str() == Some(key)
+                    || (s["sessionId"].as_str() == Some(rest)
+                        && host_of(s, own).eq_ignore_ascii_case(host))
+            })
+            .collect();
+        if !ids.is_empty() {
+            return ids;
+        }
+        let whole: Vec<&Value> = summaries
+            .iter()
+            .filter(|s| s["name"].as_str() == Some(key) || bare_name(s) == key)
+            .collect();
+        if !whole.is_empty() {
+            return whole;
+        }
         return summaries
             .iter()
             .filter(|s| host_of(s, own).eq_ignore_ascii_case(host))
-            .filter(|s| {
-                s["sessionId"].as_str() == Some(rest)
-                    || s["qualifiedSessionId"].as_str() == Some(key)
-                    || bare_name(s) == rest
-                    || s["name"].as_str() == Some(key)
-            })
+            .filter(|s| bare_name(s) == rest || s["name"].as_str() == Some(key))
             .collect();
     }
     summaries

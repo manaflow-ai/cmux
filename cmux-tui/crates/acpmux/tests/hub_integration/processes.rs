@@ -475,6 +475,37 @@ async fn a_long_foreground_shell_goes_to_the_background_on_its_own() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A shell whose call declares a Bash `timeout` longer than the wait stays in the foreground:
+/// the agent chose to block on it (a land-queue wait, a CI watch), and Claude Code ends it at
+/// that timeout anyway. Moved, the turn ended on a running shell and the agent stalled
+/// (a1000, a1001, a994, 2026-11-05).
+#[tokio::test]
+async fn a_shell_with_a_declared_timeout_stays_in_the_foreground() {
+    let env = [("FAKE_CLAUDE_FG_TIMEOUT_MS", "600000"), ("FAKE_CLAUDE_FG_WAIT_S", "2")];
+    let (hub, mut c, root) = claude_hub(&env).await;
+    hub.set_auto_background_after(Some(Duration::from_millis(300)));
+    let (id, turn) = fg_shell(&mut c).await;
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    assert_eq!(control_requests(&hub, &id, "background_tasks"), Vec::<Value>::new());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A declared `timeout` no longer than the wait changes nothing: the shell still moves.
+#[tokio::test]
+async fn a_shell_with_a_short_timeout_still_goes_to_the_background() {
+    let (hub, mut c, root) = claude_hub(&[("FAKE_CLAUDE_FG_TIMEOUT_MS", "200")]).await;
+    hub.set_auto_background_after(Some(Duration::from_millis(300)));
+    let (id, turn) = fg_shell(&mut c).await;
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    let sent = control_requests(&hub, &id, "background_tasks");
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Turned off (`ACPMUX_AUTO_BACKGROUND_SECS=0`, here the setter), the shell stays in the
 /// foreground until the person's Ctrl-B.
 #[tokio::test]
@@ -552,6 +583,41 @@ async fn background_claude_code_never_answered_leaves_no_mark() {
     assert_eq!(answer.unwrap()["stopReason"], "end_turn");
     assert_eq!(running_origins(&hub, &id, "toolu_fg"), vec![json!("auto_backgrounded")]);
     assert_eq!(listed(&mut c, &id).await[0]["origin"], "auto_backgrounded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Ctrl-B that Claude Code answers long after the wait ended (bg-8 of Leo's chat: a 10 s wait,
+/// the answer 195.9 s later): the chat's log says when the wait gave up, before the late answer,
+/// so the delay shows as Claude Code's and not behind the 10 s timer; the late answer marks
+/// nothing the person's.
+#[tokio::test]
+async fn background_answered_late_logs_the_wait_ending_first() {
+    let env = [("FAKE_CLAUDE_BACKGROUND_SILENT_MS", "1500"), ("FAKE_CLAUDE_BACKGROUND_LATE", "1")];
+    let (hub, mut c, root) = claude_hub(&env).await;
+    hub.set_background_timeout(Duration::from_millis(300));
+    let (id, turn) = fg_shell(&mut c).await;
+    let mut other = connect(&hub).await;
+    let refused = other.request(BACKGROUND, json!({"sessionId": id})).await.unwrap_err();
+    assert!(refused.contains("in time"), "{refused}");
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let gave_up = events
+        .iter()
+        .find(|e| e.kind == "background_wait_ended")
+        .unwrap_or_else(|| panic!("no background_wait_ended: {events:?}"));
+    assert_eq!(gave_up.msg["timeoutMs"], 300, "{gave_up:?}");
+    let late = events
+        .iter()
+        .find(|e| {
+            e.kind == "claude.control_response"
+                && e.msg.to_string().contains("\"request_id\":\"bg-")
+        })
+        .unwrap_or_else(|| panic!("no late bg- answer: {events:?}"));
+    assert!(gave_up.seq < late.seq, "the wait's end is logged before the answer");
+    assert!(late.at >= gave_up.at + 1000, "{} then {}", gave_up.at, late.at);
+    assert_eq!(running_origins(&hub, &id, "toolu_fg"), vec![json!("auto_backgrounded")]);
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }

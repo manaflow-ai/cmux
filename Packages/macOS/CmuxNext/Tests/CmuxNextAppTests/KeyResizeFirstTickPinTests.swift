@@ -30,12 +30,15 @@ struct KeyResizeFirstTickPinTests {
     /// The grids `pane`'s terminal asked its PTY for since the last call.
     static func grids(_ pane: PaneID, _ rig: Ground.Rig) async throws -> [TerminalGridSize] {
         let session = try #require(rig.provider.sessions[pane])
+        // cmux-ad m18: a grid in the coalescer's window counts as asked for (it goes at the next refresh).
+        session.session.surfaceView.gridReports.flush()
         session.session.surfaceView.bridge.takeUnretainedValue().input.focusGained()
         return await session.io.gridsUntilMarker()
     }
 
     /// (a) Ctrl-Shift-H on p2 (right of p1): p2 grows to the left and its right edge stays. The first tick is late (0.1 s:
-    /// most of the travel in one step). In every frame p2's surface keeps its place against the right edge.
+    /// most of the travel in one step). In every frame p2's surface keeps its place against the right edge: the surface
+    /// fills its area, so it keeps that place because it follows the pane (cmux-ad m18 deleted the hold, m19 the switch).
     @Test(arguments: [0.1, 1.0 / 120])
     func theHeldSurfaceRidesTheEdgeThatStaysWhenTheFirstTickIsLate(firstStep: Double) throws {
         let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
@@ -59,22 +62,35 @@ struct KeyResizeFirstTickPinTests {
     }
 
     /// (b) Ctrl-Shift-H twice before one tick: each terminal sends one grid, the final one. Then H and L before one tick:
-    /// no terminal sends a grid or takes a new surface size.
-    @Test func pressesBeforeOneTickCoalesce() async throws {
+    /// no terminal sends a grid or takes a new surface size (review of #35470, T5).
+    @Test
+    func pressesBeforeOneTickCoalesce() async throws {
         let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
         defer { rig.close() }
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await Self.grids(pane, rig) }
+        var startGrids: [PaneID: TerminalGridSize] = [:]
+        for pane in panes { startGrids[pane] = try Self.surface(pane, in: rig).fittedGrid }
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
-        var frames = 0
-        while frames < 240, rig.frame() { frames += 1 }
+        var frames = 0, firstChanged: [PaneID: TerminalGridSize] = [:]
+        while frames < 240, rig.frame() {
+            frames += 1
+            for pane in panes where firstChanged[pane] == nil {
+                if let grid = try Self.surface(pane, in: rig).fittedGrid, grid != startGrids[pane] { firstChanged[pane] = grid }
+            }
+        }
         rig.commit()
         #expect(frames > 3, "the presses did not spring")
         for pane in panes {
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             let grids = try await Self.grids(pane, rig)
-            #expect(grids == [final], "\(pane.rawValue): two presses before one tick sent \(grids), not the final grid \(final) once")
+            // RESIZE P0 7: the grid of the first landed frame (the frame that first showed a new grid) goes at once; these
+            // frames run in one turn, so no refresh ends a window and the rest go as the final grid. Exact: any other first
+            // grid (a press's own target, m6) fails (RESIZE P0 8, review of 28a640183a7).
+            let atOnce = firstChanged[pane].map { [$0, final] }
+            #expect(grids == [final] || grids == atOnce,
+                    "\(pane.rawValue): two presses before one tick sent \(grids), not [the first frame's grid \(String(describing: firstChanged[pane])),] then the final grid \(final)")
         }
 
         var sizes: [PaneID: CGSize] = [:]

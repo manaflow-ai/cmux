@@ -3,11 +3,20 @@
 // line says the model cannot be reached, with the retry's count and error, never "Thinking" and
 // no clock (Leo, 2026-11-03, on "Thinking 7m 49s" while Claude Code retried a gateway that was down).
 import { expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import { TURN_RETRY, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import retryEntry from "../src/agent-session/acpmux/conversation/TurnRetry.gallery";
+
+import type { ReactNode } from "react";
+import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+
+// These assertions cover turn state and time, independently of decorative verb rotation.
+const renderToStaticMarkup = (node: ReactNode) =>
+  renderMarkup(
+    <StatusVerbContext.Provider value={{ mode: "thinking", verbs: ["Thinking"] }}>{node}</StatusVerbContext.Provider>,
+  );
 
 const words = (html: string) =>
   html
@@ -15,8 +24,7 @@ const words = (html: string) =>
     .replace(/&#x27;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
-const liveLine = (rows: AcpmuxRow[]) =>
-  turnView(rows, new Set(), { working: true, liveRuns: true, lineBelow: true }).at(-1)!;
+const liveLine = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true }).at(-1)!;
 const drawn = (line: AcpmuxRow, now: number) =>
   renderToStaticMarkup(
     <Thinking since={line.at} now={() => now} turnTotal={line.turnTotal} retry={line.retry} below />,
