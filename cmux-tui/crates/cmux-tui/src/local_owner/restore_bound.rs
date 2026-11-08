@@ -53,7 +53,11 @@ pub(crate) fn process_work(pid: u32) -> Option<Work> {
     let mut info: libc::rusage_info_v2 = unsafe { std::mem::zeroed() };
     // SAFETY: the buffer is a rusage_info_v2, the flavor RUSAGE_INFO_V2 writes.
     let read = unsafe {
-        libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V2, (&raw mut info).cast::<libc::rusage_info_t>())
+        libc::proc_pid_rusage(
+            pid,
+            libc::RUSAGE_INFO_V2,
+            (&raw mut info).cast::<libc::rusage_info_t>(),
+        )
     };
     if read != 0 {
         return None;

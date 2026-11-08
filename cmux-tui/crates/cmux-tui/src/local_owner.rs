@@ -138,12 +138,12 @@ mod identify;
 #[cfg(all(test, unix))]
 mod recovery_tests;
 mod restore_bound;
-use restore_bound::RestoreBound;
 use identify::{IdentifyError, identify};
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
 pub(crate) use replace::{
     ReplaceError, is_wedged, replace_if_backend_changed, replace_if_unresponsive, replace_if_wedged,
 };
+use restore_bound::RestoreBound;
 
 /// Takes an inherited descriptor (`option` names it) from argv and keeps it
 /// out of every process the owner starts (terminal hosts): only this owner
@@ -538,7 +538,8 @@ fn wait_while_starting(
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let mut busy = BusySince::default();
     loop {
-        let result = attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))?;
+        let result =
+            attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))?;
         let interval = match result {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Gone | Attempt::Unanswered => return Ok(None),
@@ -578,7 +579,8 @@ fn wait_until_ready(
     let mut seen_alive = false;
     let mut busy = BusySince::default();
     loop {
-        let result = attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))?;
+        let result =
+            attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))?;
         let refused = matches!(result, Attempt::Busy);
         match result {
             Attempt::Ready(ready) => return Ok(Some(ready)),
