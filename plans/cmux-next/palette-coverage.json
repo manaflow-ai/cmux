@@ -54,6 +54,21 @@
       "surface": "menu",
       "name": "debugSidebarToggleIcon",
       "reason": "keep: Debug-only icon choices; the same tunable is a Debug setting row in the palette (DebugSettingsService)"
+    },
+    {
+      "surface": "action",
+      "name": "import.list",
+      "reason": "keep: an agent's read of the import cards it may suggest (`cmux import list`); a person imports with the palette's Import from Browser (importFromBrowser)"
+    },
+    {
+      "surface": "action",
+      "name": "import.card",
+      "reason": "keep: an agent presses an import card's button by id (`cmux import card`); a person presses the card itself, and the palette's Import from Browser does the import"
+    },
+    {
+      "surface": "action",
+      "name": "import.suggest",
+      "reason": "keep: an agent asks to show a site's cookie import card (`cmux import suggest`); a person imports with the palette's Import from Browser (importFromBrowser)"
     }
   ]
 }

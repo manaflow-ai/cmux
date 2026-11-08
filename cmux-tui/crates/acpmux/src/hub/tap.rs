@@ -334,6 +334,9 @@ impl Hub {
                 // (`wrap_up_suggestion.rs`).
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
                     crate::wrap_up_suggestion::observe(&tap_session.id, &params["update"]);
+                    if let Some(update) = params.get("update") {
+                        crate::memory_inbox::observe(&tap_session.id, update);
+                    }
                 }
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
                     todo_plan =
