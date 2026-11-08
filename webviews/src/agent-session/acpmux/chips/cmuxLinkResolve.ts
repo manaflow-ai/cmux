@@ -15,10 +15,18 @@ import {
   whenIdle,
 } from "../conversation/sessionRefs";
 import { SessionHoverContext } from "../started/sessionHoverCardModel";
-import type { SessionHoverStore } from "../started/sessionHover";
-import { linkPlace, subscribeLinkPlaces } from "./cmuxLinkPlaces";
+import type { SessionHoverInfo, SessionHoverStore } from "../started/sessionHover";
+import { linkPlace, subscribeLinkPlaces, type CmuxLinkPlace } from "./cmuxLinkPlaces";
 
 export type CmuxLinkKind = "chat" | "workspace" | "pane" | "tab";
+
+/// The icon of each kind (the cmux pack's names), in the sent chip (CmuxLinkChip.tsx) and the draft's.
+export const CMUX_LINK_ICONS: Record<CmuxLinkKind, string> = {
+  chat: "agent.chat",
+  workspace: "workspace",
+  pane: "view.tab.trailing",
+  tab: "view.tab.trailing",
+};
 
 /// What a link's chip draws: its kind, title and, for another machine's, the machine.
 export type CmuxLinkInfo = {
@@ -42,15 +50,36 @@ export function listedChat(target: CmuxLinkTarget, store: SessionHoverStore | un
   return target.session && store.get(target.session) ? target.session : undefined;
 }
 
-/// The chip of `target` from the page's stores, or undefined while nothing names it. `resolved` is
-/// acpmux's answer for a chat the list does not have (`_acpmux/resolve`).
-export function cmuxLinkInfo(
+/// What a link's chip reads from the page's stores: the host's place it names, or the listed chat
+/// it names with its card and machine. Passed in whole, never read inside ``cmuxLinkInfoFrom``, so
+/// a cache keyed on its arguments (the React Compiler's, in ``useCmuxLink``) sees every change.
+export type CmuxLinkReads = {
+  place?: CmuxLinkPlace;
+  /// The listed chat it names, by its acpmux id, and that chat's card and machine.
+  listed?: string;
+  card?: SessionHoverInfo;
+  host?: string;
+};
+
+/// The listed chat `target` names in `store`: its own, else the one acpmux resolved it to.
+function shownChat(
   target: CmuxLinkTarget,
   store: SessionHoverStore | undefined,
+  resolved: { sessionId: string } | null | undefined,
+): string | undefined {
+  return listedChat(target, store) ?? (resolved && store?.get(resolved.sessionId) ? resolved.sessionId : undefined);
+}
+
+/// The chip of `target` from what it reads (``CmuxLinkReads``), or undefined while nothing names it.
+/// `resolved` is acpmux's answer for a chat the list does not have (`_acpmux/resolve`). Pure: it
+/// reads nothing but its arguments.
+export function cmuxLinkInfoFrom(
+  target: CmuxLinkTarget,
+  reads: CmuxLinkReads,
   resolved?: { sessionId: string; name?: string; host?: string } | null,
 ): CmuxLinkInfo | undefined {
   if (target.kind === "workspace" || target.kind === "pane" || target.kind === "tab") {
-    const place = linkPlace(target.id);
+    const place = reads.place;
     if (!place || place.kind !== target.kind) return undefined;
     return {
       kind: place.kind,
@@ -60,13 +89,8 @@ export function cmuxLinkInfo(
     };
   }
   if (!namesChat(target)) return undefined;
-  const listed =
-    listedChat(target, store) ?? (resolved && store?.get(resolved.sessionId) ? resolved.sessionId : undefined);
-  if (listed && store) {
-    const info = store.get(listed)!;
-    const host = store.host(listed);
-    return { kind: "chat", title: info.title, sessionId: listed, ...(host && { host }) };
-  }
+  if (reads.listed && reads.card)
+    return { kind: "chat", title: reads.card.title, sessionId: reads.listed, ...(reads.host && { host: reads.host }) };
   // A chat acpmux found but this page does not list (a peer's): its name for the title, never its
   // id; the id is kept for the click, which opens it as the agent link did (CmuxLinkChip.tsx).
   if (resolved?.name)
@@ -77,6 +101,26 @@ export function cmuxLinkInfo(
       ...(resolved.host && { host: resolved.host }),
     };
   return undefined;
+}
+
+/// The chip of `target` from the page's stores now, or undefined while nothing names it (code
+/// outside React; a component reads the stores with ``useCmuxLink``).
+export function cmuxLinkInfo(
+  target: CmuxLinkTarget,
+  store: SessionHoverStore | undefined,
+  resolved?: { sessionId: string; name?: string; host?: string } | null,
+): CmuxLinkInfo | undefined {
+  if (target.kind === "workspace" || target.kind === "pane" || target.kind === "tab")
+    return cmuxLinkInfoFrom(target, { place: linkPlace(target.id) }, resolved);
+  if (!namesChat(target)) return undefined;
+  const listed = shownChat(target, store, resolved);
+  const card = listed ? store?.get(listed) : undefined;
+  const host = listed ? store?.host(listed) : undefined;
+  return cmuxLinkInfoFrom(
+    target,
+    { ...(listed && { listed }), ...(card && { card }), ...(host && { host }) },
+    resolved,
+  );
 }
 
 const noStore = () => () => {};
@@ -112,30 +156,63 @@ export function useCmuxLink(href: string): { target?: CmuxLinkTarget; info?: Cmu
     () => (query && resolved === undefined ? whenIdle(() => void resolveSessionRef(query)) : undefined),
     [query, resolved],
   );
-  // A place reads the host's push; a chat its card (its title and machine) from the store.
-  const placeKey = useSyncExternalStore(
-    target && !chat ? subscribeLinkPlaces : noStore,
-    () => (target && "id" in target && !chat ? linkPlace(target.id) : undefined),
-    () => (target && "id" in target && !chat ? linkPlace(target.id) : undefined),
+  // Every store is read through a snapshot and handed to the pure ``cmuxLinkInfoFrom``: the React
+  // Compiler caches a render's values by what they read, so a read of a module store or a store's
+  // method in render would keep the first push's answer (review of #38166: a sent chip kept its old
+  // title, or stayed the link, after a later push). A place is the host's push; a chat is the
+  // listed one it names (its own or the one acpmux resolved it to), its card and its machine.
+  const placeId = target && !chat && "id" in target ? target.id : undefined;
+  const place = useSyncExternalStore(
+    placeId ? subscribeLinkPlaces : noStore,
+    () => (placeId ? linkPlace(placeId) : undefined),
+    () => (placeId ? linkPlace(placeId) : undefined),
+  );
+  const shown = useSyncExternalStore(
+    chat && store ? store.subscribe : noStore,
+    () => (target && store ? shownChat(target, store, resolved) : undefined),
+    () => (target && store ? shownChat(target, store, resolved) : undefined),
   );
   const card = useSyncExternalStore(
-    chat && store ? store.subscribe : noStore,
-    () => (listed && store ? store.get(listed) : undefined),
-    () => (listed && store ? store.get(listed) : undefined),
+    shown && store ? store.subscribe : noStore,
+    () => (shown && store ? store.get(shown) : undefined),
+    () => (shown && store ? store.get(shown) : undefined),
   );
-  const info = useMemo(
-    () => (target ? cmuxLinkInfo(target, store, resolved) : undefined),
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the stores' reads above are the deps.
-    [target, store, listed, resolved, placeKey, card],
+  const machine = useSyncExternalStore(
+    shown && store ? store.subscribe : noStore,
+    () => (shown && store ? store.host(shown) : undefined),
+    () => (shown && store ? store.host(shown) : undefined),
   );
+  const info = target
+    ? cmuxLinkInfoFrom(
+        target,
+        {
+          ...(place && { place }),
+          ...(shown && { listed: shown }),
+          ...(card && { card }),
+          ...(machine && { host: machine }),
+        },
+        resolved,
+      )
+    : undefined;
   return { ...(target && { target }), ...(info && { info }) };
 }
 
 /// The page's chat list for code outside React (the draft's links, composer/deeplinkTitles.ts):
-/// App.tsx sets it with the store it gives the transcript's cards.
+/// App.tsx sets it with the store it gives the transcript's cards. A draft that subscribed before
+/// it was set, or before it was replaced, still hears it: ``subscribeCmuxLinks`` listens here, not
+/// to the store it saw when it subscribed.
 let pageChats: SessionHoverStore | undefined;
+let offPageChats: (() => void) | undefined;
+const linkListeners = new Set<() => void>();
+const notifyLinks = () => {
+  for (const listener of linkListeners) listener();
+};
 export function setPageChats(store: SessionHoverStore | undefined): void {
+  if (store === pageChats) return;
+  offPageChats?.();
   pageChats = store;
+  offPageChats = store?.subscribe(notifyLinks);
+  notifyLinks();
 }
 export function pageChatStore(): SessionHoverStore | undefined {
   return pageChats;
@@ -147,13 +224,13 @@ export function knownCmuxLink(href: string): CmuxLinkInfo | undefined {
   return target ? cmuxLinkInfo(target, pageChats) : undefined;
 }
 
-/// Runs `listener` when anything a link's chip reads changes: the chat list or the host's places.
+/// Runs `listener` when anything a link's chip reads changes: the page's chat list (whichever it is
+/// now) or the host's places.
 export function subscribeCmuxLinks(listener: () => void): () => void {
-  const store = pageChats;
-  const offChats = store?.subscribe(listener);
+  linkListeners.add(listener);
   const offPlaces = subscribeLinkPlaces(listener);
   return () => {
-    offChats?.();
+    linkListeners.delete(listener);
     offPlaces();
   };
 }

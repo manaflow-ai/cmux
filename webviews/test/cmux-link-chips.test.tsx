@@ -527,8 +527,13 @@ test("a listed session chip's card opens as the chip does: it follows the link",
     chip.focus();
     chip.dispatchEvent(new window.FocusEvent("focus", { bubbles: false }));
     chip.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
-    await new Promise((done) => setTimeout(done, 800));
   });
+  // The card opens after its hover delay: wait for it, not for a fixed time (check:fixed-waits).
+  const deadline = Date.now() + 5000;
+  while (!document.querySelector(".acpmux-session-hover") && Date.now() < deadline)
+    await act(async () => {
+      await new Promise((done) => setTimeout(done, 0));
+    });
   const card = document.querySelector<HTMLElement>(".acpmux-session-hover");
   expect(card).not.toBeNull();
   await act(async () => card!.click());
@@ -646,4 +651,156 @@ test("the draft keeps an unknown link a link, and a place pushed later turns it 
   expect(host.querySelector(".acpmux-deeplink.is-link")?.textContent).toBe(WORKSPACE);
   await act(async () => setLinkPlaces([place("Retry fix")]));
   expect(titled()).toEqual([["Retry fix", WORKSPACE]]);
+});
+
+test("the draft hears the page's chat list set after it mounted, and its renames", async () => {
+  await composer(`Pick up ${AGENT}`);
+  expect(titled()).toEqual([]);
+  // App.tsx sets the page's list in a layout effect, which may run after the field subscribed.
+  const store = chats();
+  await act(async () => setPageChats(store));
+  expect(titled()).toEqual([["Review the retry fix · build-box", AGENT]]);
+  await act(async () =>
+    store.set([
+      {
+        sessionId: "acp-reviewer",
+        harness: "claude",
+        agentSessionId: SESSION,
+        title: "Review the retry fix, again",
+        host: "build-box",
+        hostKind: "cloud",
+      } as AcpmuxSessionEntry,
+    ]),
+  );
+  expect(titled()).toEqual([["Review the retry fix, again · build-box", AGENT]]);
+});
+
+test("the draft's chip carries its kind's icon as a mask image", async () => {
+  setLinkPlaces([place("Retry fix")]);
+  await composer(`See ${WORKSPACE}`);
+  const chip = host.querySelector<HTMLElement>(".is-titled[data-title]")!;
+  expect(chip.hasAttribute("data-icon")).toBe(true);
+  expect(chip.getAttribute("style")).toContain('--cmux-link-icon: url("data:image/svg+xml,');
+  expect(decodeURIComponent(chip.getAttribute("style")!)).toContain("<path");
+});
+
+// ---------------------------------------------------------------------------------------------
+// The sent chip as the app ships it: with the React Compiler on (scripts/agent-pane/bundle.mjs),
+// which caches what a component computes by the values it reads in render. A chip mounted before
+// the host's push, or before the list has its chat, must still follow every push after it: a new
+// place, a rename and a close (review of #38166: the compiler had keyed the chip's info on the link
+// alone, so a sent link stayed the link, or kept its old title, after the first render).
+
+type Compiled = {
+  PromptTyped: typeof PromptTyped;
+  setLinkPlaces: typeof setLinkPlaces;
+  SessionHoverStore: typeof SessionHoverStore;
+  SessionHoverContext: typeof SessionHoverContext;
+  createRoot: typeof import("react-dom/client").createRoot;
+  act: typeof act;
+};
+
+let compiled: Promise<Compiled> | undefined;
+/// The chip's modules bundled with the React Compiler, once per run; its own React and stores.
+function compiledChips(): Promise<Compiled> {
+  compiled ??= (async () => {
+    const [{ build }, { mkdtempSync, rmSync }, { tmpdir }, path, { reactCompilerPlugin }] = await Promise.all([
+      import("esbuild"),
+      import("node:fs"),
+      import("node:os"),
+      import("node:path"),
+      import("../scripts/agent-pane/reactCompilerPlugin.mjs"),
+    ]);
+    const webviews = path.resolve(import.meta.dir, "..");
+    const out = mkdtempSync(path.join(tmpdir(), "cmux-link-chips-compiled-"));
+    afterAll(() => rmSync(out, { recursive: true, force: true }));
+    const names = new Set<string>();
+    await build({
+      stdin: {
+        contents: [
+          'export { PromptTyped } from "./src/agent-session/acpmux/conversation/PromptText";',
+          'export { setLinkPlaces } from "./src/agent-session/acpmux/chips/cmuxLinkPlaces";',
+          'export { SessionHoverStore } from "./src/agent-session/acpmux/started/sessionHover";',
+          'export { SessionHoverContext } from "./src/agent-session/acpmux/started/sessionHoverCardModel";',
+          'export { createRoot } from "react-dom/client";',
+          'export { act } from "react";',
+        ].join("\n"),
+        resolveDir: webviews,
+        loader: "ts",
+      },
+      bundle: true,
+      format: "esm",
+      platform: "browser",
+      define: { "process.env.NODE_ENV": '"development"' },
+      loader: { ".css": "empty", ".svg": "text", ".woff2": "empty", ".png": "empty", ".json": "json" },
+      outfile: path.join(out, "chips.js"),
+      logLevel: "silent",
+      plugins: [
+        reactCompilerPlugin({ mode: "babel", srcRoot: path.join(webviews, "src"), onCompiled: (id) => names.add(id) }),
+      ],
+    });
+    // The hook itself went through the compiler, or this test proves nothing.
+    expect([...names]).toContain("agent-session/acpmux/chips/cmuxLinkResolve.ts:useCmuxLink");
+    return (await import(path.join(out, "chips.js"))) as Compiled;
+  })();
+  return compiled;
+}
+
+test("compiled: a sent chip mounted first follows every push after it (new, renamed, emptied)", async () => {
+  const chips = await compiledChips();
+  const own = chips.createRoot(host);
+  try {
+    chips.setLinkPlaces([]);
+    await chips.act(async () => own.render(<chips.PromptTyped text={`See ${WORKSPACE}`} show={(text) => text} />));
+    expect(host.querySelector("[data-cmux-link]")).toBeNull();
+    expect(host.querySelector("a.cv-link.is-app")?.getAttribute("href")).toBe(WORKSPACE);
+    // The host's push arrives after the message drew: the link becomes its chip.
+    await chips.act(async () => chips.setLinkPlaces([place("Retry fix")]));
+    expect(host.querySelector("[data-cmux-link=workspace]")?.textContent).toBe("Retry fix");
+    await chips.act(async () => chips.setLinkPlaces([place("Retry fix, take two")]));
+    expect(host.querySelector("[data-cmux-link=workspace]")?.textContent).toBe("Retry fix, take two");
+    await chips.act(async () => chips.setLinkPlaces([place("Retry fix, take two", { host: "build-box" })]));
+    expect(host.querySelector(".cv-cmux-link__host")?.textContent).toBe("build-box");
+    // Closed: the link again.
+    await chips.act(async () => chips.setLinkPlaces([]));
+    expect(host.querySelector("[data-cmux-link]")).toBeNull();
+    expect(host.querySelector("a.cv-link.is-app")?.getAttribute("href")).toBe(WORKSPACE);
+  } finally {
+    chips.act(() => own.unmount());
+  }
+});
+
+test("compiled: a sent chat chip mounted first follows the list (listed later, renamed, gone)", async () => {
+  const chips = await compiledChips();
+  const store = new chips.SessionHoverStore();
+  const entry = (title: string) =>
+    ({
+      sessionId: "acp-reviewer",
+      harness: "claude",
+      agentSessionId: SESSION,
+      title,
+      host: "build-box",
+      hostKind: "cloud",
+    }) as AcpmuxSessionEntry;
+  const own = chips.createRoot(host);
+  try {
+    await chips.act(async () =>
+      own.render(
+        <chips.SessionHoverContext.Provider value={{ store, open: () => undefined }}>
+          <chips.PromptTyped text={`Pick up ${AGENT}`} show={(text) => text} />
+        </chips.SessionHoverContext.Provider>,
+      ),
+    );
+    expect(host.querySelector("[data-cmux-link]")).toBeNull();
+    await chips.act(async () => store.set([entry("Review the retry fix")]));
+    expect(host.querySelector("[data-cmux-link=chat] .cv-cmux-link__title")?.textContent).toBe("Review the retry fix");
+    await chips.act(async () => store.set([entry("Review the retry fix, again")]));
+    expect(host.querySelector("[data-cmux-link=chat] .cv-cmux-link__title")?.textContent).toBe(
+      "Review the retry fix, again",
+    );
+    await chips.act(async () => store.set([]));
+    expect(host.querySelector("[data-cmux-link]")).toBeNull();
+  } finally {
+    chips.act(() => own.unmount());
+  }
 });

@@ -31,7 +31,9 @@ import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from ".
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
 import { composerDeeplinkLook } from "./composer/deeplinkLook.experiment";
 import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTitles";
-import { knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
+import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
+import { iconMaskUrl } from "./icons/iconMask";
+import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
@@ -69,8 +71,18 @@ function draftLinkTitles(): DeeplinkTitles | undefined {
   if (look === "link") return undefined;
   return {
     known: knownCmuxLink,
-    subscribe: subscribeCmuxLinks,
+    // The page's icon family too: a pooled page learns it when claimed, and the icon follows it.
+    subscribe: (listener) => {
+      const offLinks = subscribeCmuxLinks(listener);
+      const offFamily = subscribeIconFamily(listener);
+      return () => {
+        offLinks();
+        offFamily();
+      };
+    },
     label: (info) => (look === "icon-title-host" && info.host ? `${info.title} · ${info.host}` : info.title),
+    // The sent chip's kind icon (chips/CmuxLinkChip.tsx), in the looks that draw one.
+    icon: (info) => (look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind])),
   };
 }
 

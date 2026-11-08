@@ -9,7 +9,8 @@ import { deeplinksKey } from "./deeplinkTokens";
 // copy link to workspace thing, it should be able to render in the box that it is an actual chat
 // that is there, like with the title and whatever"). Only a decoration: the draft's text stays the
 // link, so send, copy, paste and undo see exactly what was pasted. The link's own characters are
-// drawn at no width under the chip (markdownField.css `.is-titled`), and come back as text while
+// drawn at no width under the chip (markdownField.css `.is-titled`: the kind's icon on its ::before,
+// the title on its ::after with the sent chip's wash), and come back as text while
 // the caret is inside the link, so it can still be edited; the caret at either end keeps the chip.
 // The links come from deeplinkTokens.ts's decorations, so nothing reads the draft again here.
 
@@ -23,6 +24,8 @@ export type DeeplinkTitles = {
   subscribe(listener: () => void): () => void;
   /// The chip's label for `info` (its title, and another machine's name).
   label(info: CmuxLinkInfo): string;
+  /// The CSS mask image of `info`'s kind icon (icons/iconMask.ts), or undefined for none.
+  icon?(info: CmuxLinkInfo): string | undefined;
 };
 
 const key = new PluginKey<number>("acpmuxDeeplinkTitles");
@@ -51,11 +54,14 @@ export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin
       if (inside) continue;
       const info = titles.known(link.spec.deeplink as string);
       if (!info) continue;
+      const icon = titles.icon?.(info);
       decorations.push(
         Decoration.inline(link.from, link.to, {
           class: TITLED_CLASS,
           "data-title": titles.label(info),
           "data-kind": info.kind,
+          // The kind's icon on the chip's ::before (markdownField.css), as the sent chip draws it.
+          ...(icon && { "data-icon": "", style: `--cmux-link-icon: ${icon}` }),
         }),
       );
     }

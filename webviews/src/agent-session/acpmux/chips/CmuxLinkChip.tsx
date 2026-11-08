@@ -20,7 +20,9 @@ import { useT } from "../i18n";
 import { useSessionHover } from "../started/useSessionHover";
 import { chatUnderHoverCard, hoverCardGlass } from "../chatUnderGlass";
 import { useHoverCard } from "./useHoverCard";
-import { useCmuxLink, type CmuxLinkInfo, type CmuxLinkKind } from "./cmuxLinkResolve";
+import { CMUX_LINK_ICONS, useCmuxLink, type CmuxLinkInfo, type CmuxLinkKind } from "./cmuxLinkResolve";
+
+export { CMUX_LINK_ICONS };
 import { namesChat, type CmuxLinkTarget } from "../conversation/cmuxLinks";
 import { useAgentLinkClick } from "../conversation/sessionRefModel";
 import { SubsessionContext } from "../subagents/subsessions";
@@ -28,14 +30,6 @@ import { installSelectionCopy } from "../conversation/selectionCopy";
 import { cmuxLinkLook, type CmuxLinkLook } from "./cmuxLinkLook.experiment";
 import "./linkCard.css";
 import "./cmuxLinkChip.css";
-
-/// The icon of each kind (the cmux pack's names).
-export const CMUX_LINK_ICONS: Record<CmuxLinkKind, string> = {
-  chat: "agent.chat",
-  workspace: "workspace",
-  pane: "view.tab.trailing",
-  tab: "view.tab.trailing",
-};
 
 const KIND_KEYS = {
   chat: "cmuxLink.kind.chat",
