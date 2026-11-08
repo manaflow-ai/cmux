@@ -187,6 +187,9 @@ pub struct Action {
     /// The catalog group the action is declared in (the old `Catalog/<Group>.swift`).
     pub group: &'static str,
     pub title: Text,
+    /// One line the GUI shows beside the title (the palette row's subtitle while it can run, its
+    /// Settings button's tooltip), for an action whose title alone does not say what it does.
+    pub hint: Option<Text>,
     /// What the action does, for `action.list`, `action.describe` and MCP. English only.
     pub description: Option<&'static str>,
     pub keywords: &'static [&'static str],
@@ -225,6 +228,7 @@ impl Action {
         id: "",
         group: "",
         title: Text::raw(""),
+        hint: None,
         description: None,
         keywords: &[],
         default_shortcut: None,
