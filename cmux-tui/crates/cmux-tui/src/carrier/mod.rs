@@ -431,13 +431,13 @@ pub(crate) fn run(args: &[String]) -> i32 {
                     route_log::append(path, &line);
                 }
             }),
+            fresh_sessions: contract::FreshSessions::default(),
         };
         // The desktop opens its stream before the reply, so a refusal (not
         // the owner, no desktop on the machine) is the dial's answer. The
         // open stays inside the dial's one deadline. A session the host lost
-        // before the desktop opened is dialed fresh, at most
-        // `MAX_FRESH_SESSIONS` times.
-        let mut fresh_sessions = 0_u32;
+        // before the desktop opened is dialed fresh, from the same budget
+        // as the dial's own fresh sessions (`MAX_FRESH_SESSIONS` in all).
         let (dialed, desktop) = loop {
             let dialed = client::dial(&plan, jitter).await;
             match (dialed, args.service) {
@@ -447,10 +447,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
                         Err(failure) => {
                             dialed.multiplexer.shutdown().await;
                             let _ = dialed.connection.close().await;
-                            if failure.fresh_session
-                                && fresh_sessions < contract::MAX_FRESH_SESSIONS
-                            {
-                                fresh_sessions += 1;
+                            if failure.fresh_session && plan.fresh_sessions.take() {
                                 continue;
                             }
                             break (Err(failure), None);

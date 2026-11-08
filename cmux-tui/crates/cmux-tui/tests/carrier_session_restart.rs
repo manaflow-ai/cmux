@@ -18,6 +18,9 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use carrier_support::host::{HostWorld, Mux, Restart, host_world};
+
+/// `MAX_FRESH_SESSIONS` in `carrier/contract.rs`.
+const MAX_FRESH_SESSIONS: usize = 2;
 use carrier_support::{BIN, MACHINE, TOKEN, line, wait};
 use serde_json::{Value, json};
 
@@ -333,4 +336,26 @@ fn a_carrier_desktop_dial_whose_session_host_restarts_before_the_desktop_opens_a
     assert_eq!(world.starts.load(Ordering::SeqCst), 2, "the session host restarted once");
     let routes = routes(&world);
     assert_eq!(connected(&routes), 2, "the first session, then one fresh one: {routes:?}");
+}
+
+/// The session host restarts on every session, in both windows in turn:
+/// right after the handshake (the mux-control open finds the session gone)
+/// and between mux control and the desktop (the desktop open does). One
+/// desktop dial spends one budget of fresh sessions across both, so it
+/// opens at most 1 + `MAX_FRESH_SESSIONS` sessions before it gives up.
+#[test]
+fn a_carrier_desktop_dial_spends_one_fresh_session_budget_across_both_restart_windows() {
+    let world = host_world(Restart::Always, Mux::Echo);
+    let mut child = dial_with(&world, &["--service", "desktop"]);
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(reply["ok"], false, "no session lasts, so the dial fails: {reply}");
+    assert_ne!(wait(&mut child, Duration::from_secs(20)), Some(0));
+    let sessions = world.sessions.load(Ordering::SeqCst);
+    assert_eq!(
+        sessions,
+        1 + MAX_FRESH_SESSIONS,
+        "the first session and MAX_FRESH_SESSIONS fresh ones, in all: {reply} {}",
+        world.connect_log()
+    );
 }
