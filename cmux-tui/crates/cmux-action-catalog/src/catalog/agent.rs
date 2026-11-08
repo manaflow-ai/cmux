@@ -113,6 +113,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "palette.newCloudChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.palette.newCloudChat", "New Cloud Chat"),
+        keywords: &["agent", "chat", "new", "cloud", "vm", "remote", "machine", "sleep"],
+        category: "agents",
+        symbol: "cloud",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action palette-new-cloud-chat",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "agentPane.toggleSessionInfo",
         group: GROUP,
         title: t("Localizable", "action.agentPane.toggleSessionInfo", "Toggle Session Info"),

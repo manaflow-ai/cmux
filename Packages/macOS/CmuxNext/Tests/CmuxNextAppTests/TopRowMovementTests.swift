@@ -12,13 +12,22 @@ import Testing
 /// sits where the card's top puts it, the pill keeps equal gaps (#38054) and the line is the pill's.
 @MainActor @Suite(.closesItsWindows, .serialized) struct TopRowMovementTests {
     // Comfortable by default: its strip's own centering and the top row's differ, so a stale layout shows.
+    // The lights' line (#38054): the card moves to bring the pills to it. The default line is now the
+    // concentric one, whose card keeps the gutter (`WindowConcentricCornerTests`).
     func with(density: DensityPreset = .comfortable, _ body: () throws -> Void) rethrows {
         let design = DesignSettings.shared
         let before = (design.tabBarPosition, design.titlebar, design.densityTokens)
         design.tabBarPosition = .top
         design.titlebar = .minimal
         design.densityTokens = density.tokens
-        defer { (design.tabBarPosition, design.titlebar, design.densityTokens) = before }
+        TunableStore.shared.register(DesignTunables.all)
+        TunableStore.shared.activate(file: nil)
+        let key = TopRowLineLook.tunable.key, look = TunableStore.shared.override(key)
+        TunableStore.shared.set(key, TopRowLineLook.lights.tunableValue)
+        defer {
+            TunableStore.shared.set(key, look)
+            (design.tabBarPosition, design.titlebar, design.densityTokens) = before
+        }
         try body()
     }
 

@@ -250,7 +250,7 @@ pub const ACTIONS: &[ActionDef] = &[
         action: Action::Policy,
         name: "policy",
         aliases: &["perms", "permissions"],
-        label: "permission policy: ask · approve-reads · approve-edits · approve-all · deny-all",
+        label: "permission policy: ask · approve-reads · approve-edits · approve-all · deny-all · review",
         keys: "Alt-p",
         group: "settings",
         args: "[POLICY]",

@@ -6428,7 +6428,6 @@ CmuxNextDesign	class	BackdropVideoView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextDesign	enum	BorderMode	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Borders.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	Borders	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Borders.swift	from enum BorderMode:6: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	Borders	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Borders.swift	from enum BorderMode:6: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	struct	BundledFonts	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BundledFonts.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	CardMaterial	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CardMaterial.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	CardSurfaceView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CardSurfaceView.swift	from class CardSurfaceView:10: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	enum	CheckedFont	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CheckedFont.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing

@@ -214,12 +214,13 @@ impl LinkGroup for Tracked {
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
         self.step.advance(Step::Parked);
         self.step.mark(|marks| {
-            marks.lanes += 1;
             marks.first_open.get_or_insert_with(Instant::now);
         });
         let link = self.inner.open(request).await?;
         self.step.advance(Step::Handshake);
+        // A lane counts once the relay has allocated it, not on the ask.
         self.step.mark(|marks| {
+            marks.lanes += 1;
             marks.first_allocated.get_or_insert_with(Instant::now);
         });
         Ok(link)
