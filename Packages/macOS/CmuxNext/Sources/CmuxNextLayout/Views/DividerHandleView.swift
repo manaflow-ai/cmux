@@ -223,10 +223,10 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
         endInteraction()
     }
 
-    /// Ends the drag and hover state; only a change repaints.
+    /// Ends the drag and hover state.
     private func endInteraction() {
-        if isDragging { isDragging = false }
-        if isHovered { isHovered = false }
+        isDragging = false
+        isHovered = false
         stopKeyMonitor()
     }
 
