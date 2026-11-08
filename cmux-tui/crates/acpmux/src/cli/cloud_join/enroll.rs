@@ -9,9 +9,9 @@
 //! - Joined by another person, or to another hub: that join is left alone.
 //! - A home copied from another box: this box enrolls as itself (`settle_clone_at` first gives
 //!   it its own node key, so the original box's hub row is never touched).
-//! - The hub still lists a live row with this home's node key (the local record was lost):
-//!   that row is revoked with the person's token, then this box enrolls. Never matched on the
-//!   hostname, which two machines may share.
+//! - A sign-out here whose hub did not revoke the machine left its row: the next sign-in revokes
+//!   that row by its id with the person's token, then enrolls. Never matched on the node key or the
+//!   host name alone, which a copied home or a twin machine shares.
 //!
 //! The record says `joined_by: "sign-in"`, so signing out removes only a join signing in made
 //! ([`leave_if_auto`]); a pair-code or join-line machine stays joined.
@@ -109,12 +109,42 @@ fn enroll_name(build_tag: Option<&str>) -> String {
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
         .collect();
     let tag = tag.trim_matches('-');
-    if tag.is_empty() {
-        return base;
-    }
-    let mut name = format!("{base}-{tag}");
+    // The hub takes a label of at most 63 characters (`JoinTokenMint.label`); the name is ASCII.
+    let mut name = if tag.is_empty() { base } else { format!("{base}-{tag}") };
     name.truncate(63);
     name.trim_end_matches('-').to_owned()
+}
+
+/// The hub row a sign-out left behind when the hub did not revoke it: the next sign-in on this box
+/// revokes exactly that row. Never a match on the node key or the host name alone, which a copied
+/// home or a twin machine shares.
+const STALE_FILE: &str = "machine-join.stale.json";
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StaleRow {
+    machine_id: String,
+    hub_origin: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    host_fingerprint: Option<String>,
+}
+
+fn record_stale(home: &Path, record: &MachineCredential) -> Result<()> {
+    let row = StaleRow {
+        machine_id: record.machine_id.clone(),
+        hub_origin: record.hub_origin.clone(),
+        host_fingerprint: record.host_fingerprint.clone(),
+    };
+    recovery::write_durable(&home.join(STALE_FILE), &serde_json::to_vec(&row)?, true)
+}
+
+/// The stale row this box's own sign-out left on `hub`, if any (a copied home's is not this box's).
+fn stale_row(home: &Path, hub: &str, current: Option<&str>) -> Option<StaleRow> {
+    let file = crate::config::private_state_file(&home.join(STALE_FILE)).ok()?;
+    let row: StaleRow = serde_json::from_reader(file).ok()?;
+    (row.host_fingerprint.as_deref() == current
+        && origin(Some(row.hub_origin.clone())).ok().as_deref() == Some(hub))
+    .then_some(row)
 }
 
 /// Takes the join lock in `home`, waiting up to [`LOCK_WAIT`] for a join or leave in progress.
@@ -173,20 +203,26 @@ pub(super) async fn enroll_at(
             SelfCheck::Unknown => replace = true,
         }
     }
-    // A live hub row with this home's key is this machine's, its local record lost: revoke it
-    // first so the machine never shows twice. A failed list or revoke does not stop the enroll.
-    let Ok(key) = crate::cli::mesh_node_key::load_or_create_at(home) else {
-        return EnrollOutcome::Unavailable;
-    };
-    let key = key.public_key_b64();
-    if let Ok(rows) = port.credentials().await {
-        for (machine_id, _, _) in rows.iter().filter(|(_, wg, revoked)| !revoked && *wg == key) {
-            if let Err(e) = port.revoke(machine_id).await {
-                tracing::warn!(machine = %machine_id, "sign-in enroll: the stale row stayed: {e:#}");
-            }
+    // The row this box's last sign-out could not revoke: revoke it now with the person's token,
+    // so the machine never shows twice. A failed list or revoke does not stop the enroll.
+    if let Some(stale) = stale_row(home, hub, current)
+        && let Ok(rows) = port.credentials().await
+    {
+        let live = rows.iter().any(|(id, _, revoked)| *id == stale.machine_id && !revoked);
+        let gone = !live || port.revoke(&stale.machine_id).await.is_ok();
+        if gone {
+            let _ = std::fs::remove_file(home.join(STALE_FILE));
+        } else {
+            tracing::warn!(machine = %stale.machine_id, "sign-in enroll: the stale row stayed");
         }
     }
-    let Ok(token) = port.mint(name).await else { return EnrollOutcome::Unavailable };
+    let token = match port.mint(name).await {
+        Ok(token) => token,
+        Err(e) => {
+            tracing::warn!("sign-in enroll: the mint failed: {e:#}");
+            return EnrollOutcome::Unavailable;
+        }
+    };
     match port.redeem(name, token, replace).await {
         Ok(()) => EnrollOutcome::Joined,
         Err(e) => {
@@ -271,13 +307,16 @@ impl EnrollHub for Platform {
     }
 
     async fn redeem(&self, name: &str, token: Zeroizing<String>, replace: bool) -> Result<()> {
+        // Finishing a pasted join line left half done: that join stays the person's, not sign-in's.
+        let joined_by =
+            recovery::pending_origin().ok().flatten().is_none().then_some(JOINED_BY_SIGN_IN);
         recovery::join(
             Some(self.hub.clone()),
             Some(name.to_owned()),
             replace,
             Report::Quiet,
             Some(token.as_str().to_owned()),
-            Some(JOINED_BY_SIGN_IN),
+            joined_by,
         )
         .await
     }
@@ -301,9 +340,9 @@ pub(crate) async fn enroll_self(
 }
 
 /// Signing out: leaves the hub only when signing in joined this machine (`joined_by: "sign-in"`).
-/// A pair-code or join-line machine stays joined. The hub is asked to revoke the credential with
-/// the credential itself; the join here goes either way, keeping the node key when the hub did not
-/// revoke it, so the next sign-in revokes that row by its key.
+/// A pair-code or join-line machine stays joined, and a revoked one stays revoked. The hub is asked
+/// to revoke the credential with the credential itself; the join here goes either way, and a row the
+/// hub did not revoke is recorded so the next sign-in revokes it.
 pub(crate) async fn leave_if_auto() -> LeaveOutcome {
     let home = state_dir();
     let kept = |why| LeaveOutcome { left: false, kept: Some(why), hub: None };
@@ -312,11 +351,19 @@ pub(crate) async fn leave_if_auto() -> LeaveOutcome {
     if record.joined_by.as_deref() != Some(JOINED_BY_SIGN_IN) {
         return kept("notBySignIn");
     }
+    // A revoked machine stays so: its record keeps the next sign-in from enrolling it again.
+    if record.revoked {
+        return kept("revoked");
+    }
     let copy = copied_here(&home, &record, host_fingerprint::current().as_deref());
-    let answer =
-        if copy || record.revoked { None } else { Some(leave::revoke_at_hub(&record).await) };
-    let revoked = answer.as_ref().is_none_or(leave::HubAnswer::revoked);
-    if leave::remove_join(&home, !revoked).is_err() {
+    let answer = if copy { None } else { Some(leave::revoke_at_hub(&record).await) };
+    // Not revoked at the hub: the next sign-in here revokes that row by its id.
+    if answer.as_ref().is_some_and(|answer| !answer.revoked())
+        && record_stale(&home, &record).is_err()
+    {
+        return kept("busy");
+    }
+    if leave::remove_local(&home).is_err() {
         return kept("busy");
     }
     LeaveOutcome { left: true, kept: None, hub: answer.map(|answer| answer.label()) }
@@ -494,19 +541,52 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_live_row_with_this_key_is_revoked_before_enrolling() {
+    async fn only_the_row_a_sign_out_left_is_revoked_before_enrolling() {
         let home = tempfile::tempdir().unwrap();
         let key =
             crate::cli::mesh_node_key::load_or_create_at(home.path()).unwrap().public_key_b64();
         let port = FakeHub::at(home.path());
         *port.rows.lock().unwrap() = vec![
-            ("machine_lost".into(), key.clone(), false),
-            ("machine_gone".into(), key, true),
-            // Same host name, another key: another machine, never touched.
+            ("machine_lost".into(), "old-key".into(), false),
+            // This home's key on another row (a home copied before any join): never touched.
+            ("machine_original".into(), key.clone(), false),
             ("machine_twin".into(), "twin-key".into(), false),
         ];
+        // No sign-out left a row: nothing is revoked, whatever the keys say.
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+        assert!(port.revoked.lock().unwrap().is_empty());
+
+        let home = tempfile::tempdir().unwrap();
+        let port = FakeHub {
+            rows: Mutex::new(port.rows.lock().unwrap().clone()),
+            ..FakeHub::at(home.path())
+        };
+        let lost = MachineCredential {
+            machine_id: "machine_lost".into(),
+            hub_origin: HUB.into(),
+            host_fingerprint: Some("box-a".into()),
+            ..Default::default()
+        };
+        record_stale(home.path(), &lost).unwrap();
         assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
         assert_eq!(*port.revoked.lock().unwrap(), vec!["machine_lost".to_owned()]);
+        assert!(!home.path().join(STALE_FILE).exists());
+    }
+
+    #[tokio::test]
+    async fn a_stale_row_from_another_box_is_not_revoked() {
+        let home = tempfile::tempdir().unwrap();
+        let port = FakeHub::at(home.path());
+        *port.rows.lock().unwrap() = vec![("machine_lost".into(), "k".into(), false)];
+        let other = MachineCredential {
+            machine_id: "machine_lost".into(),
+            hub_origin: HUB.into(),
+            host_fingerprint: Some("box-original".into()),
+            ..Default::default()
+        };
+        record_stale(home.path(), &other).unwrap();
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+        assert!(port.revoked.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
