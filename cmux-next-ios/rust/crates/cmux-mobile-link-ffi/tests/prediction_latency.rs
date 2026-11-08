@@ -303,7 +303,9 @@ fn run(rtt_ms: u64, loss: f64, predict: bool, seed: u64) -> Run {
         }
 
         if let Some(position) = events.iter().position(|(event_at, _)| *event_at == now) {
-            let (_, event) = events.swap_remove(position);
+            // `remove`, not `swap_remove`: ties (packets held behind one loss)
+            // keep the order they were sent in.
+            let (_, event) = events.remove(position);
             match event {
                 Event::KeyArrives(index) => {
                     let answer = remote.receive(&keys[index].bytes);
