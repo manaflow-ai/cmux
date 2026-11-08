@@ -142,6 +142,9 @@ public class HomeSheetController: NSViewController {
 
     func close(showing id: ConversationID?) {
         work?.cancel()
+        // Report what to show first: dismissing the overlay ends the presentation
+        // (``presentationEnded``), which would otherwise report nothing to show.
+        end(showing: id)
         if let dismissPresentation {
             self.dismissPresentation = nil
             dismissPresentation()
@@ -150,7 +153,6 @@ public class HomeSheetController: NSViewController {
         } else if let window = view.window, let parent = window.sheetParent {
             parent.endSheet(window)
         }
-        end(showing: id)
     }
 
     /// The overlay ended on its own (Escape, its window closed): the action stops and
