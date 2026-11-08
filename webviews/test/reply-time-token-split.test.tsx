@@ -1,0 +1,117 @@
+// l10n-allow-file: test fixtures, not shipped UI.
+// Leo, 2026-11-08, on the reply time's tooltip: "are the input tokens truly accurate, or is there
+// some sort of wonky accounting going on? ... I feel like you're overcounting it by a bit. Perhaps we
+// can also just ... say cached, uncached, perhaps, like, amount from context". Every count acpmux
+// records for a turn is its model calls added up, and each call reads the whole context again, so
+// the old "↑ in" (fresh input + cache reads + cache writes, over every call) was many times what the
+// context held. The numbers here are real turns: an acpmux turn_result beside its Claude Code
+// transcript (assistant messages deduped by id), and a Codex rollout's token_count events.
+import { expect, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import { TurnFooter } from "../src/agent-session/acpmux/conversation/TurnRows";
+import { readTokens, replyTimeDetail, tokenRows } from "../src/agent-session/acpmux/conversation/TurnTokens";
+import { translatorFor } from "../src/agent-session/acpmux/i18n";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import {
+  addSplit,
+  cachedTokens,
+  callTokenSplit,
+  NO_TOKENS,
+  resultTokenSplit,
+  uncachedTokens,
+} from "../src/agent-session/acpmux/tokenSplit";
+
+const t = translatorFor("en");
+
+// A Claude turn of 58 calls: Claude Code's result `usage` (the calls added up), and the context
+// after its last call (2 + 2,239 + 122,377 read, 709 written).
+const CLAUDE_58 = {
+  inputTokens: 112,
+  cacheWriteTokens: 124_616,
+  cacheReadTokens: 4_530_027,
+  outputTokens: 23_702,
+  contextTokens: 125_327,
+  modelCalls: 58,
+};
+
+test("a multi-call Claude turn: its input is counted once, uncached apart from cached, with its context", () => {
+  const split = resultTokenSplit(CLAUDE_58)!;
+  // The per-call sum, what the old "↑ 4.7M in" said: 37 times what the context held.
+  expect(readTokens(split)).toBe(4_654_755);
+  expect(uncachedTokens(split)).toBe(124_728);
+  expect(cachedTokens(split)).toBe(4_530_027);
+  expect(split.context).toBe(125_327);
+  expect(split.calls).toBe(58);
+  expect(tokenRows(t, "en", split)).toEqual([
+    "Output 23.7K",
+    "Input across calls 124.7K uncached · 4.5M cached",
+    "Context at end 125.3K",
+    "Model calls 58",
+  ]);
+});
+
+test("the running turn adds its calls up and keeps the main loop's newest context", () => {
+  // The first three calls of a real turn, then a subagent's (which names no context).
+  const calls = [
+    { inputTokens: 2, cachedWriteTokens: 6_246, cachedReadTokens: 125_325, outputTokens: 476, contextTokens: 132_049 },
+    { inputTokens: 2, cachedWriteTokens: 895, cachedReadTokens: 131_571, outputTokens: 249, contextTokens: 132_717 },
+    { inputTokens: 2, cachedWriteTokens: 663, cachedReadTokens: 132_466, outputTokens: 392, contextTokens: 133_523 },
+    { inputTokens: 5, cachedWriteTokens: 0, cachedReadTokens: 9_000, outputTokens: 70 },
+  ];
+  const split = calls.reduce((sum, call) => addSplit(sum, callTokenSplit(call, call.outputTokens)!), NO_TOKENS);
+  expect(readTokens(split)).toBe(406_177);
+  expect(uncachedTokens(split)).toBe(7_815);
+  expect(cachedTokens(split)).toBe(398_362);
+  expect(split.output).toBe(1_187);
+  expect(split.context).toBe(133_523);
+});
+
+test("a Codex turn: acpmux takes the cached part out of its input, and its context is its last call's", () => {
+  // A Codex turn of 22 calls (its rollout's token_count last_token_usage, added up): input 3,336,595
+  // of which 3,021,696 cached; its last call held 170,568 in and 173 out.
+  const split = resultTokenSplit({
+    inputTokens: 314_899,
+    cacheReadTokens: 3_021_696,
+    outputTokens: 4_017,
+    contextTokens: 170_741,
+  })!;
+  expect(uncachedTokens(split)).toBe(314_899);
+  expect(cachedTokens(split)).toBe(3_021_696);
+  expect(split.calls).toBeUndefined();
+  expect(tokenRows(t, "en", split)).toEqual([
+    "Output 4K",
+    "Input across calls 314.9K uncached · 3M cached",
+    "Context at end 170.7K",
+  ]);
+});
+
+test("a turn an older acpmux recorded draws no context and no call count", () => {
+  const { contextTokens: _context, modelCalls: _calls, ...older } = CLAUDE_58;
+  expect(tokenRows(t, "en", resultTokenSplit(older)!)).toEqual([
+    "Output 23.7K",
+    "Input across calls 124.7K uncached · 4.5M cached",
+  ]);
+});
+
+test("the reply time's tooltip: its time, then one count per row", () => {
+  expect(replyTimeDetail(t, "en", ["Worked for 1m 16s"], resultTokenSplit(CLAUDE_58))).toBe(
+    "Worked for 1m 16s\nOutput 23.7K\nInput across calls 124.7K uncached · 4.5M cached\nContext at end 125.3K\nModel calls 58",
+  );
+  expect(replyTimeDetail(t, "en", [undefined, undefined], undefined)).toBeUndefined();
+  const row: AcpmuxRow = {
+    id: "summary-1",
+    kind: "turnSummary",
+    version: 1,
+    at: Date.UTC(2026, 10, 8, 1, 57),
+    status: "completed",
+    durationMs: 76_000,
+    text: "Done.",
+    tokens: resultTokenSplit(CLAUDE_58),
+  };
+  const markup = renderToStaticMarkup(<TurnFooter row={row} />);
+  const title = /<time class="cv-turn-time"[^>]*title="([^"]*)"/.exec(markup)?.[1];
+  expect(title).toBe(
+    "Worked for 1m 16s\nOutput 23.7K\nInput across calls 124.7K uncached · 4.5M cached\nContext at end 125.3K\nModel calls 58",
+  );
+  expect(title).not.toContain("4.7M");
+});

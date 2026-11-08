@@ -86,6 +86,44 @@ async fn turn_usage_records_each_claude_turn_and_the_session_totals() {
 }
 
 #[tokio::test]
+async fn turn_usage_of_a_multi_call_claude_turn_names_its_context_apart_from_the_sum() {
+    let root = std::env::temp_dir().join(format!("acpmux-turn-usage-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+
+    // Three main-loop calls (fake_claude.py `CALLS_PROBE`, a real turn's first three) and one
+    // subagent call. Each call read the whole context again, so the result's usage adds up
+    // 389,362 cache reads for a context that ended at 133,523.
+    say(&mut c, &id, "calls-probe").await;
+    let turn = turn_results(&hub, &id).pop().unwrap();
+    assert_eq!(
+        spend(&turn),
+        json!({"inputTokens": 6, "cacheWriteTokens": 7_804, "cacheReadTokens": 389_362, "outputTokens": 1_117}),
+        "{turn}"
+    );
+    // The context after the last call: what it read (2 + 663 + 132,466) and what it wrote (392).
+    assert_eq!(turn["contextTokens"], 133_523, "{turn}");
+    // The main loop's calls; the subagent's is not one of the result's.
+    assert_eq!(turn["modelCalls"], 3, "{turn}");
+    // Neither goes into the totals, which add the billed counts up.
+    let totals = saved(&hub, &id)["totals"].clone();
+    assert!(
+        totals.get("contextTokens").is_none() && totals.get("modelCalls").is_none(),
+        "{totals}"
+    );
+
+    // The next turn counts its own calls, from none.
+    say(&mut c, &id, "cost-probe").await;
+    let next = turn_results(&hub, &id).pop().unwrap();
+    assert!(next.get("modelCalls").is_none(), "{next}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn turn_usage_of_a_fork_starts_its_own_totals() {
     let root = std::env::temp_dir().join(format!("acpmux-turn-usage-{}", uuid::Uuid::now_v7()));
     let claude = root.join("claude");

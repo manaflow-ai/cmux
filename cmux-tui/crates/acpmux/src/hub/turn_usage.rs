@@ -14,10 +14,21 @@
 //! A failed turn records none either; its spend lands on the next answered
 //! turn.
 //!
-//! ACP harnesses such as Gemini and Muse report a standard root `usage`
-//! object instead; its per-turn counters are copied into the same durable
-//! turn fields. Missing counters stay absent, so a harness that reports no
-//! usage carries only its model.
+//! ACP harnesses such as Codex, Gemini and Muse report a standard root
+//! `usage` object instead; its per-turn counters are copied into the same
+//! durable turn fields. Its input counts the cached part (its total is input
+//! plus output), so the fresh input is what is left of it after the cache's
+//! reads and writes, as Claude's `input_tokens` is. Missing counters stay
+//! absent, so a harness that reports no usage carries only its model.
+//!
+//! Every token count is the turn's model calls added up, and each call reads
+//! the whole context again: a turn of 58 calls whose context ended at 125K
+//! read 4.7M, nearly all of it from the prompt cache. That sum is what was
+//! billed, not what the context holds, so a turn also records
+//! `contextTokens`, the context after its last call (what that call read
+//! and wrote: Claude's `_meta.claude.contextTokens`, else the `used` of the
+//! last `usage_update`), and Claude's `modelCalls`, how many calls made the
+//! sum. Neither goes into the totals.
 
 use super::{Session, current_model};
 use crate::store::TurnUsage;
@@ -25,14 +36,19 @@ use serde_json::{Map, Value, json};
 
 /// The turn's `turn_result` fields for a prompt `result` (`model`, then any
 /// of `costUsd`, `inputTokens`, `outputTokens`, `cacheReadTokens` and
-/// `cacheWriteTokens`), added to the session's totals as they are taken.
+/// `cacheWriteTokens`, added to the session's totals as they are taken, and
+/// `contextTokens` and `modelCalls`, which are not).
 pub(super) fn turn_usage(session: &Session, result: &Value) -> Map<String, Value> {
     let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
     let mut fields = Map::new();
     if let Some(model) = current_model(&meta) {
         fields.insert("model".into(), json!(model));
     }
+    let calls;
+    let context;
     let turn = if let Some(claude) = result.pointer("/_meta/claude") {
+        context = claude.get("contextTokens").and_then(Value::as_u64);
+        calls = claude.get("modelCalls").and_then(Value::as_u64);
         let tokens = |key: &str| claude.get("usage")?.get(key)?.as_u64();
         let mut turn = TurnUsage {
             cost_usd: None,
@@ -60,6 +76,9 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> Map<String, Value
         }
         turn
     } else {
+        // The context Codex's last call held, read and written (its `usage_update`'s `used`).
+        context = meta.usage.as_ref().and_then(|u| u.get("used")).and_then(Value::as_u64);
+        calls = None;
         generic_usage(result.get("usage"))
     };
     if turn.is_empty() {
@@ -68,6 +87,12 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> Map<String, Value
     meta.totals.get_or_insert_with(TurnUsage::default).add(&turn);
     if let Ok(Value::Object(spent)) = serde_json::to_value(&turn) {
         fields.extend(spent);
+    }
+    if let Some(context) = context.filter(|c| *c > 0) {
+        fields.insert("contextTokens".into(), json!(context));
+    }
+    if let Some(calls) = calls.filter(|c| *c > 0) {
+        fields.insert("modelCalls".into(), json!(calls));
     }
     fields
 }
@@ -90,21 +115,18 @@ fn generic_usage(usage: Option<&Value>) -> TurnUsage {
         .and_then(Value::as_f64)
         .or_else(|| usage.get("cost").and_then(|v| v.get("amount")).and_then(Value::as_f64))
         .filter(|v| v.is_finite() && *v >= 0.0);
+    let cache_read =
+        number(&["cacheReadTokens", "cachedReadTokens", "cachedTokens", "cache_read_input_tokens"]);
+    let cache_write =
+        number(&["cacheWriteTokens", "cachedWriteTokens", "cache_creation_input_tokens"]);
+    // ACP's input counts the cache's reads and writes; the record's is the fresh part alone.
+    let cached = cache_read.unwrap_or(0).saturating_add(cache_write.unwrap_or(0));
     TurnUsage {
         cost_usd: cost,
-        input_tokens: input,
+        input_tokens: input.map(|input| input.saturating_sub(cached)),
         output_tokens: output,
-        cache_read_tokens: number(&[
-            "cacheReadTokens",
-            "cachedReadTokens",
-            "cachedTokens",
-            "cache_read_input_tokens",
-        ]),
-        cache_write_tokens: number(&[
-            "cacheWriteTokens",
-            "cachedWriteTokens",
-            "cache_creation_input_tokens",
-        ]),
+        cache_read_tokens: cache_read,
+        cache_write_tokens: cache_write,
     }
 }
 
@@ -118,9 +140,23 @@ mod tests {
         let usage = generic_usage(Some(
             &json!({"inputTokens": 12, "outputTokens": 8, "thoughtsTokens": 3, "cachedTokens": 4}),
         ));
-        assert_eq!(usage.input_tokens, Some(12));
+        // Its 12 input count the 4 read from the cache: 8 were fresh.
+        assert_eq!(usage.input_tokens, Some(8));
         assert_eq!(usage.output_tokens, Some(8));
         assert_eq!(usage.cache_read_tokens, Some(4));
+    }
+
+    #[test]
+    fn maps_codex_usage_with_its_cached_input_apart() {
+        // A Codex turn of 22 calls (a real rollout's token_count events, added up): its input
+        // counts the 3,021,696 read from the cache, so 314,899 were fresh.
+        let usage =
+            generic_usage(Some(&json!({"inputTokens": 3_336_595, "cachedReadTokens": 3_021_696,
+            "outputTokens": 4_017, "thoughtTokens": 1_182, "totalTokens": 3_340_612})));
+        assert_eq!(usage.input_tokens, Some(314_899));
+        assert_eq!(usage.cache_read_tokens, Some(3_021_696));
+        assert_eq!(usage.cache_write_tokens, None);
+        assert_eq!(usage.output_tokens, Some(4_017));
     }
 
     #[test]
