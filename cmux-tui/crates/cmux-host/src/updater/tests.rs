@@ -767,3 +767,25 @@ fn a_malformed_connection_list_fails_closed() {
     let fine = json!([row("connected"), row("closed")]).to_string();
     assert_eq!(carrier::attached_sessions_in(&fine), Some(vec!["d/s#1".to_owned()]));
 }
+
+/// Review F2 of #38483: a gate state that can't be read (here, unparsable)
+/// fails closed. No update flips on it, a bind that would go out is refused,
+/// and the gate replaces it with a held, restart-pending state that lapses
+/// on its own, so a machine never wedges on a bad file.
+#[test]
+fn an_unreadable_gate_state_fails_closed_then_recovers() {
+    let (dir, service, cli) = gate_handles();
+    let paths = Paths::new(dir.path());
+    std::fs::create_dir_all(paths.at(gate::GATE_FILE).parent().unwrap()).unwrap();
+    std::fs::write(paths.at(gate::GATE_FILE), b"{not json").unwrap();
+    let mut flipped = false;
+    assert!(cli.run(T0_MS, true, |_| flipped = true).is_err());
+    assert!(!flipped, "an update flipped on an unreadable gate state");
+    assert!(!service.hold(T0_MS, gate::CONNECT_HOLD), "a bind went out on an unreadable gate state");
+    let later = T0_MS + gate::CONNECT_HOLD.as_millis() as u64 + 1;
+    assert!(service.hold(later, gate::CONNECT_HOLD), "the gate never recovered");
+    let mut ran = false;
+    let after_hold = later + gate::CONNECT_HOLD.as_millis() as u64 + 1;
+    assert!(cli.run(after_hold, true, |_| ran = true).is_ok());
+    assert!(ran);
+}
