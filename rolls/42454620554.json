@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42454620554",
+  "recorded_at": "2026-11-08T06:37:45Z",
+  "reason": "cmux-tui 23556a830084 changes the image's cmux-tui (pinned cbe712021812)",
+  "dry_run": false,
+  "cmux_tui": "23556a8300849ef298c2e5b5799b019daa5c32f5",
+  "fixes": [
+    {
+      "sha": "23556a8300849ef298c2e5b5799b019daa5c32f5",
+      "mergedAt": "2026-11-07T22:10:36-08:00",
+      "subject": "fix(acpmux): a rotated CODEX_API_KEY retires warm pooled Codex sessions (#38238)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T06:37:45Z",
+    "snapshot_id": "sh-518461e3a5ab4e42a7d21e827bbf3306",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42454620554): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cb7232232026458964c4b09a2d80a632e2c69d4f",
+    "image": "cloud-native-auto-23556a83-42454620554-1",
+    "revision": "ci-42454620554-1",
+    "at": "2026-11-08T06:37:45Z"
+  },
+  "rolled_back": false
+}
