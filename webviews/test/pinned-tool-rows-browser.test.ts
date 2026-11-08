@@ -32,7 +32,7 @@ await requireBrowserLane("pinned-tool-rows-browser.test.ts", async () => {
     await gallery?.close();
   });
 
-  for (const variant of ["pinned-lone", "pinned-group"])
+  for (const variant of ["pinned-lone", "pinned-group", "pinned-below"])
     test(`${variant}: the opened call stays open and in place when the next call regroups the run`, async () => {
       const page = await browser.newPage({ viewport: { width: 900, height: 640 } });
       const errors: string[] = [];
@@ -56,7 +56,10 @@ await requireBrowserLane("pinned-tool-rows-browser.test.ts", async () => {
         expect(seen.pinned).toBeDefined();
         expect(seen.pinned!.line).toBe(true);
         expect(seen.pinned!.open).toBe(true);
-        expect(Math.abs(seen.pinned!.after - seen.pinned!.before)).toBeLessThanOrEqual(1);
+        if (variant === "pinned-below")
+          // Under the view's foot: the call moves with its row; the text the reader reads does not.
+          expect(Math.abs(seen.pinned!.scrollAfter - seen.pinned!.scrollBefore)).toBeLessThanOrEqual(1);
+        else expect(Math.abs(seen.pinned!.after - seen.pinned!.before)).toBeLessThanOrEqual(1);
         // Away from the end: the view is the reader's, not following the latest row.
         expect(seen.pinned!.fromEnd).toBeGreaterThan(40);
         expect(errors).toEqual([]);

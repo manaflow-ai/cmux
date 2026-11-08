@@ -37,3 +37,38 @@ test("a background run the reader opened stays open when a reply that draws noth
   // Its id is the key it was opened under, so a click closes it by that same key.
   expect(joined[0]!.id).toBe(runs[1]!.id);
 });
+
+test("two background runs the reader opened, joined into one, close with one click", async () => {
+  // turns.ts `foldCovers` and `toggleTurnFold` with it, as the transcript's click passes them.
+  const { foldCovers, toggleTurnFold } = await import("./turns");
+  at = 0;
+  const before = [line("a"), line("b"), row("reply", "assistant", { text: "Still going." }), line("c"), line("d")];
+  const runs = foldBackgroundRuns(before, new Set()).filter((entry) => entry.backgroundRun);
+  // The reader opened both runs.
+  const opened = new Set(runs.map((entry) => entry.id));
+  const after = before.map((entry) => (entry.id === "reply" ? { ...entry, text: ".", version: 2 } : entry));
+  const joined = foldBackgroundRuns(after, opened).find((entry) => entry.backgroundRun)!;
+  expect(joined.foldOpen).toBe(true);
+  // One click on the joined line closes it: no member's key holds it open.
+  const closed = toggleTurnFold(after, opened, joined.id, foldCovers(joined));
+  expect(foldBackgroundRuns(after, closed).find((entry) => entry.backgroundRun)!.foldOpen).toBe(false);
+  // And the next click opens it again.
+  const reopened = toggleTurnFold(after, closed, joined.id, foldCovers(joined));
+  expect(foldBackgroundRuns(after, reopened).find((entry) => entry.backgroundRun)!.foldOpen).toBe(true);
+});
+
+test("a message run's line covers every member's key, so a joined run closes with one click", async () => {
+  const { foldCovers, toggleTurnFold } = await import("./turns");
+  const { messageRunRowId } = await import("./messageRuns");
+  const lineRow: AcpmuxRow = {
+    id: messageRunRowId("m1"),
+    kind: "messageRun",
+    version: 1,
+    at: 1,
+    foldOpen: true,
+    messageRun: { sent: 2, received: 0, work: [], failed: 0, running: false, rows: ["m1", "m2", "m3"] },
+  };
+  const opened = new Set([messageRunRowId("m1"), messageRunRowId("m3")]);
+  expect(foldCovers(lineRow)).toEqual(["m1", "m2", "m3"].map(messageRunRowId));
+  expect([...toggleTurnFold([], opened, lineRow.id, foldCovers(lineRow))]).toEqual([]);
+});

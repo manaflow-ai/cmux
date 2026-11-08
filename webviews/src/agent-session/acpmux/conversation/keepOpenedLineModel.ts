@@ -41,18 +41,23 @@ function scrollerOf(node: HTMLElement): HTMLElement | undefined {
   return node.ownerDocument.scrollingElement as HTMLElement | undefined;
 }
 
-/// The first opened line of `box` the reader can see, and its top; none when no opened line is in view.
+/// The first opened line of `box` the reader can see, and its top; none when no opened line is in
+/// view. A line above the view's top or under its foot is none: a regroup there moves the row the
+/// reader is not looking at, never the text they are reading (holding it would scroll that text).
 /// Reads only the row's own lines.
 export function openedLineAt(box: HTMLElement | null): OpenedLine | undefined {
   if (!box) return undefined;
   const lines = box.querySelectorAll<HTMLElement>(OPENED);
   if (!lines.length) return undefined;
   const scroller = scrollerOf(box);
-  const view = scroller?.getBoundingClientRect();
-  const viewTop = scroller && view && scroller !== box.ownerDocument.scrollingElement ? view.top : 0;
+  const page = !scroller || scroller === box.ownerDocument.scrollingElement;
+  const view = page ? undefined : scroller.getBoundingClientRect();
+  const viewTop = view?.top ?? 0;
+  const viewBottom = view?.bottom ?? box.ownerDocument.defaultView?.innerHeight ?? 0;
   for (const line of lines) {
     const rect = line.getBoundingClientRect();
     if (rect.bottom <= viewTop) continue;
+    if (rect.top >= viewBottom) return undefined;
     const attribute = ATTRIBUTES.find((name) => line.hasAttribute(name))!;
     const value = line.getAttribute(attribute)!.replace(/["\\]/g, "\\$&");
     return { selector: `button[${attribute}="${value}"]`, top: rect.top };

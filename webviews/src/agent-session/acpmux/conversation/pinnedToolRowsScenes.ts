@@ -48,7 +48,16 @@ const snapshot = (items: AcpmuxActivity[], version: number) =>
     },
   );
 
-type Scene = { before: AcpmuxActivity[]; after: AcpmuxActivity[]; opens: string[]; call: string; line: RegExp };
+type Scene = {
+  before: AcpmuxActivity[];
+  after: AcpmuxActivity[];
+  opens: string[];
+  call: string;
+  line: RegExp;
+  /// The reader reads the text above, the opened call 100 px under the view's foot (its row still
+  /// drawn): the regroup moves the call, never the view.
+  below?: true;
+};
 
 /// A lone read the reader opened; a second read groups it under "Read 2 files".
 const lone: Scene = {
@@ -93,11 +102,11 @@ const settle = async (ctx: Parameters<Play>[0], ready: () => boolean = () => tru
     { capMs: 10_000 },
   );
 };
-/// The reader's wheel brings `line` to 200 px under the view's top; the wheel lets go of any hold.
-const bringTo = async (ctx: Parameters<Play>[0], line: HTMLElement) => {
+/// The reader's wheel brings `line` to `at` px under the view's top; the wheel lets go of any hold.
+const bringTo = async (ctx: Parameters<Play>[0], line: HTMLElement, at = 200) => {
   const node = scroller(ctx);
   node.dispatchEvent(new WheelEvent("wheel", { deltaY: -1, bubbles: true }));
-  node.scrollTop += line.getBoundingClientRect().top - node.getBoundingClientRect().top - 200;
+  node.scrollTop += line.getBoundingClientRect().top - node.getBoundingClientRect().top - at;
   node.dispatchEvent(new Event("scroll"));
   await settle(ctx);
 };
@@ -105,7 +114,15 @@ const bringTo = async (ctx: Parameters<Play>[0], line: HTMLElement) => {
 declare global {
   interface Window {
     /** What the regroup scene saw: the opened call's top before and after the next call arrived. */
-    cmuxPinnedToolRows?: { before: number; after: number; open: boolean; line: boolean; fromEnd: number };
+    cmuxPinnedToolRows?: {
+      before: number;
+      after: number;
+      open: boolean;
+      line: boolean;
+      fromEnd: number;
+      scrollBefore: number;
+      scrollAfter: number;
+    };
   }
 }
 
@@ -130,8 +147,10 @@ function scene(which: Scene): Play {
     call(ctx, which.call)!.click();
     await settle(ctx, () => call(ctx, which.call)?.getAttribute("aria-expanded") === "true");
     // The reader's wheel again: the click's own hold is over, the view is theirs.
-    await bringTo(ctx, call(ctx, which.call)!);
+    await bringTo(ctx, call(ctx, which.call)!, which.below ? scroller(ctx).clientHeight + 100 : 200);
+    if (which.below && !call(ctx, which.call)) fail("the opened call's row is not drawn under the view", {});
     const before = call(ctx, which.call)!.getBoundingClientRect().top;
+    const scrollBefore = scroller(ctx).scrollTop;
     view.cmuxAcpmuxBridge?.receive(structuredClone(snapshot(which.after, 2)));
     const regrouped = () =>
       [...ctx.document.querySelectorAll(`[data-row-id="${ROW}"] button.is-run`)].some((each) =>
@@ -146,10 +165,16 @@ function scene(which: Scene): Play {
       open: opened?.getAttribute("aria-expanded") === "true",
       line: regrouped(),
       fromEnd: node.scrollHeight - node.clientHeight - node.scrollTop,
+      scrollBefore,
+      scrollAfter: node.scrollTop,
     };
     view.cmuxPinnedToolRows = seen;
     if (!seen.open) fail("the opened call closed when the next call arrived", seen);
-    if (!(Math.abs(seen.after - seen.before) <= 1)) fail("the opened call moved when the next call arrived", seen);
+    if (which.below) {
+      if (!(Math.abs(seen.scrollAfter - seen.scrollBefore) <= 1))
+        fail("a regroup under the view moved the text the reader was reading", seen);
+    } else if (!(Math.abs(seen.after - seen.before) <= 1))
+      fail("the opened call moved when the next call arrived", seen);
   };
 }
 
@@ -158,6 +183,11 @@ export const pinnedVariants = {
     note: "Play: a running turn, scrolled up to a lone read the reader opened; a second read arrives and groups it under “Read 2 files”. The read stays open and stays where it was.",
     snapshot: snapshot(lone.before, 1),
     play: scene(lone),
+  },
+  "pinned-below": {
+    note: "Play: a lone read the reader opened, then scrolled up so it sits under the view's foot; a second read groups it. The text in view stays where it is.",
+    snapshot: snapshot(lone.before, 1),
+    play: scene({ ...lone, below: true }),
   },
   "pinned-group": {
     note: "Play: “Read 2 files” opened and its first read opened; a command joins and the group becomes the run's line. Both stay open and the read stays where it was.",

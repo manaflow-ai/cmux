@@ -132,7 +132,7 @@ import {
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { THINKING, WORKED, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { ArrowDown } from "./conversation/icons";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -1118,7 +1118,8 @@ function TranscriptView({
   queuedTail?: readonly AcpmuxRow[];
   /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
   focusComposer?: () => void;
-  onToggleActivity: (id: string) => void;
+  /// `covers`: the clicked line's other keys (turns.ts `foldCovers`), toggled with it.
+  onToggleActivity: (id: string, covers?: readonly string[]) => void;
   onOpenDiff?: OpenDiff;
   expanded: Folds;
   registry?: NativeRegistry;
@@ -3437,12 +3438,14 @@ function TranscriptView({
         stack.rows = true;
         stack.row.setAttribute("data-bottom-fold", "");
       }
+      // The clicked line: its open state, and the other keys a joined run's line is open under.
+      const clicked = shown.find((row) => row.id === id);
       const fold =
         node && !stack
           ? startTurnFold(
               host,
               id,
-              !(shown.find((row) => row.id === id)?.foldOpen ?? foldInputs.current.expanded.has(id)),
+              !(clicked?.foldOpen ?? foldInputs.current.expanded.has(id)),
               {
                 count: shown.length,
                 idAt: (index) => shown[index]?.id,
@@ -3469,7 +3472,7 @@ function TranscriptView({
         watchTurnFold(fold, host, read, foldGhosts.current, () => {
           if (turnFold.current === fold) turnFold.current = undefined;
         });
-      onToggleActivity(id);
+      onToggleActivity(id, foldCovers(clicked));
     },
     [onToggleActivity],
   );
