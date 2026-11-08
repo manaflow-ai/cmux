@@ -151,6 +151,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// Link card previews (MessagesLab's guarded HTML/image fetcher): fetched once per URL for
     /// links this Mac sends or the user taps; nil keeps domain cards.
     let linkPreviews: HomeLinkPreviews?
+    /// Card URLs whose previews this view asked for (HomeProjection+LinkPreviews.swift), once each.
+    var askedLinkPreviews: Set<String> = []
 
     init(store: HomeStore, conversation: ConversationID, me: ParticipantID, controller: ChatController,
          linkPreviews: HomeLinkPreviews? = nil, replies: HomeReplyDisplay = .wholeMessages) {
@@ -239,6 +241,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             restoreDraftAttachments(into: kept)
             // Replies already running when the view opens show as their streams at once.
             if let store = controller.store { for a in core.streams(streams, state: store.state) { controller.dispatch(a) } }
+            requestShownLinkPreviews()
             return
         }
         let typingChanged = Set(store.state.ui.typing) != Set(typing.filter { $0 != me }.map(\.rawValue))
@@ -308,6 +311,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if streamOnly { return }
         if titleChanged { applyHeader() }
         refreshAttachments()
+        requestShownLinkPreviews()
         passStep("attachments", &mark)
         if summaryChanged { onSummaryChange(summary) }
         passStep("summaryChange", &mark)

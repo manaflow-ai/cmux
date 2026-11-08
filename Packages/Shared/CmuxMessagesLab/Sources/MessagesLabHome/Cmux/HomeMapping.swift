@@ -139,8 +139,9 @@ enum HomeMapping {
     /// HomeStore part it came from. A text part follows Messages' link rule
     /// (the vendored `TextParts.parts`, as MessagesLab's own send does): a
     /// line that is only a URL is a link card in its place, the other lines
-    /// stay one text bubble, a URL in a sentence gets no card. So the local
-    /// send and the message HomeStore stores show the same bubbles.
+    /// stay one text bubble. So the local send and the message HomeStore
+    /// stores show the same bubbles. A web link in a sentence then gets a
+    /// card after its bubble (`withInlineCards`, issue 38178).
     static func projectedParts(_ item: TranscriptItem, summary: ConversationSummary?, media: Media = { _ in nil },
                                links: Links = { _ in nil }) -> (parts: [Part], owners: [Int]) {
         guard !item.isRetracted else { return ([], []) }
@@ -169,7 +170,8 @@ enum HomeMapping {
             parts += shown
             owners += Array(repeating: i, count: shown.count)
         }
-        return (parts, owners)
+        // A link in a sentence gets its card after its bubble (HomeMapping+InlineCards.swift).
+        return withInlineCards(parts, owners: owners, links: links)
     }
 
     /// What an agent-message row says, as Markdown. An agents row is one muted (italic) line with no
@@ -386,13 +388,9 @@ enum HomeMapping {
                 let (rendered, runs) = HomeMarkdown.render(t, chips: HomeLinkChip.showsInTranscript)
                 return .text(rendered, runs: runs)
             case let .link(url, title, site, image, theme):
-                // A preview fetched before (this Mac's sends, taps) fills the card, as `.linkMetadata` did;
-                // otherwise the domain card (HomeStore's message is settled: no grey loading card).
-                guard let meta = links(url) else {
-                    let host = URL(string: url).map(TextParts.host) ?? url
-                    return .link(url: url, title: title ?? host, siteName: site ?? host, image: image, theme: theme)
-                }
-                return .link(url: url, title: meta.title ?? title, siteName: meta.site ?? site, image: meta.image ?? image, theme: theme)
+                // A preview fetched before (this Mac's sends, the Chief's replies, taps) fills the card, as
+                // `.linkMetadata` did; otherwise the domain card (HomeStore's message is settled: no grey loading card).
+                return card(url, title: title, site: site, image: image, theme: theme, links: links)
             default:
                 return shown
             }

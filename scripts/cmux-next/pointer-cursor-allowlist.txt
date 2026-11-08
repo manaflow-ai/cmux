@@ -8,3 +8,4 @@ Packages/macOS/CmuxNext/Sources/CmuxNextRemoteBrowser/Native/RemoteBrowserCursor
 Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalLinkPointer.swift # Cmd-hover over a URL in terminal output
 Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSession.swift # test accessor for the terminal URL hand
 Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSurfaceView+Mouse.swift # the cursor shape a terminal program asks for
+Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/TranscriptLinkCursor.swift # links in the Chief chat transcript show the hand (issue 38178, the person 2026-11-08)

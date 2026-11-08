@@ -245,10 +245,16 @@ is never the grey loading card: it shows a fetched preview or the domain.
 
 Link previews (coordinator decision 2026-10-06, as iMessage): the SENDER makes
 the preview. `Cmux/HomeLinkPreviews` lets MessagesLab's `LinkPreviews` fetch
-only for a link in a message this Mac sends, or a card the user clicks; a
-received card shows what the sender attached, else the domain, and never
-fetches by itself (no request to a URL another person or an agent chose, and
-the receiver's address never reaches the sender's server). Every fetch goes
+only for a link in a message this Mac sends, a card in a message of the
+person's own (from any device) or of their Chief (issue 38178: the Chief is
+the person's agent and its replies hold the Chief chat's links;
+`Cmux/HomeProjection+LinkPreviews`), or a card the user clicks; another
+person's or another agent's card shows what the sender attached, else the
+domain, and never fetches by itself (no request to a URL they chose, and the
+receiver's address never reaches the sender's server). A web link inside a
+sentence also gets a card, after its bubble, at most three per message
+(`Cmux/HomeMapping+InlineCards`); Messages' own rule makes cards only of
+URL-only lines. Every fetch goes
 through MessagesLab's LinkGuard: http(s) on the default port, every resolved
 address public (no loopback, private, CGNAT/Tailscale, link-local, ULA;
 mapped and NAT64 IPv6 as IPv4), the connected address re-checked, at most 5
