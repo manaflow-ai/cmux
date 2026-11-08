@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextPages
+@testable import CmuxNextPages
 @testable import CmuxNextServer
 import CmuxNextSettings
 import Foundation
@@ -260,6 +260,25 @@ import Testing
         panel.cancelOperation(nil)
         await ask.settle()
         #expect(ask.model.ask != nil && ask.fake.writes.isEmpty, "Escape denies nothing")
+    }
+
+    /// SECURITY (cmux#37286): Allow trusts the card page's own DOM, so the page runs only the app's
+    /// bundled script. Its policy allows script from its own bundle and nothing else: no inline
+    /// script, no eval, no remote script; no frame, connection or media; and the dev server never
+    /// serves it. With page probes and Web Inspector refused (the panel test above), only shipped
+    /// code can change what the card shows.
+    @Test func theCardPageRunsOnlyItsBundledScript() throws {
+        let directives = Dictionary(uniqueKeysWithValues: PageDescriptor.serverCards.csp.header
+            .split(separator: ";").map { $0.split(separator: " ").map(String.init) }.compactMap { parts in
+                parts.first.map { ($0, Array(parts.dropFirst())) }
+            })
+        #expect(directives["default-src"] == ["'none'"])
+        #expect(directives["script-src"] == ["'self'"], "no 'unsafe-inline', 'unsafe-eval' or remote source")
+        for absent in ["connect-src", "frame-src", "media-src", "child-src", "object-src"] {
+            #expect(directives[absent] == nil, "\(absent) stays 'none' through default-src")
+        }
+        #expect(!(directives["img-src"] ?? []).contains { $0.hasPrefix("http") }, "no remote image")
+        #expect(PageDevServer.bundledOnlyPageIDs.contains(PageDescriptor.serverCards.id))
     }
 
     private static let pageRoot: URL? = {

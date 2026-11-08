@@ -57,7 +57,6 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.overlay",
         "cmux.page-info",
         "cmux.passwords",
-        "cmux.server-cards",
         "cmux.settings",
         "cmux.stash",
         "cmux.stats",
@@ -66,6 +65,11 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.site-data",
         "cmux.certificate",
     ]
+
+    /// Pages of `webviews/src/pages` the server never serves: they always load the app's bundled
+    /// files. SECURITY: the server cards' Allow and Confirm trust their page's DOM (cmux#37286), so no
+    /// `web-dev.json` or launch variable may swap in other script.
+    static let bundledOnlyPageIDs: Set<String> = ["cmux.server-cards"]
 
     /// The agent chat's page host (`cmux.agent`), which the server serves at `/agent-pane/` (the
     /// agent pane's dev entry, `AgentPaneSchemeHandler.devServerURL` for the legacy host). Not in
@@ -125,7 +129,8 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     /// (another origin, a page outside ``pageIDs``, a dynamic prefix, `.` or `..`).
     func url(for request: URL, page: PageDescriptor) -> URL? {
         let id = page.id.lowercased()
-        guard Self.pageIDs.contains(id) || id == Self.agentPageID, page.owns(request) else { return nil }
+        guard Self.pageIDs.contains(id) || id == Self.agentPageID, !Self.bundledOnlyPageIDs.contains(id), page.owns(request)
+        else { return nil }
         let components = request.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         guard !components.contains(where: { $0 == "." || $0 == ".." }) else { return nil }
         if let first = components.first, page.dynamicPrefixes.contains(first) { return nil }

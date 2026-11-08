@@ -6,8 +6,13 @@ public import Foundation
 extension PageDescriptor {
     /// The server cards (webviews/src/pages/server-cards): cmux-page://cmux.server-cards/, one card
     /// per route in one floating ``WebCardPanel``. A new card adds its ops' prefix here.
+    /// SECURITY (cmux#37286): its Allow and Confirm trust the page's own DOM, so the page runs only
+    /// the app's bundled script: no inline script (the strict policy's only other script source),
+    /// no eval, no remote script, frame, connection or media, and it is never served by the dev
+    /// server (``PageDevServer/bundledOnlyPageIDs``).
     public static let serverCards = PageDescriptor(id: "cmux.server-cards", resource: "server-cards",
-                                                   namespaces: ["cmux.card.", "cmux.pairInvite.", "cmux.joinConsent."])
+                                                   namespaces: ["cmux.card.", "cmux.pairInvite.", "cmux.joinConsent."],
+                                                   csp: PageCSP(inlineScript: false))
 }
 
 /// "Pair Another Machine…" on the server card page (`#/pair-invite`, webviews/src/pages/server-cards):
