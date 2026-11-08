@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42485553015",
+  "recorded_at": "2026-11-08T13:46:39Z",
+  "reason": "cmux-tui d1a22a9670ed changes the image's cmux-tui (pinned 748456624bdd)",
+  "dry_run": false,
+  "cmux_tui": "d1a22a9670ed4a9e9827633182d05bc3cca97212",
+  "fixes": [
+    {
+      "sha": "d1a22a9670ed4a9e9827633182d05bc3cca97212",
+      "mergedAt": "2026-11-08T13:18:43Z",
+      "subject": "acpmux tests: the full-suite reds after #38015, #35486, #36878, #36125 and #37949 (#38473)"
+    },
+    {
+      "sha": "e5eef45664c4870dadb10bc25a4afb0c0f5be50e",
+      "mergedAt": "2026-11-08T05:17:02-08:00",
+      "subject": "Remove the Shift-Cmd-I Feed panel and its feed.show action"
+    },
+    {
+      "sha": "fe1cbcf313c59a098d0c5d47d166cf7ddebce6d6",
+      "mergedAt": "2026-11-08T05:11:25-08:00",
+      "subject": "acpmux test: cancel_owner's fake peer reads past pings, so its silent case waits out the Stop (#38513)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T13:46:39Z",
+    "snapshot_id": "sh-71131ca64cc9436f8d575b1dc2c72f5e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42485553015): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5403d5c25aa5cd79f3f02a4c19869f15a2ee847e",
+    "image": "cloud-native-auto-d1a22a96-42485553015-1",
+    "revision": "ci-42485553015-1",
+    "at": "2026-11-08T13:46:39Z"
+  },
+  "rolled_back": false
+}
