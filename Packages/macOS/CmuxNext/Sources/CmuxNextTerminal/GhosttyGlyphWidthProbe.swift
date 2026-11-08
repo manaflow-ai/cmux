@@ -56,7 +56,7 @@ public nonisolated struct GhosttyGlyphWidthProbe: Sendable {
                 fonts.append(font)
             }
         }
-        let cellWidth = Self.advance(for: "M", in: primary)
+        let cellWidth = Self.shapedAdvance(for: "M", in: primary)
         measurements = Self.samples.map {
             Self.measure($0, primary: primary, fallbackFonts: fallbackFonts, cellWidth: cellWidth)
         }
@@ -74,7 +74,7 @@ public nonisolated struct GhosttyGlyphWidthProbe: Sendable {
         for font in fallbackFonts {
             if !hasMissingGlyph(for: string, in: font) { return (font, false) }
         }
-        let fallback = CTFontCreateForString(primary, string as CFString, CFRange(location: 0, length: string.length))
+        let fallback = CTFontCreateForString(primary, String(string) as CFString, CFRange(location: 0, length: string.length))
         return (fallback, hasMissingGlyph(for: string, in: fallback))
     }
 
