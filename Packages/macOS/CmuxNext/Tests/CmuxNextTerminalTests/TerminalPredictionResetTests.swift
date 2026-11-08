@@ -5,7 +5,7 @@ import Testing
 
 /// When predicted glyphs must go at once, through the real session and Ghostty surface of a remote terminal
 /// (``TerminalPredictionLatencyTests/harness(roundTripMs:loss:predict:seed:)``): a replay that replaces the screen,
-/// even an empty one.
+/// even an empty one, and turning `terminal.predictiveLocalEcho` off in a running terminal.
 @MainActor @Suite(.serialized)
 struct TerminalPredictionResetTests {
     /// Engages prediction at a shell prompt (echoed keys at 150 ms), then cuts the link so the next keys stay
@@ -62,5 +62,50 @@ struct TerminalPredictionResetTests {
         session.surfaceView.lane?.processOutput(Data())
         try await Self.settle(session)
         #expect(Self.speculative(session) == before)
+    }
+
+    /// `terminal.predictiveLocalEcho` off in a running terminal (``TerminalSession/predictsLocalEcho``): what was
+    /// drawn goes at once and later keys draw nothing; on again, the engine listens again from a fresh start.
+    @Test func turningPredictionOffClearsGlyphsAndStopsDrawing() async throws {
+        let harness = try await Self.speculating()
+        defer { harness.close() }
+        let session = harness.session
+        try #require(Self.speculative(session) > 0, "prediction drew no speculative glyph, so the check proves nothing")
+        session.predictsLocalEcho = false
+        #expect(Self.speculative(session) == 0, "glyphs stayed drawn after prediction was turned off")
+        #expect(harness.engine.status == .disabled)
+        let watch = TerminalPredictionLatencyTests.DrawWatch()
+        session.echo?.onDrawChange = { layout in if layout?.glyphs.isEmpty == false { watch.drewAfter = true } }
+        defer { session.echo?.onDrawChange = nil }
+        for key in "def".map(String.init) {
+            session.sendText(key)
+            try await Task.sleep(for: .milliseconds(30)) // test: typing cadence
+        }
+        try await Self.settle(session)
+        #expect(!watch.drewAfter, "a glyph was drawn while prediction was off")
+        session.predictsLocalEcho = true
+        #expect(harness.engine.status != .disabled, "prediction stayed off after it was turned back on")
+    }
+
+    /// The app's `terminal.predictiveLocalEcho` (``TerminalLocalEchoPreference``): a session made while it is off
+    /// starts with its engine off, and every session made with it follows a later change.
+    @Test func sessionsFollowTheAppPreference() async throws {
+        _ = NSApplication.shared
+        _ = GhosttyRuntime.shared
+        let preference = TerminalLocalEchoPreference(predicts: false)
+        let first = TerminalSession(io: TerminalPredictionLatencyTests.LinkIO(), ownsGeometry: false, localEcho: preference)
+        defer { first.close() }
+        let engine = try #require(first.echo?.engine, "a remote IO's session has no prediction engine")
+        #expect(!first.predictsLocalEcho)
+        #expect(engine.status == .disabled)
+        preference.set(true)
+        let second = TerminalSession(io: TerminalPredictionLatencyTests.LinkIO(), ownsGeometry: false, localEcho: preference)
+        defer { second.close() }
+        #expect(first.predictsLocalEcho && second.predictsLocalEcho)
+        #expect(engine.status != .disabled)
+        preference.set(false)
+        #expect(!first.predictsLocalEcho && !second.predictsLocalEcho)
+        #expect(engine.status == .disabled)
+        #expect(second.echo?.engine.status == .disabled)
     }
 }
