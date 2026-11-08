@@ -74,15 +74,47 @@ pub(super) struct Failure {
     pub step: Step,
     pub detail: String,
     pub retryable: bool,
+    /// The daemon no longer has the attempt's session (its session host
+    /// restarted): the next attempt opens a fresh session at once, with no
+    /// backoff ([`super::client::dial`] allows [`MAX_FRESH_SESSIONS`]).
+    pub fresh_session: bool,
+}
+
+/// How many times one dial opens a fresh session because the daemon lost
+/// the one it was given: once per restart, bounded so a daemon that keeps
+/// restarting cannot keep a dial redialing.
+pub(super) const MAX_FRESH_SESSIONS: u32 = 2;
+
+/// One dial's budget of fresh sessions ([`MAX_FRESH_SESSIONS`]), shared by
+/// every step that may ask for one (the mux-control attempt and the
+/// desktop open), so a dial never opens more than that in total.
+#[derive(Default)]
+pub(super) struct FreshSessions(std::sync::atomic::AtomicU32);
+
+impl FreshSessions {
+    /// Spends one fresh session; false when the dial has none left.
+    pub(super) fn take(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        self.0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |spent| {
+                (spent < MAX_FRESH_SESSIONS).then_some(spent + 1)
+            })
+            .is_ok()
+    }
 }
 
 impl Failure {
     pub(super) fn retry(step: Step, detail: impl Into<String>) -> Self {
-        Self { step, detail: detail.into(), retryable: true }
+        Self { step, detail: detail.into(), retryable: true, fresh_session: false }
     }
 
     pub(super) fn fatal(step: Step, detail: impl Into<String>) -> Self {
-        Self { step, detail: detail.into(), retryable: false }
+        Self { step, detail: detail.into(), retryable: false, fresh_session: false }
+    }
+
+    /// The daemon answered that it no longer has the session.
+    pub(super) fn session_gone(step: Step, detail: impl Into<String>) -> Self {
+        Self { step, detail: detail.into(), retryable: true, fresh_session: true }
     }
 
     /// The deadline passed while the attempt was at `step`.
@@ -286,19 +318,82 @@ impl Phase {
 
 /// The route log line, one per attempt, on stderr after the reply line (the
 /// Cloud app server keeps the dial's stderr in the `cmux/cloud` app log):
-/// `cloud.connect route=carrier machine=<vm_id> phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>`.
+/// `cloud.connect route=carrier machine=<vm_id> phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>`,
+/// and for a failed attempt ` detail=<code>` after `ms`, when [`detail_code`]
+/// names one. `detail` is the failure's own text, never written here.
 pub(super) fn route_line(
     machine: &str,
     phase: Phase,
     outcome: Option<Step>,
+    detail: Option<&str>,
     elapsed: Duration,
 ) -> String {
+    let detail = outcome
+        .and(detail)
+        .and_then(detail_code)
+        .map_or_else(String::new, |code| format!(" detail={code}"));
     format!(
-        "cloud.connect route=carrier machine={machine} phase={} outcome={} ms={}\n",
+        "cloud.connect route=carrier machine={machine} phase={} outcome={} ms={}{detail}\n",
         phase.name(),
         outcome.map_or("ok", Step::error_code),
         elapsed.as_millis()
     )
+}
+
+/// The longest route-line detail code.
+const MAX_DETAIL_CODE: usize = 24;
+
+/// Why an attempt failed, as one short code of `[a-z0-9_]` (at most
+/// [`MAX_DETAIL_CODE`]): the relay's WebSocket close code (`1013`), an HTTP
+/// status (`http_503`), the relay's error code (`slot_busy`), or a fixed
+/// word for a local failure. Anything else is `other`; no text at all is
+/// `None`. Only these codes leave the failure text, so no ticket, grant or
+/// token can.
+pub(super) fn detail_code(detail: &str) -> Option<String> {
+    let detail = detail.trim();
+    if detail.is_empty() {
+        return None;
+    }
+    let lower = detail.to_ascii_lowercase();
+    let digits_after = |marker: &str| -> Option<String> {
+        let (_, rest) = lower.split_once(marker)?;
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        (!digits.is_empty() && digits.len() <= 5).then_some(digits)
+    };
+    if let Some(code) = digits_after("(close ") {
+        return Some(code);
+    }
+    if let Some(status) = digits_after("http status ").or_else(|| digits_after("answered ")) {
+        return Some(format!("http_{status}"));
+    }
+    if let Some((_, rest)) = lower.split_once("(relay code ") {
+        let code: String = rest
+            .chars()
+            .take_while(|c| *c != ')')
+            .map(|c| if c == '-' { '_' } else { c })
+            .collect();
+        let token = !code.is_empty()
+            && code.len() <= MAX_DETAIL_CODE
+            && code.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+        return Some(if token { code } else { "other".into() });
+    }
+    let word = [
+        ("connection refused", "connect_refused"),
+        ("tls error", "tls"),
+        ("deadline passed", "deadline"),
+        ("timed out", "timeout"),
+        ("authentication was rejected", "rejected"),
+        ("rejected the authenticated", "rejected"),
+        ("websocket closed", "closed"),
+        ("connection closed", "closed"),
+        ("read failed", "closed"),
+        ("i/o error", "io"),
+        ("daemon key", "daemon_key"),
+    ]
+    .into_iter()
+    .find(|(marker, _)| lower.contains(marker))
+    .map_or("other", |(_, word)| word);
+    Some(word.into())
 }
 
 /// How long each step of one attempt took. A step the attempt never

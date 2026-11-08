@@ -95,7 +95,6 @@ private struct ModelReadReply<T: Decodable>: Decodable {
 
 // The answers ``CloudAPIClient`` reads through the crate, each with its `models::KINDS` kind.
 extension CloudMachine: CloudServerModel { public static var cloudModelKind: String { "machine_classic" } }
-extension CloudSnapshot: CloudServerModel { public static var cloudModelKind: String { "snapshot" } }
 extension CloudSCPEndpoint: CloudServerModel { public static var cloudModelKind: String { "scp_endpoint" } }
 extension CloudExecResult: CloudServerModel { public static var cloudModelKind: String { "exec_result" } }
 extension CloudFileStat: CloudServerModel { public static var cloudModelKind: String { "file_stat" } }

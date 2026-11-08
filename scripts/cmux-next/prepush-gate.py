@@ -60,9 +60,10 @@ that note (its 11-character sha) passes. CI also sweeps every commit since the c
 (`--only sidebar --commits`), so a push from an old hook copy or a cancelled CI run is still caught.
 Also on every push, in any file: "Merge conflict markers": a file the push adds both a `<<<<<<< ` and
 a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing skips it.
-Also on every push: "Leo's bans" (check-leo-bans.py): the UI font stays Inter, bundled, with its
-calculated tracking (schemas/type-scale/leo-bans.json), and no webviews stylesheet names the system
-font. It is not skippable either; only a `Leo-order: <Leo's words>` trailer changes the pin.
+Also on every push: "UI font" (check-ui-font.py): the UI font stays the macOS system font with no
+letter-spacing and nothing bundled (schemas/type-scale/ui-font-pin.json; Lawrence 2026-11-07), and no
+webviews default font stack names Inter. It is not skippable either; only a `Font-order: <the user's
+words>` trailer changes the pin.
 
 Also on every local run (the hook and a plain run; never --base/--head, --commits or GitHub Actions, so CI gains no
 gate): "What's New highlights": each release-notes/next/highlights/*.md file the push adds or changes is validated as
@@ -277,9 +278,9 @@ WINDOW_FILE = Path(os.environ.get("CMUX_WINDOW_FILE") or
 FREEZE_LINE = re.compile(r"(?m)^FREEZE:[ \t]*(\S+)[ \t]+token=(\S+)")
 FREEZE_TRAILER = re.compile(r"(?mi)^Freeze-Token:[ \t]*(\S+)[ \t]*$")
 
-# The UI font is Inter with its calculated tracking (Leo 2026-10-21, ask-52da478628).
-LEO_BANS_CHECK = "Leo's bans (Inter UI font and tracking, schemas/type-scale/leo-bans.json)"
-LEO_BANS_SCRIPT = SCRIPTS + "/check-leo-bans.py"
+# The UI font is the macOS system font, everywhere (Lawrence 2026-11-07).
+UI_FONT_CHECK = "UI font (the system font, schemas/type-scale/ui-font-pin.json)"
+UI_FONT_SCRIPT = SCRIPTS + "/check-ui-font.py"
 
 # The What's New highlights (release-notes/next/WRITING.md), judged by the release-notary job's own validator.
 HIGHLIGHTS_CHECK = "What's New highlights (scripts/whats-new/validate.py, the release-notary test)"
@@ -1114,21 +1115,21 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
     return fresh
 
 
-def leo_bans(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
-    """What head adds to Leo's bans (LEO_BANS_CHECK) over base: findings base does not have, and a
-    pin change in base..head with no `Leo-order:` trailer."""
-    script = check_script(repo, head, LEO_BANS_SCRIPT, trusted_scripts)
+def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """What head adds to the UI font check (UI_FONT_CHECK) over base: findings base does not have, and a
+    pin change in base..head with no `Font-order:` trailer."""
+    script = check_script(repo, head, UI_FONT_SCRIPT, trusted_scripts)
     if script is None:
         return []  # a commit older than this check
-    with tempfile.TemporaryDirectory(prefix="cmux-leo-bans-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="cmux-ui-font-") as tmp:
         check = Path(tmp) / "check.py"
         check.write_bytes(script)
 
         def findings(*args: str) -> list[str]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
             if code == 124:
-                return [f"check-leo-bans.py {' '.join(args)}: {out}"]
-            return [line for line in out.splitlines() if line.strip() and not line.startswith("leo bans:")]
+                return [f"check-ui-font.py {' '.join(args)}: {out}"]
+            return [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
 
         base_lines = set(findings("--rev", base))
         return [line for line in findings("--rev", head, "--base", base) if line not in base_lines]
@@ -1440,9 +1441,9 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     if only is None or "reserved" in only:
         fresh = reserved_keys(repo, base, head, trusted_scripts)
         reserved = [(RESERVED_CHECK, fresh)] if fresh else []
-    if only is None or "leo-bans" in only:
-        fresh = leo_bans(repo, base, head, trusted_scripts)
-        reserved += [(LEO_BANS_CHECK, fresh)] if fresh else []
+    if only is None or "ui-font" in only:
+        fresh = ui_font(repo, base, head, trusted_scripts)
+        reserved += [(UI_FONT_CHECK, fresh)] if fresh else []
     if only is None or "conflicts" in only:
         markers = conflict_markers(repo, base, head)
         if markers:
@@ -1891,7 +1892,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--own-range", help="sidebar sweep on a pull request: the PR's own commits (BASE..HEAD). A "
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
-    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,leo-bans,conflicts,"
+    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,freeze,highlights,workflows")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
@@ -2021,9 +2022,9 @@ def main(argv: list[str] | None = None) -> int:
     elif skip and any(name == RESERVED_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
               "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")
-    elif skip and any(name == LEO_BANS_CHECK for name, _ in found_any):
-        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {LEO_BANS_CHECK}. The UI font and its "
-              "tracking change only by Leo's order, quoted in a `Leo-order: <Leo's words>` commit trailer.")
+    elif skip and any(name == UI_FONT_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {UI_FONT_CHECK}. The UI font changes only "
+              "on the user's order, quoted in a `Font-order: <the user's words>` commit trailer.")
     elif skip:
         print(f"prepush-gate: SKIPPED by CMUX_NEXT_CHECKS_SKIP_REASON={skip!r}. Say so in your report; "
               "CI still names the commit.")

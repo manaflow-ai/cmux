@@ -73416,6 +73416,270 @@
         }
       }
     },
+    "settingsWindow.harnesses.accounts.removeConfirm": {
+      "comment": "Settings > Agents > Harnesses: the inline confirmation before removing an added account (%@ is its name). Only cmux's record goes; the login folder and the CLI's own login stay.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove “%@” from cmux? Its login folder stays, and the CLI’s own sign-in is not touched."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد إزالة “%@” من cmux؟ يبقى مجلد تسجيل الدخول الخاص به، ولا يتغير تسجيل الدخول في واجهة الأوامر نفسها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukloniti “%@” iz cmuxa? Njegov folder za prijavu ostaje, a prijava samog CLI-ja se ne dira."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern “%@” fra cmux? Dens loginmappe bliver, og CLI’ens egen login røres ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ aus cmux entfernen? Der Anmeldeordner bleibt erhalten, und die eigene Anmeldung der CLI bleibt unberührt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Quitar “%@” de cmux? Su carpeta de inicio de sesión se conserva y el inicio de sesión propio de la CLI no se toca."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retirer « %@ » de cmux ? Son dossier de connexion reste en place et la connexion propre à la CLI n’est pas modifiée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuovere “%@” da cmux? La sua cartella di accesso resta e l’accesso della CLI non viene toccato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」をcmuxから削除しますか？ログインフォルダは残り、CLI自体のサインインは変更されません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុប “%@” ចេញពី cmux? ថតចូលគណនីរបស់វានៅដដែល ហើយការចូលរបស់ CLI ផ្ទាល់មិនត្រូវបានប៉ះពាល់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux에서 “%@”을(를) 제거할까요? 로그인 폴더는 그대로 남고 CLI 자체의 로그인은 건드리지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjerne “%@” fra cmux? Påloggingsmappen blir værende, og CLI-ens egen pålogging røres ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usunąć „%@” z cmux? Jego folder logowania zostaje, a własne logowanie CLI pozostaje nietknięte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover “%@” do cmux? A pasta de login permanece e o login da própria CLI não é alterado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить «%@» из cmux? Его папка входа останется, а собственный вход CLI не изменится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นำ “%@” ออกจาก cmux หรือไม่ โฟลเดอร์ลงชื่อเข้าใช้ยังคงอยู่ และการลงชื่อเข้าใช้ของ CLI เองจะไม่ถูกแตะต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” cmux’tan kaldırılsın mı? Giriş klasörü yerinde kalır ve CLI’nin kendi oturumuna dokunulmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вилучити «%@» з cmux? Його тека входу залишиться, а власний вхід CLI не зміниться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa “%@” khỏi cmux? Thư mục đăng nhập của nó vẫn được giữ, và đăng nhập riêng của CLI không bị động đến."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要从 cmux 中移除“%@”吗？其登录文件夹会保留，CLI 自身的登录不受影响。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要從 cmux 中移除「%@」嗎？其登入資料夾會保留，CLI 本身的登入不受影響。"
+          }
+        }
+      }
+    },
+    "settingsWindow.harnesses.accounts.removeConfirmKey": {
+      "comment": "Settings > Agents > Harnesses: the inline confirmation before removing an API-key account (%@ is its name). Only cmux's record goes; the key stays in its store.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove “%@” from cmux? The API key stays where it is stored."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد إزالة “%@” من cmux؟ يبقى مفتاح API في مكان تخزينه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukloniti “%@” iz cmuxa? API ključ ostaje tamo gdje je pohranjen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern “%@” fra cmux? API-nøglen bliver, hvor den er gemt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ aus cmux entfernen? Der API-Schlüssel bleibt, wo er gespeichert ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Quitar “%@” de cmux? La clave de API se queda donde está guardada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retirer « %@ » de cmux ? La clé API reste là où elle est stockée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuovere “%@” da cmux? La chiave API resta dove è salvata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」をcmuxから削除しますか？APIキーは保存場所に残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុប “%@” ចេញពី cmux? សោ API នៅតែនៅកន្លែងដែលវាត្រូវបានរក្សាទុក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux에서 “%@”을(를) 제거할까요? API 키는 저장된 곳에 그대로 남습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjerne “%@” fra cmux? API-nøkkelen blir der den er lagret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usunąć „%@” z cmux? Klucz API zostaje tam, gdzie jest zapisany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover “%@” do cmux? A chave de API continua onde está armazenada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить «%@» из cmux? Ключ API останется там, где он хранится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นำ “%@” ออกจาก cmux หรือไม่ คีย์ API ยังคงอยู่ในที่ที่จัดเก็บไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” cmux’tan kaldırılsın mı? API anahtarı saklandığı yerde kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вилучити «%@» з cmux? Ключ API залишиться там, де він зберігається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa “%@” khỏi cmux? Khóa API vẫn ở nơi nó được lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要从 cmux 中移除“%@”吗？API 密钥仍保留在其存储位置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要從 cmux 中移除「%@」嗎？API 金鑰仍保留在其儲存位置。"
+          }
+        }
+      }
+    },
     "settingsWindow.harnesses.accounts.useForRouting": {
       "extractionState": "manual",
       "localizations": {

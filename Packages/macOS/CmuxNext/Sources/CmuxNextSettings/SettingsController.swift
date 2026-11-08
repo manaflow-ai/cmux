@@ -497,13 +497,14 @@ extension SettingsController {
             }
             let source = sources[name].map { Result<String, any Error>.success($0) }
                 ?? ThemeFileOverlay.source(named: name, configDirectory: configDirectory)
-            var overlay = ThemeFileOverlay(name: name, source: source, base: root)
+            let folder = ThemeFileSetting.folder(configDirectory: configDirectory)
+            var overlay = ThemeFileOverlay(name: name, source: source, base: root, folder: folder)
             activeSource = try? source?.get()
             var good = overlay.isLoaded ? activeSource : nil
             // A save that does not parse keeps the file's last good text, with the problem noted.
             if overlay.isUnparsable, let lastGood, lastGood.name == name, let text = lastGood.source {
                 let problems = overlay.diagnostics
-                overlay = ThemeFileOverlay(name: name, source: .success(text), base: root)
+                overlay = ThemeFileOverlay(name: name, source: .success(text), base: root, folder: folder)
                 overlay.diagnostics += problems
                 good = text
             }

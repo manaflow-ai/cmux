@@ -387,9 +387,14 @@ impl Hub {
         // A held agent message released, or a queued one sent now, may still name its uploads.
         let mut blocks = blocks;
         let web = opts.control == Control::Web;
-        crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await?;
-        // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
+        // Capture this before guard validation: a stop racing the final setup fence must
+        // still prevent the prompt from starting.
         let stops = session.stops.load(Ordering::SeqCst);
+        crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await?;
+        if let Some(guard) = opts.race_guard.as_ref() {
+            guard()?;
+        }
+        // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
         let control = opts.control;
         let trust_gate = opts.trust_gate;
         let no_queue = opts.no_queue;
@@ -418,17 +423,25 @@ impl Hub {
         let replaced = std::sync::OnceLock::<Vec<String>>::new();
         // Another agent's message queued as the running turn crosses its cap still gets the
         // turn its notice (`turn_cap.rs`): the timer may have looked at the queue just before.
+        // An FYI asks for none.
+        let fyi = opts.class == Some(crate::prompt_class::PromptClass::Fyi);
         let from_agent =
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
+        let race_guard = opts.race_guard.clone();
         let mut accept = |mut v: Value| {
+            if let Some(race_guard) = race_guard.as_ref()
+                && let Err(error) = race_guard()
+            {
+                v = json!({"raceCancelled": true, "error": error.message});
+            }
             if let Some(f) = on_accepted.take() {
                 if supersede.is_some() {
                     super::queue::supersede::mark(&mut v, replaced.get());
                 }
                 let queued = v.get("queued") == Some(&Value::Bool(true));
                 f(v);
-                if queued && from_agent {
+                if queued && from_agent && !fyi {
                     self.turn_cap_recheck(session);
                 }
             }
@@ -444,7 +457,7 @@ impl Hub {
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
         let capped = running.is_some()
             && !opts.send_now
-            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref());
+            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref(), fyi);
         // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
         // (`inbox.rs`). Boxed, out of this future.
         let route = self.inbox_route(
@@ -754,6 +767,15 @@ impl Hub {
         } else {
             None
         };
+        // Admission can wait through queueing and dispatch checks. A cancelled race
+        // must refuse the prompt itself, not merely change its acceptance response.
+        if let Some(race_guard) = race_guard.as_ref()
+            && let Err(e) = race_guard()
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
@@ -1076,7 +1098,7 @@ impl Hub {
             return Err(e);
         }
         // Its stalled count starts once its prompt is written (`stalled_turn.rs`).
-        Self::hold_stalled_count(session);
+        self.hold_stalled_count(session);
         // A new turn: its own end decides the dot, not an earlier one's (`work_below.rs`).
         if !trigger {
             self.clear_deferred_unread(session);
@@ -1098,7 +1120,8 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            super::prompt_sender::run_params(&agent_sid, json!(wire), &run),
+            // The effective provenance: a fan-in turn's is its digest's (above), not its head's.
+            super::prompt_sender::run_params(&agent_sid, json!(wire), &run, provenance.as_ref()),
             &turn_id,
             false,
             false,
@@ -1187,7 +1210,7 @@ impl Hub {
                 );
                 // The turn goes on, on the fallback. A new agent: the old one's silence and
                 // tools are not its own, and its count starts once the prompt is written to it.
-                Self::hold_stalled_count(session);
+                self.hold_stalled_count(session);
                 // The conversation the chat's own profile resumes, if the fallback cannot start.
                 let kept = super::fallback_start::ConversationMark::of(session);
                 let turn = session.turn();
@@ -1278,7 +1301,13 @@ impl Hub {
                                     super::steer_end::agent_prompt_hook(
                                         session,
                                         &child2,
-                                        json!({"sessionId": sid2, "prompt": wire}),
+                                        // Its sender and marks as on the first write.
+                                        super::prompt_sender::run_params(
+                                            &sid2,
+                                            json!(wire),
+                                            &run,
+                                            provenance.as_ref(),
+                                        ),
                                         &turn_id,
                                         false,
                                         false,
@@ -1602,6 +1631,11 @@ impl Hub {
                 result = Ok(stopped_answer());
             }
             // The turn's wrap-up answer, taken whatever the turn's end (`wrap_up_suggestion.rs`).
+            // The facts it offered for the project's instructions (`memory_inbox.rs`), first.
+            let learned = crate::wrap_up_suggestion::take_learned(&session.id);
+            // Whether it taught something, taken however it ended: a turn's signals never carry
+            // into the next one.
+            let taught = crate::memory_inbox::take(&session.id);
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
             match &result {
                 Ok(v) => {
@@ -1640,6 +1674,9 @@ impl Hub {
                         && let Some(answer) = wrap_up_answer
                     {
                         self.offer_wrap_up_suggestion(session, &answer);
+                    }
+                    if status == "completed" && taught {
+                        self.offer_learned(session, learned);
                     }
                     // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
                     if status == "completed" {
@@ -2290,6 +2327,12 @@ impl Hub {
         } else {
             None
         };
+        // Its approvals audit entries go first (`audit_log.rs`), before anything of the chat is
+        // stopped or marked purged: a purge that fails or times out fails the delete with the
+        // chat as it was, still recording (the writer lifts its own fence again).
+        if purge {
+            self.audit_purge(&session.id).await?;
+        }
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
@@ -2344,6 +2387,8 @@ impl Hub {
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
             session.purged.store(true, Ordering::SeqCst);
+            // Its spend, title and folder leave the cost ledger with it (`hub/ledger`).
+            self.ledger.purge(&session.id);
             self.remove_cached_closed_summary(&session.id);
             let replaced = session.replaced.load(Ordering::SeqCst);
             if !self
@@ -2367,6 +2412,8 @@ impl Hub {
             }
             self.git_branch_forget(&session.id);
             self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // An earlier run's caller token proves a purged session no more (`caller_registry.rs`).
+            self.caller_registry.forget(&session.id);
             #[cfg(test)]
             {
                 let seam = self.purge_seam.lock().unwrap_or_else(|e| e.into_inner()).take();

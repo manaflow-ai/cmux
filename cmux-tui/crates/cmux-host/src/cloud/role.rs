@@ -28,9 +28,7 @@ use serde_json::{Value, json};
 
 use super::agent_socket::listen;
 use super::carrier_server::{CarrierServer, Resumes};
-use super::client::{
-    BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
-};
+use super::client::{BindResult, CloudClient, Http, Store, ensure_install_key, ensure_wg_key};
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
@@ -287,6 +285,10 @@ impl Http for PosterHttp {
         self.0.reset();
         #[cfg(test)]
         let _ = test_route("/", |poster, _| poster.reset());
+    }
+
+    fn fresh(&self) -> Option<Self> {
+        self.0.twin().ok().map(PosterHttp)
     }
 }
 
@@ -983,7 +985,9 @@ impl Worker {
         // The bind writes carrier.json; the keyset refresher's write waits.
         let carrier_lock = self.keyset.carrier_lock();
         let carrier_held = carrier_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let result = bind_machine(
+        // The updater's connect hold, then the request (`hold_then_bind`).
+        let result = super::client::hold_then_bind(
+            &self.paths,
             &mut self.store,
             &http,
             &key,
@@ -993,6 +997,11 @@ impl Worker {
             wall_ms(),
         );
         drop(carrier_held);
+        let Some(result) = result else {
+            log("bind: a restart of this service is pending; the restarted service binds");
+            self.bind_retry_at = Some(self.now() + 30_000);
+            return;
+        };
         log(&format!("bind: {}", result.describe()));
         match result {
             BindResult::Bound(bound) => {
@@ -1456,5 +1465,5 @@ pub fn print_daemon_info(paths: &Paths, timeout: Duration) -> Result<Value, Stri
 mod role_tests;
 
 #[cfg(all(test, target_os = "linux"))]
-#[path = "carrier_register_harness.rs"]
+#[path = "carrier_register_harness_tests.rs"]
 mod carrier_register_harness;

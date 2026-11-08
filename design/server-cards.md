@@ -95,3 +95,96 @@ confirmation that swaps a button's label for a moment.
 
 Picked: **side**: the shortest card, the code first, and the QR in reach for a camera without a
 second column of text.
+
+## The server panel, pairing code, Health and Add Server
+
+`webviews/src/pages/server-cards/server/`: the Mac server's own surfaces on the page. One Swift
+`ServerModel` owns the state (the owner's snapshot, the intents in flight, the Add Server draft;
+the Pair Another Machine approver shares it), and `ServerPageProvider` serves it
+(`cmux.server.status`, `cmux.server.send`, `cmux.server.approver.*`, stream `cmux.server.changes`).
+The page derives every layout, the health order, the overall line, the buttons and the keys
+(`server/model.ts`). Swift keeps the menu bar item, its popover (`ServerPanelPopover`, a warm page
+view sized by `cmux.card.resize`), the card panel, and the sources that run the CLI, fix checks
+and call the cloud.
+
+### Purpose
+
+- **Panel** (`#/server-panel`, the menu bar item's popover): is this Mac serving, what does it run,
+  is it healthy, and the on/off switch. Few labels: glyphs and dots carry state.
+- **Health** (`#/server-health`, the panel's Health row or the Health command): every check the
+  server runs with its state and a Fix.
+- **Pairing code** (`#/server-pairing`): what this Mac shows while a signed-in device approves it.
+- **Add Server** (`#/add-server`, also `#/approver`; palette "Add Server…" and pairing links):
+  enter a server's code, check its facts and four words, name it, Approve or Deny.
+
+### States (start → end)
+
+- Panel: connecting (header only) → connected (header, rows, store line) or unreachable ("Server is
+  not running", no rows). The switch is disabled while its intent is in flight and moves on the
+  owner's echo. A refusal shows one red caption line above the store line, cleared by the next
+  intent.
+- Health row → Health: the popover's route changes to Health, drawn from the status already read,
+  and the popover takes Health's size from its top edge in the same frame. Before this the row did
+  nothing visible.
+- Pairing: unpaired without a code (Pair This Server) → unpaired with a code (code, QR, words,
+  expiry) → pairing (badge) → paired (badge with team and owner).
+- Add Server: enterCode → lookingUp (spinner line) → codeRefused (red line, field outlined) or
+  review (facts, words, name, team choice when more than one, Run my Chief) → approving (spinner
+  in the footer, review disabled) → added (one success block, Done) or approveFailed (banner, Try
+  Again). Every step has a default and an Escape button: Escape is the card's Cancel (or Deny once a
+  server is on the card); Return presses Done, never Approve or Try Again, which are the card
+  panel's native footer button under the page (the page leaves their slot). Typing a different code
+  drops the found server; a late answer for an older code is dropped (the model's own rule). The
+  fields keep what the person typed; a new opening (`approver.session`) starts them from the
+  model's draft.
+
+### Security
+
+The switch, Show Pairing Code, Fix and Revoke (`cmux.server.send`) and Run my Chief answer only the
+person's own click or key in the page (`userGesture`, the host's record), else `cmux.app.user_only`.
+Approve and Try Again add a server to the person's team, so they are not page controls (the family
+rule above): `ServerPageProvider` names the card's `PersonControl` from the model's step whenever its
+state changes (Approve while the found server shows, Adding… disabled while it adds, Try Again after
+a refusal, none otherwise), the card panel lays it out in its own footer, and only the person's own
+click on it reaches the provider (`WebCard.personPressed`), which approves once the model can. The
+page has no approve op; the Name field reaches the draft by `approver.setName`, and Return never
+approves. `send` takes only those four intents; a lookup or an approve never goes through it. Team must be one of the found server's teams. The QR comes from the app's one encoder
+(`PairingQRCode`, the same as mobile pairing and Pair Another Machine) as a PNG data URL; the key
+fingerprint never reaches the page, only the code, the words and the image.
+
+### Sizes
+
+- Panel 340 px wide (dashboard 360), Health 360, pairing 340, Add Server 380 (the card frame of
+  this page); heights follow the content. Rows 32 px, 8 px insets, 4 px rhythm.
+- The QR code stays dark on white in every theme, drawn pixel-exact.
+
+### Motion
+
+- No animation outside the switch thumb (`ui/Switch`, the quick step) and the spinners (still
+  under Reduce Motion). A layout change (a server found, an error) is one frame: the host resizes
+  the popover or card from its top edge with the content, so nothing jumps or pops in after.
+
+### Variants and the picks
+
+References: menu bar status panels that lead with one state line and a switch, and settings panes
+that list every check with its fix beside it. Gallery `pages.server-cards-server-surfaces` (panel,
+Health, pairing) and `pages.server-cards-add-server` show every variant over the canned servers
+(healthy Mac, MacBook on battery, fresh Mac with a code, headless Linux box):
+
+- Panel: **compact** (status, switch, four rows), dashboard (a tile per role), list (apps, health,
+  devices). Picked compact: it answers "is it serving and healthy" in one glance at menu bar size;
+  the dashboard doubles the height for numbers a person rarely reads, and the list grows with every
+  app and device.
+- Pairing: **code** (large code, small QR, words), qr (large QR first), words (words first, code in
+  a field). Picked code: a person types it on the other device, so it leads; the QR and words stay
+  one glance away.
+- Health: **checklist** (every check), summary (open issues only), timeline (alerts over time).
+  Picked checklist: it shows what passes as well as what fails, so a clean server reads as checked
+  rather than empty.
+- Add Server words check: **grid** (two by two, numbered), row (four across), line (one sentence).
+  Picked grid: numbered cells read aloud in order and keep their width in every language, and it
+  matches Pair Another Machine's words.
+
+The picks are the defaults the Debug Settings switches had (`server.panel.style`,
+`server.pairing.style`, `server.health.style`), so nothing a person sees changes; the switches are
+gone and their layouts live on as gallery variants.

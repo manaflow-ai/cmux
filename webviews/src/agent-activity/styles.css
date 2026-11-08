@@ -270,6 +270,14 @@ section h3 {
   padding: 16px;
   overflow: hidden;
   background: var(--activity-well);
+  /* The frame box (.viewer-frame) fits itself to the stage's size. */
+  container-type: size;
+}
+
+/* With more than one frame, a drag across the stage scrubs through them (useDragScrub). */
+.viewer-stage[data-scrubs] {
+  cursor: ew-resize;
+  touch-action: none;
 }
 
 /* The screenshot as captured: fitted, never cropped. */
@@ -282,6 +290,44 @@ section h3 {
   box-shadow: var(--elevation-2);
   -webkit-user-select: none;
   user-select: none;
+}
+
+/* A frame of known shape: its box is fitted to the stage, no wider than the frame itself, and the
+   thumbnail and then the full frame fill it, so the full one replaces it with nothing moving. */
+.viewer-frame {
+  display: block;
+  width: min(100cqw, 100cqh * var(--frame-ratio), var(--frame-width));
+  aspect-ratio: var(--frame-ratio);
+  border-radius: 6px;
+  box-shadow: var(--elevation-2);
+  overflow: hidden;
+}
+
+.viewer-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Full Screen: the viewer fills the page (in the dialog, the dialog fills it first). */
+.viewer[data-full] {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-modal);
+  background: var(--cmux-surface-solid, Canvas);
+}
+
+.viewer[data-full] .viewer-stage {
+  background: transparent;
+}
+
+.activity-viewer-dialog:has(.viewer[data-full]) {
+  inset: 0;
 }
 
 .viewer-empty {

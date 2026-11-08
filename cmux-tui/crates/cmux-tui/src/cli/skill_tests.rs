@@ -98,6 +98,18 @@ fn every_recipe_command_parses_with_this_cli() {
                         panic!("{command}: {error}");
                     }
                 }
+                ["pane", target, "move", ..] => {
+                    let flags = words[3..].to_vec();
+                    if let Err(error) = crate::cli::pane_move::parse(target, &flags) {
+                        panic!("{command}: {error}");
+                    }
+                }
+                ["agent", "start" | "resume", ..] | ["terminal", _, "resume", ..] => {
+                    match crate::cli::agent_start::parse(&words) {
+                        Some(Ok(_)) => {}
+                        other => panic!("{command}: {other:?}"),
+                    }
+                }
                 ["terminal", _, "wait", ..] => {
                     assert!(
                         crate::cli::status::terminal_wait_flags_parse(&words[3..]),
