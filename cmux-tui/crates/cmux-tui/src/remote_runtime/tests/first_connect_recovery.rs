@@ -64,17 +64,24 @@ impl Fixture {
         self.directory.path().join("client.sock")
     }
 
-    async fn serve(&self) -> cmux_remote::daemon::UnixServer {
+    /// Serves the daemon. The second value holds the daemon's accepted connections; dropping it
+    /// closes every one.
+    async fn serve(
+        &self,
+    ) -> (
+        cmux_remote::daemon::UnixServer,
+        tokio::sync::mpsc::Receiver<Arc<cmux_remote::daemon::ServerConnection>>,
+    ) {
         let auth = AuthDatabase::load_or_create(
             self.directory.path().join("daemon"),
             "first-connect-recovery",
             true,
         )
         .unwrap();
-        let (daemon, _clients) = RemoteDaemon::new(auth, SessionLimits::default());
+        let (daemon, clients) = RemoteDaemon::new(auth, SessionLimits::default());
         let server = serve_unix(daemon, &self.unix_path(), MAX_CARRIER_FRAME_BYTES).await.unwrap();
         self.up.store(true, Ordering::Release);
-        server
+        (server, clients)
     }
 }
 
@@ -173,7 +180,7 @@ async fn a_failed_first_connect_becomes_ready_once_the_daemon_appears() {
     // Well past the startup timeout: the link is still there, and still redialing.
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert!(!started.is_finished(), "the link ended before its daemon appeared");
-    let server = fixture.serve().await;
+    let (server, _clients) = fixture.serve().await;
     let status = link_call(&admin, AdminRequest::AwaitReady { within_ms: 10_000 }).await;
     assert_eq!(status, LinkStatus { state: "connected".into(), reason: None });
 
@@ -218,7 +225,7 @@ async fn a_network_change_redials_a_parked_first_connect_at_once() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(fixture.calls.load(Ordering::Acquire), 1);
 
-    let server = fixture.serve().await;
+    let (server, _clients) = fixture.serve().await;
     let changed = std::time::Instant::now();
     watch.signal();
     let (connection, _) = tokio::time::timeout(HANG_GUARD, dial)
@@ -239,7 +246,7 @@ async fn a_network_change_redials_a_parked_first_connect_at_once() {
 async fn a_permanent_first_connect_error_still_ends_the_link() {
     let mut fixture = fixture(fast_policy());
     fixture.options.expected_daemon = Some([7; 32]);
-    let server = fixture.serve().await;
+    let (server, _clients) = fixture.serve().await;
     let options = fixture.options.clone();
     let result = tokio::time::timeout(
         HANG_GUARD,
