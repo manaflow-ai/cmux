@@ -587,16 +587,17 @@ public final class HomeNativeTranscriptView: NSView {
     /// Shown again in the same window (a hidden tab or container unhidden): at the newest message too.
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        // AppKit also sends this when the view leaves a hidden parent (the Chief panel takes it out of a
-        // parked Home): then it is not shown yet, and where it arrives decides.
+        // AppKit also sends this as the view leaves a hidden parent (the Chief panel takes it out of a parked
+        // Home), before `window` is cleared: it is in no view tree then, and where it arrives decides.
         if returnedToView { transcript.showNewest() }
     }
 
-    /// The person sees this chat again now: in a window, with no hidden ancestor, and not just moved inside
-    /// its window in this turn (left it and came back: the Chief panel's take and give-back).
+    /// The person sees this chat again now: in its window's view tree, with no hidden ancestor, and not just
+    /// moved inside its window in this turn (left it and came back: the Chief panel's take and give-back).
     private var returnedToView: Bool {
-        guard let window, !isHiddenOrHasHiddenAncestor else { return false }
-        return windowLeftThisTurn !== window
+        guard let window, !isHiddenOrHasHiddenAncestor, windowLeftThisTurn !== window else { return false }
+        let top = sequence(first: self as NSView, next: \.superview).reduce(self as NSView) { $1 }
+        return top === window.contentView || top === window.contentView?.superview
     }
 
     public override func viewDidChangeEffectiveAppearance() {
