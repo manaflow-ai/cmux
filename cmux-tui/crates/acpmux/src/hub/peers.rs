@@ -2256,4 +2256,56 @@ mod restart_notice_tests {
         hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Connected);
         assert!(events.try_recv().is_err(), "unchanged reconnect rows do not flap");
     }
+
+    /// Review of #38357 at 95620842: with a cmux link serving (it holds this machine's
+    /// WireGuard key lock for its whole life), acpmux's own WireGuard steps down at start, and
+    /// a paired peer dials through the link (`link.dial`) first, never over its own mesh.
+    #[tokio::test]
+    async fn with_a_link_serving_acpmux_dials_through_the_link_and_opens_no_wireguard() {
+        use crate::config::PeerConfig;
+        use crate::peer_paths::Via;
+        let home = tempfile::tempdir().unwrap();
+        // The serving link's hold on the key lock (`cmux link serve`, `link/key_lock.rs`).
+        let link = cmux_link::key_holder::KeyHolder::acquire(home.path()).unwrap();
+        // Occupied: a transport that went past the lock would fail to bind.
+        let occupied = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        cfg.transport.wireguard = true;
+        cfg.transport.wireguard_static = Some(crate::wireguard::StaticConfig {
+            listen: occupied.local_addr().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        });
+        let wireguard =
+            crate::wireguard::Transport::start(&cfg, home.path(), "127.0.0.1:1".parse().unwrap())
+                .await
+                .unwrap();
+        assert!(wireguard.is_none(), "acpmux opened its own WireGuard next to a serving link");
+        assert!(
+            !cmux_link::key_holder::KeyFile::Node.path_in(home.path()).exists(),
+            "acpmux read or created the key the link holds"
+        );
+        cfg.peers.insert(
+            "b".into(),
+            PeerConfig {
+                link_host: Some("inst_b".into()),
+                wireguard: None,
+                url: "ws://127.0.0.1:9/b".into(),
+                token: None,
+                peer_token: None,
+                vm_boundary: false,
+                github_broker: false,
+            },
+        );
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::build(cfg, store, Mailbox::memory(), false, false, wireguard);
+        let peer = hub.peers.lock().unwrap().get("b").cloned().unwrap();
+        let paths = peer.summary()["paths"].clone();
+        let vias: Vec<&str> =
+            paths.as_array().unwrap().iter().filter_map(|p| p["via"].as_str()).collect();
+        assert_eq!(vias.first(), Some(&Via::Link.as_str()), "{paths}");
+        assert!(!vias.contains(&Via::Wireguard.as_str()), "{paths}");
+        peer.stop();
+        drop(link);
+    }
 }
