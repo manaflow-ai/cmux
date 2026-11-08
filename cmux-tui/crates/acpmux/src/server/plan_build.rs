@@ -126,7 +126,7 @@ async fn handle(
             if builds.is_empty() {
                 // Nothing started: the card stays up, and says why.
                 let first = failed.first().cloned().unwrap_or(Value::Null);
-                let message = first["error"].as_str().unwrap_or("no build started").to_owned();
+                let message = first.get("error").and_then(Value::as_str).unwrap_or("no build started").to_owned();
                 return Err(RpcError::invalid_params(message).with_data(json!({
                     "reason": first.get("reason").cloned().unwrap_or(Value::Null),
                     "failed": failed,

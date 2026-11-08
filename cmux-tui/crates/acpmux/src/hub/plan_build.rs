@@ -295,7 +295,7 @@ impl Hub {
             };
             match self.start_subsession(parent, req).await {
                 Ok(reply) => {
-                    let id = reply["sessionId"].as_str().unwrap_or_default().to_owned();
+                    let id = reply.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
                     if let Ok(child) = self.resolve(&id) {
                         let mut set = serde_json::Map::new();
                         set.insert(BUILD_TAG.into(), Value::String(build_id.to_owned()));
