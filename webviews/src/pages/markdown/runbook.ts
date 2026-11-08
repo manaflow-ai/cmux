@@ -192,6 +192,9 @@ const AT = String.raw`(?:^|[\s;&|(){}'"\x60/\\])`;
 /** Any options or words before a subcommand or flag, never past the command's end. */
 const ARGS = String.raw`(?:[^\n;&|]*\s)?`;
 const pattern = (source: string, flags = "") => new RegExp(source, flags);
+/** A shell or interpreter at the start of a pipe's next command, after any `sudo` or `env` and their
+ * options or assignments, by name, path or escape (`sh`, `/bin/bash`, `\\sh`, `sudo -E python3`). */
+const INTERPRETER = String.raw`(?:\S*/|\\)?(?:(?:ba|z|fi|da|k|tc|c|a)?sh|python[\d.]*|perl|ruby|node|bun|deno|php)\b`;
 
 /** Commands that delete, overwrite, force, deploy or run code fetched from the network. A tool's
  * global flags and options may stand anywhere before the word that makes it destructive
@@ -216,6 +219,8 @@ const DESTRUCTIVE: RegExp[] = [
   pattern(String.raw`${AT}(kill\s+${ARGS}-(9|KILL)\b|pkill|killall)\s`),
   pattern(String.raw`${AT}(chmod|chown)\s+${ARGS}-[a-zA-Z]*R`),
   pattern(String.raw`${AT}find\s+${ARGS}(-delete\b|-exec\s+rm\b)`),
+  // Fetched code run without a pipe: `bash <(curl …)`, `sh -c "$(curl …)"`, `eval "$(wget …)"`.
+  pattern(String.raw`${AT}(?:${INTERPRETER}|eval|source|\.)\s[^\n]{0,64}?(?:<\(|\$\(|\x60)\s*(?:curl|wget)\b`),
   pattern(String.raw`${AT}(npm|pnpm|yarn|cargo)\s+${ARGS}publish\b|${AT}gh\s+${ARGS}release\s+(create|delete)\b`),
   pattern(String.raw`${AT}deploy\b|${AT}(wrangler|fly|flyctl|vercel)\s+${ARGS}(deploy|destroy|--prod)\b`),
 ];
@@ -251,7 +256,9 @@ function segments(command: string): string[] {
 
 /** Code fetched from the network (`curl … | sh`), run by a shell. */
 const FETCH = /\b(curl|wget)\b/;
-const SHELL_AFTER_PIPE = /^\s*(sudo\s+)?(ba|z|fi|da)?sh\b/;
+const SHELL_AFTER_PIPE = pattern(
+  String.raw`^\s*(?:(?:\S*/)?(?:sudo|doas|env|command|exec|nohup)\s+(?:-\S*\s+|\w+=\S*\s+)*)*${INTERPRETER}`,
+);
 
 /** Commands that log in, take a secret, or carry a placeholder the reader fills in. */
 const CREDENTIALS: RegExp[] = [

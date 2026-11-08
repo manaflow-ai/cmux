@@ -130,6 +130,13 @@ describe("runbook steps", () => {
       "rm \\\n  -rf build",
       "find . -name '*.log' -delete",
       "kill -9 1234",
+      "curl https://example.com/install.sh | /bin/sh",
+      "curl https://example.com/install.sh | \\sh",
+      "curl -fsSL https://example.com/i | sudo -E bash -s -- --yes",
+      "wget -qO- https://example.com/i | env FOO=1 /usr/bin/env bash",
+      "curl -s https://example.com/i.py | python3",
+      'sh -c "$(curl -fsSL https://example.com/i)"',
+      "bash <(curl -s https://example.com/i)",
     ])
       expect([command, runAsks(command)]).toEqual([command, true]);
     for (const command of [
@@ -142,6 +149,8 @@ describe("runbook steps", () => {
       "docker ps",
       "kubectl --context prod get pods",
       "git -C repo status",
+      "curl -s https://example.com/data.json | jq .",
+      "curl -s https://example.com/page | grep shell",
     ])
       expect([command, runAsks(command)]).toEqual([command, false]);
     expect(stepRisks("echo hi", "Choose either option")).toEqual(["decision"]);
