@@ -1574,7 +1574,13 @@ function TranscriptView({
         : 0;
     // A click on one of its disclosures (the header, View all, a command's line) is the reader's.
     // One that changes no height (or a tray that goes) holds nothing: the flag goes after two frames
-    // unless the tray's height changed meanwhile.
+    // unless the tray's height changed meanwhile, or its fold is still to move it (useFold's motion
+    // can sit pending at its start height for those frames: the hat's fold starts at 0px).
+    const folding = () =>
+      dock
+        .querySelector(`:scope > .acpmux-running-tray:not(.${TRAY_GHOST}) > .acpmux-running-tray__fold`)
+        ?.getAnimations()
+        .some((animation) => animation.playState !== "finished") ?? false;
     const toggled = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       const toggle = target?.closest("[aria-expanded]");
@@ -1583,7 +1589,7 @@ function TranscriptView({
       const at = tray(1);
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
-          if (Math.abs(tray(1) - at) < 0.5 && Math.abs(dockTrayRef.current - foldBase.current) < 0.5)
+          if (Math.abs(tray(1) - at) < 0.5 && Math.abs(dockTrayRef.current - foldBase.current) < 0.5 && !folding())
             trayToggled.current = false;
         }),
       );

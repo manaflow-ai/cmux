@@ -90,7 +90,7 @@ extension WebCardPanel {
             // A single-use code: marked concealed and transient (nspasteboard.org) so clipboard managers do not keep it.
             copy: { SystemPasswordPasteboard().write($0, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType]) },
             qr: { qrCode.pngDataURL(for: $0) })
-        guard let panel = WebCardPanel(descriptor: .serverCards, cards: [invite, services.addMachine.provider]) else { return nil }
+        guard let panel = WebCardPanel(descriptor: .serverCards, cards: [invite, services.addMachine.provider], overlayProcess: services.overlayProcess) else { return nil }
         panel.isPersonEvent = { [person = PersonInputCheck(sources: services.personInput.sources)] in person.isPerson($0) }
         return panel
     }

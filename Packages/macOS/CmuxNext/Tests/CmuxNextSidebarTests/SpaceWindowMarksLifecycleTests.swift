@@ -41,4 +41,17 @@ import Testing
         await settle { marks.elsewhere.isEmpty }
         #expect(marks.elsewhere.isEmpty, "back in a window, the marks read the windows again")
     }
+
+    /// #38333 review: releasing active marks cancels their observation task (a dropped `Task` handle does not), so a
+    /// switcher released without a teardown leaves no observer suspended on the windows.
+    @Test func releasingActiveMarksCancelsTheirObservation() throws {
+        let windows = Windows()
+        var marks: SpaceWindowMarks? = SpaceWindowMarks()
+        marks?.install(source: windows) { "here" }
+        marks?.isActive = true
+        let task = try #require(marks?.observationTask)
+        #expect(!task.isCancelled)
+        marks = nil
+        #expect(task.isCancelled, "the released marks left their observation task running")
+    }
 }
