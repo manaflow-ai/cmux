@@ -595,6 +595,8 @@ public nonisolated struct JoinConsentStrings {
     static var teamMachine: String { s("devices.join.ask.teamMachine", "A machine on your team") }
 
     // The one-time ask draws its own words on the server card page (`devices.join.ask.*`, webviews gen-strings).
+    /// The ask's native Allow (the panel's click-only button; the page draws Deny).
+    static var allow: String { s("devices.join.ask.allow", "Allow") }
     /// Why the ask refused an Allow that was not the person's own click.
     static var clickOnly: String {
         s("devices.join.ask.clickOnly", "Only your own click on Allow allows this, never a key, a script or another app.")

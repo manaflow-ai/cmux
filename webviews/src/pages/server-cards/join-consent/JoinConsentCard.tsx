@@ -1,7 +1,7 @@
 // The join consent's one-time ask (design/server-cards.md "Join Consent"): who asked for what, the
-// question, the note, why an Allow did not take, then Deny and Allow. Allow takes only a click: it
-// has no key, and the host takes it only from the person's own click on the card
-// (WebCardPanel.isPersonClick). Both buttons are off while a write is in flight.
+// question, the note, why an Allow did not take, then Deny. Allow is the app panel's native
+// click-only button under the page (WebCardPanel's PersonControl), never the page's; the gallery
+// draws a stand-in in its place. Deny is off while a write is in flight.
 import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { DialogButton } from "../../../ui/DialogButton";
 import { cx } from "../../../ui/cx";
@@ -16,10 +16,18 @@ export interface JoinConsentCardProps {
   status: JoinConsentStatus | undefined;
   strings: Strings;
   layout?: JoinConsentLayout;
-  onAnswer(allow: boolean): void;
+  onDeny(): void;
+  /** Draws Allow in the card's footer (the gallery); in the app the panel's native footer does. */
+  controlStandIn?: boolean;
 }
 
-export function JoinConsentCard({ status, strings, layout = "stacked", onAnswer }: JoinConsentCardProps) {
+export function JoinConsentCard({
+  status,
+  strings,
+  layout = "stacked",
+  onDeny,
+  controlStandIn = false,
+}: JoinConsentCardProps) {
   const view = viewOf(status, strings);
   if (!view) return null;
   const { t } = strings;
@@ -56,19 +64,20 @@ export function JoinConsentCard({ status, strings, layout = "stacked", onAnswer 
           className="server-card-button"
           data-action="deny"
           disabled={!view.enabled}
-          onClick={() => onAnswer(false)}
+          onClick={onDeny}
         >
           {t("devices.join.ask.deny")}
         </DialogButton>
-        <DialogButton
-          dialogKey={null}
-          className="server-card-button is-default"
-          data-action="allow"
-          disabled={!view.enabled}
-          onClick={() => onAnswer(true)}
-        >
-          {t("devices.join.ask.allow")}
-        </DialogButton>
+        {controlStandIn && (
+          <DialogButton
+            dialogKey={null}
+            className="server-card-button is-default"
+            data-action="allow"
+            disabled={!view.enabled}
+          >
+            {t("devices.join.ask.allow")}
+          </DialogButton>
+        )}
       </footer>
     </section>
   );

@@ -1,6 +1,7 @@
 // The join consent ask on its route (`#/join-consent`), on a panel of its own: out of screen capture,
-// over every window, never key. The host's status through the store and the card's size through the
-// panel (host.ts). Escape and the panel's cancel do nothing here: only Deny or Allow ends the ask.
+// over every window, key only for a click on its native Allow. The host's status through the store and the card's size through the
+// panel (host.ts). Escape and the panel's cancel do nothing here: only Deny or the panel's native
+// Allow ends the ask.
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { PageClient } from "../../shared/pageClient";
 import type { Strings } from "../../shared/i18n";
@@ -21,7 +22,7 @@ export function JoinConsentCardHost({ client, strings }: { client: PageClient | 
   useCardSize(client, JOIN_CONSENT_CARD, ref);
   return (
     <div ref={ref} className="server-card-frame join-consent-frame">
-      <JoinConsentCard status={status} strings={strings} onAnswer={(allow) => void store.answer(allow)} />
+      <JoinConsentCard status={status} strings={strings} onDeny={() => void store.deny()} />
     </div>
   );
 }

@@ -8,16 +8,16 @@ public import Foundation
 /// webviews/src/pages/server-cards/join-consent): the first request acpmux refused with
 /// `consent_required` asks the person at this Mac once (``JoinConsentModel/refused(_:)``). Swift keeps
 /// the decision (``JoinConsentModel``: the person line, the grant gate, the device owner's confirm);
-/// the page draws who asked for what, the question, the note, why an Allow did not take, Deny and Allow.
+/// the page draws who asked for what, the question, the note, why an Allow did not take, and Deny.
 /// - `status` → `{ask: {requester, surface} | null, error: string | null, writing}`;
 /// - `deny` → closes the ask, writing nothing (the person's own click or key);
-/// - `allow` → SECURITY: grants the asked surface only from the person's own click on Allow
-///   (``WebCardPanel/isPersonClick(_:on:)``: a left click the panel saw from the HID system, its down
-///   and up both on the enabled `data-action="allow"` button by the panel's own hit test; so no key,
-///   script, Accessibility press, posted event or Computer Use click, and no script press after a
-///   click elsewhere), and never while a write is in flight; the model then asks the device owner
-///   (Touch ID or the login password) before it sends;
 /// - stream `changes` → one empty event whenever `status` may have changed.
+///
+/// SECURITY: Allow is no page control. It is the panel's native click-only button (``PersonControl``,
+/// named here while an ask shows, off while a write is in flight), and only the person's own click on
+/// it grants (``personPressed()``, checked by the panel's dispatch: from the HID system, down and up on
+/// the button; no key, script, Accessibility press, posted event or Computer Use click). The model then
+/// asks the device owner (Touch ID or the login password) before it sends.
 ///
 /// Its panel is its own (``WebCardPanel/joinConsent(model:isPersonEvent:)``): out of screen capture and screen sharing, so
 /// no screenshot or agent's capture ever shows Allow and Computer Use refuses it.
@@ -25,10 +25,7 @@ public import Foundation
 public final class JoinConsentCardProvider: WebCard {
     public static let route = "join-consent"
     static let statusOp = "cmux.joinConsent.status"
-    static let allowOp = "cmux.joinConsent.allow"
     static let denyOp = "cmux.joinConsent.deny"
-    /// Allow's `data-action` in the page (JoinConsentCard.tsx): the control the person's click must land on.
-    static let allowAction = "allow"
     static let changesStream = "cmux.joinConsent.changes"
 
     public var card: String { Self.route }
@@ -41,7 +38,9 @@ public final class JoinConsentCardProvider: WebCard {
         self.model = model
     }
 
-    public func opened(again: Bool) {}
+    public func opened(again: Bool) {
+        host?.setPersonControl(personControl, card: card)
+    }
 
     /// Only the model closes the ask (Deny, Allow, the Labs switch off).
     public func closed() {}
@@ -56,19 +55,22 @@ public final class JoinConsentCardProvider: WebCard {
             // task-owner: one answer per press; the ask hides at once
             Task { [model] in await model.answer(allow: false) }
             return .null
-        case Self.allowOp:
-            // Both buttons are off while a write is in flight: no press lands over a grant still landing.
-            guard model.ask != nil, !model.writing else { return .null }
-            // SECURITY: the person's own click on Allow, read by the panel from the click's events and its own hit test.
-            guard await host?.isPersonClick(context, on: [Self.allowAction]) == true else { throw Self.refused }
-            // The ask may have closed or a write begun while the hit test answered.
-            guard model.ask != nil, !model.writing else { return .null }
-            // task-owner: one answer per click; the write ends on its own
-            Task { [model] in await model.answer(allow: true) }
-            return .null
         default:
             throw PageError.unknownOp(op)
         }
+    }
+
+    /// SECURITY: the person clicked the native Allow (the panel checked the click). Allow is off while
+    /// a write is in flight, so no click lands over a grant still landing.
+    public func personPressed() {
+        guard model.ask != nil, !model.writing else { return }
+        // task-owner: one answer per click; the write ends on its own
+        Task { [model] in await model.answer(allow: true) }
+    }
+
+    /// The native Allow while an ask shows, off while a write is in flight; none otherwise.
+    var personControl: PersonControl? {
+        model.ask == nil ? nil : PersonControl(title: JoinConsentStrings.allow, isEnabled: !model.writing)
     }
 
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
@@ -81,12 +83,14 @@ public final class JoinConsentCardProvider: WebCard {
             for await state in ObservationStream({ Self.status(model) }) {
                 guard !Task.isCancelled else { return }
                 if state == last { continue }
+                guard let self else { return }
                 // The first value is the state the page reads with `status`; only changes are events.
                 if last != nil {
                     // A new ask or a new answer draws anew: a click begun before it is not aimed at it.
-                    self?.host?.rearm()
+                    self.host?.rearm()
                     onEvent(.object([:]))
                 }
+                self.host?.setPersonControl(self.personControl, card: self.card)
                 last = state
             }
         }
@@ -111,8 +115,8 @@ extension WebCardPanel {
     /// of the main screen over every app and full screen, never activating cmux or taking the keys.
     /// SECURITY (cmux#33066, HQ#5121): out of screen capture and screen sharing (`sharingType = .none`),
     /// so no screenshot, recording or agent's capture shows Allow and Computer Use refuses the window
-    /// (MacCuaTargetResolver); Allow takes only the person's own click on it, read from the HID system
-    /// (``isPersonClick(_:on:)``).
+    /// (MacCuaTargetResolver); Allow is the panel's native click-only button and takes only the person's
+    /// own click on it, read from the HID system (``WebCard/personPressed()``).
     /// `isPersonEvent` is the person check (the app's strict HID-source `PersonInputCheck`).
     @MainActor
     public static func joinConsent(model: JoinConsentModel, isPersonEvent: @escaping @MainActor (NSEvent) -> Bool) -> WebCardPanel? {
@@ -132,7 +136,8 @@ extension WebCardPanel {
     func configureForJoinConsent() {
         sharingType = .none
         level = .statusBar
-        becomesKeyOnlyIfNeeded = true
+        // A click on Allow makes the panel key (cmux stays inactive): the panel takes a grant's click only while key.
+        becomesKeyOnlyIfNeeded = false
         isMovableByWindowBackground = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         setAccessibilityIdentifier("cmux.joinConsentAsk")

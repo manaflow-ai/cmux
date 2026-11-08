@@ -37,11 +37,18 @@ calls, the invite socket, the clipboard); every card's look and every step it wa
 
 ## Security
 
-An action that pairs a machine or lets one in (Confirm, Try Again, an approver's Approve) answers
-only the person's own click on the card: the panel reads the click from its own events (a left
-click from the HID system, not a key, an Accessibility press, a posted event or a script), begun at
-least a double-click interval after the card last drew (a machine arrived and Confirm appeared
-under a pointer aimed at what was there before), and spent once (`WebCardPanel.isPersonClick`).
+An action that pairs a machine or lets one in (Confirm, Try Again, an approver's Approve) is not a
+page control: a grant needs a control the page cannot press, name, move or hide. The card names it
+(`PersonControl`: its title and whether it is enabled, from the card's own state), and while it
+shows the panel lays out its own native footer under the page with that control at its own size
+at the trailing edge; the page's size covers only the content above, and the page has no Confirm.
+While the footer shows the panel never gets smaller than it (whatever size the page asks for), and
+the control takes a click only while it shows whole. Its click reaches the card
+(`WebCard.personPressed`) only as the person's own left click from the HID system (not a key, an
+Accessibility press, a posted event or a script) that went down and up on it, on the key panel,
+begun at least the system's double-click interval (and 500 ms) after the card last drew or the
+control last moved on screen (any move or resize of the panel). The page has no approve op; the
+Name field reaches the card by `setName`. This one control stays in Swift as the security boundary.
 Copy, New Code and options need the person's own click or key (`userGesture`). A copied code is
 written concealed and transient so clipboard managers do not keep it.
 
@@ -110,16 +117,17 @@ The ask has a panel of its own, never the shared card panel:
 - 380 pt wide, at the top right of the main screen, 16 pt in from both edges;
 - at the status bar level, on every Space and over full screen, stationary, never moved by its
   background;
-- it orders in over every app without activating cmux and never takes the keys;
+- it orders in over every app without activating cmux (a click on Allow makes the panel key);
 - out of screen capture and screen sharing (`sharingType = .none`), so no screenshot, recording or
   agent's capture shows Allow, and Computer Use refuses the window.
 
 ### What answers
 
-- Allow answers only the person's own click on the card, read by the panel from the click's own
-  events (`WebCardPanel.isPersonClick`, with the app's strict HID-source check): never a key, page
-  script, an Accessibility press, a posted or programmatic click, a click begun before the card last
-  drew, or the same click twice (cmux#33066, HQ#5121). Neither button has a key.
+- Allow is the panel's native click-only button under the page (`PersonControl`), never a page
+  control, and it answers only the person's own click on it, read by the panel from the click's
+  own events (`CmuxDialogPersonClick`, with the app's strict HID-source check): never a key, page
+  script, an Accessibility press, a posted or programmatic click, or a click begun before Allow
+  showed, moved or the card last drew (cmux#33066, HQ#5121). Neither button has a key.
 - Deny answers the person's click or key; it writes nothing.
 - Escape and the panel's cancel do nothing: only Deny or Allow ends the ask.
 

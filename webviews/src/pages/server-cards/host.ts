@@ -19,26 +19,32 @@ export function cardOfHash(hash: string): string | null {
   return match ? match[1]! : null;
 }
 
-/** Reports `ref`'s size to the panel whenever it changes (the first layout included). */
+/** Reports `ref`'s size to the panel whenever it changes (the first layout included). A card's
+ * click-only control (Confirm) is not the page's: the panel lays it out in its own native footer
+ * under the page (WebCardPanel's PersonControl), so the size covers only the content above it. */
 export function useCardSize(client: PageClient | null, card: string, ref: RefObject<HTMLElement | null>): void {
-  useLayoutEffect(() => {
+  const last = useRef("");
+  const report = () => {
     const element = ref.current;
     if (!client || !element) return;
-    let last = "";
-    const report = () => {
-      const width = Math.ceil(element.offsetWidth);
-      const height = Math.ceil(element.offsetHeight);
-      const key = `${width}x${height}`;
-      if (key === last || height === 0) return;
-      last = key;
-      void client.call(CardOps.resize, { card, width, height }).catch(() => {});
-    };
-    report();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(report);
+    const width = Math.ceil(element.offsetWidth);
+    const height = Math.ceil(element.offsetHeight);
+    const key = JSON.stringify([width, height]);
+    if (key === last.current || height === 0) return;
+    last.current = key;
+    void client.call(CardOps.resize, { card, width, height }).catch(() => {});
+  };
+  const latest = useRef(report);
+  latest.current = report;
+  // A step change may resize the card before the observer runs.
+  useLayoutEffect(() => latest.current());
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => latest.current());
     observer.observe(element);
     return () => observer.disconnect();
-  }, [client, card, ref]);
+  }, [ref]);
 }
 
 /** Runs `cancel` on Escape in the page and on the panel's own Escape. */

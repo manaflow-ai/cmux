@@ -31,7 +31,7 @@ export function PairInviteCardHost({ client, strings }: { client: PageClient | n
   useCardSize(client, PAIR_INVITE_CARD, ref);
   const close = () => closeCard(client, PAIR_INVITE_CARD);
   useCardCancel(client, close);
-  const onAction = (action: Action, name: string) => {
+  const onAction = (action: Action) => {
     switch (action) {
       case "copyCode":
         return void store.copy("code");
@@ -41,7 +41,7 @@ export function PairInviteCardHost({ client, strings }: { client: PageClient | n
         return void store.copy("installLine");
       case "confirm":
       case "retry":
-        return void store.confirm(name);
+        return; // The panel's native button (WebCardPanel's PersonControl), never the page.
       case "newCode":
         return void store.newCode();
       case "done":
@@ -59,6 +59,7 @@ export function PairInviteCardHost({ client, strings }: { client: PageClient | n
         copied={copied}
         onAction={onAction}
         onRunChief={(on) => void store.setRunChief(on)}
+        onNameChange={(name) => void store.setName(name)}
       />
     </div>
   );

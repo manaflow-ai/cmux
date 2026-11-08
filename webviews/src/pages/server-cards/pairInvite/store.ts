@@ -15,6 +15,7 @@ export class PairInviteStore {
   private request = 0;
   private stopChanges?: () => void;
   private stopped = false;
+  private sentName: string | undefined;
 
   constructor(private readonly client: PageClient | null) {}
 
@@ -69,9 +70,14 @@ export class PairInviteStore {
     return this.run(PairInviteOps.setRunChief, { on });
   }
 
-  /** The host takes it only from the person's own click on the card. */
-  confirm(name: string): Promise<boolean> {
-    return this.run(PairInviteOps.confirm, { name });
+  /** The Name field, for the native Confirm (the page never approves). It changes nothing the
+   * status shows, so it reads no status again (a read would send it again: a loop). */
+  async setName(name: string): Promise<void> {
+    // Once per invite (a new one starts with an empty name on the host) and per value.
+    const key = `${this.snapshot.status?.session ?? ""}|${name}`;
+    if (this.sentName === key) return;
+    this.sentName = key;
+    await this.client?.call(PairInviteOps.setName, { name }).catch(() => {});
   }
 
   private async run(op: string, params: unknown): Promise<boolean> {

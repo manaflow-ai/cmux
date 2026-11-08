@@ -11,8 +11,9 @@ export const PairInviteOps = {
   copy: "cmux.pairInvite.copy",
   /** `{on}` → null: run the person's Chief on the arrived machine. The person's own click or key. */
   setRunChief: "cmux.pairInvite.setRunChief",
-  /** `{name}` → null: approves the arrived machine. Only the person's own click on the card answers. */
-  confirm: "cmux.pairInvite.confirm",
+  /** `{name}` → null: the Name field, read when Confirm goes. Confirm and Try Again are the panel's
+   * native control in its own footer under the page: only the person's click on it approves. */
+  setName: "cmux.pairInvite.setName",
   /** Stream: one empty event whenever the status may have changed; the page asks again. */
   changes: "cmux.pairInvite.changes",
 } as const;

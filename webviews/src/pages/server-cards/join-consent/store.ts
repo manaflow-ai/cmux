@@ -51,14 +51,13 @@ export class JoinConsentStore {
     }
   }
 
-  /** Deny or Allow. The host takes Allow only from the person's own click on the card, and neither
-   * while a write is in flight. */
-  async answer(allow: boolean): Promise<void> {
+  /** Deny; none while a write is in flight. Allow is the panel's native button, never the page's. */
+  async deny(): Promise<void> {
     if (!this.client || !this.status?.ask || this.status.writing) return;
     try {
-      await this.client.call(allow ? JoinConsentOps.allow : JoinConsentOps.deny, {});
+      await this.client.call(JoinConsentOps.deny, {});
     } catch {
-      // Refused (not the person's click): the ask stays as it is.
+      // Refused (no gesture): the ask stays as it is.
     }
     await this.refresh();
   }

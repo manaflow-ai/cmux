@@ -6,10 +6,10 @@ public import Foundation
 extension PageDescriptor {
     /// The server cards (webviews/src/pages/server-cards): cmux-page://cmux.server-cards/, one card
     /// per route in one floating ``WebCardPanel``. A new card adds its ops' prefix here.
-    /// SECURITY (cmux#37286): its Allow and Confirm trust the page's own DOM, so the page runs only
-    /// the app's bundled script: no inline script (the strict policy's only other script source),
-    /// no eval, no remote script, frame, connection or media, and it is never served by the dev
-    /// server (``PageDevServer/bundledOnlyPageIDs``).
+    /// SECURITY (cmux#37286): the page names and lays out its cards around the native click-only
+    /// control, so it runs only the app's bundled script: no inline script (the strict policy's only
+    /// other script source), no eval, no remote script, frame, connection or media, and it is never
+    /// served by the dev server or a web-dev overlay (``PageDevServer/bundledOnlyPageIDs``).
     public static let serverCards = PageDescriptor(id: "cmux.server-cards", resource: "server-cards",
                                                    namespaces: ["cmux.card.", "cmux.pairInvite.", "cmux.joinConsent."],
                                                    csp: PageCSP(inlineScript: false))
@@ -28,9 +28,11 @@ extension PageDescriptor {
 /// - `newCode` → a new invite (the person's own click or key);
 /// - `copy {target}` → the code, the `cmux pair` line or the install line, concealed (the person's own click or key);
 /// - `setRunChief {on}` → the approver's Chief option (the person's own click or key);
-/// - `confirm {name?}` → SECURITY: approves the arrived machine, only from the person's own click on
-///   Confirm or Try Again (``WebCardPanel/isPersonClick(_:on:)``, by the panel's own hit test): no key,
-///   script, MCP call or page reaches it;
+/// - `setName {name}` → the Name field, read when Confirm goes;
+/// - SECURITY: Confirm and Try Again are not page ops. They are the panel's native control
+///   (``PersonControl``, named here from the approver's step) over the slot the page leaves for it,
+///   and only the person's own click on it approves (``personPressed()``): no key, script, MCP call
+///   or page reaches it;
 /// - stream `changes` → one empty event whenever `status` may have changed.
 ///
 /// Event driven: the socket pushes every change; the countdown is the page's.
@@ -41,7 +43,7 @@ public final class PairInviteCardProvider: WebCard {
     static let newCodeOp = "cmux.pairInvite.newCode"
     static let copyOp = "cmux.pairInvite.copy"
     static let setRunChiefOp = "cmux.pairInvite.setRunChief"
-    static let confirmOp = "cmux.pairInvite.confirm"
+    static let setNameOp = "cmux.pairInvite.setName"
     static let changesStream = "cmux.pairInvite.changes"
 
     public var card: String { Self.route }
@@ -63,6 +65,8 @@ public final class PairInviteCardProvider: WebCard {
     /// The socket's frames for the current invite, in order (the page folds them into its phase).
     private(set) var frames: [PairInviteFrame] = []
     private var arrivedCode: String?
+    /// The card's Name field, as the page last sent it (empty keeps the machine's own name).
+    private var typedName: String?
     private var socket: Task<Void, Never>?
     private var listeners: [Int: @MainActor (JSONValue) -> Void] = [:]
     private var nextListener = 0
@@ -100,8 +104,9 @@ public final class PairInviteCardProvider: WebCard {
     public func closed() {
         generation += 1
         stopSocket()
-        approver.cancelApproval()
-        (mint, failure, invite, frames, arrivedCode) = (.idle, nil, nil, [], nil)
+        // A result from this opening never greets the next one.
+        approver.perform(.cancel)
+        (mint, failure, invite, frames, arrivedCode, typedName) = (.idle, nil, nil, [], nil, nil)
         changed()
     }
 
@@ -113,8 +118,9 @@ public final class PairInviteCardProvider: WebCard {
         stopSocket()
         generation += 1
         let mine = generation
-        approver.cancelApproval()
-        (mint, failure, invite, frames, arrivedCode) = (.minting, nil, nil, [], nil)
+        // A new code starts clean: the last machine's result or refusal never shows on it.
+        approver.perform(.cancel)
+        (mint, failure, invite, frames, arrivedCode, typedName) = (.minting, nil, nil, [], nil, nil)
         changed()
         let result = await service.mint()
         guard mine == generation else { return }
@@ -181,7 +187,10 @@ public final class PairInviteCardProvider: WebCard {
             return .null
         case Self.copyOp:
             try Self.requireGesture(context)
-            guard let invite else { throw PageError.invalidParams("no invite shows") }
+            // Only an unused invite that still runs shows its code; an ended one copies nothing.
+            guard let invite, socket != nil, arrivedCode == nil, invite.expiresAt > Date() else {
+                throw PageError.invalidParams("no invite shows")
+            }
             switch params["target"]?.stringValue {
             case "code": copyText(invite.displayCode)
             case "line": copyText(invite.line)
@@ -194,19 +203,27 @@ public final class PairInviteCardProvider: WebCard {
             guard let on = params["on"]?.boolValue else { throw PageError.invalidParams("on is required") }
             approver.approval.runChief = on
             return .null
-        case Self.confirmOp:
-            // SECURITY: pairs a machine into the person's account: only their own click on the card.
-            // Confirm and Try Again (after a failed approve) both send it (PairInviteCardHost.tsx).
-            // The machine the person saw when they clicked; another one by the time the click checks out approves nothing.
-            let seen = approver.candidate?.code
-            guard await host?.isPersonClick(context, on: ["confirm", "retry"]) == true else {
-                throw PageError(code: PageNativeOp.userOnlyCode, message: PairInviteCardStrings.clickOnly)
-            }
-            guard seen != nil, approver.candidate?.code == seen else { return .null }
-            confirm(name: params["name"]?.stringValue)
+        case Self.setNameOp:
+            typedName = params["name"]?.stringValue
             return .null
         default:
             throw PageError.unknownOp(op)
+        }
+    }
+
+    /// SECURITY: the person clicked the native Confirm or Try Again (the panel checked the click).
+    public func personPressed() {
+        confirm(name: typedName)
+    }
+
+    /// The native click-only control for the approver's step: Confirm while the machine shows,
+    /// Try Again after a refusal, none otherwise.
+    var personControl: PersonControl? {
+        switch approver.addServerStep {
+        case .review: PersonControl(title: PairInviteCardStrings.confirm, isEnabled: approver.canApprove)
+        case .approving: PersonControl(title: PairInviteCardStrings.confirm, isEnabled: false)
+        case .approveFailed: PersonControl(title: ServerStrings.tryAgain, isEnabled: approver.canApprove)
+        default: nil
         }
     }
 
@@ -233,6 +250,8 @@ public final class PairInviteCardProvider: WebCard {
         let id = nextListener
         nextListener += 1
         listeners[id] = onEvent
+        // A page that subscribed after a change still reads the state it would have missed.
+        onEvent(.object([:]))
         let approver = approver
         // task-owner: lives as long as the page's subscription; event-driven (Observation).
         let task = Task { [weak self] in
@@ -258,6 +277,7 @@ public final class PairInviteCardProvider: WebCard {
     /// does not count as aimed at it.
     private func changed() {
         host?.rearm()
+        host?.setPersonControl(personControl, card: card)
         for listener in listeners.values { listener(.object([:])) }
     }
 
@@ -334,6 +354,10 @@ public final class PairInviteCardProvider: WebCard {
 
 /// The provider's own refusal (Resources/PairInvite.xcstrings).
 enum PairInviteCardStrings {
+    static var confirm: String {
+        String(localized: "pairInvite.confirm", defaultValue: "Confirm", table: "PairInvite", bundle: .module)
+    }
+
     static var clickOnly: String {
         String(localized: "pairInvite.confirmNote", defaultValue: "Click Confirm to pair it. Only a click pairs it, never a key or a script.",
                table: "PairInvite", bundle: .module)

@@ -6,7 +6,7 @@ export function askStatus(patch: Partial<JoinConsentStatus> = {}): JoinConsentSt
 }
 
 /** An in-memory `cmux.joinConsent.*` for the browser dev loop (`/server-cards/?mock#/join-consent`):
- * Allow writes for a moment and then the ask ends; Deny ends it at once. */
+ * Deny ends the ask at once. Allow is the app panel's native button, so the dev loop has none. */
 export class MockJoinConsent {
   status: JoinConsentStatus = askStatus();
   private readonly listeners = new Set<() => void>();
@@ -17,10 +17,6 @@ export class MockJoinConsent {
         return this.status;
       case "cmux.joinConsent.deny":
         this.update({ ...this.status, ask: null });
-        return null;
-      case "cmux.joinConsent.allow":
-        this.update({ ...this.status, writing: true });
-        setTimeout(() => this.update({ ask: null, error: null, writing: false }), 800);
         return null;
       default:
         return undefined;

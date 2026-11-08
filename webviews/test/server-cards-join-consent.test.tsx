@@ -1,8 +1,9 @@
 // The join consent ask on the server card page over a fake host: it draws who asked for what, the
-// question, the note and why an Allow did not take; Deny and Allow are click-only buttons (no key
-// presses either), both off while a write is in flight; the store sends one answer per press and
-// none while writing or with no ask; a refused Allow leaves the ask up; and the panel's cancel is
-// heard (so the panel never hides the ask itself) and does nothing.
+// question, the note and why an Allow did not take; Deny is a click-only button (no key press
+// either), off while a write is in flight, and the page draws no Allow (the app panel's native
+// button is Allow); the store sends one Deny per press and none while writing or with no ask; a
+// refused Deny leaves the ask up; and the panel's cancel is heard (so the panel never hides the ask
+// itself) and does nothing.
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Strings } from "../src/pages/shared/i18n";
@@ -11,7 +12,7 @@ import { askStatus } from "../src/pages/server-cards/join-consent/fixtures";
 import { JoinConsentCard } from "../src/pages/server-cards/join-consent/JoinConsentCard";
 import { viewOf } from "../src/pages/server-cards/join-consent/model";
 import { JoinConsentStore } from "../src/pages/server-cards/join-consent/store";
-import type { JoinConsentStatus } from "../src/pages/server-cards/join-consent/types";
+import { JoinConsentOps, type JoinConsentStatus } from "../src/pages/server-cards/join-consent/types";
 
 const strings: Strings = {
   language: "en",
@@ -22,15 +23,15 @@ const strings: Strings = {
 class FakeHost {
   status: JoinConsentStatus = askStatus();
   calls: string[] = [];
-  refuseAllow = false;
+  refuseDeny = false;
   private listener?: () => void;
   private seq = 0;
 
   async call<T>(op: string): Promise<T> {
     this.calls.push(op);
     if (op === "cmux.joinConsent.status") return structuredClone(this.status) as T;
-    if (op === "cmux.joinConsent.allow" && this.refuseAllow)
-      throw pageError("cmux.page.user_only", "Only your own click on Allow allows this.");
+    if (op === "cmux.joinConsent.deny" && this.refuseDeny)
+      throw pageError("cmux.page.user_only", "Only your own click or key denies this.");
     return null as T;
   }
 
@@ -74,53 +75,60 @@ describe("Join Consent ask", () => {
     expect(viewOf(undefined, strings)).toBeNull();
   });
 
-  test("Deny and Allow take no key and are both off while writing", () => {
+  test("the page draws no Allow (the panel's native button is Allow); Deny takes no key and is off while writing", () => {
     for (const layout of ["stacked", "compact", "banner"] as const) {
       const html = renderToStaticMarkup(
-        <JoinConsentCard status={askStatus()} strings={strings} layout={layout} onAnswer={() => undefined} />,
+        <JoinConsentCard status={askStatus()} strings={strings} layout={layout} onDeny={() => undefined} />,
       );
       expect(html).toContain('data-action="deny"');
-      expect(html).toContain('data-action="allow"');
+      expect(html).not.toContain('data-action="allow"');
       expect(html).not.toContain("disabled");
       // A click-only DialogButton draws no key hint and binds no key.
       expect(html).not.toContain("aria-keyshortcuts");
     }
+    const standIn = renderToStaticMarkup(
+      <JoinConsentCard status={askStatus()} strings={strings} onDeny={() => undefined} controlStandIn />,
+    );
+    expect(standIn).toContain('data-action="allow"');
     const writing = renderToStaticMarkup(
-      <JoinConsentCard status={askStatus({ writing: true })} strings={strings} onAnswer={() => undefined} />,
+      <JoinConsentCard
+        status={askStatus({ writing: true })}
+        strings={strings}
+        onDeny={() => undefined}
+        controlStandIn
+      />,
     );
     expect(writing.match(/disabled=""/g)?.length).toBe(2);
     expect(
       renderToStaticMarkup(
-        <JoinConsentCard status={askStatus({ ask: null })} strings={strings} onAnswer={() => undefined} />,
+        <JoinConsentCard status={askStatus({ ask: null })} strings={strings} onDeny={() => undefined} />,
       ),
     ).toBe("");
   });
 
-  test("one press sends one answer; none while writing or with no ask", async () => {
+  test("one press sends one Deny; none while writing or with no ask; the page has no Allow op", async () => {
     const host = new FakeHost();
     const store = await opened(host);
-    await store.answer(true);
-    expect(host.answers()).toEqual(["cmux.joinConsent.allow"]);
     host.change(askStatus({ writing: true }));
     await settle();
-    await store.answer(true);
-    await store.answer(false);
-    expect(host.answers()).toEqual(["cmux.joinConsent.allow"]);
+    await store.deny();
+    expect(host.answers()).toEqual([]);
     host.change(askStatus({ ask: null }));
     await settle();
-    await store.answer(false);
-    expect(host.answers()).toEqual(["cmux.joinConsent.allow"]);
+    await store.deny();
+    expect(host.answers()).toEqual([]);
     host.change(askStatus());
     await settle();
-    await store.answer(false);
-    expect(host.answers()).toEqual(["cmux.joinConsent.allow", "cmux.joinConsent.deny"]);
+    await store.deny();
+    expect(host.answers()).toEqual(["cmux.joinConsent.deny"]);
+    expect(Object.values(JoinConsentOps)).not.toContain("cmux.joinConsent.allow");
   });
 
-  test("a refused Allow leaves the ask as it is", async () => {
+  test("a refused Deny leaves the ask as it is", async () => {
     const host = new FakeHost();
-    host.refuseAllow = true;
+    host.refuseDeny = true;
     const store = await opened(host);
-    await store.answer(true);
+    await store.deny();
     expect(store.getSnapshot()?.ask).toEqual({ requester: "studio-mac", surface: "screen" });
   });
 });

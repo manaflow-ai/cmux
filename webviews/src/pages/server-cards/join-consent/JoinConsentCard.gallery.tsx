@@ -15,7 +15,13 @@ function JoinConsentGallery({ layout, status }: Props) {
   const [strings] = useState(() => createStrings(table));
   return (
     <div className="server-card-frame join-consent-frame">
-      <JoinConsentCard status={askStatus(status)} strings={strings} layout={layout} onAnswer={() => undefined} />
+      <JoinConsentCard
+        status={askStatus(status)}
+        strings={strings}
+        layout={layout}
+        onDeny={() => undefined}
+        controlStandIn
+      />
     </div>
   );
 }
@@ -41,7 +47,7 @@ export default componentEntry<Props>({
       note: "Asking for control instead of the screen.",
       props: { status: { ask: { requester: "build-box", surface: "control" } } },
     },
-    writing: { note: "A grant is landing: both buttons are off.", props: { status: { writing: true } } },
+    writing: { note: "A grant is landing: Deny and Allow are off.", props: { status: { writing: true } } },
     error: {
       note: "The last Allow did not take; the ask stays and says why.",
       props: { status: { error: "Touch ID was cancelled. Nothing was allowed." } },
