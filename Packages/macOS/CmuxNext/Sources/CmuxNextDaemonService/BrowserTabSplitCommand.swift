@@ -74,7 +74,7 @@ public struct BrowserTabSplitCommand: Sendable {
 
     /// Whether `store` lists the daemon's tab `surface` (its pane arrived), heard as it appears and given
     /// up after 30 s, as LinkOpener's move waits for a made tab.
-    @MainActor static func listed(_ surface: SurfaceID, in store: DaemonStore) async -> Bool {
+    @MainActor public static func listed(_ surface: SurfaceID, in store: DaemonStore) async -> Bool {
         if store.tab(surface: surface) != nil { return true }
         let wait = Task { @MainActor () -> Bool in
             for await found in ObservationStream({ _ = store.tabListRevision; return store.tab(surface: surface) != nil }) where found { return true }

@@ -232,7 +232,8 @@ final class InternalPageTabStore {
                       failed onFailed: (@MainActor ((any Error)?) -> Void)? = nil, requiresSurface: Bool = false,
                       split: SplitDirection? = nil) -> InternalPageView? {
         let store = daemon.store
-        let homePlacement = HomeDockOpens.opensBeside(model, services: services)
+        // A split from Home's dock is its own placement: the tab opens in its column in one commit.
+        let homePlacement = split == nil && HomeDockOpens.opensBeside(model, services: services)
         // A foreground page in Home is selected by its destination placement, never while its
         // provisional tab still belongs to the dock: that would release OutboundTab too early.
         let selectHere = focus && !homePlacement
