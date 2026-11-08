@@ -24,4 +24,25 @@ import Testing
             )
         )
     }
+
+    @Test func regularWidthPhoneHostsSplitDestinationsInSidebar() {
+        #expect(
+            MobileWorkspaceShellLayoutPolicy.hostsSplitDestinationsInSidebar(
+                usesCompactStack: false,
+                isPhoneIdiom: true
+            )
+        )
+        #expect(
+            !MobileWorkspaceShellLayoutPolicy.hostsSplitDestinationsInSidebar(
+                usesCompactStack: false,
+                isPhoneIdiom: false
+            )
+        )
+        #expect(
+            !MobileWorkspaceShellLayoutPolicy.hostsSplitDestinationsInSidebar(
+                usesCompactStack: true,
+                isPhoneIdiom: true
+            )
+        )
+    }
 }

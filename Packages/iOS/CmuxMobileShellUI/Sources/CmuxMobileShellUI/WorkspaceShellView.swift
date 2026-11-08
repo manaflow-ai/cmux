@@ -318,6 +318,30 @@ struct WorkspaceShellView: View {
         #endif
     }
 
+    /// The split layout on a phone (the unfolded iPhone Duo) moves top-level
+    /// destinations into the sidebar so the bottom tab bar cannot cover the
+    /// workspace detail.
+    var hostsSplitDestinationsInSidebar: Bool {
+        #if os(iOS)
+        MobileWorkspaceShellLayoutPolicy.hostsSplitDestinationsInSidebar(
+            usesCompactStack: usesCompactStack,
+            isPhoneIdiom: UIDevice.current.userInterfaceIdiom == .phone
+        )
+        #else
+        false
+        #endif
+    }
+
+    /// While the sidebar hosts destinations, the tab view stays on the tab
+    /// that renders the split layout; destination picks drive the sidebar.
+    private var primaryScaffoldSelection: Binding<MobilePrimaryTab> {
+        guard hostsSplitDestinationsInSidebar else { return $selectedPrimaryTab }
+        return Binding(
+            get: { .workspaces },
+            set: { selectedPrimaryTab = $0 }
+        )
+    }
+
     private var listConnectionStatus: MobileMacConnectionStatus {
         if isInitialConnectionLoading || initialConnectionTimedOut {
             return .reconnecting
@@ -444,7 +468,7 @@ struct WorkspaceShellView: View {
     /// Workspace tabs keep split navigation at regular widths.
     private func primaryScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
         MobilePrimaryTabScaffold(
-            selection: $selectedPrimaryTab,
+            selection: primaryScaffoldSelection,
             searchCoordinator: primarySearchCoordinator,
             notificationUnreadCount: presentation.notificationUnreadCount,
             feedNeedsInputCountProvider: {
@@ -454,7 +478,10 @@ struct WorkspaceShellView: View {
             },
             showsNotificationsTab: !displaySettings.feedReplacesNotifications,
             homeContent: store.supportsChief ? AnyView(chiefHomeContent) : nil,
-            taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
+            // The sidebar's destination bar carries compose while it hosts
+            // destinations.
+            taskComposerAction: (usesCompactStack && !compactNavigationPath.isEmpty)
+                || hostsSplitDestinationsInSidebar
                 ? nil
                 : taskComposerAction
         ) {
@@ -985,8 +1012,18 @@ struct WorkspaceShellView: View {
             )
         }
         .navigationSplitViewStyle(.balanced)
+        .mobileToolbarVisibility(
+            hostsSplitDestinationsInSidebar ? .hidden : .automatic,
+            for: .tabBar
+        )
         .onAppear {
             hasPresentedSplitDetail = true
+            // `.automatic` lets portrait collapse the sidebar while the binding
+            // still reads `.automatic`, which hides the detail's show-sidebar
+            // control. An explicit state keeps the toggle reachable.
+            if hostsSplitDestinationsInSidebar, splitColumnVisibility == .automatic {
+                splitColumnVisibility = .all
+            }
             #if os(iOS) && DEBUG
             if let releaseGateUIProbe, releaseGateUIProbe.awaitsVisibleRows {
                 releaseGateUIProbe.closeWorkspace = {
@@ -1037,6 +1074,10 @@ struct WorkspaceShellView: View {
     private func splitSidebar(presentation: WorkspaceShellRenderPresentation) -> some View {
         let selectedMacDeviceIDs = presentation.selectedNotificationFeedMacDeviceIDs
         let notificationItems = presentation.notificationFeedItems
+        // The hosted-destinations toolbar owns the toggle on a phone.
+        let listSidebarToggleAction: (() -> Void)? = hostsSplitDestinationsInSidebar
+            ? nil
+            : { toggleSplitSidebar() }
         return Group {
             switch splitSidebarDestination {
             case .home:
@@ -1061,23 +1102,12 @@ struct WorkspaceShellView: View {
                     navigationStyle: .sidebar,
                     searchText: primarySearchCoordinator.searchDestinationText(for: .workspaces),
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection,
-                    sidebarToggleAction: toggleSplitSidebar
+                    sidebarToggleAction: listSidebarToggleAction
                 )
             }
         }
         .toolbar {
-            if splitSidebarDestination == .notifications
-                || splitSidebarDestination == .feed
-                || (splitSidebarDestination == .cloud && cloudTabContent != nil) {
-                ToolbarItem(placement: .topBarTrailing) {
-                    // Notifications has no WorkspaceListView toolbar, so the
-                    // sidebar owns its trailing control directly in this path.
-                    WorkspaceSidebarToggleButton(
-                        action: toggleSplitSidebar,
-                        usesSystemToolbarChrome: true
-                    )
-                }
-            }
+            splitSidebarToolbar(unreadCount: presentation.notificationUnreadCount)
         }
         .toolbar {
             rootToolbarContent
@@ -1122,6 +1152,38 @@ struct WorkspaceShellView: View {
             return primarySearchCoordinator.scope.primaryTab
         }
         return selectedPrimaryTab
+    }
+
+    @ToolbarContentBuilder
+    private func splitSidebarToolbar(unreadCount: Int) -> some ToolbarContent {
+        if hostsSplitDestinationsInSidebar {
+            hostedDestinationsSidebarToolbar(unreadCount: unreadCount)
+        } else if splitSidebarDestination == .notifications
+            || splitSidebarDestination == .feed
+            || (splitSidebarDestination == .cloud && cloudTabContent != nil) {
+            ToolbarItem(placement: .topBarTrailing) {
+                // Notifications has no WorkspaceListView toolbar, so the
+                // sidebar owns its trailing control directly in this path.
+                WorkspaceSidebarToggleButton(
+                    action: toggleSplitSidebar,
+                    usesSystemToolbarChrome: true
+                )
+            }
+        }
+    }
+
+    /// The sidebar chrome while it hosts top-level destinations: the toggle on
+    /// the leading edge the HIG reserves for it (a narrow phone sidebar drops
+    /// overflowing trailing items) and the destination bar along the bottom.
+    @ToolbarContentBuilder
+    private func hostedDestinationsSidebarToolbar(unreadCount: Int) -> some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            WorkspaceSidebarToggleButton(
+                action: toggleSplitSidebar,
+                usesSystemToolbarChrome: true
+            )
+        }
+        splitSidebarBottomBar(unreadCount: unreadCount)
     }
 
     @ToolbarContentBuilder
@@ -1275,6 +1337,11 @@ struct WorkspaceShellView: View {
                     }
                 }
                 selectedPrimaryTab = newValue
+                // The pinned tab view no longer observes this selection, so
+                // the search scope follows the sidebar destination here.
+                if hostsSplitDestinationsInSidebar {
+                    primarySearchCoordinator.synchronizeSelection(newValue)
+                }
             }
         )
     }
