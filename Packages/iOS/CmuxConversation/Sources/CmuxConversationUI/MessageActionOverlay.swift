@@ -571,7 +571,7 @@ final class MessageActionOverlay: UIView {
         } else {
             UIView.animateUnlessReduceMotion(springDuration: 0.24, bounce: 0, options: [.allowUserInteraction]) {
                 self.snapshotClip.center = self.finalPreviewCenter
-                self.snapshotClip.transform = CGAffineTransform(scaleX: previewScale, y: previewScale)
+                self.snapshotClip.transform = CGAffineTransform(scaleX: self.previewScale, y: self.previewScale)
             }
         }
 
