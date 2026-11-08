@@ -551,6 +551,7 @@ async fn run_world(seed: u64, faults: bool) -> Outcome {
         active.clone(),
         machine.slot.clone(),
         machine.tasks.clone(),
+        trace.clone(),
     ));
     let seen = Arc::new(Mutex::new(Seen::default()));
     let connected = watch::channel(false).0;

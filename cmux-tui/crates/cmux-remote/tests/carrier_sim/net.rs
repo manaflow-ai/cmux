@@ -273,6 +273,9 @@ pub struct SimGroup {
     evidence: CarrierEvidence,
     /// Accept tasks per daemon incarnation, aborted when it dies.
     pub accepts: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    /// The run's trace: each link the daemon refuses, with why.
+    trace: Arc<Mutex<Vec<String>>>,
+    start: Instant,
 }
 
 impl SimGroup {
@@ -281,6 +284,7 @@ impl SimGroup {
         active: Arc<Mutex<usize>>,
         daemon: DaemonSlot,
         accepts: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+        trace: Arc<Mutex<Vec<String>>>,
     ) -> Self {
         Self {
             routes,
@@ -288,6 +292,8 @@ impl SimGroup {
             daemon,
             evidence: CarrierEvidence::Relay { provider: "sim".into() },
             accepts,
+            trace,
+            start: Instant::now(),
         }
     }
 }
@@ -325,10 +331,15 @@ impl LinkGroup for SimGroup {
             ))));
         };
         let (client, server) = route.pair(format!("{:?} g{}", request.lane, request.generation));
+        let (trace, start, label) =
+            (self.trace.clone(), self.start, format!("{:?} g{}", request.lane, request.generation));
         let task = tokio::spawn(async move {
-            let _ = daemon
+            if let Err(e) = daemon
                 .accept(InboundLink::trusted_network(Box::new(server), NetworkPeer::Relay))
-                .await;
+                .await
+            {
+                lock(&trace).push(format!("{:?} daemon refused {label}: {e}", start.elapsed()));
+            }
         });
         lock(&self.accepts).push(task);
         Ok(Box::new(client))
