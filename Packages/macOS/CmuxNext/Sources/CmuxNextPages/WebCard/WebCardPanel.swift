@@ -74,11 +74,14 @@ public final class WebCardPanel: NSPanel {
     ///   - cards: The cards, each served at its own ``WebCard/prefix``.
     ///   - routes: Shared providers (such as `cmux.app.`).
     ///   - width: The width before the page reports its own.
-    public init?(descriptor: PageDescriptor, cards: [any WebCard], routes: [PageRoute] = [], width: CGFloat = 460) {
+    ///   - overlayProcess: The app's overlay pages' shared web content process (``PageOverlayProcess``); nil
+    ///     gives the page its own.
+    public init?(descriptor: PageDescriptor, cards: [any WebCard], routes: [PageRoute] = [], width: CGFloat = 460,
+                 overlayProcess: PageOverlayProcess? = nil) {
         let host = WebCardHostProvider()
         let routes = routes + cards.map { PageRoute(prefix: $0.prefix, provider: $0) }
         guard let page = PageWebView(descriptor: descriptor, routes: routes + [PageRoute(prefix: WebCardHostProvider.prefix, provider: host)],
-                                     options: Self.engineOptions) else { return nil }
+                                     options: Self.engineOptions, overlayProcess: overlayProcess) else { return nil }
         self.page = page
         self.host = host
         self.cards = Dictionary(cards.map { ($0.card, $0) }, uniquingKeysWith: { first, _ in first })

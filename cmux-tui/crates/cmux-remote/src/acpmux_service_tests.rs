@@ -145,3 +145,35 @@ async fn without_a_socket_the_open_is_unavailable() {
     })
     .await;
 }
+
+/// The daemon's own authorization, before any handler: a session no grant
+/// admitted, or one whose grant lacks `acpmux`, gets the bridge's reason.
+#[tokio::test]
+async fn the_daemon_refuses_acpmux_with_the_bridges_reason() {
+    let mut lacking = grant(Some(VmKind::Owner), None);
+    lacking.services = vec!["mux-control".into()];
+    let cases = [
+        (ServiceAuthority::none(), "acpmux.no_grant"),
+        (ServiceAuthority::legacy_full(), "acpmux.no_grant"),
+        (
+            ServiceAuthority::from_services([Service::MuxControl]).with_grant(lacking),
+            "acpmux.not_granted",
+        ),
+    ];
+    for (authority, reason) in cases {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let stream = client_mux.open(Service::Acpmux, BTreeMap::new()).await.unwrap();
+        let incoming = daemon_mux.accept().await.unwrap().unwrap();
+        let admitted = DaemonServices::authorize_service(&authority, incoming).await.unwrap();
+        assert!(admitted.is_none(), "{reason}");
+        let response = within(stream.receive()).await.unwrap().unwrap();
+        assert_eq!(
+            serde_json::from_slice::<ServiceControl>(&response.payload).unwrap(),
+            ServiceControl::Rejected { code: "permission-denied".into(), message: reason.into() }
+        );
+        client_mux.shutdown().await;
+        daemon_mux.shutdown().await;
+    }
+}

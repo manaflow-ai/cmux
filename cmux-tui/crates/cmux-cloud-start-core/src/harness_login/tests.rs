@@ -552,13 +552,45 @@ fn a_codex_start_runs_the_broker_before_the_first_prompt() {
         (Inputs { guest_kind: Some(String::new()), ..codex.clone() }, Reason::GuestNotOwner),
         (Inputs { requested: Some(Choice::None), ..codex.clone() }, Reason::ChoseNone),
         (Inputs { requested: Some(Choice::Machine), ..codex.clone() }, Reason::MachineLoginKept),
-        // A run that may show no prompt passes nothing instead of refusing the start.
-        (Inputs { headless: true, ..codex.clone() }, Reason::NeedsLoginChoice),
+        // A run that may show no prompt keeps `none` and `machine` as chosen, from the flag or kept.
+        (
+            Inputs { headless: true, requested: Some(Choice::None), ..codex.clone() },
+            Reason::ChoseNone,
+        ),
+        (Inputs { headless: true, stored: Some(Choice::None), ..codex.clone() }, Reason::ChoseNone),
+        (
+            Inputs { headless: true, requested: Some(Choice::Machine), ..codex.clone() },
+            Reason::MachineLoginKept,
+        ),
     ];
     for (d, reason) in skips {
         let decision = decide(&d);
         assert_eq!((decision.step, decision.reason), (Step::Skip, reason), "{d:?}");
     }
+    // Production start matrix `codex-signed-out` (2026-11-08): a headless Codex start with no
+    // choice passed nothing, so Codex sat signed out and the run's first turn hung for 419 s. It
+    // now refuses at once, as Claude's does, and an agent's `--login pass` alone is no choice.
+    let refused = [
+        Inputs { headless: true, ..codex.clone() },
+        Inputs { headless: true, requested: Some(Choice::Pass), ..codex.clone() },
+        Inputs { headless: true, cached: true, ..codex.clone() },
+    ];
+    for d in refused {
+        let decision = decide(&d);
+        assert_eq!(
+            (decision.step, decision.reason),
+            (Step::Refuse, Reason::NeedsLoginChoice),
+            "{d:?}"
+        );
+        assert!(
+            decision.summary.starts_with("refuse (needs-login-choice):"),
+            "{}",
+            decision.summary
+        );
+    }
+    // The pass the person chose before, kept per user, still runs the broker headless.
+    let kept = Inputs { headless: true, stored: Some(Choice::Pass), ..codex.clone() };
+    assert_eq!((decide(&kept).step, decide(&kept).reason), (Step::Install, Reason::CodexBroker));
     let chosen = Inputs {
         headless: true,
         requested: Some(Choice::Pass),

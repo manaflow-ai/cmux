@@ -192,6 +192,16 @@ struct AgentCursorVisibilityVectorTests {
             .placement(forWindow: "w1") == .hidden(anchor: left))
     }
 
+    /// The window-edge fallback (no sidebar row, pane on another screen) has nothing in view to
+    /// point at: its 4 pt strip put the dot's center 2 pt from the window's edge, half clipped, beside
+    /// whichever sidebar row sat at mid-height (the user, 2026-11-07: "position of the circle is bad").
+    /// It draws no dot; the titlebar lease indicator still counts the agent.
+    @Test func aWindowEdgeAnchorDrawsNoDot() {
+        let edge = CGRect(x: 0, y: 0, width: 4, height: 800)
+        #expect(AgentCursorVisibility.hidden(window: "w1", anchor: .windowEdge, rect: edge)
+            .placement(forWindow: "w1") == .elsewhere)
+    }
+
     @Test func notDrawnIsElsewhereInEveryWindow() {
         #expect(AgentCursorVisibility.notDrawn(.minimized).placement(forWindow: "w1") == .elsewhere)
         #expect(AgentCursorVisibility.notDrawn(.otherSpace).placement(forWindow: "w1") == .elsewhere)
