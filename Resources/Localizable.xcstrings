@@ -674374,55 +674374,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed reading Safari cookies at %@: %@"
+            "value": "cmux couldn't read the Safari cookie store at %@."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فشلت قراءة ملفات تعريف ارتباط Safari في %@: %@"
+            "value": "تعذّر على cmux قراءة ملف ملفات تعريف ارتباط Safari في %@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fehler beim Lesen der Safari-Cookies unter %@: %@"
+            "value": "cmux konnte den Safari-Cookie-Speicher unter %@ nicht lesen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error al leer las cookies de Safari en %@: %@"
+            "value": "cmux no pudo leer el almacén de cookies de Safari en %@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Échec de la lecture des cookies de Safari à l’emplacement %@ : %@"
+            "value": "cmux n’a pas pu lire le fichier de cookies Safari à l’emplacement %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Safari のCookieを %@ から読み込めませんでした: %@"
+            "value": "cmux は %@ にある Safari の Cookie ストアを読み取れませんでした。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에서 Safari 쿠키를 읽지 못했습니다: %@"
+            "value": "cmux가 %@에 있는 Safari 쿠키 저장소를 읽지 못했습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "读取 Safari Cookie 失败，位置 %@：%@"
+            "value": "cmux 无法读取位于 %@ 的 Safari Cookie 存储文件。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "讀取 Safari Cookie 失敗（於 %@）：%@"
+            "value": "cmux 無法讀取位於 %@ 的 Safari Cookie 儲存檔。"
           }
         }
       }
