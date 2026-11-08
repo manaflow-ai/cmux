@@ -24,5 +24,6 @@
 )]
 
 pub mod import_plan;
+pub mod lookup;
 pub mod netscape;
 pub mod search;

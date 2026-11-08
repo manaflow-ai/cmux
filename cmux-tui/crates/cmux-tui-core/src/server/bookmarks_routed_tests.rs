@@ -368,3 +368,130 @@ fn children_reads_one_level_or_a_bounded_subtree() {
     assert_eq!(titles(&none), Vec::<String>::new());
     mux.shutdown();
 }
+
+#[test]
+fn the_apps_reads_answer_from_the_stored_tree() {
+    let (mux, conn) = app();
+    ok(send(&mux, &conn, "bookmarks.apply", json!({"ops": create_ops()}), Some("k1")));
+    let profile = "default";
+    // The star and the bar: the same page in any case, and whether the bar has anything.
+    let status = ok(send(
+        &mux,
+        &conn,
+        "bookmarks.status",
+        json!({"browser_profile_id": profile, "urls": ["HTTPS://GitHub.com", "https://nowhere.test/"]}),
+        None,
+    ));
+    assert_eq!(status["bar_filled"], true);
+    let matches = status["matches"].as_array().unwrap();
+    assert_eq!(matches[0].as_array().unwrap().len(), 1);
+    assert_eq!(matches[1], json!([]));
+    // A row by id, placed.
+    let github = matches[0][0].clone();
+    let got = ok(send(
+        &mux,
+        &conn,
+        "bookmarks.get",
+        json!({"browser_profile_id": profile, "ids": [github, "bm_ffffffffffffffffffffffffffffffff"]}),
+        None,
+    ));
+    assert_eq!(titles(&got), ["GitHub"]);
+    assert_eq!(got["bookmarks"][0]["path"], json!(["other"]));
+    assert_eq!(got["bookmarks"][0]["display_url"], "github.com");
+    // The CLI's search: index and path from the stored tree.
+    let found = ok(send(
+        &mux,
+        &conn,
+        "bookmarks.search",
+        json!({"browser_profile_id": profile, "text": "rust", "places": true}),
+        None,
+    ));
+    assert_eq!(found["bookmarks"][0]["path"], json!(["bar", "Work"]));
+    assert_eq!(found["bookmarks"][0]["index"], 0);
+    // The edit bubble's folders.
+    let folders = ok(send(
+        &mux,
+        &conn,
+        "bookmarks.folders",
+        json!({"browser_profile_id": profile, "bar_title": "Bar", "other_title": "Other"}),
+        None,
+    ));
+    let ids = folders["folders"].as_array().unwrap().iter().map(|f| f["id"].clone()).collect::<Vec<_>>();
+    assert_eq!(ids, [json!("bar"), json!(FOLDER), json!("other")]);
+    // The CLI's names: a bookmark, a folder and a typed URL in one read.
+    let titles_ = json!({"bar_title": "Bar", "other_title": "Other"});
+    let mut params = json!({"browser_profile_id": profile, "bookmark": "github",
+                            "folder": "work", "url": "example.com"});
+    params.as_object_mut().unwrap().extend(titles_.as_object().unwrap().clone());
+    let resolved = ok(send(&mux, &conn, "bookmarks.resolve", params, None));
+    assert_eq!(resolved["bookmark"]["title"], "GitHub");
+    assert_eq!(resolved["folder"], FOLDER);
+    assert_eq!(resolved["url"], "https://example.com");
+    let refused = send(
+        &mux,
+        &conn,
+        "bookmarks.resolve",
+        json!({"browser_profile_id": profile, "bookmark": "zzz", "bar_title": "Bar", "other_title": "Other"}),
+        None,
+    );
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error"]["details"]["extra"]["code"], "bookmarks.not_found");
+    let default_folder = ok(send(
+        &mux,
+        &conn,
+        "bookmarks.resolve",
+        json!({"browser_profile_id": profile, "folder": null, "fallback_folder": FOLDER,
+               "bar_title": "Bar", "other_title": "Other"}),
+        None,
+    ));
+    assert_eq!(default_folder["folder"], FOLDER);
+    mux.shutdown();
+}
+
+#[test]
+fn a_source_import_says_what_its_undo_puts_back() {
+    let (mux, conn) = app();
+    let params = |items: Value| {
+        json!({"browser_profile_id": "default", "title": "Imported from Chrome",
+               "source_key": "chrome:Default", "items": items})
+    };
+    let first = ok(send(
+        &mux,
+        &conn,
+        "bookmarks.import_source",
+        params(json!([{"title": "A", "url": "https://a.test"}])),
+        Some("s1"),
+    ));
+    assert_eq!(first["previous"], Value::Null);
+    let second = ok(send(
+        &mux,
+        &conn,
+        "bookmarks.import_source",
+        params(json!([{"title": "B", "url": "https://b.test"}])),
+        Some("s2"),
+    ));
+    assert_eq!(second["previous"]["title"], "Imported from Chrome");
+    assert_eq!(second["previous"]["children"][0]["title"], "A");
+    mux.shutdown();
+}
+
+#[test]
+fn an_older_builds_file_copies_in_once() {
+    let (mux, conn) = app();
+    let document = json!({"version": 1, "profiles": {"default": [
+        {"id": FOLDER, "parent": "bar", "kind": "folder", "title": "Work", "created_ms": 1},
+        {"id": "bm_00000000000000000000000000000002", "parent": FOLDER, "kind": "url",
+         "title": "A", "url": "https://a.test/", "created_ms": 2, "last_used_ms": 3},
+    ]}})
+    .to_string();
+    let params = json!({"document": document});
+    let copied = ok(send(&mux, &conn, "bookmarks.import_legacy_file", params.clone(), Some("m1")));
+    assert_eq!(copied["ops"], 3);
+    // A copy that runs again (it stopped before the file was deleted) adds nothing.
+    ok(send(&mux, &conn, "bookmarks.import_legacy_file", params, Some("m2")));
+    let listing =
+        ok(send(&mux, &conn, "bookmarks.list", json!({"browser_profile_id": "default"}), None));
+    assert_eq!(titles(&listing), ["Work", "A"]);
+    assert_eq!(listing["bookmarks"][1]["last_used_ms"], 3);
+    mux.shutdown();
+}
