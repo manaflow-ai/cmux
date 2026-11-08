@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""split_scale_metrics: frame times, retargets, blank and partial frames, flatness (python3 scripts/cmux-next/test_split_scale_metrics.py)."""
+"""split_scale_metrics: frame times, retargets, input-aligned layout times, blank and partial frames, failed rounds, flatness (python3 scripts/cmux-next/test_split_scale_metrics.py)."""
 import os, sys, unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -74,16 +74,68 @@ class StripTests(unittest.TestCase):
         self.assertIsNone(ssm.strip_stats({"frames": frames})["settled_ms"])
 
 
+class TransitionTests(unittest.TestCase):
+    def aligned(self, widths, sent_t=16.66):
+        t = trace(widths)
+        t["t0_s"] = 100.0
+        return t, 100.0 + sent_t / 1000
+
+    def strip(self, sent, frames):
+        return {"frames": frames, "sent_host_s": sent}
+
+    def test_layout_times_come_from_the_trace_lined_up_with_the_input(self):
+        t, sent = self.aligned([1000, 1000, 1000, 1000, 800, 650, 600, 600, 600, 600])
+        frames = [frame(10 + i * 8, ob=0.2, cb=0.3) for i in range(10)]
+        row = ssm.transition(self.strip(sent, frames), t, static=True)
+        self.assertNotIn("error", row)
+        self.assertAlmostEqual(row["first_frame_ms"], 16.7, places=0)
+        self.assertAlmostEqual(row["settled_ms"], 33.3, places=0)
+
+    def test_static_content_that_paints_late_delays_settled(self):
+        t, sent = self.aligned([1000, 1000, 1000, 800, 700, 700, 700])
+        frames = [frame(10, ob=0.2, of=0.1, cb=0.3, cf=0.4), frame(60, ob=0.2, cb=0.3, cf=0.4)] + \
+                 [frame(90 + i * 8, ob=0.2, cb=0.3) for i in range(8)]
+        row = ssm.transition(self.strip(sent, frames), t, static=True)
+        self.assertEqual(row["settled_ms"], 90)
+        self.assertEqual(row["partial_frames"], 1)
+
+    def test_streaming_content_is_timed_by_the_layout_alone(self):
+        t, sent = self.aligned([1000, 1000, 1000, 800, 700, 700, 700])
+        frames = [frame(10 + i * 8, ob=0.2, of=0.1 + (i % 2) * 0.05, cb=0.3, cf=0.2) for i in range(12)]
+        row = ssm.transition(self.strip(sent, frames), t, static=False)
+        self.assertNotIn("error", row)
+        self.assertAlmostEqual(row["settled_ms"], 16.7, places=0)
+        self.assertIsNone(row["partial_frames"])
+
+    def test_motion_before_the_input_is_left_out(self):
+        t, sent = self.aligned([900, 950, 1000, 1000, 1000, 1000], sent_t=25)
+        row = ssm.transition(self.strip(sent, [frame(5)]), t, static=False)
+        self.assertIn("nothing moved", row["error"])
+
+    def test_a_failed_strip_fails_the_round(self):
+        t, sent = self.aligned([1000, 1000, 800, 700, 700])
+        row = ssm.transition({"error": "no frames"}, t, static=True)
+        self.assertIn("strip", row["error"])
+
+
 class SummaryTests(unittest.TestCase):
     def summary(self, settled, **extra):
         return {"first_frame_ms": 10, "settled_ms": settled, "frame_p95_ms": 8.3, "blank_frames": 0, "retargets": 0,
-                "unsettled": 0, "refresh_ms": 8.33, **extra}
+                "unsettled": 0, "refresh_ms": 8.33, "rounds": 3, "failed_rounds": 0, **extra}
 
     def test_rounds_take_the_median_and_the_worst_blank(self):
         rows = [{"settled_ms": 100, "blank_frames": 0}, {"settled_ms": 140, "blank_frames": 2}, {"settled_ms": 90, "blank_frames": 0}]
         s = ssm.summarize(rows)
         self.assertEqual(s["settled_ms"], 100)
         self.assertEqual(s["blank_frames"], 2)
+
+    def test_a_failed_round_fails_the_cell(self):
+        s = ssm.summarize([{"settled_ms": 50, "first_frame_ms": 8, "frame_p95_ms": 8, "blank_frames": 0, "retargets": 0},
+                           {"error": "the key made no pane"}])
+        self.assertEqual(s["failed_rounds"], 1)
+        self.assertFalse(ssm.verdict(s, 8.33)["pass"])
+        head = ssm.headline({"s1-empty-w1": {"split_right": s}}, {})
+        self.assertIsNone(head["settled_ms"])
 
     def test_verdict_and_p95_target_by_refresh(self):
         self.assertTrue(ssm.verdict(self.summary(100))["pass"])

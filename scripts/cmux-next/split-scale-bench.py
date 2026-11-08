@@ -10,8 +10,8 @@ MANY WORKSPACES/PROCESSES THERE ARE." So the same gestures run in every cell of
                 scrollback  a terminal with --scrollback lines that keeps streaming output (about 2,000 lines/s)
                 browser     a Chromium page (perf-stress-session's page: a grid of cards, a spinner on rAF)
                 chat        an agent chat with a --chat-turns turn transcript (seeded once, a copy per pane)
-  workspaces  --workspaces 1,10,30  workspaces in the window; every one but the measured one runs a terminal that
-                                    prints a line every 20 ms (background processes)
+  workspaces  --workspaces 1,10,30  workspaces in the window, the measured one included (checked before each
+                                    cell); every other one runs a terminal that prints a line every 20 ms
 
 and in each cell every transition of --transitions, each sent through the real input path (keys through
 `debug.new_tab frame_strip`'s key path, the divider drag as synthesized mouse events on the divider):
@@ -25,8 +25,9 @@ and in each cell every transition of --transitions, each sent through the real i
 
 Per transition, from two recordings of the same gesture (split_scale_metrics.py has the definitions):
 
-  first_frame_ms, settled_ms      the composited window (frame_strip): input to the first changed frame, input to
-                                  the first frame of the settled run
+  first_frame_ms, settled_ms      input to the first and the last display-link tick whose layout moved (the trace,
+                                  lined up with the input by frame_strip's `sent_host_s`); for static content (empty,
+                                  chat) settled is no earlier than the composited window's settled frame
   frame_p50/p95/max_ms, dropped   display-link frame intervals while anything moved (`debug.motion trace_*`)
   blank_frames, partial_frames    content one flat color neither before nor final; content still painting after
                                   the panes landed
@@ -36,7 +37,8 @@ Each number is the median over --rounds (blank, partial, retargets and frame max
 frame <= 16 ms, settled <= 120 ms, p95 <= 8.3 ms at 120 Hz (16.7 ms otherwise), 0 blank frames, 0 retargets, and the
 cost flat across the matrix: per transition the worst cell's settled time within 1.2x of the smallest cell's
 (1 split, empty, 1 workspace). The JSON has every cell, every round and the `worst` headline the goal check reads; the
-table is printed between SPLIT-SCALE-TABLE-BEGIN and -END.
+table is printed between SPLIT-SCALE-TABLE-BEGIN and -END. `pass` needs every asked cell and transition measured,
+no failed round and no failed cell.
 
 Usage:
   split-scale-bench.py --app APP [--splits 1,4,9] [--contents empty,scrollback,browser,chat] [--workspaces 1,10,30]
@@ -71,6 +73,8 @@ from bench_power import wipe_state  # noqa: E402
 TRANSITIONS = ("split_right", "close_right", "split_down", "close_down", "bottom_open", "bottom_close",
                "divider_drag", "side_open", "side_close")
 CONTENTS = ("empty", "scrollback", "browser", "chat")
+# Content whose pixels hold still between inputs: its composited settle is judged too (split_scale_metrics.transition).
+STATIC_CONTENTS = ("empty", "chat")
 CMD_D = {"key": "d", "modifiers": ["command"]}
 CMD_SHIFT_D = {"key": "d", "modifiers": ["command", "shift"]}
 CMD_W = {"key": "w", "modifiers": ["command"]}
@@ -257,26 +261,41 @@ def fill(run, workspace, pane, content, chats):
 
 
 def background(run, count):
-    """Adds background workspaces until the window has `count` - 1 of them, each with a terminal that prints a line
-    every 20 ms."""
+    """Makes the window hold `count` - 1 workspaces besides the measured one (the launch workspace is one of them),
+    each with a terminal that prints a line every 20 ms."""
     stress = run.stress
-    made = getattr(run, "background", [])
-    while len(made) < count - 1:
-        workspace = stress.new_workspace()
-        if not workspace:
-            raise RuntimeError(f"no background workspace {len(made) + 1}: {stress.refusals[-2:]}")
-        pane = STRESS.wait(lambda: (stress.panes(stress.workspace(workspace)) or [{}])[0].get("id"), 20)
-        tab = next((t.get("id") for t in stress.settled_tabs(workspace, pane) if t.get("kind") == "terminal"), None)
-        if tab:
+    busy = getattr(run, "busy_workspaces", set())
+    while True:
+        workspaces = [w["id"] for w in stress.workspaces()]
+        for workspace in workspaces:
+            if workspace in busy:
+                continue
+            pane = STRESS.wait(lambda w=workspace: (stress.panes(stress.workspace(w)) or [{}])[0].get("id"), 20)
+            tab = next((t.get("id") for t in stress.settled_tabs(workspace, pane) if t.get("kind") == "terminal"), None)
+            if not tab:
+                raise RuntimeError(f"background workspace {workspace} has no terminal to keep busy")
             stress.make_busy(tab)
-        made.append(workspace)
-    run.background = made
+            busy.add(workspace)
+        if len(workspaces) >= count - 1:
+            break
+        if not stress.new_workspace():
+            raise RuntimeError(f"no background workspace {len(workspaces) + 1}: {stress.refusals[-2:]}")
+    run.busy_workspaces = busy
+    if len(workspaces) != count - 1:
+        raise RuntimeError(f"the window has {len(workspaces)} workspaces before the measured one, not {count - 1}")
+
+
+def check_workspaces(run, count):
+    """The cell's window holds exactly `count` workspaces, the measured one among them."""
+    have = len(run.stress.workspaces())
+    if have != count:
+        raise RuntimeError(f"the cell has {have} workspaces, not {count}")
 
 
 # ---------------------------------------------------------------------------------------------
 # One transition: a frame strip of the gesture with the motion trace around it.
 
-def record(run, gesture, label, content="focused"):
+def record(run, gesture, label, content="focused", static=True):
     folder = os.path.join(tempfile.gettempdir(), f"split-scale-{os.getpid()}", label)
     trace_path = os.path.join(folder, "trace.json")
     os.makedirs(folder, exist_ok=True)
@@ -298,7 +317,7 @@ def record(run, gesture, label, content="focused"):
     key = strip.get("key") if isinstance(strip.get("key"), dict) else {}
     if key.get("error"):
         strip = {"error": f"input: {key['error']}"}
-    return ssm.transition(strip, trace, opts.strip_tolerance)
+    return ssm.transition(strip, trace, opts.strip_tolerance, static=static)
 
 
 def pane_ids(run, workspace):
@@ -309,11 +328,12 @@ def new_pane(run, workspace, before):
     return STRESS.wait(lambda: next((p for p in pane_ids(run, workspace) if p not in before), None), 5, step=0.05)
 
 
-def run_cell(run, workspace, columns, results, cell):
+def run_cell(run, workspace, columns, results, cell, content):
     """Every wanted transition in this cell, --rounds times. Each pair (split, close) restores the layout it found."""
     stress = run.stress
     top_left, bottom_left = columns[0][0], columns[0][-1]
     out = results["raw"].setdefault(cell, {})
+    static = content in STATIC_CONTENTS
 
     def add(name, row):
         out.setdefault(name, []).append(row)
@@ -324,7 +344,7 @@ def run_cell(run, workspace, columns, results, cell):
         stress.focus_pane(pane)
         time.sleep(opts.settle)  # test script: the focus move's own motion ends before the timed key
         before = pane_ids(run, workspace)
-        row = record(run, gesture, f"{cell}-{open_name}-{rnd}")
+        row = record(run, gesture, f"{cell}-{open_name}-{rnd}", static=static)
         made = new_pane(run, workspace, before)
         if not made:
             row["error"] = "the key made no pane"
@@ -335,7 +355,7 @@ def run_cell(run, workspace, columns, results, cell):
         time.sleep(opts.settle)  # test script: the open's motion ends before the close
         stress.focus_pane(made)
         time.sleep(opts.settle)  # test script: the last gesture's motion ends
-        row = record(run, CMD_W, f"{cell}-{close_name}-{rnd}")
+        row = record(run, CMD_W, f"{cell}-{close_name}-{rnd}", static=static)
         gone = STRESS.wait(lambda: made not in pane_ids(run, workspace), 5, step=0.05)
         if not gone:
             row["error"] = "Cmd-W left the pane"
@@ -354,18 +374,18 @@ def run_cell(run, workspace, columns, results, cell):
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
             add("divider_drag", record(run, {"gesture": "mouse", "mouse": {"action": "drag", "divider": "first",
                                                                             "by_x": -120, "steps": 30}},
-                                       f"{cell}-divider_drag-{rnd}"))
+                                       f"{cell}-divider_drag-{rnd}", static=static))
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
             run.rpc("debug.mouse", {"action": "drag", "divider": "first", "by_x": 120, "steps": 30})  # untimed: back
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
         if "side_open" in WANTED or "side_close" in WANTED:
             stress.focus_pane(top_left)
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
-            opened = record(run, OPT_CMD_B, f"{cell}-side_open-{rnd}", content="none")
+            opened = record(run, OPT_CMD_B, f"{cell}-side_open-{rnd}", content="none", static=static)
             if "side_open" in WANTED:
                 add("side_open", opened)
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
-            closed = record(run, OPT_CMD_B, f"{cell}-side_close-{rnd}", content="none")
+            closed = record(run, OPT_CMD_B, f"{cell}-side_close-{rnd}", content="none", static=static)
             if "side_close" in WANTED:
                 add("side_close", closed)
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
@@ -407,7 +427,19 @@ def finish(results):
     pairs = [v for per in results["verdicts"].values() for v in per.values()]
     results["measured"] = len(pairs)
     results["passing"] = sum(1 for v in pairs if v["pass"])
-    results["pass"] = bool(pairs) and results["passing"] == len(pairs) and all(f["pass"] for f in results["flatness"].values())
+    # Every cell the matrix asked for, with every wanted transition (a 1-pane cell has no divider to drag).
+    missing = []
+    for count in WORKSPACES:
+        for splits in SPLITS:
+            for content in WANTED_CONTENTS:
+                cell = f"s{splits}-{content}-w{count}"
+                wanted = [t for t in WANTED if not (t == "divider_drag" and splits == 1)]
+                missing += [f"{cell} {t}" for t in wanted if t not in cells.get(cell, {})]
+    results["missing"] = missing
+    if results["errors"] or missing:
+        results["worst"] = {**results["worst"], "incomplete": len(missing), "failed_cells": sorted(results["errors"])}
+    results["pass"] = (bool(pairs) and results["passing"] == len(pairs) and not missing and not results["errors"]
+                       and all(f["pass"] for f in results["flatness"].values()))
     text = ssm.table(results)
     print("SPLIT-SCALE-TABLE-BEGIN\n" + text + "\nSPLIT-SCALE-TABLE-END", flush=True)
     if opts.json:
@@ -458,7 +490,8 @@ def main():
                     workspace = None
                     try:
                         workspace, columns = build_cell(run, splits, content, chats)
-                        run_cell(run, workspace, columns, results, cell)
+                        check_workspaces(run, count)
+                        run_cell(run, workspace, columns, results, cell, content)
                     except (Exception, SystemExit) as error:  # noqa: BLE001 - a cell that fails is its record; the next runs
                         results["errors"][cell] = f"{type(error).__name__}: {str(error)[:500]}"
                         say(f"split-scale: {cell} did not finish: {results['errors'][cell]}")
