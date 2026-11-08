@@ -71,6 +71,7 @@ import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { ContextScreen } from "./context/ContextScreen";
 import { contextAccess, contextSave } from "./context/contextAccess";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
+import { HarnessInstallContext } from "./harnesses/harnessInstallContext";
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
@@ -1950,6 +1951,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (method: string, params: Record<string, unknown> = {}) =>
       method === "harness.health" ? readHarnessHealth(params) : callNative(method, params),
     [readHarnessHealth],
+  );
+  /// The composer chips' one-click install (cmux#38191): the Harnesses page's calls, for a chat on
+  /// this Mac only (harnessInstallContext.ts).
+  const refreshPickerCatalog = pickerState.refresh;
+  const harnessInstaller = useMemo(
+    () => (healthLocal ? { native: harnessesNative, refreshCatalog: refreshPickerCatalog } : undefined),
+    [healthLocal, harnessesNative, refreshPickerCatalog],
   );
   // After its Log In ran in a terminal tab, coming back to the chat checks again; an update the
   // host ran (`harness.update`) checks again once the chat restarts on it.
@@ -11738,13 +11746,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   return (
     <SignInContext.Provider value={signIn}>
-      <ChatAccountsContext.Provider value={chatAccounts}>
-        <UpdateOfferContext.Provider value={updateOffer}>
-          <AgentProgressContext.Provider value={progressStore}>
-            <NoticeSlot>{pane}</NoticeSlot>
-          </AgentProgressContext.Provider>
-        </UpdateOfferContext.Provider>
-      </ChatAccountsContext.Provider>
+      <HarnessInstallContext.Provider value={harnessInstaller}>
+        <ChatAccountsContext.Provider value={chatAccounts}>
+          <UpdateOfferContext.Provider value={updateOffer}>
+            <AgentProgressContext.Provider value={progressStore}>
+              <NoticeSlot>{pane}</NoticeSlot>
+            </AgentProgressContext.Provider>
+          </UpdateOfferContext.Provider>
+        </ChatAccountsContext.Provider>
+      </HarnessInstallContext.Provider>
     </SignInContext.Provider>
   );
 }

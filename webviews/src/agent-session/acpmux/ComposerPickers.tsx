@@ -21,11 +21,15 @@ import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
+import { HarnessInstallDialog } from "./harnesses/HarnessInstallDialog";
+import { useHarnessInstaller } from "./harnesses/harnessInstallContext";
+import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
+import { useHarnessInstall } from "./harnesses/useHarnessInstall";
 import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
 import { extraConfigOptions } from "./agentOptions";
-import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
+import type { CatalogRefreshState, HarnessInstallPick, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
@@ -563,6 +567,36 @@ export function ComposerPickers({
       onEffort(comboFast?.configId ?? fastOption?.id ?? HELD_FAST_ID, comboFast?.value ?? HELD_FAST_ON);
     else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
   };
+  // One-click install (cmux#38191): a pick of a harness this Mac does not have opens its install
+  // prompt; once it is installed (acpmux has found it, the catalog read again) the pick lands as a
+  // combo does. Only a chat on this Mac has an installer (harnessInstallContext.ts).
+  const installer = useHarnessInstaller();
+  const harnessInstall = useHarnessInstall({
+    callNative: installer?.native ?? noInstaller,
+    cwd: folder ?? summary?.cwd,
+    refreshCatalog: installer?.refreshCatalog,
+  });
+  // The pick runs after the install, on the chips of that moment, not of the render that asked.
+  const latestCombo = useRef(combo);
+  latestCombo.current = combo;
+  const requestInstall = (pick: HarnessInstallPick) => {
+    const entry = pickerCatalog?.harnesses.find(
+      (candidate) => (candidate.acpmuxHarness ?? candidate.id) === pick.harness,
+    );
+    const model = pick.model;
+    harnessInstall.request(
+      {
+        harness: pick.harness,
+        name: entry?.name ?? pick.harness,
+        mark: entry?.brand ?? pick.harness,
+        ...(INSTALL_COMMANDS[pick.harness] ? { command: INSTALL_COMMANDS[pick.harness] } : {}),
+        ...(entry?.docsUrl ? { docsUrl: entry.docsUrl } : {}),
+      },
+      model
+        ? () => latestCombo.current({ harness: pick.harness, model, effort: pick.effort, fast: pick.fast })
+        : undefined,
+    );
+  };
   const switchFailed = snapshot.switching?.phase === "failed";
   useEffect(() => {
     const wanted = crossing.current;
@@ -1073,6 +1107,7 @@ export function ComposerPickers({
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
           onAddAgent={onAddAgent}
+          {...(installer && switchHarness ? { onInstall: requestInstall } : {})}
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
@@ -1177,8 +1212,25 @@ export function ComposerPickers({
       />
     </div>
   );
-  return chips;
+  return (
+    <>
+      {chips}
+      {harnessInstall.state && (
+        <HarnessInstallDialog
+          state={harnessInstall.state}
+          onInstall={harnessInstall.install}
+          onCancel={harnessInstall.dismiss}
+          {...(harnessInstall.state.target.docsUrl ? { onSetupGuide: harnessInstall.setupGuide } : {})}
+        />
+      )}
+    </>
+  );
 }
+
+/// The install prompt's host calls when the pane provides no installer: never reached, since the
+/// picker then offers no install pick.
+// l10n-allow: a developer error, never shown
+const noInstaller = () => Promise.reject(new Error("no harness installer"));
 
 /// No start mode to name: the access chip holds its place as "Mode" (a borrowed answer's face).
 const MODE_PLACEHOLDER: KeptStartMode = { modeId: "", borrowed: true };

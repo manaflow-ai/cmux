@@ -20,3 +20,13 @@
 .acpmux-harnesses-custom{display:flex;flex-direction:column;align-items:stretch;min-width:0;gap:0;padding:8px var(--harness-inset) 8px calc(var(--harness-inset) + var(--harness-mark) + var(--harness-gap));border:0;border-top:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;text-align:left}
 .acpmux-harnesses-custom:hover .acpmux-harness-name{text-decoration:underline}
 .acpmux-harnesses button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+/* The model picker's install prompt (HarnessInstallDialog.tsx, cmux#38191): the Delete dialog's sheet (header.css) with the command it runs and its progress. */
+.acpmux-install-dialog{width:min(400px,calc(100vw - 32px));max-width:400px;padding:var(--ds-space-4);color:var(--agent-text)}
+.acpmux-install-dialog-head{display:flex;align-items:center;gap:8px}
+.acpmux-install-dialog h2{margin:0;min-width:0;color:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-install-dialog p{margin:8px 0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-install-dialog-command{display:block;margin:0 0 8px;padding:8px;border-radius:6px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-soft);font-family:var(--font-mono, ui-monospace, monospace);font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:pre-wrap;word-break:break-all;max-height:96px;overflow:auto;user-select:text}
+.acpmux-install-dialog .acpmux-install-dialog-status{display:flex;align-items:center;gap:8px;margin:8px 0;min-width:0;color:var(--agent-soft)}
+.acpmux-install-dialog-status>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-install-dialog .acpmux-install-dialog-status.is-error{display:block;color:var(--agent-danger);overflow-wrap:anywhere}
+.acpmux-install-dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}

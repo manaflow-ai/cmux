@@ -69,6 +69,10 @@ export type ModelPickerProps = {
   onHarnessEnable?(folder: string, id: string): void;
   /// Add harness…, the menu's last row: the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
+  /// A pick of a harness this machine does not have (its model row, or its Install… row with no
+  /// model): the host's install prompt, which installs it and then makes the pick (cmux#38191).
+  /// Without it those rows stay unpickable and Install… opens the Harnesses page (`onAddAgent`).
+  onInstall?(pick: HarnessInstallPick): void;
   /// Set while the picker is mounted to a call that opens its menu (the compact one when `quick`
   /// is set), whose rail switches harness: the footer's harness item opens it (ComposerHarness.tsx).
   opener?: { current: (() => void) | undefined };
@@ -118,6 +122,10 @@ export type ModelPickerProps = {
 };
 
 export type ModelCombo = { harness: string; model: string; effort?: string; fast?: boolean };
+
+/** A pick of a harness this machine does not have: its install prompt's harness, and the model
+ * (with its effort and Fast) to pick once it is installed; none for its Install… row. */
+export type HarnessInstallPick = { harness: string; model?: string; effort?: string; fast?: boolean };
 
 export type CatalogRefreshState = {
   status?: "idle" | "fetching" | "updated" | "error";

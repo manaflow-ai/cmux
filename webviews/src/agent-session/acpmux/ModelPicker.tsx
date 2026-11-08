@@ -496,6 +496,9 @@ export function ModelPicker(props: ModelPickerProps) {
   const railHarnesses = useMemo(() => harnesses.filter((entry) => !entry.folder), [harnesses]);
   // A started chat offers no Add harness… row: it adds no harness to the chat.
   const onAddAgent = props.harnessFixed ? undefined : props.onAddAgent;
+  // A harness this machine does not have installs from its own pick (cmux#38191), in a New Tab or a
+  // chat that has not started; a started chat adds no harness.
+  const onInstall = props.harnessFixed ? undefined : props.onInstall;
   const navigableHarnesses = useMemo(
     () =>
       railHarnesses
@@ -883,10 +886,13 @@ export function ModelPicker(props: ModelPickerProps) {
       const { shown, more } = signedOutHere
         ? { shown: [], more: [] }
         : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined, undefined, lang);
-      // A harness this machine does not have lists its catalog models, none of them pickable, with
-      // its Install… row.
+      // A harness this machine does not have lists its catalog models with its Install… row. With
+      // the host's install prompt a model's pick installs the harness and then picks it (cmux#38191);
+      // without one none of them is pickable.
       const missing = !!entry.notInstalled;
-      const tabRow = (model: ModelChoice) => (missing ? { ...row(entry, model), disabled: true } : row(entry, model));
+      const tabRow = (model: ModelChoice) =>
+        missing && !onInstall ? { ...row(entry, model), disabled: true } : row(entry, model);
+      const install = onInstall ? () => onInstall({ harness: entry.acpmuxHarness ?? entry.id }) : onAddAgent;
       list.push({
         id: entry.id,
         name: entry.name,
@@ -896,7 +902,7 @@ export function ModelPicker(props: ModelPickerProps) {
         more: more.map(tabRow),
         ...(entry.unavailable ? { unavailable: true } : {}),
         ...(missing ? { note: t("harnesses.notInstalled") } : {}),
-        ...(missing && onAddAgent ? { setUp: onAddAgent } : {}),
+        ...(missing && install ? { setUp: install } : {}),
         ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
         ...(signedOutHere && loginFor(entry) && onLogIn
           ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
@@ -931,6 +937,7 @@ export function ModelPicker(props: ModelPickerProps) {
     loginFor,
     needsSetup,
     onAddAgent,
+    onInstall,
     favorites,
     starredText,
     harness,
@@ -945,7 +952,9 @@ export function ModelPicker(props: ModelPickerProps) {
   /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
   const pickQuick = (model: QuickModel) => {
     const owner = harnesses.find((entry) => entry.id === model.family);
-    if (!owner || model.disabled || !owner.pickable || needsSetup(owner)) return;
+    if (!owner || model.disabled || !owner.pickable) return;
+    if (installPick(owner, model)) return;
+    if (needsSetup(owner)) return;
     const harnessId = owner.acpmuxHarness ?? owner.id;
     const here = owner.ids.includes(harness ?? "");
     if (onCombo && (model.effort || model.fast || !here)) {
@@ -960,9 +969,23 @@ export function ModelPicker(props: ModelPickerProps) {
     if (forkHarnesses) fork?.hold(harnessId);
     else if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
   };
+  /// A pick of a model of a harness this machine does not have opens the host's install prompt,
+  /// which picks the model once the harness is installed (cmux#38191). True when it did.
+  const installPick = (owner: HarnessChoice, model: Pick<QuickModel, "id" | "effort" | "fast">) => {
+    if (!owner.notInstalled || !onInstall) return false;
+    onInstall({
+      harness: owner.acpmuxHarness ?? owner.id,
+      model: model.id,
+      ...(model.effort ? { effort: model.effort } : {}),
+      ...(model.fast ? { fast: true } : {}),
+    });
+    return true;
+  };
   /// A compact-menu pick from the rail or the search: the prompt takes the keyboard once it closes.
+  /// An install pick leaves it to the install prompt, which takes the keyboard itself.
   const pickQuickToPrompt = (model: QuickModel) => {
-    quickPicked.current = true;
+    const owner = harnesses.find((entry) => entry.id === model.family);
+    quickPicked.current = !(owner?.notInstalled && onInstall);
     pickQuick(model);
   };
   /// An Account pick: the harness's other profile starts a chat there, or, in a started chat, is
@@ -1595,11 +1618,15 @@ export function ModelPicker(props: ModelPickerProps) {
                 {selected && !searching && !starredView && selected.notInstalled ? (
                   <>
                     <div className={emptyNote}>{t("harnesses.notInstalled")}</div>
-                    {onAddAgent && (
+                    {(onInstall || onAddAgent) && (
                       <button
                         type="button"
                         className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
-                        onClick={addHarness}
+                        onClick={() => {
+                          if (!onInstall) return addHarness();
+                          close();
+                          onInstall({ harness: selected.acpmuxHarness ?? selected.id });
+                        }}
                       >
                         <span className="acpmux-menu-label flex-1 truncate">{t("harnesses.install")}</span>
                       </button>

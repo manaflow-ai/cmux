@@ -7,11 +7,9 @@ import { type StringKey, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";
 import type { PickerCatalog } from "../modelCatalogData";
-import { cleanShellOutput } from "../shell/shellRuns";
+import { type Native, runInstallCommand } from "./harnessInstall";
 import { harnessRows, type HarnessRow, type HarnessStatus } from "./harnessRows";
 import "./harnesses.css";
-
-type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
 const STATUS: Record<HarnessStatus, StringKey> = {
   ready: "harnesses.ready",
@@ -33,20 +31,8 @@ type Progress =
   | { kind: "waiting" }
   | { kind: "launching" };
 
-type HostRead = { output?: string; next?: number; exit?: { code?: number; signal?: number } };
-
 /// How long the page waits for a sign-in started from it.
 const SIGN_IN_WAIT_MS = 3 * 60 * 1000;
-/// Output kept to find the last line.
-const TAIL = 4096;
-
-const lastLine = (text: string) =>
-  cleanShellOutput(text)
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .at(-1);
-
 /// Integrate a harness (cx-uj5g8), in place in the pane: the agent CLIs cmux knows and their state
 /// on this Mac, each with one action. Start Chat starts a chat on it in this tab; Sign In runs its
 /// login in a terminal tab and the row waits for it; Install… runs its install command in place
@@ -206,30 +192,18 @@ export function HarnessesScreen({
   const runInPlace = (row: HarnessRow, command: string) => {
     mark(row.harness, { kind: "installing" });
     void (async () => {
-      let tail = "";
       try {
         // Straight from the click: the host runs a command only on the user's gesture.
-        const started = (await callNative("shell.run", { command, ...inFolder })) as { id: string };
-        let after = 0;
-        for (;;) {
-          const read = (await callNative("shell.read", { id: started.id, after })) as HostRead;
+        const ended = await runInstallCommand({
+          callNative,
+          command,
+          ...inFolder,
           // The page closed: the command stops with it (another open offers Install again).
-          if (!live.current) {
-            if (!read.exit) void callNative("shell.stop", { id: started.id }).catch(() => undefined);
-            return;
-          }
-          after = read.next ?? after;
-          if (read.output) {
-            tail = (tail + read.output).slice(-TAIL);
-            const line = lastLine(tail);
-            mark(row.harness, { kind: "installing", ...(line ? { line } : {}) });
-          }
-          if (read.exit) {
-            if (read.exit.code !== 0) throw new Error(lastLine(tail) ?? t("harnesses.commandFailed"));
-            break;
-          }
-        }
-        if (!live.current) return;
+          live: () => live.current,
+          onLine: (line) => mark(row.harness, { kind: "installing", line }),
+          failedText: t("harnesses.commandFailed"),
+        });
+        if (ended === "stopped" || !live.current) return;
         await rescan(row);
         mark(row.harness, { kind: "done" });
       } catch (error) {
