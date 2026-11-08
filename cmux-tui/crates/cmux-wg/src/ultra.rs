@@ -77,6 +77,9 @@ const PENDING: usize = 32;
 /// Origins WireGuard authenticated, newest last (paths of a multipath carrier,
 /// and the address after a roam).
 const TRUSTED: usize = 8;
+/// Parity datagrams one `poll_recv` reads before it yields, so a flood of them
+/// (trusted or not) cannot keep the driver from its other work.
+const PARITY_PER_POLL: usize = 64;
 const MAX_GROUP: u8 = 32;
 const MAX_PARITY: u8 = 15;
 const MAX_COPIES: u8 = 4;
@@ -663,6 +666,7 @@ impl Underlay for UltraUnderlay {
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
         // Whatever the tunnel received last was authenticated by now, or not.
         self.staged = None;
+        let mut parities = 0;
         loop {
             if let Some((datagram, origin)) = self.rebuilt.pop_front() {
                 if let Some(slot) = buffer.get_mut(..datagram.len()) {
@@ -677,8 +681,17 @@ impl Underlay for UltraUnderlay {
                 return Poll::Ready(Ok(received));
             };
             if datagram.first() == Some(&TAG) {
-                let datagram = datagram.to_vec();
-                self.on_parity(&datagram, received.origin);
+                // Parity from an origin WireGuard never authenticated is
+                // dropped unread and uncopied.
+                if self.trusts(received.origin) {
+                    let datagram = datagram.to_vec();
+                    self.on_parity(&datagram, received.origin);
+                }
+                parities += 1;
+                if parities >= PARITY_PER_POLL {
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
+                }
                 continue;
             }
             self.stage(datagram);
@@ -1012,6 +1025,29 @@ mod tests {
         inbox.push((parity[0].clone(), peer));
         let (_, out, _) = receive(UltraMode::Fec { group: 4, parity: 1 }, None, inbox, &sent);
         assert_eq!(out.last(), Some(&sent[2]), "rebuilt with the first member kept: {out:?}");
+    }
+
+    /// A flood of parity makes `poll_recv` yield after `PARITY_PER_POLL` of
+    /// them, with a wake to come back, so the driver keeps doing its other
+    /// work; the data behind the flood still arrives on a later poll.
+    #[test]
+    fn a_parity_flood_yields_to_the_driver() {
+        let index = [4, 4, 4, 4];
+        let (sent, parities) = group_of(index, 0, 1);
+        let stranger = origin(9999);
+        let mut inbox: Vec<_> =
+            (0..PARITY_PER_POLL + 10).map(|_| (parities[0].clone(), stranger)).collect();
+        inbox.push((sent[0].clone(), origin(1)));
+        let script = Script { inbox: inbox.into(), sent: Arc::default() };
+        let mut ultra = UltraUnderlay::new(Box::new(script), UltraMode::Off, Arc::default());
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        let mut buffer = vec![0u8; 4096];
+        assert!(ultra.poll_recv(&mut cx, &mut buffer).is_pending(), "the flood yields");
+        match ultra.poll_recv(&mut cx, &mut buffer) {
+            Poll::Ready(Ok(received)) => assert_eq!(buffer[..received.len], sent[0][..]),
+            other => panic!("the data behind the flood arrives: {other:?}"),
+        }
+        assert_eq!(ultra.counters.snapshot().parity_received, 0, "untrusted parity is unread");
     }
 
     /// A parity that arrives before a reordered member waits for it, and
