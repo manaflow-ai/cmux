@@ -475,14 +475,20 @@ impl Hub {
                     // (another checkout, the branch re-added) is not this run's change.
                     let made = made.cloned();
                     tokio::task::spawn_blocking(move || {
-                        if let Some(made) = &made {
-                            still_made(made).map_err(|why| {
+                        // Checked before and after the read: a folder swapped in while git read
+                        // by path is never shown as the run's change.
+                        let same = || match &made {
+                            Some(made) => still_made(made).map_err(|why| {
                                 format!(
                                     "the folder at its path is not this run's worktree now: {why}"
                                 )
-                            })?;
-                        }
-                        read_change(&root, &base)
+                            }),
+                            None => Ok(()),
+                        };
+                        same()?;
+                        let change = read_change(&root, &base)?;
+                        same()?;
+                        Ok(change)
                     })
                     .await
                     .unwrap_or_else(|e| Err(e.to_string()))

@@ -68,9 +68,13 @@ impl Hub {
     /// concurrent creator cannot replace an existing chat.
     pub(crate) async fn new_session_with_id(
         self: &Arc<Self>,
-        req: NewRequest,
+        mut req: NewRequest,
         fixed_id: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
+        // An empty model or effort is none, the same for every start: never a value that
+        // expands `${model}` to nothing.
+        req.model = req.model.filter(|m| !m.is_empty());
+        req.effort = req.effort.filter(|e| !e.is_empty());
         if let Some(id) = fixed_id.as_deref()
             && !crate::adopt::is_bare_id(id)
         {
@@ -84,7 +88,7 @@ impl Hub {
         // A model and an effort are spawn parameters (`--model`, `${model}` in a harness's argv or
         // env): one id each, on every start, whoever asks (a pane, an agent's sub-session, a link).
         for (key, value) in [("model", &req.model), ("effort", &req.effort)] {
-            if let Some(value) = value.as_deref().filter(|v| !v.is_empty())
+            if let Some(value) = value.as_deref()
                 && !cmux_agent_pane_policy::params::is_model_id(&serde_json::Value::from(value))
             {
                 return Err(RpcError::invalid_params(format!(

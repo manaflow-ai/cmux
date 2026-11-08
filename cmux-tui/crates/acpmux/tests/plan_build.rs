@@ -202,6 +202,10 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         .call("session/new", json!({"cwd": repo, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "effort": "$(id)"}}}))
         .await;
     assert!(r.get("error").is_some(), "an effort is one id too: {r}");
+    // An empty model is none, as on every start: the chat starts on its harness's own.
+    let none = json!({"cwd": repo, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "model": ""}}});
+    let r = app.ok("session/new", none).await;
+    assert_ne!(r["_meta"]["acpmux"]["model"], json!(""), "{r}");
 
     // An ask that is no plan approval builds nothing.
     let (rid, pid) = app.ask_plan(&chat, "ask: rm -rf build").await;
