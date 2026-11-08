@@ -617,8 +617,10 @@ impl Hub {
         let mut last_error: std::collections::HashMap<String, String> = Default::default();
         while !left.is_empty() {
             let only: Vec<PathBuf> = left.iter().map(|(_, root)| root.clone()).collect();
-            // The archive of each worktree this pass removed, by its folder.
-            let mut archives: std::collections::HashMap<String, String> = Default::default();
+            // Each worktree care's pass acted on, by its folder, with the archive id it reported:
+            // a folder gone after care said it went is removed, whatever the archive says.
+            let mut archives: std::collections::HashMap<String, Option<String>> =
+                Default::default();
             match self.care_discard(only, Arc::clone(&still)).await {
                 Ok(report) => {
                     for item in report.get("items").and_then(Value::as_array).into_iter().flatten()
@@ -626,12 +628,9 @@ impl Hub {
                         let Some(path) = item.get("path").and_then(Value::as_str) else {
                             continue;
                         };
-                        let archive = item
-                            .pointer("/outcome/archive")
-                            .and_then(Value::as_str)
-                            .filter(|_| item.pointer("/outcome/ok") == Some(&json!(true)));
-                        if let Some(archive) = archive {
-                            archives.insert(path.to_owned(), archive.to_owned());
+                        if item.pointer("/outcome/ok") == Some(&json!(true)) {
+                            let archive = item.pointer("/outcome/archive").and_then(Value::as_str);
+                            archives.insert(path.to_owned(), archive.map(str::to_owned));
                         } else if let Some(reason) = item
                             .pointer("/outcome/error")
                             .or_else(|| item.pointer("/verdict/reason"))
@@ -657,7 +656,10 @@ impl Hub {
                     return true;
                 }
                 rows.push(match archives.remove(&*root.to_string_lossy()) {
-                    Some(archive) => json!({"sessionId": id, "removed": true, "archive": archive}),
+                    Some(Some(archive)) => {
+                        json!({"sessionId": id, "removed": true, "archive": archive})
+                    }
+                    Some(None) => json!({"sessionId": id, "removed": true}),
                     // Gone from its path but not through this archive: care's own reason when it
                     // gave one (a worktree git could not remove stays aside, and that says where),
                     // else nothing here says its work was kept.

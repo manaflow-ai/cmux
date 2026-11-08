@@ -163,7 +163,7 @@ test("the prompt it ran goes once the runs started", async () => {
   expect(dom.window.document.querySelector(".acpmux-run-on")).toBeNull();
 });
 
-test("words typed while the runs start stay in the composer", async () => {
+test("words typed after the prompt while the runs start stay, and the sent prompt goes", async () => {
   let started!: () => void;
   const ran: string[] = [];
   await render((text) => {
@@ -176,7 +176,20 @@ test("words typed while the runs start stay in the composer", async () => {
   await type(" and a CHANGELOG");
   await act(async () => started());
   await settle();
-  expect(prompt()).toBe("Add a NOTICE and a CHANGELOG");
+  // As a send keeps what was typed after it (cmux#38892 review, F1).
+  expect(prompt()).toBe("and a CHANGELOG");
+});
+
+test("a prompt edited while the runs start stays whole", async () => {
+  let started!: () => void;
+  await render(() => new Promise<void>((done) => (started = done)));
+  await type("Add a NOTICE");
+  await runOnAgents();
+  await act(async () => markdownField()!.setCaret(4));
+  await act(async () => markdownField()!.insertTyped("a LICENSE and "));
+  await act(async () => started());
+  await settle();
+  expect(prompt()).toBe("Add a LICENSE and a NOTICE");
 });
 
 test("the runs get the prompt as typed, not the field's escaped markdown", async () => {
