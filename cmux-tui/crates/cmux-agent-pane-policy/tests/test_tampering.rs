@@ -18,7 +18,7 @@ impl PaneScope for Scope {
 
 fn check(params: Value) -> Checked {
     check_frame(
-        &json!({"id": 37, "method": "_acpmux/test_tampering_restore", "params": params})
+        &json!({"jsonrpc": "2.0", "id": 37, "method": "_acpmux/test_tampering_restore", "params": params})
             .to_string(),
         &FrameState {
             is_first: false,
