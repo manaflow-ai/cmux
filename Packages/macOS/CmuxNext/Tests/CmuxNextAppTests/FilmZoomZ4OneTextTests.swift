@@ -8,7 +8,7 @@ import Testing
 /// ZOOM VARIANTS 6 (fork only, never merged): the Z4 zoom out showed the nvim pane's text twice for 4-6 frames (film
 /// C3 zoom out, /work/tmp/zv5-sheets/c3-out-sheet.png): the zoomed pane's old full picture faded out on the shrink's
 /// progress over the live pane, which shows the new wrap, so two text layouts showed through each other. A terminal shows
-/// one picture: the old one, opaque, until the frame at its new grid lands, then the live pane in that same commit.
+/// one picture: the old one, opaque, then the live pane, switched in one refresh with no fade.
 @MainActor
 @Suite(.closesItsWindows)
 struct FilmZoomZ4OneTextTests {
@@ -57,14 +57,14 @@ struct FilmZoomZ4OneTextTests {
                 "the old picture fades over the live pane: two text layouts show through each other")
         #expect(!Self.fades(live), "the live zoomed pane fades")
 
-        // The zoomed terminal's frame at its new size lands in this turn's pass: the swap is in this commit.
+        // The zoomed terminal's frame at its new size lands (3-4 refreshes in): nothing swaps yet (ZOOM VARIANTS 7: a swap
+        // here showed the live pane at its final size while the frame was far from its place, FilmZoomZ4CurveTests). The
+        // old picture goes later in one refresh, with no value between: never a fade between the two pictures.
         let landed = surface.filmFrameLanded // what the presenter's pass calls (it clears it first)
         surface.filmFrameLanded = nil
         landed?()
-        #expect(picture.isHidden, "the old picture still shows after the new frame landed")
-        #expect(live.zPosition > container.zPosition, "the live pane is not above the old picture's frame after the swap")
-        #expect(container.backgroundColor != nil, "the shrinking frame around the live pane shows no ground")
-        #expect(!Self.fades(container) && !Self.fades(live), "a fade between two pictures after the swap")
+        #expect(!picture.isHidden && !container.isHidden, "the old picture went at the landing, before the frame reached its place")
+        #expect(!Self.fades(container) && !Self.fades(picture) && !Self.fades(live), "a fade between two pictures after the landing")
     }
 }
 #endif

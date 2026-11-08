@@ -57,7 +57,8 @@ extension ScreenContentView {
                 dividers.append(row)
             }
         }
-        return ["panes": panes, "dividers": dividers, "zoom": [screen.zoomMotion.pane?.rawValue ?? ""], "closing": closing]
+        return ["panes": panes, "dividers": dividers, "zoom": [screen.zoomMotion.pane?.rawValue ?? ""], "closing": closing,
+                "film": screen.filmMotionRows()]
     }
 }
 #endif

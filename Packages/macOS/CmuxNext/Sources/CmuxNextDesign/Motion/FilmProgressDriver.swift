@@ -91,6 +91,63 @@ public struct FilmProgressDriver: Sendable, Equatable {
     /// The largest progress past 1 (0: no overshoot), times the travel gives the overshoot in points.
     public var overshoot: Double { max(0, (table?.values.max() ?? 1) - 1) }
 
+    /// The progress `t` s after the start: 0 before it, 1 from the rest on.
+    public func value(at t: Double) -> Double {
+        guard t > 0 else { return 0 }
+        guard t < duration else { return 1 }
+        switch curve {
+        case let .bezier(x1, y1, x2, y2, seconds):
+            return Self.bezier(Double(x1), Double(y1), Double(x2), Double(y2), at: t / seconds)
+        case .spring:
+            return step(t) ?? 1
+        }
+    }
+
+    /// The first time from which the progress stays within `fraction` of 1 until the rest (a frame `travel` pt long is
+    /// then within `fraction` x `travel` pt of its place), at most the duration.
+    public func settles(within fraction: Double) -> TimeInterval {
+        let every = 1.0 / 960
+        var last = 0.0, t = 0.0
+        while t < duration {
+            if abs(1 - value(at: t)) > fraction { last = t + every }
+            t += every
+        }
+        return min(duration, last)
+    }
+
+    /// A cubic bezier timing curve (0, 0), (x1, y1), (x2, y2), (1, 1) at time fraction `u`: its y where its x is `u`.
+    private static func bezier(_ x1: Double, _ y1: Double, _ x2: Double, _ y2: Double, at u: Double) -> Double {
+        func coordinate(_ a: Double, _ b: Double, _ s: Double) -> Double {
+            3 * (1 - s) * (1 - s) * s * a + 3 * (1 - s) * s * s * b + s * s * s
+        }
+        var low = 0.0, high = 1.0
+        for _ in 0 ..< 40 {
+            let mid = (low + high) / 2
+            if coordinate(x1, x2, mid) < u { low = mid } else { high = mid }
+        }
+        return coordinate(y1, y2, (low + high) / 2)
+    }
+
+    /// `layer.keyPath` keeps what it shows now for `seconds`, then shows `value`, with no value between: a discrete
+    /// switch the render server makes in that refresh, on the clock of ``drive(_:_:_:completion:)`` (added in the same
+    /// turn, both start with the same commit). Through the pane motion gate: with its movement off, or no time to wait,
+    /// `value` applies at once.
+    @MainActor public func hold(_ layer: CALayer, _ keyPath: String, for seconds: TimeInterval, then value: Any) {
+        guard Motion.panes.animatesMovement, seconds > 0, let now = layer.value(forKeyPath: keyPath) else {
+            Motion.setModel(layer, keyPath, value)
+            return
+        }
+        CATransaction.begin()
+        defer { CATransaction.commit() }
+        Motion.setModel(layer, keyPath, value)
+        let frames = CAKeyframeAnimation(keyPath: keyPath)
+        frames.values = [now]
+        frames.keyTimes = [0, 1]
+        frames.calculationMode = .discrete
+        frames.duration = seconds
+        Motion.add(frames, to: layer, keyPath: keyPath, trace: "layer.\(keyPath).film-hold")
+    }
+
     /// `layer.keyPath` driven by the curve's progress: `value(p)` for each p (clamp inside `value` where the property
     /// must not overshoot). Every property driven this way in one turn moves on the same p at the same instant. Through
     /// the pane motion gate (`Motion.panes`): with its movement off, `value(1)` applies at once. `completion` runs at
