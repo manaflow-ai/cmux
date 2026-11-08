@@ -255,6 +255,37 @@ test("a reply's bare cmux link draws as the same chip", () => {
   expect(html).toContain("Retry fix");
 });
 
+// The host's push, in the shape the app sends it (CmuxNextAgentPane AgentPaneLinkPlaces, its event
+// as AgentPaneLinkPlacesTests pins it): the page host's `linkPlaces` event, members it leaves out absent.
+test("the app's linkPlaces push resolves a Copy Link to Workspace link to its chip", async () => {
+  const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+  const tab = `tab_${"0123456789abcdef".repeat(2)}`;
+  const sent = JSON.parse(
+    JSON.stringify([
+      { id: `ws_${HEX}`, kind: "workspace", title: "Research", host: "build-box" },
+      { id: `pane_${"a".repeat(32)}`, kind: "pane", title: "zsh", host: "build-box", workspace: "Research" },
+      { id: tab, kind: "tab", title: "zsh", host: "build-box", workspace: "Research" },
+    ]),
+  ) as unknown;
+  applyHostEvent({ kind: "linkPlaces", value: sent });
+  const html = renderToStaticMarkup(
+    <PromptTyped
+      text={`In this chat, something was weird. ${WORKSPACE} and cmux-nightly://tab/${tab}`}
+      show={(text) => text}
+    />,
+  );
+  expect(html).toContain(`href="${WORKSPACE}"`);
+  expect(html).toContain('data-cmux-link="workspace"');
+  expect(html).toContain("Research");
+  expect(html).toContain('<span class="cv-cmux-link__host">build-box</span>');
+  expect(html).toContain('data-cmux-link="tab"');
+  // The next push is the whole list again: a workspace it no longer names is the link again.
+  applyHostEvent({ kind: "linkPlaces", value: [] });
+  expect(renderToStaticMarkup(<PromptTyped text={`See ${WORKSPACE}`} show={(text) => text} />)).not.toContain(
+    "data-cmux-link",
+  );
+});
+
 test("a chat link names its chat from the session list, and a click opens that chat", async () => {
   const store = chats();
   const opened: string[] = [];
