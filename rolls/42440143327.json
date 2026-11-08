@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42440143327",
+  "recorded_at": "2026-11-08T02:57:35Z",
+  "reason": "cmux-tui fcf1ac085f09 changes the image's cmux-tui (pinned 9b6dd559c76e)",
+  "dry_run": false,
+  "cmux_tui": "fcf1ac085f0969b4cbd26948654d11e83c35fed3",
+  "fixes": [
+    {
+      "sha": "fcf1ac085f0969b4cbd26948654d11e83c35fed3",
+      "mergedAt": "2026-11-07T18:35:33-08:00",
+      "subject": "acpmux: the tap's comment says a refused sign-in ends at the second retry (#37782)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T02:57:35Z",
+    "snapshot_id": "sh-442b50bfcf904311b17192501b6d463e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42440143327): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ce388aa69d1b7f1a175c583b5c67e4882b285c8b",
+    "image": "cloud-native-auto-fcf1ac08-42440143327-1",
+    "revision": "ci-42440143327-1",
+    "at": "2026-11-08T02:57:35Z"
+  },
+  "rolled_back": false
+}
