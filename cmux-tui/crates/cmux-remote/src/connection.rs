@@ -22,6 +22,9 @@ use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits
 
 const TERMINAL_CLOSE_SEND_TIMEOUT: Duration = Duration::from_secs(1);
 const TERMINAL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long a probe sent because the network changed may take, write and answer, before the
+/// link is redialed. A route that survived the change answers well within it.
+const NETWORK_CHANGE_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone)]
 pub struct ClientConnectionConfig {
@@ -261,6 +264,9 @@ pub struct ClientConnection {
     /// Bumped by [`ClientConnection::network_changed`]: probes a live link at
     /// once, abandons a dial on the old network and wakes a parked recovery.
     network: watch::Sender<u64>,
+    /// Why the last redial failed, until one succeeds: the reason a waiter
+    /// that runs out of time is given.
+    last_failure: StdMutex<Option<String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -395,6 +401,7 @@ impl ClientConnection {
             state: watch::channel(ConnectionState::Connected).0,
             actions: watch::channel(0).0,
             network: watch::channel(0).0,
+            last_failure: StdMutex::new(None),
         });
         Self::spawn_heartbeat(&connection);
         Ok(connection)
@@ -474,6 +481,16 @@ impl ClientConnection {
         flags: FrameFlags,
     ) -> Result<u64, ConnectionError> {
         self.send_with(None, Some(deadline), lane, stream, payload, flags).await
+    }
+
+    /// Why the last redial failed, or `None` when the link has not failed a
+    /// redial since it last connected.
+    pub fn last_failure(&self) -> Option<String> {
+        self.last_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    fn set_last_failure(&self, failure: Option<String>) {
+        *self.last_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = failure;
     }
 
     /// Whether the daemon refused a reconnect because it no longer has this
@@ -1157,12 +1174,14 @@ impl ClientConnection {
             }
             match result {
                 Ok(()) => {
+                    self.set_last_failure(None);
                     if !self.closed.load(Ordering::Acquire) {
                         self.set_diagnostics_state(ConnectionState::Connected);
                     }
                     return Ok(());
                 }
                 Err(error) if retryable_connection_error(&error) => {
+                    self.set_last_failure(Some(error.to_string()));
                     if policy.maximum_attempts.is_some_and(|maximum| attempt >= maximum) {
                         return Err(ConnectionError::ReconnectExhausted {
                             attempts: attempt,
@@ -1337,12 +1356,12 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
     network.borrow_and_update();
     drop(initial);
     loop {
-        tokio::select! {
+        let network_moved = tokio::select! {
             biased;
             _ = close_state.changed() => return,
-            _ = network.changed() => {}
-            _ = tokio::time::sleep(interval) => {}
-        }
+            _ = network.changed() => true,
+            _ = tokio::time::sleep(interval) => false,
+        };
         let Some(connection) = weak.upgrade() else { return };
         if connection.closed.load(Ordering::Acquire) || connection.session_unavailable() {
             return;
@@ -1359,6 +1378,11 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         }
         let observed = connection.last_received();
         let generation = connection.session.read().await.generation();
+        // After a network change the old route may be gone with a write stuck on it: the
+        // probe queues behind that write and never goes out. Waiting the full answer window
+        // for it held a blocked link up to 4 s past the change; give it the short one.
+        let timeout =
+            if network_moved { timeout.min(NETWORK_CHANGE_PROBE_TIMEOUT) } else { timeout };
         let deadline = tokio::time::Instant::now() + timeout;
         let send = connection.send_in_generation(
             Some(generation),

@@ -90,6 +90,12 @@ if [[ ! "$round_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: CMUX_TUI_HOSTED_ROUND_SECONDS must be a positive whole number of seconds" >&2
   exit 2
 fi
+# The wait before the second and third dispatch tries is this times the try number.
+dispatch_backoff="${CMUX_TUI_HOSTED_DISPATCH_BACKOFF_SECONDS:-10}"
+if [[ ! "$dispatch_backoff" =~ ^[0-9]{1,4}$ ]]; then
+  echo "error: CMUX_TUI_HOSTED_DISPATCH_BACKOFF_SECONDS must be a whole number of seconds below 10000" >&2
+  exit 2
+fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
@@ -238,14 +244,70 @@ request_id="${commit:0:12}-$(date +%s)-$$"
 echo "Dispatching $mode verification for $commit"
 # return_run_details makes the dispatch answer with the run it created, so
 # there is no run list to poll for it.
-run_id="$(gh api -X POST "repos/$REPO/actions/workflows/$WORKFLOW/dispatches" \
-  -f "ref=$remote_branch" \
-  -f "inputs[commit]=$commit" \
-  -f "inputs[mode]=$mode" \
-  -f "inputs[test_filter]=$test_filter" \
-  -f "inputs[request_id]=$request_id" \
-  -F return_run_details=true \
-  --jq '.workflow_run_id // ""')"
+dispatch() {
+  gh api -X POST "repos/$REPO/actions/workflows/$WORKFLOW/dispatches" \
+    -f "ref=$remote_branch" \
+    -f "inputs[commit]=$commit" \
+    -f "inputs[mode]=$mode" \
+    -f "inputs[test_filter]=$test_filter" \
+    -f "inputs[request_id]=$request_id" \
+    -F return_run_details=true \
+    --jq '.workflow_run_id // ""' 2>"$temp_dir/dispatch.err"
+}
+# A 5xx or a lost connection can come after GitHub created the run. Its
+# run-name holds request_id, so look for it before a new try instead of
+# dispatching a second run. GitHub renders the run-name a moment after the run
+# starts, so a run of this commit created since the first try and still titled
+# only "cmux-tui" counts too, when it is the only one.
+dispatch_since="$(date -u -v-2M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '2 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+dispatched_run() {
+  # shellcheck disable=SC2016 # $runs is a jq variable; COMMIT, SINCE and REQUEST are replaced below
+  local filter='[.[] | select(.headSha == "COMMIT" and .createdAt >= "SINCE")] as $runs
+    | ([$runs[] | select(.displayTitle | contains("REQUEST"))] | .[0].databaseId)
+      // ([$runs[] | select(.displayTitle == "cmux-tui")] | if length == 1 then .[0].databaseId else null end)
+      // empty'
+  filter="${filter//COMMIT/$commit}"
+  filter="${filter//SINCE/$dispatch_since}"
+  filter="${filter//REQUEST/$request_id}"
+  gh run list --repo "$REPO" --workflow "$WORKFLOW" --branch "$remote_branch" \
+    --event workflow_dispatch --limit 30 --json databaseId,displayTitle,headSha,createdAt \
+    --jq "$filter" 2>"$temp_dir/lookup.err"
+}
+check_runs_hint="gh run list --repo $REPO --workflow $WORKFLOW --branch $remote_branch --event workflow_dispatch"
+dispatch_tries=3
+for ((try = 1; ; try++)); do
+  dispatch_status=0
+  run_id="$(dispatch)" || dispatch_status=$?
+  [[ $dispatch_status -eq 0 ]] && break
+  dispatch_error="$(cat "$temp_dir/dispatch.err")"
+  # GitHub refused the request (4xx): it created no run, and a new try gets the same answer.
+  if grep -Eq 'HTTP 4[0-9][0-9]' <<<"$dispatch_error"; then
+    printf 'error: the workflow dispatch failed: %s\n' "$dispatch_error" >&2
+    echo "error: GitHub refused the dispatch, so no run was created" >&2
+    exit 1
+  fi
+  printf 'warning: the workflow dispatch failed (try %d of %d): %s\n' "$try" "$dispatch_tries" "$dispatch_error" >&2
+  # Bounded backoff between tries; it also lets GitHub render a run-name.
+  sleep $((try * dispatch_backoff))
+  lookup_status=0
+  run_id="$(dispatched_run)" || lookup_status=$?
+  if [[ $lookup_status -ne 0 ]]; then
+    printf 'error: could not list runs to find one GitHub may have created for request %s: %s\n' \
+      "$request_id" "$(cat "$temp_dir/lookup.err")" >&2
+    echo "error: not dispatched again, so there is no second run; check with: $check_runs_hint" >&2
+    exit 1
+  fi
+  run_id="$(head -n 1 <<<"$run_id")"
+  if [[ "$run_id" =~ ^[0-9]+$ ]]; then
+    echo "GitHub created run $run_id for request $request_id despite the error; using it"
+    break
+  fi
+  if ((try >= dispatch_tries)); then
+    printf 'error: the workflow dispatch failed %d times and no run was found for request %s, so no run was created that this script can see; check with: %s\n' \
+      "$dispatch_tries" "$request_id" "$check_runs_hint" >&2
+    exit 1
+  fi
+done
 
 if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
   echo "error: the workflow dispatch returned no run id" >&2
