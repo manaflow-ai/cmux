@@ -414,7 +414,8 @@ fn an_identical_start_runs_again_only_after_its_fill_failed() {
     let scratch = std::env::temp_dir().join(format!("cmux-fill-failed-{}", std::process::id()));
     std::fs::create_dir_all(scratch.join("bin")).unwrap();
     let cmux = scratch.join("bin/cmux-tui");
-    std::fs::write(&cmux, "#!/bin/sh\n[ \"$1 $2 $3 $4\" = \"repo wait /w/r 0\" ] || exit 2\nexit \"$CODE\"\n").unwrap();
+    let stub = "#!/bin/sh\n[ \"$1 $2 $3 $4\" = \"repo wait /w/r 0\" ] || exit 2\nexit \"$CODE\"\n";
+    std::fs::write(&cmux, stub).unwrap();
     use std::os::unix::fs::PermissionsExt as _;
     std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
     let path = format!("{}:/usr/bin:/bin", scratch.join("bin").display());
