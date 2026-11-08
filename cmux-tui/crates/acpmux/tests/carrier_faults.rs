@@ -420,6 +420,9 @@ enum Route {
     WgThenSsh,
 }
 
+/// A second carrier a row leaves up while it cuts the first.
+type Spare = Option<Arc<dyn Carrier>>;
+
 struct World {
     a: Arc<Hub>,
     /// Kept alive for the row: B owns the agent.
@@ -427,7 +430,7 @@ struct World {
     /// The carrier this row cuts.
     carrier: Arc<dyn Carrier>,
     /// The ssh carrier of `WgThenSsh` (the one the link should move to).
-    _spare: Option<Arc<dyn Carrier>>,
+    _spare: Spare,
     scratch: PathBuf,
     _transports: Vec<Arc<Transport>>,
 }
@@ -465,7 +468,7 @@ async fn world(tag: &str, route: Route) -> World {
 
     let mut a_cfg = config();
     let mut transports = Vec::new();
-    let (carrier, spare, a): (Arc<dyn Carrier>, Option<Arc<dyn Carrier>>, Arc<Hub>) = match route {
+    let (carrier, spare, a): (Arc<dyn Carrier>, Spare, Arc<Hub>) = match route {
         Route::Ws | Route::Ssh => {
             let tcp = TcpCarrier::start(b_ws).await;
             let url = match route {
@@ -513,7 +516,7 @@ async fn world(tag: &str, route: Route) -> World {
             );
             let b_transport = Transport::start(&b_wg, &b_home, b_ws).await.unwrap().unwrap();
             let udp = UdpCarrier::start(a_side.clone(), b_side.clone(), b_transport.local_addr());
-            let (url, spare): (String, Option<Arc<dyn Carrier>>) = match route {
+            let (url, spare): (String, Spare) = match route {
                 Route::WgThenSsh => {
                     let tcp = TcpCarrier::start(b_ws).await;
                     (format!("ssh://box.invalid:{}", tcp.addr.port()), Some(tcp))
