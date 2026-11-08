@@ -77,20 +77,34 @@ public actor MacInstallIdentity {
     /// A fresh token for one backend team, using this install's existing signer and grant.
     /// The personal client stays bound to its own scope; team refusals never rotate its key.
     public func installToken(team: String) async throws -> String {
+        try await installToken(team: team, reuse: false)
+    }
+
+    /// The team token a Cloud broker call uses (``nativeContext(team:)``): reused while it lasts.
+    package func brokerToken(team: String) async throws -> String {
+        try await installToken(team: team, reuse: true)
+    }
+
+    /// `reuse`: a token this bind already minted for `team` while it has more than
+    /// ``InstallAuthClient/refreshMargin`` left (the Cloud broker's calls, ``nativeContext(team:)``);
+    /// false always mints (``CloudAccessToken`` and `cmux auth token` promise a fresh one). A mint
+    /// that is still running when the bind ends never answers: the generation check below throws,
+    /// and its client is no longer kept, so its token is never handed out.
+    private func installToken(team: String, reuse: Bool) async throws -> String {
         guard let client, let stackUser = user else { throw Failure.signedOut }
         let bound = generation
         _ = try await client.installToken()
         guard bound == generation, user == stackUser,
               let record = await client.currentRecord, let environment = await client.environment else { throw Failure.signedOut }
         let scoped: InstallAuthClient
-        if let kept = teamClients[team], kept.record == record, kept.generation == bound {
+        if reuse, let kept = teamClients[team], kept.record == record, kept.generation == bound {
             scoped = kept.client
         } else {
             scoped = InstallAuthClient(
                 transport: transport, signer: store.signer(for: stackUser), sessionToken: nil, stackUser: stackUser,
                 deviceName: deviceName, clientVersion: clientVersion, record: record,
                 profile: .mac, team: team, expectedEnvironment: environment)
-            teamClients[team] = (record, bound, scoped)
+            if reuse { teamClients[team] = (record, bound, scoped) }
         }
         // In this task, so a caller that is cancelled (a superseded lend) stops the mint too.
         let token = try await scoped.installTokenInCallerTask()
@@ -101,7 +115,7 @@ public actor MacInstallIdentity {
     func nativeContext(team: String) async throws -> NativeInstallContext {
         guard let client, let stackUser = user else { throw Failure.signedOut }
         let bound = generation
-        let token = try await installToken(team: team)
+        let token = try await brokerToken(team: team)
         guard let record = await client.currentRecord, let environment = await client.environment else { throw Failure.signedOut }
         let point = try await store.signer(for: stackUser).publicKeyX963()
         guard bound == generation, user == stackUser, await client.currentRecord == record, point.count == 65, point.first == 4 else { throw Failure.signedOut }

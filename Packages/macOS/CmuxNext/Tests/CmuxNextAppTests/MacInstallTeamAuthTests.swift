@@ -34,12 +34,15 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let owner = MacTeamAuthOwner(), identity = make(owner, root: root)
         try await identity.signedIn(stackUser: "stack_1", session: { "test-session" })
-        let first = try await identity.installToken(team: team)
-        #expect(try await identity.installToken(team: team) == first)
+        let first = try await identity.brokerToken(team: team)
+        #expect(try await identity.brokerToken(team: team) == first)
         #expect(await owner.requestedTeams == [team])
         await identity.invalidate()
-        _ = try await identity.installToken(team: team)
+        _ = try await identity.brokerToken(team: team)
         #expect(await owner.requestedTeams == [team, team])
+        // `cmux auth token` and CloudAccessToken still get a freshly minted one each time.
+        _ = try await identity.installToken(team: team)
+        #expect(await owner.requestedTeams == [team, team, team])
     }
 
     @Test func deniedTeamsPreserveTheMacKeyAndRegistration() async throws {
