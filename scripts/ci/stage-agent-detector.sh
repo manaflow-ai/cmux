@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stages the optional agent screen detector of one macOS target for publication
+# Stages the optional agent screen detector of one macOS or Linux target for publication
 # (cmux-tui-build-package.yml "Stage binary", scripts/ci/macos-cross.sh hosts):
 # copies <release-dir>/cmux-agent-screen-detection to <dest>, or, when that
 # build produced none, removes a stale <dest> and prints a GitHub warning

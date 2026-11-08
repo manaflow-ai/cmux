@@ -21,7 +21,7 @@ name: cmux-tui artifacts
 #   cmux-tui/<commit-sha>/cmux-tui-holder-<rust-target>  terminal holder (macOS);
 #                                                  install as cmux-holder beside cmux-tui
 #   cmux-tui/<commit-sha>/cmux-tui-agent-screen-detection-<rust-target>  agent screen
-#                                                  detector (macOS); install as
+#                                                  detector (macOS and Linux); install as
 #                                                  cmux-agent-screen-detection beside cmux-tui;
 #                                                  optional (a failed build publishes none)
 #   cmux-tui/<commit-sha>/manifest.json
