@@ -142,6 +142,7 @@ fn a_manual_restart_brings_back_a_terminal_whose_respawn_launch_failed() {
     send_line(&harness.socket, surface, "echo before-failed-respawn-marker");
     wait_for_screen(&harness.socket, surface, "before-failed-respawn-marker\n");
     let old_pid = echo_value(&harness, surface, "first", "$$");
+    let live = tab_named(&harness, "failed");
     kill_current_shell_and_host(&harness, &terminal_id);
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     let dead = loop {
@@ -157,7 +158,7 @@ fn a_manual_restart_brings_back_a_terminal_whose_respawn_launch_failed() {
 
     let restarted = restart_tab(&harness, dead["tab_resource_id"].clone());
     assert_eq!(restarted["ok"], true, "{restarted}");
-    assert_eq!(restarted["data"]["terminal"], dead["terminal_resource_id"], "{restarted}");
+    assert_eq!(restarted["data"]["terminal"], live["terminal_resource_id"], "{restarted}");
     wait_for_respawn(&harness, &terminal_id, &incarnation);
 
     let tab = tab_named(&harness, "failed");
