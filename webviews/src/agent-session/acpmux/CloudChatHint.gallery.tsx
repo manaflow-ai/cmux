@@ -33,7 +33,7 @@ export default componentEntry<Props>({
       props: { look: "card", onUse, onClose },
     },
     chip: {
-      note: "Rejected: one small block, Try Cloud and an X. It is the quietest, but it never says what Cloud is, which is the question (Leo, 2026-11-08: \"how would they know?\").",
+      note: 'Rejected: one small block, Try Cloud and an X. It is the quietest, but it never says what Cloud is, which is the question (Leo, 2026-11-08: "how would they know?").',
       props: { look: "chip", onUse, onClose },
     },
     "line-closing": {
