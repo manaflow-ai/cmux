@@ -151,7 +151,7 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
 
     public var step: Step { verdict.step }
     /// Why a run that may show no prompt fails at once (``Step/refuse``); nil when it goes on. A
-    /// headless Codex start with no choice goes on as on base (its broker or the machine's own login).
+    /// headless Claude or Codex start with no login choice refuses (``Reason/needsLoginChoice``).
     public var refusal: Reason? { verdict.step == .refuse ? verdict.reason : nil }
     public var reason: Reason { verdict.reason }
     /// Whether this build passes a login: DEV and dogfood builds unless the setting turns it off; a

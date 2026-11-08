@@ -112,8 +112,8 @@ test("opening it grows the message in place: the card holds the text and nothing
   expect(host.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
   const row = host.querySelector(".cv-message")!;
   // Nothing but the line and the card: no receipt line, no output block, no Show more.
-  expect([...row.children].map((child) => child.className)).toEqual([
-    "cv-tool cv-agentmsg__line is-strong",
+  expect(row.firstElementChild?.className).toBe("cv-tool cv-agentmsg__line is-strong");
+  expect([...row.querySelector(".cv-agentmsg__open")!.children].map((child) => child.className)).toEqual([
     "cv-agentmsg__card selectable",
   ]);
   expect(row.querySelector(".cv-tool-output")).toBeNull();
