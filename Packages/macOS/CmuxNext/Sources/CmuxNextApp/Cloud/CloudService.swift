@@ -36,6 +36,8 @@ final class CloudService {
     /// The Release login copy's remote off switch (CloudService+LoginCopy.swift).
     @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
     @ObservationIgnored let work: BackgroundWork
+    /// Sign-out's peer tail erase (an acpmux child, no deadline): it runs after the revokes.
+    @ObservationIgnored var clearPeerTails: @MainActor (BuildIdentity?, BackgroundWork) async throws -> Void = AcpmuxEnvironment.clearPeerTails(build:work:)
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
     @ObservationIgnored var proOfferOpen = false
     /// Each machine list that carries the plan (`limits.planId`) reports it: the paid-plan welcome step
@@ -205,8 +207,7 @@ final class CloudService {
                     return await link.ownerLink != nil
                 },
                 isLive: { [weak machines] machineID in machines?.session(machineID)?.machine.status.isLive ?? false }))
-        hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()),
-            clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+        hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()), clientVersion: clientVersion,
             installToken: { [installIdentity] in let token = try await installIdentity.installToken(); return (token, HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())) },
             invalidate: { [installIdentity] in await installIdentity.invalidate() })
         hands = HandsService(
@@ -217,10 +218,9 @@ final class CloudService {
             carrierSocket: { @MainActor [weak machines] id in await CloudLinkSession.carrierAnswer(machines?.session(id)?.appLink, machine: id) })
         credentialProvider = CloudCredentialProvider(relay: relay)
         // The app server link: this Mac's `cmux link`.
-        let linkBuild = LaunchIdentity.current().build
-        link = CloudLinkLifecycle(launcher: CloudLinkLauncher.forApp(build: linkBuild), installID: { [identity] in await identity.installID() },
+        link = CloudLinkLifecycle(launcher: CloudLinkLauncher.forApp(build: build), installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
-        (binary, tuiState) = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment), DaemonLauncher.appNames(build: linkBuild).stateDirectory)
+        (binary, tuiState) = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment), DaemonLauncher.appNames(build: build).stateDirectory)
         move.cli = binary
         move.ledger = .standard
         movedChats.defaults = { [weak self] in self?.move.ledger }
@@ -803,13 +803,13 @@ final class CloudService {
         link.beginEnding()
         dropAllMachines()
         await link.endLink(final: false)
-        do { try await AcpmuxEnvironment.clearPeerTails(build: LaunchIdentity.current().build, work: work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
             let auth = auth
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
             for share in await shareInstalls.ended(except: installIdentity) { await share.signOut(stackUser: stackUser, session: { try await auth.tokens().access }) }
         }
+        do { try await clearPeerTails(LaunchIdentity.current().build, work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         // An ensure that slipped in during the revoke: stop that link too.
         await link.stopLink()
         await auth.signOut()
