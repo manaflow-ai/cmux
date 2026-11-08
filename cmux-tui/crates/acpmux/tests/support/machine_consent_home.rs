@@ -12,25 +12,7 @@ pub struct ConsentHome {
 impl ConsentHome {
     pub fn isolated() -> Self {
         let serial = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
-        let mut entry = std::mem::MaybeUninit::<libc::passwd>::uninit();
-        let mut result = std::ptr::null_mut();
-        let mut buffer = vec![0u8; 65536];
-        // SAFETY: live outputs and backing buffer; the lookup uses this uid.
-        let code = unsafe {
-            libc::getpwuid_r(
-                libc::geteuid(),
-                entry.as_mut_ptr(),
-                buffer.as_mut_ptr().cast(),
-                buffer.len(),
-                &mut result,
-            )
-        };
-        assert!(code == 0 && !result.is_null());
-        // SAFETY: successful getpwuid_r populated a NUL-terminated pw_dir.
-        let home = unsafe { std::ffi::CStr::from_ptr((*result).pw_dir) };
-        use std::os::unix::ffi::OsStrExt;
-        let root = PathBuf::from(std::ffi::OsStr::from_bytes(home.to_bytes()))
-            .join(".acpmux/machine-consent");
+        let root = account_root();
         let expected = std::env::var_os("ACPMUX_TEST_ACCOUNT_HOME")
             .expect("run ignored consent tests in a disposable OS account with ACPMUX_TEST_ACCOUNT_HOME=passwd home");
         assert_eq!(root, PathBuf::from(expected).join(".acpmux/machine-consent"));
@@ -41,6 +23,29 @@ impl ConsentHome {
         Self { root, _serial: serial }
     }
 }
+/// The OS account's consent authority, `<passwd home>/.acpmux/machine-consent`: the kernel
+/// uid's home, never `HOME` or `ACPMUX_HOME` (`cli/machine_consent.rs`).
+pub fn account_root() -> PathBuf {
+    let mut entry = std::mem::MaybeUninit::<libc::passwd>::uninit();
+    let mut result = std::ptr::null_mut();
+    let mut buffer = vec![0u8; 65536];
+    // SAFETY: live outputs and backing buffer; the lookup uses this uid.
+    let code = unsafe {
+        libc::getpwuid_r(
+            libc::geteuid(),
+            entry.as_mut_ptr(),
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            &mut result,
+        )
+    };
+    assert!(code == 0 && !result.is_null());
+    // SAFETY: successful getpwuid_r populated a NUL-terminated pw_dir.
+    let home = unsafe { std::ffi::CStr::from_ptr((*result).pw_dir) };
+    use std::os::unix::ffi::OsStrExt;
+    PathBuf::from(std::ffi::OsStr::from_bytes(home.to_bytes())).join(".acpmux/machine-consent")
+}
+
 impl Drop for ConsentHome {
     fn drop(&mut self) {
         // This test owns the absent-at-entry directory created by its children.
