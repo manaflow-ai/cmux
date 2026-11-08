@@ -16,6 +16,7 @@
 //   dockMove     how far the dock's top moved between its first frame and the live chat (px)
 //   cls          the page's cumulative layout shift
 //   jsKB, cssKB  the compressed bytes of script and style the page loaded before the transcript
+//   blockingCssKB  the compressed bytes of style that held the first paint (render-blocking)
 import { gzipSync } from "bun";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -130,9 +131,16 @@ function observe({ share, guest }: { share: string; guest: string }) {
         marks.dockTopLive = document.querySelector(".guest-live__dock")?.getBoundingClientRect().top ?? -1;
         marks.scriptBytes = 0;
         marks.styleBytes = 0;
-        for (const entry of performance.getEntriesByType("resource") as PerformanceResourceTiming[]) {
+        marks.blockingStyleBytes = 0;
+        const entries = performance.getEntriesByType("resource") as (PerformanceResourceTiming & {
+          renderBlockingStatus?: string;
+        })[];
+        for (const entry of entries) {
           if (/\.js(\?|$)/.test(entry.name)) marks.scriptBytes += entry.encodedBodySize;
-          if (/\.css(\?|$)/.test(entry.name)) marks.styleBytes += entry.encodedBodySize;
+          if (/\.css(\?|$)/.test(entry.name)) {
+            marks.styleBytes += entry.encodedBodySize;
+            if (entry.renderBlockingStatus === "blocking") marks.blockingStyleBytes += entry.encodedBodySize;
+          }
         }
       });
     }
@@ -203,6 +211,7 @@ async function main() {
     cls: pick("cls"),
     jsKB: Math.round(pick("scriptBytes") / 1024),
     cssKB: Math.round(pick("styleBytes") / 1024),
+    blockingCssKB: Math.round(pick("blockingStyleBytes") / 1024),
     raw: runs,
   };
   const text = JSON.stringify(result, null, 2);
