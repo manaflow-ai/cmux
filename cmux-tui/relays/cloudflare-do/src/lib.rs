@@ -2,6 +2,7 @@ mod abuse;
 mod attachment;
 mod auth;
 mod circuit;
+mod daemon;
 mod park;
 mod routing;
 mod slot;

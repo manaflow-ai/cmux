@@ -703,8 +703,12 @@ jobs:
           EXACT_COMMIT: ${{ inputs.commit }}
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
+      # On an owned Mac the Cargo target is kept per runner between jobs
+      # (scripts/ci/cmux-tui-warm-target.sh); elsewhere it is cmux-tui/target.
       - name: Use short temporary directory for macOS socket tests
-        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+        run: |
+          echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$(./scripts/ci/cmux-tui-warm-target.sh)" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty-next
