@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import WebKit
 
 /// One WebKit web content process for the app's transparent overlay pages
@@ -36,7 +37,8 @@ public final class PageOverlayProcess {
     /// Relates `configuration` to the current group's first page when it lives and has room, so the
     /// view made from it runs in that page's process; then call ``joined(_:)`` with the view.
     func prepare(_ configuration: WKWebViewConfiguration) {
-        guard let anchor, members < pagesPerProcess,
+        // A retired anchor whose page closed (WebViewRetirement) serves no new page, as in WebProcessGroups.
+        guard let anchor, members < pagesPerProcess, WebViewRetirement.isPageClosed(anchor) != true,
               anchor.configuration.processPool === configuration.processPool,
               anchor.configuration.websiteDataStore === configuration.websiteDataStore else {
             members = 0

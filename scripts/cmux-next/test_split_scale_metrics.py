@@ -51,6 +51,52 @@ class TraceTests(unittest.TestCase):
         self.assertEqual(stats["moved_frames"], 3)
 
 
+class SideWayTests(unittest.TestCase):
+    """The side pane toggle's direction from the panes' summed width (side_toggle in the bench)."""
+
+    def two_panes(self, widths):
+        return {"refresh_ms": 8.33, "samples": [{"t": i * 8.33, "panes": [pane("pane_aaaaaa", 0, w), pane("pane_bbbbbb", w, w)]}
+                                                for i, w in enumerate(widths)]}
+
+    def test_narrowed_panes_opened_the_sidebar(self):
+        stats = ssm.trace_stats(self.two_panes([600, 600, 450, 450]))
+        self.assertEqual(stats["pane_width_change"], -300.0)
+        self.assertEqual(ssm.side_way(stats), "opened")
+
+    def test_widened_panes_closed_it(self):
+        self.assertEqual(ssm.side_way(ssm.trace_stats(self.two_panes([450, 450, 600]))), "closed")
+
+    def test_still_panes_or_no_trace_say_nothing(self):
+        self.assertIsNone(ssm.side_way(ssm.trace_stats(self.two_panes([600, 600, 600]))))
+        self.assertIsNone(ssm.side_way({"pane_width_change": None}))
+        self.assertIsNone(ssm.trace_stats({"samples": []})["pane_width_change"])
+
+    def test_a_parked_page_is_not_a_mover(self):
+        def sample(t, x, width):
+            return {"t": t, "panes": [pane("pane_aaaaaa", 0, 600)], "page": [[600, 900, width, 900, 0, x, x, 600]]}
+        parked = [sample(0, -99840, 1391), sample(8.33, -99840, 1391), sample(250, -99840, 695)]
+        self.assertEqual(ssm.trace_movers(parked).keys() & {"page 0"}, set())
+        shown = [sample(0, 368, 1391), sample(8.33, 368, 1391), sample(250, 368, 695)]
+        self.assertIn("page 0", ssm.trace_movers(shown))
+
+    def test_panes_that_came_back_go_by_their_peak(self):
+        stats = ssm.trace_stats(self.two_panes([450, 520, 600, 520, 450]))
+        self.assertEqual((stats["pane_width_change"], stats["pane_width_peak"]), (0.0, 300.0))
+        self.assertEqual(ssm.side_way(stats), "closed")
+        self.assertTrue(ssm.side_returned(stats))
+        self.assertFalse(ssm.side_returned(ssm.trace_stats(self.two_panes([450, 600]))))
+
+    def test_a_pane_that_came_or_went_is_left_out(self):
+        samples = [{"t": 0, "panes": [pane("pane_aaaaaa", 0, 600)]},
+                   {"t": 8.33, "panes": [pane("pane_aaaaaa", 0, 450), pane("pane_cccccc", 450, 450)]}]
+        self.assertEqual(ssm.pane_width_change(samples), -150.0)
+
+    def test_the_way_survives_transition(self):
+        strip = {"frames": [frame(0), frame(10, ob=0.3)], "sent_host_s": 1.0}
+        row = ssm.transition(strip, dict(self.two_panes([600, 600, 450]), t0_s=1.0))
+        self.assertEqual(ssm.side_way(row), "opened")
+
+
 class StripTests(unittest.TestCase):
     def test_first_and_settled_frames(self):
         frames = [frame(-10), frame(5), frame(12, ob=0.2, of=0.1, cb=0.3, cf=0.2)] + \

@@ -80,10 +80,14 @@ const PNG_64_RGB_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAA
 
 /// S3k dogfood flow on a hosted terminal (the app's terminals): the PTY child
 /// prints 400 short lines and one PNG transmission (`f=100,a=T,c=8,r=4`, no
-/// id, no `q`). A snapshot viewer with `snapshot_images` then gets READY,
-/// history and an images phase that recreates the image.
+/// id, no `q`). A GHOSTSNP viewer then gets READY and its history, and they
+/// alone carry the image (one KITTY_IMAGE_STORAGE and one KITTY_IMAGE_PAYLOAD
+/// record); no other snapshot phase follows. The former `snapshot_images`
+/// opt-in that older apps send is accepted and ignored.
 #[test]
-fn a_hosted_png_reaches_a_snapshot_images_viewer() {
+fn a_hosted_png_reaches_a_snapshot_viewer() {
+    use ghostty_vt::snapshot_tag::{KITTY_IMAGE_PAYLOAD, KITTY_IMAGE_STORAGE};
+    use std::io::Read as _;
     let harness = RecoveryHarness::start("kitty-snapshot-images");
     let script = format!(
         "i=0; while [ $i -lt 400 ]; do echo \"line $i\"; i=$((i+1)); done; \
@@ -112,8 +116,8 @@ fn a_hosted_png_reaches_a_snapshot_images_viewer() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|value| value == "terminal-snapshot-images-v1"),
-        "{identity}"
+            .all(|value| value != "terminal-snapshot-images-v1"),
+        "GHOSTSNP owns image transport: {identity}"
     );
     writeln!(
         writer,
@@ -126,15 +130,17 @@ fn a_hosted_png_reaches_a_snapshot_images_viewer() {
         })
     )
     .unwrap();
-    let (mut ready, mut history_done, mut images) = (None::<serde_json::Value>, false, Vec::new());
+    let decode = |message: &serde_json::Value| {
+        base64::engine::general_purpose::STANDARD.decode(message["data"].as_str().unwrap()).unwrap()
+    };
+    let (mut ready, mut complete) = (Vec::new(), Vec::new());
     loop {
         let mut line = String::new();
         let read = reader.read_line(&mut line);
         assert!(
             read.as_ref().is_ok_and(|bytes| *bytes > 0),
-            "stream ended or timed out: ready={} history_done={history_done} images={} ({read:?})",
-            ready.is_some(),
-            images.len()
+            "stream ended or timed out: snapshot bytes={} ({read:?})",
+            complete.len()
         );
         let message: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_ne!(message["ok"], false, "attach failed: {message}");
@@ -143,22 +149,20 @@ fn a_hosted_png_reaches_a_snapshot_images_viewer() {
         }
         match message["phase"].as_str() {
             // The attach's own size (100x30) resizes the terminal, so a
-            // local READY (no history, no images) can follow on a loaded host;
-            // a later plain READY restarts its history and images.
+            // local READY (no history) can follow on a loaded host; a later
+            // plain READY restarts the snapshot.
             Some("ready") if message["history"] == "local" => {}
             Some("ready") => {
-                history_done = false;
-                images.clear();
-                ready = Some(message);
+                ready = decode(&message);
+                complete = ready.clone();
             }
-            Some("history") => history_done = message["done"] == true,
-            Some("images") => {
-                assert!(history_done, "images before the history ended");
-                let ready_version = ready.as_ref().map(|ready| ready["version"].clone());
-                assert!(message["version"].is_u64(), "images chunk without version: {message}");
-                assert_eq!(Some(message["version"].clone()), ready_version, "{message}");
-                let data = message["data"].as_str().unwrap();
-                images.extend(base64::engine::general_purpose::STANDARD.decode(data).unwrap());
+            Some("history") => {
+                assert!(!complete.is_empty(), "history before its READY: {message}");
+                let mut raw = Vec::new();
+                flate2::read::DeflateDecoder::new(&decode(&message)[..])
+                    .read_to_end(&mut raw)
+                    .unwrap();
+                complete.extend(raw);
                 if message["done"] == true {
                     break;
                 }
@@ -166,12 +170,20 @@ fn a_hosted_png_reaches_a_snapshot_images_viewer() {
             other => panic!("unexpected snapshot phase {other:?}: {message}"),
         }
     }
-    let mut viewer =
-        ghostty_vt::Terminal::new(80, 24, 1_000, ghostty_vt::Callbacks::default()).unwrap();
-    viewer.apply_kitty_replay(&images).unwrap();
-    let shown = viewer.kitty_graphics_snapshot().unwrap();
-    assert_eq!(shown.images.len(), 1, "the images phase recreates the PNG image");
-    assert_eq!((shown.images[0].width, shown.images[0].height), (64, 64));
+    let tags: Vec<u16> = ghostty_vt::snapshot_records(&complete).map(|record| record.tag).collect();
+    let count = |tag: u16| tags.iter().filter(|seen| **seen == tag).count();
+    assert_eq!(count(KITTY_IMAGE_STORAGE), 1, "{tags:?}");
+    assert_eq!(count(KITTY_IMAGE_PAYLOAD), 1, "GHOSTSNP carries the PNG pixels once: {tags:?}");
+    // The READY plus its history alone restore the image: the restored
+    // terminal re-encodes the host's storage record.
+    let storage = |snapshot: &[u8]| {
+        ghostty_vt::snapshot_records(snapshot)
+            .find(|record| record.tag == KITTY_IMAGE_STORAGE)
+            .map(|record| record.payload().to_vec())
+    };
+    let restored = ghostty_vt::reencode_ready(&complete).expect("READY plus history decode");
+    assert!(storage(&ready).is_some(), "the READY names the PNG");
+    assert_eq!(storage(&restored), storage(&ready), "GHOSTSNP alone restores the PNG");
     drop(writer);
     close_terminal_surface(&harness.socket, surface, 4);
     wait_for_no_host_records(&harness.host_root());
