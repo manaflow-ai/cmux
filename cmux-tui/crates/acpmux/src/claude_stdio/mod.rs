@@ -32,6 +32,15 @@ pub fn steers_by_info(info: Option<&Value>) -> bool {
     info.and_then(|i| i.get("name")).and_then(Value::as_str) == Some(AGENT_NAME)
 }
 
+/// Whether a chat's saved `agentInfo` names this adapter with its PreToolUse policy gate
+/// (`policy_gate.rs`, registered on unix). An agent started by a build without it (a host
+/// adopted after an upgrade) says nothing: false.
+pub fn has_tool_gate(info: Option<&Value>) -> bool {
+    steers_by_info(info)
+        && info.and_then(|i| i.pointer("/_meta/acpmux/toolGate")).and_then(Value::as_bool)
+            == Some(true)
+}
+
 /// Claude Code's own permission modes, offered as ACP session modes: id
 /// (Claude Code's `--permission-mode` value), label and one-line description,
 /// in the order Claude Code's mode menu lists them. acpmux names none of its
@@ -390,13 +399,10 @@ pub const RECAP: &str = "_acpmux/claude/recap";
 /// The answer is `{renamed: true}`, or `RENAME_BUSY` while a turn runs.
 pub const RENAME: &str = "_acpmux/claude/rename";
 
-/// Hub -> this backend: the permission policy its PreToolUse gate holds (`policy_gate.rs`):
-/// `{"sessionId", "policy": "review"}` turns it on, `"policy": null` off. Answers `{"gate": bool}`.
-pub const POLICY_GATE: &str = "_acpmux/claude/policy_gate";
-
-/// This backend -> hub: whether the PreToolUse gate lets one tool call run
-/// (`hub/policy_gate.rs`). Params as `session/request_permission`'s; the answer is
-/// `{"decision": "none"|"allow"|"ask"|"deny", "reason"?}`.
+/// This backend -> hub: whether the PreToolUse gate lets one tool call run (`policy_gate.rs`,
+/// `hub/policy_gate.rs`). Params as `session/request_permission`'s; the answer is
+/// `{"decision": "none"|"allow"|"ask"|"deny", "reason"?}`. A backend that has the gate says so in
+/// its `agentInfo` (`_meta.acpmux.toolGate`, [`has_tool_gate`]).
 pub const TOOL_GATE: &str = "_acpmux/claude/tool_gate";
 pub use live_name::{RENAME_BUSY, RENAME_IN_FLIGHT, RENAME_UNSUPPORTED};
 

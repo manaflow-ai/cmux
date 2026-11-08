@@ -213,9 +213,6 @@ impl Hub {
     /// Code `plan`) stays. Soft: a refusal is logged as `policy_unenforced`. A chat whose agent is
     /// not running keeps the mode for its next start.
     pub(crate) async fn follow_policy(self: &Arc<Self>, session: &Arc<Session>) {
-        // First the gate, which holds the policy in any mode (`policy_gate.rs`); a widening turns
-        // it off.
-        self.follow_policy_gate(session).await;
         let default = self.config.read().await.permission_policy;
         let meta = session.meta();
         let Some(policy) = narrow_policy(&meta, default) else { return };
@@ -387,61 +384,50 @@ impl Hub {
 
     /// A chat whose agent just started (cold, or from the pool) runs in its policy's mode
     /// (module docs). Sent to the agent itself: the start holds `spawn_lock`, so `set_mode` would
-    /// wait on it. `pinned`: the profile pins its mode in argv, which the chat does not record yet.
-    /// On acpmux's Claude Code backend the PreToolUse gate is turned on first, and holds the
-    /// policy whatever the mode (`policy_gate.rs`); a gate that does not take it fails the start.
-    /// A chat created under deny-all or review that its agent cannot keep fails its creation
-    /// (`require_enforced`, `lifecycle.rs`).
+    /// wait on it. Soft, as on a live chat: a refusal is logged as `policy_unenforced`. `pinned`:
+    /// the profile pins its mode in argv, which the chat does not record yet.
     pub(super) async fn hold_policy_mode(
         &self,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         pinned: bool,
-    ) -> Result<(), RpcError> {
+    ) {
         let default = self.config.read().await.permission_policy;
         let meta = session.meta();
-        let Some(policy) = narrow_policy(&meta, default) else { return Ok(()) };
-        if super::policy_gate::has_gate(&meta)
-            && let Err(e) = self.push_policy_gate(session, child, Some(policy)).await
-        {
-            let why = format!("its tool gate did not start ({})", e.message);
-            return Err(unenforceable(policy, &meta.harness, &why));
-        }
+        let Some(policy) = narrow_policy(&meta, default) else { return };
+        let (Some(current), Some(sid)) =
+            (crate::web_modes::mode_of(&meta), meta.agent_session_id.clone())
+        else {
+            return;
+        };
         let family = crate::web_modes::mode_family(&meta);
         let offered = super::start_mode::offered_ids(&meta);
-        if let (Some(current), Some(sid), Some(wanted)) = (
-            crate::web_modes::mode_of(&meta),
-            meta.agent_session_id.clone(),
-            policy_mode(policy, &family, &offered),
-        ) {
-            let asks = super::start_mode::asks(&current, &family);
-            let narrower = wanted == "read-only" && policy == PermissionPolicy::DenyAll;
-            let kept = current == wanted || (asks && !narrower);
-            // A mode pinned in argv is not what the chat records until its first turn: always
-            // moved.
-            if pinned || !kept {
-                match child
-                    .request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": wanted}))
-                    .await
-                {
-                    Ok(_) => {
-                        session.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux =
-                            Some(wanted.clone());
-                        let mut writes = vec![ModeWrite::CurrentMode(json!(wanted))];
-                        if let Some(options) = with_mode_option(&session.meta(), &wanted) {
-                            writes.push(ModeWrite::ConfigOptions(options));
-                        }
-                        self.write_mode_state(session, writes);
-                        self.append(session, "mux", "mode", json!({"modeId": wanted}));
-                    }
-                    Err(e) => {
-                        tracing::warn!(session = %session.id, mode = %wanted, "policy mode not set at start: {}", e.message);
-                        self.note_unenforced_policy(session, default);
-                    }
+        let Some(wanted) = policy_mode(policy, &family, &offered) else { return };
+        let asks = super::start_mode::asks(&current, &family);
+        let narrower = wanted == "read-only" && policy == PermissionPolicy::DenyAll;
+        // A mode pinned in argv is not what the chat records until its first turn: always moved.
+        if !pinned && (current == wanted || (asks && !narrower)) {
+            return;
+        }
+        match child
+            .request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": wanted}))
+            .await
+        {
+            Ok(_) => {
+                session.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux =
+                    Some(wanted.clone());
+                let mut writes = vec![ModeWrite::CurrentMode(json!(wanted))];
+                if let Some(options) = with_mode_option(&session.meta(), &wanted) {
+                    writes.push(ModeWrite::ConfigOptions(options));
                 }
+                self.write_mode_state(session, writes);
+                self.append(session, "mux", "mode", json!({"modeId": wanted}));
+            }
+            Err(e) => {
+                tracing::warn!(session = %session.id, mode = %wanted, "policy mode not set at start: {}", e.message);
+                self.note_unenforced_policy(session, default);
             }
         }
-        Ok(())
     }
 
     /// The person picked a mode that does not ask (`session/set_mode`, or the `mode` config

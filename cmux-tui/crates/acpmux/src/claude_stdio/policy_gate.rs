@@ -3,14 +3,16 @@
 //!
 //! The gate is a hook callback ([`GATE_CALLBACK`]) registered at `initialize` for every tool
 //! (`outbound::initialize_request`), which Claude Code fires before each tool call in every mode,
-//! `auto` and `bypassPermissions` included, also for a subagent's calls. While the hub has
-//! turned it on ([`super::POLICY_GATE`]: the chat's policy is narrower than approve-all), each
-//! call that can act outside Claude Code is sent to the hub as [`super::TOOL_GATE`], shaped as a
-//! `session/request_permission`, and the hub's decision becomes the hook's answer: `deny` blocks
-//! the call with the reason, `ask` makes Claude Code ask (`can_use_tool`), `allow` runs it with
-//! no prompt, and `none` lets Claude Code go on as it would. No answer the gate can read (an
-//! error, an unknown decision) denies. Off, it answers at once with no decision.
+//! `auto` and `bypassPermissions` included, also for a subagent's calls. Each call that can act
+//! outside Claude Code is sent to the hub as [`super::TOOL_GATE`], shaped as a
+//! `session/request_permission`, and the hub's decision, made from the chat's policy as it is
+//! when the call comes, becomes the hook's answer: `deny` blocks the call with the reason, `ask`
+//! makes Claude Code ask (`can_use_tool`), `allow` runs it with no prompt, and `none` (a chat
+//! whose policy holds nothing, approve-all) lets Claude Code go on as it would. No answer the
+//! gate can read (an error, an unknown decision) denies.
 //!
+//! The gate keeps no policy of its own: a policy changed while a call waits, a daemon that
+//! restarts, or an agent started before the hub knew the chat's policy cannot leave it open.
 //! The matcher's `onFailure` is `block`: a hook callback answer Claude Code cannot use counts as
 //! a block (Claude Code 2.1.319), so the gate fails closed there too.
 
@@ -24,8 +26,10 @@ pub(super) const GATE_CALLBACK: &str = "acpmux-policy-gate";
 pub(super) const GATE_TIMEOUT_S: u64 = 600;
 
 /// Claude Code's tools that act on nothing outside Claude Code itself (its plan, its task list,
-/// its questions, its tool search, a background shell's output): never sent to the hub.
-const OWN_TOOLS: [&str; 15] = [
+/// its questions, its tool search, a background shell's output): never sent to the hub. Not
+/// `Skill` or `SlashCommand`: a skill's or a command's text can run shell commands as it
+/// expands.
+const OWN_TOOLS: [&str; 13] = [
     "TodoWrite",
     "TaskCreate",
     "TaskUpdate",
@@ -37,8 +41,6 @@ const OWN_TOOLS: [&str; 15] = [
     "AskUserQuestion",
     "ExitPlanMode",
     "EnterPlanMode",
-    "Skill",
-    "SlashCommand",
     "ListMcpResourcesTool",
     "ReadMcpResourceTool",
 ];
@@ -46,32 +48,21 @@ const OWN_TOOLS: [&str; 15] = [
 /// The gate's state in one Claude Code process.
 #[derive(Default)]
 pub(super) struct PolicyGate {
-    /// The policy the hub turned the gate on for, or `None`: off.
-    policy: Mutex<Option<String>>,
     /// Claude Code's hook callback request ids that wait on the hub -> the ACP request id sent.
     asked: Mutex<HashMap<String, Value>>,
 }
 
 impl Translator {
-    /// [`super::POLICY_GATE`]: turns the gate on for `params.policy`, or off for null.
-    pub(super) async fn set_policy_gate(&self, params: &Value) -> Value {
-        let policy = params.get("policy").and_then(Value::as_str).map(str::to_owned);
-        let on = policy.is_some();
-        *self.gate.policy.lock().await = policy;
-        json!({"gate": on})
-    }
-
     /// Claude Code fired the gate's hook for one tool call (`req`, its `hook_callback`): answered
-    /// at once when the gate is off or the tool acts on nothing outside Claude Code, else the
-    /// returned request asks the hub.
+    /// at once when the tool acts on nothing outside Claude Code, else the returned request asks
+    /// the hub.
     pub(super) async fn gate_hook(&self, sid: &str, rid: &str, req: &Value) -> Option<Message> {
         let input = req.get("input").cloned().unwrap_or(Value::Null);
         let name = input.get("tool_name").and_then(Value::as_str).unwrap_or("");
-        let policy = self.gate.policy.lock().await.clone();
-        let Some(policy) = policy.filter(|_| !OWN_TOOLS.contains(&name)) else {
+        if OWN_TOOLS.contains(&name) {
             self.stdin_replies.lock().await.push(hook_reply(rid, json!({})));
             return None;
-        };
+        }
         let tool_input = input.get("tool_input").cloned().unwrap_or(Value::Null);
         let use_id = input.get("tool_use_id").or_else(|| req.get("tool_use_id")).cloned();
         let mut call = json!({
@@ -91,7 +82,6 @@ impl Translator {
             TOOL_GATE,
             json!({
                 "sessionId": sid,
-                "policy": policy,
                 "toolCall": call,
                 "options": [
                     {"optionId": "allow_once", "name": "Allow", "kind": "allow_once"},

@@ -636,12 +636,6 @@ impl Hub {
             "host_adopted",
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
-        // A narrower policy holds on the PreToolUse gate of the agent reached again
-        // (`policy_gate.rs`): its policy may have narrowed while no daemon reached it.
-        let default = self.config.read().await.permission_policy;
-        if super::policy_mode::narrow_policy(&session.meta(), default).is_some() {
-            self.follow_policy_gate(session).await;
-        }
         let work = self.recovery_work(session, &incarnation, resume_after);
         // Handed on before recovery, which may take the family gate itself.
         if let (Some(record), Some(hold)) = (child.host_record(), hold.take()) {

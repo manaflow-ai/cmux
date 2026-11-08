@@ -10,11 +10,9 @@
 //!
 //! So Claude Code's PreToolUse gate (`claude_stdio/policy_gate.rs`), a hook callback that Claude
 //! Code fires before every tool call in every mode, asks the hub about each call
-//! ([`crate::claude_stdio::TOOL_GATE`]) while the chat's policy is narrower than approve-all.
-//! The hub turns the gate on at every agent start and at every narrowing
-//! ([`crate::claude_stdio::POLICY_GATE`], `hold_policy_mode`, `follow_policy`, and again when a
-//! daemon adopts the agent's host), and answers each call by the chat's policy as it is then
-//! ([`gate_decision`]):
+//! ([`crate::claude_stdio::TOOL_GATE`]). The hub answers by the chat's policy as it is when the
+//! call comes ([`gate_policy`], [`gate_decision`]); the agent keeps no copy of it, so a policy
+//! change, a daemon restart or an agent start cannot leave the gate open:
 //!
 //! | policy | read, search, think | fetch | edit | read-only shell | anything else |
 //! | --- | --- | --- | --- | --- | --- |
@@ -31,8 +29,16 @@
 //! Web turn an `allow` becomes `ask`: only a person approves there (`remote_floor.rs`). Each
 //! `allow` and `deny` is logged as `permission_auto`, as the policy's answers to asks are.
 //!
-//! A harness with neither this gate nor a mode that keeps its policy does not start under it
-//! (`policy_mode.rs` `require_enforced`).
+//! The policy the gate holds is the one the chat's mode follows (`policy_mode.rs`
+//! `narrow_policy`: its own, else a deny-all default), and also a review default: review, like
+//! deny-all, promises that nothing writes with no person to ask. A default of ask, approve-reads
+//! or approve-edits is not narrowing (chats start in full access by design).
+//!
+//! Deny-all lets a read-only shell command run, as Codex's `read-only` mode does: the policy
+//! refuses every write, not every read (`shell_readonly.rs` decides what only reads).
+//!
+//! A deny-all or review chat whose harness has neither this gate nor a mode that keeps its
+//! policy does not start under it (`policy_mode.rs` `require_enforced`).
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -128,10 +134,21 @@ fn deny_reason(policy: PermissionPolicy, by_rule: bool) -> String {
     )
 }
 
-/// Whether `meta`'s agent has the PreToolUse gate: acpmux's own Claude Code backend, which
-/// registers it on unix (`claude_stdio::outbound::initialize_request`).
+/// Whether `meta`'s agent has the PreToolUse gate: acpmux's own Claude Code backend, started by
+/// a build that registers it (`claude_stdio::has_tool_gate`).
 pub(super) fn has_gate(meta: &SessionMeta) -> bool {
-    cfg!(unix) && crate::claude_stdio::steers_by_info(meta.agent_info.as_ref())
+    crate::claude_stdio::has_tool_gate(meta.agent_info.as_ref())
+}
+
+/// The policy the gate holds for `meta` under default policy `default`, or `None`: nothing to
+/// hold (module docs).
+pub(super) fn gate_policy(
+    meta: &SessionMeta,
+    default: PermissionPolicy,
+) -> Option<PermissionPolicy> {
+    let review_default = meta.permission_policy.is_none() && default == PermissionPolicy::Review;
+    super::policy_mode::narrow_policy(meta, default)
+        .or(review_default.then_some(PermissionPolicy::Review))
 }
 
 impl Hub {
@@ -139,10 +156,9 @@ impl Hub {
     /// agent (module docs). `request` has the shape of a `session/request_permission`.
     pub(super) async fn answer_tool_gate(&self, session: &Arc<Session>, request: Value) -> Value {
         let default = self.config.read().await.permission_policy;
-        let policy = self.policy_for(session, default);
-        if policy == PermissionPolicy::ApproveAll {
+        let Some(policy) = gate_policy(&session.meta(), default) else {
             return json!({"decision": GateDecision::None.as_str()});
-        }
+        };
         let kind = request.pointer("/toolCall/kind").and_then(Value::as_str).unwrap_or("");
         let rule = session
             .meta()
@@ -185,58 +201,6 @@ impl Hub {
             tracing::info!(session = %session.id, %policy, "the policy gate denied a tool call");
         }
         answer
-    }
-
-    /// Tells `child`, acpmux's Claude Code backend, which policy its PreToolUse gate holds:
-    /// `Some` turns the gate on, `None` off (module docs). The hub answers each call by the
-    /// chat's policy as it is then, so a gate left on only asks more often.
-    pub(super) async fn push_policy_gate(
-        &self,
-        session: &Session,
-        child: &ChildAgent,
-        policy: Option<PermissionPolicy>,
-    ) -> Result<(), RpcError> {
-        let sid = session.meta().agent_session_id.clone().unwrap_or_else(|| session.id.clone());
-        let params = json!({"sessionId": sid, "policy": policy.map(|p| p.to_string())});
-        child.request(crate::claude_stdio::POLICY_GATE, params).await.map(|_| ())
-    }
-
-    /// `session`'s policy changed, or a daemon reached its agent again: a running agent with the
-    /// gate takes the policy it holds now (narrower than approve-all: on; else off). A gate that
-    /// does not take a narrower policy is logged as `policy_unenforced`; the chat's mode still
-    /// moves to the policy's (`follow_policy`).
-    pub(super) async fn follow_policy_gate(&self, session: &Arc<Session>) {
-        let meta = session.meta();
-        if !has_gate(&meta) {
-            return;
-        }
-        let child = session.child.lock().await.clone();
-        let Some(child) = child else { return };
-        if !child.is_alive().await {
-            return;
-        }
-        let default = self.config.read().await.permission_policy;
-        let policy = super::policy_mode::narrow_policy(&meta, default);
-        // Bounded: a host that stopped reading must not hold a policy change.
-        let pushed = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            self.push_policy_gate(session, &child, policy),
-        )
-        .await;
-        let error = match pushed {
-            Ok(Ok(())) => return,
-            Ok(Err(e)) => e.message,
-            Err(_) => "the agent did not answer in 10 s".to_owned(),
-        };
-        tracing::warn!(session = %session.id, ?policy, "the policy gate did not take the policy: {error}");
-        if let Some(policy) = policy {
-            self.append(
-                session,
-                "mux",
-                "policy_unenforced",
-                json!({"policy": policy.to_string(), "modeId": crate::web_modes::mode_of(&meta), "reason": format!("the tool gate did not take the policy: {error}")}),
-            );
-        }
     }
 }
 
@@ -324,6 +288,35 @@ mod tests {
     fn a_question_is_left_to_the_person() {
         for policy in ALL {
             assert_eq!(gate_decision(policy, None, "other", true, false), GateDecision::None);
+        }
+    }
+
+    fn meta(own: Option<&str>) -> SessionMeta {
+        serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": "claude",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+            "permissionPolicy": own,
+        }))
+        .unwrap()
+    }
+
+    /// The chat's own policy, else a deny-all or review default; approve-all and the defaults
+    /// that are not narrowing hold nothing.
+    #[test]
+    fn the_gate_holds_the_chats_policy_or_a_deny_all_or_review_default() {
+        use PermissionPolicy as P;
+        for (own, default, want) in [
+            (Some("review"), P::Ask, Some(P::Review)),
+            (Some("ask"), P::ApproveAll, Some(P::Ask)),
+            (Some("approve-all"), P::DenyAll, None),
+            (Some("approve-all"), P::Review, None),
+            (None, P::DenyAll, Some(P::DenyAll)),
+            (None, P::Review, Some(P::Review)),
+            (None, P::Ask, None),
+            (None, P::ApproveReads, None),
+            (None, P::ApproveAll, None),
+        ] {
+            assert_eq!(gate_policy(&meta(own), default), want, "{own:?} {default}");
         }
     }
 

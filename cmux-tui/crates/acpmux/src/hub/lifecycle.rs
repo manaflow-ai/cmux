@@ -1416,12 +1416,8 @@ impl Hub {
             )
             .await?;
             // A profile that pins its mode in argv (`--permission-mode`, a skip flag) started in it.
-            // An agent that cannot keep the chat's policy is stopped and the start fails.
-            let pinned = super::start_mode::profile_sets_mode(profile);
-            if let Err(e) = self.hold_policy_mode(session, &child, pinned).await {
-                self.stop_started_agent(session, false, "policy_refused").await;
-                return Err(e);
-            }
+            self.hold_policy_mode(session, &child, super::start_mode::profile_sets_mode(profile))
+                .await;
             self.set_status(session, SessionStatus::Ready);
             self.note_launch(session, &child);
             self.save_meta(session);

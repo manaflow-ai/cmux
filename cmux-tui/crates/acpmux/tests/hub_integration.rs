@@ -1180,6 +1180,18 @@ async fn family_defaults_presets_and_the_target_grammar() {
         .await
         .unwrap_err();
     assert!(err.contains("unknown preset"), "{err}");
+    // A deny-all preset on a harness that can keep it neither by a gate nor by a mode: the chat
+    // does not start (W5-L).
+    let locked = json!({"name": "locked", "set": {"harness": "fake-pool", "policy": "deny-all"}});
+    c.request(method::MUX_PRESETS, locked).await.unwrap();
+    let err = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "locked"}}}),
+        )
+        .await
+        .unwrap_err();
+    assert!(err.contains("cannot be enforced"), "{err}");
     let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
     assert_eq!(list["presets"][0]["name"], "fast");
 }

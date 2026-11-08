@@ -1192,53 +1192,92 @@ fn ran_calls(log: &Path) -> std::collections::BTreeMap<String, bool> {
         .collect()
 }
 
+/// `git -C dir args`, which must succeed.
+fn git_in(dir: &Path, args: &[&str]) {
+    let ok = std::process::Command::new("git").arg("-C").arg(dir).args(args).status();
+    assert!(ok.unwrap().success(), "git {args:?}");
+}
+
+/// The prompt that makes `fake_claude_auto.py` run `calls`, each `[tool, input]`.
+fn auto_tools(calls: &Value) -> Value {
+    json!([{"type": "text", "text": format!("auto-tools: {calls}")}])
+}
+
 /// W5-L: a chat on a `claude-sr2` profile under deny-all or review ran a `touch` and a Write with
 /// no prompt and no deny: the profile's own family hid Claude Code's asking mode from the policy
 /// tables, the chat stayed in `auto`, and the daemon only warned. A policy is now held whatever
 /// the harness's mode: every tool call the harness makes passes acpmux's PreToolUse gate, which
-/// denies what the policy refuses (a write, a command that does not only read) and lets reads
-/// and read-only commands run. The chat also moves to Claude Code's asking mode. Under
-/// approve-all the same calls run.
+/// denies what the policy refuses (a write, a commit, a command that does not only read) and lets
+/// reads and read-only commands run, also git reads in a partial clone with merge drivers (the
+/// cmux checkout, where a review chat could not run `git diff`). The chat also moves to Claude
+/// Code's asking mode. Under approve-all the same calls run, and a chat narrowed to review while
+/// its agent runs is held at once.
 #[tokio::test]
 async fn a_narrow_policy_holds_on_a_claude_launcher_that_runs_tools_without_asking() {
     let dir = home("policy-gate", json!({"defaultPermissionMode": "fullAccess"}));
     let work = dir.join("work");
-    let ok = std::process::Command::new("git").arg("-C").arg(&work).args(["init", "-q"]).status();
-    assert!(ok.unwrap().success());
+    git_in(&work, &["init", "-q"]);
+    git_in(&work, &["config", "user.name", "Gate Test"]);
+    git_in(&work, &["config", "user.email", "gate@example.invalid"]);
+    std::fs::write(work.join("file.txt"), "needle\n").unwrap();
+    git_in(&work, &["add", "file.txt"]);
+    git_in(&work, &["commit", "-qm", "init"]);
+    git_in(&work, &["update-ref", "refs/remotes/origin/x", "HEAD"]);
+    // As the cmux checkout: merge drivers and a promisor remote.
+    for (key, value) in [
+        ("merge.pbxproj-v1.driver", "/nonexistent/merge %O %A %B"),
+        ("merge.pbxproj-v1.name", "pbxproj"),
+        ("remote.origin.url", "https://example.invalid/r.git"),
+        ("remote.origin.promisor", "true"),
+        ("remote.origin.partialclonefilter", "blob:none"),
+    ] {
+        git_in(&work, &["config", key, value]);
+    }
     let log = dir.join("auto.log");
     let daemon = hub_with(&dir, |cfg| {
         cfg.harnesses.insert("sr2".into(), launcher_profile(&log));
     });
     let mut app = Client::app(&daemon).await;
+    let reads = [
+        "git status",
+        "ls",
+        "git diff origin/x -- file.txt",
+        "git log --oneline -1",
+        "git show HEAD:file.txt",
+        "git blame file.txt",
+        "cat file.txt",
+        "grep -rn needle .",
+    ];
+    let commit = "git commit -q --allow-empty -m gate";
+    let mut last = String::new();
     for policy in ["review", "deny-all", "approve-all"] {
         let _ = std::fs::remove_file(&log);
         let (id, _) = app.chat_with_policy(&dir, "sr2", policy).await;
         let probe = dir.join(format!("probe-{policy}"));
         let written = work.join(format!("written-{policy}.txt"));
         let touch = format!("touch {}", probe.display());
-        let calls = json!([
-            ["Bash", {"command": touch}],
-            ["Write", {"file_path": written, "content": "x"}],
-            ["Bash", {"command": "git status"}],
-            ["Bash", {"command": "ls"}],
-        ]);
-        let text = format!("auto-tools: {calls}");
+        let mut calls = vec![
+            json!(["Bash", {"command": touch}]),
+            json!(["Write", {"file_path": written, "content": "x"}]),
+            json!(["Bash", {"command": commit}]),
+        ];
+        calls.extend(reads.iter().map(|r| json!(["Bash", {"command": r}])));
+        let calls = Value::Array(calls);
         let r = app
-            .call(
-                "session/prompt",
-                json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}),
-            )
+            .call("session/prompt", json!({"sessionId": id, "prompt": auto_tools(&calls)}))
             .await;
         assert!(r.get("error").is_none(), "{policy}: {r}");
         let ran = ran_calls(&log);
-        assert_eq!(ran.len(), 4, "{policy}: every call was made: {ran:?}");
-        assert_eq!(ran["git status"], true, "{policy}: a read-only command runs: {ran:?}");
-        assert_eq!(ran["ls"], true, "{policy}: a read-only command runs: {ran:?}");
+        assert_eq!(ran.len(), 3 + reads.len(), "{policy}: every call was made: {ran:?}");
+        for read in reads {
+            assert!(ran[read], "{policy}: a read-only command runs: {read}: {ran:?}");
+        }
         let writes = policy == "approve-all";
-        assert_eq!(ran[&touch], writes, "{policy}: {ran:?}");
-        assert_eq!(ran[&written.to_string_lossy().into_owned()], writes, "{policy}: {ran:?}");
-        assert_eq!(probe.exists(), writes, "{policy}: the touch");
-        assert_eq!(written.exists(), writes, "{policy}: the Write");
+        assert!(ran[&touch] == writes, "{policy}: the touch: {ran:?}");
+        assert!(ran[&written.to_string_lossy().into_owned()] == writes, "{policy}: {ran:?}");
+        assert!(ran[commit] == writes, "{policy}: the commit: {ran:?}");
+        assert!(probe.exists() == writes, "{policy}: the touch");
+        assert!(written.exists() == writes, "{policy}: the Write");
         if !writes {
             // Reported: each refused call is a denied permission in the chat's log.
             let r = app
@@ -1250,11 +1289,25 @@ async fn a_narrow_policy_holds_on_a_claude_launcher_that_runs_tools_without_aski
                 .iter()
                 .filter(|e| e["msg"]["optionId"] == "reject_once")
                 .count();
-            assert_eq!(denied, 2, "{policy}: the touch and the Write were reported: {r}");
+            assert_eq!(denied, 3, "{policy}: the touch, the Write and the commit: {r}");
             // And the chat runs in Claude Code's mode that asks, not `auto`.
             assert_eq!(app.mode(&id).await, "default", "{policy}");
         }
+        last = id;
     }
+    // Narrowed while its agent runs: held from the next call, with no restart.
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": last, "policy": "review"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let _ = std::fs::remove_file(&log);
+    let probe = dir.join("probe-narrowed");
+    let touch = format!("touch {}", probe.display());
+    let calls = json!([["Bash", {"command": touch}], ["Bash", {"command": "git log -1"}]]);
+    let r =
+        app.call("session/prompt", json!({"sessionId": last, "prompt": auto_tools(&calls)})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let ran = ran_calls(&log);
+    assert!(!ran[&touch] && !probe.exists(), "narrowed to review: {ran:?}");
+    assert!(ran["git log -1"], "narrowed to review: {ran:?}");
     // A harness that can neither gate nor keep deny-all or review by its mode does not start
     // under it: never "warn and run unprotected".
     for policy in ["review", "deny-all"] {

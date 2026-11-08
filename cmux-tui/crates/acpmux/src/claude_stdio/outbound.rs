@@ -395,9 +395,6 @@ impl Translator {
                         })])
                     }
                     RENAME => self.rename(id, &p).await,
-                    POLICY_GATE => {
-                        Outbound::Reply(Message::ok(id.clone(), self.set_policy_gate(&p).await))
-                    }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     method::MUX_STEER_WITHDRAW => self.withdraw_steer(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it

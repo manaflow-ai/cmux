@@ -1,7 +1,6 @@
-//! Claude Code's PreToolUse policy gate (`policy_gate.rs`): off it answers at once with no
-//! decision; on, a tool call that can act outside Claude Code asks the hub, and the hub's answer
-//! becomes the hook's (W5-L: under deny-all and review a `claude-sr2` chat in `auto` ran a
-//! `touch` and a Write with no prompt and no deny).
+//! Claude Code's PreToolUse policy gate (`policy_gate.rs`): a tool call that can act outside
+//! Claude Code asks the hub, and the hub's answer becomes the hook's (W5-L: under deny-all and
+//! review a `claude-sr2` chat in `auto` ran a `touch` and a Write with no prompt and no deny).
 
 use super::*;
 
@@ -10,16 +9,6 @@ fn hook(rid: &str, tool: &str, input: Value) -> Value {
         "subtype": "hook_callback", "callback_id": policy_gate::GATE_CALLBACK, "tool_use_id": "toolu_1",
         "input": {"session_id": "s", "cwd": "/work", "hook_event_name": "PreToolUse",
                   "tool_name": tool, "tool_input": input, "tool_use_id": "toolu_1"}}})
-}
-
-async fn turn_on(t: &Translator, policy: Option<&str>) {
-    let msg = Message::request(7, POLICY_GATE, json!({"sessionId": "acp-1", "policy": policy}));
-    match t.outbound(&msg).await {
-        Outbound::Reply(Message::Response { result: Some(r), error: None, .. }) => {
-            assert_eq!(r["gate"], policy.is_some(), "{r}");
-        }
-        _ => panic!("the gate answers its switch at once"),
-    }
 }
 
 /// The request the hook sent the hub, and its id.
@@ -46,23 +35,28 @@ fn decision(line: &Value) -> Option<&str> {
     line.pointer("/response/response/hookSpecificOutput/permissionDecision").and_then(Value::as_str)
 }
 
+/// The backend says it has the gate, so the hub knows the policy holds (`has_tool_gate`).
 #[tokio::test]
-async fn an_off_gate_answers_at_once_with_no_decision() {
+async fn the_backend_reports_its_gate_in_its_agent_info() {
     let t = Translator::new("acp-1".into(), "auto", "haiku", "default");
-    assert!(asked(&t, &hook("h1", "Write", json!({"file_path": "/work/a"}))).await.is_none());
-    let replies = t.take_stdin_replies().await;
-    assert_eq!(replies, vec![policy_gate::hook_reply("h1", json!({}))]);
-    // Turned on, then off again: the same.
-    turn_on(&t, Some("review")).await;
-    turn_on(&t, None).await;
-    assert!(asked(&t, &hook("h2", "Bash", json!({"command": "touch x"}))).await.is_none());
-    assert_eq!(t.take_stdin_replies().await, vec![policy_gate::hook_reply("h2", json!({}))]);
+    let out = t
+        .inbound(&json!({"type": "control_response", "response": {"subtype": "success",
+            "request_id": "init-1", "response": {"commands": [], "version": "2.1.319"}}}))
+        .await;
+    let info = out
+        .iter()
+        .find_map(|m| match m {
+            Message::Response { result: Some(r), .. } => r.get("agentInfo").cloned(),
+            _ => None,
+        })
+        .expect("the initialize answer");
+    assert_eq!(has_tool_gate(Some(&info)), cfg!(unix), "{info}");
+    assert!(!has_tool_gate(Some(&json!({"name": AGENT_NAME, "title": "Claude Code"}))));
 }
 
 #[tokio::test]
-async fn an_on_gate_asks_the_hub_and_obeys_its_answer() {
+async fn the_gate_asks_the_hub_and_obeys_its_answer() {
     let t = Translator::new("acp-1".into(), "auto", "haiku", "default");
-    turn_on(&t, Some("review")).await;
     let (id, params) =
         asked(&t, &hook("w1", "Write", json!({"file_path": "/work/a", "content": "x"})))
             .await
@@ -70,7 +64,7 @@ async fn an_on_gate_asks_the_hub_and_obeys_its_answer() {
     assert!(t.take_stdin_replies().await.is_empty(), "nothing for Claude Code before the answer");
     assert_eq!(params["toolCall"]["kind"], "edit", "{params}");
     assert_eq!(params["toolCall"]["_meta"]["claude"]["tool"], "Write", "{params}");
-    assert_eq!(params["policy"], "review", "{params}");
+    assert_eq!(params["sessionId"], "acp-1", "{params}");
     let lines =
         answered(&t, id, Ok(json!({"decision": "deny", "reason": "review refuses it"}))).await;
     assert_eq!(lines.len(), 1, "{lines:?}");
@@ -102,20 +96,23 @@ async fn an_on_gate_asks_the_hub_and_obeys_its_answer() {
     assert_eq!(decision(&lines[0]), Some("deny"));
 }
 
-/// A tool that acts on nothing outside Claude Code (its task list) is never sent to the hub.
+/// A tool that acts on nothing outside Claude Code (its task list) is never sent to the hub; a
+/// skill or a slash command, whose text can run shell commands, is.
 #[tokio::test]
 async fn claude_codes_own_tools_pass_the_gate_without_asking() {
     let t = Translator::new("acp-1".into(), "auto", "haiku", "default");
-    turn_on(&t, Some("deny-all")).await;
     assert!(asked(&t, &hook("t1", "TodoWrite", json!({"todos": []}))).await.is_none());
     assert_eq!(t.take_stdin_replies().await, vec![policy_gate::hook_reply("t1", json!({}))]);
+    for tool in ["Skill", "SlashCommand"] {
+        assert!(asked(&t, &hook("s1", tool, json!({"skill": "x"}))).await.is_some(), "{tool}");
+    }
+    assert!(t.take_stdin_replies().await.is_empty());
 }
 
 /// Claude Code stopped waiting (the turn was stopped): the late answer writes nothing.
 #[tokio::test]
 async fn a_withdrawn_gate_hook_drops_its_late_answer() {
     let t = Translator::new("acp-1".into(), "auto", "haiku", "default");
-    turn_on(&t, Some("review")).await;
     let (id, _) = asked(&t, &hook("c1", "Bash", json!({"command": "touch x"}))).await.unwrap();
     let out = t.inbound(&json!({"type": "control_cancel_request", "request_id": "c1"})).await;
     assert!(out.is_empty(), "the hub is not told: {out:?}");
