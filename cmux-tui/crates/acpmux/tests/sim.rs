@@ -166,11 +166,12 @@ fn seeds_hold_the_delivery_invariants() {
     );
 }
 
-/// Seeds a sweep found failing under the standard faults, kept once fixed: each one's
-/// invariant, and the landing that fixed it.
+/// Seeds a sweep found failing under the standard faults, kept once fixed: what each broke,
+/// and why.
 const FOUND: &[u64] = &[
-    // A resumed chat ends with a turn still open (turn_started with no turn_result) where the
-    // uninterrupted one has none: sweeps 266 and 300 (acpmux-sim-sweep.yml).
+    // Sweeps 266 and 300: a resumed chat ended with a turn still open. A partition cut the app's
+    // connection, so it missed the daemon's next crash, read the quiet as settled and left
+    // while the restart's continuation still ran (app.rs, `chat_settled`).
     2663130, 3000166,
 ];
 
