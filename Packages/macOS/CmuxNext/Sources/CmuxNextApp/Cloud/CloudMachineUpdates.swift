@@ -141,7 +141,7 @@ final class CloudMachineUpdates {
     static func daemon(of session: CloudMachineSession?, machines: MachineRegistry?) -> CloudMachineUpdateTarget.Daemon? {
         guard let session, let machines else { return nil }
         let level = machines.compatibility(of: session.daemon)?.level
-        if let identity = session.daemon.identity, session.daemon.connection != nil {
+        if let identity = session.daemon.liveIdentity {
             return CloudMachineUpdateTarget.Daemon(build: identity.buildCommit, level: level ?? .current)
         }
         return level == .incompatible ? CloudMachineUpdateTarget.Daemon(build: nil, level: .incompatible) : nil
