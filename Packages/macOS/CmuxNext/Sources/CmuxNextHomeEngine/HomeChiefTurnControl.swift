@@ -84,6 +84,18 @@ public struct HomeChiefTurnControl {
         }
     }
 
+    /// `chief.stop {start: name}`: Start now on a queued agent's tab in Home; nil
+    /// when it started, else why not.
+    public func startNow(_ name: String) async -> HomeChiefEngineError? {
+        guard let connection else { return .unreachable }
+        do throws(ChiefControlError) {
+            let answer = try await ChiefControlClient(connection).startAgent(name, chief: named)
+            return answer.started ? nil : .other(answer.note ?? name)
+        } catch {
+            return HomeChiefEngineError(error)
+        }
+    }
+
     /// `chief.stop {restart: names}`: Restart on the stop-all toast; nil when
     /// every one went on, else why not.
     public func restart(_ names: [String]) async -> HomeChiefEngineError? {

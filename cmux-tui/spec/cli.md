@@ -21,7 +21,7 @@ cmux wg dial --hub <unix socket> <host> <port>
 cmux carrier dial --machine <vm_id> [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N]
 cmux carrier key --public
 cmux carrier serve --machine <vm_id> --socket <absolute path> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]
-cmux link dial --host <install or host id> [--service daemon|ssh|owner_session|desktop] [--socket <absolute path>]
+cmux link dial --host <install or host id> [--service daemon|ssh|owner_session|desktop|acpmux] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--cloud-token-file PATH] [--handoff]
 cmux link stop --state-dir <dir>
 cmux link status --state-dir <dir>
@@ -122,10 +122,14 @@ good, and removes the socket on every exit after the bind.
 host (`host_…`) through this machine's running `cmux link` (the caller never
 holds peer keys or link tokens). `--service` is `daemon` (the default; the
 session's remote entry), `ssh` (the host's sshd, Cloud hosts only, when
-their policy allows it; paired installs serve only `daemon`), `owner_session`
-(a paired server's owner session, its owner only) or `desktop` (the Cloud
+their policy allows it; paired installs do not serve it), `owner_session`
+(a paired server's owner session, its owner only), `desktop` (the Cloud
 machine's agent display as `cmux.rd/1`, its creator only, on a machine that
-serves it; refused with `desktop_unavailable` when it does not). `--socket`
+serves it; refused with `desktop_unavailable` when it does not) or `acpmux`
+(a paired install's acpmux WebSocket listener on its loopback, as named by
+`websocket.listen` in its acpmux `config.json`; acpmux checks its own token on
+the upgrade, so pairing grants nothing more, and the stream closes when no
+listener is there). `--socket`
 dials exactly that link socket instead of looking up the running link (for a
 caller with a private `HOME`, or a tagged link); it must be an absolute path
 to a socket (otherwise exit 64), and a path that does not exist means the
