@@ -24,6 +24,7 @@ import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./tu
 import { retryPlacement } from "./turns";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
+import { resendsAttachments } from "../inlinePrompt";
 /// The message's age, relative and live; the exact date and time above it on hover, as Claude's.
 export function MessageTime({ at, className }: { at: number; className: string }) {
   const now = useLabelClock(at, nextRelativeTime);
@@ -346,18 +347,20 @@ export function PromptActions({
     (retryTarget?.promptId === row.id &&
       retryPlacement(retryTarget, { canRetry: canResend, readOnly, messages: false }) === "prompt");
   const prompt = row.resend ?? row.text ?? "";
+  // An attachment-only prompt (turns.ts offersRetry) retries when all its attachments can go again.
+  const hasAttachment = resendsAttachments(row);
   const actions = (
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
-      {promptRetry && <PromptRetry rowId={row.id} prompt={prompt} />}
+      {promptRetry && <PromptRetry rowId={row.id} prompt={prompt} hasAttachment={hasAttachment} />}
       <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
   return (
     <div className="cv-user__actions">
       {pending
-        ? pending(actions, { retry: promptRetry ? <PromptRetry rowId={row.id} prompt={prompt} held /> : null })
+        ? pending(actions, { retry: promptRetry ? <PromptRetry rowId={row.id} prompt={prompt} hasAttachment={hasAttachment} held /> : null })
         : actions}
     </div>
   );

@@ -160,6 +160,13 @@ export function UserBubble({
   // attachment-only row carries both shapes (send and replay record each), and drawing both drew
   // every attachment twice.
   const legacyBands = !hasInterleaved && !inlineAttachmentOnly;
+  // An attachment-only row whose recorded parts hold fewer images than its `images` (an image
+  // recorded only in the legacy shape beside an inline-recorded file) still draws those images.
+  const inlineImages = orderedParts?.filter((part) => part.kind === "image") ?? [];
+  const looseImages =
+    inlineAttachmentOnly && (row.images?.length ?? 0) > inlineImages.length
+      ? row.images!.filter((image) => !inlineImages.some((part) => part.id === image.id))
+      : [];
   // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
   const banded = (part: PromptContentPart) =>
     isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
@@ -219,6 +226,7 @@ export function UserBubble({
       {legacyBands && (Boolean(row.images?.length) || videos.length > 0) && (
         <SentImages images={row.images ?? []} leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null} />
       )}
+      {looseImages.length > 0 && <SentImages images={looseImages} />}
       {legacyBands && Boolean(files?.length) && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
