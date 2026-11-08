@@ -117,6 +117,10 @@ public nonisolated struct FocusState: Hashable, Sendable, Codable {
             }
         }
 
+        /// The browser tab whose page, address bar, find bar or docked DevTools has the keyboard;
+        /// nil for every other target (a terminal, an agent chat, an internal page, Home, the sidebar).
+        public var browserTab: String? { nil }
+
         /// A text field has the keyboard: editing chords belong to it.
         public var isTextInput: Bool {
             switch self {
