@@ -211,6 +211,8 @@ pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
 mod carrier_role;
 #[cfg(unix)]
 mod native_owner;
+#[cfg(unix)]
+mod phone_carrier;
 mod new_screen;
 mod personal;
 mod raw_tab;
