@@ -221,13 +221,15 @@ async fn an_error_before_an_empty_attach_still_pages_older_history() {
         events: vec![older_user(10, "one")],
         has_more: false,
     });
-    let texts: Vec<_> = app.transcripts[id]
+    // The error row is not a daemon record, and the rebuild keeps it where it was shown.
+    let rows: Vec<_> = app.transcripts[id]
         .items
         .iter()
         .filter_map(|i| match i {
-            crate::transcript::Item::User { text, .. } => Some(text.as_str()),
+            crate::transcript::Item::User { text, .. } => Some(format!("user {text}")),
+            crate::transcript::Item::Error { text } => Some(format!("error {text}")),
             _ => None,
         })
         .collect();
-    assert_eq!(texts, ["one", "three"]);
+    assert_eq!(rows, ["user one", "error send failed", "user three"]);
 }
