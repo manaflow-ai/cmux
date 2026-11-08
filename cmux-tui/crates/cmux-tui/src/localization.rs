@@ -9,6 +9,8 @@ use crate::config::Action;
 
 mod attention;
 pub(crate) use attention::AttentionMessages;
+mod copy_mode;
+pub(crate) use copy_mode::CopyModeMessages;
 
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
@@ -1302,6 +1304,7 @@ pub(crate) struct Catalog {
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub copy_mode: CopyModeMessages,
     pub browser: BrowserMessages,
     pub layout: LayoutMessages,
     pub runtime: RuntimeMessages,
@@ -1327,6 +1330,7 @@ impl Catalog {
 static ENGLISH: Catalog = Catalog {
     japanese: false,
     attention: attention::ENGLISH,
+    copy_mode: copy_mode::ENGLISH,
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: starting the agent without cmux status updates",
         agent_not_found: "cmux: the agent executable was not found",
@@ -2116,6 +2120,7 @@ socket.
 static JAPANESE: Catalog = Catalog {
     japanese: true,
     attention: attention::JAPANESE,
+    copy_mode: copy_mode::JAPANESE,
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: cmux のステータス更新なしでエージェントを起動します",
         agent_not_found: "cmux: エージェントの実行ファイルが見つかりません",
