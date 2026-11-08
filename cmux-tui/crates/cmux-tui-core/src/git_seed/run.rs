@@ -324,8 +324,9 @@ impl Seed {
 
     /// A delta seed builds on this folder's last seed or last export
     /// ([`super::export`], which the Mac merged back): same remote, its WORK
-    /// is `since`, and nothing changed on the machine since (HEAD, the index
-    /// and the working tree with untracked files are still that record's).
+    /// is `since`, and nothing changed on the machine since (HEAD, the stash,
+    /// the index and the working tree with untracked files are still that
+    /// record's).
     fn check_delta(&self, since: &str) -> Result<(), Failed> {
         self.recheck()?;
         let mismatch = |error: &str| failed("seed.since_mismatch", error);
@@ -355,6 +356,10 @@ impl Seed {
         let changed = |error: &str| failed("seed.machine_changed", error);
         if read("HEAD^{commit}").as_deref() != Some(head.as_str()) {
             return Err(changed("HEAD moved on the machine since the last seed"));
+        }
+        // The delta sets refs/stash to the Mac's, so a stash made here would be lost.
+        if read("refs/stash^{commit}") != read(&format!("{record}/stash^{{commit}}")) {
+            return Err(changed("the stash changed on the machine since the last seed"));
         }
         let work = read(&format!("{since}^{{tree}}")).unwrap_or_default();
         let snapshot = Snapshot::take(&self.git, &self.chosen, &self.folder)
@@ -484,6 +489,12 @@ impl Seed {
             if self.git(&["rev-parse", "--verify", "--quiet", &incoming]).is_ok() {
                 self.git(&["update-ref", "-d", &incoming])?;
             }
+        }
+        // The optional deletion marker carries a stash-only delta through Git's
+        // bundle format. It has no semantic ref in the seeded working copy.
+        let marker = "refs/cmux-seed-incoming/stash-cleared";
+        if self.git(&["rev-parse", "--verify", "--quiet", marker]).is_ok() {
+            self.git(&["update-ref", "-d", marker])?;
         }
         Ok(())
     }

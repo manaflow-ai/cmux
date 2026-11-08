@@ -123,15 +123,41 @@ afterEach(() => {
   saved.clear();
 });
 
-test("a pasted handoff's card names the agent it reads as, never the person", () => {
-  const host = render(HANDOFF);
-  const card = host.querySelector(".cv-user__paste-card")!;
-  expect(card.getAttribute("data-agent")).toBe("rule");
-  expect(host.querySelector(".cv-user__paste-name")?.textContent).toBe("Pasted from Codex");
-});
+/// Runs `check` with the sent bubble drawing pastes as `look` (sentPasteLook).
+function withPasteLook(look: string, check: () => void) {
+  const before = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...before, "sent-paste-look": look };
+  try {
+    check();
+  } finally {
+    globalThis.cmuxExperiments = before;
+  }
+}
 
-test("a plain paste's card stays Pasted text", () => {
-  const host = render("line one\nline two\nline three");
-  expect(host.querySelector(".cv-user__paste-card")?.hasAttribute("data-agent")).toBe(false);
-  expect(host.querySelector(".cv-user__paste-name")?.textContent).toBe("Pasted text");
-});
+test("a pasted handoff's card names the agent it reads as, never the person", () =>
+  withPasteLook("card", () => {
+    const host = render(HANDOFF);
+    const card = host.querySelector(".cv-user__paste-card")!;
+    expect(card.getAttribute("data-agent")).toBe("rule");
+    expect(host.querySelector(".cv-user__paste-name")?.textContent).toBe("Pasted from Codex");
+  }));
+
+test("a plain paste's card stays Pasted text", () =>
+  withPasteLook("card", () => {
+    const host = render("line one\nline two\nline three");
+    expect(host.querySelector(".cv-user__paste-card")?.hasAttribute("data-agent")).toBe(false);
+    expect(host.querySelector(".cv-user__paste-name")?.textContent).toBe("Pasted text");
+  }));
+
+// Drawn as the bubble's own text (the default), a handoff keeps a "Pasted from" line over it, so it
+// never passes as the person's words; a plain paste has none.
+test("a pasted handoff drawn as text names its agent over it; a plain paste is bare text", () =>
+  withPasteLook("text", () => {
+    const host = render(HANDOFF);
+    expect(host.querySelector(".cv-user__paste-card")).toBeNull();
+    expect(host.querySelector(".cv-user__pasted-from")?.textContent).toBe("Pasted from Codex");
+    expect(host.querySelector(".cv-user__pasted")?.textContent).toContain("Do not merge or deploy.");
+    const plain = render("line one\nline two\nline three");
+    expect(plain.querySelector(".cv-user__pasted-from")).toBeNull();
+    expect(plain.querySelector(".cv-user__pasted")?.textContent).toBe("line one\nline two\nline three");
+  }));
