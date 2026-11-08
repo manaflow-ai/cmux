@@ -31,6 +31,22 @@ extension AgentPaneGitLink: RemoteFileClient {
     }
 }
 
+extension RemoteFileClient {
+    /// Whether `path` (absolute, on the machine) or a folder above it is a symlink there, by each
+    /// prefix's `fs.stat`, which answers a link's own kind. A path a chat's reply names is checked
+    /// against the deny list by its spelling only, so a link in it could name a secret
+    /// (`notes.md -> ~/.ssh/config`): such a path opens nothing. A prefix the machine does not
+    /// serve (outside its roots) cannot be read through, so its failed stat counts as no link.
+    public func reachesThroughLink(_ path: String) async -> Bool {
+        var prefix = ""
+        for part in path.split(separator: "/").prefix(256) {
+            prefix += "/" + part
+            if (try? await stat(prefix))?.kind == "symlink" { return true }
+        }
+        return false
+    }
+}
+
 /// A file page's file on another machine (#25581): read, saved and watched through that machine's
 /// daemon (`fs-v1`, served by Cloud VMs over their home folder), so a tab in a Cloud workspace
 /// shows the VM's file. A save replaces the file only at the revision the page's text was read

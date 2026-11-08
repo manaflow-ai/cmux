@@ -252,7 +252,7 @@ extension AgentPaneModel {
     func openReplyPath(_ text: String) async -> Result<Void, AgentPaneReplyError> {
         // A chat on another machine never opens this Mac's files (cx-k21v), whatever
         // `agentPane.links.outsideRoots` says: its path opens on that machine, or not at all.
-        guard !chatIsElsewhere else { return openMachinePath(text) }
+        guard !chatIsElsewhere else { return await openMachinePath(text) }
         let paths = replyPaths()
         let resolved = AgentPaneReplyPaths.isImagePath(text) ? paths.resolveImage(text) : paths.resolve(text)
         guard let resolved else { return .failure(.pathInvalid) }
@@ -276,9 +276,10 @@ extension AgentPaneModel {
 
     /// A Cloud chat's path chip (Leo, 2026-11-08: everything a local chat does): the file on the
     /// chat's machine, in cmux's file pages, which read it through that machine's daemon. A relative
-    /// path starts from the chat's folder there; the deny list applies by spelling. Nothing on this
-    /// Mac is looked up or opened (cx-k21v): only the machine's path goes to ``onOpenMachineFile``.
-    private func openMachinePath(_ text: String) -> Result<Void, AgentPaneReplyError> {
+    /// path starts from the chat's folder there; the deny list applies by spelling, and the host
+    /// refuses a path that reaches through a symlink there. Nothing on this Mac is looked up or
+    /// opened (cx-k21v): only the machine's path goes to ``onOpenMachineFile``.
+    private func openMachinePath(_ text: String) async -> Result<Void, AgentPaneReplyError> {
         // Only a chat the handshake marked remote has a machine to open on; a remote wire alone,
         // before that, opens nothing anywhere.
         guard remoteChat, let open = onOpenMachineFile else { return .failure(.pathOutsideRoots) }
@@ -286,7 +287,7 @@ extension AgentPaneModel {
         guard let path = AgentPaneReplyPaths.machinePath(text, cwd: cwd) else { return .failure(.pathInvalid) }
         guard !AgentPaneReplyPaths.isDeniedOnMachine(path) else { return .failure(.pathDenied) }
         guard transport.gestures.consume() else { return .failure(.gestureRequired) }
-        return open(path) ? .success(()) : .failure(.openFailed)
+        return await open(path) ? .success(()) : .failure(.openFailed)
     }
 
     /// Opens `path` after every check: a folder in Finder, a file in the pane's file pages.

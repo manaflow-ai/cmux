@@ -44,7 +44,7 @@ struct AgentTabContent {
             if target == .tab { return pane.services.linkOpener.openFile(url, from: pane) }
             return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey, machineID: pane.daemon.machineID)
         }
-        view.model.onOpenMachineFile = { [weak pane] path in guard let pane, pane.services.agentTabs.remoteMachineID(of: key) != nil, let daemon = pane.services.agentTabs.daemonForTab(pane.services.agentTabs.resolve(key)), !daemon.isLocal else { return false }; return pane.services.linkOpener.openFile(URL(fileURLWithPath: path, isDirectory: false), on: daemon, from: pane) }
+        view.model.onOpenMachineFile = { [weak pane] path in guard let pane, pane.services.agentTabs.remoteMachineID(of: key) != nil, let daemon = pane.services.agentTabs.daemonForTab(pane.services.agentTabs.resolve(key)), !daemon.isLocal, await !pane.services.agentGit.link(for: daemon).reachesThroughLink(path) else { return false }; return pane.services.linkOpener.openFile(URL(fileURLWithPath: path, isDirectory: false), on: daemon, from: pane) }
         view.model.onOpenPreview = { [weak pane] url in
             guard let pane else { return false }
             // A clicked link's tab, the hover card's Open: as a link clicked in the chat (LinkOpener.openWeb).
