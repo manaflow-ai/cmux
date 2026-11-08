@@ -45,15 +45,7 @@ fn proven(said: &str) -> bool {
 
 #[tokio::test]
 async fn caller_identity_an_agent_stays_proven_across_daemon_restarts() {
-    let stall = std::env::temp_dir().join(format!("amd-callerid-stall-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&stall);
-    std::fs::create_dir_all(&stall).unwrap();
-    let stall_env = stall.to_string_lossy().into_owned();
-    let mut daemon = Daemon::with_env(
-        "callerid",
-        "approve-all",
-        &[("ACPMUX_TEST_HOST_HELLO_STALL_DIR", stall_env.as_str())],
-    );
+    let mut daemon = Daemon::new("callerid", "approve-all");
     let session = new_session(&daemon).await;
     let other = new_session(&daemon).await;
     let token = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
@@ -70,27 +62,30 @@ async fn caller_identity_an_agent_stays_proven_across_daemon_restarts() {
     let after = send_as(&daemon, &session, &token, &other, "after the restart");
     assert!(proven(&after), "the agent's send after a restart: {after}");
 
-    // A restart on a loaded Mac: the host's hello misses the start's adoption pass and its
-    // retry (debug builds' seams), so this run has not adopted it when the agent sends. A marker
-    // stalls one hello: two hosts, each with the start pass's hello and the retry's.
+    // A restart on a loaded Mac: the host does not answer its hello in time for the start's
+    // adoption pass (debug builds' seam: every hello of that pass misses) nor yet for its retry
+    // (the host is stopped), so this run has not adopted it when the agent sends. Before the
+    // registry, that send went out as "no proven session".
+    let host = daemon.host_record(&session)["host_pid"].as_i64().unwrap();
     daemon.sigterm();
-    for marker in ["stall-0", "stall-1", "stall-2", "stall-3"] {
-        std::fs::write(stall.join(marker), "").unwrap();
-    }
     daemon.env.push(("ACPMUX_TEST_ADOPT_HELLO_BUDGET_MS".into(), "0".into()));
+    // SAFETY: signals the agent host this test started; it is resumed below.
+    assert_eq!(unsafe { libc::kill(host as i32, libc::SIGSTOP) }, 0);
     daemon.start();
-    assert!(alive(harness), "the agent died with the second restart");
     let late = send_as(&daemon, &session, &token, &other, "while adoption is late");
-    assert!(proven(&late), "the agent's send before its late adoption: {late}");
     let listed = list_as(&daemon, &session, &token).await;
+    // SAFETY: as above; the retry's hello is answered now.
+    assert_eq!(unsafe { libc::kill(host as i32, libc::SIGCONT) }, 0);
+    assert!(proven(&late), "the agent's send before its late adoption: {late}");
     assert!(listed.get("error").is_none(), "the daemon did not prove the agent's token: {listed}");
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    assert!(alive(harness), "the agent died with the second restart");
 
     // Still the session's alone, and a token that proves nothing proves nothing.
     let borrowed = list_as(&daemon, &other, &token).await;
     assert!(borrowed.get("error").is_some(), "one session's token proved another: {borrowed}");
     let stray = list_as(&daemon, &session, &"0".repeat(64)).await;
     assert!(stray.get("error").is_some(), "a token that proves nothing was let in: {stray}");
-    let _ = std::fs::remove_dir_all(&stall);
 }
 
 /// A Codex subagent runs in a thread of its own, so its commands carry another
