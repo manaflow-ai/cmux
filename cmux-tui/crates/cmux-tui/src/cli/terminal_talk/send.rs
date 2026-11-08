@@ -234,8 +234,9 @@ pub(in crate::cli) fn snapshot<B: Daemon + ?Sized>(
 }
 
 /// The terminal record `target` names: a `term_` id or unique prefix, a
-/// `tab_` id it shows in, `current` (the caller's terminal), or an exact
-/// title.
+/// `tab_` id it shows in, `current` (the caller's terminal), an exact title,
+/// or (when no title matches) an agent name or unique tab name
+/// (agent_names.rs).
 pub(in crate::cli) fn find_terminal<'a>(
     snapshot: &'a Value,
     target: &str,
@@ -262,6 +263,29 @@ pub(in crate::cli) fn find_terminal<'a>(
     } else {
         terminals.iter().filter(|terminal| terminal["title"] == target).collect()
     };
+    // An agent name (or a unique tab name) only where no title matches, so a
+    // title that selected a terminal before still selects it.
+    if matches.is_empty() && !target.starts_with("term_") {
+        use super::super::agent_names::{Found, resolve};
+        match resolve(snapshot, target) {
+            Found::One(place) => {
+                if let Some(found) =
+                    terminals.iter().find(|terminal| terminal["id"] == place.terminal)
+                {
+                    return Ok(found);
+                }
+            }
+            Found::Ambiguous(tabs) => {
+                return Err(SendFailure::local(
+                    "selector.ambiguous",
+                    format!("{} tabs are named {target:?}; name one by its id", tabs.len()),
+                    json!({"target": target, "candidates": tabs}),
+                    1,
+                ));
+            }
+            Found::Missing => {}
+        }
+    }
     match matches.as_slice() {
         [one] => Ok(one),
         [] => Err(SendFailure::local(

@@ -402,6 +402,40 @@ fn the_alternate_screen_withholds_prediction() {
 }
 
 #[test]
+fn a_full_reset_out_of_the_alternate_screen_predicts_again() {
+    // A mirror leaves a full-screen program through a reset (`ESC c`) and
+    // replays a primary-screen snapshot that never says `?1049l`: the shell
+    // prompt is back, and typing at it predicts again.
+    let mut session = armed_session();
+    session.remote("\x1b[?1049h");
+    assert_eq!(session.status(), Status::AlternateScreen);
+
+    session.remote("\x1bc$ ");
+    assert_ne!(session.status(), Status::AlternateScreen);
+
+    // The person reads the prompt before typing.
+    session.advance(ms(2_000));
+    session.type_key("l");
+    session.remote("l");
+    session.type_key("s");
+    session.remote("s");
+    session.engine.presented_frame(session.clock);
+    session.type_key("x");
+    assert_eq!(session.status(), Status::Predicting);
+    assert_eq!(session.drawn(), "x");
+}
+
+#[test]
+fn a_reset_with_glyphs_in_flight_withdraws_them() {
+    // Whatever the reset cleared, the cells the glyphs stood over are gone.
+    let mut session = armed_session();
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x");
+    session.remote("\x1bc");
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
 fn a_seed_after_missed_output_replaces_a_mode_seen_before_it() {
     // The surface was replaced (a replay while detached): the full-screen
     // program the engine saw open may have exited in the output it never saw,
@@ -1282,6 +1316,34 @@ fn a_rewind_past_the_echoed_text_does_not_re_arm_by_matching_new_keys() {
     }
     session.type_key_after("q", ms(100));
     session.remote_after("\x1b[5D", ms(20));
+    for key in ["y", "z"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(80));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("w", ms(50));
+    assert!(
+        !session.drawn().contains('w'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
+
+#[test]
+fn a_redraw_with_only_held_confirmations_does_not_re_arm_by_matching_new_keys() {
+    // Output nobody typed while the queue holds only echoed glyphs waiting for
+    // their frame withdraws with no keys in flight. It is a redraw all the
+    // same, and its text must not confirm keys typed after it.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("q", ms(100));
+    session.remote_after("q", ms(150));
+    session.remote_after("Z", ms(5));
     for key in ["y", "z"] {
         session.type_key_after(key, ms(100));
         session.remote_after(key, ms(80));

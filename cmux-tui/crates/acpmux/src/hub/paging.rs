@@ -59,6 +59,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // (`silent_turn.rs`).
     "turn_silent",
     "turn_heard",
+    // A bounded tool-call loop started or made progress (`loop_detector.rs`).
+    "loop_detected",
+    "loop_cleared",
     // The harness retries the turn's failed model request (`turn_retry.rs`).
     "turn_retrying",
     "turn_result",

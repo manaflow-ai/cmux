@@ -104,6 +104,12 @@ fn every_recipe_command_parses_with_this_cli() {
                         panic!("{command}: {error}");
                     }
                 }
+                ["agent", "start" | "resume", ..] | ["terminal", _, "resume", ..] => {
+                    match crate::cli::agent_start::parse(&words) {
+                        Some(Ok(_)) => {}
+                        other => panic!("{command}: {other:?}"),
+                    }
+                }
                 ["terminal", _, "wait", ..] => {
                     assert!(
                         crate::cli::status::terminal_wait_flags_parse(&words[3..]),

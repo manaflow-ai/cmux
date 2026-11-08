@@ -38,6 +38,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
@@ -135,6 +136,10 @@ def counted(line: str, head: str, *, login: str | None, author: str | None, body
 
 
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+# A login whose author_association is not TRUSTED still counts with one of these roles on the repository.
+# The workflow's GITHUB_TOKEN and App token cannot see a private organization membership, so they read a
+# private member's association as CONTRIBUTOR (PR #38436, 2026-11-08: a valid SHIP read as no verdict).
+WRITE_ROLES = ("admin", "maintain", "write")
 NEXT = "Packages/macOS/CmuxNext/Sources/"
 
 # Ordered: the first matching rule wins, so the high paths sit above the broad low ones.
@@ -780,14 +785,56 @@ def diff_lines(patch: str) -> tuple[list[str], list[str]]:
     return [l for l in removed if l], [l for l in added if l]
 
 
+def change_blocks(patch: str) -> list[tuple[list[str], list[str]]]:
+    """(removed, added) non-blank stripped lines of each run of -/+ lines in a patch: one edit each."""
+    blocks: list[tuple[list[str], list[str]]] = []
+    current: tuple[list[str], list[str]] | None = None
+    for line in patch.splitlines():
+        if line.startswith(("---", "+++")) or not line.startswith(("-", "+")):
+            current = None
+            continue
+        if current is None:
+            current = ([], [])
+            blocks.append(current)
+        text = line[1:].strip()
+        if text:
+            current[0 if line.startswith("-") else 1].append(text)
+    return blocks
+
+
+WORD = re.compile(r"\w+")
+
+
+def in_order(needle: list[str], haystack: list[str]) -> bool:
+    """Whether every word of `needle` appears in `haystack` in the same order (other words may sit between)."""
+    words = iter(haystack)
+    return all(any(word == other for other in words) for word in needle)
+
+
+def reflowed(pr_patch: str, keep_out: set[str]) -> set[str]:
+    """The removed lines whose words all come back, in order, in the same edit's added lines: a list or
+    a call rewrapped (rustfmt after one more item, PR #38436), not a line taken out. Added lines in
+    `keep_out` (lines the commit replaced, now restored) do not count, so `foo(a)` turned back into
+    `foo(a, b)` is still a revert of the change that shortened it."""
+    kept = set()
+    for removed, added in change_blocks(pr_patch):
+        stream = [word for line in added if line not in keep_out for word in WORD.findall(line)]
+        for line in removed:
+            words = WORD.findall(line)
+            if words and in_order(words, stream):
+                kept.add(line)
+    return kept
+
+
 def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = frozenset()) -> bool:
     """Whether a pull request's change to a file takes back a commit's change to it: it deletes
     most of what the commit added, and, when the commit replaced lines, puts most of them back."""
     pr_removed, pr_added = map(set, diff_lines(pr_patch))
-    # A line the pull request removes and adds back, here or in another file, moved; it wasn't
-    # taken back.
-    gone, back = pr_removed - pr_added - added_elsewhere, pr_added - pr_removed
     commit_removed, commit_added = map(set, diff_lines(commit_patch))
+    # A line the pull request removes and adds back, here or in another file, moved; a line whose words
+    # come back in order in the same edit was rewrapped. Neither was taken back.
+    gone = pr_removed - pr_added - added_elsewhere - reflowed(pr_patch, commit_removed)
+    back = pr_added - pr_removed
     if not commit_added:
         return False
     if len(commit_added & gone) / len(commit_added) < 0.8:
@@ -1002,13 +1049,15 @@ def last_labeler(events: list[dict], name: str) -> str | None:
 
 
 def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
-                  author: str, pr: dict | None = None) -> list[tuple[str, str, str]]:
+                  author: str, pr: dict | None = None,
+                  permission: Callable[[str], str | None] | None = None) -> list[tuple[str, str, str]]:
     """(at, "ship" or "block", who) for every trusted verdict on the head, one timeline as
     next_autoland reads it: an approval (not the author's) or change request of the head commit, a
     receipt line naming the full head sha that leads a comment or a review body, and such a line
     anywhere in the description. The description has no time of its own, so its lines rank below
     every comment and review (at ""): a later BLOCK comment still beats a SHIP line in it. Its author
-    must be trusted the same way a commenter must."""
+    must be trusted the same way a commenter must: a TRUSTED author_association, or, through
+    `permission` (login -> repository role), a WRITE_ROLES role when the token reads it as less."""
     found = []
     body = (pr or {}).get("body")
 
@@ -1023,7 +1072,11 @@ def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
 
     def trusted(item: dict) -> bool:
         user = item.get("user") or {}
-        return user.get("type") == "User" and item.get("author_association") in TRUSTED
+        if user.get("type") != "User":
+            return False
+        if item.get("author_association") in TRUSTED:
+            return True
+        return permission is not None and bool(user.get("login")) and permission(user["login"]) in WRITE_ROLES
 
     if pr and trusted(pr):
         for text in strip_comments(pr.get("body") or "").splitlines():
@@ -1046,14 +1099,26 @@ def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
 
 
 def signed_off(comments: list[dict], reviews: list[dict], head_sha: str, author: str = "",
-               pr: dict | None = None) -> str | None:
+               pr: dict | None = None, permission: Callable[[str], str | None] | None = None) -> str | None:
     """Who passed the head, or None: the newest verdict on it must be a SHIP, so a later BLOCK or
     change request beats an earlier SHIP or approval, and a BLOCK wins a tie."""
-    found = head_verdicts(comments, reviews, head_sha, author, pr)
+    found = head_verdicts(comments, reviews, head_sha, author, pr, permission)
     if not found:
         return None
     _, verdict, who = max(found, key=lambda f: (f[0], f[1] == "block"))
     return who if verdict == "ship" else None
+
+
+def role_reader(repo: str) -> Callable[[str], str | None]:
+    """login -> its role on `repo` (role_name), one read per login. A failed read raises, so
+    human_ok_by's caller lists the verdict as unread rather than drop a BLOCK it could not trust."""
+    roles: dict[str, str | None] = {}
+
+    def role(login: str) -> str | None:
+        if login not in roles:
+            roles[login] = (gh_json("api", f"repos/{repo}/collaborators/{login}/permission") or {}).get("role_name")
+        return roles[login]
+    return role
 
 
 def human_ok_by(repo: str, number: str, pr: dict) -> tuple[str | None, bool]:
@@ -1066,8 +1131,9 @@ def human_ok_by(repo: str, number: str, pr: dict) -> tuple[str | None, bool]:
     comments = gh_items(f"repos/{repo}/issues/{number}/comments?per_page=100")
     reviews = gh_items(f"repos/{repo}/pulls/{number}/reviews?per_page=100")
     author = (pr.get("user") or {}).get("login") or ""
-    if head_verdicts(comments, reviews, head_sha, author, pr):
-        who = signed_off(comments, reviews, head_sha, author, pr)
+    permission = role_reader(repo)
+    if head_verdicts(comments, reviews, head_sha, author, pr, permission):
+        who = signed_off(comments, reviews, head_sha, author, pr, permission)
         return (f"{who} shipped {head_sha[:12]}", False) if who else (None, True)
     labels = {label["name"] for label in pr.get("labels", [])}
     for name in (HUMAN_OK_LABEL, WAIVED_LABEL):
@@ -1075,7 +1141,7 @@ def human_ok_by(repo: str, number: str, pr: dict) -> tuple[str | None, bool]:
             continue
         actor = last_labeler(gh_items(f"repos/{repo}/issues/{number}/events?per_page=100"), name)
         if actor:
-            role = (gh_json("api", f"repos/{repo}/collaborators/{actor}/permission") or {}).get("role_name")
+            role = permission(actor)
             if role in ("admin", "maintain"):
                 return f"`{name}` is set by @{actor}", False
     return None, False

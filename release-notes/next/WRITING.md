@@ -59,6 +59,13 @@ your gallery when you change a look (`-solid`, `-old`), so it can still render a
 When the file merges, `whats-new-gallery.yml` renders both in the dark default theme and puts them
 on pr-media after the privacy check (`scripts/cmux-next/media/whats-new-gallery.py`). The next
 nightly shows the picture beside the entry, with the before after it. A clip wins over both.
+If that nightly cut before the pictures were up, the next one shows the entry again with them.
+
+With no `gallery:` line, a New or Improved entry still gets a picture when its commit changed a
+`*.gallery.ts` file: the first variant the commit added, else the one whose lines it changed most.
+An Improved entry with no `before:` line gets the same state rendered at the commit before it, so a
+look you changed in place still has its before. Name the states when the pick would be wrong (for
+example when the commit touched several entries).
 NOW's `whats_new` line (cmuxterm-hq goal whats-new-pretty) counts the New and Improved entries of the
 last ten nightlies that went out without a picture, or without a before and after.
 
