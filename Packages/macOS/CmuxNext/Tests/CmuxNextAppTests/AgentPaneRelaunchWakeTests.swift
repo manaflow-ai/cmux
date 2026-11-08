@@ -34,7 +34,6 @@ struct AgentPaneRelaunchWakeTests {
         tabs.localHost = thisMac
         tabs.relaunchWake = AgentPaneRelaunchWake(file: file)
         let tree = DaemonStore()
-        tabs.lookupScoped = { key in records[key.key].map { ($0, tree) } }
         tabs.lookupScoped = { scoped in records[scoped.key].map { ($0, tree) } }
         tabs.listTabsScoped = { records.map { (key: $0.key, record: $0.value, machine: thisMac) } }
         return tabs
@@ -65,9 +64,9 @@ struct AgentPaneRelaunchWakeTests {
         let before = Self.run(file: file, records: records)
         let shown = try #require(before.view(for: "tab_shown"))
         _ = try await Self.ready(shown)
-        before.wakeStates["tab_released"] = releasedHeld
+        before.wakeStates[AgentTabKey(machine: Self.thisMac, key: "tab_released")] = releasedHeld
         // A tab that left every tree (closed elsewhere) keeps nothing.
-        before.wakeStates["tab_gone"] = AgentPaneWakeState(shell: true, shellText: "rm -rf build")
+        before.wakeStates[AgentTabKey(machine: Self.thisMac, key: "tab_gone")] = AgentPaneWakeState(shell: true, shellText: "rm -rf build")
         before.relaunchWake.read = { page, _ in page === shown ? shownHeld : nil }
         // The quit's window step (every relaunch's quit goes through it).
         await before.relaunchWake.save(before.relaunchWakeStates())
@@ -118,7 +117,7 @@ struct AgentPaneRelaunchWakeTests {
         #expect(!held.isEmpty, "a wake state holding only a subagent's draft counted as empty")
 
         let before = Self.run(file: file, records: records)
-        before.wakeStates["tab_chat"] = held
+        before.wakeStates[AgentTabKey(machine: Self.thisMac, key: "tab_chat")] = held
         before.relaunchWake.read = { _, _ in nil }
         await before.relaunchWake.save(before.relaunchWakeStates())
 
@@ -168,7 +167,7 @@ struct AgentPaneRelaunchWakeTests {
         let records = ["tab_slow": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-slow", harness: "claude")]
         let tabs = Self.run(file: directory.appending(path: AgentPaneRelaunchWake.fileName), records: records)
         let held = AgentPaneWakeState(shell: true, shellText: "cargo test")
-        tabs.wakeStates["tab_slow"] = held
+        tabs.wakeStates[AgentTabKey(machine: Self.thisMac, key: "tab_slow")] = held
         let page = try #require(tabs.view(for: "tab_slow"))
         _ = await page.model.respond(to: AgentPaneRequest(body: ["method": "ready", "params": ["reconnect": true]]))
         try #require(page.model.hasHandshake, "the reconnect handshake did not run")
