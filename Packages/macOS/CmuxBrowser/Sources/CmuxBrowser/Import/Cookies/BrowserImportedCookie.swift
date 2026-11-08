@@ -54,6 +54,7 @@ public struct BrowserImportedCookie: Sendable, Equatable {
     /// Reads one row of a Firefox-family `moz_cookies` table (Firefox, Zen,
     /// Floorp, LibreWolf and the other Gecko browsers).
     ///
+    /// - Parameter schemaVersion: The cookie database's `PRAGMA user_version`.
     /// - Returns: The cookie to import, or `nil` when the row is not imported.
     public static func firefox(
         host: String,
@@ -76,7 +77,7 @@ public struct BrowserImportedCookie: Sendable, Equatable {
             name: name,
             value: value,
             path: path,
-            expiresDate: firefoxExpiryDate(expiry),
+            expiresDate: firefoxExpiryDate(expiry, schemaVersion: schemaVersion),
             isSecure: isSecure,
             isHTTPOnly: isHTTPOnly,
             sameSite: sameSite == 1 ? .lax : (sameSite == 2 ? .strict : .none)
@@ -135,12 +136,10 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         }
     }
 
-    // Firefox-family cookie databases moved `expiry` from seconds to
-    // milliseconds. No real seconds value reaches 1e11 (the year 5138), so a
-    // larger value is read as milliseconds and older profiles keep working.
-    private static func firefoxExpiryDate(_ expiry: Int64) -> Date? {
+    // Cookie schema 16 moved `moz_cookies.expiry` from seconds to milliseconds.
+    private static func firefoxExpiryDate(_ expiry: Int64, schemaVersion: Int64) -> Date? {
         guard expiry > 0 else { return nil }
-        let seconds = expiry >= 100_000_000_000 ? Double(expiry) / 1_000.0 : Double(expiry)
+        let seconds = schemaVersion >= 16 ? Double(expiry) / 1_000.0 : Double(expiry)
         return Date(timeIntervalSince1970: seconds)
     }
 

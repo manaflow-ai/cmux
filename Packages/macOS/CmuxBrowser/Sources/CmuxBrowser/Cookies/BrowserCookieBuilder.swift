@@ -154,7 +154,7 @@ private extension BrowserCookieBuilder {
 
     static func normalizedDomain(_ domain: String) -> String {
         domain
-            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".[]"))
             .lowercased()
     }
 
@@ -188,7 +188,9 @@ private extension BrowserCookieBuilder {
     static func cookieURL(scheme: String, host: String) -> URL? {
         var components = URLComponents()
         components.scheme = scheme
-        components.host = host.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        let bareHost = host.trimmingCharacters(in: CharacterSet(charactersIn: ".[]"))
+        // URLComponents accepts an IPv6 literal host only in brackets.
+        components.host = bareHost.contains(":") ? "[\(bareHost)]" : bareHost
         components.path = "/"
         return components.url
     }
