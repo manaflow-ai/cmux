@@ -8,6 +8,7 @@ use crate::host_notify::{HostNotifyGate, HostTerminal, HostTerminalInfo};
 use crate::session::AgentInfo;
 use crate::session::tree::TabAttentionView;
 use cmux_tui_core::resource::TerminalPublicId;
+use cmux_tui_core::{NotificationEvent, NotificationLevel};
 
 const HOST_TERMINAL: &str = "term_aa2748091e24db727232dab348e2f19b";
 
@@ -92,30 +93,53 @@ fn attention_host_context_follows_drawn_panes_host_focus_and_the_own_host_termin
     assert!(app.host_notify_context(43).own_host_terminal);
 }
 
-/// A BEL in a hidden tab: the daemon posts it as a `Bell` notification with
-/// `desktop: false` (`post_bell_notification`), which is the one event the
-/// App forwards. With `notifications.bell` on, the gate answers a bare BEL
-/// for a tab the person cannot see, and nothing for the tab they look at.
+/// A daemon notification as the App receives it (`MuxEvent::Notification`).
+fn daemon_notification(surface: SurfaceId, title: &str, desktop: bool) -> NotificationEvent {
+    NotificationEvent {
+        id: None,
+        message: None,
+        prompt: None,
+        session: None,
+        notification: 7,
+        title: title.to_string(),
+        subtitle: None,
+        body: String::new(),
+        preview: None,
+        question: None,
+        level: NotificationLevel::Info,
+        surface: Some(surface),
+        workspace_id: None,
+        source: cmux_tui_core::NotificationSource::Terminal,
+        desktop,
+        reply: false,
+    }
+}
+
+/// A BEL in a hidden tab reaches the App as the daemon's `Bell` notification
+/// with `desktop: false` (core `attention_a_bell_posts_one_notification_event_…`,
+/// remote `attention_a_daemon_bell_arrives_as_a_bannerless_terminal_notification`).
+/// The App passes it on as a bare BEL only with `notifications.bell` on, only for
+/// a tab the person cannot see; a real notification gets the host's banner.
 #[test]
 fn attention_a_hidden_tabs_bell_rings_the_host_bell_only_when_configured() {
     let mux = Mux::new("attention-host-bell-test", SurfaceOptions::default());
     let mut app = test_app(Session::Local(mux));
     app.replace_tree(attention_tree());
     app.pane_areas = vec![browser_completion_area(41)];
-    let bell = |surface| crate::host_notify::HostNotifyRequest {
-        surface,
-        title: "Bell",
-        body: "",
-        desktop: false,
-    };
     let now = Instant::now();
-    let mut config = app.config.notifications;
-    assert!(!config.bell, "the host bell is off by default");
-    let context = app.host_notify_context(42);
-    assert_eq!(app.host_notify.decide(config, &bell(42), context, now), None);
-    config.bell = true;
-    assert_eq!(app.host_notify.decide(config, &bell(42), context, now), Some(vec![0x07]));
-    let seen = app.host_notify_context(41);
+    let bell = daemon_notification(42, "Bell", false);
+
+    assert!(!app.config.notifications.bell, "the host bell is off by default");
+    assert_eq!(app.host_notification_bytes(&bell, now), None);
+    app.config.notifications.bell = true;
+    assert_eq!(app.host_notification_bytes(&bell, now), Some(vec![0x07]));
     let later = now + Duration::from_secs(10);
-    assert_eq!(app.host_notify.decide(config, &bell(41), seen, later), None);
+    assert_eq!(
+        app.host_notification_bytes(&daemon_notification(41, "Bell", false), later),
+        None,
+        "the tab the person looks at"
+    );
+    app.config.notifications.bell = false;
+    let done = app.host_notification_bytes(&daemon_notification(43, "bench done", true), later);
+    assert_eq!(done.as_deref(), Some(&b"\x1b]777;notify;bench done;\x07"[..]));
 }

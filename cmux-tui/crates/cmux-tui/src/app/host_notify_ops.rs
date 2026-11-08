@@ -12,8 +12,23 @@ use crate::app::App;
 use crate::host_notify::{HostNotifyContext, HostNotifyRequest};
 
 impl App {
+    /// A daemon notification, a terminal bell's `desktop: false` mark
+    /// included (the raw `MuxEvent::Bell` is not passed on, so one bell rings
+    /// the host once).
     pub(super) fn forward_notification_to_host(&mut self, notification: &NotificationEvent) {
-        let Some(surface) = notification.surface else { return };
+        if let Some(bytes) = self.host_notification_bytes(notification, Instant::now()) {
+            self.write_host_notification(&bytes);
+        }
+    }
+
+    /// What `forward_notification_to_host` writes for `notification` at
+    /// `now`, after the gate (a write counts against its rate limit).
+    pub(crate) fn host_notification_bytes(
+        &mut self,
+        notification: &NotificationEvent,
+        now: Instant,
+    ) -> Option<Vec<u8>> {
+        let surface = notification.surface?;
         let context = self.host_notify_context(surface);
         let request = HostNotifyRequest {
             surface,
@@ -22,9 +37,7 @@ impl App {
             desktop: notification.desktop,
         };
         let config = self.config.notifications;
-        if let Some(bytes) = self.host_notify.decide(config, &request, context, Instant::now()) {
-            self.write_host_notification(&bytes);
-        }
+        self.host_notify.decide(config, &request, context, now)
     }
 
     pub(crate) fn host_notify_context(
