@@ -14,7 +14,13 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 const WAIT: Duration = Duration::from_secs(10);
 
 fn owner() -> Attested {
-    Attested { role: Role::Owner, sub: "u_owner".into(), team: Some("t_1".into()), chats: vec![] }
+    Attested {
+        role: Role::Owner,
+        sub: "u_owner".into(),
+        team: Some("t_1".into()),
+        chats: vec![],
+        name: None,
+    }
 }
 
 fn teammate() -> Attested {
@@ -23,6 +29,7 @@ fn teammate() -> Attested {
         sub: "u_mate".into(),
         team: Some("t_1".into()),
         chats: vec!["chat-a".into(), "c".into(), "chat".into()],
+        name: None,
     }
 }
 
@@ -105,6 +112,28 @@ fn the_header_is_one_object_naming_the_role_the_person_and_the_team() {
         (&[r#"{"vmk":"team","sub":"a","team":"t","chats":[""]}"#], "carrier.header_malformed"),
         (&[r#"{"vmk":"team","sub":"a","team":"t","chats":["a b"]}"#], "carrier.header_malformed"),
         (&[r#"{"vmk":"team","sub":"a","team":"t","chats":[7]}"#], "carrier.header_malformed"),
+        // A name is 1 to 256 bytes, not blank, with no control character.
+        (
+            &[r#"{"vmk":"team","sub":"a","team":"t","chats":["c"],"name":""}"#],
+            "carrier.header_malformed",
+        ),
+        (
+            &[r#"{"vmk":"team","sub":"a","team":"t","chats":["c"],"name":"  "}"#],
+            "carrier.header_malformed",
+        ),
+        (
+            &[r#"{"vmk":"team","sub":"a","team":"t","chats":["c"],"name":"a\nb"}"#],
+            "carrier.header_malformed",
+        ),
+        (
+            &[r#"{"vmk":"team","sub":"a","team":"t","chats":["c"],"name":"a\u0007b"}"#],
+            "carrier.header_malformed",
+        ),
+        (
+            &[r#"{"vmk":"team","sub":"a","team":"t","chats":["c"],"name":7}"#],
+            "carrier.header_malformed",
+        ),
+        (&[r#"{"vmk":"owner","sub":"a","team":"t","name":["x"]}"#], "carrier.header_malformed"),
         // A field the grant does not have is never taken as more.
         (
             &[r#"{"vmk":"team","sub":"a","team":"t","chats":["c"],"role":"owner"}"#],
@@ -116,6 +145,103 @@ fn the_header_is_one_object_naming_the_role_the_person_and_the_team() {
     }
     let long = format!(r#"{{"vmk":"owner","sub":"{}","team":"t"}}"#, "a".repeat(257));
     assert_eq!(ok(&long), Err("carrier.header_malformed"));
+    // `name` is optional for either role; null is no name.
+    let named = r#"{"vmk":"team","sub":"u_mate","team":"t_1","chats":["chat-a","c","chat"],"name":"Ada Lovelace"}"#;
+    assert_eq!(ok(named), Ok(Attested { name: Some("Ada Lovelace".into()), ..teammate() }));
+    let named = r#"{"vmk":"owner","sub":"u_owner","team":"t_1","name":"Owen"}"#;
+    assert_eq!(ok(named), Ok(Attested { name: Some("Owen".into()), ..owner() }));
+    assert_eq!(ok(r#"{"vmk":"owner","sub":"u_owner","team":"t_1","name":null}"#), Ok(owner()));
+    // The caps the bridge sizes its grant to: a name or an id of 256 bytes, 64 chats, a value
+    // of 8 KiB.
+    let longest = format!(
+        r#"{{"vmk":"team","sub":"a","team":"t","chats":["c"],"name":"{}"}}"#,
+        "é".repeat(128)
+    );
+    assert_eq!(ok(&longest).map(|a| a.name.map(|n| n.len())), Ok(Some(256)));
+    let longer = longest.replace("\"}", "é\"}");
+    assert_eq!(ok(&longer), Err("carrier.header_malformed"));
+    let chats = |n: usize| (0..n).map(|i| format!("ses_{i}")).collect::<Vec<_>>();
+    let team = |chats: Vec<String>| {
+        json!({"vmk": "team", "sub": "a", "team": "t", "chats": chats, "name": "x"}).to_string()
+    };
+    assert_eq!(ok(&team(chats(64))).map(|a| a.chats.len()), Ok(64));
+    assert_eq!(ok(&team(chats(65))), Err("carrier.header_malformed"));
+    let id = |n: usize| json!({"vmk": "owner", "sub": "a".repeat(n), "team": "t"}).to_string();
+    assert!(ok(&id(256)).is_ok());
+    assert_eq!(ok(&id(257)), Err("carrier.header_malformed"));
+    // 64 ids of 120 bytes fit in 8 KiB; the same header padded past it with spaces is refused.
+    let wide: Vec<String> = (0..64).map(|i| format!("{i:0>120}")).collect();
+    let fits = team(wide);
+    assert!(fits.len() <= 8 * 1024 && ok(&fits).is_ok(), "{}", fits.len());
+    let over = format!("{fits}{}", " ".repeat(8 * 1024 + 1 - fits.len()));
+    assert_eq!(over.len(), 8 * 1024 + 1);
+    assert_eq!(ok(&over), Err("carrier.header_malformed"));
+}
+
+/// The header exactly as the session host's bridge builds it (cmux-remote `acpmux_bridge.rs`
+/// `header`): `json!({vmk, sub, team, chats, name})` with `chats` and `name` null when the grant
+/// has none, written as ASCII with every other character a `\u` escape (`ascii_json`).
+fn bridge_header(
+    vmk: &str,
+    team: Option<&str>,
+    chats: Option<&[&str]>,
+    name: Option<&str>,
+) -> String {
+    use std::fmt::Write as _;
+    let value = json!({
+        "vmk": vmk,
+        "sub": "user_2xQ9",
+        "team": team,
+        "chats": chats,
+        "name": name,
+    });
+    let mut out = String::new();
+    for c in value.to_string().chars() {
+        if c.is_ascii() {
+            out.push(c);
+        } else {
+            let mut units = [0_u16; 2];
+            for unit in c.encode_utf16(&mut units) {
+                let _ = write!(out, "\\u{unit:04x}");
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn a_header_built_as_the_bridge_builds_it_parses() {
+    let chats = ["ses_a", "0f8e2c1a-7b0d-4c55-9a43-2b1d7d7f5e10"];
+    let team = bridge_header("team", Some("team_7"), Some(&chats), Some("Ana Lí 🧑\u{200d}💻"));
+    assert!(team.is_ascii(), "{team}");
+    assert!(team.parse::<tokio_tungstenite::tungstenite::http::HeaderValue>().is_ok());
+    let who = Attested::parse(&[&team]).unwrap();
+    assert_eq!(who.role, Role::Team);
+    assert_eq!(who.sub, "user_2xQ9");
+    assert_eq!(who.team.as_deref(), Some("team_7"));
+    assert_eq!(who.chats, chats);
+    assert_eq!(who.name.as_deref(), Some("Ana Lí 🧑\u{200d}💻"));
+    // The stamp keeps the name on one line: the zero-width joiner goes, the rest stays.
+    assert_eq!(who.author(), json!({"id": "user_2xQ9", "name": "Ana Lí 🧑💻"}));
+    // An owner's grant sends `chats: null`, and a grant without a name `name: null`.
+    let mine = Attested::parse(&[&bridge_header("owner", Some("team_7"), None, None)]).unwrap();
+    assert_eq!((mine.role, mine.chats.len(), mine.name), (Role::Owner, 0, None));
+    let personal = Attested::parse(&[&bridge_header("owner", None, None, Some("Ana"))]).unwrap();
+    assert_eq!((personal.team, personal.name.as_deref()), (None, Some("Ana")));
+    let unnamed =
+        Attested::parse(&[&bridge_header("team", Some("t"), Some(&["c"]), None)]).unwrap();
+    assert_eq!(unnamed.author()["name"], "user_2xQ9");
+    // The bridge's largest grant (16 chats of 128 bytes, a 64-character name of 4-byte
+    // characters, each written as two escapes) fits the 8 KiB cap.
+    let ids: Vec<String> = (0..16).map(|i| format!("{i:0>128}")).collect();
+    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let name = "🧑".repeat(64);
+    let largest = bridge_header("team", Some(&"t".repeat(128)), Some(&ids), Some(&name));
+    assert!(largest.len() <= 8 * 1024, "{}", largest.len());
+    let parsed = Attested::parse(&[&largest]);
+    assert_eq!(parsed.as_ref().map(|a| a.chats.len()), Ok(16));
+    // Its name is over the stamp's 64 characters only when it is: 64 here, kept whole.
+    assert_eq!(parsed.unwrap().author()["name"], name);
 }
 
 #[test]
@@ -171,6 +297,14 @@ fn a_teammates_attach_is_hidden_and_its_prompt_names_the_attested_author_only() 
         prompt.pointer("/_meta/acpmux/author"),
         Some(&json!({"id": "user_u_mate", "name": "u_mate"}))
     );
+    // The header's `name`, when it has one, is the name the transcript and the stamp show.
+    let named = Attested { name: Some("Ada Lovelace".into()), ..teammate() };
+    let prompt = admit(&named, method::SESSION_PROMPT, json!({"sessionId": "c"})).unwrap();
+    assert_eq!(
+        prompt.pointer("/_meta/acpmux/author"),
+        Some(&json!({"id": "user_u_mate", "name": "Ada Lovelace"}))
+    );
+    assert_eq!(crate::author::of_prompt(&prompt).unwrap().unwrap().name, "Ada Lovelace");
     // It reads as a person's prompt (`author.rs`), never the owner's.
     let author = crate::author::of_prompt(&prompt).unwrap().unwrap();
     assert_eq!(author.id, "user_u_mate");
@@ -558,6 +692,135 @@ async fn a_teammate_attaches_its_chat_and_hears_nothing_of_another() {
         if line.contains("agent_hold") && line.contains("chat-a") {
             break;
         }
+    }
+    drop(send);
+    tokio::time::timeout(WAIT, server).await.unwrap().unwrap();
+}
+
+#[test]
+fn a_teammates_cancel_notification_goes_on_only_for_a_chat_it_was_given() {
+    let who = teammate();
+    let cancel =
+        |params: Value| notification_admitted(Some(&who), method::SESSION_CANCEL, Some(&params));
+    assert!(cancel(json!({"sessionId": "chat-a"})));
+    assert!(cancel(json!({"sessionId": "c"})));
+    for params in [
+        json!({"sessionId": "chat-b"}),
+        json!({"sessionId": "chat-"}),
+        json!({"sessionId": "CHAT-A"}),
+        json!({}),
+        Value::Null,
+        json!({"session": "chat-a"}),
+        json!({"sessionId": "chat-a", "host": "other"}),
+    ] {
+        assert!(!cancel(params.clone()), "{params}");
+    }
+    assert!(!notification_admitted(Some(&who), method::SESSION_CANCEL, None));
+    // No other notification of a teammate's goes on, for its chat or another.
+    for m in
+        ["_acpmux/typing", "_acpmux/view", "$/cancel_request", "session/update", "_acpmux/attach"]
+    {
+        assert!(
+            !notification_admitted(Some(&who), m, Some(&json!({"sessionId": "chat-a"}))),
+            "{m}"
+        );
+    }
+    // An owner's, and a connection's with no carrier, go on as before.
+    let any = json!({"sessionId": "chat-b"});
+    assert!(notification_admitted(Some(&owner()), "_acpmux/typing", Some(&any)));
+    assert!(notification_admitted(None, "_acpmux/typing", Some(&any)));
+}
+
+/// A memory hub whose owner relaxed the Web's modes: `webAskingModes` adds Claude's `review`
+/// (a mode no reviewed source names as not asking), and `codex` runs the Codex bridge, which
+/// the Web may drive in any mode. Chats: `strict` (Claude, `default`), `planned` (`plan`),
+/// `relaxed` (Claude, `review`), `unnamed` (Claude, no mode), `bridge-ask` and `bridge-full`
+/// (the bridge in `ask` and `agent-full-access`).
+fn hub_with_relaxed_modes() -> Arc<Hub> {
+    let dir = std::env::temp_dir();
+    let cfg: Config = serde_json::from_value(json!({
+        "harnesses": {
+            "claude": {"kind": "claude-stdio", "argv": ["claude"]},
+            "codex": {"argv": ["codex", "app-server"]}
+        },
+        "defaultHarness": "claude", "store": {"mode": "memory"},
+        "webAskingModes": {"claude": ["review"]}
+    }))
+    .unwrap();
+    let store = crate::store::open(&cfg.store, &dir).unwrap();
+    for (id, harness, mode) in [
+        ("strict", "claude", Some("default")),
+        ("planned", "claude", Some("plan")),
+        ("relaxed", "claude", Some("review")),
+        ("unnamed", "claude", None),
+        ("bridge-ask", "codex", Some("ask")),
+        ("bridge-full", "codex", Some("agent-full-access")),
+    ] {
+        let argv: Vec<&str> =
+            if harness == "codex" { vec!["codex", "app-server"] } else { vec!["claude"] };
+        let mut meta = json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+            "harness": harness, "family": harness, "harnessArgv": argv, "cwd": dir,
+            "status": "idle", "createdAt": 1, "updatedAt": 1, "agentSessionId": format!("s-{id}"),
+            "permissionPolicy": "ask"
+        });
+        if let Some(mode) = mode {
+            meta["modes"] = json!({"currentModeId": mode});
+        }
+        let meta: crate::store::SessionMeta = serde_json::from_value(meta).unwrap();
+        store.save(&meta).unwrap();
+    }
+    Hub::new(cfg, store)
+}
+
+/// The owner's `webAskingModes` and the bridge's any-mode exception open more modes to the
+/// Web; a teammate's prompt still runs only in the strictest asking modes, and under the Web's
+/// floor (`Control::Web`: nothing approves itself in its turn, `hub/remote_floor.rs`).
+#[tokio::test]
+async fn a_teammate_prompts_only_in_the_strictest_asking_modes_whatever_the_owner_relaxed() {
+    let hub = hub_with_relaxed_modes();
+    let chats = ["strict", "planned", "relaxed", "unnamed", "bridge-ask", "bridge-full"];
+    let who = Attested { chats: chats.iter().map(|c| c.to_string()).collect(), ..teammate() };
+    // The owner's relaxations are real: the Web's own mode rules let the relaxed chats ask.
+    let relaxed = hub.resolve("relaxed").unwrap().meta();
+    assert!(hub.web_modes().session_asks(&relaxed));
+    assert!(hub.any_mode_for_web(&hub.resolve("bridge-full").unwrap().meta()));
+    let mut n = 0;
+    let (send, inbound) = tokio::sync::mpsc::channel(8);
+    let (out, mut recv) = tokio::sync::mpsc::channel(256);
+    let server = tokio::spawn(serve_attested(hub.clone(), inbound, out, who.clone()));
+    ask(&send, &mut recv, 0, "initialize", json!({"protocolVersion": 1})).await;
+    for (id, asks) in [
+        ("strict", true),
+        ("planned", true),
+        ("bridge-ask", true),
+        ("relaxed", false),
+        ("unnamed", false),
+        ("bridge-full", false),
+    ] {
+        let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}],
+            "_meta": {"acpmux": {"via": "web"}}});
+        // The params the request runs with: the Cloud mobile floor, held to it again at dispatch,
+        // as a Web turn.
+        let admitted = admit(&who, method::SESSION_PROMPT, prompt.clone()).unwrap();
+        assert_eq!(admitted.pointer("/_meta/acpmux/via"), Some(&json!(TEAM_PROMPT_VIA)), "{id}");
+        assert!(remote_guard::cloud_mobile(&admitted), "{id}");
+        assert_eq!(
+            remote_guard::control_of(Origin::Web, ConnAuth::CarrierTeam, &admitted),
+            Control::Web,
+            "{id}"
+        );
+        let checked = strictest_modes(&hub, &who, method::SESSION_PROMPT, &admitted);
+        assert_eq!(checked.is_ok(), asks, "{id}: {checked:?}");
+        // The owner through the carrier keeps the owner's relaxations.
+        assert!(strictest_modes(&hub, &owner(), method::SESSION_PROMPT, &prompt).is_ok());
+        if asks {
+            continue;
+        }
+        // A refused prompt is refused over the connection before it reaches the chat.
+        n += 1;
+        let reply = ask(&send, &mut recv, n, "session/prompt", prompt).await;
+        assert_eq!(reply["error"]["data"]["reason"], TEAM_MODE_NOT_ASKING, "{id}: {reply}");
     }
     drop(send);
     tokio::time::timeout(WAIT, server).await.unwrap().unwrap();

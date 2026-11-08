@@ -5,7 +5,7 @@
 //! [`socket_path`] (`ACPMUX_HOME/run/carrier.sock`, mode 0600 in a 0700
 //! directory, served on a Cloud VM only: [`wanted`]). The
 //! bridge opens a WebSocket over that socket and its upgrade request carries
-//! exactly one [`HEADER`], `{vmk, sub, team, chats}`, which the session host
+//! exactly one [`HEADER`], `{vmk, sub, team, chats, name?}`, which the session host
 //! MUST copy from the verified carrier grant the platform signed, never from
 //! the client: `vmk` is `owner` (the VM is the person's own) or `team` (the
 //! person is a teammate of the VM's team, given the chats `chats` names).
@@ -29,8 +29,9 @@
 //! - `team`: [`ConnAuth::CarrierTeam`], served as `Origin::Web`, and every
 //!   request first passes [`gate`]: only the teammate's verbs
 //!   (`cmux_agent_pane_policy::share_roles::TEAMMATE_VERBS`), as the acpmux
-//!   methods of [`TEAMMATE_METHODS`], each on a chat of `chats` by its exact id. Notifications but `session/cancel` and
-//!   answers to the daemon's own requests are dropped.
+//!   methods of [`TEAMMATE_METHODS`], each on a chat of `chats` by its exact id, and a prompt
+//!   only in the strictest asking modes ([`TEAM_PROMPT_VIA`]). Notifications but
+//!   `session/cancel` and answers to the daemon's own requests are dropped.
 //! - Audit: each prompt and permission answer logs the carrier, `vmk`, `sub`
 //!   and `team` (target `acpmux::carrier_audit`), a carrier prompt's
 //!   provenance says `transport: carrier`, and a teammate's prompt names them
@@ -88,18 +89,22 @@ pub struct Attested {
     /// teammate; an owner's is ignored and kept empty). A chat's forks, side chats and subagent
     /// children are not in it unless the grant names them.
     pub chats: Vec<String>,
+    /// The person's display name, optional: the author stamp and the transcript show it (one
+    /// line, at most 64 characters, `author.rs`), else `sub`. 1 to [`MAX_ID_BYTES`] bytes, not
+    /// blank, no control character.
+    pub name: Option<String>,
 }
 
-/// Longest `sub` or `team`, in bytes.
+/// Longest `sub`, `team`, chat id or `name`, in bytes.
 const MAX_ID_BYTES: usize = 256;
 /// Longest header value, in bytes.
-const MAX_HEADER_BYTES: usize = 16 * 1024;
+const MAX_HEADER_BYTES: usize = 8 * 1024;
 /// Most chats one grant names.
 const MAX_CHATS: usize = 64;
 
 impl Attested {
     /// Parse the [`HEADER`] values of one upgrade request: exactly one, a JSON object with
-    /// `vmk` (`owner` or `team`), `sub`, `team` and `chats` and nothing else. The error is a stable
+    /// `vmk` (`owner` or `team`), `sub`, `team`, `chats` and an optional `name`, nothing else. The error is a stable
     /// reason for the refusal body; it never repeats the value.
     pub fn parse(values: &[&str]) -> Result<Self, &'static str> {
         let [value] = values else {
@@ -115,7 +120,7 @@ impl Attested {
         let Ok(Value::Object(fields)) = serde_json::from_str::<Value>(value) else {
             return Err("carrier.header_malformed");
         };
-        if fields.keys().any(|k| !matches!(k.as_str(), "vmk" | "sub" | "team" | "chats")) {
+        if fields.keys().any(|k| !matches!(k.as_str(), "vmk" | "sub" | "team" | "chats" | "name")) {
             return Err("carrier.header_malformed");
         }
         let role = match fields.get("vmk").and_then(Value::as_str) {
@@ -133,9 +138,20 @@ impl Attested {
         };
         let sub = id("sub")?.ok_or("carrier.header_malformed")?;
         let team = id("team")?;
+        let name = match fields.get("name") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(n))
+                if (1..=MAX_ID_BYTES).contains(&n.len())
+                    && !n.trim().is_empty()
+                    && !n.chars().any(char::is_control) =>
+            {
+                Some(n.clone())
+            }
+            Some(_) => return Err("carrier.header_malformed"),
+        };
         if role == Role::Owner {
             // The owner reaches every chat, as a peer daemon does: a list names nothing for it.
-            return Ok(Self { role, sub, team, chats: Vec::new() });
+            return Ok(Self { role, sub, team, chats: Vec::new(), name });
         }
         let chats: Vec<String> = match fields.get("chats") {
             Some(Value::Array(list)) if (1..=MAX_CHATS).contains(&list.len()) => list
@@ -148,7 +164,7 @@ impl Attested {
         if team.is_none() {
             return Err("carrier.header_malformed");
         }
-        Ok(Self { role, sub, team, chats })
+        Ok(Self { role, sub, team, chats, name })
     }
 
     /// The proof and origin a connection with this header is served with.
@@ -159,20 +175,38 @@ impl Attested {
         }
     }
 
-    /// The author a teammate's prompt runs under (`author.rs`): `user_<sub>`, named by its sub.
-    fn author(&self) -> Value {
+    /// The author a teammate's prompt runs under (`author.rs`): `user_<sub>`, named by the
+    /// header's `name`, else by its sub.
+    pub fn author(&self) -> Value {
         let id = if self.sub.starts_with("user_") {
             self.sub.clone()
         } else {
             format!("user_{}", self.sub)
         };
-        let name: String = self.sub.chars().take(crate::author::MAX_NAME_CHARS).collect();
+        // One line an author name may be: other spaces become a space, format marks go.
+        let shown = |s: &str| -> String {
+            let line: String = s
+                .chars()
+                .filter_map(|c| match c {
+                    c if c.is_whitespace() => Some(' '),
+                    c if crate::author::unshown(c) => None,
+                    c => Some(c),
+                })
+                .collect();
+            line.trim().chars().take(crate::author::MAX_NAME_CHARS).collect::<String>()
+        };
+        let name = self
+            .name
+            .as_deref()
+            .map(shown)
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or_else(|| shown(&self.sub));
         json!({"id": id, "name": name})
     }
 
     /// The audit fields of a request from this connection.
     pub fn audit(&self) -> Value {
-        json!({"carrier": true, "vmk": self.role.as_str(), "sub": self.sub, "team": self.team})
+        json!({"carrier": true, "vmk": self.role.as_str(), "sub": self.sub, "team": self.team, "name": self.name})
     }
 }
 
@@ -196,6 +230,10 @@ pub const TEAMMATE_METHODS: &[(&str, &[&str])] = &[
     ("agent-session-cancel", &[method::SESSION_CANCEL]),
     ("agent-session-detach", &[method::MUX_DETACH]),
 ];
+
+/// The `_meta.acpmux.via` a teammate's prompt runs under, in place of any it named: the Cloud
+/// mobile floor, the strictest asking modes (`remote_guard::cloud_mobile`).
+pub const TEAM_PROMPT_VIA: &str = "cloud-mobile";
 
 /// Whether a teammate through the carrier may call `m`.
 pub fn team_allows(m: &str) -> bool {
@@ -222,6 +260,30 @@ fn team_refused(m: &str, why: &str) -> RpcError {
     )
     .with_data(json!({"reason": "carrier.team_refused"}))
 }
+
+/// A teammate prompts only a chat in the strictest asking modes, checked here and again at
+/// dispatch (`TEAM_PROMPT_VIA`). A chat this daemon does not have is left to the dispatcher.
+fn strictest_modes(hub: &Hub, who: &Attested, m: &str, params: &Value) -> Result<(), RpcError> {
+    if who.role != Role::Team || m != method::SESSION_PROMPT {
+        return Ok(());
+    }
+    match params.get("sessionId").and_then(Value::as_str).map(|id| hub.resolve(id)) {
+        Some(Ok(s)) if !hub.cloud_mobile_mode_asks(&s.meta()) => Err(team_mode_refused()),
+        _ => Ok(()),
+    }
+}
+
+/// The refusal of a teammate's prompt to a chat whose mode does not ask before each change.
+fn team_mode_refused() -> RpcError {
+    RpcError::new(
+        NOT_A_TEAMMATE_VERB,
+        "session/prompt: a teammate prompts a chat only while it runs in a mode that asks before each change (Claude's default or plan, Codex's ask)",
+    )
+    .with_data(json!({"reason": TEAM_MODE_NOT_ASKING}))
+}
+
+/// The reason a teammate's prompt is refused for the chat's mode.
+pub const TEAM_MODE_NOT_ASKING: &str = "carrier.team_mode_not_asking";
 
 /// What the carrier lets `who` send as `m`: a refusal, or the params the request runs with. A
 /// teammate's request outside its verbs is refused, and so is one that names no chat or a chat
@@ -255,7 +317,14 @@ pub fn admit(who: &Attested, m: &str, mut params: Value) -> Result<Value, RpcErr
         obj.insert("visible".into(), Value::Bool(false));
     }
     if m == method::SESSION_PROMPT {
-        crate::hub::merge_mux_meta(&mut params, json!({"author": who.author()}));
+        // `via: cloud-mobile` holds the prompt to the strictest asking modes, whatever the
+        // owner's `webAskingModes` add or the Codex bridge's any-mode exception allows: Claude's
+        // `default` or `plan`, the bridge's `ask`, nothing else (`Hub::cloud_mobile_mode_asks`,
+        // checked by the remote guard and again at dispatch), and it never goes on to a peer.
+        crate::hub::merge_mux_meta(
+            &mut params,
+            json!({"author": who.author(), "via": TEAM_PROMPT_VIA}),
+        );
     }
     Ok(params)
 }
@@ -275,6 +344,7 @@ pub(super) fn gate(hub: &Hub, conn: &Conn, m: &str, params: Value) -> Result<Val
         {
             return Err(team_refused(m, "names a chat this teammate was not given"));
         }
+        strictest_modes(hub, carrier, m, &params)?;
         Ok(params)
     });
     match &admitted {
@@ -287,7 +357,12 @@ pub(super) fn gate(hub: &Hub, conn: &Conn, m: &str, params: Value) -> Result<Val
 /// Whether a carrier connection's notification goes on: a teammate's only when it is a
 /// `session/cancel` of a chat it was given.
 pub(super) fn takes_notification(conn: &Conn, m: &str, params: Option<&Value>) -> bool {
-    let Some(carrier) = conn.carrier.as_ref().filter(|c| c.role == Role::Team) else {
+    notification_admitted(conn.carrier.as_ref(), m, params)
+}
+
+/// [`takes_notification`] for the person a connection's carrier attested, if any.
+fn notification_admitted(carrier: Option<&Attested>, m: &str, params: Option<&Value>) -> bool {
+    let Some(carrier) = carrier.filter(|c| c.role == Role::Team) else {
         return true;
     };
     m == method::SESSION_CANCEL && admit(carrier, m, params.cloned().unwrap_or(Value::Null)).is_ok()
@@ -336,6 +411,7 @@ pub(super) fn audit(
         vmk = carrier.role.as_str(),
         sub = %carrier.sub,
         team = carrier.team.as_deref().unwrap_or_default(),
+        name = carrier.name.as_deref().unwrap_or_default(),
         session = text("sessionId"),
         prompt,
         permission = text("permissionId"),
