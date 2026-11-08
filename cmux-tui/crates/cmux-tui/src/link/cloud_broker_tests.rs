@@ -145,6 +145,42 @@ async fn cloud_broker_survives_a_cancelled_call_and_never_reuses_its_late_token(
     assert_eq!(parent.read_u8().await.unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
 }
 
+/// Cloud capture run 42443029004 (dev, 2026-11-08): the app's reply to a broker call (a link token
+/// minted over a few backend calls) took longer than the dial's 5 s. The driver ended on its own
+/// read deadline, `link serve` exited with it, and every open machine connection of that link
+/// closed at once: the chat start failed "started but its agent didn't (cmux-tui connection
+/// closed: EOF)" with the machine's daemon still up. A slow reply fails only the call that waited.
+#[tokio::test(start_paused = true)]
+async fn cloud_broker_survives_a_reply_slower_than_the_dial_and_drops_it() {
+    let token = |id: u64, token: &str| {
+        serde_json::json!({
+            "version": 1, "id": id, "value": {"token": token,
+                "expires_at": 1792430000000_i64, "epoch": 1, "host": HOST, "services": ["ssh"]}
+        })
+    };
+    let (link, mut parent) = UnixStream::pair().unwrap();
+    let (source, driver) = channel(link);
+    let driven = tokio::spawn(driver.run());
+    let server = tokio::spawn(async move {
+        assert_eq!(request(&mut parent).await["id"], 1);
+        tokio::time::sleep(super::DIAL_TIMEOUT + std::time::Duration::from_secs(1)).await;
+        reply(&mut parent, token(1, "slow-token")).await;
+        assert_eq!(request(&mut parent).await["id"], 2);
+        reply(&mut parent, token(2, "fresh-token")).await;
+        parent
+    });
+    assert!(matches!(
+        source.mint_token(HOST, &[Service::Ssh]).await,
+        Err(ConnectInfoError::Unavailable(_))
+    ));
+    let grant = source.mint_token(HOST, &[Service::Ssh]).await.unwrap();
+    assert_eq!(grant.token, "fresh-token");
+    let mut parent = server.await.unwrap();
+    drop(source);
+    assert!(driven.await.unwrap().is_ok());
+    assert_eq!(parent.read_u8().await.unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
+}
+
 #[tokio::test]
 async fn cloud_broker_unsolicited_or_oversized_input_ends_the_driver() {
     let (link, mut parent) = UnixStream::pair().unwrap();
