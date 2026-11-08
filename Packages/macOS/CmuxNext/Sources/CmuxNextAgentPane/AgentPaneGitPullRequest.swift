@@ -36,7 +36,7 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
     }
 
     /// The pull request the run opened (or the threads it read), or why it did not.
-    enum Outcome: Equatable {
+    public enum Outcome: Equatable, Sendable {
         case opened(url: String, number: Int?)
         case threads(url: String?, number: Int?, [AgentPaneGitReviewThread])
         case merged(url: String, number: Int, queued: Bool)
@@ -45,6 +45,13 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
 
     static let localTimeout: Duration = .seconds(20)
     static let networkTimeout: Duration = .seconds(60)
+
+    /// The shared diff page uses the same Create PR flow with its grant-bound push wire.
+    public static func open(in repository: String,
+                            push: @escaping @Sendable (String, String?) async throws -> Void) async -> Outcome {
+        guard let request = Self(params: ["cwd": repository]) else { return .refused(pushUnavailableMessage) }
+        return await run(request, roots: [repository], gh: gitHubCLI(), push: push)
+    }
 
     /// Opens the pull request where ``AgentPaneGitProcess/place(_:roots:home:)`` allows, with `gh`
     /// at that path (nil: not installed).
@@ -61,6 +68,7 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
         let git = { (arguments: [String]) in await AgentPaneGitProcess.output(["-C", folder] + arguments, timeout: localTimeout) }
         let head = await git(["symbolic-ref", "--quiet", "--short", "HEAD"])
         guard head.status == 0 else { return .refused(detachedMessage) }
+        let branch = head.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let commit = await git(["rev-parse", "HEAD"])
         guard commit.status == 0 else { return .refused(pushUnavailableMessage) }
         guard let push else { return .refused(pushUnavailableMessage) }
@@ -79,7 +87,7 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
         // Create only when gh found no pull request, or only a merged or closed one.
         guard open.status == 0 || open.text.contains("no pull requests found") else { return .refused(message(open)) }
         let target = await recordedBase(of: head.text.trimmingCharacters(in: .whitespacesAndNewlines), git: git)
-        let created = await cli(["pr", "create", "--fill"] + (target.map { ["--base", $0] } ?? []))
+        let created = await cli(["pr", "create", "--web", "--head", branch] + (target.map { ["--base", $0] } ?? []))
         guard created.status == 0, let url = created.text.split(separator: "\n").map(String.init).last(where: isPullRequestURL) else {
             return .refused(message(created))
         }

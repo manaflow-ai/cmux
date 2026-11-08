@@ -58,7 +58,7 @@ struct AgentPaneGitPullRequestTests {
         try git(repo, "checkout", "-q", "-b", "feature")
         try "two\n".write(toFile: repo + "/a.txt", atomically: true, encoding: .utf8)
         try git(repo, "commit", "-q", "-am", "Say two")
-        // `gh pr view` answers once `gh pr create` made the pull request. `<gh>.viewerr` and
+        // `gh pr view` answers once `gh pr create --web` opened the pull request form. `<gh>.viewerr` and
         // `<gh>.createerr` make that step fail with their text, as gh does on stderr (create also
         // warns about uncommitted changes first).
         let script = """
@@ -123,7 +123,7 @@ struct AgentPaneGitPullRequestTests {
         #expect(first == .opened(url: "https://github.com/o/r/pull/7", number: 7))
         let again = await AgentPaneGitPullRequest.run(try Self.request(rig.repo), roots: [rig.repo], gh: rig.gh, push: Self.push())
         #expect(again == .opened(url: "https://github.com/o/r/pull/7", number: 7))
-        #expect(rig.calls == ["pr view --json url,number,state", "pr create --fill", "pr view --json url,number,state"])
+        #expect(rig.calls == ["pr view --json url,number,state", "pr create --web --head feature", "pr view --json url,number,state"])
     }
 
     /// The branch's merged or closed pull request is not its open one: a new one is created. A
@@ -215,7 +215,7 @@ struct AgentPaneGitPullRequestTests {
         #expect(sessionId == "session")
         #expect(actualHead == expectedHead)
         #expect(folder == rig.repo)
-        #expect(rig.calls == ["pr view --json url,number,state", "pr create --fill"])
+        #expect(rig.calls == ["pr view --json url,number,state", "pr create --web --head feature"])
     }
 
     @Test func createPRRefusesARepositoryDifferentFromTheChatSession() async throws {
@@ -259,13 +259,13 @@ struct AgentPaneGitPullRequestTests {
 
         try Self.git(rig.repo, "config", "branch.cmux/fix-login.cmuxBase", "release")
         #expect(await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh, push: Self.push()) == .opened(url: "https://github.com/o/r/pull/7", number: 7))
-        #expect(creates().last == "pr create --fill --base rel")
+        #expect(creates().last == "pr create --web --head feature --base rel")
 
         // A remote branch as the base: its name on that remote.
         try FileManager.default.removeItem(atPath: rig.gh + ".pr")
         try Self.git(rig.repo, "config", "branch.cmux/fix-login.cmuxBase", "origin/rel")
         _ = await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh, push: Self.push())
-        #expect(creates().last == "pr create --fill --base rel")
+        #expect(creates().last == "pr create --web --head feature --base rel")
 
         // No branch on the remote to target: a commit, a local branch never pushed, the remote's HEAD.
         try Self.git(rig.repo, "branch", "local-only", "release")
@@ -274,7 +274,7 @@ struct AgentPaneGitPullRequestTests {
             try FileManager.default.removeItem(atPath: rig.gh + ".pr")
             try Self.git(rig.repo, "config", "branch.cmux/fix-login.cmuxBase", base)
             _ = await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh, push: Self.push())
-            #expect(creates().last == "pr create --fill", "\(base)")
+            #expect(creates().last == "pr create --web --head feature", "\(base)")
         }
         #expect(creates().count == 5)
     }

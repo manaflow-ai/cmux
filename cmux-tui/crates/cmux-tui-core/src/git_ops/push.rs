@@ -7,8 +7,8 @@
 //!
 //! The remote is the given one, else where `git push` would go (the
 //! branch's `pushRemote`, `remote.pushDefault`, the branch's upstream remote),
-//! else `origin`; it must be a configured remote, never a URL, and one
-//! without its own push refspecs or mirroring. The exact commit read (and
+//! else the only remote or `origin`; it must be a configured remote, never a URL,
+//! and must not mirror or configure refspecs that push a different branch. The exact commit read (and
 //! checked against `expected_head`) is what is pushed; the attempt journal
 //! keeps it, so a retry after a lost reply pushes that commit again (a
 //! no-op the remote reports as up to date) even when the branch moved. With
@@ -136,6 +136,7 @@ fn push(
         .or_else(|| config(format!("branch.{branch}.pushRemote")))
         .or_else(|| config("remote.pushDefault".to_string()))
         .or_else(|| upstream_remote.clone())
+        .or_else(|| (remotes.len() == 1).then(|| remotes[0].clone()))
         .unwrap_or_else(|| "origin".to_string());
     if !remotes.contains(&remote) {
         let message = if remotes.is_empty() {
@@ -372,4 +373,51 @@ fn classified(git: &UserGit<'_>, line: Option<&str>, run: &UserRun) -> ResourceE
         extra.set("ref_status", json!(summary));
     }
     refused(OPERATION, reason, message, extra)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn push_failures_explain_the_remote_refusal_and_next_action() {
+        let git = UserGit { root: std::path::Path::new("."), deadline: deadline() };
+        let cases = [
+            (
+                Some("!\tHEAD:refs/heads/main\t[remote rejected] (protected branch hook declined)"),
+                "remote: error: GH006: Protected branch update failed for refs/heads/main.",
+                "rejected_by_remote",
+                "feature branch",
+            ),
+            (
+                Some("!\tHEAD:refs/heads/feature\t[rejected] (fetch first)"),
+                "",
+                "rejected_non_fast_forward",
+                "pull first",
+            ),
+            (
+                Some("!\tHEAD:refs/heads/feature\t[remote rejected] (pre-receive hook declined)"),
+                "remote: repository rules rejected this update",
+                "rejected_by_remote",
+                "branch rules",
+            ),
+            (
+                None,
+                "fatal: Authentication failed for 'https://example.invalid/repo'",
+                "auth_failed",
+                "sign in",
+            ),
+        ];
+        for (line, stderr, reason, action) in cases {
+            let run = UserRun {
+                success: false,
+                code: Some(FATAL_EXIT),
+                stdout: vec![],
+                stderr: stderr.into(),
+            };
+            let error = classified(&git, line, &run);
+            assert_eq!(error.details["reason"], reason);
+            assert!(error.details["extra"]["message"].as_str().unwrap().contains(action));
+        }
+    }
 }

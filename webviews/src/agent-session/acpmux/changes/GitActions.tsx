@@ -16,10 +16,12 @@ export function GitToolbarButtons({
   git,
   formOpen,
   onToggleForm,
+  disabled = false,
 }: {
   git: GitWrite;
   formOpen: boolean;
   onToggleForm: () => void;
+  disabled?: boolean;
 }) {
   const t = useT();
   if (!git.available) return null;
@@ -45,7 +47,7 @@ export function GitToolbarButtons({
         className="acpmux-git-tool"
         data-tool="commit"
         aria-expanded={formOpen}
-        disabled={busy}
+        disabled={busy || disabled}
         onClick={onToggleForm}
       >
         {t("git.commit.label")}
@@ -57,7 +59,7 @@ export function GitToolbarButtons({
         // tooltip-allow: why there is nothing to push
         title={pushTitle === pushLabel ? undefined : pushTitle}
         aria-label={pushTitle}
-        disabled={busy || !pushable}
+        disabled={busy || disabled || !pushable}
         onClick={() => void git.push()}
       >
         {t("git.push.label")}

@@ -430,6 +430,10 @@ final class DiffPageService: InternalPageProvider {
         }
         native.anchor = { [weak page] in page }
         provider.confirmRevert = { [weak page] prompt in await DiffPageService.confirmRevert(prompt, over: page) }
+        provider.onPullRequestOpened = { [weak page] url in
+            guard let page else { return }
+            if let open = page.onOpenExternal { open(url) } else { LinkRouter.shared.open(url, from: page) }
+        }
         page.fileDrop = provider.folderDrop(page: page)
         provider.timeline = timeline
         provider.chat = { [weak self] in self?.tabs[key]?.chat }

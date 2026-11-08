@@ -57,6 +57,9 @@ fn git_commit_and_push_run_in_the_repository_through_a_real_daemon() {
     fs::write(repo.join("a.txt"), "one\n").unwrap();
     git(&repo, &["add", "a.txt"]);
     git(&repo, &["commit", "-q", "-m", "first"]);
+    let missing_remote = git_cli(&server, &repo, &["push"]);
+    assert!(!missing_remote.status.success());
+    assert!(String::from_utf8_lossy(&missing_remote.stderr).contains("no_remote"));
     git(&repo, &["remote", "add", "origin", remote.to_str().unwrap()]);
 
     // Nothing to commit is refused and makes no commit.
@@ -103,11 +106,27 @@ fn git_commit_and_push_run_in_the_repository_through_a_real_daemon() {
     assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), git(&repo, &["rev-parse", "HEAD"]));
     assert_eq!(git(&repo, &["rev-parse", "--abbrev-ref", "main@{upstream}"]), "origin/main");
 
+    // Create PR pushes even an already-published branch. A configured
+    // same-branch refspec must not make that ordinary push fail.
+    git(&repo, &["config", "remote.origin.push", "refs/heads/main:refs/heads/main"]);
+    assert_success(&git_cli(&server, &repo, &["push"]));
+
     // A push the remote would have to force is refused.
     git(&repo, &["commit", "-q", "--amend", "-m", "second, amended"]);
     let refused = git_cli(&server, &repo, &["push"]);
     assert!(!refused.status.success(), "a non-fast-forward push was accepted");
     assert_ne!(git(&remote, &["rev-parse", "refs/heads/main"]), git(&repo, &["rev-parse", "HEAD"]));
+    // A fresh branch also uses the repository's sole remote when it is not origin.
+    git(&repo, &["config", "--unset-all", "remote.origin.push"]);
+    git(&repo, &["remote", "rename", "origin", "publish"]);
+    git(&repo, &["checkout", "-q", "-b", "feature"]);
+    let fresh = git_cli(&server, &repo, &["push"]);
+    assert_success(&fresh);
+    assert_eq!(git(&repo, &["rev-parse", "--abbrev-ref", "feature@{upstream}"]), "publish/feature");
+    assert_eq!(
+        git(&remote, &["rev-parse", "refs/heads/feature"]),
+        git(&repo, &["rev-parse", "HEAD"])
+    );
     let _ = fs::remove_dir_all(root);
 }
 
