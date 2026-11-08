@@ -89,13 +89,16 @@ export function SteerQueue({
 
   const run = (item: SteerItem, act: SteerActKind, work: () => Promise<unknown>, typed?: string) => {
     if (step?.state === "sending") return;
+    // The field as it was when the step went (the person may type on meanwhile).
+    const sent = text;
     setStep({ sessionId: item.sessionId, act, state: "sending" });
     work().then(
       () => {
         onAct?.(item, act, typed);
         setStep({ sessionId: item.sessionId, act, state: "done" });
-        // Only the line that went: words typed while it was on its way stay in the field.
-        if (typed !== undefined) setText((current) => (current.trim() === typed ? "" : current));
+        // Only the line that went leaves the field: words typed while it was on its way stay.
+        if (typed !== undefined)
+          setText((current) => (current.startsWith(sent) ? current.slice(sent.length).trimStart() : current));
         // On down the list: the next chat that may need the person.
         const next = items[nextFocus(items.length, items.indexOf(item))];
         if (next && act !== "fork") setFocusId(next.sessionId);

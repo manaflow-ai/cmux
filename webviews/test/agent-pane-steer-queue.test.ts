@@ -158,7 +158,7 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
       null,
       { timeout: 30_000 },
     );
-    expect(await page.$eval(".acpmux-steer-field", (field) => (field as HTMLInputElement).value)).toBe(" and push");
+    expect(await page.$eval(".acpmux-steer-field", (field) => (field as HTMLInputElement).value)).toBe("and push");
     await page.evaluate(() => {
       delete (globalThis as { cmuxAcpmuxMockSlowMethod?: string }).cmuxAcpmuxMockSlowMethod;
     });
