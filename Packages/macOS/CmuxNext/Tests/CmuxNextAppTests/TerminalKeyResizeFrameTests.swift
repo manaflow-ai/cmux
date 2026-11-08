@@ -580,6 +580,14 @@ struct TerminalKeyResizeFrameTests {
         return (moving, elapsed)
     }
 
+    /// Commits for one display refresh of wall-clock time (1/120 s): a person's drag moves at most once per refresh, and
+    /// the hold for a program's redraw is bounded in refreshes (``TerminalFramePresenter/resizeHoldTicks``), so a stepped
+    /// drag frame takes a refresh of time, not one commit.
+    static func refreshOfTime() async {
+        let until = ContinuousClock.now.advanced(by: .microseconds(8_333))
+        repeat { await commit() } while ContinuousClock.now < until
+    }
+
     /// Commits until `done` holds for `screen`, checked before each commit (at most `seconds`); whether it held.
     static func commits(_ screen: PaneScreen, seconds: Int = 10, until done: (PaneScreen) -> Bool) async -> Bool {
         let deadline = ContinuousClock.now.advanced(by: .seconds(seconds))
@@ -616,11 +624,16 @@ struct TerminalKeyResizeFrameTests {
 /// mirror and clips or pads its lines; the mirror never reflows on its own.
 nonisolated final class AnnouncingTerminalIO: TerminalIO {
     let scripted: ScriptedTerminalIO
-    /// The program's redraw at each grid its PTY gets (a full-screen program's answer to SIGWINCH), sent
+    /// The program's redraw at the grid its PTY has (a full-screen program's answer to SIGWINCH), sent
     /// ``redrawDelay`` after the announcement; nil: the program prints nothing.
     let redraws: (@Sendable (_ cols: Int, _ rows: Int) -> Data)?
     /// A program's output parsed about 3 ms after the send (P0 9, cmux21).
     static let redrawDelay: Duration = .milliseconds(3)
+    /// The PTY's newest grid and whether a redraw is due (RESIZE P0 14). A real program redraws once per SIGWINCH it
+    /// reads, at the grid `TIOCGWINSZ` gives it then (the newest), in order: it never draws an older grid after a newer
+    /// one. One redraw task per terminal, which draws the newest grid when it runs, does the same; a detached task per
+    /// grid did not (two resizes less than ``redrawDelay`` apart could deliver the older grid's picture last).
+    private let redraw = Mutex<(cols: Int, rows: Int, due: Bool)>((0, 0, false))
 
     init(_ scripted: ScriptedTerminalIO, redraws: (@Sendable (_ cols: Int, _ rows: Int) -> Data)? = nil) {
         self.scripted = scripted
@@ -636,12 +649,26 @@ nonisolated final class AnnouncingTerminalIO: TerminalIO {
 
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
         await scripted.resize(cols: cols, rows: rows, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
-        scripted.send(.resize(cols: cols, rows: rows))
-        guard let redraws else { return }
-        let scripted = scripted
-        Task.detached {
+        guard let redraws else {
+            scripted.send(.resize(cols: cols, rows: rows))
+            return
+        }
+        // The announcement and the newest grid under the redraw's lock, so a redraw goes either before this grid's
+        // announcement at the older grid or after it at this one.
+        let startsRedraw = redraw.withLock { state in
+            scripted.send(.resize(cols: cols, rows: rows))
+            let starts = !state.due
+            state = (cols, rows, true)
+            return starts
+        }
+        guard startsRedraw else { return } // the redraw that is due draws this grid, the newest
+        Task.detached { [self] in
             try? await Task.sleep(for: Self.redrawDelay)
-            scripted.send(.output(redraws(cols, rows)))
+            // The grid and the send under one lock: a resize announced after this reads starts the next redraw.
+            redraw.withLock { state in
+                state.due = false
+                scripted.send(.output(redraws(state.cols, state.rows)))
+            }
         }
     }
 
