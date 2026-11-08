@@ -1,4 +1,5 @@
 import { isDefaultChoice } from "./defaultChoice";
+import { FEED_PROVIDERS } from "./feedHarnesses";
 import { isModelRouterKind } from "./routerKinds";
 import bundledCatalog from "../../../../web/data/model-catalog/snapshot.json";
 import currentFamilies from "../../../../web/data/model-catalog/current-families.json";
@@ -405,7 +406,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
       .find((entry) => entry !== undefined) ??
     members.find((entry) => entry.id === harness.id) ??
     members[0];
-  const probed = chosen?.models ?? [];
+  const probed = chosen?.models ?? (harness.modelSource === "probe" ? feedModels(harness.id, join.catalog) : []);
   const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
   const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
   const listed =
@@ -447,6 +448,20 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     topModels: menuModels(chosen?.topModels, live, offered, reported, join),
     models: live ? offered.map((model) => withLiveOptions(model, live)) : offered,
   };
+}
+
+/**
+ * What a probe harness this Mac does not have runs, from the model feed, so the picker's search
+ * finds its models before its probe can name them (Lawrence 2026-11-07: "search for any model ...
+ * download the relevant harness"). Deprecated models stay out; once acpmux lists the harness, its
+ * own probe replaces these.
+ */
+function feedModels(harnessId: string, catalog: ModelCatalog): AcpmuxModel[] {
+  const providers = FEED_PROVIDERS[harnessId];
+  if (!providers) return [];
+  return Object.entries(catalog.models)
+    .filter(([id, info]) => providers.includes(id.slice(0, id.indexOf("/"))) && info.status !== "deprecated")
+    .map(([id, info]) => ({ id, name: info.name }));
 }
 
 function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
