@@ -22,10 +22,7 @@ fn hostds_handshake_passes_on_a_carrier_stream_and_the_stream_becomes_a_phones()
     assert_eq!(client.request(json!({"cmd":"carrier-role","vmk":"owner"}))["ok"], json!(true));
     // hostd's two frames, as it sends them.
     let identity = client.request(json!({"cmd":"identify","id":"cloud-mobile-identify"}));
-    assert!(
-        capabilities(&identity).contains(&"cloud-mobile-chat-v1".to_owned()),
-        "{identity}"
-    );
+    assert!(capabilities(&identity).contains(&"cloud-mobile-chat-v1".to_owned()), "{identity}");
     let info = client.request(json!({"cmd":"set-client-info","id":"cloud-mobile-host",
         "kind":"ios","device_kind":"iphone",
         "capabilities":["cloud-mobile-chat-v1","conversation-tabs-v1","agent-session-tabs-v1"]}));
