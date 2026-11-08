@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Hermetic ACP race fixture: real worktree writes and an event-driven overlap barrier."""
 import json
+import re
 import pathlib
 import socket
 import sys
@@ -22,6 +23,9 @@ def prompt(request):
     # The task's own blocks: acpmux appends context blocks (`_meta.acpmux.context`) after them.
     text = "".join(block.get("text", "") for block in params.get("prompt", [])
                    if not (block.get("_meta") or {}).get("acpmux", {}).get("context"))
+    # A race child's task comes from its parent agent, so acpmux puts its sender line
+    # ("From another agent (...), not the person:", #37190) first: the task follows it.
+    text = re.sub(r"^From [^\n]*?, not the person:\s*", "", text, count=1)
     if model in ("review", "invalid"):
         candidates = json.loads(text.split("\nCandidates:\n", 1)[1])
         # Read the files, not the summaries. Model a writes the expected implementation.
