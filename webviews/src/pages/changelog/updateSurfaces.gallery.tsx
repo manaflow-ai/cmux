@@ -13,6 +13,7 @@ import {
   UpdatedCard,
   UpdateReadyHighlights,
   type BriefLayout,
+  type PreviewLayout,
   type ReadyLayout,
   type WhatsNewPlacement,
 } from "./UpdateSurfaces";
@@ -75,6 +76,8 @@ type Props = {
   placement?: WhatsNewPlacement;
   /** The card's hover preview held open (the still of a pointer resting on the card). */
   previewOpen?: boolean;
+  /** How the open preview is laid out (Lawrence 2026-11-07); `header` ships. */
+  previewLayout?: PreviewLayout;
   /** A one-line composer box beside the card, its edges lined up, as in the window. */
   besideComposer?: boolean;
   /** Sidebar rows under the card, as its open preview stands over them in the sidebar: frosted by the
@@ -113,6 +116,27 @@ function themeStyle(name: keyof typeof themes): Record<string, string> {
 // Ten real nightly-next builds (2026-10-18), newest first, and what the host sent for the newest
 // one alone: its one summary line, which the card used to show as its whole headline.
 const span = nightlySpan as ReleaseNotes[];
+const lawrenceShot: UpdateHighlights = {
+  version: "1.0.0-nightly.4241815985601",
+  build: "4241815985601",
+  fromVersion: "1.0.0-nightly.4230000000001",
+  fromBuild: "4230000000001",
+  source: "whatsNew",
+  language: "en",
+  items: [
+    { id: "dictation", title: "Show when another app is dictating into a chat", summary: null, category: "new" },
+    {
+      id: "new-tab",
+      title: "New Browser Tab always opens a blank page beside the current one",
+      summary: null,
+      category: "improved",
+    },
+    { id: "tool-calls", title: "Show grouped tool calls as an iOS-style stack", summary: null, category: "improved" },
+    { id: "pins", title: "Pinned rows line up under Home's icon", summary: null, category: "fixed" },
+  ],
+  moreCount: 0,
+  changelog: { from: "1.0.0-nightly.4230000000001", to: "1.0.0-nightly.4241815985601" },
+};
 const spanData: UpdateHighlights = {
   ...base,
   version: span[0]!.shortVersion,
@@ -366,6 +390,7 @@ function UpdateSurfacesGallery({
   width,
   placement,
   previewOpen,
+  previewLayout,
   besideComposer = false,
   overRows,
 }: Props) {
@@ -410,6 +435,9 @@ function UpdateSurfacesGallery({
               placement={placement}
               previewOpen={previewOpen}
               glass={overRows ? overRows === "glass" : undefined}
+              previewLayout={previewLayout}
+              // The held-open preview stills show the in-card list (the look before the popover).
+              previewMode={previewOpen === undefined ? undefined : "above"}
             />
           </div>
           {besideComposer && <ComposerStandIn />}
@@ -521,8 +549,24 @@ export default componentEntry<Props>({
       props: { surface: "card", data: base, theme: "light", besideComposer: true, width: 640 },
     },
     "card-hover-preview": {
-      note: "Shipped: resting on the card for the hover dwell (400 ms) opens a scrollable list of the update's changes in the card's own glass, above its two lines (Leo 2026-11-07: \"a quick access scroll through of what's new. Right in that bottom left of the sidebar area\"). The card stands on its slot, so the glass's top edge rises over the rows and nothing else moves; in the sidebar it opens over the list without moving it. A click on a row or on What's New opens the full page; Escape or leaving the card closes it.",
+      note: "Shipped (header): resting on the card for the hover dwell (400 ms) opens the update's changes in the card's own glass (Leo 2026-11-07: \"a quick access scroll through of what's new\"). Lawrence 2026-11-07, \"this ui is very bad\": the header leads, whole (Updated to Nightly with the x, the full version, What's New), then the changes, each title on up to two lines with its detail; more rows show the scrollbar, not a faded row. A click on a row or on What's New opens the full page; Escape or leaving the card closes it.",
       props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true },
+    },
+    "card-hover-preview-lawrence": {
+      note: "Lawrence's shot (2026-11-07) in the shipped header layout: the three changes whose titles were cut, at the sidebar's width.",
+      props: { surface: "card", data: lawrenceShot, theme: "dark", previewOpen: true },
+    },
+    "card-hover-preview-lawrence-light": {
+      note: "The same in a light theme.",
+      props: { surface: "card", data: lawrenceShot, theme: "light", previewOpen: true },
+    },
+    "card-hover-preview-header-bottom": {
+      note: "Variant: the same parts with the header kept at the card's resting edge, under the pointer, and the changes above it (the order before).",
+      props: { surface: "card", data: lawrenceShot, theme: "dark", previewOpen: true, previewLayout: "header-bottom" },
+    },
+    "card-hover-preview-titles": {
+      note: "Variant: the header leads and the changes are their titles alone, on up to three lines.",
+      props: { surface: "card", data: lawrenceShot, theme: "dark", previewOpen: true, previewLayout: "titles" },
     },
     "card-hover-preview-light": {
       note: "The open preview in a light theme, from the host's own items (before the span's notes load).",

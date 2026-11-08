@@ -84,6 +84,7 @@ mod workspace_pins;
 pub(crate) use workspace_pins::{WorkspaceDropGeometry, WorkspaceDropSlot};
 
 mod clipboard;
+pub(crate) mod copy_mode;
 mod left_down;
 mod left_drag;
 mod pointer_hover;
@@ -451,6 +452,7 @@ pub struct App {
     pending_size_releases: HashSet<SurfaceId>,
     geometry_authority_surface: Option<SurfaceId>,
     pub prefix_armed: bool,
+    pub(crate) copy_mode: Option<copy_mode::CopyModeSession>,
     pub session_label: String,
     /// Machine-level model spend readout from the session's daemon; `None`
     /// hides the sidebar readout.
@@ -479,6 +481,13 @@ pub struct App {
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_order_cache: AgentOrderCache,
+    /// Agent status for the default sidebar and tab chips, rebuilt with
+    /// the tree on each layout frame (`sync_layout`), read on every frame.
+    pub(crate) sidebar_status: crate::sidebar_status::SidebarStatus,
+    /// The agents section's scroll offset in rows.
+    pub(crate) agent_section_scroll: usize,
+    /// The done tab this client last acknowledged as viewed.
+    pub(crate) done_tab_ack_sent: Option<SurfaceId>,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
