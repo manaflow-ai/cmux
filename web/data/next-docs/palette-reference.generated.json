@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1378,
+    "entries": 1379,
     "shortcuts": 188
   },
   "sections": [
@@ -6704,6 +6704,12 @@
           "title": "Start Agent…",
           "shortcut": "⌃⌘\r",
           "command": "cmux agent quick"
+        },
+        {
+          "id": "home.startQueuedAgent",
+          "title": "Start Queued Agent Now",
+          "shortcut": null,
+          "command": "cmux home start-agent"
         },
         {
           "id": "agentPane.stopTurn",
