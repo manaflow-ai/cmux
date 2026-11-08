@@ -58,7 +58,14 @@ final class SidebarUpdatedCardHost: NSView {
     private(set) var glassFrame = NSRect.zero
     /// The glass's frame before a close that is still running: the preview still shows there, so the
     /// card keeps the pointer over it until the close ends (review F1 of #38117's third pass).
-    private(set) var closingFrame: NSRect?
+    /// Kept as a height from the card's resting edge, so a relayout mid-close (a sidebar resize) moves
+    /// it with the card instead of dropping it (review F2 of #38222).
+    var closingFrame: NSRect? {
+        closingHeight.map { NSRect(x: 0, y: anchor == .top ? 0 : bounds.height - $0, width: bounds.width, height: $0) }
+    }
+    private var closingHeight: CGFloat?
+    /// Counts preview motions: only the close that is still the latest ends the hold (review F1 of #38222).
+    private var glassMotion = 0
     private var glassPreview: CGFloat = 0
     /// Makes ``island`` once a card shows (a web page; none at launch without one).
     var surfaces: (any SidebarUpdateSurfaces)? {
@@ -401,14 +408,19 @@ final class SidebarUpdatedCardHost: NSView {
         glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1)
         guard next != glassFrame else { return }
         let moves = preview != glassPreview && window != nil && !glassFrame.isEmpty
-        let closing = moves && preview < glassPreview ? glassFrame : nil
-        (glassFrame, glassPreview, closingFrame) = (next, preview, closing)
+        if preview != glassPreview {
+            // A new open or close: the latest one decides what the card holds.
+            glassMotion += 1
+            closingHeight = moves && preview < glassPreview ? glassFrame.height : nil
+        }
+        (glassFrame, glassPreview) = (next, preview)
         guard moves else { return Motion.withoutAnimation { glass.frame = next } }
+        let motion = glassMotion
         // The page's gate (web), not the sidebar's: with web motion off or reduced the page's preview
         // is simply there, and so is the glass (review F1 of #38117).
         Motion.web.animateCard(in: self, { glass.animator().frame = next }) { [weak self] in
-            // A newer change since (an open over the close) set its own frame: leave it.
-            if self?.glassFrame == next { self?.closingFrame = nil }
+            // An earlier motion's end leaves a later close's hold alone.
+            if self?.glassMotion == motion { self?.closingHeight = nil }
         }
     }
 
