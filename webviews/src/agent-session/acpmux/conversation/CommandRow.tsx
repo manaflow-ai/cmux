@@ -22,7 +22,7 @@ import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { Check, ChevronRight, TerminalSquare } from "./icons";
 import { isRunning, toolDuration } from "./toolGroups";
-import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { useRowDisclosure } from "./transcriptDisclosureModel";
 import { commandLine, commandLook, commandSaid } from "./commandActions";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { rowFailed, toolFailure } from "./toolFailure";
@@ -38,7 +38,8 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   const step = useInStep();
   const tool = item.tool!;
   // The Verbose transcript view opens the command to its output.
-  const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`, false, true);
+  // Kept under the call's own key, as a lone call's is: grouped with others it keeps the reader's choice.
+  const [open, setOpen] = useRowDisclosure(tool.id);
   // Find in Chat counts matches in the whole output, so a command it reveals shows all of it.
   const [reveal, setReveal] = useState(0);
   useFindReveal(

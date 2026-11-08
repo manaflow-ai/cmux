@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 
 /// A window's toast page on the overlay, with the window's glass under each toast the page draws. The
-/// page in the overlay panel cannot blur the window under it, so each toast's glass (the toast surface,
-/// opaque under Reduce Transparency) is native, as ``OverlayDialogView``'s card is (review 3 of #37289).
+/// page in the overlay panel cannot blur the window under it, so each toast's glass (the toast surface:
+/// the blur of what is behind the window, opaque under Reduce Transparency) is native, as ``OverlayDialogView``'s card is (review 3 of #37289).
 @MainActor
 final class CmuxToastPageView: NSView {
     let page: PageWebView
@@ -96,6 +96,11 @@ final class CmuxToastPageView: NSView {
 
     private func makeGlass(_ serial: Int) -> OverlaySurfaceView {
         let surface = Glass.makeSurface(.toast, cornerRadius: SurfaceRole.toast.cornerRadius, interactive: false)
+        // The overlay panel is a clear window over the window it covers: Liquid Glass there has nothing to
+        // bend, and its lens drew a dark line and a bevel inside the rim (the Leave site? dialog's edge,
+        // Lawrence 2026-11-07). The blur samples what is behind the window, as the dialog card's does.
+        surface.samplesBehindWindow = true
+        surface.prefersBlurToLiquidGlass = true
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.wantsLayer = true
         addSubview(surface, positioned: .below, relativeTo: page)
