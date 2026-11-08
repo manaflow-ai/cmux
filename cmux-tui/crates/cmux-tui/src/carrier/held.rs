@@ -227,8 +227,9 @@ impl Slot {
                 }
                 None => {}
             }
-            let Dialed { connection, multiplexer, mux, vmk } =
-                dial().await.map_err(|failure| Refused { failure, dialed: true })?;
+            let Dialed { connection, multiplexer, mux, vmk } = dial()
+                .await
+                .map_err(|failure| Refused { dialed: true, ..Refused::waiting(failure) })?;
             let held = Arc::new(Held {
                 connection,
                 multiplexer,
