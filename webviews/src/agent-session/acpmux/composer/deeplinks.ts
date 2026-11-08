@@ -1,9 +1,10 @@
 import { appHref, safeHref } from "../replyHref";
 
 // The cmux deeplinks in a text: a cmux app link (`cmux://workspace/ws_…`, `cmux-nightly://agent/…`,
-// in any build's scheme) or a web deeplink (`https://cmux.com/deeplink/…`). The draft draws them as
-// links (deeplinkTokens.ts) and a sent prompt opens them (conversation/PromptText.tsx). No editor
-// code here, so the transcript can read it without loading the editor.
+// in any build's scheme) or a web deeplink (`https://cmux.com/deeplink/…`). The draft finds them
+// (deeplinkTokens.ts) to draw a known one as its chip, and a sent prompt opens them
+// (conversation/PromptText.tsx). No editor code here, so the transcript can read it without
+// loading the editor.
 
 export type Deeplink = { start: number; end: number; href: string };
 

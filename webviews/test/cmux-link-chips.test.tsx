@@ -739,10 +739,11 @@ test("the draft draws a known link as its chip and sends the link as pasted", as
   expect(sent).toEqual([typed]);
 });
 
-test("the draft keeps an unknown link a link, and a place pushed later turns it into the chip", async () => {
+test("the draft keeps an unknown link plain text, and a place pushed later turns it into the chip", async () => {
   await composer(`See ${WORKSPACE}`);
   expect(titled()).toEqual([]);
-  expect(host.querySelector(".acpmux-deeplink.is-link")?.textContent).toBe(WORKSPACE);
+  // Plain: the paragraph is the text alone, no element drawn around the link.
+  expect(host.querySelector(".acpmux-md p")?.innerHTML).toBe(`See ${WORKSPACE}`);
   await act(async () => setLinkPlaces([place("Retry fix")]));
   expect(titled()).toEqual([["Retry fix", WORKSPACE]]);
 });
