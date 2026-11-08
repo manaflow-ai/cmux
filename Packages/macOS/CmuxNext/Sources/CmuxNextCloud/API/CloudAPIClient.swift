@@ -71,49 +71,6 @@ public struct CloudAPIClient: Sendable {
         sendsStackSession = false
     }
 
-    // MARK: Machines
-
-    /// `vm.resize`: cpu 1-32, memory 4096-65536 MiB in whole GiB, storage in 4 GiB steps up to
-    /// 256 GiB (grow-only). Only the given dimensions are sent; the server checks them.
-    public func resize(_ id: String, cpu: Int? = nil, memoryMb: Int? = nil, storageMb: Int? = nil) async throws {
-        var args: [String: JSONValue] = ["id": .string(id)]
-        if let cpu { args["cpu"] = .number(Double(cpu)) }
-        if let memoryMb { args["memoryMb"] = .number(Double(memoryMb)) }
-        if let storageMb { args["storageMb"] = .number(Double(storageMb)) }
-        _ = try await call("vm.resize", args, timeout: .seconds(120))
-    }
-
-    public func snapshot(_ id: String, name: String?, idempotencyKey: String = UUID().uuidString) async throws -> CloudSnapshot {
-        var args: [String: JSONValue] = ["id": .string(id), "idempotencyKey": .string(idempotencyKey)]
-        if let name { args["name"] = .string(name) }
-        return try await call("vm.snapshot", args, timeout: .seconds(300), as: CloudSnapshot.self)
-    }
-
-    public func snapshots(_ id: String) async throws -> [CloudSnapshot] {
-        struct List: CloudServerModel {
-            static var cloudModelKind: String { "snapshots" }
-            var snapshots: [CloudSnapshot]
-            init(from decoder: any Decoder) throws { snapshots = try [CloudSnapshot](from: decoder) }
-        }
-        return try await call("vm.snapshots", ["id": .string(id)], as: List.self).snapshots
-    }
-
-    /// Deletes a snapshot scoped to the machine that owns it.
-    public func deleteSnapshot(_ id: String, snapshotID: String) async throws {
-        _ = try await call("vm.delete_snapshot", ["id": .string(id), "snapshotId": .string(snapshotID)], timeout: .seconds(960))
-    }
-
-    public func restore(snapshotID: String, idempotencyKey: String = UUID().uuidString) async throws -> CloudMachine {
-        try await call("vm.restore", ["snapshotId": .string(snapshotID), "idempotencyKey": .string(idempotencyKey)],
-                       timeout: .seconds(620), as: CloudMachine.self)
-    }
-
-    public func fork(_ id: String, name: String?, idempotencyKey: String = UUID().uuidString) async throws -> CloudMachine {
-        var args: [String: JSONValue] = ["id": .string(id), "idempotencyKey": .string(idempotencyKey)]
-        if let name { args["name"] = .string(name) }
-        return try await call("vm.fork", args, timeout: .seconds(620), as: CloudMachine.self)
-    }
-
     // MARK: Files and SCP
 
     /// Mints a short-lived private SCP route. The public key is the only key

@@ -1,7 +1,8 @@
 // cx-ae9eb: the model rail listed a harness this Mac's acpmux found signed out like any other, so a
 // pick started a chat that failed on its first turn ("authentication failed"). At the composer's
 // boundary: the real catalog and compact picker, and what the pane sends. A signed-out harness's
-// tab offers Log In (its login command) in place of its models, and no pick or search reaches them.
+// tab offers Log In (its login command) in place of its models; a search lists them, and a pick of
+// one signs in before any chat starts on it (harnessSetup.ts).
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
@@ -261,10 +262,17 @@ test("a signed-out harness offers its own Log In alone, never credits or a key t
   expect(sent).toEqual([]);
 });
 
-test("a search never lists a signed-out harness's models", async () => {
+// Lawrence 2026-11-07 ("search for any model ... it needs to 'just work'"): a search lists a
+// signed-out harness's models too, after the ready ones and marked Signed out, and a pick of one
+// opens its login (the pick's own gesture) and starts no chat until it is signed in.
+test("a search lists a signed-out harness's models after the ready ones, and a pick signs in first", async () => {
+  const logins: string[] = [];
   const { sent } = await mount({
     harness: "claude",
-    signIn: { signedOut: { codex: "codex login" }, logIn: () => undefined },
+    signIn: {
+      signedOut: { codex: "codex login" },
+      logIn: (harness, login) => void logins.push(`${harness}: ${login}`),
+    },
   });
   await act(async () => {
     openQuickPicker();
@@ -275,14 +283,24 @@ test("a search never lists a signed-out harness's models", async () => {
     setValue.call(input, "gpt");
     input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
-  // Other providers can offer GPT models; none of these results may come from signed-out Codex.
-  expect(modelRows().length).toBeGreaterThan(0);
   // A searched row's title is its name, its harness, then its provider ("GPT 5.3 Codex" is a model).
-  expect(modelRows().every((row) => row.title.split(" · ")[1] !== "Codex")).toBe(true);
-  const headings = [...dom.window.document.querySelectorAll(".acpmux-cols .acpmux-cols-group")];
-  expect(headings.length).toBeGreaterThan(0);
-  expect(headings.map((heading) => heading.textContent)).not.toContain("Codex");
+  const codexRows = modelRows().filter((row) => row.title.split(" · ")[1] === "Codex");
+  expect(codexRows.length).toBeGreaterThan(0);
+  expect(codexRows.every((row) => row.title.includes("Signed out"))).toBe(true);
+  const headings = [...dom.window.document.querySelectorAll(".acpmux-cols .acpmux-cols-group")].map(
+    (heading) => heading.textContent,
+  );
+  // Its heading says a pick signs in first.
+  expect(headings).toContain("CodexSigned out");
+  // Other providers can offer GPT models; those that are ready come first.
+  if (headings.length > 1) expect(headings[0]).not.toBe("CodexSigned out");
+  await act(async () => {
+    codexRows[0]!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(logins).toEqual(["codex: codex login"]);
   expect(sent).toEqual([]);
+  (await import("../src/agent-session/acpmux/harnessSetup")).resetHarnessSetupForTests();
 });
 
 // Review of #20692: a chat already running on a harness keeps its models (a stale or wrong row

@@ -60,11 +60,13 @@ import {
 import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 import { backgroundRunFoldFor, foldBackgroundRuns, openBackgroundRuns } from "./backgroundRuns";
 import { turnFoldStyle, type TurnFoldStyle } from "./turnFoldStyle";
+import { resendsAttachments } from "../inlinePrompt";
 import { answerClaim, askKey, CLAIM_SLACK_MS } from "./waitingAskStore";
 import { canonicalCall } from "../toolNames";
 import { currentLanguage, translatorFor } from "../i18n";
 import { writeCall } from "./writeLabelModel";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
+import { MEMORY_OFFER } from "./memoryInbox";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -195,13 +197,16 @@ export const isEmptyFooter = (row: AcpmuxRow) =>
 /// The footer with the person's last prompt to send again (TurnRows.tsx TurnFooter's Retry): the
 /// chat's last turn, or the last one a prompt opened when every turn after it came from a notice
 /// or a reminder (`retryTarget`). transcriptGrid.ts rowMark and model.ts isBlankFooter repeat it inline.
+/// An attachment-only prompt's footer carries an empty `prompt` (its attachments are what goes
+/// again, by `retryRowId`), so a defined `prompt` is what offers it.
 export const offersRetry = (row: AcpmuxRow) =>
-  row.retryTarget === true && Boolean(row.prompt) && Boolean(row.retryRowId);
+  row.retryTarget === true && row.prompt !== undefined && Boolean(row.retryRowId);
 
 /// A prompt row that drew its own Retry on base, before Retry moved to the reply footer (cmux#34779),
 /// taken over unchanged: the row UserBubble draws (the person's own prompt: no `incoming`, not a
 /// `received` result; App.tsx's registry draws those as message cards), with its footer (not
-/// `failed`), not `pending` and not still sending, with text to send (`resend`, else `text`). Whether
+/// `failed`), not `pending` and not still sending, with text to send (`resend`, else `text`) or, as
+/// PromptRetry's `hasAttachment`, attachments that can all go again (``resendsAttachments``). Whether
 /// the chat can send and the reader may act are ``retryPlacement``'s (base: PromptRetry's `retry` and
 /// read-only checks). Only which row draws Retry moved; which prompts can be retried did not.
 export const isRetryablePrompt = (row: AcpmuxRow) =>
@@ -211,7 +216,7 @@ export const isRetryablePrompt = (row: AcpmuxRow) =>
   !row.failed &&
   !row.pending &&
   row.delivery?.state !== "sending" &&
-  Boolean(row.resend ?? row.text);
+  (Boolean(row.resend ?? row.text) || resendsAttachments(row));
 
 /// The chat's one Retry in the transcript (cmux#34779): the last prompt that would have drawn its
 /// own Retry on base (``isRetryablePrompt``, `promptId`), and its turn's footer when that footer
@@ -1559,12 +1564,15 @@ function shapeTurn(
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification, or acpmux's inbox notice, is not a prompt to send again (incomingMessage.ts).
     // The retry target's prompt (``isRetryablePrompt``, which implies the rest), or, as on base, the
-    // chat's last turn's for a failed turn's Retry (TurnFooter `failedRetry`, unchanged).
+    // chat's last turn's for a failed turn's Retry (TurnFooter `failedRetry`, unchanged). An
+    // attachment-only retry target carries an empty `prompt`: Retry sends its attachments again by
+    // `retryRowId`, as its prompt's Retry did. Only for a turn that ended well: a failed turn's
+    // Retry and recovery still need text (unchanged), and its prompt keeps the Retry instead.
     ...((retryable || retryTarget) &&
       user.incoming?.kind !== "notice" &&
       user.incoming?.kind !== "inbox" &&
-      (user.resend ?? user.text) && {
-        prompt: user.resend ?? user.text,
+      ((user.resend ?? user.text) || (retryTarget && !isFailed(summary) && resendsAttachments(user))) && {
+        prompt: (user.resend ?? user.text) || "",
         retryRowId: user.id,
         retryAttachments: user.retryAttachments,
       }),
@@ -1798,6 +1806,8 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === "failover" ||
   // A recap is about the whole chat, not the turn above it.
   row.kind === "recap" ||
+  // A memory offer waits for the person's Accept or Dismiss (MemoryOfferCard.tsx).
+  row.kind === MEMORY_OFFER ||
   // A policy the harness cannot keep: the agent runs without the asks the person chose.
   row.kind === "policyUnenforced" ||
   // A paused agent pair waits for the person's Resume.

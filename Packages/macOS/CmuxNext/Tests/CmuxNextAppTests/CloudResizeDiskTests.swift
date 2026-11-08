@@ -1,54 +1,39 @@
 import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import Foundation
 import Testing
 
-/// `cloud resize-machine --disk GIB` grows a machine's disk (the daemon's `cloud.vm.resize` storageMb),
-/// alone or with `--size` in the same call; the body carries only the dimensions given.
-@Suite struct CloudResizeDiskTests {
-    let fake = FakeCloudAPI { _ in .null }
-
-    private func api() -> CloudAPIClient { fake.classic() }
-
-    /// The one call's args, without its machine id.
-    private var body: [String: JSONValue] {
-        var args = fake.seen.first?.args ?? [:]
-        args["id"] = nil
-        return args
-    }
-
+/// `cloud resize-machine --disk GIB` grows a machine's disk (the app server's `cloud.machine.resize`
+/// `size.disk_mb`), alone or with `--size` in the same call; the args carry only the dimensions given.
+@Suite
+struct CloudResizeDiskTests {
     private func request(_ arguments: [String: ActionValue]) throws -> CloudResizeRequest {
         try CloudResizeRequest(ActionInvocation(target: ActionTargetRef(kind: .machine, id: "vm-1"), arguments: arguments, origin: .cli))
     }
 
-    @Test func aDiskOnlyResizeSendsOnlyStorage() async throws {
-        let request = try request(["disk": .int(100)])
-        try await api().resize("vm-1", cpu: request.cpu, memoryMb: request.memoryMb, storageMb: request.storageMb)
-        #expect(fake.operations == ["cloud.vm.resize"])
-        #expect(fake.seen.first?.args["id"]?.stringValue == "vm-1")
-        #expect(body.count == 1)
-        #expect(body["storageMb"]?.intValue == 100 * 1024)
+    private func size(_ request: CloudResizeRequest) throws -> [String: JSONValue] {
+        let args = request.appServerArgs(machine: "vm-1")
+        #expect(args["machine"]?.stringValue == "vm-1")
+        guard case .object(let size)? = args["size"] else { Issue.record("no size in \(args)"); return [:] }
+        return size
     }
 
-    @Test func sizeAndDiskGoInOneCall() async throws {
+    @Test func aDiskOnlyResizeSendsOnlyTheDisk() throws {
+        let size = try size(try request(["disk": .int(100)]))
+        #expect(size == ["disk_mb": .number(100 * 1024)])
+    }
+
+    @Test func sizeAndDiskGoInOneCall() throws {
         let request = try request(["size": .string("large"), "disk": .string("100")])
-        try await api().resize("vm-1", cpu: request.cpu, memoryMb: request.memoryMb, storageMb: request.storageMb)
-        #expect(fake.seen.count == 1)
-        #expect(body["cpu"]?.intValue == 8)
-        #expect(body["memoryMb"]?.intValue == 16384)
-        #expect(body["storageMb"]?.intValue == 102_400)
+        #expect(try size(request) == ["cpu": .number(8), "memory_mb": .number(16384), "disk_mb": .number(102_400)])
         #expect(request.fields == ["size": .string("large"), "disk_gib": .int(100)])
     }
 
-    @Test func aSizeOnlyResizeSendsNoStorage() async throws {
+    @Test func aSizeOnlyResizeSendsNoDisk() throws {
         let request = try request(["size": .string("small")])
-        try await api().resize("vm-1", cpu: request.cpu, memoryMb: request.memoryMb, storageMb: request.storageMb)
-        #expect(body["cpu"]?.intValue == 2)
-        #expect(body["memoryMb"]?.intValue == 4096)
-        #expect(body["storageMb"] == nil)
+        #expect(try size(request) == ["cpu": .number(2), "memory_mb": .number(4096)])
         #expect(request.fields == ["size": .string("small")])
     }
 

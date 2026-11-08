@@ -297,9 +297,11 @@ def show_tab(run, workspace, pane, kinds):
                                     if t.get("kind") in kinds and not STRESS.provisional(t)), None), 20, step=0.1)
     if not tab:
         raise RuntimeError(f"no {sorted(kinds)} tab in pane {pane}")
-    stress.action("tab.focus", target=f"tab:{tab}", focus=False)
+    # With focus: tab.focus reveals only under the run's view-change permission, which focus=False withholds
+    # (TabHandlers.reveal); the measured workspace is the shown one, so focusing in it moves nothing else.
+    stress.action("tab.focus", target=f"tab:{tab}")
     if not STRESS.wait(lambda: any(t.get("id") == tab and t.get("selected") for t in stress.tabs(workspace, pane)), 10, step=0.05):
-        raise RuntimeError(f"pane {pane} never showed its {sorted(kinds)} tab {tab}")
+        raise RuntimeError(f"pane {pane} never showed its {sorted(kinds)} tab {tab}: {stress.refusals[-2:]}")
 
 
 def fill(run, workspace, pane, content, chats):
@@ -338,21 +340,27 @@ def background(run, count, measured):
         others = [w["id"] for w in stress.workspaces() if w["id"] != measured]
         if len(others) > count - 1:
             extra = next((w for w in others if w not in busy), others[-1])
-            stress.action("closeWorkspace", target=f"workspace:{extra}", focus=False)
-            STRESS.wait(lambda: stress.workspace(extra) is None, 15, step=0.1)
+            stress.action("closeWorkspace", {"confirm": True}, target=f"workspace:{extra}", focus=False)
+            if not STRESS.wait(lambda: stress.workspace(extra) is None, 15, step=0.1):
+                raise RuntimeError(f"closeWorkspace left {extra}: {stress.refusals[-2:]}")
             busy.discard(extra)
         elif len(others) < count - 1:
             if not stress.new_workspace():
                 raise RuntimeError(f"no background workspace {len(others) + 1}: {stress.refusals[-2:]}")
         else:
             break
+    else:
+        raise RuntimeError(f"the window never held {count} workspaces: {stress.refusals[-2:]}")
     for workspace in others:
         if workspace in busy:
             continue
         pane = STRESS.wait(lambda w=workspace: (stress.panes(stress.workspace(w)) or [{}])[0].get("id"), 20)
         tab = next((t.get("id") for t in stress.settled_tabs(workspace, pane) if t.get("kind") == "terminal"), None)
+        if not tab:  # a workspace that opened on a page (the launch one can): give it the busy terminal
+            stress.add_tab(workspace, pane, "terminal")
+            tab = next((t.get("id") for t in stress.settled_tabs(workspace, pane) if t.get("kind") == "terminal"), None)
         if not tab:
-            raise RuntimeError(f"background workspace {workspace} has no terminal to keep busy")
+            raise RuntimeError(f"background workspace {workspace} has no terminal to keep busy: {stress.refusals[-2:]}")
         stress.make_busy(tab)
         busy.add(workspace)
     run.busy_workspaces = busy
@@ -478,8 +486,9 @@ def build_cell(run, splits, content, chats):
 
 
 def close_cell(run, workspace):
-    run.stress.action("closeWorkspace", target=f"workspace:{workspace}", focus=False)
-    STRESS.wait(lambda: run.stress.workspace(workspace) is None, 15, step=0.1)
+    run.stress.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
+    if not STRESS.wait(lambda: run.stress.workspace(workspace) is None, 15, step=0.1):
+        say(f"split-scale: closeWorkspace left {workspace}: {run.stress.refusals[-2:]}")
     time.sleep(1)  # test script: the close's own work ends before the next cell builds
 
 
@@ -549,7 +558,10 @@ def main():
         run = Run(env)
         run.launch()
         results["app_version"] = (run.app.identify() or {}).get("version")
-        STRESS.place_window(run.rpc)
+        _, problem = STRESS.place_window(run.rpc)
+        if problem:  # a window off its screen or the wrong size measures nothing comparable; fail the run
+            results["errors"]["placement"] = problem
+            raise SystemExit(f"split-scale: {problem}: run with a 1920 x 1080 display (--vdisplay=120)")
         time.sleep(4)  # test script: launch work ends before the first cell
         for count in WORKSPACES:
             for splits in SPLITS:
