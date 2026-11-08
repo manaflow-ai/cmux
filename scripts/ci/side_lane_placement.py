@@ -884,9 +884,9 @@ def handback(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None
     queued after the client's 20-minute wait, and the tier then runs its Swift suites itself. macos-placement's
     reading is from the start of the run, so fast-tier-handback-placement reads the runners and Blacksmith's
     health again here, after that wait: the fast tier's own label while a runner there is idle, else an idle
-    owned side runner (a warm build), else Blacksmith 6 vCPU, the cascade's last resort, unless it is full,
-    under a declared outage, dead or stalled (cmux#38627's review: the hand-back then queued on an excluded
-    label with no verdict). Then the owned route: the tier waits for a mini, as macos-placement's deferred_runner
+    owned side runner (a warm build), else Blacksmith 6 vCPU, the cascade's last resort, unless it has no free
+    slot now, is full, under a declared outage, dead or stalled (cmux#38627's review: the hand-back then queued
+    on an excluded label with no verdict). Then the owned route: the tier waits for a mini, as macos-placement's deferred_runner
     does. Unread runners vouch for no idle mini; an unread Blacksmith reading excludes nothing.
     """
     fast = fast_route(env, runners)
@@ -898,7 +898,16 @@ def handback(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None
         return side, f"idle `{side}` takes the fast tier (a warm owned build before a cold Blacksmith one)"
     small = cascade.SMALL
     out = ""
-    if seen is not None and cascade.label_full_or_dead(small, seen.snapshot, live=(live or {}).get(small, 0),
+    # The pool snapshot carries only queued and running counts (no cap or health), so label_full_or_dead()
+    # never calls the label full from it: count its free slots here, as the cascade's retry label does.
+    slots = (min(cascade.CAPACITY[small] - live.get(small, 0) - waiting.get(small, 0),
+                 cascade.pool_room(live, waiting) // cascade.vcpus(small))
+             if live is not None and waiting is not None else 1)
+    if slots <= 0:
+        out = (f"full ({live.get(small, 0)} in flight + {waiting.get(small, 0)} queued of "
+               f"{cascade.CAPACITY[small]}, {max(cascade.pool_room(live, waiting), 0)} of the pool's "
+               f"{cascade.POOL_VCPU} vCPU free)")
+    elif seen is not None and cascade.label_full_or_dead(small, seen.snapshot, live=(live or {}).get(small, 0),
                                                        queued=(waiting or {}).get(small, 0), now=seen.observed_at):
         out = "full or under a declared outage"
     elif small in cascade.seen_dead(seen):

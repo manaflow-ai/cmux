@@ -3855,7 +3855,15 @@ esac
                 self.assertFalse(evaluate(place["if"], context))
         step = next(s for s in place["steps"] if s.get("id") == "place")
         self.assertEqual(step["env"]["PLACEMENT"], "handback")
-        self.assertEqual(step["env"]["SIDE_LABEL"], "${{ vars.CI_SIDE_LANE_RUNNER }}")
+        side = step["env"]["SIDE_LABEL"]
+        self.assertEqual(evaluate(side, {"github.event_name": "pull_request", "github.repository": "manaflow-ai/cmux",
+                                         "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                                         "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6"}),
+                         "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(side, {"github.event_name": "pull_request", "github.repository": "manaflow-ai/cmux",
+                                         "github.event.pull_request.head.repo.full_name": "someone/cmux",
+                                         "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6"}),
+                         "blacksmith-6vcpu-macos-26")
         self.assertIn("^def handback_main", step["run"])
         # A verdict, or no verdict for any other reason, is still only reported.
         for verdict in ("pass", "fail", "unavailable", ""):

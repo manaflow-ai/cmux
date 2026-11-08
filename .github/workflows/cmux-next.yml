@@ -3344,8 +3344,9 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           ROUTE_TOKEN_FALLBACK: ${{ steps.route-token-fallback.outputs.token }}
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
-          # The owned side label itself: CMUX_NEXT_SIDE_ROUTE names Blacksmith on a person's re-run.
-          SIDE_LABEL: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          # The owned side label itself: CMUX_NEXT_SIDE_ROUTE names Blacksmith on a person's re-run. A fork's
+          # pull request never gets it (it never reaches this job either: its fleet client does not run).
+          SIDE_LABEL: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_SIDE_LANE_RUNNER }}
           FAST_LABEL: ${{ vars.CI_FAST_LANE_RUNNER }}
         run: |
           if ! grep -q '^def handback_main' scripts/ci/side_lane_placement.py; then
