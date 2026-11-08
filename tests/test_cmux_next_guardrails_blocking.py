@@ -281,7 +281,34 @@ class BlockingRuleTests(unittest.TestCase):
                 guardrails.tree_sites(self.repo, "HEAD", "main-blocking")
         finally:
             os.environ.update(saved)
+        self.assertIn("guardrails --sites: no count", str(raised.exception))
         self.assertIn("rule main-blocking failed", str(raised.exception))
+
+    def sites_with(self, target, **patch):
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            with mock.patch.object(guardrails, target, **patch):
+                return guardrails.tree_sites(self.repo, "HEAD", "main-blocking")
+        finally:
+            os.environ.update(saved)
+
+    def test_sites_fails_closed_when_the_diff_cannot_be_read(self):
+        with self.assertRaises(SystemExit) as raised:
+            self.sites_with("parse_diff", return_value={})
+        self.assertIn("guardrails --sites: no count", str(raised.exception))
+        self.assertIn("could not read", str(raised.exception))
+
+    def test_sites_fails_closed_when_the_generic_signature_context_fails(self):
+        with self.assertRaises(SystemExit) as raised:
+            self.sites_with("generic_signature_context", side_effect=RuntimeError("context bug"))
+        self.assertIn("generic-signature context", str(raised.exception))
+
+    def test_sites_still_counts_when_only_another_rule_fails(self):
+        # maybe-main-blocking's id ends with main-blocking: its failure must not void the main-blocking count.
+        def crash(files, moved):
+            raise RuntimeError("matcher bug")
+        rules = [dataclasses.replace(r, find=crash) if r.id == "maybe-main-blocking" else r for r in guardrails.RULES]
+        self.assertEqual(self.sites_with("RULES", new=rules), [f"{UI}/Old.swift:2: try? Data(contentsOf: url)"])
 
     def test_a_missing_doc_fails_thread_doc_open_and_keeps_the_others(self):
         self.git("rm", "--quiet", "plans/cmux-next/threading-model.md")
