@@ -153,7 +153,7 @@ final class CloseUndoToasts {
         // One gesture, one daemon close and one closed group (`PaneController.close(_:)`): one Reopen
         // Closed brings every pane's tabs back, and one undo toast counts them all.
         let closeAll = { @MainActor [weak kept = selecting?.pane, keptID = selecting?.id] (undo: CloseUndoToasts?, costly: Bool) in
-            if let kept, let keptID, kept.stripModel.tab(keptID) != nil { kept.select(keptID) } // after any question, before any tab leaves (cmux-ad i7)
+            if let kept, let keptID, kept.stripModel.tab(keptID) != nil { kept.select(keptID) } // after any question; a hide selected it already (TabCloseGuard)
             var closing: [(pane: PaneController, ids: [StripTabID])] = [], deciding: [(pane: PaneController, ids: [StripTabID])] = []
             for part in panes {
                 guard let pane = part.pane() else { continue }
@@ -184,7 +184,7 @@ final class CloseUndoToasts {
             PaneController.close(closing)
             for part in deciding { part.pane.services.closedTabs?.undoToasts.hidePages(part.ids, in: part.pane) } // they leave now too
         }
-        TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window, leaving: parts) { [weak services] asked, hidden in
+        TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window, leaving: parts, keeping: selecting) { [weak services] asked, hidden in
             guard user, let undo = services?.closedTabs?.undoToasts else { hidden?.lift(); return closeAll(nil, false) }
             undo.decideFirst(tabs, on: daemon, asked: asked, window: first.view.window) { costly in hidden?.lift(); closeAll(undo, costly) }
         }
