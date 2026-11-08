@@ -495,3 +495,36 @@ fn no_or_a_malformed_placement_preference_keeps_the_most_room_first() {
         assert_eq!((&v["pick"], &v["tier"]), (&json!("gcp-vm"), &Value::Null), "{bad}: {v:#}");
     }
 }
+
+/// A machine the registry's `status` says is off (idle-stopped, stopped, paused or retired, as
+/// leo-workspace's host_state.py reads it) takes no new work, even when its peer reads connected
+/// and shows room, and is never the overloaded fallback; its verdict row says why. `retiring` is
+/// still up.
+#[test]
+fn a_host_the_registry_status_marks_off_is_never_a_placement_candidate() {
+    let roomy = || health(40.0, 16, 1.0, 300.0, 0);
+    for (status, word) in [
+        ("idle-stopped (2026-11-05: off the tailnet)", "idle-stopped"),
+        ("Stopped for a resize", "stopped"),
+        ("paused", "paused"),
+        ("retired 2026-11-04", "retired"),
+    ] {
+        let mut reg = registry();
+        reg["machines"]["small"]["status"] = json!(status);
+        // light is at its lane cap, so it takes the work only as the overloaded fallback.
+        let full = health(40.0, 12, 1.0, 300.0, 3);
+        let v = place(&[c("small", roomy()), c("light", full)], Some(&reg), Work::Agent);
+        assert_eq!((&v["pick"], &v["overloaded"]), (&json!("light"), &json!(true)), "{v:#}");
+        let why = format!("{word} (its fleet-registry.json status)");
+        assert_eq!(host(&v, "small")["refused"], json!(why), "{v:#}");
+        assert_eq!(host(&v, "small")["load"], false, "{v:#}");
+        let v = place(&[c("small", roomy())], Some(&reg), Work::Agent);
+        assert!(v["pick"].is_null(), "{status}: {v:#}");
+        assert_eq!(held(Some(&reg), "small").as_deref(), Some(why.as_str()));
+    }
+    let mut reg = registry();
+    reg["machines"]["small"]["status"] = json!("retiring (hq#2507)");
+    let v = place(&[c("small", roomy())], Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "small", "{v:#}");
+}
+
