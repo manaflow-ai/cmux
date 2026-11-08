@@ -43,6 +43,13 @@ extension ScreenContentView {
         guard frameInput.snapWaitsForContent else { return }
         frameInput.snapWaitsForContent = false
         applyPresentation()
+        releaseUntakenAhead()
+    }
+
+    /// Each host of this screen lets a size drawn ahead go that no placement took (``PaneHostView/snapDidShow()``): the
+    /// held snap showed, or a key press was taken back in its own turn (no motion, no held snap, no hold that ends).
+    /// A host with no such size does nothing.
+    func releaseUntakenAhead() {
         for host in context.hosts.values where host.superview === self { host.snapDidShow() }
     }
 
