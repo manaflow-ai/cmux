@@ -26,15 +26,14 @@ enum TabMoves {
         guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services),
               !ChatDockRules.refusesMove(tab, to: pane, services: services) else { return completion(false) }
-        let surface = tab.surface, target = pane.handle
+        let surface = tab.surface, target = pane.handle, crosses = services.locateTab(model: tab)?.1 !== pane
         let (final, current) = daemon.store.daemonMoveIndex(index, moving: surface, in: pane) // the daemon still lists closing tabs
         let wire = TabMoveIndex.wireIndex(finalIndex: final, currentIndex: current)
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         // The tab shows in its new pane in this turn (the intent), and a pane it empties leaves in it. Marked first (where the tab is).
-        let leave = depart(tab, into: pane, from: source, services: services)
-        let send = daemon.intendNow("move-tab", .moveTab(surface: surface, toPane: target, index: index),
-                                    transaction: transaction) { connection -> Void in
-            _ = try await connection.moveTab(surface, to: target, index: wire, transaction: echoes ? transaction : nil)
+        // A cross-pane move the daemon refuses answers `moved: false` (Home's pinned tab), not an error: it fails as one, the pane shows again.
+        let leave = depart(tab, into: pane, from: source, services: services), send = daemon.intendNow("move-tab", .moveTab(surface: surface, toPane: target, index: index), transaction: transaction) { connection -> Void in
+            if try await connection.moveTab(surface, to: target, index: wire, transaction: echoes ? transaction : nil).moved == false, crosses { throw DaemonError.command(cmd: "move-tab", message: "not moved", code: nil) }
         }, completion = leave(true, completion)
         services.registry.track(Task {
             let ok = await send() != nil
