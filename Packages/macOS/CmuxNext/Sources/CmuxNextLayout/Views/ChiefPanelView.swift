@@ -82,6 +82,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     public var showsPanelGlass: Bool { !backdrop.isHidden }
     /// The glass plate under the message box (see-through styles), in this view's coordinates; nil without one.
     public var composerPlate: NSRect? { plate.isHidden ? nil : plate.frame }
+    /// The corner radius the panel draws now (0 docked).
+    public var shapeCornerRadius: CGFloat { body.layer?.cornerRadius ?? 0 }
     /// The Chief view this panel shows now; nil while it is in Home's pane.
     public private(set) weak var chief: NSView?
 
@@ -362,12 +364,21 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         }
     }
 
+    /// A floating panel's corner radius: a card inside the window, concentric with the window's corners across the
+    /// gutter like the main pane (10 pt in a 16 pt window), or the radius `layout.paneCornerRadius` sets.
+    private static var cardCornerRadius: CGFloat {
+        Metrics.windowConcentricCornerRadius(windowCornerRadius: Metrics.standardWindowCornerRadius,
+                                             edgeInset: max(Metrics.mainPaneGutter, PaneTabRowRim.height),
+                                             setting: DesignSettings.shared.paneChrome.cornerRadius.map(Metrics.scale))
+    }
+
     private func applyShape() {
         guard superview != nil, expanded.width > 0 else { needsLayout = true; return }
         let chrome = chrome
         let shown = !floating ? expanded : chrome == .rest ? rest(in: expanded) : style.collapses ? grown(from: expanded) : expanded
         if frame != shown { frame = shown }
-        let radius: CGFloat = !floating ? 0 : chrome == .rest ? min(shown.height / 2, restsAsBar ? 14 : shown.height / 2) : Metrics.surfaceCornerRadius
+        let card = Self.cardCornerRadius
+        let radius: CGFloat = !floating ? 0 : chrome == .rest ? min(shown.height / 2, restsAsBar ? card : shown.height / 2) : card
         backdrop.cornerRadius = radius
         body.layer?.cornerRadius = radius
         body.layer?.masksToBounds = floating
