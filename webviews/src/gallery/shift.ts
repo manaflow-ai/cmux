@@ -168,27 +168,37 @@ export type LayoutShiftSource = {
  * without this its CLS scores the push every fold makes by design: the rows under an opening tool
  * call sliding down with it. It scored only the slice of that push inside the step's settle window
  * (a few frames), so a fold whose curve moves more of its height in its first frames read as a
- * bigger shift, though every row went to the same place.
+ * bigger shift, though every row went to the same place. With several targets (a step's own and
+ * what the play clicked right before it), a source is exempt by any one of them.
  */
-export function isExpansionShift(sources: readonly LayoutShiftSource[], target: Element | null): boolean {
-  if (!target || !sources.length) return false;
+export function isExpansionShift(sources: readonly LayoutShiftSource[], target: StepTargets): boolean {
+  const targets = targetList(target);
+  if (!targets.length || !sources.length) return false;
+  return sources.every((source) => targets.some((each) => expandedBy(source, each)));
+}
+
+/** A step's target, or the elements it and the play clicked (`clicked` in playRunner.ts). */
+export type StepTargets = Element | readonly Element[] | null | undefined;
+
+const targetList = (target: StepTargets): readonly Element[] =>
+  !target ? [] : "nodeType" in target ? [target as Element] : (target as readonly Element[]);
+
+function expandedBy({ node, previousRect: was, currentRect: now }: LayoutShiftSource, target: Element): boolean {
   const folding = target.closest(BOTTOM_FOLD);
-  return sources.every(({ node, previousRect: was, currentRect: now }) => {
-    const element = node && node.nodeType === 1 ? (node as Element) : (node?.parentElement ?? null);
-    if (!element || !was || !now) return false;
-    if (element === target || element.contains(target) || target.contains(element) || folding?.contains(element))
-      return true;
-    const position = target.compareDocumentPosition(element);
-    const following = (position & 4) !== 0; // DOCUMENT_POSITION_FOLLOWING
-    // A box with no previous area (a clipped shimmer band in the line under the fold) only came
-    // into view: no move of its own to judge, so it goes with the rows it sits in.
-    if (was.width <= 0 || was.height <= 0) return following;
-    const dx = now.x - was.x;
-    const dy = now.y - was.y;
-    if (Math.abs(dx) > MOVE_SLACK) return false;
-    if (following) return dy > 0; // pushed down
-    return !!folding && (position & 2) !== 0 && dy < 0; // DOCUMENT_POSITION_PRECEDING, at the bottom
-  });
+  const element = node && node.nodeType === 1 ? (node as Element) : (node?.parentElement ?? null);
+  if (!element || !was || !now) return false;
+  if (element === target || element.contains(target) || target.contains(element) || folding?.contains(element))
+    return true;
+  const position = target.compareDocumentPosition(element);
+  const following = (position & 4) !== 0; // DOCUMENT_POSITION_FOLLOWING
+  // A box with no previous area (a clipped shimmer band in the line under the fold) only came
+  // into view: no move of its own to judge, so it goes with the rows it sits in.
+  if (was.width <= 0 || was.height <= 0) return following;
+  const dx = now.x - was.x;
+  const dy = now.y - was.y;
+  if (Math.abs(dx) > MOVE_SLACK) return false;
+  if (following) return dy > 0; // pushed down
+  return !!folding && (position & 2) !== 0 && dy < 0; // DOCUMENT_POSITION_PRECEDING, at the bottom
 }
 
 // ---- Sampling the live page ----
@@ -208,26 +218,31 @@ function labelOf(element: Element): string {
   return `${element.tagName.toLowerCase()}${className ? `.${className}` : ""}${row ? `[row ${row}]` : role ? `[${role}]` : ""}`;
 }
 
-/** The tracked boxes now, with each one's relation to `target`. */
-export function sampleBoxes(doc: Document, target: Element | null, extra: Element[] = []): BoxFrame {
+/** The tracked boxes now, with each one's relation to `target` (the step's targets: any of them). */
+export function sampleBoxes(doc: Document, target: StepTargets, extra: Element[] = []): BoxFrame {
   const frame: BoxFrame = new Map();
   const view = doc.defaultView;
   const width = view?.innerWidth ?? 0;
   const height = view?.innerHeight ?? 0;
   // The row opening at the very bottom moves as one: what it holds (a batch's message rows) rises
   // with its toggle and the text above, so it is the target's as much as the toggle's line is.
-  const folding = target?.closest(BOTTOM_FOLD) ?? null;
-  const foldingUp = !!folding;
+  const targets = targetList(target).map((each) => ({ each, folding: each.closest(BOTTOM_FOLD) }));
   for (const element of new Set([...doc.querySelectorAll(TRACK_SELECTOR), ...extra])) {
     const rect = element.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) continue;
     if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= height || rect.left >= width) continue;
-    const targeted =
-      !!target &&
-      (element === target || element.contains(target) || target.contains(element) || !!folding?.contains(element));
-    const position = target && !targeted ? target.compareDocumentPosition(element) : 0;
-    const after = (position & 4) !== 0; // 4: DOCUMENT_POSITION_FOLLOWING (no global Node in tests)
-    const before = foldingUp && (position & 2) !== 0; // 2: DOCUMENT_POSITION_PRECEDING
+    const targeted = targets.some(
+      ({ each, folding }) =>
+        element === each || element.contains(each) || each.contains(element) || !!folding?.contains(element),
+    );
+    let after = false;
+    let before = false;
+    if (!targeted)
+      for (const { each, folding } of targets) {
+        const position = each.compareDocumentPosition(element);
+        after ||= (position & 4) !== 0; // 4: DOCUMENT_POSITION_FOLLOWING (no global Node in tests)
+        before ||= !!folding && (position & 2) !== 0; // 2: DOCUMENT_POSITION_PRECEDING
+      }
     frame.set(idOf(element), {
       box: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       label: labelOf(element),
@@ -245,7 +260,7 @@ const MAX_FRAMES = 2000;
 /** Samples every frame until `stop`, which scores what it saw. */
 export function startBoxTracker(
   doc: Document,
-  options: { target?: Element | null; extra?: () => Element[]; firstMoveFree?: boolean; restedAtStart?: boolean } = {},
+  options: { target?: StepTargets; extra?: () => Element[]; firstMoveFree?: boolean; restedAtStart?: boolean } = {},
 ): { stop(): BoxShift } {
   const frames: BoxFrame[] = [];
   const view = doc.defaultView!;

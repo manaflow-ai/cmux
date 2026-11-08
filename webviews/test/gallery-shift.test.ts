@@ -129,6 +129,32 @@ test("a browser layout shift that is the step's own expansion does not count; an
   window.close();
 });
 
+test("toggles the play clicked itself are the next step's targets too: their pushes are theirs", () => {
+  // A play that opens four lines with plain clicks, then waits: the wait has no target of its own.
+  const window = new Window({ width: 800, height: 600 });
+  const doc = window.document as unknown as Document;
+  doc.body.innerHTML = `
+    <div data-row-id="one"><button class="a">one</button></div>
+    <div data-row-id="two"><button class="b">two</button></div>
+    <div data-row-id="three">three</div>`;
+  const box = { x: 0, y: 100, width: 800, height: 40, top: 100, left: 0, right: 800, bottom: 140 };
+  for (const element of doc.querySelectorAll("[data-row-id]"))
+    (element as HTMLElement).getBoundingClientRect = () => ({ ...box, toJSON: () => box }) as DOMRect;
+  const $ = (selector: string) => doc.querySelector(selector)!;
+  const frame = sampleBoxes(doc, [$(".a"), $(".b")]);
+  const byLabel = (id: string) => [...frame.values()].find((sample) => sample.label.includes(`[row ${id}]`))!;
+  expect(byLabel("one").targeted).toBe(true);
+  expect(byLabel("two").targeted).toBe(true);
+  expect(byLabel("three")).toMatchObject({ targeted: false, after: true });
+  const rect = (y: number) => ({ x: 0, y, width: 800, height: 40 });
+  const down = { node: $("[data-row-id=three]"), previousRect: rect(200), currentRect: rect(240) };
+  expect(isExpansionShift([down], [$(".a"), $(".b")])).toBe(true);
+  // With no step target and nothing clicked, a wait's moves all count.
+  expect(isExpansionShift([down], [])).toBe(false);
+  expect([...sampleBoxes(doc, []).values()].every((sample) => !sample.targeted && !sample.after)).toBe(true);
+  window.close();
+});
+
 test("a resize lets each box move once; a second move is a bounce", () => {
   const once = frames(...rested(1, 100), [[1, row(120)]], [[1, row(120)]]);
   expect(scoreBoxFrames(once, viewport, { firstMoveFree: true }).score).toBe(0);
