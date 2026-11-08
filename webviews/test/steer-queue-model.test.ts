@@ -38,6 +38,12 @@ describe("steerReason", () => {
     expect(steerReason(chat("l", { indicator: "lost", pendingPermissions: 1 }), NOW)).toBe("failed");
   });
 
+  test("a local chat acpmux says is running is not an ask, whatever its dot last said", () => {
+    expect(steerReason(chat("x", { indicator: "input", status: "running" }), NOW)).toBe("running");
+    expect(steerReason(chat("x", { indicator: "input", peer: "build-box", status: "running" }), NOW)).toBe("ask");
+    expect(steerReason(chat("x", { indicator: "input" }), NOW)).toBe("ask");
+  });
+
   test("an idle chat already read needs nothing", () => {
     expect(steerReason(chat("i", { indicator: "done" }), NOW)).toBeUndefined();
     expect(steerReason(chat("i", { status: "idle" }), NOW)).toBeUndefined();

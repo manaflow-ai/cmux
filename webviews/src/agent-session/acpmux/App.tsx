@@ -8885,7 +8885,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           steer,
           expectedSessionId: sessionId,
           accepted: () => resolve(),
-        }).then(() => resolve(), reject);
+        }).then(
+          () => resolve(),
+          // A prompt the folder's trust holds is taken: it goes once the folder is trusted.
+          (error: unknown) => (heldRefusal(error) ? resolve() : reject(error)),
+        );
       });
     return {
       steer: async (item, text) => {

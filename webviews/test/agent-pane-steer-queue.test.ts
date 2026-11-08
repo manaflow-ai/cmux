@@ -178,7 +178,9 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
     // A press on the panel's chrome keeps the keyboard in the field, never on the chat under it.
     await page.click(".acpmux-steer-head");
     await page.keyboard.type("half a thought");
-    expect(await page.$eval(".acpmux-steer-field", (field) => (field as HTMLInputElement).value)).toBe("half a thought");
+    expect(await page.$eval(".acpmux-steer-field", (field) => (field as HTMLInputElement).value)).toBe(
+      "half a thought",
+    );
     await page.keyboard.press("Escape");
     expect(await page.$eval(".acpmux-steer-field", (field) => (field as HTMLInputElement).value)).toBe("");
     await page.keyboard.press("Escape");
