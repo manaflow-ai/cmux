@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42437549730",
+  "recorded_at": "2026-11-08T02:18:50Z",
+  "reason": "cmux-tui a89f0a688e0c changes the image's cmux-tui (pinned 188763edca7a)",
+  "dry_run": false,
+  "cmux_tui": "a89f0a688e0c4b7e0bb9755ab511559fb8b180cf",
+  "fixes": [
+    {
+      "sha": "a89f0a688e0c4b7e0bb9755ab511559fb8b180cf",
+      "mergedAt": "2026-11-07T17:57:49-08:00",
+      "subject": "acpmux: a prompt no proof attributes is an unverified sender's, never the person's (#37497)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T02:18:50Z",
+    "snapshot_id": "sh-049707c8e00e496bb0f9a95eecc5598f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42437549730): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "00e065c864576ad5333561f75f31d8de0ee21a91",
+    "image": "cloud-native-auto-a89f0a68-42437549730-1",
+    "revision": "ci-42437549730-1",
+    "at": "2026-11-08T02:18:50Z"
+  },
+  "rolled_back": false
+}
