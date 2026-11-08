@@ -243,6 +243,11 @@ impl HostWorld {
         self.proxy.cut();
     }
 
+    /// Client links the relay proxy accepted so far.
+    pub fn links(&self) -> usize {
+        self.proxy.links.load(Ordering::SeqCst)
+    }
+
     pub fn release(&self) {
         self.proxy.holding.send_replace(false);
     }
@@ -263,6 +268,8 @@ impl HostWorld {
 struct Proxy {
     cuts: watch::Sender<u64>,
     holding: watch::Sender<bool>,
+    /// Client links it accepted.
+    links: AtomicUsize,
 }
 
 impl Proxy {
@@ -276,6 +283,7 @@ impl Proxy {
         tokio::spawn(async move {
             loop {
                 let Ok((client, _)) = listener.accept().await else { return };
+                self.links.fetch_add(1, Ordering::SeqCst);
                 let proxy = self.clone();
                 tokio::spawn(async move {
                     let mut cuts = proxy.cuts.subscribe();

@@ -146,15 +146,13 @@ fn a_carrier_dial_whose_link_drops_resumes_the_same_live_session() {
         stdout: BufReader::new(child.stdout.take().unwrap()),
     });
     assert_eq!(ask(&mut stdio, 1), 0);
+    let links = world.links();
     world.cut();
     assert_eq!(ask(&mut stdio, 2), 0, "the same stream, on the same session, goes on");
 
     let routes = routes(&world);
     assert_eq!(connected(&routes), 1, "no fresh session: {routes:?}");
-    assert!(
-        routes.iter().any(|l| l.contains(" phase=resume outcome=ok ")),
-        "the session resumed: {routes:?}"
-    );
+    assert!(world.links() > links, "the links were cut and made again: {routes:?}");
     assert_eq!(world.starts.load(Ordering::SeqCst), 1);
     drop(stdio);
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
