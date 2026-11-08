@@ -231,8 +231,9 @@ class Fetch(unittest.TestCase):
         flaky_runs = runs(True, False, True, False)
         get, calls = self.serve(listed(item(1, "2026-11-08T10:00:00Z", ), item(2, "2026-11-08T11:00:00Z")),
                                 {1: artifact_zip([]), 2: artifact_zip(flaky_runs)})
-        found, said = history.fetch("manaflow-ai/cmux", "feat-cmux-next", "tok", get=get)
+        found, said, read = history.fetch("manaflow-ai/cmux", "feat-cmux-next", "tok", get=get)
         self.assertEqual(found, flaky_runs)
+        self.assertTrue(read)
         self.assertIn("from run 102", said)
         self.assertEqual(history.flaky(found, [TEST]), [TEST])
         # Two requests and the storage redirect, the token never sent to the storage host.
@@ -244,19 +245,19 @@ class Fetch(unittest.TestCase):
         bad = [item(1, "2026-11-08T12:00:00Z", branch="other"), item(2, "2026-11-08T12:00:00Z", head_repo=9),
                item(3, "2026-11-08T12:00:00Z", expired=True), item(4, "2026-11-08T12:00:00Z", name="x")]
         get, calls = self.serve(listed(*bad), {})
-        self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[0], [])
+        self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[::2], ([], True))  # none yet: read
         self.assertEqual(len(calls), 1)
         self.assertEqual(history.newest(json.loads(listed(*bad, item(5, "2026-11-01T00:00:00Z"))), "feat-cmux-next")["id"], 5)
 
     def test_any_failure_is_an_empty_history_that_says_why(self):
         def refused(url, token):
             return 403, {}, b""
-        found, said = history.fetch("o/r", "feat-cmux-next", None, get=refused)
-        self.assertEqual((found, said), ([], "listing the webviews-test-history artifacts answered 403"))
+        self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=refused),
+                         ([], "listing the webviews-test-history artifacts answered 403", False))
         get, _ = self.serve(listed(item(1, "2026-11-08T10:00:00Z")), {1: b"not a zip"})
-        self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[0], [])
+        self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[::2], ([], False))
         get, _ = self.serve(listed(item(1, "2026-11-08T10:00:00Z")), {1: artifact_zip("nope")})
-        self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[0], [])
+        self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[::2], ([], False))
 
     def test_the_command_always_writes_a_history_and_exits_zero(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -267,6 +268,22 @@ class Fetch(unittest.TestCase):
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertEqual(json.loads(out.read_text()), {"runs": []})
             self.assertIn("0 push runs", done.stdout)
+
+    def test_a_push_that_cannot_read_the_history_never_saves_one_over_it(self):
+        # A push saves what it read plus its own run: one failed read would replace the whole history with one run.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "history.json"
+            done = subprocess.run([sys.executable, str(SCRIPT), "fetch", str(out), "--repo", "o/r", "--branch", "b",
+                                   "--need-read"], capture_output=True, text=True,
+                                  env={"PATH": "/usr/bin:/bin", "GITHUB_API_URL": "http://127.0.0.1:9"})
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        upkeep = Workflow().job("webviews-test-history")
+        restore = upkeep[upkeep.index("      - name: Restore the history"):]
+        restore = restore[:restore.index("\n      - name:", 10)]
+        self.assertIn("id: history-restore", restore)
+        self.assertIn("--need-read", restore)
+        record = upkeep[upkeep.index("      - name: Add this push to the history"):]
+        self.assertIn("steps.history-restore.outcome == 'success'", record[:record.index("run: |")])
 
 
 class Workflow(unittest.TestCase):
