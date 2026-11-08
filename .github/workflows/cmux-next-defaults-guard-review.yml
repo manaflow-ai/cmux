@@ -64,13 +64,17 @@ jobs:
           head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
           comment_json="$(gh api "repos/$REPO/issues/comments/$COMMENT_ID")"
           association="$(jq -r '.author_association // empty' <<<"$comment_json")"
+          # The review service's receipt (next-review, which an author lane asks for with `router-review
+          # manaflow-ai/cmux N --request`) is posted by the cmux-bot App, whose association reads NONE. Only that App,
+          # by its immutable node id, wakes the guard this way; the guard still judges the receipt.
+          service="$(jq -r 'if .user.type == "Bot" and .user.login == "cmux-bot[bot]" and .user.node_id == "BOT_kgDOFMYsLQ" then "yes" else "" end' <<<"$comment_json")"
           first_line="$(jq -r '.body // "" | split("\n")[0]' <<<"$comment_json")"
           receipt_re='^Review \([^)]*\): SHIP at ([0-9a-f]{40})$'
           if [[ "$base_ref" != feat-cmux-next || "$head_repo" != "$REPO" ]]; then
             echo "This is not a same-repository feat-cmux-next pull request."
             exit 0
           fi
-          if [[ ! "$association" =~ ^(OWNER|MEMBER|COLLABORATOR)$ ]]; then
+          if [[ ! "$association" =~ ^(OWNER|MEMBER|COLLABORATOR)$ && "$service" != yes ]]; then
             echo "The comment author is not a trusted repository member."
             exit 0
           fi
