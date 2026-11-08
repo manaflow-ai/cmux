@@ -340,8 +340,11 @@ impl Store {
     pub(super) fn set_review(&self, root: &str, review: Value) -> io::Result<()> {
         self.exclusive(root, || {
             let mut file = self.read(root)?;
+            // GitHub names are case-insensitive: `O/R` and `o/r` are one pull request.
             let same = |name: &str| {
-                file.review.as_ref().and_then(|prior| prior.get(name)) == review.get(name)
+                let prior = file.review.as_ref().and_then(|prior| prior.get(name)?.as_str());
+                let next = review.get(name).and_then(Value::as_str);
+                prior.zip(next).is_some_and(|(prior, next)| prior.eq_ignore_ascii_case(next))
             };
             if !(same("url") && same("head")) {
                 file.comments.clear();

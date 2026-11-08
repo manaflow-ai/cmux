@@ -114,6 +114,11 @@ export function useDiffComments({
     });
   };
 
+  // A draft saved or edited after a post is not on GitHub yet: the header stops saying "Posted".
+  const drafted = () => {
+    setPostState((state) => (state === "posted" ? "idle" : state));
+  };
+
   const saveDraft = (item: DiffItem, message: string) => {
     const draft = latestState.current.draft;
     if (draft == null || draft.itemId !== item.id || message.trim() === "") {
@@ -143,6 +148,7 @@ export function useDiffComments({
         }
         dispatch({ type: "upsert-comment", comment: saved });
         dispatch({ type: "set-draft", draft: null });
+        drafted();
       })
       .catch((error) => console.warn("cmux diff comment save failed", error));
   };
@@ -158,6 +164,7 @@ export function useDiffComments({
       .then((saved) => {
         if (activeRepoRoot.current === repoRoot) {
           dispatch({ type: "upsert-comment", comment: saved });
+          drafted();
         }
       })
       .catch((error) => console.warn("cmux diff comment edit failed", error));

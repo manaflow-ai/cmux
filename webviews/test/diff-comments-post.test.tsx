@@ -266,6 +266,23 @@ test("a page reopened after a lost reply posts the same drafts under the same op
   );
 });
 
+test("a draft edited after a post stops the header saying it posted", async () => {
+  await withHost(
+    (call) =>
+      call.method === "comments.post"
+        ? { url: `${REVIEW.url}#pullrequestreview-4`, posted: 1, in_body: 0, cleared: [] }
+        : { comment: call.params.comment },
+    async () => {
+      const probe = await mountHook([comment("c1", "a.ts", 1)]);
+      await act(async () => probe.hook().post());
+      expect(probe.hook().postState).toBe("posted");
+      await act(async () => probe.hook().editMessage(comment("c1", "a.ts", 1), "fix it now", null));
+      expect(probe.hook().postState).toBe("idle");
+      probe.unmount();
+    },
+  );
+});
+
 test("an ordinary worktree cannot post", async () => {
   await withHost(
     () => ({}),

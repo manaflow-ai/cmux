@@ -309,6 +309,12 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     assert_success(&again);
     assert_eq!(json_output(&again)["value"]["reused"], true);
     assert_eq!(json_output(&again)["value"]["root"], review_root.as_str());
+    // GitHub names are case-insensitive: the same pull request, the same worktree.
+    let shouted = "https://github.com/O/R/pull/7";
+    let again =
+        git_cli(&server, &checkout, &["review", "start", shouted, "--idempotency-key", "rv-caps"]);
+    assert_success(&again);
+    assert_eq!(json_output(&again)["value"]["reused"], true);
 
     // A line the diff does not show is refused with the lines it does.
     let outside = ["review", "comment", "--file", "a.txt", "--line", "1", "--message", "x"];

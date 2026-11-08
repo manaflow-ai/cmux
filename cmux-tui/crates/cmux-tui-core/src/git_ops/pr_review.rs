@@ -28,6 +28,7 @@ use serde_json::{Map, Value, json};
 
 use self::github::{Hunks, PullRef, Side};
 use super::checkpoint::ledger;
+use super::journal::Journal;
 use super::diff_comments::{self, Store};
 use super::mutation::{Target, key, normalized, output_extra, refused, run_failed};
 use super::user_run::{UserGit, deadline};
@@ -120,7 +121,16 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
             return Err(refused(START, "pull_request_moved", message, Value::Null));
         }
         let base = merge_base(repository, &view.base, &view.head)?;
-        let (folder, branch, reused) = worktree(&target, &git, &pull, &view.head)?;
+        // The journal keeps the worktree a start chose until its reply is
+        // committed: a retry after a timeout or a lost reply finishes that
+        // worktree instead of making `review-N-2` beside it.
+        let journal = Journal::open(mux, &target.identity(), &key, START)?;
+        let made = worktree(&target, &git, &journal, &fingerprint, &pull, &view.head);
+        let (folder, branch, reused) = made.inspect_err(|error| {
+            if error.details["reason"] != "timed_out" {
+                journal.finish();
+            }
+        })?;
         for (setting, value) in [("cmuxBase", base.as_str()), ("cmuxReview", &pull.url())] {
             let setting = format!("branch.{branch}.{setting}");
             let run = git
@@ -164,7 +174,9 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
             "setup": {"state": "none"},
             "reused": reused,
         });
-        ledger::commit(mux, &key, START, &fingerprint, &value, false, &request.actor)
+        let reply = ledger::commit(mux, &key, START, &fingerprint, &value, false, &request.actor)?;
+        journal.finish();
+        Ok(reply)
     })
 }
 
@@ -242,15 +254,28 @@ fn merge_base(repository: &Repository, base: &str, head: &str) -> Result<String,
 fn worktree(
     target: &Target,
     git: &UserGit<'_>,
+    journal: &Journal,
+    fingerprint: &Value,
     pull: &PullRef,
     head: &str,
 ) -> Result<(PathBuf, String, bool), ResourceError> {
     let name = format!("review-{}", pull.number);
-    if let Some((folder, branch)) = existing(&target.repository, &name, &pull.url(), head) {
+    let attempt = journal.attempt::<worktree::Attempt>(fingerprint);
+    if attempt.is_none()
+        && let Some((folder, branch)) = existing(&target.repository, &name, &pull.url(), head)
+    {
         return Ok((folder, branch, true));
     }
-    let fields = Map::from_iter([("name".into(), json!(name)), ("base".into(), json!(head))]);
-    let attempt = worktree::plan(&target.repository, target.common_dir(), &fields)?;
+    let attempt = match attempt {
+        Some(attempt) => attempt,
+        None => {
+            let fields =
+                Map::from_iter([("name".into(), json!(name)), ("base".into(), json!(head))]);
+            let attempt = worktree::plan(&target.repository, target.common_dir(), &fields)?;
+            journal.start(fingerprint, &attempt)?;
+            attempt
+        }
+    };
     // Untrusted: no hook or filter driver runs, since either could run the
     // pull request's code in its checkout before anyone read it.
     worktree::create(&target.repository, git, &attempt, false)?;
@@ -279,7 +304,8 @@ fn existing(
         let setting = format!("branch.{branch}.cmuxReview");
         let reviews = || {
             let output = repository.run(&["config", "--get", setting.as_str()], 4096).ok()?;
-            (String::from_utf8_lossy(&output.stdout).trim() == url).then_some(())
+            // GitHub names are case-insensitive: `O/R` and `o/r` are one pull request.
+            String::from_utf8_lossy(&output.stdout).trim().eq_ignore_ascii_case(url).then_some(())
         };
         (ours && at == head && Path::new(folder).is_dir() && reviews().is_some())
             .then(|| (PathBuf::from(folder), branch.to_string()))
