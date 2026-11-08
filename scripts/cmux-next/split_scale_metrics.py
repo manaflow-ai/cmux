@@ -124,12 +124,14 @@ def trace_stats(trace, sent_host_s=None):
         samples = before[-1:] + [x for x in samples if x["t"] >= sent]
     movers = trace_movers(samples)
     first = last = None
-    turns, ticks = {}, set()
+    turns, ticks, ends = {}, set(), {}
     for key, points in movers.items():
         for (_, v0), (t1, v1) in zip(points, points[1:]):
             if len(v0) != len(v1) or any(abs(a - b) > EPS for a, b in zip(v0, v1)):
                 first = t1 if first is None else min(first, t1)
                 last = t1 if last is None else max(last, t1)
+                step = max((abs(a - b) for a, b in zip(v0, v1)), default=None) if len(v0) == len(v1) else None
+                ends[key] = (t1, step)
         turned = retargets(points)
         if turned:
             turns[key] = len(turned)
@@ -151,6 +153,11 @@ def trace_stats(trace, sent_host_s=None):
     if sent is not None:
         out["layout_first_ms"] = round(first - sent, 1) if first is not None else None
         out["layout_settled_ms"] = round(last - sent, 1) if last is not None else None
+    # What settled last (mover, its last move from the input or the trace's start, that move's largest step in points):
+    # a settle the screen never shows (a hidden view, a content size) reads here.
+    origin = sent if sent is not None else (times[0] if times else 0)
+    out["last_movers"] = [[str(key), round(t - origin, 1), round(step, 2) if _number(step) else None]
+                          for key, (t, step) in sorted(ends.items(), key=lambda kv: -kv[1][0])[:4]]
     out["pane_width_change"] = pane_width_change(samples)
     out["pane_width_peak"] = pane_width_peak(samples)
     return out
