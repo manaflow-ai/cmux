@@ -541,7 +541,7 @@ pub const TERMINAL_READ_UNWRAP_CAPABILITY: &str = "terminal-read-unwrap-v1";
 pub const TERMINAL_WAIT_NEW_CAPABILITY: &str = "terminal-wait-new-v1";
 /// Terminal records carry `extra.last_command` (`exit_code`, `finished_at_ms`,
 /// `started_at_ms`): the last command the shell finished (OSC 133 `D`).
-pub const TERMINAL_LAST_COMMAND_CAPABILITY: &str = "terminal-last-command-v1";
+pub const TERMINAL_EXIT_STATUS_CAPABILITY: &str = "terminal-exit-status-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";

@@ -50,7 +50,7 @@ impl Surface {
     }
 
     /// The last command the terminal's shell finished (OSC 133 `D`):
-    /// `extra.last_command` (`terminal-last-command-v1`).
+    /// `extra.last_command` (`terminal-exit-status-v1`).
     pub(crate) fn terminal_last_command(&self) -> Option<crate::terminal_activity::LastCommand> {
         self.as_pty()?
             .terminal_metadata

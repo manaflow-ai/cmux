@@ -17,7 +17,7 @@
 //! - `prompt`: the shell shows its prompt again (OSC 133) and the screen
 //!   is still, or at once when the shell reported the command finished
 //!   (OSC 133 `D`) and drew its prompt. The receipt's `exit_status` is that
-//!   command's status (`terminal-last-command-v1`); it is absent when the
+//!   command's status (`terminal-exit-status-v1`); it is absent when the
 //!   shell reported none (no shell integration), never guessed.
 //! - `pattern`: the wait also ends as soon as output printed after the
 //!   message's echo matches a regex (the echo itself and older output never

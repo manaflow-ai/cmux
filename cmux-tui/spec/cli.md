@@ -820,7 +820,7 @@ not new, so start the wait before the command, or use `terminal send
 
 `terminal <t> send` reads with soft wraps joined when the daemon can, and an
 older daemon gets row reads. With OSC 133 shell integration the terminal
-record carries `extra.last_command` (`terminal-last-command-v1`): the last
+record carries `extra.last_command` (`terminal-exit-status-v1`): the last
 command the shell finished, with `exit_code` from `D;<code>` (absent when the
 shell sent none), `finished_at_ms` and `started_at_ms`. Without integration
 the field is absent, so its absence never means success. `send --wait prompt`

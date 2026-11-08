@@ -157,10 +157,9 @@ pub(in crate::cli) fn parse_send(
 /// `terminal <t> run [OPTIONS] -- <command...>` (or `--text <command>`):
 /// a send that waits for the prompt and exits with the command's status.
 pub(in crate::cli) fn parse_run(target: &str, flags: &[String]) -> Result<SendRequest, UsageError> {
-    let (options, command) = match flags.iter().position(|word| word == "--") {
-        Some(split) => (&flags[..split], Some(flags[split + 1..].join(" "))),
-        None => (flags, None),
-    };
+    let split = flags.iter().position(|word| word == "--").unwrap_or(flags.len());
+    let (options, argv) = flags.split_at(split);
+    let command = argv.split_first().map(|(_, command)| command.join(" "));
     let mut options = options.to_vec();
     if options.iter().any(|word| word == "--wait" || word.starts_with("--wait=")) {
         return Err(UsageError("terminal run waits for the prompt; it takes no --wait".into()));

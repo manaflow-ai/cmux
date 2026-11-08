@@ -506,7 +506,7 @@ pub(crate) fn public_terminal_snapshot(
     if running && let Some(since) = surface.and_then(crate::Surface::terminal_prompt_since) {
         extra.insert("prompt".into(), crate::terminal_activity::prompt_json(since));
     }
-    // `terminal-last-command-v1`: the last command the shell finished (OSC
+    // `terminal-exit-status-v1`: the last command the shell finished (OSC
     // 133 D), with its exit code when the shell sent one. Absent without
     // shell integration, so a missing field never reads as success.
     if running && let Some(last) = surface.and_then(crate::Surface::terminal_last_command) {

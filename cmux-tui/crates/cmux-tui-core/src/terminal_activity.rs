@@ -32,7 +32,7 @@
 //! `last_command` is the last command the shell finished: its exit code from
 //! OSC 133 `D;<code>` (absent when the shell sent none, or the next prompt
 //! came without a `D`), when it finished and, when its `C` was seen, when it
-//! started (`terminal-last-command-v1`). A shell without integration never
+//! started (`terminal-exit-status-v1`). A shell without integration never
 //! publishes it, so a missing field means "unknown", never success. It is not
 //! part of the terminal-host handoff, so a daemon that adopts a terminal
 //! after a restart learns it from the next command.

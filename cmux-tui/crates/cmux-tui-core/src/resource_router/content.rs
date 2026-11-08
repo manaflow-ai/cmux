@@ -2894,7 +2894,7 @@ mod tests {
             std::thread::yield_now();
         }
         surface.apply_stream_output_for_test(b"\r\nREADY\r\n").unwrap();
-        let result = waiter.join().unwrap();
+        let result = waiter.join().unwrap().unwrap();
         assert_eq!(result["matched"], true, "{result}");
         assert_eq!(result["text"].as_str().unwrap().trim(), "READY");
     }

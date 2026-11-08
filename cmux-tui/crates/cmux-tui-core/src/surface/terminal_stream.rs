@@ -125,7 +125,7 @@ impl Surface {
     /// while the parser lock is held. This is the only screen-read path that
     /// can safely use the revision as a scheduling watermark.
     pub(crate) fn terminal_screen_snapshot(&self) -> anyhow::Result<TerminalScreenSnapshot> {
-        self.terminal_screen_snapshot_with(super::ScreenText::Rows)
+        self.terminal_screen_snapshot_with(ScreenText::Rows)
     }
 
     /// [`Self::terminal_screen_snapshot`] carrying the `text` a
@@ -133,18 +133,16 @@ impl Surface {
     /// describe the live screen at the same parser boundary.
     pub(crate) fn terminal_screen_snapshot_with(
         &self,
-        text: super::ScreenText,
+        text: ScreenText,
     ) -> anyhow::Result<TerminalScreenSnapshot> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         let mut term = pty.term.lock().unwrap();
         let text = match text {
-            super::ScreenText::Rows => term.active_text()?,
-            super::ScreenText::Unwrapped => term.active_text_unwrapped()?,
-            super::ScreenText::LastLines { count, unwrap } => {
-                term.last_lines_text(count, unwrap)?
-            }
+            ScreenText::Rows => term.active_text()?,
+            ScreenText::Unwrapped => term.active_text_unwrapped()?,
+            ScreenText::LastLines { count, unwrap } => term.last_lines_text(count, unwrap)?,
         };
         let (cursor_col, cursor_row) = term.cursor_position().unwrap_or((0, 0));
         let cursor_visible = term.mode(25, false);
