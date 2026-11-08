@@ -257,9 +257,9 @@ extension SettingsSchema {
         // The composer's context ring and mic (looks only).
         "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource",
         "agentPane.spellChecking", "agentPane.attachmentView", "agentPane.showMachineLoadWarnings",
-        // The Chief chat's bubble style and whether it shows the Feed (looks only).
-        "home.chiefBubbleStyle", "home.feedInChief", "home.bubbleColors.sent", "home.bubbleColors.sentText",
-        "home.bubbleColors.received", "home.bubbleColors.receivedText",
+        // The Chief chat's bubble style, its zoom, and whether it shows the Feed (looks only).
+        "home.chiefBubbleStyle", "home.chiefZoom", "home.feedInChief", "home.bubbleColors.sent",
+        "home.bubbleColors.sentText", "home.bubbleColors.received", "home.bubbleColors.receivedText",
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script` (a separate process is never `user`), for example the sidebar width after a resize.
         "appearance.metrics.tabFontSize", "appearance.metrics.tabStripHeight", "appearance.metrics.tabMaxWidth",
         "appearance.metrics.tabMinActiveWidth", "appearance.metrics.tabMinInactiveWidth",

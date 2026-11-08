@@ -97,6 +97,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `agentPane.editedFiles.*`: the agent pane's edited-files card.
     public var agentPaneEditedFiles = AgentPaneEditedFilesSetting.fallback
     public var agentPaneZoom: Double = AgentPaneZoomSetting.fallback
+    /// `home.chiefZoom`: the Chief chat's own zoom, apart from `agentPane.zoom` (issue 38169).
+    public var homeChiefZoom: Double = HomeChiefZoomSetting.fallback
     public var agentPaneComposer = AgentPaneComposerSetting.fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
@@ -410,6 +412,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         CmuxConfigSnapshot.parseBrowser(root, into: &snapshot)
         CmuxConfigSnapshot.parseAgentPane(root, into: &snapshot)
         snapshot.agentPaneZoom = AgentPaneZoomSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.homeChiefZoom = HomeChiefZoomSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let styleBorders: BorderMode? = snapshot.chromeStyle.drawsLines.map { $0 ? .default : .none }
         let (borders, bordersDiagnostic) = BordersSetting.parse(root, defaultMode: styleBorders ?? BordersSetting.fallback)

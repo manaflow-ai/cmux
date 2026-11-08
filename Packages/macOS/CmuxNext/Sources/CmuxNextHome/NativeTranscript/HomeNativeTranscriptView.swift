@@ -404,12 +404,18 @@ public final class HomeNativeTranscriptView: NSView {
     /// Whether ``paste(_:)`` has text, files or pictures for the message box.
     public var canPasteIntoPrimaryInput: Bool { transcript.canPasteIntoPrimaryInput }
 
-    /// The Chief chat's size at Agent Chat Zoom 100%: MessagesLab's native text, bubble and field metrics.
+    /// The Chief chat's size at Chief Chat Zoom 100% (issue 38169): the agent chat's default reading size. MessagesLab
+    /// draws Messages' 13 pt body; an agent chat's transcript is 14 px (`--cv-font-size` in the agent page's
+    /// conversation.css), so the Chief chat starts at 14/13 of MessagesLab's metrics and reads as large as an agent chat.
     /// The zoom steps from here, and Cmd-0 comes back to it.
-    static let defaultChatScale: CGFloat = 1
+    static let defaultChatScale: CGFloat = 14.0 / 13.0
 
-    /// The Chief chat's scale: its default size times Agent Chat Zoom.
-    private static var chatScale: CGFloat { defaultChatScale * DesignSettings.shared.agentPaneZoom }
+    /// The Chief chat's scale: its default size times Chief Chat Zoom (`home.chiefZoom`, its own setting, apart from
+    /// Agent Chat Zoom) times the interface scale (`app.uiScale`), which an agent chat's page zoom also carries, so the
+    /// two chats stay the same size at every interface scale.
+    static var chatScale: CGFloat {
+        defaultChatScale * DesignSettings.shared.homeChiefZoom * DesignSettings.shared.uiScale
+    }
 
     /// The live interface scale applies to the native first-run chrome, times the Chief chat's scale
     /// (`followZoom`), so the empty chat's panel grows with the header and field around it. The
@@ -422,8 +428,8 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
-    /// Agent Chat Zoom (`agentPane.zoom`; Cmd-= / Cmd-- / Cmd-0 on Home, `home.zoomIn`): the Chief chat
-    /// is drawn at it over its default size (`defaultChatScale`), live, as an agent chat is.
+    /// Chief Chat Zoom (`home.chiefZoom`; Cmd-= / Cmd-- / Cmd-0 on Home, `home.zoomIn`): the Chief chat
+    /// is drawn at it over its default size (`defaultChatScale`), live. Agent Chat Zoom does not move it.
     private func followZoom() {
         withObservationTracking {
             transcript.zoom = Self.chatScale

@@ -158,7 +158,7 @@ public nonisolated struct KeyBindingDefaults {
     public static let historyImportTopPage = "import-history"
 
     /// Bring your history (`cmux.import-history`) is the window's top page, or has the keyboard in a
-    /// pane. It follows Agent Chat Zoom (`PageWebView.followsChatZoom`). As on Home, the top page takes
+    /// pane. It follows Chief Chat Zoom (`PageWebView.followsChiefZoom`). As on Home, the top page takes
     /// the zoom keys wherever the window's keyboard is (a sidebar click leaves it shown).
     public static let onHistoryImport = WhenClause.or([
         .equals(KeyContext.topPage, .string(historyImportTopPage)),

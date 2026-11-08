@@ -72,8 +72,10 @@ public final class DesignSettings {
             + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
-    /// `agentPane.zoom`, the focused agent chat's own display scale.
+    /// `agentPane.zoom`, the agent chats' display scale.
     public var agentPaneZoom: CGFloat = 1
+    /// `home.chiefZoom`, the Chief chat's display scale: its own, so the two chats zoom apart (issue 38169).
+    public var homeChiefZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
     /// `Motion.speedDidChange` and tells `motionChanges`, for hosts outside Observation (a video
     /// wallpaper's player).

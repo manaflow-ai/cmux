@@ -845,9 +845,10 @@
     },
     {
       "agent": "settable",
-      "why": "The Chief chat's bubble style and whether it shows the Feed (looks only).",
+      "why": "The Chief chat's bubble style, its zoom, and whether it shows the Feed (looks only).",
       "keys": [
         "home.chiefBubbleStyle",
+        "home.chiefZoom",
         "home.feedInChief",
         "home.bubbleColors.sent",
         "home.bubbleColors.sentText",

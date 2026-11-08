@@ -148,7 +148,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.liveInput), contextMenuExemption: .liveInput)
             ),
             // Chief zoom: Cmd-= (and Cmd-+), Cmd-- and Cmd-0 on Home (KeyBindingDefaults.scopedDefaults) step
-            // the Agent Chat Zoom setting (`agentPane.zoom`), which the Chief transcript follows like an agent chat.
+            // Chief Chat Zoom (`home.chiefZoom`), the Chief chat's own zoom; agent chats keep Agent Chat Zoom (issue 38169).
             ActionDescriptor(
                 id: "home.zoomIn", title: t("action.home.zoomIn", "Chief: Zoom In"),
                 keywords: ["home", "chief", "chat", "zoom", "bigger", "text size", "font"],

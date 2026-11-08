@@ -89,10 +89,10 @@ extension PageWebView {
     public var chromiumPage: (any PageChromiumPage)? { chromiumSession?.page }
 
     /// The page zoom both engines show: `uiScale` (unless ``followsUIScale`` is off) times
-    /// ``additionalZoom``, times Agent Chat Zoom for a page that ``followsChatZoom``.
+    /// ``additionalZoom``, times Chief Chat Zoom for a page that ``followsChiefZoom``.
     public var pageZoom: Double {
         (followsUIScale ? Double(DesignSettings.shared.uiScale) : 1) * additionalZoom
-            * (followsChatZoom ? Double(DesignSettings.shared.agentPaneZoom) : 1)
+            * (followsChiefZoom ? Double(DesignSettings.shared.homeChiefZoom) : 1)
     }
 
     // MARK: Engine-neutral document calls

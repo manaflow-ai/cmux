@@ -84896,6 +84896,270 @@
         }
       }
     },
+    "settings.home.chiefZoom": {
+      "comment": "Title of the Chief chat's own zoom setting (home.chiefZoom), apart from Agent Chat Zoom. Chief is the product name of the Home assistant; keep it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Chat Zoom"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكبير دردشة Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zumiranje Chief chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom i Chief-chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom im Chief-Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom del chat de Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom du chat de Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom della chat di Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief チャットの表示倍率"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតពង្រីកការជជែក Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 채팅 확대/축소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom i Chief-chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiększenie czatu Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom do chat do Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Масштаб чата Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระดับการซูมแชต Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief sohbeti yakınlaştırması"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Масштаб чату Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mức thu phóng trò chuyện Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 聊天缩放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 聊天縮放"
+          }
+        }
+      }
+    },
+    "settings.home.chiefZoom.help": {
+      "comment": "Help of the Chief chat's zoom setting (home.chiefZoom). Cmd-0 is the keyboard shortcut; Home is the Home page.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The display size for the Chief chat, apart from agent chats. Cmd-0 on Home resets it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم عرض دردشة Chief، بمعزل عن دردشات الوكلاء. يعيده Cmd-0 في الصفحة الرئيسية إلى الحجم الأصلي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina prikaza Chief chata, odvojeno od chatova s agentima. Cmd-0 na početnoj stranici je vraća na početnu vrijednost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visningsstørrelsen for Chief-chatten, uafhængigt af agentchats. Cmd-0 på Hjem nulstiller den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Darstellungsgröße des Chief-Chats, unabhängig von Agent-Chats. Cmd-0 auf der Startseite setzt sie zurück."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El tamaño de visualización del chat de Chief, independiente de los chats de agentes. Cmd-0 en Inicio lo restablece."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La taille d’affichage du chat de Chief, indépendante des chats d’agents. Cmd-0 sur l’accueil la réinitialise."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dimensione di visualizzazione della chat di Chief, separata dalle chat degli agenti. Cmd-0 nella Home la reimposta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief チャットの表示サイズです。エージェントチャットとは別に設定されます。ホームで Cmd-0 を押すとリセットします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំបង្ហាញសម្រាប់ការជជែក Chief ដាច់ដោយឡែកពីការជជែកជាមួយភ្នាក់ងារ។ Cmd-0 នៅលើទំព័រដើមកំណត់វាឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 채팅의 표시 크기로, 에이전트 채팅과 별도로 설정됩니다. 홈에서 Cmd-0으로 초기화합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visningsstørrelsen for Chief-chatten, uavhengig av agentchatter. Cmd-0 på Hjem tilbakestiller den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar wyświetlania czatu Chief, niezależny od czatów z agentami. Cmd-0 na stronie głównej go resetuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O tamanho de exibição do chat do Chief, separado dos chats de agentes. Cmd-0 no Início o redefine."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер отображения чата Chief, отдельно от чатов с агентами. Cmd-0 на главной сбрасывает его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดการแสดงผลของแชต Chief แยกจากแชตเอเจนต์ กด Cmd-0 ในหน้าหลักเพื่อรีเซ็ต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief sohbetinin görüntüleme boyutu, ajan sohbetlerinden ayrı. Ana sayfada Cmd-0 ile sıfırlanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір відображення чату Chief, окремо від чатів з агентами. Cmd-0 на головній скидає його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kích thước hiển thị của cuộc trò chuyện Chief, tách biệt với cuộc trò chuyện với tác tử. Cmd-0 trên Trang chủ đặt lại kích thước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 聊天的显示大小，与智能体聊天分开设置。在主页按 Cmd-0 重置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 聊天的顯示大小，與代理聊天分開設定。在首頁按 Cmd-0 重設。"
+          }
+        }
+      }
+    },
     "settings.home.feedInChief": {
       "comment": "Settings toggle (home.feedInChief): the main Chief's conversation shows the Feed's notices as lines only the person sees.",
       "extractionState": "manual",

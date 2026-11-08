@@ -91,16 +91,16 @@ public final class MessagesLabHomeView: NSView {
         controller.host.refreshWindowPlaceIfMoved()
     }
 
-    /// cmux: the Chief chat's zoom (Agent Chat Zoom, `agentPane.zoom`; Cmd-= / Cmd-- / Cmd-0 on Home). The
+    /// cmux: the Chief chat's zoom (Chief Chat Zoom, `home.chiefZoom`; Cmd-= / Cmd-- / Cmd-0 on Home). The
     /// transcript keeps MessagesLab's metrics: it is laid out at this view's size over the zoom and this view's
     /// bounds draw it magnified, as NSScrollView magnification does, so its text, bubbles and field grow together
     /// and the rows wrap to the narrower width. Its bitmaps render at the window's scale times the zoom, so the
-    /// magnified text stays sharp. Clamped to 0.5-3: Home draws the chat at its default size (1.5) times Agent Chat
-    /// Zoom (0.5-2).
+    /// magnified text stays sharp. Clamped to 0.5-4: Home draws the chat at its default size (14/13, the agent chat's
+    /// text size) times Chief Chat Zoom (0.5-2) times the interface scale (0.85-1.5).
     public var zoom: CGFloat {
         get { controller.host.contentZoom }
         set {
-            let next = newValue.isFinite ? min(max(newValue, 0.5), 3) : 1
+            let next = newValue.isFinite ? min(max(newValue, 0.5), 4) : 1
             guard next != controller.host.contentZoom else { return }
             controller.host.contentZoom = next
             applyZoomBounds()

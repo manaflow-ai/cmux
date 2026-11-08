@@ -45,7 +45,27 @@ test("Show the Feed in Chief draws once, in Look, after the bubble colors", asyn
   const rows = [...look(page.container).querySelectorAll(".rows [data-row-key]")].map((row) =>
     row.getAttribute("data-row-key"),
   );
-  expect(rows).toEqual(["home.chiefBubbleStyle", ...BUBBLE_COLORS, "home.feedInChief"]);
+  expect(rows).toEqual(["home.chiefBubbleStyle", ...BUBBLE_COLORS, "home.chiefZoom", "home.feedInChief"]);
+  page.unmount();
+});
+
+// Issue 38169: the Chief chat's zoom is its own setting, drawn once in Look; Agent Chat Zoom stays with the agents.
+test("Chief Chat Zoom draws once, in Look, apart from Agent Chat Zoom", async () => {
+  const page = await renderPage({ path: "/settings/chief" });
+  await settle();
+  expect(page.container.querySelectorAll('[data-row-key="home.chiefZoom"]')).toHaveLength(1);
+  expect(look(page.container).querySelector('[data-row-key="home.chiefZoom"]')).not.toBeNull();
+  expect(page.container.querySelector('[data-row-key="agentPane.zoom"]')).toBeNull();
+  page.unmount();
+});
+
+test("search for Chief Chat Zoom lands in the Look card", async () => {
+  const page = await renderPage({ path: "/settings/chief" });
+  await changeValue(page.container.querySelector<HTMLInputElement>("[data-settings-search]")!, "Chief Chat Zoom");
+  await settle();
+  const result = page.container.querySelector<HTMLElement>('[data-search-results] [data-card="chief-pet"]');
+  expect(result?.querySelector('[data-row-key="home.chiefZoom"]')).not.toBeNull();
+  expect(page.container.querySelector('[data-search-results] [data-group="settings.group.chiefChat"]')).toBeNull();
   page.unmount();
 });
 

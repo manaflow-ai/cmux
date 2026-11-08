@@ -171,7 +171,7 @@ extension SettingsPageLayout {
     private static let chiefCategory = CategorySpec(
         id: "chief", title: SettingsText.keyed("settings.category.chief", "Chief"), symbol: "crown",
         groups: [
-            // How the Chief chat's bubbles look (the theme's colours, or iMessage's).
+            // How the Chief chat looks: its bubbles (the theme's colours, or iMessage's) and its own zoom (home.chiefZoom, apart from Agent Chat Zoom).
             GroupSpec(group: "settings.group.chiefChat"),
             // The Chief window dock (Cmd-I): its edge, and whether links from the Chief keep it docked.
             GroupSpec(group: "settings.group.chiefDock"),

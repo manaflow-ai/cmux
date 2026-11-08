@@ -116,13 +116,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var followsUIScale = true {
         didSet { if followsUIScale != oldValue { applyUIScale() } }
     }
-    /// True for a page that belongs to the Chief chat (``PageDescriptor/followsChatZoom``: Bring your
-    /// history, shown over Home at first launch): Agent Chat Zoom (`agentPane.zoom`) scales it too, as it scales an agent chat and the
-    /// Chief chat, so it keeps their size and Cmd-= / Cmd-- / Cmd-0 on it (`home.zoomIn`) zoom it live.
-    public var followsChatZoom = false {
+    /// True for a page that belongs to the Chief chat (``PageDescriptor/followsChiefZoom``: Bring your
+    /// history, shown over Home at first launch): Chief Chat Zoom (`home.chiefZoom`) scales it too, as it scales the
+    /// Chief chat, so it keeps the chat's size and Cmd-= / Cmd-- / Cmd-0 on it (`home.zoomIn`) zoom it live.
+    public var followsChiefZoom = false {
         didSet {
-            guard followsChatZoom != oldValue else { return }
-            observeUIScale() // track `agentPane.zoom` only while the page follows it
+            guard followsChiefZoom != oldValue else { return }
+            observeUIScale() // track `home.chiefZoom` only while the page follows it
             applyUIScale()
         }
     }
@@ -389,7 +389,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
-        followsChatZoom = descriptor.followsChatZoom
+        followsChiefZoom = descriptor.followsChiefZoom
         applyUIScale()
         observeUIScale()
         PageRegistry.add(self)
@@ -482,17 +482,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     private func observeUIScale() {
         uiScaleObservation?.cancel()
-        let chatZoom = followsChatZoom
+        let chiefZoom = followsChiefZoom
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale, chiefZoom ? DesignSettings.shared.homeChiefZoom : 1) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
         }
     }
 
-    /// Page zoom follows `uiScale` times this page's additional zoom (and Agent Chat Zoom for a page that
-    /// ``followsChatZoom``); the chrome multiplier remains
+    /// Page zoom follows `uiScale` times this page's additional zoom (and Chief Chat Zoom for a page that
+    /// ``followsChiefZoom``); the chrome multiplier remains
     /// a separate `--cmux-interface-scale` token.
     func applyUIScale() {
         evaluateInPage(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))

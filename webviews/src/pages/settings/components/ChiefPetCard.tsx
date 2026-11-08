@@ -1,7 +1,8 @@
 // Settings > Chief > Look: how the Chief looks, one glass card. The floating pet after ChatGPT's
 // Mini & Pets, then the chat's Bubble Style (`home.chiefBubbleStyle`, which before stood alone below
 // as a one-row "Chief Chat" card) and the bubble colors every chat starts with (`home.bubbleColors.*`,
-// whose unset value is Bubble Style's color, so they sit under it), then Show the Feed in Chief
+// whose unset value is Bubble Style's color, so they sit under it), then Chief Chat Zoom (`home.chiefZoom`, the
+// chat's own zoom, apart from Agent Chat Zoom; issue 38169), then Show the Feed in Chief
 // (`home.feedInChief`, the chat's other Chief Chat row, so no one-row Chief Chat card comes back). A preview of the pet over
 // its rail with Show Pet / Hide Pet, then every character (the Chief Dock's pixel mascots) as a
 // card with its name and a line about it. The character is the Chief's avatar on every Chief
@@ -9,7 +10,7 @@
 // always checked, and a click swaps it everywhere without showing or hiding the pet (that is Show
 // Pet / Hide Pet's job). Hovering or focusing a character previews it on the rail. It draws the category's
 // Look rows (`home.chiefPetEnabled`, `home.chiefPetMascot`, `home.chiefBubbleStyle`, the four
-// `home.bubbleColors.*` and `home.feedInChief`), so SectionView leaves them out of the group list; search, the palette and
+// `home.bubbleColors.*`, `home.chiefZoom` and `home.feedInChief`), so SectionView leaves them out of the group list; search, the palette and
 // `cmux settings` still reach them.
 import { useRef, useState } from "react";
 import { useRowState, useStore, type RowState } from "../context";
@@ -42,6 +43,8 @@ export const CHIEF_BUBBLE_STYLE = "home.chiefBubbleStyle";
 export const CHIEF_BUBBLE_COLORS: readonly string[] = ["sent", "sentText", "received", "receivedText"].map(
   (role) => `home.bubbleColors.${role}`,
 );
+/** The Chief chat's own zoom (`HomeChiefZoomSetting`; Cmd-= / Cmd-- / Cmd-0 on Home). */
+export const CHIEF_ZOOM = "home.chiefZoom";
 /** Whether the main Chief's chat shows the Feed's notices (`HomeFeedRowsSetting`). */
 export const CHIEF_FEED_IN_CHIEF = "home.feedInChief";
 /** The rows this card draws in place of their group. */
@@ -50,6 +53,7 @@ export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([
   CHIEF_PET_MASCOT,
   CHIEF_BUBBLE_STYLE,
   ...CHIEF_BUBBLE_COLORS,
+  CHIEF_ZOOM,
   CHIEF_FEED_IN_CHIEF,
 ]);
 
@@ -143,6 +147,8 @@ export function ChiefPetCard({
     return row && (visibleRows === null || visibleRows.has(key)) ? [row] : [];
   });
   const bubbleRow = showBubbleStyle ? bubbles : undefined;
+  const zoom = rowsByKey.get(CHIEF_ZOOM);
+  const zoomRow = visibleRows === null || visibleRows.has(CHIEF_ZOOM) ? zoom : undefined;
   const feed = rowsByKey.get(CHIEF_FEED_IN_CHIEF);
   const feedRow = visibleRows === null || visibleRows.has(CHIEF_FEED_IN_CHIEF) ? feed : undefined;
   return (
@@ -206,12 +212,13 @@ export function ChiefPetCard({
           </div>
         </>
       )}
-      {(bubbleRow || colors.length > 0 || feedRow) && (
+      {(bubbleRow || colors.length > 0 || zoomRow || feedRow) && (
         <div className="rows">
           {bubbleRow && <SettingRow row={bubbleRow} query={query} focused={focus === CHIEF_BUBBLE_STYLE} />}
           {colors.map((row) => (
             <SettingRow key={row.key} row={row} query={query} focused={focus === row.key} />
           ))}
+          {zoomRow && <SettingRow row={zoomRow} query={query} focused={focus === CHIEF_ZOOM} />}
           {feedRow && <SettingRow row={feedRow} query={query} focused={focus === CHIEF_FEED_IN_CHIEF} />}
         </div>
       )}

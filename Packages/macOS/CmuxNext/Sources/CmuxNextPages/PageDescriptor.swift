@@ -55,15 +55,15 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// navigation such a frame starts, or that would replace its document, is cancelled
     /// (``PageNavigation``). Off by default: other pages' frames keep their navigation hook.
     public let passiveFrames: Bool
-    /// The page belongs to the Chief chat (Bring your history): Agent Chat Zoom scales it too
-    /// (``PageWebView/followsChatZoom``). Off by default: a page keeps `app.uiScale` alone.
-    public let followsChatZoom: Bool
+    /// The page belongs to the Chief chat (Bring your history): Chief Chat Zoom (`home.chiefZoom`) scales it too
+    /// (``PageWebView/followsChiefZoom``). Off by default: a page keeps `app.uiScale` alone.
+    public let followsChiefZoom: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], gestureActions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
                 dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false,
-                passiveFrames: Bool = false, followsChatZoom: Bool = false) {
+                passiveFrames: Bool = false, followsChiefZoom: Bool = false) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -81,7 +81,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.ownsSearchField = ownsSearchField
         self.acceptsFirstMouse = acceptsFirstMouse
         self.passiveFrames = passiveFrames
-        self.followsChatZoom = followsChatZoom
+        self.followsChiefZoom = followsChiefZoom
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).

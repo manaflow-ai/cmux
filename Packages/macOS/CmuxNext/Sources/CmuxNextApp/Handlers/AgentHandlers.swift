@@ -43,17 +43,17 @@ enum AgentHandlers {
         registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom("agentPaneZoomIn", by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom("agentPaneZoomOut", by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
-        // The Chief chat follows the same setting (HomeNativeTranscriptView.followZoom): no view to look up.
+        // The Chief chat has its own zoom (`home.chiefZoom`, issue 38169; HomeNativeTranscriptView.followZoom): no view to look up.
         registry.bindEffect("home.zoomIn", requires: nil, effect: { _ in
-            try stepAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context)
+            try stepZoom(.chief, by: HomeChiefZoomSetting.step, context: context)
             return .done
         })
         registry.bindEffect("home.zoomOut", requires: nil, effect: { _ in
-            try stepAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context)
+            try stepZoom(.chief, by: -HomeChiefZoomSetting.step, context: context)
             return .done
         })
         registry.bindEffect("home.zoomReset", requires: nil, effect: { _ in
-            try resetAgentPaneZoom(context)
+            try resetZoom(.chief, context)
             return .done
         })
         registry.bindEffect("palette.forkAgentConversationTo", requires: nil, effect: { invocation in
@@ -271,7 +271,18 @@ enum AgentHandlers {
             focus: AppComputerUseFocus(services: services))
     }
 
-    private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
+    /// A chat zoom setting: agent chats (`agentPane.zoom`) or the Chief chat (`home.chiefZoom`). Each is its
+    /// own setting, so zooming one chat never resizes the other (issue 38169).
+    private enum ChatZoom {
+        case agent, chief
+
+        var path: [String] { self == .agent ? AgentPaneZoomSetting.configPath : HomeChiefZoomSetting.configPath }
+        var range: ClosedRange<Double> { self == .agent ? AgentPaneZoomSetting.range : HomeChiefZoomSetting.range }
+        var fallback: Double { self == .agent ? AgentPaneZoomSetting.fallback : HomeChiefZoomSetting.fallback }
+        var design: ReferenceWritableKeyPath<DesignSettings, CGFloat> { self == .agent ? \.agentPaneZoom : \.homeChiefZoom }
+        var snapshot: KeyPath<CmuxConfigSnapshot, Double> { self == .agent ? \.agentPaneZoom : \.homeChiefZoom }
+        var label: String { self == .agent ? "agent chat zoom" : "Chief chat zoom" }
+    }
 
     private static func focusedAgentView(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation) -> AgentPaneView? {
         guard let view = chatView(context, invocation) else { return context.registry.refuse(.noChat, id) }
@@ -290,36 +301,36 @@ enum AgentHandlers {
     }
 
     private static func setAgentPaneZoom(_ id: ActionID, by delta: Double, context: AppActionContext, invocation: ActionInvocation) throws {
-        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
+        try AppearanceHandlers.requireUnmanaged(ChatZoom.agent.path, context)
         guard let view = focusedAgentView(id, context, invocation) else { return }
-        view.zoom = try stepAgentPaneZoom(by: delta, context: context)
+        view.zoom = try stepZoom(.agent, by: delta, context: context)
     }
 
     private static func resetAgentPaneZoom(_ context: AppActionContext, invocation: ActionInvocation) throws {
-        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
+        try AppearanceHandlers.requireUnmanaged(ChatZoom.agent.path, context)
         guard let view = focusedAgentView("agentPaneZoomReset", context, invocation) else { return }
-        try resetAgentPaneZoom(context)
+        try resetZoom(.agent, context)
         view.zoom = AgentPaneZoomSetting.fallback
     }
 
-    /// Steps `agentPane.zoom` by `delta` (clamped), live and in cmux.json, and shows the percent: the new zoom.
+    /// Steps `zoom`'s setting by `delta` (clamped), live and in cmux.json, and shows the percent: the new zoom.
     @discardableResult
-    private static func stepAgentPaneZoom(by delta: Double, context: AppActionContext) throws -> Double {
-        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
-        let current = context.services.settings.map { $0.snapshot.agentPaneZoom } ?? Double(context.design.agentPaneZoom)
+    private static func stepZoom(_ zoom: ChatZoom, by delta: Double, context: AppActionContext) throws -> Double {
+        try AppearanceHandlers.requireUnmanaged(zoom.path, context)
+        let current = context.services.settings.map { $0.snapshot[keyPath: zoom.snapshot] } ?? Double(context.design[keyPath: zoom.design])
         // The step and its clamp are cmux-window-rules `chat::agent::zoom`; no answer leaves the zoom as it is.
-        guard let step = WindowRules().chatZoom(current: current, delta: delta, range: AgentPaneZoomSetting.range) else { return current }
-        context.design.agentPaneZoom = CGFloat(step.zoom)
-        context.writeSetting("set agent chat zoom", agentPaneZoomPath, .number(step.zoom), reloadOnFailure: true)
+        guard let step = WindowRules().chatZoom(current: current, delta: delta, range: zoom.range) else { return current }
+        context.design[keyPath: zoom.design] = CGFloat(step.zoom)
+        context.writeSetting("set \(zoom.label)", zoom.path, .number(step.zoom), reloadOnFailure: true)
         SurfaceZoomIndicator.show(percent: step.percent, in: context.services.windows.active?.window)
         return step.zoom
     }
 
-    /// `agentPane.zoom` back to 100%, live and in cmux.json.
-    private static func resetAgentPaneZoom(_ context: AppActionContext) throws {
-        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
-        context.design.agentPaneZoom = CGFloat(AgentPaneZoomSetting.fallback)
-        context.writeSetting("reset agent chat zoom", agentPaneZoomPath, nil, reloadOnFailure: true)
+    /// `zoom`'s setting back to 100%, live and in cmux.json.
+    private static func resetZoom(_ zoom: ChatZoom, _ context: AppActionContext) throws {
+        try AppearanceHandlers.requireUnmanaged(zoom.path, context)
+        context.design[keyPath: zoom.design] = CGFloat(zoom.fallback)
+        context.writeSetting("reset \(zoom.label)", zoom.path, nil, reloadOnFailure: true)
         SurfaceZoomIndicator.show(percent: 100, in: context.services.windows.active?.window)
     }
 

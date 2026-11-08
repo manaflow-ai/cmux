@@ -306,7 +306,7 @@
           "symbol": "crown",
           "note": "Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets) draws the preview, Show/Hide and the characters from its group's two rows; then the chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings. Notices last: a row that opens Notifications (the Chief's notices are the app's notifications; their rows keep their one home there).",
           "groups": [
-            {"group": "settings.group.chiefChat", "note": "How the Chief chat's bubbles look (the theme's colours, or iMessage's)."},
+            {"group": "settings.group.chiefChat", "note": "How the Chief chat looks: its bubbles (the theme's colours, or iMessage's) and its own zoom (home.chiefZoom, apart from Agent Chat Zoom)."},
             {"group": "settings.group.chiefDock", "note": "The Chief window dock (Cmd-I): its edge, and whether links from the Chief keep it docked."},
             {"group": "settings.group.chiefPet", "note": "The Chief pet floating over every app, and its character."},
             {"group": "settings.group.chiefEngine", "note": "Which Chief Home opens; the Chiefs card draws it as its Engine row."},

@@ -32,6 +32,17 @@ nonisolated enum HomeSettingsSchema {
                 default: .string(HomeChiefBubbleStyleSetting.defaultStyle),
                 keywords: ["chief", "imessage", "messages", "bubbles", "blue", "chat", "theme", "colors", "home"]
             ),
+            // The Chief chat's own zoom (issue 38169): Cmd-= / Cmd-- / Cmd-0 on Home step it, apart from Agent Chat Zoom.
+            SettingDescriptor(
+                HomeChiefZoomSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefChat", "Chief Chat"),
+                title: SettingsText.keyed("settings.home.chiefZoom", "Chief Chat Zoom"),
+                help: SettingsText.keyed("settings.home.chiefZoom.help",
+                                         "The display size for the Chief chat, apart from agent chats. Cmd-0 on Home resets it."),
+                kind: .number(SettingNumber(HomeChiefZoomSetting.range, step: HomeChiefZoomSetting.step,
+                                            unit: .fraction, placeholder: HomeChiefZoomSetting.fallback)),
+                default: .number(HomeChiefZoomSetting.fallback),
+                keywords: ["chief", "chat", "zoom", "text size", "font", "bigger", "smaller", "display", "size", "home"]
+            ),
             // The Feed's notices among the main Chief's messages, for the person only (Leo 2026-10-20).
             SettingDescriptor(
                 HomeFeedRowsSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefChat", "Chief Chat"),
