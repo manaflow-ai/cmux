@@ -9,7 +9,7 @@ use bytes::Bytes;
 use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, SessionId};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, RwLock, oneshot, watch};
+use tokio::sync::{Mutex, Notify, RwLock, oneshot, watch};
 
 use crate::crypto::{
     ClientAuthMode, ClientHandshake, ConnectionAttemptId, CryptoError, StaticIdentity,
@@ -242,6 +242,9 @@ pub struct ClientConnection {
     shutdown_gate: Mutex<()>,
     deferred_receive: StdMutex<Option<Result<ReceivedFrame, ConnectionError>>>,
     last_received: StdMutex<Instant>,
+    /// Woken on every received frame, so a heartbeat whose answer an
+    /// application reader consumed sees it at once.
+    received: Notify,
     closed: AtomicBool,
     close_state: watch::Sender<CloseState>,
     /// The daemon refused a reconnect because it no longer has the session.
@@ -381,6 +384,7 @@ impl ClientConnection {
             shutdown_gate: Mutex::new(()),
             deferred_receive: StdMutex::new(None),
             last_received: StdMutex::new(Instant::now()),
+            received: Notify::new(),
             closed: AtomicBool::new(false),
             close_state,
             session_unavailable: AtomicBool::new(false),
@@ -664,7 +668,13 @@ impl ClientConnection {
     /// application frame or terminal error is deferred, which keeps liveness
     /// independent of caller polling without creating an unbounded side queue.
     async fn probe_liveness(&self, generation: u64, observed: Instant) -> bool {
-        let _receiving = self.receiving.lock().await;
+        let Ok(_receiving) = self.receiving.try_lock() else {
+            // An application reader holds the receive side and consumes the
+            // answer itself: any frame after the probe proves the link live.
+            // Waiting for its lock instead held every probe to its timeout.
+            self.received_after(observed).await;
+            return true;
+        };
         if self.closed.load(Ordering::Acquire)
             || self.session.read().await.generation() != generation
             || self.last_received() > observed
@@ -891,6 +901,20 @@ impl ClientConnection {
     fn mark_received(&self) {
         *self.last_received.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             Instant::now();
+        self.received.notify_waiters();
+    }
+
+    /// Resolves once a frame arrives after `observed`.
+    async fn received_after(&self, observed: Instant) {
+        loop {
+            let notified = self.received.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.last_received() > observed {
+                return;
+            }
+            notified.await;
+        }
     }
 
     fn last_received(&self) -> Instant {
@@ -1056,6 +1080,9 @@ impl ClientConnection {
             self.set_diagnostics_state(ConnectionState::Reconnecting);
             let attempt_timeout = remaining(policy.attempt_timeout);
             let attempt_started = tokio::time::Instant::now();
+            // This dial starts on the network as it is now; only a change
+            // while it is in flight abandons it.
+            network.borrow_and_update();
             let mut network_moved = false;
             let reconnect = tokio::select! {
                 biased;
