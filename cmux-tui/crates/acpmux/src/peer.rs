@@ -2005,7 +2005,14 @@ impl Peer {
         // out within the send budget, is dropped and reconnected; one interval
         // of silence only marks it degraded.
         let timings = self.timings;
-        self.with_silence(|b| b.opened(tokio::time::Instant::now()));
+        let (was, silence) = self.with_silence(|b| {
+            let was = b.current();
+            b.opened(tokio::time::Instant::now());
+            (was, b.current())
+        });
+        if silence != was {
+            tracing::info!(peer = %self.name, "silence budget {}s (was {}s; a link dropped for silence opened again: the peer is slow, not gone)", silence.as_secs(), was.as_secs());
+        }
         // The first read's gap is the connect, not an answer.
         if let Some(heard) = &heard {
             heard.take_gap();
