@@ -10316,7 +10316,7 @@ private final class ChromiumCookieDecryptor {
 #endif
 
 enum BrowserDataImporter {
-    private struct CookieImportResult {
+    struct CookieImportResult {
         var importedCount: Int = 0
         var skippedCount: Int = 0
         var warnings: [String] = []
@@ -10584,18 +10584,36 @@ enum BrowserDataImporter {
     /// Imports cookies from Safari's `Cookies.binarycookies` stores.
     ///
     /// ``SafariCookieStoreReader`` finds and reads each profile's store; this
-    /// method turns its result into warnings, filters the decoded cookies and
-    /// writes them to the destination profile. Warnings name paths relative to
+    /// method turns its result into warnings, hands the decoded cookies to
+    /// ``SafariCookieImportPreparation`` and writes them to the destination
+    /// profile. Warnings name paths relative to
     /// home and never include raw system error text.
     private static func importSafariCookies(
         sourceProfiles: [InstalledBrowserProfile],
         destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> CookieImportResult {
-        let domainFilter = BrowserImportDomainFilter(filters: domainFilters)
-        let reader = SafariCookieStoreReader(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
-        let parser = SafariBinaryCookiesParser()
-        let now = Date()
+        await importSafariCookies(
+            sourceProfiles: sourceProfiles,
+            destinationProfileID: destinationProfileID,
+            domainFilters: domainFilters,
+            reader: SafariCookieStoreReader(homeDirectory: FileManager.default.homeDirectoryForCurrentUser),
+            parser: SafariBinaryCookiesParser(),
+            now: Date()
+        )
+    }
+
+    /// The Safari cookie import with its store reader, parser and clock
+    /// supplied, so tests can import a fixture store into a profile.
+    static func importSafariCookies(
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
+        domainFilters: [String],
+        reader: SafariCookieStoreReader,
+        parser: SafariBinaryCookiesParser,
+        now: Date
+    ) async -> CookieImportResult {
+        let preparation = SafariCookieImportPreparation(domainFilters: domainFilters, date: now)
         var cookies: [HTTPCookie] = []
         var expiredCount = 0
         var warnings: [String] = []
@@ -10669,17 +10687,9 @@ enum BrowserDataImporter {
                 continue
             }
 
-            for record in records {
-                guard !record.name.isEmpty else { continue }
-                guard domainFilter.matches(host: record.domain) else { continue }
-                if record.isExpired(at: now) {
-                    expiredCount += 1
-                    continue
-                }
-                if let cookie = safariHTTPCookie(from: record) {
-                    cookies.append(cookie)
-                }
-            }
+            let prepared = preparation.prepare(records)
+            cookies.append(contentsOf: prepared.cookies)
+            expiredCount += prepared.expiredCount
         }
 
         let dedupedCookies = dedupeCookies(cookies)
@@ -10689,27 +10699,6 @@ enum BrowserDataImporter {
             skippedCount: expiredCount + max(0, dedupedCookies.count - importedCount),
             warnings: warnings
         )
-    }
-
-    private static func safariHTTPCookie(from record: SafariBinaryCookie) -> HTTPCookie? {
-        var properties: [HTTPCookiePropertyKey: Any] = [
-            .domain: record.domain,
-            .path: record.path.isEmpty ? "/" : record.path,
-            .name: record.name,
-            .value: record.value,
-        ]
-        if record.isSecure {
-            properties[.secure] = "TRUE"
-        }
-        if record.isHTTPOnly {
-            // Foundation reads this key for `isHTTPOnly` but does not publish a
-            // constant for it; a system that ignores it still imports the cookie.
-            properties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE"
-        }
-        if let expiresDate = record.expiresDate {
-            properties[.expires] = expiresDate
-        }
-        return HTTPCookie(properties: properties)
     }
 
     private static func importChromiumCookies(
