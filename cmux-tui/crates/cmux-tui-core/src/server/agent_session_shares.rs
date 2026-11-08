@@ -386,10 +386,10 @@ impl LinkShare {
                     shown["role"] = json!(g.role);
                 }
                 if let Some(via) = g.via {
-                    shown["via"] = json!(via);
+                    shown.set("via", json!(via));
                 }
                 if let Some(avatar) = &g.avatar_url {
-                    shown["avatar_url"] = json!(avatar);
+                    shown.set("avatar_url", json!(avatar));
                 }
                 shown
             })
