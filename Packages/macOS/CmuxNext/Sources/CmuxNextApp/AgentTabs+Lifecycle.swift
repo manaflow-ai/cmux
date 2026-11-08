@@ -98,7 +98,7 @@ extension AgentTabStore {
         newTabPages[scoped] = newTab
         if session == nil { seeds[scoped] = seed }
         if linked { linkedSessions.insert(scoped) }
-        if let adopt { adoptions["\(adopt.harness):\(adopt.agentSessionId)"] = key }
+        if let adopt { adoptions["\(adopt.harness):\(adopt.agentSessionId)"] = scoped.relaunchKeyCandidates[0] } // the tab and its machine
         track(key, in: store, machine: daemon.machineID)
         if let spare, let newTab { adoptSpare(spare, key: scoped, page: newTab.page) }
         let pending = AgentTabPending(key: key, surface: snapshot.surface)
@@ -227,7 +227,7 @@ extension AgentTabStore {
         if let value = pendingTurns.removeValue(forKey: scoped) { pendingTurns[realKey] = value }
         if let value = wakeStates.removeValue(forKey: scoped) { wakeStates[realKey] = value }
         if linkedSessions.remove(scoped) != nil { linkedSessions.insert(realKey) }
-        adoptions = adoptions.mapValues { $0 == key ? real : $0 }
+        adoptions = adoptions.mapValues { $0 == scoped.relaunchKeyCandidates[0] ? realKey.relaunchKeyCandidates[0] : $0 }
         if let store = tabStores.removeValue(forKey: scoped) { tabStores[realKey] = store }
         if checkpointFocusTab == key { checkpointFocusTab = real }
         // The provisional alias goes once the tree settles: live callbacks then name the store tab (conversion, project reads).
@@ -324,8 +324,8 @@ extension AgentTabStore {
 
     /// The tab already resuming the outside chat `adopt` while a tree lists it.
     func tab(resuming adopt: AgentPaneAdopt) -> String? {
-        guard let key = adoptions["\(adopt.harness):\(adopt.agentSessionId)"],
-              let (record, store) = self.record(for: tabKey(key)), isAgentTab(key),
+        guard let stored = adoptions["\(adopt.harness):\(adopt.agentSessionId)"].map(AgentTabKey.init(relaunchStorageKey:)), case let key = stored.key,
+              let (record, store) = self.record(for: stored.machine.isEmpty ? tabKey(key) : stored), isAgentTab(key, machine: stored.machine.isEmpty ? nil : stored.machine),
               case .connected = store.connectionState,
               record.host == localHost else { return nil }
         return key
@@ -385,7 +385,7 @@ extension AgentTabStore {
         remoteSeeds[scoped] = nil
         remoteCreations[scoped] = nil
         remoteStarts.removeValue(forKey: scoped)?.cancel()
-        adoptions = adoptions.filter { $0.value != key }
+        adoptions = adoptions.filter { $0.value != scoped.relaunchKeyCandidates[0] }
         for entry in aliases.entries where (entry.key.machine == scoped.machine || entry.key.machine.isEmpty) && (entry.value == key || entry.key.key == key) {
             aliases.removeValue(forKey: entry.key)
         }
@@ -397,7 +397,7 @@ extension AgentTabStore {
         wakeStates[scoped] = nil
         tabStores[scoped] = nil
         unsentDrafts.set("", for: key, machine: scoped.machine)
-        launchImages.drop(key)
+        launchImages.drop(launchImages.slot(key, machine: scoped.machine))
         seenLive.remove(scoped)
         forgetUnusedStores()
         stopCustomizationWhenUnused()

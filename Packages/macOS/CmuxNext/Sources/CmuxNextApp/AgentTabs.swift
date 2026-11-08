@@ -355,7 +355,7 @@ final class AgentTabStore {
     /// current live list; it never invents or persists machine ids.
     var machineTargets: @MainActor () -> [AgentPaneMoveTarget] = { [] }
     /// Runs the existing CloudMove action for a validated target machine.
-    var moveAgentToMachine: @MainActor (_ tab: String, _ machine: String) -> Bool = { _, _ in false }
+    var moveAgentToMachine: @MainActor (_ tab: AgentTabKey, _ machine: String) -> Bool = { _, _ in false }
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     /// `daemons` and `updates` are the app's (`AppServices`); a test's store has its own and updates no other machine.
@@ -470,24 +470,24 @@ final class AgentTabStore {
     }
 
     /// The acpmux session agent tab `key` shows; nil for a new chat.
-    func session(of key: String) -> String? {
-        let key = resolve(key)
-        return sessions[key] ?? record(for: tabKey(key))?.record.session
+    func session(of key: String, machine: String? = nil) -> String? {
+        let key = resolvedKey(tabKey(key, machine: machine))
+        return sessions[key] ?? record(for: key)?.record.session
     }
 
     /// The store's id of `key` (a provisional id after its creation answered).
-    func resolve(_ key: String) -> String { aliases[key] ?? key }
+    func resolve(_ key: String) -> String { aliases.onlyKey(ofTab: key).flatMap { aliases[$0] } ?? key }
 
     func resolve(_ key: String, machine: String) -> String { aliases[AgentTabKey(machine: machine, key: key)] ?? key }
+    func tabKey(of tab: TabModel) -> AgentTabKey { resolvedKey(tabKey(tab.id, machine: daemonListing(tab)?.machineID)) } // by the daemon listing it
 
     /// ``resolve(_:)`` for a new chat on another machine: its page's host keeps the provisional id
     /// it was made with, and the start runs at the first send, after the tree settled and dropped
     /// the provisional alias (cx-k21v: a remote New Tab page's send failed with unknown_tab).
-    func resolveRemote(_ key: String) -> String { aliases[key] ?? remoteAliases[key] ?? key }
+    func resolveRemote(_ key: String) -> String { aliases.onlyKey(ofTab: key).flatMap { aliases[$0] } ?? remoteAliases.onlyKey(ofTab: key).flatMap { remoteAliases[$0] } ?? key }
 
     func resolveRemote(_ key: String, machine: String) -> String {
-        let scoped = AgentTabKey(machine: machine, key: key)
-        return aliases[scoped] ?? remoteAliases[scoped] ?? key
+        let scoped = AgentTabKey(machine: machine, key: key); return aliases[scoped] ?? remoteAliases[scoped] ?? key
     }
 
     /// The ``revealTurn(_:in:)`` value that scrolls to and marks message `id`, the harness message
@@ -648,7 +648,7 @@ final class AgentTabStore {
             views[scopedKey]?.applyTheme() // now the agent chat surface (R55)
             // The first session is the outside chat's resume; a later switch shows another chat,
             // so the tab no longer answers for the outside chat it adopted (cmux://agent links).
-            if let shown = sessions[scopedKey], shown != session { adoptions = adoptions.filter { $0.value != key } }
+            if let shown = sessions[scopedKey], shown != session { adoptions = adoptions.filter { $0.value != scopedKey.relaunchKeyCandidates[0] } }
             let switched = sessions[scopedKey] != session
             sessions[scopedKey] = session
             if switched { onTabSession() }
@@ -697,7 +697,7 @@ final class AgentTabStore {
             } else {
                 target = ActionTargetRef(kind: .tab, id: resolve(provisional, machine: scoped.machine))
             }
-            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
+            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user).onMachine(target.kind == .tab ? scoped.machine : nil)) ?? false
         }
         model.onShareOp = { [weak self] op, session in guard let self else { return nil }; return await shareOp?(resolve(provisional, machine: scoped.machine), op, session) }
         wireHeader(model, key: provisional, machine: scoped.machine)
@@ -811,7 +811,7 @@ final class AgentTabStore {
     }
     private func publishCheckpointAvailability() {
         guard let registry = actionRegistry else { return }
-        let available = checkpointFocusTab.flatMap { views[resolve($0)] }?.model.checkpointAvailable == true
+        let available = checkpointFocusTab.flatMap { views[resolvedKey(tabKey($0))] }?.model.checkpointAvailable == true
         var next = registry.context
         if available { next.insert(.checkpointCaptureAvailable) }
         else { next.remove(.checkpointCaptureAvailable) }

@@ -152,11 +152,11 @@ extension AgentTabStore {
         }
         tabs.moveAgentToMachine = { [weak tabs] tab, machine in
             guard let tabs, let registry = tabs.actionRegistry else { return false }
-            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab),
-                                               arguments: ["machine": .string(machine)], origin: .user)
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key),
+                                               arguments: ["machine": .string(machine)], origin: .user).onMachine(tab.machine)
             return registry.perform("cloudMove", invocation: invocation)
         }
-        tabs.launchImages = services.launchImages
+        tabs.launchImages = services.launchImages; services.launchImages.localMachine = { [weak services] in services?.daemon.machineID }
         tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
         tabs.chiefFace = { [weak services, weak tabs] chief in
             guard let services, let avatars = tabs?.agentAvatars else { return [:] }
@@ -175,7 +175,7 @@ extension AgentTabStore {
         tabs.cloudMachines.wire(services)
         services.cloud.portChanged = { [weak tabs] change in
             guard let tabs, change.isBrowserPreview else { return }
-            for (key, view) in tabs.views where tabs.remoteMachineID(of: key) == change.machineID {
+            for (key, view) in tabs.views where tabs.remoteMachineID(of: key.key, machine: key.machine) == change.machineID {
                 view.cloudPreviewPortOpened(port: change.port, process: change.process, machineID: change.machineID, state: change.state.rawValue, known: change.known)
             }
         }
@@ -218,7 +218,7 @@ extension AgentTabStore {
             let cwd = tab.cwd ?? NewTerminalStart.folder(of: tab, services: services)
             return NewTabPage.handler(services, cwd: cwd) { [weak controller, weak tabs] key, request in
                 guard let controller else { return }
-                NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: controller, keep: tabs?.sessions[key] != nil)
+                NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: controller, keep: tabs.map { $0.sessions[$0.tabKey(key, machine: controller.daemon.machineID)] != nil } ?? false)
             }
         }
         tabs.firstPageNewTab = { [weak services] cwd, beside in
@@ -271,7 +271,7 @@ extension AgentTabStore {
                         guard let tabs else { return }
                         await TabMirror.performWhenReached(key, in: { tabs.locateScoped(AgentTabKey(machine: target.daemon.machineID, key: $0)) }) {
                             if let placed { if let surface = services?.locateTab(key, onMachine: target.daemon.machineID)?.0.surface { placed(surface) }; return }
-                            _ = tabs.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), arguments: ["machine": .string(target.daemon.machineID)], origin: .user))
+                            _ = tabs.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user).onMachine(target.daemon.machineID))
                         }
                     }
                 }

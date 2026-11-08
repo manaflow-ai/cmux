@@ -76,7 +76,7 @@ struct AgentTabContent {
         // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99), unless
         // it shows in Chromium: that page draws over the frame as it comes in, both seen at once.
         let newTabFrame = { view?.model.newTab == nil || view?.pageDrawsOverCovers == true ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
-        let saved = { images.takeCovering(key, newTab: newTab, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView), in: paneView) }
+        let saved = { images.takeCovering(images.slot(key, machine: pane.daemon.machineID), newTab: newTab, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView), in: paneView) }
         let image = { saved() ?? newTabFrame() }
         if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
         guard let imageView = paneView.launchImageView, let view else { return }

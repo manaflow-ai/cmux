@@ -29,19 +29,19 @@ public struct AgentTabKey: Hashable, Sendable {
     }
 }
 
-/// AgentTabs state keyed by machine and tab id. The String subscript is retained for old
-/// single-machine callers and returns a value only when that id is unambiguous.
+/// AgentTabs state keyed by machine and tab id. It has no bare-id access: a tab id alone names
+/// no tab once two machines list the same one, so every read and write says which machine.
 public struct AgentTabMap<Value>: Sequence {
     private var storage: [AgentTabKey: Value] = [:]
 
-    public typealias Element = (key: String, value: Value)
+    public typealias Element = (key: AgentTabKey, value: Value)
     public typealias Iterator = IndexingIterator<[Element]>
 
     public init() {}
 
     public var isEmpty: Bool { storage.isEmpty }
     public var count: Int { storage.count }
-    public var keys: [String] { storage.keys.map(\.key).unique() }
+    public var keys: [AgentTabKey] { Array(storage.keys) }
     public var values: [Value] { Array(storage.values) }
     public var entries: [(key: AgentTabKey, value: Value)] { storage.map { (key: $0.key, value: $0.value) } }
     public static func duplicateIDs(_ keys: [AgentTabKey]) -> Set<String> {
@@ -53,13 +53,7 @@ public struct AgentTabMap<Value>: Sequence {
     public func relaunchEntries(_ duplicateIDs: Set<String>) -> [String: Value] {
         entries.reduce(into: [String: Value]()) { $0[$1.key.relaunchStorageKey(duplicateIDs: duplicateIDs)] = $1.value }
     }
-    public var bare: [String: Value] {
-        storage.reduce(into: [:]) { result, entry in
-            guard result[entry.key.key] == nil else { return }
-            result[entry.key.key] = entry.value
-        }
-    }
-    public func makeIterator() -> Iterator { storage.map { (key: $0.key.key, value: $0.value) }.makeIterator() }
+    public func makeIterator() -> Iterator { entries.makeIterator() }
 
     public subscript(_ key: AgentTabKey) -> Value? {
         get { storage[key] }
@@ -72,44 +66,26 @@ public struct AgentTabMap<Value>: Sequence {
         }
     }
 
-    public subscript(_ key: String) -> Value? {
-        get {
-            let matches = storage.filter { $0.key.key == key }
-            guard matches.count == 1 else { return storage[AgentTabKey(machine: "", key: key)] }
-            return matches.first?.value
-        }
-        set {
-            let matches = storage.keys.filter { $0.key == key }
-            if let existing = matches.count == 1 ? matches[0] : nil {
-                self[existing] = newValue
-            } else {
-                self[AgentTabKey(machine: "", key: key)] = newValue
-            }
-        }
+    /// The keys of tab id `key` on every machine that has one.
+    public func keys(ofTab key: String) -> [AgentTabKey] { storage.keys.filter { $0.key == key } }
+
+    /// The values by tab id of the ids exactly one machine has (an id two machines share names neither).
+    public var unambiguousIDs: [String: Value] {
+        let shared = Self.duplicateIDs(Array(storage.keys))
+        return storage.reduce(into: [:]) { if !shared.contains($1.key.key) { $0[$1.key.key] = $1.value } }
     }
 
-    public func first(where predicate: ((key: String, value: Value)) throws -> Bool) rethrows -> (key: String, value: Value)? {
-        for (key, value) in storage where try predicate((key: key.key, value: value)) {
-            return (key: key.key, value: value)
-        }
-        return nil
-    }
-
-    public func map<T>(_ transform: ((key: String, value: Value)) throws -> T) rethrows -> [T] {
-        try storage.map { try transform((key: $0.key.key, value: $0.value)) }
+    /// The one key of tab id `key`; nil when no machine or more than one has it.
+    public func onlyKey(ofTab key: String) -> AgentTabKey? {
+        let keys = keys(ofTab: key)
+        return keys.count == 1 ? keys[0] : nil
     }
 
     public mutating func removeValue(forKey key: AgentTabKey) -> Value? { storage.removeValue(forKey: key) }
 
-    public mutating func removeValue(forKey key: String) -> Value? {
-        let matches = storage.keys.filter { $0.key == key }
-        guard matches.count == 1, let match = matches.first else { return storage.removeValue(forKey: AgentTabKey(machine: "", key: key)) }
-        return storage.removeValue(forKey: match)
-    }
-
-    public func filter(_ isIncluded: ((key: String, value: Value)) throws -> Bool) rethrows -> AgentTabMap<Value> {
+    public func filter(_ isIncluded: ((key: AgentTabKey, value: Value)) throws -> Bool) rethrows -> AgentTabMap<Value> {
         var result = AgentTabMap<Value>()
-        for (key, value) in storage where try isIncluded((key: key.key, value: value)) { result[key] = value }
+        for (key, value) in storage where try isIncluded((key: key, value: value)) { result[key] = value }
         return result
     }
 }

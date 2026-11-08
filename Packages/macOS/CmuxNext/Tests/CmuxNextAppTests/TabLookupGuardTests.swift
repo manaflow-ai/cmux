@@ -25,7 +25,6 @@ import Testing
         "Control/AppBrowserPasskeyHost.swift": ["locateTabOnAnyMachine(tabID)": 3],
         "DeepLinks/DurableTabLink.swift": ["locateTabOnAnyMachine(id)": 1],
         "DesignMode/BrowserDesignModeController.swift": ["locateTabOnAnyMachine(key)": 1],
-        "Hibernation/AgentPageHibernation.swift": ["locateTabOnAnyMachine(key)": 1],
         "Home/HomeLinkPreviewProvider.swift": ["locateTabOnAnyMachine($0)": 1, "locateTabOnAnyMachine(id)": 1, "locateTabOnAnyMachine(key)": 2, "locateTabOnAnyMachine(tabID)": 1],
         "Links/LinkOpener.swift": ["locateTabOnAnyMachine(key)": 1],
         "Notifications/HandoffNotices.swift": ["locateTabOnAnyMachine($0)": 1],

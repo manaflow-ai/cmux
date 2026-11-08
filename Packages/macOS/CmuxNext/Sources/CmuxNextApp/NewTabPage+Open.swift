@@ -201,8 +201,8 @@ extension NewTabPage {
     /// Tabs, fills the pane the person just made, NewTabPage.split). `mainPane` false for a chat pick:
     /// main pane layout keeps chats out of the column right of the chat dock (NewChatPlacement).
     static func opensBeside(_ key: String, in pane: PaneController, kind: AgentPaneTabKind? = nil, mainPane: Bool = true) -> Bool {
-        let tabs = pane.services.agentTabs, page = tabs.resolve(key)
-        guard AgentPaneTunables.newTabPicksFollowLinks.value, tabs.newTabPages[page]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
+        let tabs = pane.services.agentTabs, scoped = tabs.tabKey(key, machine: pane.daemon.machineID), page = scoped.key
+        guard AgentPaneTunables.newTabPicksFollowLinks.value, tabs.newTabPages[scoped]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
         return pane.services.linkOpener.target(from: pane, mainPane: mainPane, kind: kind?.rightColumnKind) != .pane(pane.layoutPaneID)
     }
 

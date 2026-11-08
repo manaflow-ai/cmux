@@ -27,7 +27,7 @@ extension AgentTabStore {
         Task { [weak self] in
             guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: { [weak self] in self?.locateScoped(AgentTabKey(machine: machine, key: $0)) }) else { hold?.finish(moved: false); return }
             if destination == .workspace || destination == .window { guard await moveToNewWorkspace(tab.key, daemon.machineID, destination == .window) else { hold?.finish(moved: false); return focusForkComposer(tab.key, machine: machine) } } else if let move = destination.moveAction {
-                _ = actionRegistry?.perform(move, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: destination.splitDirection.map { ["direction": .string($0), "keepFocus": .bool(false)] } ?? [:], origin: .user))
+                _ = actionRegistry?.perform(move, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: destination.splitDirection.map { ["direction": .string($0), "keepFocus": .bool(false)] } ?? [:], origin: .user).onMachine(machine))
             } else { placeForkScoped(AgentTabKey(machine: machine, key: tab.key), resolvedKey(chat), { if case let .column(left) = TerminalForkPlacement(destination) { left } else { nil } }()) }
             let moved = await TabMirror.reaches(tab.key, in: { [weak self] in self?.locateScoped(AgentTabKey(machine: machine, key: $0)).flatMap { $0.pane != pane ? $0 : nil } }); hold?.finish(moved: moved)
             focusForkComposer(tab.key, machine: machine)
@@ -37,7 +37,7 @@ extension AgentTabStore {
 
     /// The fork's composer takes the keyboard: the person's next words go to the fork, not the chat.
     private func focusForkComposer(_ key: String, machine: String? = nil) {
-        let scoped = resolvedKey(tabKey(key, machine: machine)); _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: scoped.key), origin: .user))
+        let scoped = resolvedKey(tabKey(key, machine: machine)); _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: scoped.key), origin: .user).onMachine(scoped.machine))
         existingView(scoped.key, machine: scoped.machine)?.focusComposer()
     }
 }

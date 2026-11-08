@@ -111,7 +111,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
             let pages = hibernationPages() ?? [:]
             return Set(pages.keys.filter { ids.contains(AgentTabKey(relaunchStorageKey: $0).key) })
         }
-        pages.sync(changed) { isRendering(AgentTabKey(relaunchStorageKey: $0).key) }
+        pages.sync(changed) { let scoped = AgentTabKey(relaunchStorageKey: $0); return !scoped.machine.isEmpty || isRendering(scoped.key) } // the cache keys renderers by tab id: a page whose id two machines share stays awake
     }
     func forget(_ key: String) { pages.forget(key) }
     func replan() { pages.replan() }
@@ -134,7 +134,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         let scoped = scopedKey(key, in: tabs)
         return tabs.existingView(scoped.key, machine: scoped.machine)
     }
-    func pageDraws(_ key: String) -> Bool { store().map { isRendering(scopedKey(key, in: $0).key) } ?? true }
+    func pageDraws(_ key: String) -> Bool { !AgentTabKey(relaunchStorageKey: key).machine.isEmpty || (store().map { isRendering(scopedKey(key, in: $0).key) } ?? true) }
     func pageClock() -> ContinuousClock.Instant { now() }
     func pagePinned(_ key: String) -> Bool { isPinned(key) }
     func pageTurnsKnown() -> Bool { turnsWatched() }
@@ -142,7 +142,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     func freezeControl(of page: AgentPaneView) -> (any BrowserFreezing)? { freezer(page) }
     func setFrozen(_ control: any BrowserFreezing, _ frozen: Bool) -> Bool { control.setFrozen(frozen) }
     func setPageWork(_ page: AgentPaneView, _ work: (@MainActor () -> Void)?) { page.model.transport.beforePageWork = work }
-    func dropReleasedFrame(_ key: String) { if let tabs = store() { tabs.launchImages.drop(scopedKey(key, in: tabs).key) } }
+    func dropReleasedFrame(_ key: String) { if let tabs = store() { let scoped = scopedKey(key, in: tabs); tabs.launchImages.drop(tabs.launchImages.slot(scoped.key, machine: scoped.machine)) } }
 
     func pageIsUntouchedNewTab(_ key: String) -> Bool {
         guard let tabs = store() else { return false }
@@ -195,7 +195,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     /// is still the same hidden page.
     func releasePage(_ key: String) {
         guard let tabs = store(), let view = hibernationPage(key), let started = pages.beginRelease(key) else { return }
-        let tabID = scopedKey(key, in: tabs).key
+        let tabID = { let scoped = scopedKey(key, in: tabs); return tabs.launchImages.slot(scoped.key, machine: scoped.machine) }()
         let readWake = wakeState
         let takeSnapshot = snapshot
         let cause = started.cause
@@ -215,7 +215,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
                 return replan()
             }
             let storageScoped = AgentTabKey(relaunchStorageKey: key)
-            displace(storageScoped.key)
+            if storageScoped.machine.isEmpty { displace(storageScoped.key) }
             // The tab keeps its session and every other state: the next show builds the page again.
             let scoped = tabs.views.entries.first(where: { $0.value === view })?.key ?? storageScoped
             let stored = tabs.resolvedKey(scoped)

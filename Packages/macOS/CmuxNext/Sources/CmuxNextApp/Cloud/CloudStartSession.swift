@@ -185,7 +185,7 @@ struct CloudStartSession {
         let tabs = services.agentTabs
         for (workspace, _) in services.machines.allWorkspaces {
             for pane in workspace.screens.flatMap(\.panes) {
-                if let tab = pane.tabs.first(where: { (tabs.sessions[tabs.resolve($0.id)] ?? $0.agentSession?.session) == session }) { return tab }
+                if let tab = pane.tabs.first(where: { (tabs.sessions[tabs.tabKey(of: $0)] ?? $0.agentSession?.session) == session }) { return tab }
             }
         }
         return nil
