@@ -21,8 +21,9 @@ struct SidebarPinFlightTests {
     static let ticks = MotionPath.sampleCount(seconds: 0.8)
 
     /// Home's block, Pinned (`p`, then each of `pins`) and the machine's rows (every listed workspace not pinned).
-    static func state(_ pins: [WorkspaceID]) -> (sections: [SidebarSection], blocks: SidebarListBlocks) {
-        let pinned = [anchor] + pins
+    /// `anchored` false: no `p`, and with no pins no Pinned section at all (the first pin creates it).
+    static func state(_ pins: [WorkspaceID], anchored: Bool = true) -> (sections: [SidebarSection], blocks: SidebarListBlocks) {
+        let pinned = (anchored ? [anchor] : []) + pins
         let items = pinned.map { LayoutItem(id: LayoutItemID("itm_pin_\($0.rawValue)"), ref: .workspace($0.rawValue)) }
         let top = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, arrangement: .list, items: [home])
         let section = SidebarLayoutDocument.pinnedSection(items: items)
@@ -32,31 +33,31 @@ struct SidebarPinFlightTests {
             info.workspace = workspace
             infos[item.id] = info
         }
-        let sections = [
-            SidebarSection(kind: .custom(SidebarCustomSection(id: top.id.rawValue)), nodes: []),
-            SidebarSection(kind: .custom(SidebarCustomSection(id: section.id.rawValue)), nodes: []),
-            SidebarSection(kind: .machine(machine), nodes: listed.filter { !pinned.contains($0) }
-                .map { .workspace(SidebarWorkspace(id: $0, title: $0.rawValue)) }),
-        ]
+        let hasPinned = !pinned.isEmpty
+        let sections = [SidebarSection(kind: .custom(SidebarCustomSection(id: top.id.rawValue)), nodes: [])]
+            + (hasPinned ? [SidebarSection(kind: .custom(SidebarCustomSection(id: section.id.rawValue)), nodes: [])] : [])
+            + [SidebarSection(kind: .machine(machine), nodes: listed.filter { !pinned.contains($0) }
+                .map { .workspace(SidebarWorkspace(id: $0, title: $0.rawValue)) })]
         var metrics = SidebarRegionMetrics.standard
         metrics.trailingTrim = SidebarStyle.rowTrailingTrim
-        let blocks = SidebarListBlocks(sections: [top.id.rawValue: top, section.id.rawValue: section], infos: infos, collapsed: [],
+        let blocks = SidebarListBlocks(sections: hasPinned ? [top.id.rawValue: top, section.id.rawValue: section] : [top.id.rawValue: top],
+                                       infos: infos, collapsed: [],
                                        look: .quiet, metrics: metrics, drawsLines: false, appHeights: [:])
         return (sections, blocks)
     }
 
     /// The list shows `pins` pinned (the sidebar's blocks and rows change together, as the app's pin does).
-    static func show(_ pins: [WorkspaceID], on list: SidebarListView) {
-        let (sections, blocks) = state(pins)
+    static func show(_ pins: [WorkspaceID], anchored: Bool = true, on list: SidebarListView) {
+        let (sections, blocks) = state(pins, anchored: anchored)
         list.blocks = blocks
         list.model.sections = sections
     }
 
-    static func list(pins: [WorkspaceID]) -> (SidebarListView, NSWindow) {
+    static func list(pins: [WorkspaceID], anchored: Bool = true) -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        let (sections, blocks) = state(pins)
+        let (sections, blocks) = state(pins, anchored: anchored)
         let list = SidebarListView(model: SidebarModel(sections: sections))
         list.blocks = blocks
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 600), styleMask: [.borderless],
@@ -293,16 +294,17 @@ struct SidebarPinFlightTests {
         return frames
     }
 
-    /// Pins or unpins `d` with motion and checks its path and every other workspace's.
-    func move(pin: Bool) throws {
-        let (list, window) = Self.list(pins: pin ? [] : [Self.moved])
+    /// Pins or unpins `d` with motion and checks its path and every other workspace's. `anchored` false: `d` is the only
+    /// pinned workspace, so the pin creates the Pinned block (and the unpin empties it).
+    func move(pin: Bool, anchored: Bool = true) throws {
+        let (list, window) = Self.list(pins: pin ? [] : [Self.moved], anchored: anchored)
         defer { window.close() }
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
         let startFrame = list.convert(start.bounds, from: start)
         let before = Self.rest(list)
-        Self.show(pin ? [Self.moved] : [], on: list)
+        Self.show(pin ? [Self.moved] : [], anchored: anchored, on: list)
         list.reload(animated: true)
         let now = CACurrentMediaTime()
         let probes = Self.probes(Self.moved, list, now: now)
@@ -315,6 +317,14 @@ struct SidebarPinFlightTests {
         if pin { Self.checkGlyph("pinned d", arrived, failures: &failures) }
         Self.checkPath(pin ? "pinned d" : "unpinned d", probes: probes, now: now, start: startFrame,
                        end: list.convert(arrived.bounds, from: arrived), failures: &failures)
+        // It translates, never fades: the one copy shown is opaque at every tick (a new block must not fade it in).
+        for tick in 0..<Self.ticks {
+            let shown = probes.compactMap { $0.shown(at: now + Double(tick) / 120) }
+            if let faded = shown.first(where: { $0.opacity < 0.98 }) {
+                failures.append("\(pin ? "pinned d" : "unpinned d") tick \(tick): drawn at opacity \(faded.opacity), not opaque")
+                break
+            }
+        }
         for (id, from) in before {
             guard let to = after[id], let probes = others[id] else { failures.append("\(id.rawValue) is gone"); continue }
             Self.checkPath(id.rawValue, probes: probes, now: now, start: from, end: to, failures: &failures)
@@ -325,6 +335,13 @@ struct SidebarPinFlightTests {
     @Test func aPinMovesTheRowToItsPinnedSlot() throws { try move(pin: true) }
 
     @Test func anUnpinMovesTheItemBackToItsRow() throws { try move(pin: false) }
+
+    /// The first pin creates the Pinned block: the row still translates into it, opaque, and the block opens around it
+    /// (brief item 6c: the new block's open fade took the item with it).
+    @Test func theFirstPinMovesTheRowIntoTheNewBlock() throws { try move(pin: true, anchored: false) }
+
+    /// The last unpin empties the Pinned block: the item translates back to its row.
+    @Test func theLastUnpinMovesTheItemOutOfTheBlock() throws { try move(pin: false, anchored: false) }
 
     /// The rows reach the list before the blocks (the sidebar now sends them in one apply, `SidebarPinOneApplyTests`; a
     /// client that sends two updates still must not jump): at the rows' update the row starts to close, and the block's
