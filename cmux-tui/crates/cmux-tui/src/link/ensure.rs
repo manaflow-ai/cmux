@@ -352,11 +352,13 @@ pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
     }
     match start(&state, flags)? {
         // The link would not serve: another process holds the key.
-        Some(failed) if failed["event"] == "link-failed" => Err(anyhow!(
-            "{}: {}",
-            failed["error"].as_str().unwrap_or("link_failed"),
-            failed["message"].as_str().unwrap_or("the link did not start")
-        )),
+        Some(failed) if failed.get("event").and_then(Value::as_str) == Some("link-failed") => {
+            Err(anyhow!(
+                "{}: {}",
+                failed.get("error").and_then(Value::as_str).unwrap_or("link_failed"),
+                failed.get("message").and_then(Value::as_str).unwrap_or("the link did not start")
+            ))
+        }
         Some(ready) => {
             print_json(&json!({
                 "status": if restarted { "restarted" } else { "started" },
