@@ -130,12 +130,17 @@ struct TabPinMotionTests {
         let start = shown(cell, at: before)
         let startTitle = opacity(cell.titleLayer, at: before)
         let starts = Dictionary(uniqueKeysWithValues: strip.cells.map { ($0.key, shown($0.value, at: before)) })
+        let dividerStart = strip.pinnedDivider.isHidden ? nil : MotionPath(strip.pinnedDivider, "position").value(at: before).x
         model.tabs = tabs(pinned: pin ? [first, moved] : [first])
         strip.sync(fromModel: true)
         #expect(strip.cells[moved] === cell, "the tab's cell was replaced: the same view must move")
         // Frame 0 is the move's begin (`TabStripMove.begin`), not the clock after `sync` returns: a slow host's sync
         // time would otherwise read as a jump.
         let begin = try #require(TabMoveMotionTargetTests.moveBegin(Array(strip.cells.values)), "the pin did not animate")
+        // The app syncs the strip a second time while the pin moves (the daemon's echo of the same change: the film's second
+        // turn). The screen at a4ccec2: the divider showed at its new place from that turn on, tab1's icon slid under it
+        // (3 frames), then it vanished (5 frames). Every reading below is after both syncs, as the screen shows it.
+        strip.sync(fromModel: true)
         let ends = Dictionary(uniqueKeysWithValues: strip.cells.map { ($0.key, $0.value.layer.frame) })
         let end = ends[moved] ?? cell.layer.frame
         let endTitle = cell.titleLayer.opacity
@@ -264,6 +269,11 @@ struct TabPinMotionTests {
         }
         // The divider fades, never pops: its opacity steps no more than the move's own step allows.
         let dividerOpacity = (0...ticks).map { strip.pinnedDivider.isHidden ? 0 : opacity(strip.pinnedDivider, at: begin + Double($0) / 120) }
+        // Tick 0 shows the divider where it showed before the pin (or not at all): it never jumps to its new place.
+        if let dividerStart, dividerOpacity[0] > 0.05 {
+            let x = MotionPath(strip.pinnedDivider, "position").value(at: begin).x
+            if abs(x - dividerStart) > 0.5 { failures.append("tick 0: the divider shows at \(x), it showed at \(dividerStart)") }
+        }
         for (index, pair) in zip(dividerOpacity, dividerOpacity.dropFirst()).enumerated() where abs(pair.1 - pair.0) > 0.5 {
             failures.append("tick \(index + 1): the divider pops (\(pair.0) to \(pair.1))")
             break
