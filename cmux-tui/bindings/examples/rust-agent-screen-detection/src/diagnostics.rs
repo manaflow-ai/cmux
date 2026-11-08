@@ -50,6 +50,8 @@ mod target_selection_tests {
         assert!(error.contains("term_2222"), "{error}");
     }
 }
+use std::path::PathBuf;
+
 use cmux::{
     Client, Config, ProcessInfoResult, ReadScreenOptions, Selector, SessionId, TerminalId,
     TerminalSnapshot,
@@ -60,6 +62,29 @@ use crate::manifest::{DetectionInput, ManifestSet};
 use crate::process;
 
 const MAX_TARGET_BYTES: usize = 256;
+
+/// Where a live explain connects, and the session it names there.
+#[derive(Debug, PartialEq, Eq)]
+pub struct LiveRoute {
+    /// The daemon socket.
+    pub socket: PathBuf,
+    /// The session id or name to read; `None` reads the socket's own session.
+    pub session: Option<String>,
+}
+
+/// Resolve the daemon of a live explain (stub: the inherited socket only).
+pub fn live_route(
+    socket: Option<&str>,
+    session: Option<&str>,
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<LiveRoute, String> {
+    let _ = (socket, session);
+    let socket = env("CMUX_TUI_SOCKET")
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "CMUX_TUI_SOCKET is required for live explain".to_string())?;
+    let session = env("CMUX_TUI_SESSION_ID").unwrap_or_else(|| "main".into());
+    Ok(LiveRoute { socket: socket.into(), session: Some(session) })
+}
 
 /// Explain one live terminal selected by its opaque ID or exact title.
 ///
@@ -264,5 +289,46 @@ mod tests {
                 .contains("was not found")
         );
         assert!(resolve_snapshot(&terminals, "missing").unwrap_err().contains("no terminal has"));
+    }
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |name| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).into())
+    }
+
+    const IN_A_PANE: &[(&str, &str)] =
+        &[("CMUX_TUI_SOCKET", "/tmp/pane.sock"), ("CMUX_TUI_SESSION_ID", "pane-session")];
+
+    #[test]
+    fn live_session_derives_its_socket_like_the_cli_and_ignores_the_panes() {
+        let route = live_route(None, Some("w4i-e1"), env(IN_A_PANE)).unwrap();
+        assert_eq!(route.socket, cmux::raw::default_socket_path("w4i-e1"));
+        assert_ne!(route.socket, PathBuf::from("/tmp/pane.sock"));
+        assert_eq!(route.session.as_deref(), Some("w4i-e1"));
+    }
+
+    #[test]
+    fn live_socket_is_exact_and_reads_its_own_session() {
+        let route = live_route(Some("/tmp/exact.sock"), None, env(IN_A_PANE)).unwrap();
+        assert_eq!(route, LiveRoute { socket: "/tmp/exact.sock".into(), session: None });
+        let both = live_route(Some("/tmp/exact.sock"), Some("w4i"), env(&[])).unwrap();
+        assert_eq!(both.session.as_deref(), Some("w4i"));
+    }
+
+    #[test]
+    fn live_route_without_flags_keeps_the_panes_socket_else_main() {
+        let route = live_route(None, None, env(IN_A_PANE)).unwrap();
+        assert_eq!(route.socket, PathBuf::from("/tmp/pane.sock"));
+        assert_eq!(route.session.as_deref(), Some("pane-session"));
+        let mux = live_route(None, None, env(&[("CMUX_MUX_SOCKET", "/tmp/mux.sock")])).unwrap();
+        assert_eq!(mux, LiveRoute { socket: "/tmp/mux.sock".into(), session: None });
+        let bare = live_route(None, None, env(&[])).unwrap();
+        assert_eq!(bare.socket, cmux::raw::default_socket_path("main"));
+    }
+
+    #[test]
+    fn live_session_names_a_path_component() {
+        for name in ["", "..", "a/b", "a\nb"] {
+            assert!(live_route(None, Some(name), env(&[])).is_err(), "{name:?}");
+        }
     }
 }
