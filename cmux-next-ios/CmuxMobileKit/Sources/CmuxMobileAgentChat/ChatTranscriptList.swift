@@ -2,6 +2,7 @@
 import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
+import CmuxMobileModel
 import Observation
 import OSLog
 import SwiftUI
@@ -583,6 +584,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             self?.layout.forgetHeights()
             self?.environmentChanged()
         }
+        MemoryPressure.shared.register(self) { [weak self] in self?.relieveMemoryPressure() }
         observe()
         reload()
     }
@@ -629,6 +631,30 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         scrollDelegate?.scrollViewDidEndDragging?(scrollView, willDecelerate: decelerate)
+        if !decelerate { spillIfResting() }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        scrollDelegate?.scrollViewDidEndDecelerating?(scrollView)
+        spillIfResting()
+    }
+
+    // MARK: Memory
+
+    /// The reader rests at the newest turn: turns past the window go to disk
+    /// (`AgentChatStore.spillOlder`), and scrolling up brings them back. Not on the tab grid's
+    /// card, which holds its transcript.
+    func spillIfResting() {
+        guard surface.following, !surface.holdsTranscript, !collectionView.isTracking,
+              store.turns.count > AgentChatStore.windowTrigger else { return }
+        store.spillOlder(keeping: AgentChatStore.windowKeep)
+    }
+
+    /// A memory warning: every turn above the one the reader is on goes to disk.
+    func relieveMemoryPressure() {
+        let reading = surface.following ? nil
+            : layout.firstRow(below: collectionView.contentOffset.y + collectionView.adjustedContentInset.top).flatMap { rows[$0.id]?.turnID }
+        store.spillOlder(keeping: AgentChatStore.pressureKeep, protecting: reading)
     }
 
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
@@ -925,6 +951,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         loaded = true
         if !missing.isEmpty { prepare(missing, urgent: false) }
         queueWarmUp(ids)
+        spillIfResting()
     }
 
     /// Applies a disclosure change the list has not reloaded for yet (its observation reloads on
@@ -1408,8 +1435,9 @@ extension ChatRow {
         case .sessionStart: return 46
         case .prompt(let text, let attachments, _, _):
             return lines(text) * perLine + 22 + (attachments.isEmpty ? 0 : 156)
-        case .incoming(let incoming, _):
-            return incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40
+        case .incoming(let incoming, let attachments, _):
+            return (incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40)
+                + (attachments.isEmpty ? 0 : 156)
         case .block(_, let block):
             switch block.kind {
             case .heading: return 30

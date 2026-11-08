@@ -75,6 +75,8 @@ enum BookmarkHandlers {
                 return nil
             })
         })
+        ActionTargetTitles.set("bookmark.toggleBar", in: registry) { _ in services.bookmarks.isBarShown ? BookmarkStrings.hideBar : nil }
+        ActionTargetTitles.setPaletteSettingState("bookmark.toggleBar", in: registry) { services.bookmarks.isBarShown }
         registry.bind("bookmark.manager", run: { _ in services.bookmarkPages.open() })
         registry.bind("bookmark.import", run: { invocation in
             let profile = resolver.profile(invocation)

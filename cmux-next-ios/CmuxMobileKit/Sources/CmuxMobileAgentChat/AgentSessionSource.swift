@@ -78,6 +78,11 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// `answers`: a question's answers as the owner recorded them (harness-shaped).
     case permissionDecision(permissionId: String, optionId: String?, answers: AgentQuestionJSON? = nil)
     case questionAnswered(questionId: String, answer: AgentQuestionAnswer)
+    /// acpmux's sudo card (`elevation_request`, hub/elevation.rs): the agent asks to run one
+    /// command as root on the Mac.
+    case elevationRequest(AgentElevationAsk)
+    /// `elevation_decision`: the card was answered (here, on the Mac) or closed.
+    case elevationDecision(id: String)
     /// The history a chat opened on leaves out older records (the attach's cap): its first
     /// turn is not where the session started.
     case earlierHistory(Bool)
@@ -116,6 +121,9 @@ public enum AgentClientIntent: Hashable, Sendable {
     case retryFailedTurn
     case cancel
     case respondPermission(permissionId: String, optionId: String?)
+    /// The sudo card's answer: Approve with the password (signed with the approval key), or Deny
+    /// (`password` nil). `_acpmux/secret_submit`.
+    case answerElevation(AgentElevationAsk, password: AgentSecretText?)
     case answerQuestion(questionId: String, answer: AgentQuestionAnswer)
     case setModel(String)
     /// Retry with another model (the Mac's turn menu, cx-ncc.62): `session/set_model`, then
@@ -135,8 +143,8 @@ public enum AgentClientIntent: Hashable, Sendable {
     case resumeQueue
 }
 
-public struct AgentAttachment: Hashable, Sendable, Identifiable {
-    public enum Kind: Hashable, Sendable { case image, file }
+public struct AgentAttachment: Hashable, Sendable, Codable, Identifiable {
+    public enum Kind: Hashable, Sendable, Codable { case image, file }
 
     public var id: String
     public var kind: Kind
@@ -338,4 +346,48 @@ public final class DisconnectedAgentSource: AgentSessionSource {
         }
         for continuation in continuations { continuation.yield(event) }
     }
+}
+
+/// An agent's ask to run one command as root (acpmux `elevation_request`): the exact argv sudo
+/// runs, the agent's reason, the machine, the time limit, and the nonce and daemon run the phone
+/// signs its Approve over (acpmux `Hub::card_answer_signed`).
+public struct AgentElevationAsk: Hashable, Sendable, Identifiable {
+    public let id: String
+    public let argv: [String]
+    public let reason: String
+    public let host: String
+    public let timeoutSecs: Int?
+    public let nonce: String
+    public let instance: String
+
+    public init(id: String, argv: [String], reason: String, host: String, timeoutSecs: Int?, nonce: String, instance: String) {
+        self.id = id
+        self.argv = argv
+        self.reason = reason
+        self.host = host
+        self.timeoutSecs = timeoutSecs
+        self.nonce = nonce
+        self.instance = instance
+    }
+
+    /// The command as the person reads it: `sudo` and each argument, quoted when it holds a space
+    /// or a shell character (sudo gets the argv; no shell runs).
+    public var commandLine: String {
+        let plain = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-")
+        let quoted = argv.map { arg in
+            !arg.isEmpty && arg.unicodeScalars.allSatisfy(plain.contains)
+                ? arg : "'" + arg.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        return (["sudo"] + quoted).joined(separator: " ")
+    }
+}
+
+/// A password on its way to acpmux: it never prints, so no log, crash report or debug
+/// description of an intent holds it.
+public struct AgentSecretText: Hashable, Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public let value: String
+    public init(_ value: String) { self.value = value }
+    public var description: String { "(secret)" }
+    public var debugDescription: String { "(secret)" }
+    public var customMirror: Mirror { Mirror(self, children: []) }
 }

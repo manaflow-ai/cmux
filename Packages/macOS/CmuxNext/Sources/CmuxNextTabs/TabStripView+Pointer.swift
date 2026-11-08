@@ -62,7 +62,6 @@ extension TabStripView {
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
         onHoverTab?(id)
-        TabSeparatorVisibility.apply(to: self)
     }
 
     /// `moved`: a pointer event (true) or content that moved under a still
@@ -121,9 +120,7 @@ extension TabStripView {
 
     public override func mouseEntered(with event: NSEvent) {
         if closingWatch.trackingEvent(event, entered: true) { return }
-        buttonReveal.pointerInStrip = true
-        closingWatch.pointerReturned()
-        updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
+        pointerEntered(at: event.locationInWindow)
     }
 
     public override func mouseMoved(with event: NSEvent) {
@@ -133,8 +130,7 @@ extension TabStripView {
 
     public override func mouseExited(with event: NSEvent) {
         if closingWatch.trackingEvent(event, entered: false) { return }
-        pointerLeft()
-        hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+        pointerExited(at: event.locationInWindow)
     }
 
     /// An exit, or the strip moved away under a still pointer (`geometryDidChange`).
@@ -399,9 +395,7 @@ extension TabStripView {
         guard model.tab(id) != nil else { return }
         if source.entersClosingMode {
             closingModeWidth = TabLayoutEngine.closingModeWidth(afterClosing: id, in: result, current: closingModeWidth)
-            if let point, let frame = TabClosingModeHit.laidOut(self).first(where: { $0.id == id })?.frame {
-                closingHit.closePressed(at: convert(point, to: tabsClip), on: frame)
-            }
+            if let point { closingHit.closePressed(at: convert(point, to: tabsClip)) }
         }
         model.send(.close(id, source: source))
     }
@@ -410,14 +404,4 @@ extension TabStripView {
     func arrivingCloseTab(at point: CGPoint) -> TabID? {
         closingModeWidth == nil ? nil : closingHit.tab(at: convert(point, to: tabsClip), in: self)
     }
-}
-
-/// In a pane the layout screen's one tracking area hit-tests the pointer and calls these (``PanePointerFollowing``), as
-/// the strip's own tracking area called the overrides above (`TabStripView.updateTrackingAreas`). The strip sets no
-/// cursor of its own.
-extension TabStripView: PanePointerFollowing {
-    public func panePointerCursor(at point: NSPoint) -> NSCursor? { nil }
-    public func panePointerEntered(with event: NSEvent) { mouseEntered(with: event) }
-    public func panePointerMoved(with event: NSEvent) { mouseMoved(with: event) }
-    public func panePointerExited(with event: NSEvent) { mouseExited(with: event) }
 }

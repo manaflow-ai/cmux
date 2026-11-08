@@ -102,6 +102,70 @@ export function settleFoldsIn(root: Element): void {
   for (const [node, settle] of settling) if (root.contains(node)) settle();
 }
 
+/// A gap between two painted frames this long means the page is missing frames: about three at 60 Hz.
+export const FOLD_DROP_MS = 50; // motion-allow: a frame-drop threshold, not an animation's duration
+
+/// How much later than planned a fold may end because its clock restarted after its first frame
+/// (`settleOnDroppedFrames`): under the transcript's hold after a fold (foldAnchor.ts
+/// `FOLD_SETTLE_MS`, 150 ms), so the line and the bottom stay held until the restarted fold ends.
+export const FOLD_RESTART_MAX_MS = 100; // motion-allow: a bound on a restart, not an animation
+
+/// Lands `node`'s fold at its end once the page is under load: on the second frame in a row that
+/// comes `FOLD_DROP_MS` or more after the one before it (Leo, 2026-11-06, on a recording under heavy
+/// load: "way too discontinuous", "jittery"). Under load a height fold skips most of its frames and
+/// each one that paints jumps the rows around it; the end state at once reads as one step.
+///
+/// One slow frame is not load. The gap after the fold's first frame is often the page laying out and
+/// painting what opened (a long log, a diff), a cost of the toggle itself; one streamed chunk can
+/// cost a frame too. Landing on either made a fold land at once whenever its first frame or one chunk
+/// took a little long, so it "sometimes doesn't play" (Leo, 2026-11-07). When that first gap is slow
+/// the fold's clock starts again (`playing`), by at most `FOLD_RESTART_MAX_MS`, so the first frame
+/// the reader sees moved is near the fold's start rather than halfway: the whole motion plays, and
+/// under load the restarted frame still reads as the start, the next as the end. Its own frame loop runs only while
+/// `node`'s fold is in `settling`, so it stops when the fold ends, settles or turns back (a new fold
+/// starts its own).
+function settleOnDroppedFrames(node: HTMLElement, playing: () => Animation | undefined): void {
+  const view = node.ownerDocument.defaultView;
+  if (!view?.requestAnimationFrame) return;
+  const settle = settling.get(node);
+  let last: number | undefined;
+  let first = true;
+  let dropped = false;
+  const step = (now: number) => {
+    if (settling.get(node) !== settle) return;
+    if (last !== undefined) {
+      const gap = now - last;
+      if (gap < FOLD_DROP_MS) dropped = false;
+      else if (dropped) {
+        settle?.();
+        return;
+      } else {
+        dropped = true;
+        if (first) restartClock(node, playing(), gap - FOLD_FRAME_MS);
+      }
+      first = false;
+    }
+    last = now;
+    view.requestAnimationFrame(step);
+  };
+  view.requestAnimationFrame(step);
+}
+
+/// One frame at 60 Hz: what a fold's first gap is allowed before its clock restarts.
+const FOLD_FRAME_MS = 1000 / 60;
+
+/// Moves `animation`'s clock back by `lost` ms (at most `FOLD_RESTART_MAX_MS`), so the time the page
+/// spent drawing the fold's first frame is not skipped, and marks the row's height fold to its new end.
+function restartClock(node: HTMLElement, animation: Animation | undefined, lost: number): void {
+  const at = animation?.currentTime;
+  if (!animation || typeof at !== "number") return;
+  const back = Math.min(lost, FOLD_RESTART_MAX_MS, at);
+  if (back <= 0) return;
+  animation.currentTime = at - back;
+  const end = animation.effect?.getComputedTiming().endTime;
+  if (typeof end === "number") markHeightFold(node, Math.max(0, end - (at - back)));
+}
+
 /// The resize each box is playing (`playResize`), so a resize that ends late lets go of only its own.
 const resizing = new WeakMap<HTMLElement, Animation>();
 
@@ -154,6 +218,12 @@ export function cancelResize(node: HTMLElement): void {
   resizing.delete(node);
   clipFold(node, false);
   animation.cancel();
+}
+
+/// Lets an opened box take its own size again: no held height, no clip.
+function letGo(node: HTMLElement): void {
+  node.style.height = "";
+  clipFold(node, false);
 }
 
 /// Holds `node` shut (height and opacity 0, its body clipped), or with `undefined`, lets it take its
@@ -210,7 +280,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       if (running.current && foldMs(node) <= 0) {
         // Cancel removes Web Animation effects immediately, while its cancel event may be queued.
         // Settle the layout synchronously first so a closing body cannot flash back to natural height.
-        if (opening) clipFold(node, false);
+        if (opening) letGo(node);
         else {
           pin(node, 0);
           setClosing(false);
@@ -264,12 +334,19 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     cancelRunning();
     const toHeight = open ? node.scrollHeight : 0;
     clipFold(node, true);
+    // The box holds its start height under the motion: a new animation is pending until a frame
+    // starts it, and a frame that painted before it applied drew the body at its full height for one
+    // frame, the whole list flashing open before it slid (Leo, 2026-11-08, on the composer hat:
+    // "sometimes ... there's, like, some elements in between"). It lets go when the fold ends.
+    node.style.height = `${fromHeight}px`;
     const animation = node.animate(
       [
         { height: `${fromHeight}px`, opacity: fromOpacity },
         { height: `${toHeight}px`, opacity: open ? 1 : 0 },
       ],
-      { duration: ms, easing: foldMotion.easing(node) },
+      // It holds its end until it lets go (`settled`), so the frame it ends on never draws the held
+      // start height.
+      { duration: ms, easing: foldMotion.easing(node), fill: "forwards" },
     );
     running.current = animation;
     watchMotion(node, open);
@@ -287,13 +364,14 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
         if (!playing || next <= target + 0.5 || now >= until) return;
         target = next;
         const drawn = node.getBoundingClientRect().height;
+        node.style.height = `${drawn}px`;
         const opacity = Number(styleOf(node)?.opacity ?? 1) || 0;
         const rest = node.animate(
           [
             { height: `${drawn}px`, opacity },
             { height: `${next}px`, opacity: 1 },
           ],
-          { duration: until - now, easing: foldMotion.easing(node) },
+          { duration: until - now, easing: foldMotion.easing(node), fill: "forwards" },
         );
         playing.onfinish = null;
         playing.oncancel = null;
@@ -305,7 +383,8 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
           settling.delete(node);
           stopWatching();
           unwatchMotion();
-          clipFold(node, false);
+          letGo(node);
+          rest.cancel();
         };
         rest.onfinish = settledRest;
         rest.oncancel = settledRest;
@@ -320,12 +399,14 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       running.current = undefined;
       settling.delete(node);
       if (open) {
-        clipFold(node, false);
+        letGo(node);
+        animation.cancel();
         return;
       }
       // The animation lets go of the box as it ends, and React removes the body only on its next
       // commit, after that frame paints: pinned shut until then, the body never flashes open.
       pin(node, 0);
+      animation.cancel();
       setClosing(false);
     };
     animation.onfinish = settled;
@@ -342,12 +423,13 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       stopWatching();
       unwatchMotion();
       playing.cancel();
-      if (open) clipFold(node, false);
+      if (open) letGo(node);
       else {
         pin(node, 0);
         setClosing(false);
       }
     });
+    settleOnDroppedFrames(node, () => running.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of `open` plays the fold
   }, [open]);
   useLayoutEffect(

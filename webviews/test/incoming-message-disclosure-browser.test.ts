@@ -20,6 +20,7 @@ import path from "node:path";
 import { chromium, type Browser, type Locator, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { agentPaneTheme, themeTokens, webThemePayload } from "../src/gallery/theme/web";
 
 await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -122,7 +123,20 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       case "initialize":
         return { result: { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } } };
       case "_acpmux/watch":
-        return { result: { sessions: [summary()] } };
+        return {
+          result: {
+            sessions: [
+              summary(),
+              {
+                sessionId: "fixture-review",
+                name: "review-box/design-check",
+                peer: "review-box",
+                harness: "codex",
+                status: "idle",
+              },
+            ],
+          },
+        };
       case "_acpmux/attach":
         if (params.sessionId !== SESSION)
           return { result: { session: { ...summary(), sessionId: params.sessionId }, lastSeq: seq, events: [] } };
@@ -175,17 +189,37 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
     waitText: string,
     running = false,
     queued: { promptId: string; prompt: string }[] = [],
+    colorScheme?: "light" | "dark",
   ): Promise<Page> {
     seq = 0;
     status = running ? "running" : "idle";
     queue = queued;
     history = records;
-    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 }, colorScheme });
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     // The file's first page loads the pane's modules cold; on a busy runner that took over 10 s.
     await page.getByText(waitText).first().waitFor({ timeout: 60_000 });
+    if (colorScheme) {
+      // The pane receives native theme payloads; browser media alone leaves its dark fallback.
+      const tokens = themeTokens({
+        name: colorScheme,
+        background: colorScheme === "light" ? "#ffffff" : "#111111",
+        foreground: colorScheme === "light" ? "#222222" : "#eeeeee",
+        palette: [],
+      });
+      await page.evaluate(
+        ({ web, agent }) => {
+          for (const [name, value] of Object.entries(web.variables))
+            document.documentElement.style.setProperty(name, value);
+          document.documentElement.style.colorScheme = web.colorScheme;
+          window.cmuxAcpmuxBridge!.applyTheme(agent);
+        },
+        { web: webThemePayload(tokens), agent: agentPaneTheme(tokens, true) },
+      );
+      expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe(colorScheme);
+    }
     return page;
   }
   /// Resolves once every finite animation in the transcript has finished, and two frames painted.
@@ -332,10 +366,10 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
     }
   });
 
-  // At the view's end, opening pushes the text above up and the end stays put (Leo, 2026-11-02:
-  // "YOU EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"); closing keeps the
-  // line where it was clicked.
-  test("the chat's last row, opened with the view at its end, pushes the text up; closed, stays on its pixel", async () => {
+  // At the view's end, opening grows down under the composer and the line stays where it was clicked,
+  // as Codex opens a call at the end of a chat (Lucas, 2026-11-06, Codex parity; it replaces the
+  // bottom pin on open). The view stops following, and closing keeps the line where it was clicked.
+  test("the chat's last row, opened with the view at its end, stays on its pixel and grows down; closed, stays too", async () => {
     const page = await openChat(
       [...Array.from({ length: 6 }, (_, index) => turn(index)).flat(), fromAgent(LONG, "Grid fix", "child-3", "m-end")],
       "Paragraph 1 of the landing report",
@@ -351,11 +385,10 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       expect(await toggle.getAttribute("aria-expanded")).toBe("true");
       await rest(page);
       const opened = await topOf(toggle);
-      console.log(`pinned end: line top ${before} -> ${opened} opened`);
-      expect(opened).toBeLessThan(before - 1);
-      expect(await atLatest(page)).toBe(true);
+      console.log(`end: line top ${before} -> ${opened} opened`);
+      expect(Math.abs(opened - before)).toBeLessThan(1);
+      expect(await atLatest(page)).toBe(false);
 
-      // The opened message may have pushed its line above the view: back in view, closing keeps it.
       await toggle.scrollIntoViewIfNeeded();
       await rest(page);
       const shown = await topOf(toggle);
@@ -363,7 +396,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
       await rest(page);
       const closed = await topOf(toggle);
-      console.log(`pinned end: line top ${shown} -> ${closed} closed`);
+      console.log(`end: line top ${shown} -> ${closed} closed`);
       expect(Math.abs(closed - shown)).toBeLessThan(1);
     } finally {
       await page.close();
@@ -371,7 +404,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
   });
 
   // A scroll made from code right after that open (scrollIntoView, Find, a link to a row) stays
-  // where the code put it: the open's hold at the end pinned it back there within its 300 ms (#34780).
+  // where the code put it: no hold puts it back within the open's fold (#34780).
   test("a scroll from code just after opening the chat's last row stays where it was put", async () => {
     const page = await openChat(
       [...Array.from({ length: 6 }, (_, index) => turn(index)).flat(), fromAgent(LONG, "Grid fix", "child-3", "m-end")],
@@ -597,4 +630,41 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       await page.close();
     }
   });
+  for (const scheme of ["light", "dark"] as const) {
+    test(`qualified sender identity stays canonical in the ${scheme} disclosure`, async () => {
+      const page = await openChat(
+        [
+          ...turn(1),
+          fromAgent(
+            "Synthetic review complete. The layout and keyboard checks passed.",
+            "review-box/design-check",
+            "fixture-review",
+            "sender-fixture",
+          ),
+        ],
+        "Synthetic review complete.",
+        false,
+        [],
+        scheme,
+      );
+      try {
+        const line = page.locator(".cv-received").last();
+        await line.locator(".cv-disclosure__toggle").click();
+        await rest(page);
+        if (process.env.SENDER_IDENTITY_CAPTURE)
+          await page.screenshot({ path: `${process.env.SENDER_IDENTITY_CAPTURE}-${scheme}.png` });
+        expect(await line.locator(".cv-received__from").allInnerTexts()).toEqual(["design-check"]);
+        expect(await line.locator(".cv-received__host-name").allInnerTexts()).toEqual(["review-box"]);
+        expect(await line.locator(".cv-disclosure__toggle").getAttribute("aria-label")).toBe(
+          "Message from design-check: Synthetic review complete. The layout and keyboard checks passed.",
+        );
+        expect(await line.locator(".cv-received__from--open").getAttribute("aria-label")).toBe(
+          "Open design-check (review-box)",
+        );
+        expect(await line.locator(".cv-received__text").innerText()).toContain("keyboard checks passed.");
+      } finally {
+        await page.close();
+      }
+    });
+  }
 });

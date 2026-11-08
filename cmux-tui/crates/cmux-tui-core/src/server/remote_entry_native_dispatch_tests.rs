@@ -52,7 +52,7 @@ fn provision(entry: &Entry, stream: &mut UnixStream, reader: &mut BufReader<Unix
 }
 
 #[test]
-fn native_owner_provisions_trusts_starts_and_attaches_first_chat_over_real_entry() {
+fn native_owner_provisions_attaches_and_reads_context_over_real_entry() {
     let fake = FakeAcpmux::start_with(
         "native-first",
         Fixture { start_folder_trusted: Some(true), ..Default::default() },
@@ -66,6 +66,9 @@ fn native_owner_provisions_trusts_starts_and_attaches_first_chat_over_real_entry
     let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
     assert!(
         identity["capabilities"].as_array().unwrap().contains(&json!("agent-session-content-v1"))
+    );
+    assert!(
+        identity["capabilities"].as_array().unwrap().contains(&json!("agent-session-context-v1"))
     );
     let cwd = entry._directory.path().to_string_lossy().into_owned();
     ok(
@@ -94,6 +97,24 @@ fn native_owner_provisions_trusts_starts_and_attaches_first_chat_over_real_entry
     );
     ok(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
     assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
+    let context = ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"agent-session-context", "surface":surface, "op":"get"}),
+    );
+    assert_eq!(context["parts"][0]["text"], "Read early.");
+    assert_eq!(fake.frame()["params"], json!({"sessionId":SESSION}));
+    ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"project", "text":"read together"}),
+    );
+    let sent = fake.frame();
+    assert_eq!(sent["method"], "_acpmux/context_override");
+    assert_eq!(
+        sent["params"],
+        json!({"sessionId":SESSION, "scope":"project", "text":"read together"})
+    );
     ok(&mut stream, &mut reader, json!({"cmd":"agent-session-detach", "surface":surface}));
     // The grant never promotes this connection to a generic local one.
     for frame in [
@@ -136,6 +157,53 @@ fn native_owner_start_preserves_folder_trust() {
         methods,
         [json!("_acpmux/web_modes"), json!("_acpmux/harnesses"), json!("acp.trust.get")]
     );
+}
+
+/// `cmux cloud start-chat --prompt hi` with no `--cwd` on the owner's new machine (2026-11-06):
+/// the app reads `agent-session-start-no-cwd-v1` from identify on the Native owner link before it
+/// sends a start with no folder, so the machine makes `~/chats/<id>`. Identify on that link dropped
+/// it, and the app refused the start as "it needs a folder" without sending it (Leo, 2026-11-05:
+/// "it should be allowed to not pick a folder").
+#[test]
+fn native_owner_identify_lists_the_no_folder_start() {
+    assert!(native_owner::carries(AGENT_SESSION_START_NO_CWD_CAPABILITY));
+    let fake = FakeAcpmux::start("native-no-cwd");
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
+    let capabilities = identity["capabilities"].as_array().unwrap();
+    assert!(capabilities.contains(&json!(AGENT_SESSION_START_NO_CWD_CAPABILITY)), "{identity}");
+}
+
+/// A Cloud capture's chat start failed "started but its agent didn't (cmux-tui connection closed:
+/// EOF)" (2026-11-07): identify on the Native owner link left out viewport-splits-v1,
+/// viewport-column-resize-v1 and layout-undo-v1, which the app requires, so the app read the
+/// machine's daemon as refused and ran its machine update on every reconnect, also under the start,
+/// though the machine already ran the app's own build. Every capability the app requires
+/// (plans/cmux-next/daemon-capabilities.json, exported from its `DaemonCapability`) is on that link.
+#[test]
+fn native_owner_identify_lists_every_capability_the_app_requires() {
+    let export: Value = serde_json::from_str(include_str!(
+        "../../../../../plans/cmux-next/daemon-capabilities.json"
+    ))
+    .unwrap();
+    let required: Vec<&str> =
+        export["required"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect();
+    assert!(!required.is_empty());
+    let fake = FakeAcpmux::start("native-required");
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
+    let listed = identity["capabilities"].as_array().unwrap();
+    let missing: Vec<&str> =
+        required.iter().copied().filter(|c| !listed.contains(&json!(c))).collect();
+    assert!(missing.is_empty(), "the Native owner link leaves out {missing:?}: {identity}");
 }
 
 #[test]
@@ -313,8 +381,10 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "agent-cli-update-job",
     "agent-session-share-create",
     "agent-session-share-invite",
+    "agent-session-share-invite-chat",
     "agent-session-share-kick",
     "agent-session-share-list",
+    "agent-session-share-open-link",
     "agent-session-share-revoke",
     "agent-session-share-room",
     "agent-session-share-uninvite",
@@ -426,6 +496,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "set-terminal-keep",
     "set-workspace-metadata",
     "shutdown-daemon",
+    "terminal-last-command",
     "terminal-resources",
     "terminal-resume-command",
     "ungroup-screen-group",

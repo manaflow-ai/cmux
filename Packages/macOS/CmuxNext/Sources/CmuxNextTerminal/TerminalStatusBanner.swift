@@ -5,8 +5,29 @@ import CmuxNextDesign
 /// visible behind it. The theme's raised surface and secondary text, no
 /// accent. ``TerminalStatusLabel`` builds it the first time a label shows and
 /// decides when it shows; it starts hidden.
+///
+/// An in-between state ("Restoring…", "Reconnecting…": the ones that wait out a
+/// reveal delay) is no label at all: a small, very transparent loading mark with
+/// no surface of its own, so the pane keeps its one material (Leo, 2026-11-07:
+/// "we can just have the small symbols as loading indicators, like really
+/// transparent things"). Its words stay its accessibility label.
 final class TerminalStatusBanner: NSView {
     private let label = ThemedLabel(labelWithString: "")
+    /// The in-between state's mark, built the first time one shows.
+    private var mark: StatusIndicatorView?
+    private lazy var labelEdges = [
+        label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+        label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+        label.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+        label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+    ]
+    private var markEdges: [NSLayoutConstraint] = []
+    /// Whether it shows the in-between mark instead of its words.
+    private(set) var showsMark = false
+    /// The mark's side, the size of a tab's loading mark.
+    static let markSide: CGFloat = 14
+    /// The mark's opacity: present, never louder than the terminal under it.
+    static let markOpacity: CGFloat = 0.4
 
     init() {
         super.init(frame: .zero)
@@ -18,12 +39,7 @@ final class TerminalStatusBanner: NSView {
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            label.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
-        ])
+        NSLayoutConstraint.activate(labelEdges)
         isHidden = true
         setAccessibilityRole(.staticText)
     }
@@ -44,34 +60,87 @@ final class TerminalStatusBanner: NSView {
     }
 
     private func applyThemeColors() {
+        guard !showsMark else {
+            layer?.backgroundColor = nil
+            layer?.borderColor = nil
+            return
+        }
         performWithTheme {
             layer?.backgroundColor = Palette.elevatedBackground.cgColor
             layer?.borderColor = Palette.separator.cgColor
         }
     }
 
+    /// Shows the in-between mark (`mark`) or the words, and spins the mark only while it shows.
+    private func setShowsMark(_ mark: Bool) {
+        guard mark != showsMark else { return spinMark() }
+        showsMark = mark
+        if mark { buildMark() }
+        NSLayoutConstraint.deactivate(mark ? labelEdges : markEdges)
+        NSLayoutConstraint.activate(mark ? markEdges : labelEdges)
+        label.isHidden = mark
+        self.mark?.isHidden = !mark
+        layer?.borderWidth = mark ? 0 : Metrics.lineWidth(1)
+        applyThemeColors()
+        spinMark()
+    }
+
+    private func buildMark() {
+        guard mark == nil else { return }
+        let made = StatusIndicatorView.spinner()
+        made.translatesAutoresizingMaskIntoConstraints = false
+        made.alphaValue = Self.markOpacity
+        made.setAccessibilityElement(false)
+        addSubview(made)
+        let pad: CGFloat = 4
+        markEdges = [
+            made.widthAnchor.constraint(equalToConstant: Self.markSide),
+            made.heightAnchor.constraint(equalToConstant: Self.markSide),
+            made.leadingAnchor.constraint(equalTo: leadingAnchor, constant: pad),
+            made.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -pad),
+            made.topAnchor.constraint(equalTo: topAnchor, constant: pad),
+            made.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -pad),
+        ]
+        mark = made
+    }
+
+    /// The mark spins while it shows and stops when it hides or gives way to words.
+    private func spinMark() {
+        mark?.spin(showsMark && !isHidden)
+    }
+
     /// Clicks go to the terminal below (a click there re-attaches).
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    /// Shows `text` (the label's words, ``text(for:hostLoss:cause:stall:strings:)``). `fadeIn`: it
-    /// appears with the overlays' fade (a label that waited out its reveal delay); else at once.
-    func show(_ text: String, fadeIn: Bool) {
-        setText(text)
+    /// Shows `text` (the label's words, ``text(for:hostLoss:cause:stall:strings:)``); `inBetween`: as the
+    /// in-between mark. `fadeIn`: it appears with the overlays' fade (a label that waited out its reveal
+    /// delay); else at once.
+    func show(_ text: String, inBetween: Bool, fadeIn: Bool) {
+        setText(text, inBetween: inBetween)
         guard isHidden else { return }
         isHidden = false
+        spinMark()
         if fadeIn, let layer { Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
     }
 
     /// Sets the words while hidden (a label still waiting, whose place the buttons above it use).
-    func setText(_ text: String) {
+    func setText(_ text: String, inBetween: Bool) {
         label.stringValue = text
         setAccessibilityLabel(text)
+        setShowsMark(inBetween)
     }
 
     func hide() {
         guard !isHidden else { return }
         layer?.removeAnimation(forKey: "opacity")
         isHidden = true
+        spinMark()
+    }
+
+    /// Whether `status` (with the daemon's `stall`) is an in-between state, shown as the mark: one that waits
+    /// out a reveal delay (``revealDelay(for:stall:)``) because it usually clears on its own.
+    static func isInBetween(_ status: TerminalConnectionStatus, stall: TerminalShellStall?) -> Bool {
+        revealDelay(for: status, stall: stall) != nil
     }
 
     /// "Restoring…" shows only after `restoringRevealDelay`, so an attach

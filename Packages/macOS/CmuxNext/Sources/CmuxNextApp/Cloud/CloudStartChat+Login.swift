@@ -19,22 +19,25 @@ import Foundation
 /// Never blocks the chat: a machine that is not the person's, a cancelled confirm or a failed install
 /// opens the chat anyway, and its turn card still offers recovery (#26148).
 extension CloudStartChat {
-    /// Gives the start's machine the person's Claude or Codex login when this build passes it. Returns
-    /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way, with no Codex prompt.
-    /// Every scope a person's cached Claude login may sit under: each of their teams, then their
-    /// personal scope. One login per person, whichever team is selected.
-    @MainActor static func loginScopes(_ cloud: CloudService) -> [String?] {
-        cloud.auth.teams.map { Optional($0.id) } + [nil]
+    /// Every scope a person's cached Claude login may sit under: each of their teams, then their personal scope. One login per person, whichever team is selected.
+    @MainActor static func loginScopes(_ cloud: CloudService) -> [String?] { cloud.auth.teams.map { Optional($0.id) } + [nil] }
+    /// A login cancelled with its start (its copy failed before `run` awaited it) is `cancelled`, never "failed: CancellationError" (run 42157718918).
+    nonisolated static let loginCancelled = "cancelled"
+    /// What a login that threw records: `cancelled` when its start cancelled it, else the transfer's fixed text, never provider output.
+    nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
+        cancelled || error is CancellationError ? loginCancelled : loginFailed + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
     }
 
+    /// Gives the start's machine the person's Claude or Codex login when this build passes it. Returns
+    /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way, with no Codex prompt.
+    /// Its questions show where ``asker`` shows them: the start's card for a composer start, else a dialog in the active window.
     func passHarnessLogin(harness: String?, machine: CloudMachineSession, codexPrompt: Bool = true, ask: CloudHarnessLoginAsk = .init()) async -> Bool {
-        let cloud = services.cloud, userID = cloud.auth.user?.id
+        let cloud = services.cloud, userID = cloud.auth.user?.id, asker = self.asker ?? .window(services)
         let teamID = cloud.auth.teamID, machineID = machine.machineID, api = cloud.machineAPI.pinningTeam(teamID)
-        // The person's cached login under any of their teams, or their personal scope: one login per person.
-        let otherTeams = Self.loginScopes(cloud)
+        let otherTeams = Self.loginScopes(cloud) // the person's cached login under any of their teams, or their personal scope: one per person
         var decision = CloudHarnessLoginDecision(dogfood: DevTools.isEnabled, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
                                                  harness: harness, signedIn: userID != nil)
-        let gate = Self.loginCopyGate(services)
+        let gate = Self.loginCopyGate(services, asker: asker)
         await gate.read(into: &decision)
         ask.apply(to: &decision, userID: userID) // `--login`, the kept choice, and whether a prompt may show
         // Never silent (CloudHarnessLoginDecision): the reason goes to the log and the machine's `cloud.machines` row.
@@ -55,9 +58,9 @@ extension CloudStartChat {
             // `agent_login`, #33744) signs the machine in with one click and the provider's approve
             // page, and only the person's click starts it (Leo, 2026-11-04: "we literally said we
             // were gonna do is such that you literally dont need to log in").
-            // A Keychain that did not answer is recorded as such, never as "no cached login".
+            // A Keychain that did not answer is recorded as such, never as "no cached login"; a check cancelled with its start throws.
             if provider == .claude, [.install, .confirmThenInstall, .askConsent].contains(verdict.step),
-               let outcome = await CloudCredentialTransfer.cachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams).startOutcome {
+               let outcome = try await CloudCredentialTransfer.CachedLogin.startOutcome({ await CloudCredentialTransfer.cachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams) }) {
                 decision.outcome = outcome
                 return false
             }
@@ -67,7 +70,7 @@ extension CloudStartChat {
             case .askConsent:
                 guard await gate.askConsent(&decision) else { return false }
             case .confirmThenInstall:
-                guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else { decision.outcome = "declined"; return false }
+                guard provider == .claude, await asker.ask(CloudPresenter.firstLoginAsk(machine: machine.machine.title, services: services)) == CloudPresenter.firstLoginAccept else { decision.outcome = Self.loginDeclined; return false }
                 CloudHarnessLoginChoices().save(.pass, userID: userID) // Their Yes is their choice for every later machine.
             }
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
@@ -75,9 +78,9 @@ extension CloudStartChat {
                 // A machine it already serves keeps that access untouched: a failed repeat would revoke it.
                 if await cloud.codexBroker.delivers(machineID: machineID, scope: .init(userID: userID, teamID: teamID)) { decision.outcome = "already delivered"; return false }
                 try await cloud.codexBroker.run(machineID: machineID, scope: .init(userID: userID, teamID: teamID), confirmed: true,
-                                                askLocalSignIn: { [services] in await Self.askCodexSignIn(services, mayAsk: codexPrompt, in: nil) }) { [weak services] prompt in
-                    guard codexPrompt, let window = services?.windows.active?.window else { return false }
-                    return await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(window))
+                                                askLocalSignIn: { [services] in await Self.askCodexSignIn(services, mayAsk: codexPrompt, asker: asker) }) { prompt in
+                    guard codexPrompt else { return false }
+                    return await CloudPresenter.codexDeviceCode(prompt, asker: asker)
                 }
             } else {
                 let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID,
@@ -87,10 +90,13 @@ extension CloudStartChat {
             }
             decision.outcome = "installed"
             return true
-        } catch {
-            // The message is the transfer's fixed text, never provider output.
-            decision.outcome = "failed: " + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
-            return false
-        }
+        } catch { decision.outcome = Self.loginOutcome(error, cancelled: Task.isCancelled); return false }
     }
+
+    /// The start record's outcome when the copy failed, before its fixed text.
+    nonisolated static let loginFailed = "failed: "
+    /// The start record's outcome when the person said no to the copy.
+    static let loginDeclined = "declined"
+    /// The outcomes when this Mac held no login to give: the machine signs in with its chat's Sign in to Claude card.
+    static let signInOnMachine: Set<String?> = [CloudCredentialTransfer.CachedLogin.none.startOutcome, CloudCredentialTransfer.CachedLogin.unreadable.startOutcome]
 }

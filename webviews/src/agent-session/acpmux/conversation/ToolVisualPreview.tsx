@@ -1,15 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
-import { mediaKind } from "../chips/ReplyMedia";
 import { useHoverCard } from "../chips/useHoverCard";
 import "./toolVisualPreview.css";
-
-/** Keep audio and video in their existing players, including inline MCP media. */
-export function isStillVisual(source: string): boolean {
-  return source.startsWith("data:image/") || (!source.startsWith("data:") && !mediaKind(source));
-}
-
+import { isStillVisual } from "./toolVisualPreviewModel";
 export function ToolVisualRow({ sources, label, children }: { sources: string[]; label: string; children: ReactNode }) {
   const source = sources.find(isStillVisual);
   if (!source) return <>{children}</>;

@@ -673,6 +673,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             supersede,
             class,
             inbox,
+            relay,
             attach,
             tag,
             dry_run,
@@ -697,7 +698,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 std::env::var(k).ok()
             })?;
             let from = from.or_else(|| notice.as_ref().map(|n| n.sender().to_owned()));
-            prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
+            // A relay names its sender by where it came from when it gave no --from: another
+            // agent's message, which queues and steers as one, never the person's.
+            let relayed = relay.relayed_from.clone().filter(|_| relay.relay.is_some());
+            // The harness or app it runs in says where it came from: provenance beside the prompt,
+            // self-reported (Leo, 2026-11-07: "ACPMux should also auto-detect that you sent it
+            // from...").
+            (prompt_id.from_agent, prompt_id.sender_harness) =
+                crate::sender_harness::of_this_send(from.or(relayed));
+            prompt_id.from_harness =
+                crate::cli::sender::harness_of_this_process().map(str::to_owned);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
@@ -705,6 +715,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.class = class;
             prompt_id.notice = notice.as_ref().map(|n| n.0.clone());
             (prompt_id.pr, prompt_id.thread) = (inbox.pr, inbox.thread);
+            prompt_id.relay = relay_fields(relay);
             // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
             // An agent's send, or one with --class, goes to this daemon's outbox and returns
@@ -1070,6 +1081,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .map(|why| format!("  (respawn pending: {why})"))
                 .unwrap_or_default();
             println!("status:    {}{respawn}", g("status"));
+            if let Some(line) = crate::hub::views::other_build_host_line(&v) {
+                println!("{line}");
+            }
             println!("mode:      {}", g("currentModeId"));
             println!("model:     {}", g("model"));
             println!("policy:    {}", g("policy"));
@@ -1390,8 +1404,54 @@ fn team_receipt_line(receipt: &Value) -> String {
     format!("{state} to {canonical}; startWork={decision} (acpmux send --status mesh:{id})")
 }
 
+/// `--relay NAME --relayed-from MACHINE[/SESSION] [--relayed-harness FAMILY]` as the daemon reads
+/// them (`_meta.acpmux.fromRelay` and `fromHarness`, `prompt_provenance::relay_sender`).
+fn relay_fields(relay: crate::cli::command::SendRelay) -> Option<Value> {
+    let (by, from) = (relay.relay?, relay.relayed_from?);
+    let (machine, session) = match from.split_once('/') {
+        Some((machine, session)) => (machine.to_owned(), Some(session.to_owned())),
+        None => (from, None),
+    };
+    let mut fields = json!({"fromRelay": {"by": by, "machine": machine, "session": session}});
+    if let Some(harness) = relay.relayed_harness {
+        fields.set("fromHarness", json!(harness));
+    }
+    Some(fields)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn relay_flags_are_the_relay_record_the_daemon_reads() {
+        use crate::cli::command::{Cli, Command};
+        use clap::Parser;
+        let args = [
+            "acpmux",
+            "send",
+            "--relay",
+            "lane-gh",
+            "--relayed-from",
+            "vm-1/lane",
+            "--relayed-harness",
+            "codex",
+            "coord",
+            "-",
+        ];
+        let Ok(Cli { command: Some(Command::Send { relay, .. }), .. }) = Cli::try_parse_from(args)
+        else {
+            panic!("did not parse")
+        };
+        let fields = super::relay_fields(relay).unwrap();
+        assert_eq!(
+            fields,
+            json!({"fromRelay": {"by": "lane-gh", "machine": "vm-1", "session": "lane"}, "fromHarness": "codex"})
+        );
+        // A relay names where the message came from, or it is no relay.
+        assert!(
+            Cli::try_parse_from(["acpmux", "send", "--relay", "lane-gh", "coord", "-"]).is_err()
+        );
+    }
+
     #[test]
     fn team_receipt_shows_the_hubs_canonical_resolution() {
         let receipt = serde_json::json!({"to":{"teamAddress":"@user_42/coordinator"},"startWork":"information","state":"queued","messageId":"message-1"});

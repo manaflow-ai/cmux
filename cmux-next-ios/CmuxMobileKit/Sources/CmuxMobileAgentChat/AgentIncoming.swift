@@ -7,8 +7,8 @@ import Foundation
 /// here nor the iOS thing."). The prompt as the agent got it stays `raw` (Copy as Sent). A port of
 /// the Mac's `webviews/src/agent-session/acpmux/conversation/incomingMessage.ts` and
 /// `relayEnvelope.ts`, case for case in `AgentIncomingTests`.
-public struct AgentIncoming: Hashable, Sendable {
-    public struct Message: Hashable, Sendable {
+public struct AgentIncoming: Hashable, Sendable, Codable {
+    public struct Message: Hashable, Sendable, Codable {
         /// The sender's name, as the chat knows it or as it named itself.
         public var sender: String
         /// What the sender wrote (Markdown).
@@ -28,12 +28,20 @@ public struct AgentIncoming: Hashable, Sendable {
     public var messageID: String?
     /// The prompt as the agent got it.
     public var raw: String
+    /// acpmux could not verify who sent it (provenance kind `unverified`): never the person's, and a
+    /// name it gives is only its claim. With no name the card says "Unverified sender".
+    public var unverified: Bool
+    /// A person edited it while it waited (acpmux `editedBy`): still the sender's message.
+    public var edited: Bool
 
-    public init(messages: [Message], harness: String? = nil, messageID: String? = nil, raw: String) {
+    public init(messages: [Message], harness: String? = nil, messageID: String? = nil, raw: String,
+                unverified: Bool = false, edited: Bool = false) {
         self.messages = messages
         self.harness = harness
         self.messageID = messageID
         self.raw = raw
+        self.unverified = unverified
+        self.edited = edited
     }
 
     /// The card's title: its one sender, or the first three and a count.
@@ -53,11 +61,18 @@ extension AgentIncoming {
     /// The card a recorded `user_message` draws (its `text`, `_meta.provenance` and `client`), or nil
     /// for the person's own prompt and anything not recognized, which then draws as written.
     public static func parse(text: String, provenance: JSONValue?, client: String? = nil, fromHarness: String? = nil) -> AgentIncoming? {
+        var incoming = card(text: text, provenance: provenance, client: client, fromHarness: fromHarness)
+        if provenance?["editedBy"] != nil { incoming?.edited = true }
+        return incoming
+    }
+
+    private static func card(text: String, provenance: JSONValue?, client: String?, fromHarness: String?) -> AgentIncoming? {
         // Only a record acpmux keeps as another agent's has its broker label read: anyone can type
         // one, and the person's own prompt stays theirs.
         let relay = fromAgent(provenance: provenance, client: client) ? RelayEnvelope(text) : nil
         let body = relay?.body ?? text
-        let harness = provenance?["fromHarness"]?.nonEmpty ?? fromHarness
+        // A local sender's own word for its harness is only its claim (`claimed.fromHarness`), still its mark.
+        let harness = provenance?["fromHarness"]?.nonEmpty ?? provenance?["claimed"]?["fromHarness"]?.nonEmpty ?? fromHarness
         let kind = provenance?["kind"]?.stringValue
         func one(_ name: String, _ words: String, id: String? = nil) -> AgentIncoming {
             // A message that signs itself (`[land-and-ci-c9] …`, `From lane-a: …`) names its sender
@@ -67,6 +82,12 @@ extension AgentIncoming {
                                  harness: harness, messageID: id ?? relay?.id, raw: text)
         }
         switch kind {
+        case "unverified":
+            // No proof names its sender (a plain `acpmux send` at a shell, a script): never the
+            // person's. A name it signs first is its claim (the Mac's `namedFirst`).
+            var card = one("", body)
+            card.unverified = true
+            return card
         case "inbox_notice":
             let messages = (provenance?["threads"]?.arrayValue ?? []).flatMap { thread -> [Message] in
                 let from = thread["from"]?.arrayValue?.compactMap(\.nonEmpty).joined(separator: ", ") ?? ""
@@ -126,7 +147,7 @@ extension AgentIncoming {
     private static let knownKinds: Set<String> = agentKinds.union(["inbox_notice", "agent_digest", "person_message", "auto_resume"])
 
     /// Provenance kinds acpmux gives only another agent's message (or a tool's notice).
-    private static let agentKinds: Set<String> = ["agent_message", "session_message", "subsession_message", "task_result", "lane_report", "notice"]
+    private static let agentKinds: Set<String> = ["unverified", "agent_message", "session_message", "subsession_message", "task_result", "lane_report", "notice"]
 
     /// Whether acpmux recorded the message as another agent's: its provenance says so, or (an older
     /// acpmux with none) it came by `acpmux send` at a shell, a peer or the outbox.

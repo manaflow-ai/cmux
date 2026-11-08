@@ -137,7 +137,7 @@ pub(crate) fn identify(socket: &Path) -> Option<Value> {
 
 /// One request on the daemon's socket: its `data`, or why not (the daemon's
 /// `error_code: error`, or what went wrong reading it).
-pub(super) fn call(socket: &Path, request: Value) -> Result<Value, String> {
+pub(crate) fn call(socket: &Path, request: Value) -> Result<Value, String> {
     call_within(socket, request, REQUEST_BUDGET).map_err(|failure| failure.to_string())
 }
 

@@ -113,17 +113,92 @@ async fn cloud_broker_refuses_tokens_for_another_host_or_service() {
     }
 }
 
+/// Capture run 42157718918: a dial cancelled when its connection dropped ended the channel, so
+/// every redial of that link said "the Cloud broker is unavailable" until the app restarted it.
 #[tokio::test]
-async fn cloud_broker_cancellation_ends_an_inflight_exchange_and_cannot_reuse_a_late_token() {
+async fn cloud_broker_survives_a_cancelled_call_and_never_reuses_its_late_token() {
+    let token = |id: u64, token: &str| {
+        serde_json::json!({
+            "version": 1, "id": id, "value": {"token": token,
+                "expires_at": 1792430000000_i64, "epoch": 1, "host": HOST, "services": ["ssh"]}
+        })
+    };
     let (link, mut parent) = UnixStream::pair().unwrap();
     let (source, driver) = channel(link);
     let driven = tokio::spawn(driver.run());
-    let call = tokio::spawn(async move { source.mint_token(HOST, &[Service::Ssh]).await });
-    request(&mut parent).await;
+    let abandoned = source.clone();
+    let call = tokio::spawn(async move { abandoned.mint_token(HOST, &[Service::Ssh]).await });
+    assert_eq!(request(&mut parent).await["id"], 1);
     call.abort();
     let _ = call.await;
-    assert!(driven.await.unwrap().is_err());
+    let server = tokio::spawn(async move {
+        reply(&mut parent, token(1, "late-token")).await;
+        assert_eq!(request(&mut parent).await["id"], 2);
+        reply(&mut parent, token(2, "fresh-token")).await;
+        parent
+    });
+    let grant = source.mint_token(HOST, &[Service::Ssh]).await.unwrap();
+    assert_eq!(grant.token, "fresh-token");
+    let mut parent = server.await.unwrap();
+    drop(source);
+    assert!(driven.await.unwrap().is_ok());
     assert_eq!(parent.read_u8().await.unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
+}
+
+/// Cloud capture run 42443029004 (dev, 2026-11-08): the app's reply to a broker call (a link token
+/// minted over a few backend calls) took longer than the dial's 5 s. The driver ended on its own
+/// read deadline, `link serve` exited with it, and every open machine connection of that link
+/// closed at once: the chat start failed "started but its agent didn't (cmux-tui connection
+/// closed: EOF)" with the machine's daemon still up. A slow reply fails only the call that waited.
+/// Real time (about 6 s): with a paused clock the runtime skips ahead to the second call's deadline
+/// while the late reply is still in the socket, so the test would fail for a reason of its own.
+#[tokio::test]
+async fn cloud_broker_survives_a_reply_slower_than_the_dial_and_drops_it() {
+    let token = |id: u64, token: &str| {
+        serde_json::json!({
+            "version": 1, "id": id, "value": {"token": token,
+                "expires_at": 1792430000000_i64, "epoch": 1, "host": HOST, "services": ["ssh"]}
+        })
+    };
+    let (link, mut parent) = UnixStream::pair().unwrap();
+    let (source, driver) = channel(link);
+    let driven = tokio::spawn(driver.run());
+    let server = tokio::spawn(async move {
+        assert_eq!(request(&mut parent).await["id"], 1);
+        tokio::time::sleep(super::DIAL_TIMEOUT + std::time::Duration::from_secs(1)).await;
+        reply(&mut parent, token(1, "slow-token")).await;
+        assert_eq!(request(&mut parent).await["id"], 2);
+        reply(&mut parent, token(2, "fresh-token")).await;
+        parent
+    });
+    assert!(matches!(
+        source.mint_token(HOST, &[Service::Ssh]).await,
+        Err(ConnectInfoError::Unavailable(_))
+    ));
+    let grant = source.mint_token(HOST, &[Service::Ssh]).await.unwrap();
+    assert_eq!(grant.token, "fresh-token");
+    let mut parent = server.await.unwrap();
+    drop(source);
+    assert!(driven.await.unwrap().is_ok());
+    assert_eq!(parent.read_u8().await.unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
+}
+
+/// A parent that never answers still ends the channel, once [`super::REPLY_LIMIT`] has passed.
+#[tokio::test(start_paused = true)]
+async fn cloud_broker_ends_when_the_parent_never_answers() {
+    let (link, mut parent) = UnixStream::pair().unwrap();
+    let (source, driver) = channel(link);
+    let driven = tokio::spawn(driver.run());
+    let server = tokio::spawn(async move {
+        request(&mut parent).await;
+        parent
+    });
+    assert!(matches!(source.fetch(HOST).await, Err(ConnectInfoError::Unavailable(_))));
+    let _parent = server.await.unwrap();
+    let started = tokio::time::Instant::now();
+    let ended = driven.await.unwrap().unwrap_err();
+    assert_eq!(ended.kind(), io::ErrorKind::TimedOut);
+    assert!(started.elapsed() >= super::REPLY_LIMIT - super::DIAL_TIMEOUT * 2);
 }
 
 #[tokio::test]

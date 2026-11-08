@@ -47,7 +47,7 @@ async function draw(row: AcpmuxRow, actions: object, presentation: "transcript" 
   const { createRoot } = await import("react-dom/client");
   const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
   const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
-  const { PresentationContext } = await import("../src/agent-session/acpmux/conversation/PresentationContext");
+  const { PresentationContext } = await import("../src/agent-session/acpmux/conversation/presentationContextModel");
   act(() => root?.unmount());
   root = createRoot(host);
   await act(async () =>

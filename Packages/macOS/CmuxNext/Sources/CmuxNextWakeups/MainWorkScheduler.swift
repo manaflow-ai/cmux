@@ -44,11 +44,11 @@ public final class MainWorkScheduler {
         self.budget = budget
         self.frames = frames
         self.renderPasses = renderPasses
-        // The link's ticks own the budget's window while it exists; an idle app times no pass.
-        frames.onLinkChange = { [weak self] exists in
+        // The link's ticks own the budget's window while it runs; an idle app times no pass.
+        frames.onRunningChange = { [weak self] running in
             guard let self else { return }
-            self.budget.tickOwnsWindow = exists
-            if exists { self.renderPasses?.start() } else { self.renderPasses?.stop() }
+            self.budget.tickOwnsWindow = running
+            if running { self.renderPasses?.start() } else { self.renderPasses?.stop() }
         }
     }
 

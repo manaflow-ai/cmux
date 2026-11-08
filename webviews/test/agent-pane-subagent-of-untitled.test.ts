@@ -108,7 +108,9 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
     await page.goto(url(session));
     await page.getByText("The review is in.").waitFor({ timeout: 25_000 });
     // The finished line opens its view and names the task before the agent's name (#33252).
-    // A finished Claude turn keeps the line in sight, with no Worked for to open.
+    // A finished Claude turn folds under one Worked for (Codex parity): open it to the line.
+    const worked = page.locator('button.cv-worked[aria-expanded="false"]');
+    if (await worked.count()) await worked.first().click();
     await page.locator(".cv-subagent-done", { hasText: "Review the uploader branch" }).click();
     await page.locator(".cv-subagent-of").waitFor({ timeout: 5_000 });
     const parent = (await page.locator(".cv-subagent-of__parent").textContent())?.trim();

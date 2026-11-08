@@ -2,6 +2,7 @@
 import CmuxAgentBrands
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import Observation
 import SwiftUI
 
@@ -205,7 +206,7 @@ struct AgentChatsScreen: View {
     private var content: some View {
         switch model.phase {
         case .loading:
-            ProgressView("Loading chats…")
+            CmuxSpinner(label: Text("Loading chats…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("agentChats.loading")
         case .failed(let message):
@@ -238,7 +239,7 @@ struct AgentChatsScreen: View {
                         HStack {
                             Text("Show Older Chats")
                             Spacer()
-                            if model.loadingMore { ProgressView() }
+                            if model.loadingMore { CmuxSpinner() }
                         }
                     }
                     .disabled(model.loadingMore)
@@ -328,21 +329,24 @@ struct AgentChatRow: View {
                     .font(.body)
                     .foregroundStyle(theme.colors.label.color)
                     .lineLimit(1)
-                HStack(spacing: 6) {
-                    if chat.isActive {
-                        Circle().fill(chat.status == "waiting" ? Color.orange : Color.green).frame(width: 6, height: 6)
-                            .accessibilityHidden(true)
+                // No blank line under the title when there is nothing to say (no status, no folder).
+                if chat.isActive || !subtitle.isEmpty {
+                    HStack(spacing: 6) {
+                        if chat.isActive {
+                            Circle().fill(chat.status == "waiting" ? Color.orange : Color.green).frame(width: 6, height: 6)
+                                .accessibilityHidden(true)
+                        }
+                        Text(subtitle)
+                            .font(.footnote)
+                            .foregroundStyle(theme.colors.label2.color)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
-                    Text(subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(theme.colors.label2.color)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
                 }
             }
             Spacer(minLength: 8)
             if busy {
-                ProgressView()
+                CmuxSpinner()
             } else if let updated = chat.updatedAt {
                 Text(Self.ages.localizedString(for: updated, relativeTo: Date()))
                     .font(.footnote)
@@ -358,7 +362,7 @@ struct AgentChatRow: View {
         var parts: [String] = []
         if chat.status == "waiting" { parts.append("Needs you") } else if chat.status == "running" { parts.append("Working") }
         parts.append(Self.folder(chat.cwd))
-        return parts.joined(separator: " · ")
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     /// `~/x` for a folder in a home folder, as the Mac's chats page abbreviates it.

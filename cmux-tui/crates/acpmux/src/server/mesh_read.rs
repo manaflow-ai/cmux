@@ -41,7 +41,7 @@ fn pages(m: &str) -> bool {
 /// The params of an events read that go across. The session is the target's; nothing else is
 /// taken from the asker.
 const EVENT_PARAMS: &[&str] =
-    &["afterSeq", "beforeSeq", "limit", "kinds", "maxBytes", "promptIndex", "waitLogs"];
+    &["afterSeq", "beforeSeq", "limit", "kinds", "maxBytes", "promptIndex", "subagent", "waitLogs"];
 
 /// The largest events page a read asks for first. The JSON of a page runs past its byte budget
 /// (`hub/paging.rs` counts records, not the reply around them), so this leaves the hub's 64 KiB
@@ -150,7 +150,13 @@ pub(crate) async fn forward(
     }
     let mesh = hub.mesh.get()?.clone();
     let key = session_key(params).ok()?;
-    let (host, rest) = key.split_once('/')?;
+    // `HOST/KEY`, or the bare id of a chat the hub lists for one machine (`hub/mesh_book.rs`),
+    // which is how the app opens a listed chat.
+    let named = match key.split_once('/') {
+        Some((host, rest)) => (host.to_owned(), rest),
+        None => (hub.mesh_book_host(key)?, key),
+    };
+    let (host, rest) = (named.0.as_str(), named.1);
     if host.is_empty() || rest.is_empty() || !hub.mesh_may_route(key) {
         return None;
     }
@@ -158,7 +164,42 @@ pub(crate) async fn forward(
     if m == method::MUX_DETACH {
         return Some(Ok(json!({})));
     }
-    Some(read(mesh.as_ref(), host, rest, m, params).await)
+    let mut reply = read(mesh.as_ref(), host, rest, m, params).await;
+    // The opened chat reads as its listed row does (`HOST/name`, its `qualifiedSessionId`).
+    if m == method::MUX_ATTACH
+        && let Ok(reply) = reply.as_mut()
+        && let Some(session) = reply.get_mut("session").filter(|s| s.is_object())
+    {
+        *session = Hub::remote_summary(host, session.take());
+        session["via"] = json!("hub");
+    }
+    Some(reply)
+}
+
+/// A prompt from the app's pane to a chat the hub lists for this person's other machine
+/// (`hub/mesh_book.rs`): sent through the hub as `acpmux send HOST/ID` is (`mesh_send.rs`), never
+/// refused as no session here. Its turn runs there; the pane reads it as it reads the chat. None
+/// for anything else, which the usual prompt path takes.
+pub(crate) async fn prompt(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: &Value,
+) -> Option<Result<Value, RpcError>> {
+    if m != method::SESSION_PROMPT || !may_read(conn) {
+        return None;
+    }
+    let mesh = hub.mesh.get()?.clone();
+    let key = params.get("sessionId").and_then(Value::as_str)?;
+    let target = match key.split_once('/') {
+        Some((host, rest)) if !rest.is_empty() && hub.mesh_book_has_host(host) => key.to_owned(),
+        Some(_) => return None,
+        None => format!("{}/{key}", hub.mesh_book_host(key)?),
+    };
+    if !hub.mesh_may_route(&target) {
+        return None;
+    }
+    Some(super::super::mesh_send::send(hub, conn, &mesh, params, &target).await)
 }
 
 /// Whether this connection may borrow this daemon's hub identity for a read: its own socket, or
