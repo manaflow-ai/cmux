@@ -42,8 +42,7 @@ export async function pickEffort(
   if (!configurationSessionMatches(params.expectedSessionId, summary?.sessionId))
     // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
     throw new Error("the agent chat session changed");
-  const requested =
-    typeof params.value === "string" && params.value ? params.value : String(params.effort ?? "");
+  const requested = typeof params.value === "string" && params.value ? params.value : String(params.effort ?? "");
   const asked = typeof params.configId === "string" && params.configId ? params.configId : undefined;
   const resolved = resolveEffortOption(summary?.configOptions, asked);
   if (requested && !resolved && !summary?.sessionId && route.pickConfig(asked ?? HELD_EFFORT_ID, requested)) return;
