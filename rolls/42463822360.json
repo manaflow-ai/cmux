@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42463822360",
+  "recorded_at": "2026-11-08T08:47:26Z",
+  "reason": "cmux-tui b5869cc6aaec changes the image's cmux-tui (pinned b67ca25af697)",
+  "dry_run": false,
+  "cmux_tui": "b5869cc6aaec233d04fd3d9c4cd7f6fd0ee9a772",
+  "fixes": [
+    {
+      "sha": "b5869cc6aaec233d04fd3d9c4cd7f6fd0ee9a772",
+      "mergedAt": "2026-11-08T00:23:33-08:00",
+      "subject": "acpmux: gate the new Unix-only test code so the crate's tests compile for Windows again (#38278)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T08:47:26Z",
+    "snapshot_id": "sh-77fc0a98cb764c75bab49ddc59c6b5e1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42463822360): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "df5f99b46c8dab368f6ceeb19d872710abd8bac6",
+    "image": "cloud-native-auto-b5869cc6-42463822360-1",
+    "revision": "ci-42463822360-1",
+    "at": "2026-11-08T08:47:26Z"
+  },
+  "rolled_back": false
+}
