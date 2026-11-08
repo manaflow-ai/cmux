@@ -84,6 +84,8 @@ impl Signer {
 /// The `status` at which the platform answers nothing for a minute (past
 /// the dial's 20 s fetch timeout): a dial that stays in its ticket step.
 pub const HANG: u16 = 599;
+/// The `status` at which the platform answers as for 200, two seconds late.
+pub const SLOW: u16 = 598;
 
 /// The platform's carrier route: checks the bearer, answers a Connect
 /// ticket for the open relay, a grant for the asked key, and the daemon key.
@@ -141,6 +143,10 @@ pub async fn platform(
                 if status == HANG {
                     tokio::time::sleep(Duration::from_secs(60)).await;
                 }
+                if status == SLOW {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+                let status = if status == SLOW { 200 } else { status };
                 assert_eq!(path, format!("/v1/cloud/machines/{MACHINE}/carrier"));
                 let (code, answer) = if status != 200 || !authorized {
                     (

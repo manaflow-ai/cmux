@@ -297,6 +297,35 @@ fn a_new_person_s_credential_during_a_running_dial_never_holds_up_stdin() {
 }
 
 #[test]
+fn a_dial_that_another_person_s_credential_overtook_is_never_handed_out() {
+    // Each platform answer comes two seconds late, so the credential below
+    // arrives while the first connection's dial is still asking.
+    let asked = Arc::new(AtomicUsize::new(0));
+    let world = world(SLOW, asked.clone());
+    let socket = socket_path(&world);
+    let mut child = serve(&world, &socket);
+    let (ready, mut stderr) = first_line(&mut child);
+    assert_eq!(ready["ok"], true, "{ready}");
+    let mut first = open(&socket);
+    std::thread::sleep(Duration::from_millis(500));
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(b"{\"access_token\":\"someone-else\"}\n").unwrap();
+    stdin.flush().unwrap();
+
+    // The old person's session is dropped and the connection dials again
+    // with the new credential, which this platform refuses.
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(reply["ok"], false, "the old person's session was handed out: {reply}");
+    assert_eq!(reply["error_code"], "ticket", "{reply}");
+    let mut read = Vec::new();
+    first.read_to_end(&mut read).unwrap();
+    assert!(read.is_empty(), "nothing reached the connection");
+    assert!(asked.load(Ordering::SeqCst) >= 2, "it asked again with the new credential");
+    drop(stdin);
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+}
+
+#[test]
 fn each_connected_connection_says_the_grant_s_vmk() {
     let world = world_signed(
         200,
