@@ -86,12 +86,16 @@ struct SidebarPinFlightTests {
             let bounds: CGRect // in the list, at rest
         }
         let view: NSView
+        /// Shown when the probe was made (in a window, not hidden): a later apply that takes the view out does not
+        /// change the path already captured.
+        let attached: Bool
         let rest: CGRect
         let size: MotionPath
         let nodes: [Node]
 
         init(_ view: NSView, in list: NSView, now: CFTimeInterval) {
             self.view = view
+            attached = view.window != nil && !view.isHiddenOrHasHiddenAncestor
             rest = list.convert(view.bounds, from: view)
             size = MotionPath(view.layer ?? CALayer(), "bounds.size", now: now)
             var nodes: [Node] = []
@@ -132,7 +136,7 @@ struct SidebarPinFlightTests {
 
         /// Its frame in the list and its opacity at `time`, clipped by the containers that clip; nil when nothing shows.
         func shown(at time: CFTimeInterval) -> (frame: CGRect, opacity: Float)? {
-            guard view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return nil }
+            guard attached else { return nil }
             var offset = CGPoint.zero
             var opacity: Float = 1
             var clip: CGRect?
@@ -286,6 +290,9 @@ struct SidebarPinFlightTests {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.06))
         let pinning = Self.probes(Self.moved, list, now: firstNow)
         Self.show([], on: list)
+        list.reload(animated: true)
+        // The unpin's moves begin with this reload's transaction: the pin's path (captured before it) at that time is
+        // where the person sees the workspace when the unpin starts.
         let now = CACurrentMediaTime()
         var failures: [String] = []
         let drawn: CGRect
@@ -295,7 +302,6 @@ struct SidebarPinFlightTests {
             Issue.record("the pin at the unpin: \(failure.text)")
             return
         }
-        list.reload(animated: true)
         let probes = Self.probes(Self.moved, list, now: now)
         let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
         Self.checkPath("unpin over a pin", probes: probes, now: now, start: drawn,
