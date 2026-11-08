@@ -64,6 +64,18 @@ import Testing
         #expect(harness.indicator == nil)
     }
 
+    /// A pane that never zoomed makes no indicator (its glass and button): a launch builds every
+    /// shown pane in one main-thread turn before the first frame, and none of them is zoomed then.
+    /// The first zoom makes it, in the layout that shows it.
+    @Test func theIndicatorIsMadeAtThePanesFirstZoom() {
+        let harness = Harness()
+        defer { harness.closeWindow() }
+        #expect(harness.pane.zoomIndicator == nil, "an unzoomed pane made its zoom indicator")
+        harness.setZoomed(true)
+        #expect(harness.pane.zoomIndicator?.superview === harness.pane)
+        #expect(harness.indicator != nil)
+    }
+
     /// Zoomed: the indicator shows at the content's top-right, under the tab bar, clear of it and of
     /// its toolbar, and small enough to cover only the corner.
     @Test func theIndicatorSitsAtThePanesTopRightUnderTheTabBar() throws {
