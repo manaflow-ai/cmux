@@ -60,6 +60,8 @@ extension SettingsSchema {
         "browser.enabled": .userOnly,
         // On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).
         "browser.import.enabled": .privacy,
+        // On, cmux keeps reading the source browser's cookies after an import: only the person turns that on.
+        "browser.import.cookieSync": .privacy,
         // Only the person's Connect click opts in to reading Messages.
         "imessage.enabled": .privacy,
         // A walkthrough choice, never permission to read Messages or send a reply.

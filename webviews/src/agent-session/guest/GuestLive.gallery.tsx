@@ -55,7 +55,22 @@ export default componentEntry<GuestPageProps>({
       props: live(joinFrames(askingRecords())),
       note: "The agent asks to run a command; only the owner answers, the guest sees who it waits on.",
     },
-    connecting: { props: live([]), note: "Before the room's snapshot." },
+    connecting: {
+      props: live([]),
+      note: "Before the room's snapshot: the final layout already, the composer at the bottom and the transcript's area held empty.",
+    },
+    "connecting-view-only": {
+      props: { ...live([]), role: "view" },
+      note: "A link guest's first frame before the snapshot: the view-only line already at the bottom.",
+    },
+    "load-failed": {
+      props: {
+        ...live(joinFrames(workingRecords())),
+        role: "view",
+        loadTranscript: () => Promise.reject(new Error("offline")),
+      },
+      note: "The transcript's chunk could not load (a dropped connection): the page says so with Retry, and keeps trying.",
+    },
     "view-only": {
       props: { ...live(joinFrames(workingRecords())), role: "view" },
       note: "An invitee who may only watch: no composer, the page says so.",

@@ -44,6 +44,12 @@ extension BrowserCookieBannerSetting {
     public nonisolated static let fallback = true
 }
 
+extension BrowserCookieSyncSetting {
+    /// `browser.import.cookieSync`.
+    public nonisolated static let configPath = ["browser", "import", "cookieSync"]
+    public nonisolated static let fallback = true
+}
+
 extension AgentCursorSetting {
     /// `browser.showAgentCursor`.
     public nonisolated static let configPath = ["browser", "showAgentCursor"]
@@ -342,46 +348,15 @@ extension BrowserSettingsSchema {
                 default: .bool(BrowserCookieBannerSetting.fallback),
                 keywords: ["import", "cookies", "banner", "card", "sign in", "login", "chrome", "safari", "arc", "dismissed", "reset"]
             ),
-        ]
-    }
-}
-
-extension BrowserSettingsSchema {
-    static var agentInput: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.agentInput", "Agent Input")
-        return [
             SettingDescriptor(
-                AgentCursorSetting.configPath,
+                BrowserCookieSyncSetting.configPath,
                 section: .browser,
                 group: group,
-                title: SettingsText.keyed("settings.browser.showAgentCursor", "Show Agent Cursor"),
-                help: SettingsText.keyed("settings.browser.showAgentCursor.help", "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots."),
+                title: SettingsText.keyed("settings.browser.importCookieSync", "Keep Imported Cookies in Sync"),
+                help: SettingsText.keyed("settings.browser.importCookieSync.help", "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it."),
                 kind: .toggle,
-                default: .bool(AgentCursorSetting.fallback),
-                keywords: ["agent", "cursor", "keystrokes", "typing", "automation", "overlay"]
-            ),
-            SettingDescriptor(
-                AgentMouseSetting.motionPath,
-                section: .browser,
-                group: group,
-                title: SettingsText.keyed("settings.browser.agentMouseMotion", "Agent Pointer Motion"),
-                help: SettingsText.keyed("settings.browser.agentMouseMotion.help", "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once."),
-                kind: .choice([
-                    SettingChoice(AgentMouseMotion.human.rawValue, SettingsText.keyed("settings.choice.agentMouseHuman", "Human")),
-                    SettingChoice(AgentMouseMotion.instant.rawValue, SettingsText.keyed("settings.choice.agentMouseInstant", "Instant")),
-                ]),
-                default: .string(AgentMouseSetting.motionDefault.rawValue),
-                keywords: ["agent", "mouse", "pointer", "cursor", "human", "motion", "automation"]
-            ),
-            SettingDescriptor(
-                AgentMouseSetting.maxMoveMsPath,
-                section: .browser,
-                group: group,
-                title: SettingsText.keyed("settings.browser.agentMouseMaxMove", "Longest Agent Pointer Move"),
-                help: SettingsText.keyed("settings.browser.agentMouseMaxMove.help", "The longest time one agent pointer move takes with human motion. Short moves take less."),
-                kind: .number(SettingNumber(AgentMouseSetting.maxMoveMsRange, step: 10, unit: .milliseconds)),
-                default: .number(AgentMouseSetting.maxMoveMsDefault),
-                keywords: ["agent", "mouse", "pointer", "speed", "duration"]
+                default: .bool(BrowserCookieSyncSetting.fallback),
+                keywords: ["import", "cookies", "sync", "keep", "chrome", "sign in", "login", "signed in"]
             ),
         ]
     }

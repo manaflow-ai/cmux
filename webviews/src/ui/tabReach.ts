@@ -14,7 +14,9 @@ const TAB_STOPS =
 
 function isTabStop(element: HTMLElement): boolean {
   if (element.tabIndex < 0 || element.closest("[inert]")) return false;
-  if ("disabled" in element && (element as HTMLButtonElement).disabled) return false;
+  // `:disabled`, not `.disabled`: a control inside a disabled fieldset (outside its first legend)
+  // is disabled too, and the browser neither tabs to it nor lets it take focus.
+  if (element.matches(":disabled")) return false;
   return !(element.tagName === "INPUT" && (element as HTMLInputElement).type === "hidden");
 }
 
@@ -47,12 +49,30 @@ export function nearestStopOnScreen(layer: HTMLElement, backward: boolean): HTML
   return stops.find(onScreen);
 }
 
+/// The layer's own tab stops: its descendants', and the layer itself when it is one (a lone button
+/// over the page, as Jump to latest is).
+function layerStops(layer: HTMLElement): HTMLElement[] {
+  const own = layer.matches(TAB_STOPS) && isTabStop(layer) ? [layer] : [];
+  return [...own, ...tabStops(layer)];
+}
+
+/// A ref for a control drawn over the transcript on its own (Jump to latest, the Needs you pill):
+/// Tab or Shift-Tab leaving it goes to a stop on screen, as it does out of the toast deck. Shift-Tab
+/// out of the deck lands on Jump to latest, and the browser's next stop before it was a transcript
+/// row rendered past the viewport's edge, which scrolled the reader away (#38090).
+export function leaveOnScreenRef(element: HTMLElement | null): (() => void) | undefined {
+  if (!element) return undefined;
+  const key = (event: KeyboardEvent) => leaveLayerOnScreen(element, event);
+  element.addEventListener("keydown", key);
+  return () => element.removeEventListener("keydown", key);
+}
+
 /// A Tab key press inside `layer`: when it would leave the layer, focus goes to the nearest tab
 /// stop on screen in that direction (with its focus ring) and the press is taken. Within the layer,
 /// or with nothing on screen that way, the browser moves focus as usual.
 export function leaveLayerOnScreen(layer: HTMLElement, event: KeyboardEvent | ReactKeyboardEvent): void {
   if (event.key !== "Tab" || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
-  const inside = tabStops(layer);
+  const inside = layerStops(layer);
   const edge = event.shiftKey ? inside[0] : inside.at(-1);
   if (!edge || event.target !== edge) return;
   const target = nearestStopOnScreen(layer, event.shiftKey);

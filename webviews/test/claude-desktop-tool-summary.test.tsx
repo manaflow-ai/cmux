@@ -11,7 +11,7 @@ import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { BackgroundTaskNote } from "../src/agent-session/acpmux/conversation/BackgroundTaskNote";
 import { readFileSync } from "node:fs";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
-import { InStep } from "../src/agent-session/acpmux/conversation/ToolFailureCause";
+import { InStep } from "../src/agent-session/acpmux/conversation/toolFailureCauseModel";
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
 import { toolGroupLabel } from "../src/agent-session/acpmux/conversation/toolGroups";

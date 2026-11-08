@@ -321,7 +321,7 @@ SECTIONS = [
         "source": "schemas/settings/source/sidebar.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Sidebar.generated.swift",
         "type": "SidebarSettingsSchema",
-        "lists": {"sidebar": ("sidebar", None), "sidebar2": ("sidebar2", None), "sidebar3": ("sidebar3", None),
+        "lists": {"sidebar": ("sidebar", None),
                   "workspaceRows": ("workspaceRows", None), "terminalWorkspaceRows": ("terminalWorkspaceRows", None),
                   "agentWorkspaceRows": ("agentWorkspaceRows", None), "browserWorkspaceRows": ("browserWorkspaceRows", None),
                   "mixedWorkspaceRows": ("mixedWorkspaceRows", None)},

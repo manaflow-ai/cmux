@@ -18,7 +18,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.toggleDockFloating", "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop",
         "window.toggleDockBottom", "window.toggleDockOrientation",
         // The window dock (user 2026-11-05).
-        "home.openChiefDock", "window.movePaneToDock", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
+        "home.openChiefDock", "home.undockChief", "window.movePaneToDock", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
         "window.dockEdgeLeft", "window.dockEdgeRight", "window.dockEdgeTop", "window.dockEdgeBottom",
         "help.showCrashLogs", "palette.mobileConnect", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "pane.focus", "screen.focus", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",

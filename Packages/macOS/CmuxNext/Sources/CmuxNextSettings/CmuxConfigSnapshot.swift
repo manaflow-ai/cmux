@@ -49,6 +49,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserImportEnabled: Bool = BrowserImportSetting.fallback
     /// `browser.import.cookieBanner`; on when unset or invalid (``BrowserCookieBannerSetting``).
     public var browserImportCookieBanner = BrowserCookieBannerSetting.fallback
+    /// `browser.import.cookieSync`; on when unset or invalid (``BrowserCookieSyncSetting``).
+    public var browserImportCookieSync = BrowserCookieSyncSetting.fallback
     /// `home.chiefBubbleStyle`: the Chief chat's bubbles, `imessage` (Messages' blue and grey) when unset or `theme`.
     public var homeChiefBubbleStyle = HomeChiefBubbleStyleSetting.defaultStyle
     /// `home.bubbleColors.*`: the bubble colours every Home chat starts with, `#RRGGBB` by role (`sent`,
@@ -348,6 +350,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(BrowserImportSetting.parse(root), \.browserImportEnabled)
         snapshot.take(BrowserCookieBannerSetting.parse(root), \.browserImportCookieBanner)
+        snapshot.take(BrowserCookieSyncSetting.parse(root), \.browserImportCookieSync)
         snapshot.take(HomeChiefBubbleStyleSetting.parse(root), \.homeChiefBubbleStyle)
         snapshot.take(BuiltInAdBlockerSetting.parse(root), \.browserBuiltInAdBlocker)
         snapshot.take(AgentCursorSetting.parse(root), \.browserShowAgentCursor)

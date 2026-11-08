@@ -130,8 +130,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Bumped on each committed document, so a read of the previous one is dropped.
     @ObservationIgnored var pageBackdropDocument = 0
     /// The committed document's load settled, so the page area is its own.
-    /// Until then the page base is the theme color, not the engine's white
-    /// (`CEFTab+LoadingBackground`).
+    /// Until then the page is see-through on the pane's own ground, not the
+    /// engine's white (`CEFTab+LoadingBackground`).
     @ObservationIgnored var documentSettled = false
     /// The `prefers-color-scheme` a live renderer was last told, so a tab
     /// switch (every one calls `pageThemeDidChange`) costs no DevTools round
@@ -150,13 +150,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// the window backdrop show, as under a WebKit page that draws none. A cmux page sets it (the page
     /// host, `PageChromiumPage.setSeeThrough`); a web page stays opaque like Chrome.
     @ObservationIgnored public var pageSeeThrough = false {
-        didSet {
-            guard pageSeeThrough != oldValue else { return }
-            // A web page never calls the fork's see-through switch; only a page leaving see-through does.
-            if !pageSeeThrough, let browserID { _ = runtime.shim?.tabSetTransparentBackground(browserID, 0) }
-            applyPageBackground()
-        }
+        didSet { if pageSeeThrough != oldValue { applyPageBackground() } }
     }
+    /// The fork's see-through switch was last turned on for this tab (``CEFTab/showsPaneGround``), so leaving it turns
+    /// it off; a page never see-through never calls it.
+    @ObservationIgnored var seeThroughSent = false
     /// Answers the page's requests for its dynamic paths (a cmux page whose scheme entry has
     /// ``CEFPageSchemes/Entry/dynamicPrefixes``); nil answers every one with a 404.
     @ObservationIgnored public var pageResources: (@MainActor (URL, String?) async -> CEFPageResponse)?

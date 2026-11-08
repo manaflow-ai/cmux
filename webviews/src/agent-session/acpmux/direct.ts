@@ -1,3 +1,4 @@
+import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { externalAccessFromRequest } from "./permissions/externalAccess";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { projectLiveProgress, type LiveProgress } from "./liveProgress";
@@ -57,7 +58,7 @@ import {
 import { carryInline, inlinePrompt, recordedPromptParts, restoreInline, stripFileDisplay } from "./inlinePrompt";
 import { fitPromptBudget } from "./promptBudget";
 import { liftInlineImages } from "./inlineImages";
-import { primeSentImages } from "./conversation/imageEntries";
+import { primeSentImages, withSentShapes } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
 import { frameTextOf, imageNames, withoutFrames } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
@@ -1004,18 +1005,23 @@ export function mergeQueue(
     // sender lives in `_meta.provenance` and `queuedMessage` must see it.
     // Override only the text with acpmux's current preview; a stale full
     // prompt would make the provenance branch look like an edit.
+    // An agent's message the person edited, or a prompt acpmux could not attribute, lists null
+    // but its provenance (acpmux `QueuedPromptSummary.provenance`): its card names that sender.
+    const listedProvenance =
+      entry?.provenance && typeof entry.provenance === "object" ? (entry.provenance as unknown) : undefined;
     const listedMessage = queuedMessage({
       ...entry,
       text: preview,
       fromAgent: listed,
       fromHarness: entry?.fromHarness,
+      ...(listedProvenance ? { _meta: { ...entry?._meta, provenance: listedProvenance } } : {}),
     });
     const kept = whole ? had.message : undefined;
     // A queue listing may carry the full provenance even when its compatibility `fromAgent`
     // field is absent. Preserve that parsed agent message; only an explicit null says that the
     // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
     // user prompt until it left the queue, so its received card (and reply actions) disappeared.
-    const message = listed === null ? undefined : (kept ?? listedMessage);
+    const message = listed === null ? (listedProvenance ? listedMessage : undefined) : (kept ?? listedMessage);
     // acpmux's inbox notice: the threads acpmux lists (`inboxNotice`, its provenance), else those its
     // `queued` record named while the text is the same. An edit makes it the person's (hub/queue.rs
     // drops the provenance), so it keeps none. A notice whose record the pane never read (a chat
@@ -2194,6 +2200,9 @@ export class AcpmuxDirectClient {
   /// The promptIds drawn as prompts. An older page folds in after the rows below it, so the steer
   /// a held prompt re-ran comes after that prompt: it draws nothing. Kept across that fold.
   private promptsShown = new Set<string>();
+  /// Where each prompt was sent from, by prompt id (`sender_claim`, conversation/sentFromHarness.ts): its
+  /// record comes before the prompt's own, which reads it as its row is drawn.
+  private sentFromPrompts = new Map<string, SentFrom>();
   /// Attachments sent with a prompt until its user-message event gives it a durable row id.
   private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
   /// Attachments for completed prompts, used when their turn is retried later.
@@ -3283,6 +3292,7 @@ export class AcpmuxDirectClient {
     this.stoppingTurn = undefined;
     this.lateSteers = [];
     this.promptsShown.clear();
+    this.sentFromPrompts.clear();
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
@@ -6104,6 +6114,7 @@ export class AcpmuxDirectClient {
     this.stoppingTurn = undefined;
     this.lateSteers = [];
     this.promptsShown.clear();
+    this.sentFromPrompts.clear();
     this.firstSeq = undefined;
     // Found again as the held events are reduced (`reduceEvent`).
     this.nativeSeed = undefined;
@@ -6184,8 +6195,9 @@ export class AcpmuxDirectClient {
   private reduceLiveState(event: EventRecord): void {
     const msg = event.msg ?? {};
     if (event.kind === "queue_updated") {
-      // An edit keeps the prompt's place, and makes it the person's: acpmux drops an agent's
-      // provenance and sender (hub/queue.rs), so its row loses the sender too. A teammate's own
+      // An edit keeps the prompt's place and its sender: acpmux keeps an agent's provenance and
+      // names the editor beside it (hub/queue_edit.rs `editedBy`), so its row stays the agent's.
+      // One with no provenance (an older acpmux dropped it) is the person's. A teammate's own
       // edit keeps their `person_message` provenance, so the row keeps its author.
       const id = String(msg.promptId ?? "");
       // Kept also when the row is not in yet: an attach's page may begin after its `queued` record.
@@ -6207,7 +6219,7 @@ export class AcpmuxDirectClient {
                 entry.next === true,
                 false,
                 recordImages(msg),
-                undefined,
+                queuedMessage(msg, this.incomingContext()),
                 promptAuthor(msg),
                 // A held prompt's parts are this record's alone (THE RULE, Hold).
                 msg.awaitingOwner === true
@@ -7082,6 +7094,9 @@ export class AcpmuxDirectClient {
         const call = this.subagents.reduceChild(event, msg);
         if (call) this.dropToolItem(call);
         this.takeSubagentRows();
+      } else if (event.kind === "sender_claim") {
+        const from = sentFrom(msg);
+        if (from) this.sentFromPrompts.set(from.promptId, from);
       } else if (event.kind === "session_offer") {
         // Off by default: off, an offer draws nothing (offer/offersShown.ts).
         const offer = offersShown() ? sessionOffer(msg) : undefined;
@@ -7264,6 +7279,11 @@ export class AcpmuxDirectClient {
           ...(sentByChief(msg) ? { from: "chief" as const } : {}),
           ...(!untyped && promptAuthor(msg) ? { author: promptAuthor(msg) } : {}),
           ...(!untyped && cliHost(msg.client) ? { viaCli: cliHost(msg.client) } : {}),
+          // Where it came from, under the person's prompt or another agent's message alike: a
+          // harness shell's send names its sender and carries its claim too.
+          ...((!untyped || incoming?.kind === "message") && promptId && this.sentFromPrompts.has(promptId)
+            ? { sentFrom: this.sentFromPrompts.get(promptId) }
+            : {}),
           ...(!untyped && recordedAgentText(msg.agentText) ? { agentText: recordedAgentText(msg.agentText) } : {}),
           ...(received ? { received } : {}),
           ...(steer ? { steer } : {}),
@@ -7271,7 +7291,11 @@ export class AcpmuxDirectClient {
           ...(steer === "waiting" && promptId ? { steerPromptId: promptId } : {}),
           ...(promptId ? { promptId } : {}),
           ...(typeof msg.turnId === "string" ? { turnId: msg.turnId } : {}),
-          ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
+          // Each image keeps the bytes and size the pane's own row drew it with, so the echo lands
+          // at the same size (imageEntries.ts withSentShapes).
+          ...(promptImages(msg.images).length > 0 && {
+            images: withSentShapes(promptImages(msg.images), optimisticRow?.images),
+          }),
           ...(inlineParts?.length ? { inlineParts } : {}),
           // The blocks the composer sent as pastes, by where they sit in the text acpmux recorded;
           // only while the row shows that text as recorded (a harness note it hides moves them).
