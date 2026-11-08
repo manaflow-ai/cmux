@@ -24,7 +24,7 @@ nonisolated enum ChromiumAccessibilityPress {
     private typealias WindowGetter = @convention(c) (AnyObject, Selector) -> AnyObject?
     private typealias FrameGetter = @convention(c) (AnyObject, Selector) -> CGRect
     private static let windowGetter = #selector(NSAccessibilityElement.accessibilityWindow)
-    private static let frameGetter = #selector(NSAccessibilityElement.accessibilityFrame)
+    private static let frameGetter = #selector(NSAccessibilityElement.accessibilityFrame as (NSAccessibilityElement) -> () -> CGRect)
 
     /// A method only an installed class has: the mark that makes a second install a no-op, kept on
     /// the class itself (`class_addMethod` adds it once).
