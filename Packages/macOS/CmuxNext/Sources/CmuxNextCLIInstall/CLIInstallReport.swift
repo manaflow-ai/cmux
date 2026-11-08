@@ -59,9 +59,11 @@ public nonisolated enum CLIInstallReport: Equatable, Sendable {
     case offerOther(entry: String, bundle: String, classic: Bool)
 
     /// The launch offer for `check`, with its button and whether that button
-    /// replaces; nil when `cmux` already runs this app or is not an app's CLI
-    /// (a build of it, left alone).
+    /// replaces; nil when `cmux` already runs this app or is not a cmux app's
+    /// CLI (a build of it, left alone), or while this app runs from its disk
+    /// image (offered once it runs from Applications).
     public static func launchOffer(_ check: CLIPathCheck) -> (report: CLIInstallReport, button: CLIInstallButton, replacing: Bool)? {
+        guard !check.appRunsFromImage else { return nil }
         let entry = check.entry?.path ?? ""
         switch check.status {
         case .thisApp, .foreign: return nil

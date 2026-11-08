@@ -80,22 +80,18 @@ enum CLIInstallHandlers {
         }
     }
 
-    /// Once per app channel, after the first-run steps: when `cmux` in a new
-    /// shell would not run this app, a toast says so and offers to fix it
-    /// (`CLIInstallReport.launchOffer`). Never for DEV builds, captures, or a
-    /// copy running from its disk image (offered once it runs from
-    /// Applications). Classic's link is named as classic's and replaced only
-    /// on the person's click.
+    /// Once per app channel, after the first-run steps: the first launch at which `cmux` in a new
+    /// shell would not run this app offers the fix (`CLIInstallReport.launchOffer`). Never in Debug
+    /// (DEV) builds or captures. Classic's link is named as classic's and replaced only on a click.
     @MainActor static func offerAtLaunch(skipsOnboarding: Bool, defaults: UserDefaults = .standard) async {
-        guard !skipsOnboarding, !defaults.bool(forKey: offeredAtLaunchKey),
-              Bundle.main.bundleIdentifier?.contains(".debug") != true else { return }
-        let check = await pathCheck(CLIPathInstaller().source)
-        guard !check.appRunsFromImage else { return }
+        #if !DEBUG
+        guard !skipsOnboarding, !defaults.bool(forKey: offeredAtLaunchKey), Bundle.main.bundleIdentifier?.contains(".debug") != true,
+              let offer = CLIInstallReport.launchOffer(await pathCheck(CLIPathInstaller().source)) else { return }
         defaults.set(true, forKey: offeredAtLaunchKey)
-        guard let offer = CLIInstallReport.launchOffer(check) else { return }
         show(offer.report.message, action: CmuxToast.Action(title: offer.button.title), in: nil) {
             Task { @MainActor in await install(.cmux, replacing: offer.replacing, in: nil) }
         }
+        #endif
     }
 
     /// The `cmux` a new login shell runs, from the login `PATH` the app last captured.

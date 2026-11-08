@@ -20,8 +20,8 @@ public nonisolated struct CLIPathCheck: Equatable, Sendable {
         /// The first `cmux` on PATH is the CLI of another cmux app, `bundle`
         /// (classic, or another copy of this one).
         case otherApp(bundle: String, classic: Bool)
-        /// The first `cmux` on PATH is not in an app bundle (a build of the
-        /// CLI, a package manager's).
+        /// The first `cmux` on PATH is not in a cmux app's bundle (a build of
+        /// the CLI, a package manager's, another app's).
         case foreign
     }
 
@@ -55,6 +55,8 @@ public nonisolated struct CLIPathCheck: Equatable, Sendable {
         let source = source.resolvingSymlinksInPath().standardizedFileURL
         var seen = Set<String>()
         var folders: [String] = []
+        // Only absolute folders: an empty or relative entry depends on the shell's working
+        // folder, which differs per shell, so it has no one answer here.
         for folder in path.split(separator: ":").map(String.init) where folder.hasPrefix("/") && seen.insert(folder).inserted {
             folders.append(folder)
         }
@@ -69,7 +71,8 @@ public nonisolated struct CLIPathCheck: Equatable, Sendable {
                 // A link into a cmux app that is gone: ours to repoint. Any
                 // other broken link is left alone, as a shell skips it too.
                 if dangling == nil, let target = try? fileManager.destinationOfSymbolicLink(atPath: entry.path),
-                   Self.appBundle(containing: target) != nil {
+                   Self.appBundle(containing: URL(fileURLWithPath: target, relativeTo: entry.deletingLastPathComponent())
+                       .standardizedFileURL.path) != nil {
                     dangling = (entry, target)
                 }
                 continue
@@ -77,8 +80,8 @@ public nonisolated struct CLIPathCheck: Equatable, Sendable {
             guard !isDirectory.boolValue, fileManager.isExecutableFile(atPath: resolved.path) else { continue }
             if resolved == source {
                 found = (.thisApp, entry)
-            } else if let bundle = Self.appBundle(containing: resolved.path) {
-                let id = Bundle(url: URL(fileURLWithPath: bundle))?.bundleIdentifier
+            } else if let bundle = Self.appBundle(containing: resolved.path),
+                      let id = Bundle(url: URL(fileURLWithPath: bundle))?.bundleIdentifier, Self.isCmux(id) {
                 found = (.otherApp(bundle: bundle, classic: id == Self.classicBundleID), entry)
             } else {
                 found = (.foreign, entry)
@@ -115,6 +118,11 @@ public nonisolated struct CLIPathCheck: Equatable, Sendable {
         case .otherApp, .foreign, .dangling: entry ?? installDestination
         case .thisApp, .missing: installDestination
         }
+    }
+
+    /// Whether `id` is a cmux app's bundle identifier (classic, NIGHTLY, a DEV build).
+    static func isCmux(_ id: String) -> Bool {
+        id == classicBundleID || id.hasPrefix(classicBundleID + ".")
     }
 
     /// The `.app` folder `path` is inside, or nil.

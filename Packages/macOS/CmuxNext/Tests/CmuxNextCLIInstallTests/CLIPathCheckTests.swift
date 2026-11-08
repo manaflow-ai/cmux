@@ -115,6 +115,19 @@ struct CLIPathCheckTests {
         #expect(!classic)
     }
 
+    @Test func aRelativeLinkIntoADeletedAppIsDanglingToo() throws {
+        let scratch = try Scratch()
+        try scratch.link(scratch.early, to: "../../Applications/Gone.app/Contents/Resources/bin/cmux")
+        #expect(scratch.check().status == .dangling(target: "../../Applications/Gone.app/Contents/Resources/bin/cmux"))
+    }
+
+    @Test func anotherAppsCLIInsideItsBundleIsForeignNotACmuxApp() throws {
+        let scratch = try Scratch()
+        let other = try Scratch.bundle(scratch.root.appendingPathComponent("Applications/Other.app"), id: "com.example.other")
+        try scratch.link(scratch.early, to: other.path)
+        #expect(scratch.check().status == .foreign)
+    }
+
     @Test func aCLIOutsideAnyAppIsForeign() throws {
         let scratch = try Scratch()
         let built = scratch.early.appendingPathComponent("cmux")
@@ -149,7 +162,12 @@ struct CLIPathCheckTests {
         let entry = scratch.early.appendingPathComponent("cmux")
         try scratch.link(scratch.early, to: scratch.root.appendingPathComponent("Applications/Gone.app/Contents/Resources/bin/cmux").path)
         let installer = CLIPathInstaller(destination: entry, source: scratch.source) { _ in Issue.record("no administrator prompt") }
-        await #expect(throws: CLIPathInstaller.Failure.self) { try await installer.install(replacing: false) }
+        do {
+            _ = try await installer.install(replacing: false)
+            Issue.record("a plain install replaced the link")
+        } catch CLIPathInstaller.Failure.occupied(let path, .link) {
+            #expect(path == entry.path)
+        }
         _ = try await installer.install(replacing: true)
         #expect(scratch.check().runsThisApp)
     }
