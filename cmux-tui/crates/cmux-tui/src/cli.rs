@@ -90,14 +90,14 @@ mod host_mount;
 #[cfg(unix)]
 mod inference_gateway;
 #[cfg(unix)]
-mod repo_hold;
-#[cfg(unix)]
 mod inference_setup;
 mod internal;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
 mod live_code;
+#[cfg(unix)]
+mod repo_hold;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
