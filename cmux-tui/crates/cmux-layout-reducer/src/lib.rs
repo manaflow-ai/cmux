@@ -957,6 +957,7 @@ pub mod auto_archive;
 pub mod closing_panes;
 
 pub mod group_hover_summary;
+pub mod keep_awake;
 pub mod new_placement;
 pub mod optimistic;
 #[cfg(kani)]

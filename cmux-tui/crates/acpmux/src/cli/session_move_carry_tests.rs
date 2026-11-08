@@ -144,6 +144,54 @@ fn a_file_named_like_pathspec_magic_carries_only_itself() {
 }
 
 #[test]
+fn a_checkout_with_no_index_carries_no_deletion_of_a_tracked_secret() {
+    let src = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(src.path(), "printf 'S=1\\n' > .env && git add -f .env && git commit -qm env");
+    sh(src.path(), "printf 'two\\n' >> kept.txt && rm .git/index");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    let patch = String::from_utf8_lossy(&carry.patch);
+    assert!(!patch.contains("deleted file"), "{patch}");
+    assert!(patch.contains("kept.txt"), "{patch}");
+}
+
+#[test]
+fn a_sparse_checkout_carries_its_changes() {
+    let src = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(
+        src.path(),
+        "mkdir -p in out && printf 'a\\n' > in/a && printf 'b\\n' > out/b && git add -A \\
+         && git commit -qm dirs && git sparse-checkout set --cone in && printf 'more\\n' >> in/a \\
+         && printf 'new\\n' > in/new",
+    );
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    let patch = String::from_utf8_lossy(&carry.patch);
+    assert!(patch.contains("in/a") && patch.contains("in/new"), "{patch}");
+    assert!(!patch.contains("out/b"), "{patch}");
+}
+
+#[test]
+fn a_sparse_checkout_with_no_index_refuses_rather_than_delete_outside_its_cone() {
+    let src = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(
+        src.path(),
+        "mkdir -p in out && printf 'a\\n' > in/a && printf 'b\\n' > out/b && git add -A \\
+         && git commit -qm dirs && git sparse-checkout set --cone in && printf 'more\\n' >> in/a \\
+         && rm .git/index",
+    );
+    let e = snapshot(&here, src.path(), true).unwrap_err().to_string();
+    assert!(e.contains("sparse checkout with no index"), "{e}");
+    // The recovery the refusal names gives the index back with its sparse marks, edits kept,
+    // and the carry then takes only the change inside the cone.
+    sh(src.path(), "git reset -q && git sparse-checkout reapply");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    let patch = String::from_utf8_lossy(&carry.patch);
+    assert!(patch.contains("in/a") && !patch.contains("out/b"), "{patch}");
+}
+
+#[test]
 fn a_head_that_moves_between_the_two_reads_refuses() {
     let src = tempfile::tempdir().unwrap();
     repo(src.path());

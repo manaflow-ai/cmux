@@ -72,7 +72,7 @@ plist = "1.10"
 futures = "0.3"
 futures-util = "0.3"
 ratatui = "0.30"
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 # raw_value: an OpenCode config keeps its keys as written (src/opencode_ask.rs).
 serde_json = { version = "1", features = ["raw_value"] }
 jsonschema.workspace = true
@@ -109,6 +109,8 @@ regex = "1"
 time.workspace = true
 # Log lines a reader passes on their head are searched, not parsed (src/store.rs `scan_heads`).
 memchr.workspace = true
+# The chats page's search by what was said: case-blind word search over held text (src/chats/text.rs).
+aho-corasick = "1"
 # The typed protocol registry (src/protocol): JSON Schema for spec/acpmux-protocol.json.
 schemars = "1"
 # The model catalog fetch (src/catalog/fetch.rs): HTTPS only, through the

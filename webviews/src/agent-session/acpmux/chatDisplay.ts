@@ -177,7 +177,7 @@ const FONT_STACKS: Record<ChatFontPreset, string> = {
 };
 /// What the estimator's canvas measures each preset as (a canvas can't read CSS variables).
 const MEASURE_STACKS: Record<ChatFontPreset, string> = {
-  system: '"Inter", system-ui, sans-serif',
+  system: "-apple-system, BlinkMacSystemFont, system-ui, sans-serif",
   serif: '"New York", Georgia, serif',
   mono: '"SF Mono", Menlo, monospace',
 };

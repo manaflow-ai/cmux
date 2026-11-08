@@ -2333,6 +2333,7 @@ FAST_TIER_REPORT_CLAUSE = (
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
     "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
     "&& fromJSON(vars.RUNNER_POOLS).linux_2 || "
+    "needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.runner || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && fromJSON(vars.RUNNER_POOLS).macos_26 || "
 )
 
@@ -3830,6 +3831,40 @@ esac
                 # is its own job, so the client's queue wait does not eat into it.
                 self.assertEqual(evaluate(tier["timeout-minutes"], context), 35)
                 self.assertEqual(evaluate(tier["env"]["CMUX_FAST_TIER_FLEET"], context), "")
+        # The hand-back's own fresh placement (side_lane_placement.handback()) decides where it runs: an idle
+        # owned Mac, Blacksmith 6 vCPU unless excluded, else the owned route. With no reading (the job skipped,
+        # failed or predates it), Blacksmith 6 vCPU, as above.
+        place = jobs["fast-tier-handback-placement"]
+        self.assertIn("fast-tier-handback-placement", tier["needs"])
+        self.assertEqual(place["needs"], ["fast-tier-fleet"])
+        for label in ("glaeda-fast-light-xcode-26.6", "glaeda-side-std-xcode-26.6"):
+            with self.subTest(handback=label):
+                self.assertEqual(evaluate(tier["runs-on"], {**base, "needs.fast-tier-handback-placement.outputs.runner": label}),
+                                 label)
+        self.assertEqual(evaluate(tier["runs-on"], {**base, "needs.fast-tier-handback-placement.outputs.runner": ""}),
+                         "blacksmith-6vcpu-macos-26")
+        placed = {"github.repository_owner": "manaflow-ai", "vars.CI_PR_POOL_OWNED": "1",
+                  "needs.fast-tier-fleet.outputs.verdict": "queued"}
+        self.assertTrue(evaluate(place["if"], placed))
+        for why, context in (("a verdict", {**placed, "needs.fast-tier-fleet.outputs.verdict": "pass"}),
+                             ("no verdict", {**placed, "needs.fast-tier-fleet.outputs.verdict": "unavailable"}),
+                             ("the client skipped", {**placed, "needs.fast-tier-fleet.outputs.verdict": ""}),
+                             ("owned pools off", {**placed, "vars.CI_PR_POOL_OWNED": "0"}),
+                             ("another owner", {**placed, "github.repository_owner": "someone"})):
+            with self.subTest(why=why):
+                self.assertFalse(evaluate(place["if"], context))
+        step = next(s for s in place["steps"] if s.get("id") == "place")
+        self.assertEqual(step["env"]["PLACEMENT"], "handback")
+        side = step["env"]["SIDE_LABEL"]
+        self.assertEqual(evaluate(side, {"github.event_name": "pull_request", "github.repository": "manaflow-ai/cmux",
+                                         "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                                         "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6"}),
+                         "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(side, {"github.event_name": "pull_request", "github.repository": "manaflow-ai/cmux",
+                                         "github.event.pull_request.head.repo.full_name": "someone/cmux",
+                                         "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6"}),
+                         "blacksmith-6vcpu-macos-26")
+        self.assertIn("^def handback_main", step["run"])
         # A verdict, or no verdict for any other reason, is still only reported.
         for verdict in ("pass", "fail", "unavailable", ""):
             with self.subTest(verdict=verdict):

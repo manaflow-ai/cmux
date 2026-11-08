@@ -99,6 +99,9 @@ final class ScreenContentView: NSView {
     var resizeGesture = PaneResizeGesturePhase.idle
     /// The pane contents that heard the drag start; the end goes to them.
     var resizeGestureListeners: [PaneResizeGestureListener] = []
+    /// The pane views a resize drag or a zoom's spring moves post no frame notice until it ends (``FrameNoticeHold``):
+    /// no titlebar drag-shape walk in each of its frames' commits, the zoom key's turn included.
+    let paneFrameNotices = FrameNoticeHold()
     /// Overlay docked columns' glass rims, keyed by column.
     var backdrops: [ColumnID: DockBackdropView] = [:]
     /// The strip scrollbar; created on first use.
@@ -192,6 +195,7 @@ final class ScreenContentView: NSView {
     func settleMotion() {
         // Landed at once (window out of sight, Reduce Motion turned on): the key-resize hold ends with the motion.
         defer { holdsContentForKeyResize = false }
+        defer { releasePaneFrameNoticesIfSettled() }
         defer { if resizeGesture == .landing { finishResizeGesture() } }
         defer { releaseClosing() }
         presentHeldSnap()
@@ -247,6 +251,16 @@ final class ScreenContentView: NSView {
         if activeDrag == nil { rowDragPreview = nil }
         let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming, presents: false,
                                snapWaitsForFrame: snapWaitsForFrame)
+        // A zoom or an unzoom on its spring: the zooming pane's views post no frame notice from the key's turn until it
+        // lands (ZOOM VARIANTS 8: 1.25 ms of the key's turn in AppKit's structural regions). Only that pane moves: the
+        // panes it covers stay still under it, and the ones an unzoom finds come back in place.
+        if structural, window != nil, let pane = zoomMotion.pane, let host = context.hosts[pane], host.superview === self,
+           !paneFrameNotices.isHolding || resizeGesture == .idle {
+            paneFrameNotices.hold([host])
+        } else if structural {
+            // The zooming pane left the layout before it landed (closed, moved away): its views post again now.
+            releasePaneFrameNoticesIfSettled()
+        }
         #if DEBUG
         if let shapeBefore { columnWidths.noteChange(from: shapeBefore, to: restColumns, viewportWidth: bounds.width) }
         #endif
@@ -323,8 +337,11 @@ final class ScreenContentView: NSView {
         // A release seeds only the layout it made (`releasedDivider` from this gesture, not a stale one).
         if let released = releasedDivider, CACurrentMediaTime() - released.time > 0.5 { releasedDivider = nil }
         let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits) && !filmSnaps
-        // A structural change that snaps may show at the next tick, its terminals drawn ahead (CLOSE MOTION 3).
-        let holdsSnap = snapWaitsForFrame && structural && !animateFrames
+        // A structural change that snaps may show at the next tick, its terminals drawn ahead (CLOSE MOTION 3); so may a
+        // keyboard resize press that snaps (Reduce Motion, pane animations off), its terminals drawn ahead with their grids
+        // (RESIZE P0 13, KEY SNAP GRID).
+        let keySnap = holdsContentForKeyResize && !structural
+        let holdsSnap = snapWaitsForFrame && (structural || keySnap) && !animateFrames
         if structural, !inFlight { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
 
         // Panes. A new pane's sliver rides its neighbour's edge as it showed before this change.
@@ -508,7 +525,7 @@ final class ScreenContentView: NSView {
         frameInput.filmSnapSendsGrid = filmSnaps
         defer { frameInput.filmSnapSendsGrid = false }
         #endif
-        if holdsSnap, !holdsSnapForContent() { releaseSnapDeparted() }
+        if holdsSnap, !holdsSnapForContent(keyPress: keySnap) { releaseSnapDeparted() }
         #if DEBUG || CMUX_BENCH_HOOKS
         // Z4 key turn step 2 (ZOOM VARIANTS 3, never merged): a film zoom presents in the key's own turn, so that turn's
         // commit carries the film's first moved frame (Chromium: the input applies at the next begin-frame). The zoomed
@@ -568,6 +585,7 @@ final class ScreenContentView: NSView {
         // A drag on a screen that goes away gets no release either.
         endDrag()
         finishResizeGesture()
+        paneFrameNotices.release()
         holdsGrids = false
         for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)

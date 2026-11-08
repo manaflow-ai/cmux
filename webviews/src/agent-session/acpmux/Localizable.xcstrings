@@ -1,6 +1,25 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cmuxLink.kind.chat": {"comment":"Agent pane: kind word of a pasted cmux link chip that names a chat (shown in its hover card, and before its title in one look)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"دردشة"}},"bs":{"stringUnit":{"state":"translated","value":"Chat"}},"da":{"stringUnit":{"state":"translated","value":"Chat"}},"de":{"stringUnit":{"state":"translated","value":"Chat"}},"en":{"stringUnit":{"state":"translated","value":"Chat"}},"es":{"stringUnit":{"state":"translated","value":"Chat"}},"fr":{"stringUnit":{"state":"translated","value":"Discussion"}},"it":{"stringUnit":{"state":"translated","value":"Chat"}},"ja":{"stringUnit":{"state":"translated","value":"チャット"}},"km":{"stringUnit":{"state":"translated","value":"ការជជែក"}},"ko":{"stringUnit":{"state":"translated","value":"채팅"}},"nb":{"stringUnit":{"state":"translated","value":"Chat"}},"pl":{"stringUnit":{"state":"translated","value":"Czat"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Chat"}},"ru":{"stringUnit":{"state":"translated","value":"Чат"}},"th":{"stringUnit":{"state":"translated","value":"แชท"}},"tr":{"stringUnit":{"state":"translated","value":"Sohbet"}},"uk":{"stringUnit":{"state":"translated","value":"Чат"}},"vi":{"stringUnit":{"state":"translated","value":"Trò chuyện"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"聊天"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"聊天"}}}},
+    "cmuxLink.kind.workspace": {"comment":"Agent pane: kind word of a pasted cmux link chip that names a workspace","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"مساحة العمل"}},"bs":{"stringUnit":{"state":"translated","value":"Radni prostor"}},"da":{"stringUnit":{"state":"translated","value":"Arbejdsområde"}},"de":{"stringUnit":{"state":"translated","value":"Workspace"}},"en":{"stringUnit":{"state":"translated","value":"Workspace"}},"es":{"stringUnit":{"state":"translated","value":"Espacio de trabajo"}},"fr":{"stringUnit":{"state":"translated","value":"Espace de travail"}},"it":{"stringUnit":{"state":"translated","value":"Workspace"}},"ja":{"stringUnit":{"state":"translated","value":"ワークスペース"}},"km":{"stringUnit":{"state":"translated","value":"កន្លែងធ្វើការ"}},"ko":{"stringUnit":{"state":"translated","value":"워크스페이스"}},"nb":{"stringUnit":{"state":"translated","value":"Arbeidsområde"}},"pl":{"stringUnit":{"state":"translated","value":"Obszar roboczy"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Espaço de trabalho"}},"ru":{"stringUnit":{"state":"translated","value":"Рабочее пространство"}},"th":{"stringUnit":{"state":"translated","value":"พื้นที่ทำงาน"}},"tr":{"stringUnit":{"state":"translated","value":"Çalışma alanı"}},"uk":{"stringUnit":{"state":"translated","value":"Робочий простір"}},"vi":{"stringUnit":{"state":"translated","value":"Không gian làm việc"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"工作区"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"工作區"}}}},
+    "cmuxLink.kind.tab": {"comment":"Agent pane: kind word of a pasted cmux link chip that names a tab","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"علامة تبويب"}},"bs":{"stringUnit":{"state":"translated","value":"Kartica"}},"da":{"stringUnit":{"state":"translated","value":"Fane"}},"de":{"stringUnit":{"state":"translated","value":"Tab"}},"en":{"stringUnit":{"state":"translated","value":"Tab"}},"es":{"stringUnit":{"state":"translated","value":"Pestaña"}},"fr":{"stringUnit":{"state":"translated","value":"Onglet"}},"it":{"stringUnit":{"state":"translated","value":"Scheda"}},"ja":{"stringUnit":{"state":"translated","value":"タブ"}},"km":{"stringUnit":{"state":"translated","value":"ផ្ទាំង"}},"ko":{"stringUnit":{"state":"translated","value":"탭"}},"nb":{"stringUnit":{"state":"translated","value":"Fane"}},"pl":{"stringUnit":{"state":"translated","value":"Karta"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Aba"}},"ru":{"stringUnit":{"state":"translated","value":"Вкладка"}},"th":{"stringUnit":{"state":"translated","value":"แท็บ"}},"tr":{"stringUnit":{"state":"translated","value":"Sekme"}},"uk":{"stringUnit":{"state":"translated","value":"Вкладка"}},"vi":{"stringUnit":{"state":"translated","value":"Thẻ"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"标签页"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"分頁"}}}},
+    "cmuxLink.kind.pane": {"comment":"Agent pane: kind word of a pasted cmux link chip that names a pane","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جزء"}},"bs":{"stringUnit":{"state":"translated","value":"Okno"}},"da":{"stringUnit":{"state":"translated","value":"Rude"}},"de":{"stringUnit":{"state":"translated","value":"Bereich"}},"en":{"stringUnit":{"state":"translated","value":"Pane"}},"es":{"stringUnit":{"state":"translated","value":"Panel"}},"fr":{"stringUnit":{"state":"translated","value":"Volet"}},"it":{"stringUnit":{"state":"translated","value":"Riquadro"}},"ja":{"stringUnit":{"state":"translated","value":"ペイン"}},"km":{"stringUnit":{"state":"translated","value":"ផ្ទាំងរង"}},"ko":{"stringUnit":{"state":"translated","value":"창"}},"nb":{"stringUnit":{"state":"translated","value":"Rute"}},"pl":{"stringUnit":{"state":"translated","value":"Panel"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Painel"}},"ru":{"stringUnit":{"state":"translated","value":"Панель"}},"th":{"stringUnit":{"state":"translated","value":"บานหน้าต่าง"}},"tr":{"stringUnit":{"state":"translated","value":"Bölme"}},"uk":{"stringUnit":{"state":"translated","value":"Панель"}},"vi":{"stringUnit":{"state":"translated","value":"Ngăn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"窗格"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"窗格"}}}},
+    "cmuxLink.onHost": {"comment":"Agent pane: a pasted cmux link chip's hover card line; {kind} is its kind word (Chat, Workspace), {host} the other machine it is on","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"{kind} على {host}"}},"bs":{"stringUnit":{"state":"translated","value":"{kind} na {host}"}},"da":{"stringUnit":{"state":"translated","value":"{kind} på {host}"}},"de":{"stringUnit":{"state":"translated","value":"{kind} auf {host}"}},"en":{"stringUnit":{"state":"translated","value":"{kind} on {host}"}},"es":{"stringUnit":{"state":"translated","value":"{kind} en {host}"}},"fr":{"stringUnit":{"state":"translated","value":"{kind} sur {host}"}},"it":{"stringUnit":{"state":"translated","value":"{kind} su {host}"}},"ja":{"stringUnit":{"state":"translated","value":"{host} の{kind}"}},"km":{"stringUnit":{"state":"translated","value":"{kind} នៅលើ {host}"}},"ko":{"stringUnit":{"state":"translated","value":"{host}의 {kind}"}},"nb":{"stringUnit":{"state":"translated","value":"{kind} på {host}"}},"pl":{"stringUnit":{"state":"translated","value":"{kind} na {host}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"{kind} em {host}"}},"ru":{"stringUnit":{"state":"translated","value":"{kind} на {host}"}},"th":{"stringUnit":{"state":"translated","value":"{kind} บน {host}"}},"tr":{"stringUnit":{"state":"translated","value":"{host} üzerinde {kind}"}},"uk":{"stringUnit":{"state":"translated","value":"{kind} на {host}"}},"vi":{"stringUnit":{"state":"translated","value":"{kind} trên {host}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"{host} 上的{kind}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"{host} 上的{kind}"}}}},
+    "cmuxLink.inWorkspace": {"comment":"Agent pane: a pasted cmux link chip's hover card line for a tab or pane; {kind} is its kind word (Tab, Pane), {workspace} the title of the workspace it is in","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"{kind} في {workspace}"}},"bs":{"stringUnit":{"state":"translated","value":"{kind} u {workspace}"}},"da":{"stringUnit":{"state":"translated","value":"{kind} i {workspace}"}},"de":{"stringUnit":{"state":"translated","value":"{kind} in {workspace}"}},"en":{"stringUnit":{"state":"translated","value":"{kind} in {workspace}"}},"es":{"stringUnit":{"state":"translated","value":"{kind} en {workspace}"}},"fr":{"stringUnit":{"state":"translated","value":"{kind} dans {workspace}"}},"it":{"stringUnit":{"state":"translated","value":"{kind} in {workspace}"}},"ja":{"stringUnit":{"state":"translated","value":"{workspace} の{kind}"}},"km":{"stringUnit":{"state":"translated","value":"{kind} ក្នុង {workspace}"}},"ko":{"stringUnit":{"state":"translated","value":"{workspace}의 {kind}"}},"nb":{"stringUnit":{"state":"translated","value":"{kind} i {workspace}"}},"pl":{"stringUnit":{"state":"translated","value":"{kind} w {workspace}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"{kind} em {workspace}"}},"ru":{"stringUnit":{"state":"translated","value":"{kind} в {workspace}"}},"th":{"stringUnit":{"state":"translated","value":"{kind} ใน {workspace}"}},"tr":{"stringUnit":{"state":"translated","value":"{workspace} içinde {kind}"}},"uk":{"stringUnit":{"state":"translated","value":"{kind} у {workspace}"}},"vi":{"stringUnit":{"state":"translated","value":"{kind} trong {workspace}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"{workspace} 中的{kind}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"{workspace} 中的{kind}"}}}},
+    "tour.offer": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جولة في هذا المستودع"}},"bs":{"stringUnit":{"state":"translated","value":"Obiđi ovaj repozitorij"}},"da":{"stringUnit":{"state":"translated","value":"Få en rundvisning i dette repo"}},"de":{"stringUnit":{"state":"translated","value":"Tour durch dieses Repo"}},"en":{"stringUnit":{"state":"translated","value":"Take a tour of this repo"}},"es":{"stringUnit":{"state":"translated","value":"Haz un recorrido por este repositorio"}},"fr":{"stringUnit":{"state":"translated","value":"Faire le tour de ce dépôt"}},"it":{"stringUnit":{"state":"translated","value":"Fai un tour di questo repository"}},"ja":{"stringUnit":{"state":"translated","value":"このリポジトリを案内する"}},"km":{"stringUnit":{"state":"translated","value":"ទស្សនាឃ្លាំងនេះ"}},"ko":{"stringUnit":{"state":"translated","value":"이 저장소 둘러보기"}},"nb":{"stringUnit":{"state":"translated","value":"Få en omvisning i dette repoet"}},"pl":{"stringUnit":{"state":"translated","value":"Oprowadź po tym repozytorium"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Fazer um tour por este repositório"}},"ru":{"stringUnit":{"state":"translated","value":"Обзор этого репозитория"}},"th":{"stringUnit":{"state":"translated","value":"ทัวร์รีโพนี้"}},"tr":{"stringUnit":{"state":"translated","value":"Bu depoyu tanıt"}},"uk":{"stringUnit":{"state":"translated","value":"Огляд цього репозиторію"}},"vi":{"stringUnit":{"state":"translated","value":"Tham quan kho mã này"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"浏览此仓库"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"瀏覽此儲存庫"}}}},
+    "tour.dismiss": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"ليس الآن"}},"bs":{"stringUnit":{"state":"translated","value":"Ne sada"}},"da":{"stringUnit":{"state":"translated","value":"Ikke nu"}},"de":{"stringUnit":{"state":"translated","value":"Nicht jetzt"}},"en":{"stringUnit":{"state":"translated","value":"Not now"}},"es":{"stringUnit":{"state":"translated","value":"Ahora no"}},"fr":{"stringUnit":{"state":"translated","value":"Pas maintenant"}},"it":{"stringUnit":{"state":"translated","value":"Non ora"}},"ja":{"stringUnit":{"state":"translated","value":"今はしない"}},"km":{"stringUnit":{"state":"translated","value":"មិនមែនឥឡូវទេ"}},"ko":{"stringUnit":{"state":"translated","value":"나중에"}},"nb":{"stringUnit":{"state":"translated","value":"Ikke nå"}},"pl":{"stringUnit":{"state":"translated","value":"Nie teraz"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Agora não"}},"ru":{"stringUnit":{"state":"translated","value":"Не сейчас"}},"th":{"stringUnit":{"state":"translated","value":"ไว้ทีหลัง"}},"tr":{"stringUnit":{"state":"translated","value":"Şimdi değil"}},"uk":{"stringUnit":{"state":"translated","value":"Не зараз"}},"vi":{"stringUnit":{"state":"translated","value":"Để sau"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"暂不"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"暫不"}}}},
+    "tour.title": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جولة في المستودع"}},"bs":{"stringUnit":{"state":"translated","value":"Obilazak repozitorija"}},"da":{"stringUnit":{"state":"translated","value":"Rundvisning i repo"}},"de":{"stringUnit":{"state":"translated","value":"Repo-Tour"}},"en":{"stringUnit":{"state":"translated","value":"Repo tour"}},"es":{"stringUnit":{"state":"translated","value":"Recorrido del repositorio"}},"fr":{"stringUnit":{"state":"translated","value":"Visite du dépôt"}},"it":{"stringUnit":{"state":"translated","value":"Tour del repository"}},"ja":{"stringUnit":{"state":"translated","value":"リポジトリの案内"}},"km":{"stringUnit":{"state":"translated","value":"ការទស្សនាឃ្លាំង"}},"ko":{"stringUnit":{"state":"translated","value":"저장소 둘러보기"}},"nb":{"stringUnit":{"state":"translated","value":"Omvisning i repoet"}},"pl":{"stringUnit":{"state":"translated","value":"Przegląd repozytorium"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Tour do repositório"}},"ru":{"stringUnit":{"state":"translated","value":"Обзор репозитория"}},"th":{"stringUnit":{"state":"translated","value":"ทัวร์รีโพ"}},"tr":{"stringUnit":{"state":"translated","value":"Depo turu"}},"uk":{"stringUnit":{"state":"translated","value":"Огляд репозиторію"}},"vi":{"stringUnit":{"state":"translated","value":"Tham quan kho mã"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"仓库导览"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"儲存庫導覽"}}}},
+    "tour.writing": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جارٍ كتابة الجولة…"}},"bs":{"stringUnit":{"state":"translated","value":"Pišem obilazak…"}},"da":{"stringUnit":{"state":"translated","value":"Skriver rundvisningen…"}},"de":{"stringUnit":{"state":"translated","value":"Tour wird geschrieben…"}},"en":{"stringUnit":{"state":"translated","value":"Writing the tour…"}},"es":{"stringUnit":{"state":"translated","value":"Escribiendo el recorrido…"}},"fr":{"stringUnit":{"state":"translated","value":"Rédaction de la visite…"}},"it":{"stringUnit":{"state":"translated","value":"Scrittura del tour…"}},"ja":{"stringUnit":{"state":"translated","value":"案内を作成中…"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងសរសេរការទស្សនា…"}},"ko":{"stringUnit":{"state":"translated","value":"둘러보기 작성 중…"}},"nb":{"stringUnit":{"state":"translated","value":"Skriver omvisningen…"}},"pl":{"stringUnit":{"state":"translated","value":"Piszę przegląd…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Escrevendo o tour…"}},"ru":{"stringUnit":{"state":"translated","value":"Пишу обзор…"}},"th":{"stringUnit":{"state":"translated","value":"กำลังเขียนทัวร์…"}},"tr":{"stringUnit":{"state":"translated","value":"Tur yazılıyor…"}},"uk":{"stringUnit":{"state":"translated","value":"Пишу огляд…"}},"vi":{"stringUnit":{"state":"translated","value":"Đang viết phần tham quan…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在撰写导览…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在撰寫導覽…"}}}},
+    "tour.modules": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"الوحدات الرئيسية"}},"bs":{"stringUnit":{"state":"translated","value":"Glavni moduli"}},"da":{"stringUnit":{"state":"translated","value":"Hovedmoduler"}},"de":{"stringUnit":{"state":"translated","value":"Hauptmodule"}},"en":{"stringUnit":{"state":"translated","value":"Main modules"}},"es":{"stringUnit":{"state":"translated","value":"Módulos principales"}},"fr":{"stringUnit":{"state":"translated","value":"Modules principaux"}},"it":{"stringUnit":{"state":"translated","value":"Moduli principali"}},"ja":{"stringUnit":{"state":"translated","value":"主なモジュール"}},"km":{"stringUnit":{"state":"translated","value":"ម៉ូឌុលសំខាន់ៗ"}},"ko":{"stringUnit":{"state":"translated","value":"주요 모듈"}},"nb":{"stringUnit":{"state":"translated","value":"Hovedmoduler"}},"pl":{"stringUnit":{"state":"translated","value":"Główne moduły"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Módulos principais"}},"ru":{"stringUnit":{"state":"translated","value":"Основные модули"}},"th":{"stringUnit":{"state":"translated","value":"โมดูลหลัก"}},"tr":{"stringUnit":{"state":"translated","value":"Ana modüller"}},"uk":{"stringUnit":{"state":"translated","value":"Основні модулі"}},"vi":{"stringUnit":{"state":"translated","value":"Các mô-đun chính"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"主要模块"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"主要模組"}}}},
+    "tour.run": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تشغيله"}},"bs":{"stringUnit":{"state":"translated","value":"Pokreni"}},"da":{"stringUnit":{"state":"translated","value":"Kør det"}},"de":{"stringUnit":{"state":"translated","value":"Ausführen"}},"en":{"stringUnit":{"state":"translated","value":"Run it"}},"es":{"stringUnit":{"state":"translated","value":"Ejecutarlo"}},"fr":{"stringUnit":{"state":"translated","value":"Lancer"}},"it":{"stringUnit":{"state":"translated","value":"Eseguilo"}},"ja":{"stringUnit":{"state":"translated","value":"実行方法"}},"km":{"stringUnit":{"state":"translated","value":"ដំណើរការវា"}},"ko":{"stringUnit":{"state":"translated","value":"실행 방법"}},"nb":{"stringUnit":{"state":"translated","value":"Kjør det"}},"pl":{"stringUnit":{"state":"translated","value":"Uruchom"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Executar"}},"ru":{"stringUnit":{"state":"translated","value":"Запуск"}},"th":{"stringUnit":{"state":"translated","value":"วิธีรัน"}},"tr":{"stringUnit":{"state":"translated","value":"Çalıştır"}},"uk":{"stringUnit":{"state":"translated","value":"Запуск"}},"vi":{"stringUnit":{"state":"translated","value":"Chạy"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"运行"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"執行"}}}},
+    "tour.tasks": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"مهام أولى جيدة"}},"bs":{"stringUnit":{"state":"translated","value":"Dobri prvi zadaci"}},"da":{"stringUnit":{"state":"translated","value":"Gode første opgaver"}},"de":{"stringUnit":{"state":"translated","value":"Gute erste Aufgaben"}},"en":{"stringUnit":{"state":"translated","value":"Good first tasks"}},"es":{"stringUnit":{"state":"translated","value":"Buenas primeras tareas"}},"fr":{"stringUnit":{"state":"translated","value":"Bonnes premières tâches"}},"it":{"stringUnit":{"state":"translated","value":"Buoni primi compiti"}},"ja":{"stringUnit":{"state":"translated","value":"最初におすすめのタスク"}},"km":{"stringUnit":{"state":"translated","value":"កិច្ចការដំបូងល្អៗ"}},"ko":{"stringUnit":{"state":"translated","value":"처음 하기 좋은 작업"}},"nb":{"stringUnit":{"state":"translated","value":"Gode første oppgaver"}},"pl":{"stringUnit":{"state":"translated","value":"Dobre pierwsze zadania"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Boas primeiras tarefas"}},"ru":{"stringUnit":{"state":"translated","value":"Хорошие первые задачи"}},"th":{"stringUnit":{"state":"translated","value":"งานแรกที่น่าทำ"}},"tr":{"stringUnit":{"state":"translated","value":"İyi ilk görevler"}},"uk":{"stringUnit":{"state":"translated","value":"Добрі перші завдання"}},"vi":{"stringUnit":{"state":"translated","value":"Việc nên làm đầu tiên"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"适合上手的任务"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"適合上手的任務"}}}},
+    "tour.start": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"ابدأ"}},"bs":{"stringUnit":{"state":"translated","value":"Pokreni"}},"da":{"stringUnit":{"state":"translated","value":"Start"}},"de":{"stringUnit":{"state":"translated","value":"Starten"}},"en":{"stringUnit":{"state":"translated","value":"Start"}},"es":{"stringUnit":{"state":"translated","value":"Empezar"}},"fr":{"stringUnit":{"state":"translated","value":"Démarrer"}},"it":{"stringUnit":{"state":"translated","value":"Avvia"}},"ja":{"stringUnit":{"state":"translated","value":"開始"}},"km":{"stringUnit":{"state":"translated","value":"ចាប់ផ្តើម"}},"ko":{"stringUnit":{"state":"translated","value":"시작"}},"nb":{"stringUnit":{"state":"translated","value":"Start"}},"pl":{"stringUnit":{"state":"translated","value":"Rozpocznij"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Iniciar"}},"ru":{"stringUnit":{"state":"translated","value":"Начать"}},"th":{"stringUnit":{"state":"translated","value":"เริ่ม"}},"tr":{"stringUnit":{"state":"translated","value":"Başlat"}},"uk":{"stringUnit":{"state":"translated","value":"Почати"}},"vi":{"stringUnit":{"state":"translated","value":"Bắt đầu"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"开始"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"開始"}}}},
+    "tour.startTitle": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"ابدأ هذه المهمة في شجرة عمل جديدة"}},"bs":{"stringUnit":{"state":"translated","value":"Pokreni ovaj zadatak u novom radnom stablu"}},"da":{"stringUnit":{"state":"translated","value":"Start opgaven i et nyt worktree"}},"de":{"stringUnit":{"state":"translated","value":"Aufgabe in einem neuen Worktree starten"}},"en":{"stringUnit":{"state":"translated","value":"Start this task in a new worktree"}},"es":{"stringUnit":{"state":"translated","value":"Empezar esta tarea en un worktree nuevo"}},"fr":{"stringUnit":{"state":"translated","value":"Démarrer cette tâche dans un nouveau worktree"}},"it":{"stringUnit":{"state":"translated","value":"Avvia questo compito in un nuovo worktree"}},"ja":{"stringUnit":{"state":"translated","value":"新しいワークツリーでこのタスクを開始"}},"km":{"stringUnit":{"state":"translated","value":"ចាប់ផ្តើមកិច្ចការនេះក្នុង worktree ថ្មី"}},"ko":{"stringUnit":{"state":"translated","value":"새 워크트리에서 이 작업 시작"}},"nb":{"stringUnit":{"state":"translated","value":"Start oppgaven i et nytt worktree"}},"pl":{"stringUnit":{"state":"translated","value":"Rozpocznij to zadanie w nowym worktree"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Iniciar esta tarefa em um novo worktree"}},"ru":{"stringUnit":{"state":"translated","value":"Начать задачу в новом worktree"}},"th":{"stringUnit":{"state":"translated","value":"เริ่มงานนี้ใน worktree ใหม่"}},"tr":{"stringUnit":{"state":"translated","value":"Bu görevi yeni bir worktree'de başlat"}},"uk":{"stringUnit":{"state":"translated","value":"Почати завдання в новому worktree"}},"vi":{"stringUnit":{"state":"translated","value":"Bắt đầu việc này trong worktree mới"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在新工作树中开始此任务"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在新工作樹中開始此任務"}}}},
+    "tour.starting": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جارٍ البدء…"}},"bs":{"stringUnit":{"state":"translated","value":"Pokrećem…"}},"da":{"stringUnit":{"state":"translated","value":"Starter…"}},"de":{"stringUnit":{"state":"translated","value":"Wird gestartet…"}},"en":{"stringUnit":{"state":"translated","value":"Starting…"}},"es":{"stringUnit":{"state":"translated","value":"Empezando…"}},"fr":{"stringUnit":{"state":"translated","value":"Démarrage…"}},"it":{"stringUnit":{"state":"translated","value":"Avvio…"}},"ja":{"stringUnit":{"state":"translated","value":"開始中…"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងចាប់ផ្តើម…"}},"ko":{"stringUnit":{"state":"translated","value":"시작하는 중…"}},"nb":{"stringUnit":{"state":"translated","value":"Starter…"}},"pl":{"stringUnit":{"state":"translated","value":"Uruchamianie…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Iniciando…"}},"ru":{"stringUnit":{"state":"translated","value":"Запуск…"}},"th":{"stringUnit":{"state":"translated","value":"กำลังเริ่ม…"}},"tr":{"stringUnit":{"state":"translated","value":"Başlatılıyor…"}},"uk":{"stringUnit":{"state":"translated","value":"Запуск…"}},"vi":{"stringUnit":{"state":"translated","value":"Đang bắt đầu…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在开始…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在開始…"}}}},
+    "tour.started": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"بدأت"}},"bs":{"stringUnit":{"state":"translated","value":"Pokrenuto"}},"da":{"stringUnit":{"state":"translated","value":"Startet"}},"de":{"stringUnit":{"state":"translated","value":"Gestartet"}},"en":{"stringUnit":{"state":"translated","value":"Started"}},"es":{"stringUnit":{"state":"translated","value":"Empezada"}},"fr":{"stringUnit":{"state":"translated","value":"Démarrée"}},"it":{"stringUnit":{"state":"translated","value":"Avviato"}},"ja":{"stringUnit":{"state":"translated","value":"開始済み"}},"km":{"stringUnit":{"state":"translated","value":"បានចាប់ផ្តើម"}},"ko":{"stringUnit":{"state":"translated","value":"시작됨"}},"nb":{"stringUnit":{"state":"translated","value":"Startet"}},"pl":{"stringUnit":{"state":"translated","value":"Rozpoczęto"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Iniciada"}},"ru":{"stringUnit":{"state":"translated","value":"Начато"}},"th":{"stringUnit":{"state":"translated","value":"เริ่มแล้ว"}},"tr":{"stringUnit":{"state":"translated","value":"Başlatıldı"}},"uk":{"stringUnit":{"state":"translated","value":"Почато"}},"vi":{"stringUnit":{"state":"translated","value":"Đã bắt đầu"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已开始"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已開始"}}}},
+    "tour.startFailed": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تعذّر البدء: {reason}"}},"bs":{"stringUnit":{"state":"translated","value":"Nije pokrenuto: {reason}"}},"da":{"stringUnit":{"state":"translated","value":"Kunne ikke starte: {reason}"}},"de":{"stringUnit":{"state":"translated","value":"Start fehlgeschlagen: {reason}"}},"en":{"stringUnit":{"state":"translated","value":"Couldn’t start: {reason}"}},"es":{"stringUnit":{"state":"translated","value":"No se pudo empezar: {reason}"}},"fr":{"stringUnit":{"state":"translated","value":"Impossible de démarrer : {reason}"}},"it":{"stringUnit":{"state":"translated","value":"Impossibile avviare: {reason}"}},"ja":{"stringUnit":{"state":"translated","value":"開始できませんでした: {reason}"}},"km":{"stringUnit":{"state":"translated","value":"មិនអាចចាប់ផ្តើមបាន៖ {reason}"}},"ko":{"stringUnit":{"state":"translated","value":"시작하지 못했습니다: {reason}"}},"nb":{"stringUnit":{"state":"translated","value":"Kunne ikke starte: {reason}"}},"pl":{"stringUnit":{"state":"translated","value":"Nie udało się rozpocząć: {reason}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Não foi possível iniciar: {reason}"}},"ru":{"stringUnit":{"state":"translated","value":"Не удалось начать: {reason}"}},"th":{"stringUnit":{"state":"translated","value":"เริ่มไม่ได้: {reason}"}},"tr":{"stringUnit":{"state":"translated","value":"Başlatılamadı: {reason}"}},"uk":{"stringUnit":{"state":"translated","value":"Не вдалося почати: {reason}"}},"vi":{"stringUnit":{"state":"translated","value":"Không thể bắt đầu: {reason}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无法开始：{reason}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"無法開始：{reason}"}}}},
+    "tour.startFailedUnknown": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"لم تبدأ المحادثة."}},"bs":{"stringUnit":{"state":"translated","value":"Razgovor nije pokrenut."}},"da":{"stringUnit":{"state":"translated","value":"Chatten startede ikke."}},"de":{"stringUnit":{"state":"translated","value":"Der Chat wurde nicht gestartet."}},"en":{"stringUnit":{"state":"translated","value":"The chat didn’t start."}},"es":{"stringUnit":{"state":"translated","value":"El chat no empezó."}},"fr":{"stringUnit":{"state":"translated","value":"Le chat n’a pas démarré."}},"it":{"stringUnit":{"state":"translated","value":"La chat non è partita."}},"ja":{"stringUnit":{"state":"translated","value":"チャットが開始されませんでした。"}},"km":{"stringUnit":{"state":"translated","value":"ការជជែកមិនបានចាប់ផ្តើមទេ។"}},"ko":{"stringUnit":{"state":"translated","value":"채팅이 시작되지 않았습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Chatten startet ikke."}},"pl":{"stringUnit":{"state":"translated","value":"Czat się nie rozpoczął."}},"pt-BR":{"stringUnit":{"state":"translated","value":"O chat não foi iniciado."}},"ru":{"stringUnit":{"state":"translated","value":"Чат не запустился."}},"th":{"stringUnit":{"state":"translated","value":"แชทไม่ได้เริ่ม"}},"tr":{"stringUnit":{"state":"translated","value":"Sohbet başlamadı."}},"uk":{"stringUnit":{"state":"translated","value":"Чат не запустився."}},"vi":{"stringUnit":{"state":"translated","value":"Cuộc trò chuyện chưa bắt đầu."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"聊天未开始。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"聊天未開始。"}}}},
     "turn.tokens.outputRow": {"comment":"Agent pane: a reply time's tooltip, one row: what the model wrote over the turn. {tokens} is a compact count (5.1K).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"المخرجات {tokens}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izlaz {tokens}"}},"da":{"stringUnit":{"state":"needs_review","value":"Output {tokens}"}},"de":{"stringUnit":{"state":"needs_review","value":"Ausgabe {tokens}"}},"en":{"stringUnit":{"state":"translated","value":"Output {tokens}"}},"es":{"stringUnit":{"state":"needs_review","value":"Salida {tokens}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Sortie {tokens}"}},"it":{"stringUnit":{"state":"needs_review","value":"Output {tokens}"}},"ja":{"stringUnit":{"state":"needs_review","value":"出力 {tokens}"}},"km":{"stringUnit":{"state":"needs_review","value":"លទ្ធផល {tokens}"}},"ko":{"stringUnit":{"state":"needs_review","value":"출력 {tokens}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utdata {tokens}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wyjście {tokens}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Saída {tokens}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Вывод {tokens}"}},"th":{"stringUnit":{"state":"needs_review","value":"เอาต์พุต {tokens}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Çıktı {tokens}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вивід {tokens}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đầu ra {tokens}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"输出 {tokens}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"輸出 {tokens}"}}}},
     "turn.tokens.inputRow": {"comment":"Agent pane: a reply time's tooltip, one row: the input the turn's model calls read, added up over its calls. {uncached} is what was new to the prompt cache (fresh input and cache writes), {cached} what the calls read again from the cache; each a compact count (14.2K, 930.9K).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"المدخلات عبر الاستدعاءات {uncached} غير مخزنة · {cached} مخزنة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ulaz kroz pozive {uncached} nekeširano · {cached} keširano"}},"da":{"stringUnit":{"state":"needs_review","value":"Input på tværs af kald {uncached} ikke cachet · {cached} cachet"}},"de":{"stringUnit":{"state":"needs_review","value":"Eingabe über alle Aufrufe {uncached} ungecacht · {cached} gecacht"}},"en":{"stringUnit":{"state":"translated","value":"Input across calls {uncached} uncached · {cached} cached"}},"es":{"stringUnit":{"state":"needs_review","value":"Entrada en todas las llamadas {uncached} sin caché · {cached} en caché"}},"fr":{"stringUnit":{"state":"needs_review","value":"Entrée sur les appels {uncached} hors cache · {cached} en cache"}},"it":{"stringUnit":{"state":"needs_review","value":"Input tra le chiamate {uncached} non in cache · {cached} in cache"}},"ja":{"stringUnit":{"state":"needs_review","value":"全呼び出しの入力 {uncached} 非キャッシュ · {cached} キャッシュ"}},"km":{"stringUnit":{"state":"needs_review","value":"ការបញ្ចូលតាមការហៅ {uncached} មិនបានរក្សាទុក · {cached} បានរក្សាទុក"}},"ko":{"stringUnit":{"state":"needs_review","value":"전체 호출 입력 {uncached} 비캐시 · {cached} 캐시"}},"nb":{"stringUnit":{"state":"needs_review","value":"Inndata på tvers av kall {uncached} ikke bufret · {cached} bufret"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wejście ze wszystkich wywołań {uncached} spoza pamięci podręcznej · {cached} z pamięci podręcznej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Entrada nas chamadas {uncached} sem cache · {cached} em cache"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ввод по всем вызовам {uncached} без кэша · {cached} из кэша"}},"th":{"stringUnit":{"state":"needs_review","value":"อินพุตรวมทุกการเรียก {uncached} ไม่ได้แคช · {cached} แคช"}},"tr":{"stringUnit":{"state":"needs_review","value":"Çağrılar boyunca girdi {uncached} önbelleksiz · {cached} önbellekli"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ввід за всіма викликами {uncached} без кешу · {cached} з кешу"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đầu vào qua các lệnh gọi {uncached} chưa lưu đệm · {cached} đã lưu đệm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"各次调用的输入 {uncached} 未缓存 · {cached} 已缓存"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"各次呼叫的輸入 {uncached} 未快取 · {cached} 已快取"}}}},
     "turn.tokens.contextRow": {"comment":"Agent pane: a reply time's tooltip, one row: how much the chat's context held after the turn's last model call (what it read and wrote). {tokens} is a compact count (139.9K).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"السياق في النهاية {tokens}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kontekst na kraju {tokens}"}},"da":{"stringUnit":{"state":"needs_review","value":"Kontekst til sidst {tokens}"}},"de":{"stringUnit":{"state":"needs_review","value":"Kontext am Ende {tokens}"}},"en":{"stringUnit":{"state":"translated","value":"Context at end {tokens}"}},"es":{"stringUnit":{"state":"needs_review","value":"Contexto al final {tokens}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Contexte à la fin {tokens}"}},"it":{"stringUnit":{"state":"needs_review","value":"Contesto alla fine {tokens}"}},"ja":{"stringUnit":{"state":"needs_review","value":"終了時のコンテキスト {tokens}"}},"km":{"stringUnit":{"state":"needs_review","value":"បរិបទនៅចុងបញ្ចប់ {tokens}"}},"ko":{"stringUnit":{"state":"needs_review","value":"종료 시 컨텍스트 {tokens}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kontekst til slutt {tokens}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kontekst na końcu {tokens}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Contexto ao final {tokens}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Контекст в конце {tokens}"}},"th":{"stringUnit":{"state":"needs_review","value":"บริบทตอนจบ {tokens}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sondaki bağlam {tokens}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Контекст наприкінці {tokens}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ngữ cảnh lúc kết thúc {tokens}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"结束时的上下文 {tokens}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"結束時的上下文 {tokens}"}}}},
@@ -20800,6 +20819,107 @@
         }
       }
     },
+    "worktree.fixFromLink": {"comment":"Agent pane: the GitHub issue link action under the new chat composer","extractionState":"manual","localizations":{"ar":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "إصلاح في شجرة عمل جديدة"
+          }
+        },"bs":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Popravi u novom radnom stablu"
+          }
+        },"da":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ret i et nyt arbejdstræ"
+          }
+        },"de":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "In einem neuen Worktree beheben"
+          }
+        },"en":{"stringUnit":{"state":"translated","value":"Fix in a new worktree"}},"es":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corregir en un nuevo árbol de trabajo"
+          }
+        },"fr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corriger dans un nouveau worktree"
+          }
+        },"it":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Correggi in un nuovo albero di lavoro"
+          }
+        },"ja":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークツリーで修正"
+          }
+        },"km":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួសជុលក្នុងមែកធាងការងារថ្មី"
+          }
+        },"ko":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 작업 트리에서 수정"
+          }
+        },"nb":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rett i et nytt arbeidstre"
+          }
+        },"pl":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Napraw w nowym drzewie roboczym"
+          }
+        },"pt-BR":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corrigir em uma nova árvore de trabalho"
+          }
+        },"ru":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Исправить в новом рабочем дереве"
+          }
+        },"th":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "แก้ไขในเวิร์กทรีใหม่"
+          }
+        },"tr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni bir çalışma ağacında düzelt"
+          }
+        },"uk":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виправити в новому робочому дереві"
+          }
+        },"vi":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sửa trong cây làm việc mới"
+          }
+        },"zh-Hans":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新的工作树中修复"
+          }
+        },"zh-Hant":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新的工作樹中修正"
+          }
+        }}},
     "worktree.new": {
       "comment": "Agent pane: New Worktree in a new chat's folder menu, and its refusal above the composer (cx-lyqio.2)",
       "extractionState": "manual",
@@ -197267,127 +197387,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Inter (default)"
+            "value": "cmux Inter"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (افتراضي)"
+            "value": "cmux Inter"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Zadano)"
+            "value": "cmux Inter"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Predeterminado)"
+            "value": "cmux Inter"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Par défaut)"
+            "value": "cmux Inter"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Predefinito)"
+            "value": "cmux Inter"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (デフォルト)"
+            "value": "cmux Inter"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (លំនាំដើម)"
+            "value": "cmux Inter"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (기본값)"
+            "value": "cmux Inter"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Domyślny)"
+            "value": "cmux Inter"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Padrão)"
+            "value": "cmux Inter"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (По умолчанию)"
+            "value": "cmux Inter"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (ค่าเริ่มต้น)"
+            "value": "cmux Inter"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Varsayılan)"
+            "value": "cmux Inter"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (За замовчуванням)"
+            "value": "cmux Inter"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Mặc định)"
+            "value": "cmux Inter"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (默认)"
+            "value": "cmux Inter"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (預設)"
+            "value": "cmux Inter"
           }
         }
       }
@@ -198587,127 +198707,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "System (default)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "النظام"
+            "value": "النظام (افتراضي)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistemski"
+            "value": "Sistemski (Zadano)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Predeterminado)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Système"
+            "value": "Système (Par défaut)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Predefinito)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "システム"
+            "value": "システム (デフォルト)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ប្រព័ន្ធ"
+            "value": "ប្រព័ន្ធ (លំនាំដើម)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "시스템"
+            "value": "시스템 (기본값)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Systemowa"
+            "value": "Systemowa (domyślna)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Padrão)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Системный"
+            "value": "Системный (По умолчанию)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ระบบ"
+            "value": "ระบบ (ค่าเริ่มต้น)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistem"
+            "value": "Sistem (Varsayılan)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Системний"
+            "value": "Системний (За замовчуванням)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hệ thống"
+            "value": "Hệ thống (Mặc định)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "系统"
+            "value": "系统 (默认)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "系統"
+            "value": "系統 (預設)"
           }
         }
       }
@@ -208557,6 +208677,13 @@
     "sessionInfo.subagent.backPlain": {"comment":"Agent pane: the Inspector's back button on a subagent's panel when what spawned it has no readable name (never its raw session id)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Back"}},"ar":{"stringUnit":{"state":"needs_review","value":"رجوع"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nazad"}},"da":{"stringUnit":{"state":"needs_review","value":"Tilbage"}},"de":{"stringUnit":{"state":"needs_review","value":"Zurück"}},"es":{"stringUnit":{"state":"needs_review","value":"Atrás"}},"fr":{"stringUnit":{"state":"needs_review","value":"Retour"}},"it":{"stringUnit":{"state":"needs_review","value":"Indietro"}},"ja":{"stringUnit":{"state":"needs_review","value":"戻る"}},"km":{"stringUnit":{"state":"needs_review","value":"ថយក្រោយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"뒤로"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tilbake"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wstecz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Voltar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Назад"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้อนกลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Geri"}},"uk":{"stringUnit":{"state":"needs_review","value":"Назад"}},"vi":{"stringUnit":{"state":"needs_review","value":"Quay lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"返回"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"返回"}}}},
     "awayRecap.label": {"comment":"Agent pane: muted lead-in of the session recap row, shown when the person comes back to a chat after 5+ minutes away; the recap text follows it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أثناء غيابك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dok niste bili tu"}},"da":{"stringUnit":{"state":"needs_review","value":"Mens du var væk"}},"de":{"stringUnit":{"state":"needs_review","value":"Während du weg warst"}},"en":{"stringUnit":{"state":"translated","value":"While you were away"}},"es":{"stringUnit":{"state":"needs_review","value":"Mientras no estabas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Pendant votre absence"}},"it":{"stringUnit":{"state":"needs_review","value":"Mentre eri via"}},"ja":{"stringUnit":{"state":"needs_review","value":"離席中のまとめ"}},"km":{"stringUnit":{"state":"needs_review","value":"ពេលអ្នកមិននៅ"}},"ko":{"stringUnit":{"state":"needs_review","value":"자리를 비운 동안"}},"nb":{"stringUnit":{"state":"needs_review","value":"Mens du var borte"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podczas Twojej nieobecności"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enquanto você esteve fora"}},"ru":{"stringUnit":{"state":"needs_review","value":"Пока вас не было"}},"th":{"stringUnit":{"state":"needs_review","value":"ระหว่างที่คุณไม่อยู่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Siz yokken"}},"uk":{"stringUnit":{"state":"needs_review","value":"Поки вас не було"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trong lúc bạn vắng mặt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"你离开期间"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"你離開期間"}}}},
     "awayRecap.dismiss": {"comment":"Agent pane: accessibility label and tooltip of the × button that hides the session recap row","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء الملخص"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbaci sažetak"}},"da":{"stringUnit":{"state":"needs_review","value":"Luk opsummering"}},"de":{"stringUnit":{"state":"needs_review","value":"Zusammenfassung ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Dismiss recap"}},"es":{"stringUnit":{"state":"needs_review","value":"Descartar resumen"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer le récapitulatif"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiudi riepilogo"}},"ja":{"stringUnit":{"state":"needs_review","value":"まとめを閉じる"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទសេចក្ដីសង្ខេប"}},"ko":{"stringUnit":{"state":"needs_review","value":"요약 닫기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lukk sammendrag"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zamknij podsumowanie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Dispensar resumo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть сводку"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดสรุป"}},"tr":{"stringUnit":{"state":"needs_review","value":"Özeti kapat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сховати підсумок"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đóng tóm tắt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"关闭回顾"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"關閉回顧"}}}},
+    "memoryInbox.label": {"comment":"Agent pane: accessibility label of the memory inbox card, which offers facts to add to the project's instructions file. {file} is the file name, e.g. CLAUDE.md","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ملاحظات لـ {file}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Bilješke za {file}"}},"da":{"stringUnit":{"state":"needs_review","value":"Noter til {file}"}},"de":{"stringUnit":{"state":"needs_review","value":"Notizen für {file}"}},"en":{"stringUnit":{"state":"translated","value":"Notes for {file}"}},"es":{"stringUnit":{"state":"needs_review","value":"Notas para {file}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Notes pour {file}"}},"it":{"stringUnit":{"state":"needs_review","value":"Note per {file}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{file} へのメモ"}},"km":{"stringUnit":{"state":"needs_review","value":"កំណត់ចំណាំសម្រាប់ {file}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{file}에 추가할 메모"}},"nb":{"stringUnit":{"state":"needs_review","value":"Notater for {file}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Notatki do {file}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Notas para {file}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Заметки для {file}"}},"th":{"stringUnit":{"state":"needs_review","value":"บันทึกสำหรับ {file}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{file} için notlar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Нотатки для {file}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ghi chú cho {file}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{file} 的笔记"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{file} 的筆記"}}}},
+    "memoryInbox.newFile": {"comment":"Agent pane: muted tag beside the file name on the memory inbox card when the instructions file does not exist yet and Accept creates it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ملف جديد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nova datoteka"}},"da":{"stringUnit":{"state":"needs_review","value":"Ny fil"}},"de":{"stringUnit":{"state":"needs_review","value":"Neue Datei"}},"en":{"stringUnit":{"state":"translated","value":"New file"}},"es":{"stringUnit":{"state":"needs_review","value":"Archivo nuevo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouveau fichier"}},"it":{"stringUnit":{"state":"needs_review","value":"Nuovo file"}},"ja":{"stringUnit":{"state":"needs_review","value":"新規ファイル"}},"km":{"stringUnit":{"state":"needs_review","value":"ឯកសារថ្មី"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 파일"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ny fil"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nowy plik"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Novo arquivo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Новый файл"}},"th":{"stringUnit":{"state":"needs_review","value":"ไฟล์ใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni dosya"}},"uk":{"stringUnit":{"state":"needs_review","value":"Новий файл"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tệp mới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"新文件"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"新檔案"}}}},
+    "memoryInbox.accept": {"comment":"Agent pane: button on one fact of the memory inbox card that writes it into the project's instructions file","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبول"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prihvati"}},"da":{"stringUnit":{"state":"needs_review","value":"Accepter"}},"de":{"stringUnit":{"state":"needs_review","value":"Annehmen"}},"en":{"stringUnit":{"state":"translated","value":"Accept"}},"es":{"stringUnit":{"state":"needs_review","value":"Aceptar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Accepter"}},"it":{"stringUnit":{"state":"needs_review","value":"Accetta"}},"ja":{"stringUnit":{"state":"needs_review","value":"追加"}},"km":{"stringUnit":{"state":"needs_review","value":"ទទួលយក"}},"ko":{"stringUnit":{"state":"needs_review","value":"수락"}},"nb":{"stringUnit":{"state":"needs_review","value":"Godta"}},"pl":{"stringUnit":{"state":"needs_review","value":"Akceptuj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aceitar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Принять"}},"th":{"stringUnit":{"state":"needs_review","value":"ยอมรับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kabul et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Прийняти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chấp nhận"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"接受"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"接受"}}}},
+    "memoryInbox.dismiss": {"comment":"Agent pane: button on one fact of the memory inbox card that drops it without writing it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تجاهل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbaci"}},"da":{"stringUnit":{"state":"needs_review","value":"Afvis"}},"de":{"stringUnit":{"state":"needs_review","value":"Verwerfen"}},"en":{"stringUnit":{"state":"translated","value":"Dismiss"}},"es":{"stringUnit":{"state":"needs_review","value":"Descartar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ignorer"}},"it":{"stringUnit":{"state":"needs_review","value":"Ignora"}},"ja":{"stringUnit":{"state":"needs_review","value":"却下"}},"km":{"stringUnit":{"state":"needs_review","value":"បោះបង់"}},"ko":{"stringUnit":{"state":"needs_review","value":"무시"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avvis"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odrzuć"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Dispensar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отклонить"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yoksay"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відхилити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bỏ qua"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"忽略"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"略過"}}}},
+    "memoryInbox.acceptAll": {"comment":"Agent pane: button on the memory inbox card that writes every remaining fact into the instructions file","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبول الكل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prihvati sve"}},"da":{"stringUnit":{"state":"needs_review","value":"Accepter alle"}},"de":{"stringUnit":{"state":"needs_review","value":"Alle annehmen"}},"en":{"stringUnit":{"state":"translated","value":"Accept all"}},"es":{"stringUnit":{"state":"needs_review","value":"Aceptar todo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Tout accepter"}},"it":{"stringUnit":{"state":"needs_review","value":"Accetta tutto"}},"ja":{"stringUnit":{"state":"needs_review","value":"すべて追加"}},"km":{"stringUnit":{"state":"needs_review","value":"ទទួលយកទាំងអស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모두 수락"}},"nb":{"stringUnit":{"state":"needs_review","value":"Godta alle"}},"pl":{"stringUnit":{"state":"needs_review","value":"Akceptuj wszystkie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aceitar tudo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Принять все"}},"th":{"stringUnit":{"state":"needs_review","value":"ยอมรับทั้งหมด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tümünü kabul et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Прийняти всі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chấp nhận tất cả"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"全部接受"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"全部接受"}}}},
+    "memoryInbox.dismissed": {"comment":"Agent pane: the memory inbox card's one-line note once every offered fact was dismissed","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تم التجاهل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbačeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Afvist"}},"de":{"stringUnit":{"state":"needs_review","value":"Verworfen"}},"en":{"stringUnit":{"state":"translated","value":"Dismissed"}},"es":{"stringUnit":{"state":"needs_review","value":"Descartado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ignoré"}},"it":{"stringUnit":{"state":"needs_review","value":"Ignorato"}},"ja":{"stringUnit":{"state":"needs_review","value":"却下済み"}},"km":{"stringUnit":{"state":"needs_review","value":"បានបោះបង់"}},"ko":{"stringUnit":{"state":"needs_review","value":"무시함"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avvist"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odrzucono"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Dispensado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отклонено"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yoksayıldı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відхилено"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã bỏ qua"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已忽略"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已略過"}}}},
+    "memoryInbox.added": {"comment":"Agent pane: the memory inbox card's one-line note once every offered fact was settled. {n} is how many were written, {file} the instructions file (CLAUDE.md)","extractionState":"manual","localizations":{"ar":{"variations":{"plural":{"zero":{"stringUnit":{"state":"needs_review","value":"تمت إضافة {n} ملاحظة إلى {file}"}},"one":{"stringUnit":{"state":"needs_review","value":"تمت إضافة {n} ملاحظة إلى {file}"}},"two":{"stringUnit":{"state":"needs_review","value":"تمت إضافة {n} ملاحظة إلى {file}"}},"few":{"stringUnit":{"state":"needs_review","value":"تمت إضافة {n} ملاحظة إلى {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"تمت إضافة {n} ملاحظة إلى {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"تمت إضافة {n} ملاحظة إلى {file}"}}}}},"bs":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Dodana {n} bilješka u {file}"}},"few":{"stringUnit":{"state":"needs_review","value":"Dodane {n} bilješke u {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Dodano {n} bilješki u {file}"}}}}},"da":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Tilføjede {n} note til {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Tilføjede {n} noter til {file}"}}}}},"de":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} Notiz zu {file} hinzugefügt"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} Notizen zu {file} hinzugefügt"}}}}},"en":{"variations":{"plural":{"one":{"stringUnit":{"state":"translated","value":"Added {n} note to {file}"}},"other":{"stringUnit":{"state":"translated","value":"Added {n} notes to {file}"}}}}},"es":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Se añadió {n} nota a {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"Se añadieron {n} notas a {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Se añadieron {n} notas a {file}"}}}}},"fr":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} note ajoutée à {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"{n} notes ajoutées à {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} notes ajoutées à {file}"}}}}},"it":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Aggiunta {n} nota a {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"Aggiunte {n} note a {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Aggiunte {n} note a {file}"}}}}},"ja":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"{file} に {n} 件のメモを追加しました"}}}}},"km":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"បានបន្ថែមកំណត់ចំណាំ {n} ទៅ {file}"}}}}},"ko":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"{file}에 메모 {n}개를 추가했습니다"}}}}},"nb":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"La til {n} notat i {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"La til {n} notater i {file}"}}}}},"pl":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Dodano {n} notatkę do {file}"}},"few":{"stringUnit":{"state":"needs_review","value":"Dodano {n} notatki do {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"Dodano {n} notatek do {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Dodano {n} notatki do {file}"}}}}},"pt-BR":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{n} nota adicionada a {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"{n} notas adicionadas a {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"{n} notas adicionadas a {file}"}}}}},"ru":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Добавлена {n} заметка в {file}"}},"few":{"stringUnit":{"state":"needs_review","value":"Добавлены {n} заметки в {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"Добавлено {n} заметок в {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Добавлено {n} заметки в {file}"}}}}},"th":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"เพิ่มบันทึก {n} รายการใน {file} แล้ว"}}}}},"tr":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"{file} dosyasına {n} not eklendi"}},"other":{"stringUnit":{"state":"needs_review","value":"{file} dosyasına {n} not eklendi"}}}}},"uk":{"variations":{"plural":{"one":{"stringUnit":{"state":"needs_review","value":"Додано {n} нотатку до {file}"}},"few":{"stringUnit":{"state":"needs_review","value":"Додано {n} нотатки до {file}"}},"many":{"stringUnit":{"state":"needs_review","value":"Додано {n} нотаток до {file}"}},"other":{"stringUnit":{"state":"needs_review","value":"Додано {n} нотатки до {file}"}}}}},"vi":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"Đã thêm {n} ghi chú vào {file}"}}}}},"zh-Hans":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"已向 {file} 添加 {n} 条笔记"}}}}},"zh-Hant":{"variations":{"plural":{"other":{"stringUnit":{"state":"needs_review","value":"已向 {file} 新增 {n} 則筆記"}}}}}}},
     "sessionInfo.subagent.back": {
       "comment": "Agent pane: the Inspector's back button on a subagent's panel, to what spawned it (the chat, or its parent subagent)",
       "extractionState": "manual",
@@ -258457,7 +258584,251 @@
     "command.git.forcePush": {"comment":"Agent pane: a command row's label (conversation/commandActions.ts); git push --force without a named branch","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Force-pushed commits"}},"ar":{"stringUnit":{"state":"needs_review","value":"تم دفع الإيداعات بالقوة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prisilno poslani komitovi"}},"da":{"stringUnit":{"state":"needs_review","value":"Force-pushede commits"}},"de":{"stringUnit":{"state":"needs_review","value":"Commits mit Force gepusht"}},"es":{"stringUnit":{"state":"needs_review","value":"Se forzó el envío de los commits"}},"fr":{"stringUnit":{"state":"needs_review","value":"Commits poussés de force"}},"it":{"stringUnit":{"state":"needs_review","value":"Push forzato dei commit"}},"ja":{"stringUnit":{"state":"needs_review","value":"コミットを強制プッシュしました"}},"km":{"stringUnit":{"state":"needs_review","value":"បាន push commit ដោយបង្ខំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"커밋 강제 푸시함"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tvangspushet commits"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wypchnięto siłowo commity"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviou os commits à força"}},"ru":{"stringUnit":{"state":"needs_review","value":"Коммиты отправлены принудительно"}},"th":{"stringUnit":{"state":"needs_review","value":"บังคับพุชคอมมิต"}},"tr":{"stringUnit":{"state":"needs_review","value":"Commit’ler zorla gönderildi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Коміти надіслано примусово"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã force-push commit"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"强制推送了提交"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"強制推送了提交"}}}},
     "command.ranOn": {"comment":"Agent pane: a command row's label (conversation/commandActions.ts); {command} is the programs of a pipeline the row cannot name, such as 'ffmpeg → python3'; {target} is the files they ran on, such as '*.mov'","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Ran {command} on {target}"}},"ar":{"stringUnit":{"state":"needs_review","value":"تم تشغيل {command} على {target}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokrenuto: {command} na {target}"}},"da":{"stringUnit":{"state":"needs_review","value":"Kørte {command} på {target}"}},"de":{"stringUnit":{"state":"needs_review","value":"{command} auf {target} ausgeführt"}},"es":{"stringUnit":{"state":"needs_review","value":"Se ejecutó {command} en {target}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Commande {command} exécutée sur {target}"}},"it":{"stringUnit":{"state":"needs_review","value":"Eseguito {command} su {target}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{target} に対して {command} を実行しました"}},"km":{"stringUnit":{"state":"needs_review","value":"បានដំណើរការ {command} លើ {target}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{target}에 {command} 실행함"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjørte {command} på {target}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchomiono: {command} na {target}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{command} executado em {target}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Выполнено: {command} для {target}"}},"th":{"stringUnit":{"state":"needs_review","value":"รัน {command} กับ {target} แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{command}, {target} üzerinde çalıştırıldı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Виконано: {command} для {target}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã chạy {command} trên {target}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"对 {target} 运行了 {command}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"對 {target} 執行了 {command}"}}}},
     "command.script": {"comment":"Agent pane: a command row's words for a script an interpreter ran from a heredoc or inline code (conversation/commandActions.ts), placed into 'Ran {command}' / 'Running {command}'; {language} is a language name such as Python or Bash","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"a {language} script"}},"ar":{"stringUnit":{"state":"needs_review","value":"سكربت {language}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{language} skripta"}},"da":{"stringUnit":{"state":"needs_review","value":"et {language}-script"}},"de":{"stringUnit":{"state":"needs_review","value":"{language}-Skript"}},"es":{"stringUnit":{"state":"needs_review","value":"un script de {language}"}},"fr":{"stringUnit":{"state":"needs_review","value":"un script {language}"}},"it":{"stringUnit":{"state":"needs_review","value":"uno script {language}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{language} スクリプト"}},"km":{"stringUnit":{"state":"needs_review","value":"ស្គ្រីប {language}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{language} 스크립트"}},"nb":{"stringUnit":{"state":"needs_review","value":"et {language}-skript"}},"pl":{"stringUnit":{"state":"needs_review","value":"skrypt {language}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"um script {language}"}},"ru":{"stringUnit":{"state":"needs_review","value":"скрипт {language}"}},"th":{"stringUnit":{"state":"needs_review","value":"สคริปต์ {language}"}},"tr":{"stringUnit":{"state":"needs_review","value":"bir {language} betiği"}},"uk":{"stringUnit":{"state":"needs_review","value":"скрипт {language}"}},"vi":{"stringUnit":{"state":"needs_review","value":"một script {language}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"一个 {language} 脚本"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"一個 {language} 指令碼"}}}},
-    "command.scriptOn": {"comment":"Agent pane: as command.script, with the first file the script names; {language} is a language name such as Python, {file} a file name such as als.json","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"a {language} script on {file}"}},"ar":{"stringUnit":{"state":"needs_review","value":"سكربت {language} على {file}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{language} skripta na {file}"}},"da":{"stringUnit":{"state":"needs_review","value":"et {language}-script på {file}"}},"de":{"stringUnit":{"state":"needs_review","value":"{language}-Skript auf {file}"}},"es":{"stringUnit":{"state":"needs_review","value":"un script de {language} en {file}"}},"fr":{"stringUnit":{"state":"needs_review","value":"un script {language} sur {file}"}},"it":{"stringUnit":{"state":"needs_review","value":"uno script {language} su {file}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{file} に対する {language} スクリプト"}},"km":{"stringUnit":{"state":"needs_review","value":"ស្គ្រីប {language} លើ {file}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{file}에 대한 {language} 스크립트"}},"nb":{"stringUnit":{"state":"needs_review","value":"et {language}-skript på {file}"}},"pl":{"stringUnit":{"state":"needs_review","value":"skrypt {language} na {file}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"um script {language} em {file}"}},"ru":{"stringUnit":{"state":"needs_review","value":"скрипт {language} для {file}"}},"th":{"stringUnit":{"state":"needs_review","value":"สคริปต์ {language} กับ {file}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{file} üzerinde bir {language} betiği"}},"uk":{"stringUnit":{"state":"needs_review","value":"скрипт {language} для {file}"}},"vi":{"stringUnit":{"state":"needs_review","value":"một script {language} trên {file}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"针对 {file} 的 {language} 脚本"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"針對 {file} 的 {language} 指令碼"}}}}
+    "command.scriptOn": {"comment":"Agent pane: as command.script, with the first file the script names; {language} is a language name such as Python, {file} a file name such as als.json","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"a {language} script on {file}"}},"ar":{"stringUnit":{"state":"needs_review","value":"سكربت {language} على {file}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{language} skripta na {file}"}},"da":{"stringUnit":{"state":"needs_review","value":"et {language}-script på {file}"}},"de":{"stringUnit":{"state":"needs_review","value":"{language}-Skript auf {file}"}},"es":{"stringUnit":{"state":"needs_review","value":"un script de {language} en {file}"}},"fr":{"stringUnit":{"state":"needs_review","value":"un script {language} sur {file}"}},"it":{"stringUnit":{"state":"needs_review","value":"uno script {language} su {file}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{file} に対する {language} スクリプト"}},"km":{"stringUnit":{"state":"needs_review","value":"ស្គ្រីប {language} លើ {file}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{file}에 대한 {language} 스크립트"}},"nb":{"stringUnit":{"state":"needs_review","value":"et {language}-skript på {file}"}},"pl":{"stringUnit":{"state":"needs_review","value":"skrypt {language} na {file}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"um script {language} em {file}"}},"ru":{"stringUnit":{"state":"needs_review","value":"скрипт {language} для {file}"}},"th":{"stringUnit":{"state":"needs_review","value":"สคริปต์ {language} กับ {file}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{file} üzerinde bir {language} betiği"}},"uk":{"stringUnit":{"state":"needs_review","value":"скрипт {language} для {file}"}},"vi":{"stringUnit":{"state":"needs_review","value":"một script {language} trên {file}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"针对 {file} 的 {language} 脚本"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"針對 {file} 的 {language} 指令碼"}}}},
+    "stuck.title": {"comment":"Agent pane: calm warning title when an agent appears stuck or silent","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Agent may be stuck"}},"ar":{"stringUnit":{"state":"translated","value":"قد يكون الوكيل عالقًا"}},"bs":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent je možda zapeo"
+          }
+        },"da":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten er muligvis gået i stå"
+          }
+        },"de":{"stringUnit":{"state":"translated","value":"Der Agent steckt möglicherweise fest"}},"es":{"stringUnit":{"state":"translated","value":"Es posible que el agente esté atascado"}},"fr":{"stringUnit":{"state":"translated","value":"L’agent semble bloqué"}},"it":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agente potrebbe essere bloccato"
+          }
+        },"ja":{"stringUnit":{"state":"translated","value":"エージェントが行き詰まっている可能性があります"}},"km":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារអាចកំពុងជាប់គាំង"
+          }
+        },"ko":{"stringUnit":{"state":"translated","value":"에이전트가 멈춘 것 같습니다"}},"nb":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten kan ha stoppet opp"
+          }
+        },"pl":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent mógł utknąć"
+          }
+        },"pt-BR":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "O agente pode estar travado"
+          }
+        },"ru":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент, возможно, застрял"
+          }
+        },"th":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์อาจติดขัด"
+          }
+        },"tr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracı takılmış olabilir"
+          }
+        },"uk":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент, можливо, застряг"
+          }
+        },"vi":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác nhân có thể bị kẹt"
+          }
+        },"zh-Hans":{"stringUnit":{"state":"translated","value":"智能体可能遇到阻碍"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"代理可能遇到阻礙"}}}},
+    "stuck.nudge": {"comment":"Agent pane: button to prefill an editable hint, without sending it","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Nudge with hint"}},"ar":{"stringUnit":{"state":"translated","value":"تنبيه مع تلميح"}},"bs":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potakni uz savjet"
+          }
+        },"da":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giv et hint"
+          }
+        },"de":{"stringUnit":{"state":"translated","value":"Mit Hinweis anstoßen"}},"es":{"stringUnit":{"state":"translated","value":"Dar una pista"}},"fr":{"stringUnit":{"state":"translated","value":"Donner un indice"}},"it":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggerisci un indizio"
+          }
+        },"ja":{"stringUnit":{"state":"translated","value":"ヒントを送る"}},"km":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ដល់តម្រុយ"
+          }
+        },"ko":{"stringUnit":{"state":"translated","value":"힌트로 도와주기"}},"nb":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gi et hint"
+          }
+        },"pl":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podsuń wskazówkę"
+          }
+        },"pt-BR":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dar uma dica"
+          }
+        },"ru":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подсказать"
+          }
+        },"th":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งคำใบ้"
+          }
+        },"tr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "İpucuyla yönlendir"
+          }
+        },"uk":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дати підказку"
+          }
+        },"vi":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gợi ý"
+          }
+        },"zh-Hans":{"stringUnit":{"state":"translated","value":"提供提示"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"提供提示"}}}},
+    "stuck.silentDiagnosis": {"comment":"Agent pane: attention diagnosis for a silent agent turn","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No response from the agent for a while"}},"ar":{"stringUnit":{"state":"translated","value":"لم يستجب الوكيل منذ فترة"}},"bs":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent se već neko vrijeme ne javlja"
+          }
+        },"da":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten har ikke svaret i et stykke tid"
+          }
+        },"de":{"stringUnit":{"state":"translated","value":"Der Agent hat seit einiger Zeit nicht geantwortet"}},"es":{"stringUnit":{"state":"translated","value":"El agente lleva un rato sin responder"}},"fr":{"stringUnit":{"state":"translated","value":"L’agent ne répond plus depuis un moment"}},"it":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’agente non risponde da un po’"
+          }
+        },"ja":{"stringUnit":{"state":"translated","value":"しばらくエージェントから応答がありません"}},"km":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារមិនបានឆ្លើយតបមួយរយៈហើយ"
+          }
+        },"ko":{"stringUnit":{"state":"translated","value":"에이전트가 한동안 응답하지 않았습니다"}},"nb":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten har ikke svart på en stund"
+          }
+        },"pl":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent od pewnego czasu nie odpowiada"
+          }
+        },"pt-BR":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "O agente não responde há algum tempo"
+          }
+        },"ru":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент давно не отвечает"
+          }
+        },"th":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ไม่ตอบสนองมาสักพัก"
+          }
+        },"tr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracı bir süredir yanıt vermiyor"
+          }
+        },"uk":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент уже деякий час не відповідає"
+          }
+        },"vi":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác nhân đã không phản hồi một lúc"
+          }
+        },"zh-Hans":{"stringUnit":{"state":"translated","value":"智能体已有一段时间没有响应"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"代理已有一段時間沒有回應"}}}},
+    "stuck.nudgePrompt": {"comment":"Agent pane: editable prompt prefilled with the stuck diagnosis; {diagnosis} is the observed problem","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The agent may be stuck: {diagnosis}. Please try a different approach."}},"ar":{"stringUnit":{"state":"translated","value":"قد تكون عالقًا: {diagnosis}. جرّب نهجًا مختلفًا."}},"bs":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Možda si zapeo: {diagnosis}. Pokušaj drukčiji pristup."
+          }
+        },"da":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du er muligvis gået i stå: {diagnosis}. Prøv en anden tilgang."
+          }
+        },"de":{"stringUnit":{"state":"translated","value":"Du steckst möglicherweise fest: {diagnosis}. Versuche einen anderen Ansatz."}},"es":{"stringUnit":{"state":"translated","value":"Es posible que estés atascado: {diagnosis}. Prueba otro enfoque."}},"fr":{"stringUnit":{"state":"translated","value":"Tu sembles bloqué : {diagnosis}. Essaie une autre approche."}},"it":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potresti essere bloccato: {diagnosis}. Prova un altro approccio."
+          }
+        },"ja":{"stringUnit":{"state":"translated","value":"行き詰まっている可能性があります: {diagnosis}。別の方法を試してください。"}},"km":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកអាចកំពុងជាប់គាំង៖ {diagnosis}។ សូមសាកល្បងវិធីផ្សេង។"
+          }
+        },"ko":{"stringUnit":{"state":"translated","value":"막혔을 수 있습니다: {diagnosis}. 다른 방법을 시도해 주세요."}},"nb":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du kan ha stoppet opp: {diagnosis}. Prøv en annen fremgangsmåte."
+          }
+        },"pl":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Możesz mieć problem: {diagnosis}. Spróbuj innego podejścia."
+          }
+        },"pt-BR":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você pode estar travado: {diagnosis}. Tente outra abordagem."
+          }
+        },"ru":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Похоже, вы застряли: {diagnosis}. Попробуйте другой подход."
+          }
+        },"th":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "คุณอาจติดขัด: {diagnosis} ลองวิธีอื่น"
+          }
+        },"tr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Takılmış olabilirsin: {diagnosis}. Farklı bir yaklaşım dene."
+          }
+        },"uk":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Схоже, ти застряг: {diagnosis}. Спробуй інший підхід."
+          }
+        },"vi":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bạn có thể bị kẹt: {diagnosis}. Hãy thử cách khác."
+          }
+        },"zh-Hans":{"stringUnit":{"state":"translated","value":"你可能遇到阻碍：{diagnosis}。请尝试其他方法。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你可能遇到阻礙：{diagnosis}。請嘗試其他方法。"}}}}
   },
   "version": "1.0"
 }

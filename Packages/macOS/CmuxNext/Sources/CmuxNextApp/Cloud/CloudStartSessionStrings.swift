@@ -138,12 +138,12 @@ enum CloudStartSessionStrings {
         String(localized: "cloud.startSession.loginInvalid", defaultValue: "Pass --login as pass (your own login), machine (the machine's own) or none.", table: "CloudSessions", bundle: .module)
     }
 
-    /// Why a headless start (`cmux cloud start-session`) fails at once instead of asking about the login.
+    /// Why a headless start (`cmux cloud start-session`, `start-chat`) fails at once instead of asking about the login.
     static func loginRefused(_ reason: CloudHarnessLoginDecision.Reason, _ asked: Asked) -> String {
         let text = switch reason {
         case .machineLoginMissing: String(localized: "cloud.startSession.machineLoginMissing", defaultValue: "%2$@ on %1$@ has no login of its own, and the login choice is machine. Sign in on the machine, or run it again with --login none.", table: "CloudSessions", bundle: .module)
         case .consentFirst: String(localized: "cloud.startSession.consentNeeded", defaultValue: "%2$@ on %1$@ waits for your one-time OK to copy your Claude login to your own Cloud machines, which only you can give. Turn on Use My Claude Login on My Own Cloud Machines in Settings > Machines, then run `%3$@` again.", table: "CloudSessions", bundle: .module)
-        default: String(localized: "cloud.startSession.loginNeeded", defaultValue: "%2$@ on %1$@ has no login, and no login choice is kept for your Cloud machines. To give it your own login, start a session on a Cloud machine from cmux once and choose Yes (kept for every later machine). Or run it again with --login machine to use only a login the machine already has, or with --login none.", table: "CloudSessions", bundle: .module)
+        default: String(localized: "cloud.startSession.loginNeeded", defaultValue: "%2$@ on %1$@ isn't signed in: it has no login from you, and you haven't chosen whether your Cloud machines get yours. Run it again with --login none, then sign in to %2$@ in its chat in cmux, or with --login machine to use only a login the machine already has. To give your own login to every later machine, start a session on a Cloud machine in the cmux app once and choose Yes; a --login pass from a terminal or an agent doesn't count as that choice.", table: "CloudSessions", bundle: .module)
         }
         return String(format: text, asked.machine, asked.agent, asked.command)
     }

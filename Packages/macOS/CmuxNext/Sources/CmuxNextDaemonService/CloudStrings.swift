@@ -47,16 +47,17 @@ public enum CloudStrings {
     /// The app could not start or reach this Mac's connection helper.
     public static var linkHelperNotRunning: String { String(localized: "cloud.link.helperNotRunning", defaultValue: "The Cloud connection helper is not running on this Mac. Click Connect to start it.", table: "Cloud", bundle: .module) }
     public static var linkRevoked: String { String(localized: "cloud.link.revoked", defaultValue: "Access to this Cloud machine was revoked. Click Connect to connect again.", table: "Cloud", bundle: .module) }
-    /// Close Workspace on the last row of a window for a machine that is not connected (a paused Cloud VM): nothing closes until it connects.
-    /// The toast after a person closes a workspace on a Cloud machine: the machine is kept, and
-    /// the day it is deleted unless it resumes when the server says (cmux-platform `evict_at`).
+    /// The toast after a person closes a workspace on a Cloud machine. Closing one workspace leaves
+    /// the machine in whatever state it is in (others may still run on it), so the copy names no
+    /// state; it adds the day the server deletes it if it stays paused (cmux-platform `evict_at`).
     public static func closeKeepsMachine(until date: Date?) -> String {
         guard let date else {
-            return String(localized: "cloud.workspace.closeKeepsMachine", defaultValue: "The Cloud machine stays paused and can be resumed from the sidebar.", table: "Cloud", bundle: .module)
+            return String(localized: "cloud.workspace.closeKeepsMachine", defaultValue: "The Cloud machine is kept. It pauses when idle, and you can resume it from the sidebar.", table: "Cloud", bundle: .module)
         }
-        return String(format: String(localized: "cloud.workspace.closeKeepsMachineUntil", defaultValue: "The Cloud machine stays paused and can be resumed from the sidebar. It is deleted on %@ unless resumed.", table: "Cloud", bundle: .module),
+        return String(format: String(localized: "cloud.workspace.closeKeepsMachineUntil", defaultValue: "The Cloud machine is kept. It pauses when idle, and you can resume it from the sidebar. If it stays paused, it is deleted on %@.", table: "Cloud", bundle: .module),
                       date.formatted(date: .abbreviated, time: .omitted))
     }
+    /// Close Workspace on the last row of a window for a machine that is not connected (a paused Cloud VM): nothing closes until it connects.
     public static func closeNotConnected(_ machine: String) -> String { String(format: String(localized: "cloud.workspace.closeNotConnected", defaultValue: "%@ is not connected. Resume or reconnect it to close its workspace.", table: "Cloud", bundle: .module), machine) }
     public static func linkFailed(_ detail: String) -> String {
         String(format: String(localized: "cloud.link.failed", defaultValue: "Could not connect to the Cloud machine (%@). Click Connect to try again.", table: "Cloud", bundle: .module), detail)
@@ -172,11 +173,11 @@ public enum CloudStrings {
     }
 
     public static func templateBody(_ id: String) -> String {
-        String(format: String(localized: "cloud.result.templateBody", defaultValue: "Template %@ is ready. Start a machine from it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
+        String(format: String(localized: "cloud.result.templateBody", defaultValue: "Template %@ is being saved. Once it is ready, start a machine from it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
     }
 
     public static func snapshotBody(_ id: String) -> String {
-        String(format: String(localized: "cloud.result.snapshotBody", defaultValue: "Snapshot %@ is ready. Restore it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
+        String(format: String(localized: "cloud.result.snapshotBody", defaultValue: "Snapshot %@ is being taken. Once it is ready, restore it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
     }
 }
 

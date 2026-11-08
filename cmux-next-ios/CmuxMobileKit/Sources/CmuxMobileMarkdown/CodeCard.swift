@@ -53,7 +53,7 @@ public struct CodeCard: View {
                         LinearGradient(colors: [.cmuxMobileCodeBackground.opacity(0), .cmuxMobileCodeBackground], startPoint: .top, endPoint: .bottom)
                             .frame(height: 48)
                         Button("Show all \(lineCount) lines") {
-                            withAnimation(.cmuxMobileSmooth) { expanded = true }
+                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expanded = true }
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -120,10 +120,10 @@ public struct CodeCard: View {
 
     private func copy() {
         UIPasteboard.general.string = code
-        withAnimation(.cmuxMobileSnap) { copied = true }
+        withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = true }
         Task {
             try? await Task.sleep(for: .seconds(1.5))
-            withAnimation(.cmuxMobileSnap) { copied = false }
+            withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = false }
         }
     }
 }

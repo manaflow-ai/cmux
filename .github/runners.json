@@ -469,6 +469,7 @@
     "nightly.yml#pick-nightly-sign-runner": {"class": "portable-checks"},
     "nightly.yml#published-in": {"class": "portable-checks"},
     "nightly.yml#dispatch-published-in": {"class": "portable-checks"},
+    "nightly.yml#dispatch-nightly-next-sign": {"class": "portable-checks"},
     "nightly.yml#retry-nightly-next": {"class": "portable-checks"},
     "nightly.yml#published-build": {"class": "portable-checks"},
     "nightly.yml#close-nightly-failure-issue": {"class": "portable-checks"},
@@ -495,6 +496,12 @@
     },
     "nightly.yml#publish-nightly": "apple-signing-release",
     "nightly.yml#publish-nightly-next-github": "apple-signing-release",
+    "nightly.yml#keep-published-dsyms": "apple-signing-release",
+    "nightly.yml#republish-nightly-deltas": "apple-signing-release",
+    "nightly.yml#promote-nightly-next-acked": {
+      "class": "apple-signing-release",
+      "picker_followup": "retired (if: false), so it never starts; should it run again, it follows promote-nightly-next on a main dispatch with no pick of its own and takes promote-nightly-next's route, which admits the exclusive claim the release App key needs"
+    },
     "nightly.yml#refresh-compilation-cache": "apple-app-build",
     "nightly.yml#refresh-test-compilation-cache": {
       "class": "apple-app-build",
@@ -594,7 +601,6 @@
     "web-validation.yml#web-validation": {"class": "portable-checks", "reason": "status rollup: accepts selected web results"},
     "cmux-next.yml#path_route": {"class": "portable-checks", "reason": "router: classifies the PR's paths and probes the published tree, 32-51 s of work (runs 41394344151, 41393817927)"},
     "cmux-next.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap: starts independently of the labels it validates"},
-    "cmux-next.yml#pr-quiet-period": {"class": "portable-checks", "reason": "pull request quiet period: sleeps until 5 minutes after the PR's last push, before portable-placement, so it holds no fleet runner; no checkout"},
     "ci-web.yml#web-subarea-scope": {"class": "portable-checks", "reason": "router: classifies the webview subareas and hands the shards their duration manifest, 29 s of work (run 41762274751)"},
     "ci-web.yml#webviews-test-durations": {"class": "portable-checks", "reason": "bookkeeping: merges and saves the shard duration manifest beside web-subarea-scope's restore, 5 s of work (run 41761413284)"},
     "resolve-runners.yml#resolve": {"class": "portable-checks", "reason": "resolver: prints the runner capability map, 5 s of work (run 41762274751)"}

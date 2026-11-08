@@ -121,9 +121,11 @@ import Testing
     /// The card belongs to browser pages only (Lawrence 2026-11-07: it showed over a terminal and agent
     /// workspace). It floats on the window's overlay host, above every pane, so it shows only while its
     /// own browser tab has the keyboard, as the window's focus reports it (`followKeyboard`). While a
-    /// terminal, a chat, Home, the sidebar or another browser tab has it, the card is off screen and off
-    /// the overlay host, unanswered; it comes back when its tab has the keyboard again. A card offered
-    /// while the tab lacks the keyboard (Show Import Cookies Banner from a terminal) waits for it.
+    /// terminal, a chat, Home, the sidebar or another browser tab has it, the card is hidden where it is
+    /// on the overlay host and takes no clicks, unanswered; it shows again in place when its tab has the
+    /// keyboard again, with no new present (Leo 2026-11-08: "the import cookies from google chrome card
+    /// flickers sometimes"). A card offered while the tab lacks the keyboard (Show Import Cookies Banner
+    /// from a terminal) waits off the overlay host for it.
     @Test func theCardShowsOnlyWhileItsBrowserTabHasTheKeyboard() throws {
         let page = Page()
         defer { page.tearDown() }
@@ -147,13 +149,15 @@ import Testing
         for away in [nil, "browser-2"] as [String?] {  // a terminal, chat, Home or the sidebar; another browser tab
             entry.followKeyboard(focusedTab: away, key: "browser-1", window: page.window)
             #expect(!page.chrome.showsCookieImportOffer, "hidden while \(away ?? "a terminal") has the keyboard")
-            #expect(card.window?.parent !== page.window, "and off the overlay host")
+            #expect(card.isHiddenOrHasHiddenAncestor, "and hidden where it is on the overlay host")
+            #expect(page.chrome.pageOverlays.takesMouse(card) != true, "taking no clicks over the terminal")
         }
 
         entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
         #expect(page.chrome.showsCookieImportOffer, "back on its tab: shown again, still unanswered")
         #expect(page.chrome.currentCookieImportCard === card)
         #expect(card.window?.parent === page.window)
+        #expect(!card.isHiddenOrHasHiddenAncestor)
     }
 
     /// Only a browser tab's own targets count as the browser tab having the keyboard.
