@@ -8,9 +8,9 @@
         append one push run (its shards' webviews_test_results.py maps) to HISTORY (missing or
         unreadable: an empty one) and write the newest KEEP runs to OUT
     webviews_test_history.py flaky HISTORY [--names NAMES.json]
-        print, one a line, the tests and files that passed and failed on the same inputs: two base
-        pushes with the same inputs key gave them different verdicts. With NAMES (a {name: passed} map,
-        a head's results), only names among its reds.
+        print, one a line, the tests and files that passed and failed on the same inputs (two base
+        pushes with the same inputs key gave them different verdicts), or that went red, green and red
+        again on any inputs. With NAMES (a {name: passed} map, a head's results), only names among its reds.
 
 Why: a pull request fails only on the webview tests its base replay (react-apps-base-check)
 passes, and that replay runs each red file once, alone, on the merge parent. A test that fails
@@ -22,7 +22,9 @@ tree) was a new red on 9 of 40 sampled red pull request runs (2026-10-30). guard
 A flake is a test whose verdict changes while its inputs do not. Most feat-cmux-next pushes change
 no webview input (Swift, Rust, docs), so the same inputs run again and again. A verdict that only
 follows the code (a break, then its revert: green, red, green) changes its inputs each time, so it
-is never called a flake. The inputs are the paths the router (web_subareas.py) runs the webview
+is never called a flake. A red that comes back after a green is one whatever the inputs: a break and
+its fix make one red stretch, and a busy day changes the inputs on nearly every push, so a flake may
+never run twice on the same ones. The inputs are the paths the router (web_subareas.py) runs the webview
 suite for; a test that reads a file outside them is a router gap, which also skips it on pull requests.
 Each run stores only what it needs: its inputs key, the files that ran and the names that were red.
 A test is green on a run whose file ran and named neither it nor the file as red; a file red
@@ -114,11 +116,26 @@ def verdicts(runs: list[dict], name: str) -> list[tuple[str, bool]]:
 
 
 def flips(found: list[tuple[str, bool]]) -> bool:
-    """Whether some inputs gave both verdicts."""
+    """Whether some inputs gave both verdicts, or the verdicts went red, green and red again."""
     seen: dict[str, set[bool]] = {}
     for key, ok in found:
         seen.setdefault(key, set()).add(ok)
-    return any(len(both) == 2 for both in seen.values())
+    return any(len(both) == 2 for both in seen.values()) or returns(found)
+
+
+def returns(found: list[tuple[str, bool]]) -> bool:
+    """Whether a red came back after a green, whatever the inputs: two separate red stretches, oldest first.
+
+    A break and its fix make one red stretch (green, red, green), however the inputs change. A test that fails now and
+    then makes several, and on a day when most pushes change a webview input no two of its runs share an inputs key:
+    send-stream-motion's send, steer and tools each went red and green again on feat-cmux-next pushes on 2026-11-08
+    and were charged to pull requests that touch no agent-session code (#37286, #36911, #38250)."""
+    stretches, last = 0, True
+    for _, ok in found:
+        if not ok and last:
+            stretches += 1
+        last = ok
+    return stretches >= 2
 
 
 def flaky(runs: list[dict], names: list[str] | None = None) -> list[str]:
