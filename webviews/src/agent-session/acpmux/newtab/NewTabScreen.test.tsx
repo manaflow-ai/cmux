@@ -846,10 +846,10 @@ test("a lone GitHub issue URL offers an explicit fix worktree action", async () 
         }}
         lastAgent="claude"
         cwd="/tmp/picked-checkout"
-        location="https://github.com/manaflow-ai/cmux/issues/123"
       />,
     );
   });
+  const field = await typePrompt("https://github.com/manaflow-ai/cmux/issues/123");
   const chip = container.querySelector<HTMLButtonElement>(".nt-fix-chip");
   expect(chip?.textContent).toContain("Fix in a new worktree");
   await act(async () => chip!.click());
@@ -858,7 +858,7 @@ test("a lone GitHub issue URL offers an explicit fix worktree action", async () 
   expect(chip!.disabled).toBe(true);
   await act(async () => finish());
   expect(chip!.disabled).toBe(false);
-  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await press(field, "Enter");
   expect(asks).toEqual([]);
   expect(opened).toEqual(["https://github.com/manaflow-ai/cmux/issues/123"]);
 });
