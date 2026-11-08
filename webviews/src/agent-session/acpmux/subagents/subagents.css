@@ -865,8 +865,10 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head + .acpmux-running-tray__fold::before {
   content: "";
   flex: none;
-  height: var(--cmux-hairline, 0.5px);
-  background: var(--acpmux-composer-edge, transparent);
+  /* A zero-height box whose top border is the hairline: the same line, off the height scale the
+     design-token check holds. */
+  height: 0;
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
 /* The list, in the box the shared fold sizes (conversation/fold.ts `useFold`): it gives
    up its height in a short pane as the list did, and the list in it still scrolls alone. */

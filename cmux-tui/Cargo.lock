@@ -1946,6 +1946,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-prediction"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-terminal-sizing"
 version = "0.1.0"
 dependencies = [

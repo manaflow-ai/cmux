@@ -436,6 +436,69 @@ fn an_answer_handed_over_for_one_person_is_never_another_s_dial() {
 }
 
 #[test]
+fn two_opaque_credentials_sharing_a_middle_segment_never_share_a_session() {
+    // Neither is a JWT, so each names only itself, whatever its middle
+    // segment decodes to.
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    let socket = socket_path(&world);
+    let file = world.dir.path().join("token");
+    std::fs::write(&file, OPAQUE_1).unwrap();
+    let mut child = serve_file(&world, &socket, &file);
+    let (ready, mut stderr) = first_line(&mut child);
+    assert_eq!(ready["ok"], true, "{ready}");
+    let mut first = open(&socket);
+    ask(&mut first, 1);
+    assert_served(&mut stderr, None);
+
+    std::fs::write(&file, OPAQUE_2).unwrap();
+    let mut second = open(&socket);
+    ask(&mut second, 2);
+    assert_served(&mut stderr, None);
+    assert_eq!(
+        *world.bearers.lock().unwrap(),
+        [OPAQUE_1, OPAQUE_2],
+        "the second credential rode the first one's session"
+    );
+    drop(child.stdin.take());
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+}
+
+#[test]
+fn a_stream_s_mux_time_starts_when_the_slot_hands_over_the_session() {
+    // The platform answers two seconds late, so the second connection waits
+    // on the first one's dial before its stream opens; that wait is not mux.
+    let world = world(SLOW, Arc::new(AtomicUsize::new(0)));
+    let socket = socket_path(&world);
+    let mut child = serve(&world, &socket);
+    let (ready, mut stderr) = first_line(&mut child);
+    assert_eq!(ready["ok"], true, "{ready}");
+    let mut first = open(&socket);
+    std::thread::sleep(Duration::from_millis(300));
+    let mut second = open(&socket);
+    assert_served(&mut stderr, None);
+    assert_served(&mut stderr, None);
+    ask(&mut first, 1);
+    ask(&mut second, 2);
+    let log = connect_log(&world);
+    let stream = log
+        .lines()
+        .find(|line| line.starts_with("carrier.phases ") && line.contains(" phase=stream "))
+        .unwrap_or_else(|| panic!("a stream phases line: {log}"));
+    let field = |name: &str| -> u64 {
+        stream
+            .split(' ')
+            .find_map(|part| part.strip_prefix(&format!("{name}=")))
+            .unwrap_or_else(|| panic!("{name} in {stream}"))
+            .parse()
+            .unwrap()
+    };
+    assert!(field("ms") >= 1000, "the second connection waited on the dial: {stream}");
+    assert!(field("mux_ms") < 1000, "the wait for the dial was counted as mux: {stream}");
+    drop(child.stdin.take());
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+}
+
+#[test]
 fn each_connected_connection_says_the_grant_s_vmk() {
     let world = world_signed(
         200,

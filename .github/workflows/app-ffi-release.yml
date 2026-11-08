@@ -65,6 +65,7 @@ on:
       - "cmux-tui/bindings/rust/**"
       - "cmux-tui/crates/cmux-remote-browser/**"
       - "cmux-tui/crates/cmux-tasks-core/**"
+      - "cmux-tui/crates/cmux-terminal-prediction/**"
       - "cmux-tui/crates/cmux-window-rules/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/cmux-next/build-app-ffi.sh"

@@ -597,4 +597,4 @@ extension HomeHostView: PrimaryInputTarget {
         focusTargetShouldTakeKeyboard(from: responder)
     }
 }
-extension HomeHostView: ChiefPanelContent { var chiefIsAnswering: Bool { isWorking } }
+extension HomeHostView: ChiefPanelContent { var chiefIsAnswering: Bool { isWorking }; var chiefShowsThrough: Bool { get { transcript.clearsBackground } set { transcript.clearsBackground = newValue } } }
