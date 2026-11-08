@@ -27,7 +27,7 @@ from gen_closecurves import VIEW_SETTINGS  # noqa: E402
 LABELS = {"K1": "bezier 0.2,0,0,1 80 ms", "K2": "bezier 0.2,0,0,1 100 ms", "K3": "bezier 0.2,0,0,1 120 ms",
           "K4": "bezier 0.22,1,0.36,1 100 ms", "K5": "bezier 0.65,0,0.35,1 120 ms", "K6": "spring 0.15 s damping 1",
           "K7": "spring 0.18 s damping 0.9", "K8": "spring 0.2 s damping 0.8", "K9": "spring 0.25 s damping 0.7",
-          "K10": "linear 100 ms", "CUR": "spring 0.23 s damping 0.95 (current)"}
+          "K10": "linear 100 ms", "CUR": "spring 0.23 s damping 0.95 (current)", "K11": "spring 0.12 s damping 1", "K12": "spring 0.2 s damping 1"}
 MODE = {"nvim": "ALT", "claude": "MAIN", "htop": "ALT"}
 RESET = {"do": "rpc", "method": "debug.frames", "params": {"action": "close_variant V0 nocurve 150 bezier"},
          "title": "clean-up: the film selector back to V0"}
