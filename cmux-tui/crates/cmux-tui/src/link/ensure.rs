@@ -233,7 +233,7 @@ pub(super) fn matches_enrollment(state: &LinkState, status: &Value) -> anyhow::R
     if config.server_identity.is_none() {
         return Ok(true);
     }
-    let public = super::state::public_key(&*state.private_key()?);
+    let public = state.own_public_key()?;
     Ok(status["identity_source"] == "server_pairing"
         && status["install"] == config.install
         && status["public_key"] == STANDARD.encode(public))
@@ -274,7 +274,7 @@ fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Res
     }
     let config = state.config()?;
     if config.server_identity.is_some() {
-        let _ = state.private_key()?;
+        let _ = state.own_public_key()?;
         if flags.get("--install").is_some_and(|install| install != &config.install) {
             bail!("server_link.identity_conflict");
         }
@@ -340,6 +340,12 @@ pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
         restarted = true;
     }
     match start(&state, flags)? {
+        // The link would not serve: another process holds the key.
+        Some(failed) if failed["event"] == "link-failed" => Err(anyhow!(
+            "{}: {}",
+            failed["error"].as_str().unwrap_or("link_failed"),
+            failed["message"].as_str().unwrap_or("the link did not start")
+        )),
         Some(ready) => {
             print_json(&json!({
                 "status": if restarted { "restarted" } else { "started" },

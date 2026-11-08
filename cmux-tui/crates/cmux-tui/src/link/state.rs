@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use cmux_link::key_holder::{self, KeyFile, KeyHolder};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -81,7 +82,7 @@ impl LinkState {
     }
 
     fn key_path(&self) -> PathBuf {
-        self.dir.join("private.key")
+        KeyFile::Link.path_in(&self.dir)
     }
 
     pub(super) fn config(&self) -> io::Result<LinkConfig> {
@@ -204,23 +205,42 @@ impl LinkState {
         Ok(())
     }
 
-    pub(super) fn private_key(&self) -> io::Result<Zeroizing<[u8; 32]>> {
+    /// This link's private key, for the mesh it serves: only with this
+    /// machine's WireGuard key lock (`holder`) held.
+    pub(super) fn private_key(&self, holder: &KeyHolder) -> io::Result<Zeroizing<[u8; 32]>> {
         let config = self.config()?;
         if config.server_identity.is_some() {
             return Ok(enrolled(&config)?.wireguard_key());
         }
-        let text = Zeroizing::new(std::fs::read_to_string(self.key_path())?);
-        let bytes = Zeroizing::new(
-            STANDARD
-                .decode(text.trim())
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
-        );
-        let key: [u8; 32] = bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "key is not 32 bytes"))?;
-        Ok(Zeroizing::new(key))
+        holder.open(KeyFile::Link, &self.dir, read_key)
     }
+
+    /// The public half of this link's key (`show`, `status`, the enrollment
+    /// checks), read without the lock: no session runs with it.
+    pub(super) fn own_public_key(&self) -> io::Result<[u8; 32]> {
+        let config = self.config()?;
+        let private = if config.server_identity.is_some() {
+            enrolled(&config)?.wireguard_key()
+        } else {
+            key_holder::open_for_public_key(KeyFile::Link, &self.dir, read_key)?
+        };
+        Ok(public_key(&private))
+    }
+}
+
+/// A link key file: the base64 of 32 bytes.
+fn read_key(path: &Path) -> io::Result<Zeroizing<[u8; 32]>> {
+    let text = Zeroizing::new(std::fs::read_to_string(path)?);
+    let bytes = Zeroizing::new(
+        STANDARD
+            .decode(text.trim())
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
+    );
+    let key: [u8; 32] = bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "key is not 32 bytes"))?;
+    Ok(Zeroizing::new(key))
 }
 
 fn enrolled(config: &LinkConfig) -> io::Result<cmux_server::pairing::EnrolledIdentity> {
