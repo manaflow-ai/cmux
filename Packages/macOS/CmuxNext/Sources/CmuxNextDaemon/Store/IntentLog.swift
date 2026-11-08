@@ -46,6 +46,20 @@ enum IntentUndo: Equatable {
     indirect case closedStandIn(overlay: IntentUndo?, hidden: HiddenTab?)
 }
 
+extension IntentUndo {
+    /// The daemon tabs this undo puts back into the visible records (``DaemonStore/withOverlayLifted(writer:snapshot:_:)``
+    /// drops each from a pane the apply closed).
+    var hiddenTabModels: [TabModel] {
+        switch self {
+        case .hiddenTab(let hidden): [hidden.tab]
+        case .closedTabs(let hidden): hidden.map(\.tab)
+        case .guessedTab(let hidden, let provisional): [hidden.tab] + (provisional?.hiddenTabModels ?? [])
+        case .closedStandIn(let overlay, let hidden): (overlay?.hiddenTabModels ?? []) + (hidden.map { [$0.tab] } ?? [])
+        default: []
+        }
+    }
+}
+
 struct PendingIntent {
     let transaction: ClientTransactionID
     let kind: Intent
