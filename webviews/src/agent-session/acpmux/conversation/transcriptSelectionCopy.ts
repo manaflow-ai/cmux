@@ -4,7 +4,8 @@
 import { menuPartAt } from "./menuParts";
 
 const BODY = ".cv-md, .cv-user__text";
-const OMIT = "svg, [aria-hidden='true'], [hidden], .sr-only, .cv-li__num, .cv-li__bullet, button, script, style";
+const OMIT = "svg, [aria-hidden='true'], [hidden], .sr-only, .cv-li__num, .cv-li__bullet, script, style";
+const CHROME = `${OMIT}, .cv-iconbtn, .cv-user__actions, .cv-turn-actions, .cv-message-footer-row, .cv-user__more, time`;
 
 function elementOf(node: Node): Element | null {
   return node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
@@ -23,6 +24,25 @@ export function transcriptSelectionContents(range: Range): HTMLElement | null {
   const scope = elementOf(range.commonAncestorContainer);
   if (!scope) return null;
   const holder = range.startContainer.ownerDocument!.createElement("div");
+  // Do not silently drop tool results, attachments or new kinds of transcript rows. Only known
+  // message bodies and their controls are safe to serialize; everything else keeps page copy.
+  const supported = (node: Node): boolean => {
+    if (!range.intersectsNode(node)) return true;
+    if (node.nodeType === Node.TEXT_NODE) return !(node.textContent ?? "").trim();
+    if (node.nodeType !== Node.ELEMENT_NODE) return true;
+    const element = node as Element;
+    if (element.matches(CHROME)) return true;
+    if (element.matches(BODY)) return true;
+    if (element.matches("img, video, canvas, pre, button") || element.shadowRoot) return false;
+    return [...element.childNodes].every(supported);
+  };
+  if (!supported(scope)) return null;
+  const literal = (value: string): HTMLElement => {
+    const span = holder.ownerDocument.createElement("span");
+    span.style.whiteSpace = "pre-wrap";
+    span.textContent = value;
+    return span;
+  };
   let unsupported = false;
   const clone = (node: Node): Node | null => {
     if (!range.intersectsNode(node)) return null;
@@ -30,11 +50,22 @@ export function transcriptSelectionContents(range: Range): HTMLElement | null {
       const value = node.textContent ?? "";
       const start = node === range.startContainer ? range.startOffset : 0;
       const end = node === range.endContainer ? range.endOffset : value.length;
-      return holder.ownerDocument.createTextNode(value.slice(start, end));
+      const selected = value.slice(start, end);
+      return node.parentElement?.closest(BODY)?.matches(".cv-user__text")
+        ? literal(selected)
+        : holder.ownerDocument.createTextNode(selected);
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return null;
     const element = node as HTMLElement;
-    if (element.matches(OMIT)) return null;
+    if (element.matches(CHROME)) return null;
+    if (
+      element.matches("img, video, canvas, button") ||
+      (element.tagName === "TABLE" && (element.contains(range.startContainer) || element.contains(range.endContainer)))
+    ) {
+      unsupported = true;
+      return null;
+    }
+    if (element.matches(".cv-math-source")) return literal(element.textContent ?? "");
     if (element.matches(".cv-code-handoff")) {
       // During the handoff both plain and highlighted cards are mounted with the same source.
       const card = element.querySelector(".cv-codeblock");

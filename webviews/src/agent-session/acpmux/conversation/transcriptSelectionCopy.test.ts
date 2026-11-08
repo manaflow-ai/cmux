@@ -11,8 +11,8 @@ let doc: Document;
 
 beforeAll(() => {
   const dom = new JSDOM(`<!doctype html><body><main>
-    <article><div class="cv-md"><h2 id="first">Start here</h2><p>One</p></div><button>Copy message</button></article>
-    <article><div class="cv-user__text"><div class="cv-md"><ul><li>Keep lists</li><li>And <strong>bold</strong></li></ul></div></div><span>10:30 AM</span></article>
+    <article><div class="cv-md"><h2 id="first">Start here</h2><p>One</p></div><button class="cv-iconbtn">Copy message</button></article>
+    <article><div class="cv-user__text"><div class="cv-md"><ul><li>Keep lists</li><li>And <strong>bold</strong></li></ul></div></div><time>10:30 AM</time></article>
     <article><div class="cv-md"><div class="cv-codeblock" id="card"><header>Python <button>Copy code</button></header><div id="highlight"></div></div><p id="last">Finish here</p></div></article>
     </main><textarea>draft</textarea></body>`);
   for (const key of ["document", "Node", "HTMLAnchorElement"]) {
@@ -106,4 +106,40 @@ test("a plain code card uses its source once, including during highlight handoff
     handoff.replaceWith(card);
   }
   expect(shadow.shadowRoot).not.toBeNull();
+});
+
+function fixtureCopy(middle: string): string | null {
+  const root = doc.createElement("section");
+  root.innerHTML = `<div class="cv-md"><p id="begin">First</p></div>${middle}<div class="cv-md"><p id="end">Last</p></div>`;
+  doc.body.append(root);
+  try {
+    const range = doc.createRange();
+    range.setStart(root.querySelector("#begin")!.firstChild!, 0);
+    range.setEnd(root.querySelector("#end")!.firstChild!, 4);
+    return selectionHtml(range);
+  } finally {
+    root.remove();
+  }
+}
+
+test("plain prompts preserve line breaks and indentation in both clipboard types", () => {
+  const html = fixtureCopy('<div class="cv-user__text">First line\n    indented line\n\nLast line</div>')!;
+  expect(htmlMarkdown(html)).toBe("First\n\nFirst line\n    indented line\n\nLast line\n\nLast");
+  expect(html).toContain('style="white-space: pre-wrap;"');
+});
+
+test.each([
+  '<div class="cv-tools"><button class="cv-tool">Run command</button><pre>result</pre></div>',
+  '<div class="selectable">Shell output</div>',
+  '<div data-path="file.ts">file.ts</div>',
+  '<div class="cv-user__images"><img src="https://example.com/image.png"></div>',
+  '<div class="cv-user__text"><img src="https://example.com/image.png"></div>',
+  '<div class="new-row">Unrecognized selected content</div>',
+])("unsupported selected content keeps browser copy: %s", (middle) => {
+  expect(fixtureCopy(middle)).toBeNull();
+});
+
+test("unrendered display math remains TeX", () => {
+  const html = fixtureCopy('<div class="cv-md"><pre class="cv-math-display cv-math-source">$$\nx^2\n$$</pre></div>')!;
+  expect(htmlMarkdown(html)).toBe("First\n\n$$\nx^2\n$$\n\nLast");
 });

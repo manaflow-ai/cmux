@@ -89,6 +89,10 @@ function cleanSelectionHtml(holder: HTMLElement): string {
     for (const name of element.getAttributeNames()) {
       // A fenced code language is content metadata, not the transcript's styling.
       if (name === "class" && element.tagName === "CODE" && /^language-[\w+#-]+$/.test(element.className)) continue;
+      // Plain prompts rely on pre-wrap for their line ends and indentation. This one safe style
+      // is content layout; no transcript colors or fonts travel with it.
+      if (name === "style" && element.tagName === "SPAN" && element.getAttribute(name) === "white-space: pre-wrap;")
+        continue;
       if (!KEEP.has(name)) element.removeAttribute(name);
     }
   // A target goes into another app only where it is safe there (a web or mail link, a web picture).

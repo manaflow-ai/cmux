@@ -40,8 +40,8 @@ await requireBrowserLane("transcript-markdown-copy-browser.test.ts", async () =>
       route.fulfill({
         contentType: "text/html",
         body: `<!doctype html><main>
-        <article><div class="cv-md"><h2 id="first">Start here</h2><p>One</p></div><button>Copy message</button></article>
-        <article><div class="cv-user__text"><div class="cv-md"><ul><li>Keep lists</li><li>And <strong>bold</strong></li></ul></div></div><span>10:30 AM</span></article>
+        <article><div class="cv-md"><h2 id="first">Start here</h2><p>One</p></div><button class="cv-iconbtn">Copy message</button></article>
+        <article><div class="cv-user__text"><div class="cv-md"><ul><li>Keep lists</li><li>And <strong>bold</strong></li></ul></div></div><time>10:30 AM</time></article>
         <article><div class="cv-md"><div id="code" class="cv-codeblock"><header>Python <button>Copy code</button></header><div id="highlight"></div></div><p id="last">Finish here</p></div></article>
         </main>`,
       }),
