@@ -3728,6 +3728,9 @@ mod closed_delete;
 #[path = "cli/closed_ids.rs"]
 mod closed_ids;
 #[cfg(unix)]
+#[path = "cli/closed_terminal.rs"]
+mod closed_terminal;
+#[cfg(unix)]
 #[path = "cli/cloud_lease_gate.rs"]
 mod cloud_lease_gate;
 #[path = "cli/command_history.rs"]
