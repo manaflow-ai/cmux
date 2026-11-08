@@ -6,7 +6,7 @@
 // those are pages it read or cited, not things it made (Lucas, 2026-11-05: "outputs should be images,
 // files, ect generate directly through that chat"). Five rows show, then a whole-row Show more
 // (SessionInfoFold), as under Changes and Subagents.
-import { type Artifact } from "../conversation/artifactPreview";
+import type { Artifact } from "../conversation/artifactPreview";
 import type { OutputFile } from "./chatOutputs";
 import { FileKindIcon } from "../chips/FileKindIcon";
 import { useT } from "../i18n";
@@ -14,6 +14,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 
 import { useState, type ReactNode } from "react";
+import { heightAbove, useFoldMotion } from "./foldMotion";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { useScrollEdges } from "../summary/scrollEdges";
 import "./outputsEdge.css";
@@ -102,18 +103,22 @@ export function OutputsSection({
     }),
   ];
   const folds = rows.length - OUTPUTS_SHOWN >= 2;
+  // Show more grows the list in place and Show less closes it over the rows that go (foldMotion.ts).
+  const fold = useFoldMotion<HTMLDivElement>(all, (box) =>
+    heightAbove(box, box.querySelector("ul")?.children[OUTPUTS_SHOWN]),
+  );
   // Reuse the shared passive scroll/resize tracking; the ref removes it on unmount.
   const scrollEdges = useScrollEdges();
   return (
     <>
-      <div className="acpmux-outputs-edges">
+      <div ref={fold.ref} className="acpmux-outputs-edges">
         {/* Unfolded, the list scrolls past about eight rows, its edges faded (outputsEdge.css). */}
         <ul ref={scrollEdges} className="acpmux-session-info-list acpmux-session-info-scroll" data-section="outputs">
-          <WindowedRows items={folds && !all ? rows.slice(0, OUTPUTS_SHOWN) : rows} render={(row) => row} />
+          <WindowedRows items={folds && !fold.drawn ? rows.slice(0, OUTPUTS_SHOWN) : rows} render={(row) => row} />
         </ul>
       </div>
       {folds && (
-        <SessionInfoFold open={all} onToggle={() => setAll(!all)}>
+        <SessionInfoFold open={all} onToggle={() => fold.toggle(!all, setAll)}>
           {all ? t("sessionInfo.outputs.showLess") : t("sessionInfo.list.showMore", { n: rows.length - OUTPUTS_SHOWN })}
         </SessionInfoFold>
       )}

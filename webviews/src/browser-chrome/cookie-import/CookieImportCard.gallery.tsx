@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { CookieImportCard } from "./CookieImportCard";
-import type { CookieImportCardModel, CookieImportChoice, CookieImportLook } from "./model";
+import type { CookieImportCardModel, CookieImportCommand, CookieImportLook } from "./model";
 
 type Props = { model: CookieImportCardModel; look?: CookieImportLook; width?: number };
 
@@ -21,17 +21,19 @@ const chrome: CookieImportCardModel = {
   notNowTitle: "Not Now",
   neverTitle: "Don't Show Again",
   icon: ICON,
+  keepInSyncTitle: "Keep in sync",
+  keepInSync: true,
 };
 
 function CookieImportFixture({ model, look, width = 460 }: Props) {
-  const [answer, setAnswer] = useState<CookieImportChoice | null>(null);
+  const [answer, setAnswer] = useState<CookieImportCommand | null>(null);
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ width, maxWidth: "100%" }}>
         <CookieImportCard model={model} look={look} onChoice={setAnswer} />
       </div>
       <span style={{ font: "var(--text-caption) var(--font-ui)", color: "var(--ds-color-faint)" }}>
-        {answer ? `Answered: ${answer}` : " "}
+        {answer ? `Answered: ${JSON.stringify(answer)}` : " "}
       </span>
     </div>
   );
@@ -79,6 +81,10 @@ export default componentEntry<Props>({
     "split-no-never": {
       props: { model: { ...chrome, neverTitle: null }, look: "split" },
       note: "No Don't Show Again: only the two buttons, at the end.",
+    },
+    "split-no-sync": {
+      props: { model: { ...chrome, keepInSyncTitle: null }, look: "split" },
+      note: "A browser whose cookies cannot be kept in sync (Safari, Firefox): no checkbox.",
     },
     "split-no-icon": {
       props: { model: { ...chrome, icon: null }, look: "split" },

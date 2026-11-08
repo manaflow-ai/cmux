@@ -110,9 +110,9 @@ enum AgentChatMenuHandlers {
         return view.model.sessionId == nil ? context.registry.refuse(.notStarted, id) : view
     }
 
-    /// The folder of the chat `id` runs on, which must be on this Mac; else nil after refusing with why.
+    /// The project folder of the chat `id` runs on, which must be on this Mac; else nil after refusing with why.
     private static func localFolder(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation) -> String? {
         guard let view = chatView(id, context, invocation) else { return nil }
-        return view.model.remoteChat ? context.registry.refuse(.remote, id) : view.model.terminalFolder ?? context.registry.refuse(.notStarted, id)
+        return view.model.remoteChat ? context.registry.refuse(.remote, id) : view.model.terminalFolder ?? context.registry.refuse(.noFolder, id)
     }
 }

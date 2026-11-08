@@ -243,6 +243,13 @@ SECTIONS = [
         "lists": {"agentRetry": ("descriptors", "AgentRetrySettings")},
     },
     {
+        "source": "schemas/settings/source/agent-cache.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentCache.generated.swift",
+        "type": "AgentCacheSettingsSchema",
+        "lists": {"agentCache": ("descriptors", "AgentCacheSettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/subsessions.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Subsessions.generated.swift",
         "type": "SubsessionSettingsSchema",
@@ -314,7 +321,7 @@ SECTIONS = [
         "source": "schemas/settings/source/sidebar.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Sidebar.generated.swift",
         "type": "SidebarSettingsSchema",
-        "lists": {"sidebar": ("sidebar", None), "sidebar2": ("sidebar2", None), "sidebar3": ("sidebar3", None),
+        "lists": {"sidebar": ("sidebar", None),
                   "workspaceRows": ("workspaceRows", None), "terminalWorkspaceRows": ("terminalWorkspaceRows", None),
                   "agentWorkspaceRows": ("agentWorkspaceRows", None), "browserWorkspaceRows": ("browserWorkspaceRows", None),
                   "mixedWorkspaceRows": ("mixedWorkspaceRows", None)},
@@ -324,6 +331,13 @@ SECTIONS = [
         "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
         "type": "FeedSettingsSchema",
         "lists": {"feed": ("descriptors", "FeedGitHubSettings")},
+    },
+    {
+        "source": "schemas/settings/source/general.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+General.generated.swift",
+        "type": "GeneralSettingsSchema",
+        "lists": {name: (name, None) for name in ("history", "window", "quitting", "columns", "layout", "workspaceList",
+                                                  "palette", "menus")},
     },
     {
         "source": "schemas/settings/source/notifications.json",
@@ -1399,8 +1413,8 @@ extension SettingsSchema {{
 def load_row_facts():
     src = FACTS_SOURCE
     data = load_json(src)
-    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation"}:
-        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation")
+    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation", "former_defaults"}:
+        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation, former_defaults")
     for field in ("kept_on_reset_all", "shared_with_browser"):
         if len(set(data[field])) != len(data[field]):
             fail(src, "%s lists a key twice" % field)
@@ -1417,6 +1431,12 @@ def load_row_facts():
     for domain in list(validation["keys"].values()) + list(validation["kinds"].values()) + [validation["default"]]:
         if not isinstance(domain, str) or not DOMAIN.match(domain):
             fail(src, "validation %r is portable or domain:<name>" % domain)
+    for key, values in data["former_defaults"].items():
+        check_key(src, key)
+        if not isinstance(values, list) or not values or any(isinstance(v, (dict, list)) or v is None for v in values):
+            fail(src, "former_defaults.%s lists one or more scalar values" % key)
+        if len(set(map(json.dumps, values))) != len(values):
+            fail(src, "former_defaults.%s lists a value twice" % key)
     return data
 
 
@@ -1448,11 +1468,19 @@ extension SettingsSchema {{
 {by_kind}
     ]
     static let defaultValidation = {default}
+
+    /// Each key's earlier defaults that held for a day or more: the one-time launch migration
+    /// (`forgetStoredDefaults`) drops a stored value equal to one, so the key follows its default again.
+    static let formerDefaults: [String: [JSONValue]] = [
+{former}
+    ]
 }}
 """.format(header=HEADER.format(c="//", src=FACTS_SOURCE),
            shared="\n".join(wrap([swift_string(k) for k in data["shared_with_browser"]], "        ")),
            kept="\n".join(wrap(kept, "        ")), by_key=table(data["validation"]["keys"]),
-           by_kind=table(data["validation"]["kinds"]), default=swift_string(data["validation"]["default"]))
+           by_kind=table(data["validation"]["kinds"]), default=swift_string(data["validation"]["default"]),
+           former="\n".join(wrap(["%s: [%s]" % (swift_string(k), ", ".join(json_value_swift(v) for v in values))
+                                  for k, values in data["former_defaults"].items()], "        ")))
 
 
 def check_sample(src, where, value):

@@ -25,7 +25,6 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   palette: null,
   borders: null,
   focusRingEnabled: null,
-  chatWidth: null,
   toolRunLook: null,
   turnActionsPlacement: null,
   motion: null,
@@ -90,6 +89,10 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   const motionValues = theme.motion ? Object.values(theme.motion) : [];
   if (motionValues.length > 0 && motionValues.every((value) => value === 0)) root.dataset.agentMotion = "off";
   else delete root.dataset.agentMotion;
+  // Reduce Motion zeroes only the move duration; CSS can't compare a custom property to 0, so the
+  // root says so, and transitions on the move token (the fold's chevron) snap under it.
+  if (theme.motion?.move === 0) root.dataset.agentMove = "instant";
+  else delete root.dataset.agentMove;
   if (root.dataset.agentMotion === "off") {
     for (const animation of document.getAnimations?.() ?? []) animation.cancel();
   }

@@ -566,6 +566,17 @@ export function runStretches(row: Pick<AcpmuxRow, "foldRun">, groups: readonly T
   return stretches;
 }
 
+/// How a run's stretch starts, one answer for ToolRows (TurnRows.tsx) to draw and for model.ts to
+/// estimate, so the two never drift apart. `lineOpen`: a folding stretch's summary line starts open
+/// (`runOpen`, a steered turn's opened Worked for). `groupsClosed`: the groups of a stretch a folded
+/// run keeps on their own lines start closed (ToolGroupRow `folded`), unless `runOpen` opens them too.
+export function stretchStart(row: AcpmuxRow, stretch: RunStretch): { lineOpen: boolean; groupsClosed: boolean } {
+  return {
+    lineOpen: stretch.fold && row.runOpen === true,
+    groupsClosed: row.foldRun === true && !stretch.fold && row.runOpen !== true,
+  };
+}
+
 /// An entry a folded run keeps in sight beside its summary lines: a coordination card (who else
 /// works on these files among them), or a file
 /// change still waiting for its permission (toolGroups.ts `awaitsPermission`). Other edits fold with

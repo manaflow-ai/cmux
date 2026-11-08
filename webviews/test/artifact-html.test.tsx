@@ -9,7 +9,7 @@ import {
   artifactNeedsRun,
 } from "../src/agent-session/acpmux/conversation/artifactSandbox";
 import { uniqueArtifacts } from "../src/agent-session/acpmux/conversation/artifactDedupe";
-import { writtenArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifacts";
+import { writtenArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifactsModel";
 
 const page = '<title>Counter</title><button onclick="this.textContent++">0</button>';
 const rows = (tool: NonNullable<AcpmuxActivity["tool"]>): AcpmuxRow[] => [

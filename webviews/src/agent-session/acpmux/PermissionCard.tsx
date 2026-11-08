@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Markdown } from "./conversation/Markdown";
-import { toolIcon } from "./conversation/ToolRow";
+import { toolIcon } from "./conversation/toolRowModel";
 import { useT } from "./i18n";
 import { Keycap } from "./Keycap";
 import type { AcpmuxPermission } from "./model";
