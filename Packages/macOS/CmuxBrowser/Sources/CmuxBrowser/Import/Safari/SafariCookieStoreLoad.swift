@@ -6,9 +6,9 @@ public enum SafariCookieStoreLoad: Equatable, Sendable {
     case loaded(url: URL, data: Data)
     /// No candidate store exists for the profile.
     case missing
-    /// A store exists at `url` but macOS refused to let cmux read it. Granting
-    /// cmux Full Disk Access is the fix.
-    case accessDenied(url: URL)
+    /// A store exists at `url` but macOS refused to let cmux read it; `cause`
+    /// says why and so which recovery step applies.
+    case accessDenied(url: URL, cause: SafariCookieStoreAccessDenial)
     /// A store exists at `url` but could not be read for another reason.
     case unreadable(url: URL)
 }

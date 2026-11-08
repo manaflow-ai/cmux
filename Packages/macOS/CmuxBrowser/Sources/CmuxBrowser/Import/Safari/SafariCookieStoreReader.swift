@@ -64,8 +64,8 @@ public struct SafariCookieStoreReader: Sendable {
                 switch SafariCookieStoreErrorKind(classifying: error) {
                 case .missing:
                     continue
-                case .permissionDenied:
-                    return .accessDenied(url: candidate)
+                case .permissionDenied(let cause):
+                    return .accessDenied(url: candidate, cause: cause)
                 case .other:
                     return .unreadable(url: candidate)
                 }

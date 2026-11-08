@@ -10616,7 +10616,18 @@ enum BrowserDataImporter {
                     )
                 )
                 continue
-            case .accessDenied(let url):
+            case .accessDenied(let url, .filePermissions):
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.safariCookiesFilePermissionDenied",
+                            defaultValue: "Your macOS user account doesn't have permission to read Safari's cookies at %@. Make sure your account owns the file and can read it, then run the import again."
+                        ),
+                        reader.displayPath(for: url)
+                    )
+                )
+                continue
+            case .accessDenied(let url, .privacyProtected), .accessDenied(let url, .unspecified):
                 warnings.append(
                     String(
                         format: String(

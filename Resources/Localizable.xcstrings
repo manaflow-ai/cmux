@@ -674426,6 +674426,65 @@
           }
         }
       }
+    },
+    "browser.import.warning.safariCookiesFilePermissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your macOS user account doesn't have permission to read Safari's cookies at %@. Make sure your account owns the file and can read it, then run the import again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يملك حساب المستخدم الخاص بك على macOS إذنًا بقراءة ملفات تعريف ارتباط Safari في %@. تأكد من أن حسابك يملك الملف ويمكنه قراءته، ثم أعد تشغيل الاستيراد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ihr macOS-Benutzerkonto hat keine Berechtigung, die Safari-Cookies unter %@ zu lesen. Stellen Sie sicher, dass Ihr Konto Eigentümer der Datei ist und sie lesen darf, und starten Sie den Import dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu cuenta de usuario de macOS no tiene permiso para leer las cookies de Safari en %@. Asegúrate de que tu cuenta sea propietaria del archivo y pueda leerlo, y vuelve a ejecutar la importación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre compte utilisateur macOS n’est pas autorisé à lire les cookies de Safari à l’emplacement %@. Vérifiez que votre compte est propriétaire du fichier et peut le lire, puis relancez l’importation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS のユーザアカウントには %@ にある Safari の Cookie を読み取る権限がありません。アカウントがファイルの所有者で読み取り可能であることを確認してから、もう一度インポートを実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 사용자 계정에 %@에 있는 Safari 쿠키를 읽을 권한이 없습니다. 계정이 파일의 소유자이며 읽을 수 있는지 확인한 다음 가져오기를 다시 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 macOS 用户账户没有读取位于 %@ 的 Safari Cookie 的权限。请确认你的账户拥有该文件并且可以读取，然后重新运行导入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 macOS 使用者帳號沒有讀取位於 %@ 的 Safari Cookie 的權限。請確認你的帳號擁有該檔案且可以讀取，然後再次執行匯入。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
