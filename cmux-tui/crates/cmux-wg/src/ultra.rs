@@ -761,10 +761,13 @@ mod tests {
         assert_eq!(received.rebuild(&parse_parity(parity).unwrap()), Rebuild::Waiting);
     }
 
+    /// What a test carrier sent.
+    type Wire = Arc<std::sync::Mutex<Vec<Vec<u8>>>>;
+
     /// A carrier that hands out queued datagrams and records what is sent.
     struct Script {
         inbox: VecDeque<(Vec<u8>, Origin)>,
-        sent: Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+        sent: Wire,
     }
 
     impl Underlay for Script {
@@ -799,7 +802,7 @@ mod tests {
         mode: UltraMode,
         trusted: Option<Origin>,
         inbox: Vec<(Vec<u8>, Origin)>,
-    ) -> (UltraUnderlay, Vec<Vec<u8>>, Arc<std::sync::Mutex<Vec<Vec<u8>>>>) {
+    ) -> (UltraUnderlay, Vec<Vec<u8>>, Wire) {
         let sent = Arc::default();
         let script = Script { inbox: inbox.into(), sent: Arc::clone(&sent) };
         let mut ultra = UltraUnderlay::new(Box::new(script), mode, Arc::default());
