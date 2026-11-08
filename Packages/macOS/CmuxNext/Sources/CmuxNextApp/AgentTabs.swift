@@ -553,14 +553,14 @@ final class AgentTabStore {
             return spare
         }
         // Reopen Closed of a chat of this Mac closed a moment ago: its kept page (``AgentPageRetirer``), drawn, with today's settings.
-        if kind == .local, seed == nil, newTabPages[key] == nil, wakeStates[key] == nil, !relaunchWake.mayHold(key),
-           let session = sessions[key] ?? record.session, let kept = retirer.takeKept(session) {
-            (views[key], kept.customization, kept.shortcuts) = (kept, customization.current, shortcuts)
+        if kind == .local, seed == nil, newTabPages[tabKey] == nil, wakeStates[tabKey] == nil, !relaunchWake.mayHold(tabKey.relaunchKeyCandidates),
+           let session = sessions[tabKey] ?? record.session, let kept = retirer.takeKept(session) {
+            (views[tabKey], kept.customization, kept.shortcuts) = (kept, customization.current, shortcuts)
             pageSettings.apply(to: kept)
             customization.start()
-            if let turn = pendingTurns.removeValue(forKey: key) { kept.revealTurn(turn) }
-            wire(kept.model, key: key)
-            track(key, in: store)
+            if let turn = pendingTurns.removeValue(forKey: tabKey) { kept.revealTurn(turn) }
+            wire(kept.model, key: key, machine: tabKey.machine)
+            track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)
             return kept
         }
