@@ -18,6 +18,7 @@ extension ScreenContentView {
             scrollRidesFrames = false
             // At rest (a user pan holds the camera, so hasMotion leaves it out): what a close retired goes now.
             releaseClosing()
+            releasePaneFrameNoticesIfSettled()
             return false
         }
         let frameSpring = policy.spring(motionState.frameSpring)
@@ -50,7 +51,7 @@ extension ScreenContentView {
         if !moving { holdsContentForKeyResize = false }
         // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
         if !moving { releaseClosing() }
-        // A zoom that left the layout without landing (its pane closed) gives its views their notices back.
+        // The motion landed with no drag and no zoom left: the pane views post again.
         if !moving { releasePaneFrameNoticesIfSettled() }
         return moving
     }

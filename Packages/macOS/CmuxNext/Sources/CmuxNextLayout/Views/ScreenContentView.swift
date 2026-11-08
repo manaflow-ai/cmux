@@ -241,6 +241,9 @@ final class ScreenContentView: NSView {
         if structural, window != nil, let pane = zoomMotion.pane, let host = context.hosts[pane], host.superview === self,
            !paneFrameNotices.isHolding || resizeGesture == .idle {
             paneFrameNotices.hold([host])
+        } else if structural {
+            // The zooming pane left the layout before it landed (closed, moved away): its views post again now.
+            releasePaneFrameNoticesIfSettled()
         }
         #if DEBUG
         if let shapeBefore { columnWidths.noteChange(from: shapeBefore, to: restColumns, viewportWidth: bounds.width) }
