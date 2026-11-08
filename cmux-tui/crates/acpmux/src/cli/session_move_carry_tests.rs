@@ -183,6 +183,12 @@ fn a_sparse_checkout_with_no_index_refuses_rather_than_delete_outside_its_cone()
     );
     let e = snapshot(&here, src.path(), true).unwrap_err().to_string();
     assert!(e.contains("sparse checkout with no index"), "{e}");
+    // The recovery the refusal names gives the index back with its sparse marks, edits kept,
+    // and the carry then takes only the change inside the cone.
+    sh(src.path(), "git reset -q && git sparse-checkout reapply");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    let patch = String::from_utf8_lossy(&carry.patch);
+    assert!(patch.contains("in/a") && !patch.contains("out/b"), "{patch}");
 }
 
 #[test]

@@ -22,16 +22,16 @@ struct SpaceWindowMarksWindowCloseTests {
         let controller = try #require(services.windows.openWindow(workspaces: ["only"]))
         let window = try #require(controller.window)
         let marks = controller.sidebar.container.sidebarView.spaceWindowMarks
-        try #require(marks.isObserving, "an open window's switcher observes the windows")
+        try #require(marks.observation.withLock { $0 != nil }, "an open window's switcher observes the windows")
 
         window.close()
 
         #expect(controller.sidebar.container.sidebarView.window === window, "the retained window kept its views")
-        #expect(!marks.isObserving, "the closed window's switcher still observes every window")
+        #expect(!marks.observation.withLock { $0 != nil }, "the closed window's switcher still observes every window")
         // A later move into a window (a reused view) does not start it again.
         marks.isActive = false
         marks.isActive = true
-        #expect(!marks.isObserving, "the torn-down marks observed again")
+        #expect(!marks.observation.withLock { $0 != nil }, "the torn-down marks observed again")
         #expect(marks.perform == nil, "the torn-down marks still run switcher choices")
     }
 }
