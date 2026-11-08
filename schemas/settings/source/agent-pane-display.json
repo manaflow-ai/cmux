@@ -436,7 +436,7 @@
         {
           "key": "agentPane.display.font.ui",
           "name": "uiFont",
-          "note": "The face of the whole chat (webviews .../chatUiFont.ts; Leo, 2026-11-05: \"I haven't tried switching fonts in my own app yet. So we could just try some stuff like that\"). The default is today's: Inter with its calculated tracking.",
+          "note": "The face of the whole chat (webviews .../chatUiFont.ts; Leo, 2026-11-05: \"I haven't tried switching fonts in my own app yet. So we could just try some stuff like that\"). The default is the macOS system font (Lawrence, 2026-11-07: \"default fonts on cmux for everything should be macos default, not inter\"); Inter, with its calculated tracking or stock, is a choice.",
           "title": {
             "key": "settings.agentPane.display.uiFont",
             "text": "Chat Interface Font"
@@ -448,10 +448,24 @@
           "kind": "choice",
           "choices": [
             {
+              "value": "system-ui",
+              "title": {
+                "key": "settings.choice.agentChatUiFontSystemUi",
+                "text": "System (default)"
+              }
+            },
+            {
+              "value": "system-ui-tight",
+              "title": {
+                "key": "settings.choice.agentChatUiFontSystemUiTight",
+                "text": "System, tight"
+              }
+            },
+            {
               "value": "inter-tuned",
               "title": {
                 "key": "settings.choice.agentChatUiFontInterTuned",
-                "text": "cmux Inter (default)"
+                "text": "cmux Inter"
               }
             },
             {
@@ -516,23 +530,9 @@
                 "key": "settings.choice.agentChatUiFontAtkinson",
                 "text": "Atkinson Hyperlegible Next"
               }
-            },
-            {
-              "value": "system-ui",
-              "title": {
-                "key": "settings.choice.agentChatUiFontSystemUi",
-                "text": "System"
-              }
-            },
-            {
-              "value": "system-ui-tight",
-              "title": {
-                "key": "settings.choice.agentChatUiFontSystemUiTight",
-                "text": "System, tight"
-              }
             }
           ],
-          "default": "inter-tuned",
+          "default": "system-ui",
           "keywords": [
             "agent",
             "chat",
@@ -551,7 +551,8 @@
             "source sans",
             "cmux sans",
             "hanken",
-            "atkinson"
+            "atkinson",
+            "system"
           ]
         },
         {
