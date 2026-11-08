@@ -97,4 +97,24 @@ struct PageChromiumWindowImageTests {
         view.close()
         window.close()
     }
+
+    /// Inspect Element docks DevTools below a chat (fleet capture, 2026-11-08): Chromium's image of
+    /// the page is only the page's own area above them, and a window image that painted it over the
+    /// whole view stretched it over the DevTools area, which then showed blank. The page's area in
+    /// the window is its own part, not the view's.
+    @Test func aPageWithDockedDevToolsListsOnlyItsOwnArea() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let (view, page) = try await chromiumView()
+        view.frame = NSRect(x: 100, y: 50, width: 300, height: 200)
+        window.contentView?.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        page.dockedDevTools = (page: CGRect(x: 0, y: 0, width: 300, height: 120), devTools: CGRect(x: 0, y: 124, width: 300, height: 76))
+        let listed = try #require(PageRegistry.shownChromiumPages(in: window).first)
+        #expect(listed.rect == page.contentView.convert(CGRect(x: 0, y: 0, width: 300, height: 120), to: nil))
+        #expect(listed.rect != NSRect(x: 100, y: 50, width: 300, height: 200), "the page's image would stretch over its DevTools")
+        view.close()
+        window.close()
+    }
 }
