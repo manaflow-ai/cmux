@@ -2379,6 +2379,18 @@ pre.cv-math-source {
 .cv-worked__label {
   flex: none;
 }
+/* The work a steered turn's line names after its time (turnFoldSteered `header` arm): quieter than
+   the words, and the part that gives way first on a narrow pane. */
+.cv-worked__label:has(> .cv-worked__work) {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-worked__work {
+  color: var(--cv-text-dim);
+}
 /* A running turn's line (WorkingFor.tsx): the call in flight gives way first, its time stays. */
 .cv-worked__doing {
   flex: 0 1 auto;
