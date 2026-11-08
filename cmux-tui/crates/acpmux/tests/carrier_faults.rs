@@ -18,6 +18,9 @@
 //! baseline. Rows that need behavior acpmux does not have yet are `#[ignore]` with the fix
 //! they wait for named.
 
+// The stand-in ssh and its permissions, and the WireGuard relay, are Unix-only.
+#![cfg(unix)]
+
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
