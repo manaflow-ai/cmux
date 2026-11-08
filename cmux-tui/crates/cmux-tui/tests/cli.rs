@@ -3779,6 +3779,8 @@ mod launch_credential;
 mod layout_delta;
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
+#[path = "cli/list_filters.rs"]
+mod list_filters;
 #[path = "cli/lone_width.rs"]
 mod lone_width;
 #[path = "cli/new_terminal_cwd.rs"]
