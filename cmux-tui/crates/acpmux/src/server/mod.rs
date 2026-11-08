@@ -2079,6 +2079,7 @@ use outbound::{
     report_outbound_loss_locked,
 };
 pub(crate) mod outbox;
+mod machine_tunnel;
 mod pairing;
 pub mod peer_auth;
 mod peer_forward;

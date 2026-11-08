@@ -1586,5 +1586,100 @@ async fn machine_consent_status_is_required_for_joined_or_unreadable_state() {
     assert_eq!(view["consent"]["screen"], "none", "unreadable state fails closed");
 }
 
+/// A platform stand-in on loopback for the tunnel methods: each request's first line, its
+/// lower-cased headers and body, answered as the platform would.
+async fn tunnel_platform() -> (String, std::sync::Arc<std::sync::Mutex<Vec<(String, String, Value)>>>) {
+    use tokio::io::AsyncReadExt;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let mut buffer = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let head_end = loop {
+                let n = stream.read(&mut chunk).await.unwrap_or(0);
+                if n == 0 {
+                    break None;
+                }
+                buffer.extend_from_slice(&chunk[..n]);
+                if let Some(at) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break Some(at + 4);
+                }
+            };
+            let Some(head_end) = head_end else { continue };
+            let head = String::from_utf8_lossy(&buffer[..head_end]).to_ascii_lowercase();
+            let length: usize = head
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length:").and_then(|v| v.trim().parse().ok()))
+                .unwrap_or(0);
+            while buffer.len() < head_end + length {
+                let n = stream.read(&mut chunk).await.unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                buffer.extend_from_slice(&chunk[..n]);
+            }
+            let body: Value = serde_json::from_slice(&buffer[head_end..]).unwrap_or(Value::Null);
+            let line = head.lines().next().unwrap_or_default().to_owned();
+            let reply = if line.contains("/v1/mesh/nodes/machine_test/") {
+                json!({"tunnel_id": "machine_test", "network_id": "team_test", "client_public_key": "k"})
+            } else {
+                json!({"code": "test.unknown", "message": "not this test's route"})
+            };
+            let status = if reply.get("code").is_some() { 404 } else { 200 };
+            log.lock().unwrap().push((line, head, body));
+            let text = reply.to_string();
+            let response = format!(
+                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
+                text.len()
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        }
+    });
+    (origin, seen)
+}
+
+/// The tunnel methods carry the person's cmux token: a shell on the unix socket is refused
+/// before anything reaches the platform; the app's person-proved connection attaches and
+/// detaches this Mac as the person.
+#[tokio::test]
+async fn only_the_person_moves_this_macs_cloud_tunnel() {
+    use std::os::unix::fs::PermissionsExt;
+    let (origin, seen) = tunnel_platform().await;
+    let daemon = Daemon::start("tunnel", Some(KEY));
+    let path = daemon.dir.join("machine-credential.json");
+    std::fs::write(&path, json!({"credential":"cmm_test","machine_id":"machine_test","team_id":"team_test","name":"test","hub_origin":origin,"last_heartbeat":null,"revoked":false,"wgPublicKey":"old"}).to_string()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let token = json!({"token": "person-token"});
+    let mut shell = Rpc::connect(&daemon.socket).await;
+    shell.initialize().await;
+    for method in ["_acpmux/machine.tunnel.attach", "_acpmux/machine.tunnel.detach"] {
+        let refused = shell.call(method, token.clone()).await;
+        assert_eq!(reason(&refused), REASON, "{method}: {refused}");
+    }
+    assert!(seen.lock().unwrap().is_empty(), "a refused call reached the platform");
+
+    let mut app = Rpc::person(&daemon.socket, KEY).await;
+    let missing = app.call("_acpmux/machine.tunnel.attach", json!({})).await;
+    assert_eq!(reason(&missing), "token_required", "{missing}");
+    let attached = app
+        .ok("_acpmux/machine.tunnel.attach", json!({"token": "person-token", "networkId": "team_test"}))
+        .await;
+    assert_eq!(attached["tunnel_id"], "machine_test");
+    let detached = app.ok("_acpmux/machine.tunnel.detach", token.clone()).await;
+    assert_eq!(detached["tunnel_id"], "machine_test");
+    let requests = seen.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2, "{requests:?}");
+    assert!(requests[0].0.starts_with("post /v1/mesh/nodes/machine_test/attach "), "{}", requests[0].0);
+    assert!(requests[1].0.starts_with("post /v1/mesh/nodes/machine_test/detach "), "{}", requests[1].0);
+    for (_, headers, _) in &requests {
+        assert!(headers.contains("authorization: bearer person-token"), "{headers}");
+        assert!(headers.contains("x-cmux-team: team_test"), "{headers}");
+    }
+    assert!(!std::fs::read_to_string(&path).unwrap().contains("person-token"), "the token was stored");
+}
+
 #[path = "support/machine_consent_home.rs"]
 mod machine_consent_home;
