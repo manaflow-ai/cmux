@@ -97,6 +97,15 @@ import Foundation
         }
     }
 
+    /// Whether stand-in tab `standIn`, leaving as `pane`'s tab `id` arrives alone, hands that tab its cell and selection: yes for
+    /// the tab it became (``became(standIn:tab:in:)``), and for a tab not yet named (a swap observed before its record lands, as
+    /// before #38108); never when the person closed the stand-in (F1 on #38085) or the tab is another stand-in's (F2 on #38108).
+    public func handsOver(standIn: String, to id: String, in pane: PaneModel) -> Bool {
+        if became(standIn: standIn, tab: id, in: pane) { return true }
+        let closed = store.intentLog.entries.contains { ($0.closeWhenCreated || $0.standInClosed) && $0.kind.standInTab?.tabResourceID?.rawValue == standIn }
+        return !closed && !tookAStandInsPlace(tab: id, in: pane)
+    }
+
     /// Whether tab `id` is still a pending creation's provisional tab (a close cancels it).
     public func isPending(tab id: String) -> Bool { CancelledCreation.transaction(showingTab: id, in: store) != nil }
 

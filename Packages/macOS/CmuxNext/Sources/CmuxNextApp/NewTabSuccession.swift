@@ -100,7 +100,7 @@ struct NewTabSuccession {
         let left = shown.filter { ProvisionalTab.isProvisional($0.rawValue) && !listed.contains($0) }
         let arrived = snapshot.items.filter { !shown.contains($0.id) }, swapped = arrived.filter { pane.daemon.store.creations.tookAStandInsPlace(tab: $0.id.rawValue, in: pane.pane) }
         var handed: SurfaceID?
-        if left.count == 1, arrived.count == 1, let provisional = left.first, pane.daemon.store.creations.became(standIn: provisional.rawValue, tab: arrived[0].id.rawValue, in: pane.pane) {
+        if left.count == 1, arrived.count == 1, let provisional = left.first, pane.daemon.store.creations.handsOver(standIn: provisional.rawValue, to: arrived[0].id.rawValue, in: pane.pane) {
             pane.stripModel.successors[arrived[0].id] = provisional
             handed = pane.pane.tabs.first { $0.id == arrived[0].id.rawValue }?.surface
             // The selection goes with the cell, in the same apply: a selected stand-in never

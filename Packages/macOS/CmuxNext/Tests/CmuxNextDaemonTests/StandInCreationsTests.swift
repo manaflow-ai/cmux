@@ -115,4 +115,31 @@ struct StandInCreationsTests {
         #expect(store.creations.became(standIn: try #require(first.tabResourceID?.rawValue), tab: tab, in: pane), "the tab is not its stand-in's")
         #expect(!store.creations.became(standIn: try #require(second.tabResourceID?.rawValue), tab: tab, in: pane), "the tab counts as another stand-in's")
     }
+
+    /// A stand-in leaving as one tab arrives hands it its cell unless the person closed the stand-in or the tab is another
+    /// stand-in's: a swap the strip sees before the tab's record lands keeps its cell (NewTabCloseInterleaveOrderTests'
+    /// `.left`, `.daemonTab` reordered to `N b c` for a frame when only a named tab could take it).
+    @Test func aLeavingStandInHandsOverUnlessClosedOrAnothers() throws {
+        let store = Self.store()
+        let open = Self.page(), closed = Self.page(), other = Self.page()
+        store.intend(.createTab(pane: Self.pane, provisional: open), transaction: .generate())
+        let cancelled = ClientTransactionID.generate(), made = ClientTransactionID.generate()
+        store.intend(.createTab(pane: Self.pane, provisional: closed), transaction: cancelled)
+        store.intend(.createTab(pane: Self.pane, provisional: other), transaction: made)
+        let closedID = try #require(closed.tabResourceID?.rawValue)
+        #expect(store.creations.cancel(tab: closedID))
+        let theirs = SurfaceID(rawValue: 7), unnamed = SurfaceID(rawValue: 8)
+        for (sequence, surface) in [(UInt64(1), theirs), (2, unnamed)] {
+            _ = store.apply(batch: [DaemonEventEnvelope(sequence: sequence, event: .tabAdded(TabDelta(
+                workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2), pane: Self.pane, surface: surface, index: nil,
+                entity: TabSnapshot(surface: surface))))])
+        }
+        ProvisionalTab.created(made, surface: theirs, in: store)
+        let pane = try #require(store.pane(Self.pane))
+        let openID = try #require(open.tabResourceID?.rawValue)
+        let theirTab = try #require(store.tab(surface: theirs)).id, unnamedTab = try #require(store.tab(surface: unnamed)).id
+        #expect(store.creations.handsOver(standIn: openID, to: unnamedTab, in: pane), "a tab not yet named lost the open stand-in's cell")
+        #expect(!store.creations.handsOver(standIn: closedID, to: unnamedTab, in: pane), "a closed stand-in handed its cell over")
+        #expect(!store.creations.handsOver(standIn: openID, to: theirTab, in: pane), "another stand-in's tab took this one's cell")
+    }
 }
