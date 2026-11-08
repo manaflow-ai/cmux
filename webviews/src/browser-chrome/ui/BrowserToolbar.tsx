@@ -627,6 +627,7 @@ function Omnibar({
         <Icon name={state.chip.icon} size={icons.chip} row />
         {label && <span className="bc-chip-label">{label}</span>}
       </button>
+      {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A press around the text goes to the input inside, the field's one control; this wrapper is not a separate control. */}
       <div
         className="bc-field"
         onMouseDown={onFieldMouseDown}
