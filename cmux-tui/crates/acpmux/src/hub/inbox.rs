@@ -1103,9 +1103,13 @@ impl Hub {
             self.append(session, "mux", "inbox", msg);
             self.note_delegator(session, provenance);
         }
-        accept(
-            json!({"sessionId": session.id, "promptId": prompt_id, "queued": true, "inbox": true, "threadId": thread}),
-        );
+        // `resent`: a resend of one it holds or a notice carries, not a message kept now
+        // (`sender_harness::on_kept` writes no claim for it).
+        let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "queued": true, "inbox": true, "threadId": thread});
+        if !fresh {
+            accepted.set("resent", json!(true));
+        }
+        accept(accepted);
         self.inbox_review(session);
         let answer = match rx.wait_for(Option::is_some).await {
             Ok(answer) => answer.clone().unwrap_or_else(|| Err(RpcError::internal("no answer"))),
