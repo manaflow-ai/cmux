@@ -459,6 +459,17 @@ impl Hub {
             stuck_reason: stuck.map(|s| s.0),
             stuck_since: stuck.map(|s| s.1),
             stuck_error: stuck.map(|s| s.2.to_owned()),
+            loop_episode: session
+                .loop_detector
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .active()
+                .map(|episode| crate::protocol::session::LoopEpisodeSummary {
+                    episode_id: episode.episode_id,
+                    count: episode.count,
+                    diagnosis: episode.diagnosis.clone(),
+                    hint: episode.hint.clone(),
+                }),
             agent_session_id: m.agent_session_id.clone(),
             retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,

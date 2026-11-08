@@ -68,6 +68,29 @@ impl Hub {
         if session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
             return;
         }
+        if let Some(event) =
+            session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).observe(update)
+        {
+            match event {
+                super::loop_detector::LoopEvent::Detected(episode) => self.append(
+                    session,
+                    "mux",
+                    "loop_detected",
+                    serde_json::json!({
+                        "episodeId": episode.episode_id,
+                        "count": episode.count,
+                        "diagnosis": episode.diagnosis,
+                        "hint": episode.hint,
+                    }),
+                ),
+                super::loop_detector::LoopEvent::Cleared { episode_id } => self.append(
+                    session,
+                    "mux",
+                    "loop_cleared",
+                    serde_json::json!({"episodeId": episode_id}),
+                ),
+            }
+        }
         let mut open = session.open_tools.lock().unwrap_or_else(|e| e.into_inner());
         let was_open = !open.is_empty();
         track_tool(&mut open, update);
@@ -92,6 +115,7 @@ impl Hub {
     pub(super) fn hold_stalled_count(session: &Session) {
         *session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()) = None;
         session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).reset();
         session.stalled_gen.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -111,6 +135,7 @@ impl Hub {
         // its log holds (`recover_work` set them).
         if heard_ms.is_none() {
             session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
+            session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).reset();
         }
         session.heard_at.store(at, Ordering::Relaxed);
         session.stalled_recheck.store(0, Ordering::Relaxed);
