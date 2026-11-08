@@ -6,6 +6,8 @@ once. agent-pane-suggested-tasks failed now and then on feat-cmux-next and passe
 it was a new red on 9 of 40 sampled red pull request runs (2026-10-30). The history names such a test
 so guards_new_reds.py --flaky keeps it a warning, while a test a push really broke stays the change's.
 """
+import io
+import itertools
 import json
 from pathlib import Path
 import re
@@ -13,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/webviews_test_history.py"
@@ -189,6 +192,100 @@ class Command(unittest.TestCase):
             self.assertEqual(done.stdout, "")
 
 
+def artifact_zip(runs) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as archive:
+        archive.writestr(history.ARTIFACT_FILE, json.dumps({"runs": runs}))
+    return out.getvalue()
+
+
+def listed(*items):
+    return json.dumps({"artifacts": list(items)}).encode()
+
+
+def item(id, created, branch="feat-cmux-next", repo=1, head_repo=1, expired=False, name=history.ARTIFACT):
+    return {"id": id, "name": name, "expired": expired, "created_at": created,
+            "archive_download_url": f"https://api.example/artifacts/{id}/zip",
+            "workflow_run": {"id": 100 + id, "head_branch": branch, "repository_id": repo,
+                             "head_repository_id": head_repo, "head_sha": "abc" * 13}}
+
+
+class Fetch(unittest.TestCase):
+    def serve(self, listing, zips, redirect=True):
+        calls = []
+
+        def get(url, token):
+            calls.append((url, token))
+            if "/actions/artifacts?" in url:
+                return 200, {}, listing
+            for id, body in zips.items():
+                if url == f"https://api.example/artifacts/{id}/zip":
+                    return (302, {"Location": f"https://blob.example/{id}"}, b"") if redirect else (200, {}, body)
+                if url == f"https://blob.example/{id}":
+                    return 200, {}, body
+            return 404, {}, b""
+        return get, calls
+
+    def test_the_newest_push_history_is_read_and_names_the_flakes(self):
+        # 2026-11-08: the cache never held more than one run; the artifact carries the whole history to the replay.
+        flaky_runs = runs(True, False, True, False)
+        get, calls = self.serve(listed(item(1, "2026-11-08T10:00:00Z", ), item(2, "2026-11-08T11:00:00Z")),
+                                {1: artifact_zip([]), 2: artifact_zip(flaky_runs)})
+        found, said, read = history.fetch("manaflow-ai/cmux", "feat-cmux-next", "tok", get=get)
+        self.assertEqual(found, flaky_runs)
+        self.assertTrue(read)
+        self.assertIn("from run 102", said)
+        self.assertEqual(history.flaky(found, [TEST]), [TEST])
+        # Two requests and the storage redirect, the token never sent to the storage host.
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(calls[0][1], "tok")
+        self.assertEqual(calls[2], ("https://blob.example/2", None))
+
+    def test_other_branches_forks_and_expired_uploads_are_never_read(self):
+        bad = [item(1, "2026-11-08T12:00:00Z", branch="other"), item(2, "2026-11-08T12:00:00Z", head_repo=9),
+               item(3, "2026-11-08T12:00:00Z", expired=True), item(4, "2026-11-08T12:00:00Z", name="x")]
+        get, calls = self.serve(listed(*bad), {})
+        self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[::2], ([], True))  # none yet: read
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(history.newest(json.loads(listed(*bad, item(5, "2026-11-01T00:00:00Z"))), "feat-cmux-next")["id"], 5)
+
+    def test_any_failure_is_an_empty_history_that_says_why(self):
+        def refused(url, token):
+            return 403, {}, b""
+        self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=refused),
+                         ([], "listing the webviews-test-history artifacts answered 403", False))
+        get, _ = self.serve(listed(item(1, "2026-11-08T10:00:00Z")), {1: b"not a zip"})
+        self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[::2], ([], False))
+        get, _ = self.serve(listed(item(1, "2026-11-08T10:00:00Z")), {1: artifact_zip("nope")})
+        self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[::2], ([], False))
+
+    def test_the_command_always_writes_a_history_and_exits_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "h" / "history.json"
+            done = subprocess.run([sys.executable, str(SCRIPT), "fetch", str(out), "--repo", "o/r", "--branch", "b"],
+                                  capture_output=True, text=True, env={"PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin",
+                                                                      "GITHUB_API_URL": "http://127.0.0.1:9"})
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(json.loads(out.read_text()), {"runs": []})
+            self.assertIn("0 push runs", done.stdout)
+
+    def test_a_push_that_cannot_read_the_history_never_saves_one_over_it(self):
+        # A push saves what it read plus its own run: one failed read would replace the whole history with one run.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "history.json"
+            done = subprocess.run([sys.executable, str(SCRIPT), "fetch", str(out), "--repo", "o/r", "--branch", "b",
+                                   "--need-read"], capture_output=True, text=True,
+                                  env={"PATH": "/usr/bin:/bin", "GITHUB_API_URL": "http://127.0.0.1:9"})
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        upkeep = Workflow().job("webviews-test-history")
+        restore = upkeep[upkeep.index("      - name: Restore the history"):]
+        restore = restore[:restore.index("\n      - name:", 10)]
+        self.assertIn("id: history-restore", restore)
+        self.assertIn("--need-read", restore)
+        record = upkeep[upkeep.index("      - name: Add this push to the history"):]
+        self.assertIn("steps.history-restore.outcome == 'success'", record[:record.index("run: |")])
+
+
 class Workflow(unittest.TestCase):
     def job(self, name):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -200,9 +297,12 @@ class Workflow(unittest.TestCase):
         upkeep = self.job("webviews-test-history")
         self.assertIn("github.event_name == 'push'", upkeep)
         self.assertIn("webviews_test_history.py record", upkeep)
-        self.assertIn("key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}", upkeep)
-        self.assertIn("restore-keys: webviews-test-history-${{ github.ref_name }}-", upkeep)
+        self.assertIn('webviews_test_history.py fetch "$RUNNER_TEMP/webviews-test-history/history.json"', upkeep)
+        self.assertIn('--branch "$BRANCH"', upkeep)
+        self.assertIn("name: webviews-test-history\n", upkeep)
         self.assertIn("timeout-minutes: 5", upkeep)
+        # The cache the history used to live in was never restored by the next push (2026-11-08).
+        self.assertNotIn("actions/cache", upkeep)
         # Optional upkeep: every step keeps going, so the job never reddens a push.
         steps = upkeep.split("\n      - name: ")[1:]
         self.assertTrue(steps)
@@ -220,16 +320,64 @@ class Workflow(unittest.TestCase):
         base = self.job("react-apps-base-check")
         restore = base[base.index("      - name: Restore the base's webview test history"):]
         restore = restore[:restore.index("\n      - name:", 10)]
-        self.assertIn("actions/cache/restore@", restore)
-        self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-", restore)
+        self.assertIn('webviews_test_history.py" fetch', restore)
+        self.assertIn('--branch "$BASE_REF"', restore)
         self.assertIn("continue-on-error: true", restore)
+        self.assertNotIn("upload-artifact", base.split("Restore the base's webview test history")[1].split("Fail on the change")[0])
         self.assertNotIn("actions/cache/save", base)  # a pull request never writes the base's history
-        self.assertNotIn("actions/cache@", restore)
         self.assertIn('webviews_test_history.py" flaky', base)
 
-    def test_no_job_asks_for_new_permissions(self):
-        for name in ("webviews-test-history", "react-apps-base-check", "react-apps-check-shard"):
-            self.assertNotIn("permissions:", self.job(name), name)
+    def test_the_web_bisect_reads_the_history_artifact(self):
+        # The cache it restored is no longer saved (#38716): it read nothing, and known flakes stayed bisectable.
+        text = (ROOT / ".github/workflows/cmux-next-web.yml").read_text(encoding="utf-8")
+        start = text.index("\n  web-bisect:\n") + 1
+        end = re.search(r"\n  [a-z][a-z0-9-]*:\n", text[start + 1:])
+        job = text[start:start + 1 + end.start()] if end else text[start:]
+        restore = job[job.index("      - name: Restore the base's webview test history"):]
+        restore = restore[:restore.index("\n      - name:", 10)]
+        self.assertIn('webviews_test_history.py fetch "$RUNNER_TEMP/webviews-test-history/history.json"', restore)
+        self.assertIn('--branch "$BRANCH"', restore)
+        self.assertIn("continue-on-error: true", restore)
+        self.assertNotIn("webviews-test-history-${{", job)
+        block = job[job.index("    permissions:\n"):].split("\n    ", 3)
+        self.assertEqual(block[1:3], ["  contents: read", "  actions: read"])
+
+    def test_only_the_history_jobs_ask_for_actions_read(self):
+        # The history is an artifact: listing and downloading it takes actions: read, nothing more.
+        for name in ("webviews-test-history", "react-apps-base-check"):
+            job = self.job(name)
+            block = job[job.index("    permissions:\n"):].split("\n    ", 3)
+            self.assertEqual(block[1:3], ["  contents: read", "  actions: read"], name)
+        self.assertNotIn("permissions:", self.job("react-apps-check-shard"))
+
+    def test_the_replay_fetches_the_history_unless_the_head_results_say_no_reds(self):
+        # Head results it cannot read are unknown, not "no reds": skipping the fetch then left the flaky list empty.
+        base = self.job("react-apps-base-check")
+        step = base[base.index("      - name: Restore the base's webview test history"):]
+        step = step[:step.index("\n      - name:", 10)]
+        body = step[step.index("        run: |\n") + len("        run: |\n"):].splitlines()
+        script = "\n".join(line[10:] for line in itertools.takewhile(lambda line: line.startswith(" " * 10), body))
+
+        def fetched(results):
+            with tempfile.TemporaryDirectory() as temp:
+                runner = Path(temp, "head-results/runner")
+                runner.mkdir(parents=True)
+                (runner / "webviews_test_results.py").write_text(
+                    (ROOT / "scripts/ci/webviews_test_results.py").read_text(encoding="utf-8"), encoding="utf-8")
+                (runner / "webviews_test_history.py").write_text(
+                    "import pathlib, sys\npathlib.Path(sys.argv[0]).with_name('fetched').touch()\n", encoding="utf-8")
+                head = Path(temp, "head-results/webviews-head-results.json")
+                if results is not None:
+                    head.write_text(results, encoding="utf-8")
+                subprocess.run(["bash", "-c", script], check=True, capture_output=True, env={
+                    "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp, "HEAD_RESULTS": str(head),
+                    "GITHUB_REPOSITORY": "manaflow-ai/cmux", "BASE_REF": "feat-cmux-next"})
+                return (runner / "fetched").exists()
+
+        self.assertFalse(fetched(json.dumps({f"{FILE} > a": True})))
+        self.assertTrue(fetched(json.dumps({f"{FILE} > a": False})))
+        self.assertTrue(fetched(None))  # missing
+        self.assertTrue(fetched("{not json"))  # unreadable
 
 
 if __name__ == "__main__":

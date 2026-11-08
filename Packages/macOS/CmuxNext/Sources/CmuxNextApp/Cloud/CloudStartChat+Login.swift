@@ -19,22 +19,13 @@ import Foundation
 /// Never blocks the chat: a machine that is not the person's, a cancelled confirm or a failed install
 /// opens the chat anyway, and its turn card still offers recovery (#26148).
 extension CloudStartChat {
-    /// Every scope a person's cached Claude login may sit under: each of their teams, then their personal scope. One login per person, whichever team is selected.
-    @MainActor static func loginScopes(_ cloud: CloudService) -> [String?] { cloud.auth.teams.map { Optional($0.id) } + [nil] }
-    /// A login cancelled with its start (its copy failed before `run` awaited it) is `cancelled`, never "failed: CancellationError" (run 42157718918).
-    nonisolated static let loginCancelled = "cancelled"
-    /// What a login that threw records: `cancelled` when its start cancelled it, else the transfer's fixed text, never provider output.
-    nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
-        cancelled || error is CancellationError ? loginCancelled : loginFailed + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
-    }
-
     /// Gives the start's machine the person's Claude or Codex login when this build passes it. Returns
     /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way, with no Codex prompt.
     /// Its questions show where ``asker`` shows them: the start's card for a composer start, else a dialog in the active window.
     func passHarnessLogin(harness: String?, machine: CloudMachineSession, codexPrompt: Bool = true, ask: CloudHarnessLoginAsk = .init()) async -> Bool {
         let cloud = services.cloud, userID = cloud.auth.user?.id, asker = self.asker ?? .window(services)
         let teamID = cloud.auth.teamID, machineID = machine.machineID, api = cloud.machineAPI.pinningTeam(teamID)
-        let otherTeams = Self.loginScopes(cloud) // the person's cached login under any of their teams, or their personal scope: one per person
+        let otherTeams = cloud.auth.loginScopes // the person's cached login under any of their teams, or their personal scope: one per person
         var decision = CloudHarnessLoginDecision(dogfood: DevTools.isEnabled, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
                                                  harness: harness, signedIn: userID != nil)
         let gate = Self.loginCopyGate(services, asker: asker)
@@ -47,7 +38,7 @@ extension CloudStartChat {
             if verdict.gate, verdict.transferProvider != nil, let userID {
                 decision.callerOwns = try await cloud.callerOwnsVM(machineID)
                 verdict = decision.verdict
-                if verdict.readsMachine { try await decision.readGuest(exec: { (try? await api.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause) } // again until a new guest binds
+                if verdict.readsMachine { try await decision.readGuest(exec: { (try? await api.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause, warmCopy: cloud.move.cli.map { (CloudMoveCLI(binary: $0), machineID) }) } // again until a new guest binds
                 // A login the provider rejects (a reused machine's expired token) is replaced like a missing one.
                 if verdict.transferProvider == .claude, decision.verdict.guestTakesLogin { decision.take(await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)) }
             }
@@ -70,7 +61,7 @@ extension CloudStartChat {
             case .askConsent:
                 guard await gate.askConsent(&decision) else { return false }
             case .confirmThenInstall:
-                guard provider == .claude, await asker.ask(CloudPresenter.firstLoginAsk(machine: machine.machine.title, services: services)) == CloudPresenter.firstLoginAccept else { decision.outcome = Self.loginDeclined; return false }
+                guard provider == .claude, await asker.ask(CloudPresenter.firstLoginAsk(machine: machine.machine.title, services: services)) == CloudPresenter.firstLoginAccept else { decision.outcome = CloudHarnessLoginDecision.loginDeclined; return false }
                 CloudHarnessLoginChoices().save(.pass, userID: userID) // Their Yes is their choice for every later machine.
             }
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
@@ -90,13 +81,6 @@ extension CloudStartChat {
             }
             decision.outcome = "installed"
             return true
-        } catch { decision.outcome = Self.loginOutcome(error, cancelled: Task.isCancelled); return false }
+        } catch { decision.outcome = CloudHarnessLoginDecision.loginOutcome(error, cancelled: Task.isCancelled); return false }
     }
-
-    /// The start record's outcome when the copy failed, before its fixed text.
-    nonisolated static let loginFailed = "failed: "
-    /// The start record's outcome when the person said no to the copy.
-    static let loginDeclined = "declined"
-    /// The outcomes when this Mac held no login to give: the machine signs in with its chat's Sign in to Claude card.
-    static let signInOnMachine: Set<String?> = [CloudCredentialTransfer.CachedLogin.none.startOutcome, CloudCredentialTransfer.CachedLogin.unreadable.startOutcome]
 }

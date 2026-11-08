@@ -1189,6 +1189,9 @@ export type AcpmuxSnapshot = {
     /// and its `limits` records); unset from an acpmux without the limit.
     subsessionLimits?: SubsessionLimits;
     status?: string;
+    /** Existing daemon silence signal; no client-side threshold or timer. */
+    stalledSince?: number;
+    loopEpisode?: { episodeId: number; since: number; count: number; diagnosis: string; hint: string };
     enforcement?: Enforcement;
     modes?: {
       availableModes: { id: string; name?: string; description?: string }[];
@@ -1300,6 +1303,9 @@ export type AcpmuxSnapshot = {
   /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts); the same
   /// array until one comes or goes.
   asks?: WatchedAsk[];
+  /// The grouped ones, which Needs you leaves to their chat's card: the chat above a sub-session
+  /// draws them (subagents/childAsks.ts).
+  groupedAsks?: WatchedAsk[];
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */
   catalog: {
