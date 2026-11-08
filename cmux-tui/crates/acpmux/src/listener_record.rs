@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn the_start_time_is_field_22_after_the_command_name() {
-        let stat = "42 (a ) b) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 777 19";
+        let stat = "42 (a ) b) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 777 20";
         assert_eq!(linux_start(stat), Some(777));
     }
 
