@@ -158,8 +158,8 @@ await requireBrowserLane("ime-composer-probes.browser.test.ts", async () => {
         // Some input methods deliver Return as paragraph input, without a useful keydown.
         // The event flag and the composition lifecycle each protect the unfinished draft.
         for (const isComposing of [true, false]) {
-          await page.locator(".acpmux-md").evaluate((field, isComposing) => {
-            field.dispatchEvent(
+          const proceeded = await page.locator(".acpmux-md").evaluate((field, isComposing) => {
+            return field.dispatchEvent(
               new InputEvent("beforeinput", {
                 inputType: "insertParagraph",
                 isComposing,
@@ -168,6 +168,7 @@ await requireBrowserLane("ime-composer-probes.browser.test.ts", async () => {
               }),
             );
           }, isComposing);
+          expect(proceeded).toBe(false);
           expect(await sent(page)).toEqual([]);
         }
         await cdp.send("Input.insertText", { text: probe.committed });
