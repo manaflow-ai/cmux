@@ -32,8 +32,10 @@ type LinkSnapshot = {
 /// The link of the peer the open chat runs on (the session this Mac's acpmux mirrors,
 /// `summary.peer`), as acpmux last said it (`peerStates`, kept current by
 /// `_acpmux/peer_state_changed`; `peerConnected` before the first state arrives), or null for a chat
-/// on this Mac. A Cloud peer that is not answering says nothing here: the peer copy banner says
-/// whether it is paused or starting, and offers Resume (PeerCopyBanner.tsx). O(1).
+/// on this Mac. A Cloud peer says something here only while connected: one that is not, in any state,
+/// is left to the peer copy banner, which says whether it is paused or starting and offers Resume
+/// (PeerCopyBanner.tsx). A Cloud machine that was connected keeps its `last_seen`, so acpmux reports
+/// a pause as `reconnecting`, and the row would spin "Reconnecting…" beside the banner's Resume. O(1).
 export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
   const peer = snapshot.summary?.peer;
   if (!peer) return null;
@@ -46,6 +48,6 @@ export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
         ? undefined
         : { link: connected ? "connected" : "offline" };
   if (!known) return null;
-  if (known.link === "offline" && snapshot.peerKinds?.[peer] === "cloud") return null;
+  if (known.link !== "connected" && snapshot.peerKinds?.[peer] === "cloud") return null;
   return { machine: peer, link: known.link, ...(known.reconnecting ? { reconnecting: true } : {}) };
 }

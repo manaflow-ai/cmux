@@ -176,10 +176,22 @@ test("an offline peer offers Reconnect, which asks for that peer", async () => {
 });
 
 test("a Cloud peer that does not answer leaves it to the peer copy banner", async () => {
-  await render(started("dev-vm-2", "offline", "cloud"));
-  expect(link()).toBeNull();
+  await render(started("dev-vm-2", "connected", "cloud"));
+  expect(link()?.dataset.link).toBe("connected");
+  for (const state of ["offline", "connecting", "reconnecting", "restarting", "degraded"]) {
+    await render(started("dev-vm-2", state, "cloud"));
+    expect(link(), state).toBeNull();
+  }
+});
+
+test("a paused Cloud peer that was connected draws no Reconnecting spinner", async () => {
+  // A Cloud machine that was connected keeps its last_seen, so acpmux reports its pause as reconnecting.
+  await render(started("dev-vm-2", "connected", "cloud"));
+  expect(link()).not.toBeNull();
   await render(started("dev-vm-2", "reconnecting", "cloud"));
-  expect(link()?.dataset.link).toBe("connecting");
+  expect(link()).toBeNull();
+  expect(host.querySelector(".acpmux-composer-foot .acpmux-machine-link-spinner")).toBeNull();
+  expect(host.querySelector(".acpmux-composer-foot")?.textContent ?? "").not.toContain("Reconnecting");
 });
 
 test("the model chip no longer reads Unavailable for a machine that is down", async () => {
