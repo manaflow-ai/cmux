@@ -176,6 +176,10 @@ with Don't Show Again as loose gray text at another height.
   height (no empty frame, no growth after it appeared); until then every click goes to the page.
   Any answer fades it out and the chrome answers the host. After cookies came over by any path
   (this card, File > Import from Browser, Import Cookies from Browser) it never shows again.
+- **Keep in sync.** For a Chromium browser, a checkbox under the detail, on by default
+  (`browser.import.cookieSync`, also Settings > Browser > Import). Its state goes to the host with
+  Import only. On, the sites whose cookies change in that browser come over again; it never signs
+  cmux out of a site the browser signed out of.
 
 ## Keyboard
 

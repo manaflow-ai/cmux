@@ -1,5 +1,6 @@
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import Foundation
 import Observation
@@ -286,6 +287,46 @@ struct CloudMachineUpdateTargetTests {
         #expect(fixture.clock.sleeps.isEmpty)
         #expect(fixture.states == [.updating, .updated(build: Self.bundled)])
         #expect(machine.reconnects == 1, "the waiting connect is woken")
+    }
+
+    /// A daemon the app reads as refused that names the app's own build (a Cloud capture, 2026-11-07: a link
+    /// whose identify left out capabilities the app requires) is left alone: an update cannot change what it
+    /// runs, and each one dropped the link under a chat start ("started but its agent didn't (cmux-tui
+    /// connection closed: EOF)") on every reconnect.
+    @Test func anIncompatibleMachineOnTheAppsBuildIsLeftAlone() async throws {
+        let machine = FakeCloudMachine(build: Self.bundled + "0123456789abcdef0123456789ab", level: .incompatible,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+
+        #expect(machine.updates == 0)
+        #expect(fixture.states.isEmpty)
+    }
+
+    /// A machine whose transport dropped and whose reconnect failed (review of #38130): the app still holds its
+    /// last connection and the identity of its last handshake, which names the app's build, but no handshake is
+    /// live. That old reading is not the machine's build now, so a daemon the app reads as refused still updates
+    /// at once instead of being left alone as "on the app's build".
+    @Test func aDroppedMachineReportsNoBuildFromItsLastIdentity() async throws {
+        let held = DaemonIdentity(buildCommit: Self.bundled + "0123456789abcdef0123456789ab",
+                                  generation: DaemonGeneration(rawValue: "dropped"))
+        for state in [DaemonConnectionState.disconnected("link down"), .connecting, .failed("no route to this host")] {
+            #expect(DaemonService.liveIdentity(held, connected: true, state: state) == nil, "\(state)")
+        }
+        #expect(DaemonService.liveIdentity(held, connected: true, state: .connected(held)) == held, "a live handshake")
+        #expect(DaemonService.liveIdentity(held, connected: false, state: .connected(held)) == nil, "no connection")
+
+        let reading = DaemonService.liveIdentity(held, connected: true, state: .disconnected("link down"))
+        let machine = FakeCloudMachine(build: reading?.buildCommit, level: .incompatible,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        #expect(await fixture.target(machine).currentBuild() == nil)
+        await fixture.run(machine)
+
+        #expect(machine.updates == 1)
+        #expect(fixture.states == [.updating, .updated(build: Self.bundled)])
     }
 
     /// A machine with no daemon answer yet (neither connected nor refused) is left alone.

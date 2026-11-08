@@ -7,6 +7,11 @@ which the newest arrival takes. A failed run is retried at the newest commit by 
 (retry-nightly-next), in the same group, and main's feed watch resume builds nothing: run
 42251281669 (a watch resume of an older run) signed beside push run 42244796779 and held its
 publish 23 min.
+
+A loop run holds the push group only through publish and the GitHub release (whose body and tag the next
+run's decide reads), then dispatches the deltas, notes, reel and PR comments as a run-scoped run
+(dispatch-published-in). Holding it through that whole tail made the newest head wait about 79 min per
+cycle (172 of 198 push runs replaced while pending in 26 h, 2026-11-07).
 """
 from __future__ import annotations
 
@@ -52,6 +57,23 @@ else:
     runs_on = str(retry.get("runs-on", ""))
     if "blacksmith" in runs_on.lower() or "ubuntu-24.04' ||" in runs_on.replace("'ubuntu-24.04' || vars", ""):
         failures.append("retry-nightly-next stays on the nightly mini")
+
+# A loop run's group ends at the GitHub release: the deltas, notes and comments are dispatched.
+dispatch = JOBS.get("dispatch-published-in")
+if dispatch is None:
+    failures.append("a loop run must dispatch its tail after the GitHub release (dispatch-published-in)")
+else:
+    dispatch_needs = dispatch.get("needs") or []
+    if "publish-nightly-next-github" not in dispatch_needs:
+        failures.append("dispatch-published-in must wait for the GitHub release: the next decide reads its body and tag")
+    if "needs.published-build.outputs.run_tail != 'true'" not in str(dispatch.get("if", "")):
+        failures.append("dispatch-published-in must dispatch only from a loop run (run_tail)")
+run_tail = str((JOBS.get("published-build", {}).get("outputs") or {}).get("run_tail", ""))
+if "github.event_name != 'push' && inputs.nightly_next_loop_retry == ''" not in run_tail:
+    failures.append("published-build's run_tail must be false in a push run and in the loop's retry")
+for name in ("generate-nightly-deltas", "sign-release-notes", "published-in"):
+    if "needs.published-build.outputs.run_tail == 'true'" not in str(JOBS.get(name, {}).get("if", "")):
+        failures.append(f"{name} must not hold a loop run's push group (run_tail)")
 
 decide = "\n".join(str(step.get("with", {}).get("script", "")) for step in JOBS["decide"].get("steps", []))
 if "resumeOutsideLoop" not in decide or "if (resumeOutsideLoop) shouldBuild = false;" not in decide:

@@ -1244,6 +1244,12 @@ button.cv-subagent > :last-child {
   inset: 0;
   z-index: var(--layer-backdrop);
 }
+/* A line with a report (SubagentDoneLine.tsx `Line`): its words are no control, the whole row
+   toggles the report (headerToggle.ts) and the name chip opens the agent, so no hit area covers the
+   chip. */
+div.cv-subagent-done[data-toggle-line]::before {
+  content: none;
+}
 .cv-subagent-done-row > .cv-subagent-done {
   grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr);
   width: auto;
@@ -1373,9 +1379,18 @@ button.cv-subagent > :last-child {
   cursor: default;
   pointer-events: auto;
 }
+/* Pointing anywhere on the line but its name lifts its words and the chevron to the text color, so
+   the line reads as one that opens (Lucas, 2026-11-08: "hovering the Subagent finished text should
+   turn it white"); the chevron takes no fill of its own (Lucas, 2026-11-08: no circle behind it), and
+   the name chip keeps its own hover. */
+.cv-subagent-done-row:hover:not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > .cv-subagent-done__disclose,
+.cv-subagent-done-row:hover:not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
+  > div.cv-subagent-done[data-toggle-line]
+  .cv-agent-activity__sentence {
+  color: var(--cv-text);
+}
 .cv-subagent-done-row > .cv-subagent-done__disclose:hover {
   color: var(--cv-text);
-  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
 }
 .cv-subagent-done-row > .cv-subagent-done__disclose[aria-expanded="true"] {
   color: var(--cv-text);

@@ -55,7 +55,8 @@ extension ScreenContentView {
     /// The key's turn (T-KEYS 3, `LayoutRootView.keyboardResizeDidChange`): the press's first refresh is drawn ahead as
     /// each later refresh is, from the springs the press's targets just set, so the frame that shows the press shows each
     /// terminal at its pane's size in it (keys bench 8554d26b: that frame was the only one a terminal showed off its pane).
-    /// Render only: no presentation, no layout, no bounds and no grid in the key's turn (S1B).
+    /// No presentation, no layout and no bounds in the key's turn (S1B); the size drawn ahead takes its grid to the
+    /// program then, so it redraws before the frame shows (RESIZE P0 11).
     func drawAheadOfKeyPress() {
         guard let window, hasMotion else { return }
         drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: Motion.panes.policy)
@@ -83,7 +84,7 @@ extension ScreenContentView {
             let now = frame.rect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
             let then = nextRect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
             let change = CGSize(width: then.width - now.width, height: then.height - now.height)
-            if change != .zero { host.drawAhead(sizeChange: change) }
+            if change != .zero { host.drawAhead(sizeChange: change, keyPress: true) }
         }
     }
 

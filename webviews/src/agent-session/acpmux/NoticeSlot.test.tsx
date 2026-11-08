@@ -5,8 +5,10 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
-import { Notice, NoticeSlot, type NoticeTier, topNotice } from "./NoticeSlot";
+import { HarnessHealthNotice } from "./HarnessHealthNotice";
+import { type HarnessHealth } from "./harnessHealthNoticeModel";
+import { Notice, NoticeSlot } from "./NoticeSlot";
+import { type NoticeTier, topNotice } from "./noticeSlotModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
