@@ -47,12 +47,14 @@ impl Rig {
         self.native_hook(at_ms, native_event, json!({"tool_name": "Bash", "session_id": session}));
     }
 
-    /// One hook event with the native payload the harness sent.
+    /// One hook event with the native payload the harness sent, observed
+    /// by the hook helper at `at_ms`.
     fn native_hook(&mut self, at_ms: u64, native_event: &str, native: Value) {
         let sequence = self.next();
-        let ingress =
+        let mut ingress =
             crate::agent_hook_journal_ingress(self.adapter, native_event, Some(TERMINAL), native)
                 .unwrap();
+        crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, at_ms);
         self.roster.apply(&RosterEvent {
             producer_id: &ingress.producer_id,
             kind: &ingress.kind,
@@ -401,6 +403,22 @@ fn the_next_session_after_a_killed_harness_owns_the_row() {
     // A late hook of the killed session changes nothing.
     rig.hook(16_600, "Stop");
     assert_eq!(rig.shown(), "working");
+}
+
+/// A `Stop` the killed session sent before it died, committed after the
+/// screen's proof of the exit and before the next session starts, does not
+/// take the terminal back for the dead session, so the next session's start
+/// is not refused (fourth review of #38417, F2).
+#[test]
+fn a_late_hook_from_before_the_exit_does_not_revive_the_killed_session() {
+    let mut rig = Rig::running_turn("claude");
+    rig.screen(14_600, "done");
+    rig.hook(14_000, "Stop");
+    assert_eq!(rig.shown(), "done");
+    assert!(rig.roster.hook_fences[TERMINAL].ended);
+    rig.session_hook(16_000, "claude-session-2", "SessionStart");
+    assert_eq!(rig.shown(), "idle");
+    assert_eq!(rig.roster.hook_fences[TERMINAL].session_id, "claude-session-2");
 }
 
 /// An exit of another process than the one the plugin saw ends nothing.
