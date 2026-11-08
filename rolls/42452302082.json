@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42452302082",
+  "recorded_at": "2026-11-08T06:00:18Z",
+  "reason": "cmux-tui ae488a955178 changes the image's cmux-tui (pinned d96c7313a741)",
+  "dry_run": false,
+  "cmux_tui": "ae488a955178484684d9f86dcb6b49a56c143400",
+  "fixes": [
+    {
+      "sha": "ae488a955178484684d9f86dcb6b49a56c143400",
+      "mergedAt": "2026-11-07T21:35:06-08:00",
+      "subject": "fix(cmux-host): a quoted \" github.com \" hosts.yml key is not the person's github.com login (#38240)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T06:00:18Z",
+    "snapshot_id": "sh-6e6a51afac5340adbed50b0b06cbcfde",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42452302082): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8e48a289f2db83c3ad36f3bf6de6558e5b06e41f",
+    "image": "cloud-native-auto-ae488a95-42452302082-1",
+    "revision": "ci-42452302082-1",
+    "at": "2026-11-08T06:00:18Z"
+  },
+  "rolled_back": false
+}
