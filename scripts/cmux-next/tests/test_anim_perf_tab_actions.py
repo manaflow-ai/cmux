@@ -178,12 +178,12 @@ class TabCases(unittest.TestCase):
         self.assertEqual(scope["shown_workspace"](), scope["state"]["a"], "the tab cases stay in workspace A")
         self.assertEqual(len(app.workspaces), 2, "no tab case makes a workspace")
 
-    def test_tab_new_is_cmd_t(self):
+    def test_tab_new_opens_the_new_tab_page(self):
         _app, scope = bench()
         names = {}
         scope["action"] = lambda name, args=None, settle=0.0, timeout=60: names.setdefault("verb", name) and {"ok": True}
         dict((n, f) for n, _p, f in scope["anims"]())["tab-new"]()
-        self.assertEqual(names["verb"], "newTab.default")
+        self.assertEqual(names["verb"], "newTab.page")
 
 
 if __name__ == "__main__":

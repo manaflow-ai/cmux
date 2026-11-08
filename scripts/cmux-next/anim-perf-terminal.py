@@ -6,7 +6,7 @@ The pane motion of bonsplit and columns (split, close, New Column, zoom, divider
 pane-perf-terminal.py's (a421). This bench covers every other animation, and one split/column pass in a small
 layout so a single table compares builds:
 
-  tab-new / tab-close           newTab.default (Cmd-T, the New Tab page) and closeTab, in a pane with 3 tabs
+  tab-new / tab-close           newTab.page (the New Tab page, what Cmd-T opens for a person) and closeTab, in a pane with 3 tabs
   tab-move / tab-move-back      moveSurfaceRight (Left at the strip's edge) and back (the tab strip reorder)
   tab-to-pane / tab-back        moveSurfaceToPaneRight / moveSurfaceToPaneLeft (a tab moves between two panes)
   split-right / split-down      splitRight / splitDown, each closed again (split-close)
@@ -276,7 +276,7 @@ def undo(key):
 def anims():
     run = lambda verb: (lambda: error_of(action(verb)))  # noqa: E731
     return [
-        ("tab-new", lambda: at_a(1), run("newTab.default")),
+        ("tab-new", lambda: at_a(1), run("newTab.page")),
         ("tab-close", None, run("closeTab")),
         ("tab-move", lambda: action(TAB, settle=0.8), lambda: either("moveSurfaceRight", "moveSurfaceLeft", "tab-move")),
         ("tab-move-back", None, lambda: undo("tab-move")),
