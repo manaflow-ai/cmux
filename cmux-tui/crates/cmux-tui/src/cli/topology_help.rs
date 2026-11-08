@@ -124,6 +124,10 @@ USAGE
   cmux pane <selector> split ratio set --split <id> --ratio <value>
   cmux pane <selector> viewport width set --columns <value>
   cmux pane <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> move --to-pane <selector> [--split right|down|left|up] [--focus]
+  cmux pane <selector> move --to-tab <selector> [--focus]
+  cmux pane <selector> move --to-workspace <selector> [--name <value>] [--focus]
+  cmux pane <selector> move --new-screen|--new-tab [--name <value>] [--focus]
   cmux pane <selector> tab ...
 
 split keeps the focus where it is unless --focus is given. With --shell or
@@ -131,6 +135,15 @@ split keeps the focus where it is unless --focus is given. With --shell or
 shell. To add a terminal
 to a pane that already exists, use `cmux tab create terminal --pane <selector>`
 instead of splitting again.
+
+move moves the whole pane, all its tabs in order (tmux join-pane and
+break-pane): --to-pane puts them at the end of that pane, or with --split
+into a new pane split off it; --to-tab puts them after that tab in its pane;
+--to-workspace into a new screen in that workspace; --new-screen (--new-tab is
+the same) into a new screen in the pane's own workspace. The emptied pane
+closes. The focus stays where it is unless --focus is given (when the moved
+pane had the focus, the focus goes with it). --json prints pane, moved_tabs,
+destination {workspace, screen, pane, index}, created and focused_pane.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
@@ -255,7 +268,14 @@ is refused unless --force.
 run types a command into the terminal's shell, waits for it to finish and
 exits with its status: send --wait prompt --exit-with-status. status also
 names the last command's exit status (terminal show --json:
-extra.last_command).
+extra.last_command). The words after -- reach the shell as the same words:
+run -- sh -c 'exit 7' exits 7 (POSIX quoting, for sh, bash and zsh; for
+cmd.exe or PowerShell pass the line as one word). One word is a shell line
+as it is: run -- 'make && make test'.
+A --pattern (screen wait, send, run) is a regular expression matched line by
+line: ^ and $ match at the start and end of each line, as in grep, so
+--pattern '^BENCH_OK$' matches a line that is only BENCH_OK. Start the
+pattern with (?-m) to match the whole text instead.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
