@@ -338,10 +338,21 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
             // Context starts folded to its line (Lucas, 2026-11-06); unfold it, then fold it again: the
             // card ends at its sections again, shorter by just its rows.
             const context = panel.locator('section[data-section="context"]');
-            const frame = () =>
-              page.evaluate(
+            // Two frames, then every transition in the card done: a fold settles on the shared fold curve
+            // (#37845), so two frames alone measured it mid-way and the card had not shrunk yet.
+            const frame = async () => {
+              await page.evaluate(
                 () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
               );
+              await panel.evaluate((node) =>
+                Promise.all(
+                  node
+                    .getAnimations({ subtree: true })
+                    .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
+                    .map((animation) => animation.finished.catch(() => {})),
+                ),
+              );
+            };
             const rows = context.locator(".ui-disclosure-panel");
             if ((await rows.count()) === 0) await context.locator(".ui-disclosure-trigger").click();
             await rows.waitFor({ timeout: 5_000 });
