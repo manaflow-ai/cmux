@@ -126,7 +126,7 @@ fn a_hit_has_a_short_snippet_around_the_words_with_their_characters() {
     text.update(&[chat("a", 1)], &|_| Some(vec![turn("why", &answer)]));
     let words = needle("cache key");
     let found = text.search(&words);
-    let hit = text.hit("codex:a", found["codex:a"], &words).expect("hit");
+    let hit = ChatText::hit(&found["codex:a"], &words).expect("hit");
     assert_eq!((hit["turn"].as_u64(), hit["role"].as_str()), (Some(0), Some("answer")));
     let snippet = hit["snippet"].as_str().expect("snippet");
     assert!(snippet.starts_with('…') && snippet.ends_with('…'), "{snippet}");
@@ -159,6 +159,24 @@ fn the_text_is_saved_private_and_read_back_and_chats_off_empty_it() {
     again.update(&[chat("a", 1)], &|_| panic!("read again"));
     again.update(&[], &|_| None);
     assert_eq!(again.held(), (0, 0));
+    let _ = std::fs::remove_file(&text.path);
+}
+
+#[test]
+fn a_gone_chat_leaves_the_saved_copy_at_once_and_the_first_pass_marks_it_filled() {
+    let text = index();
+    assert!(!text.filled(), "nothing read yet");
+    text.update(&[chat("a", 1), chat("b", 1)], &|_| Some(vec![turn("x", "secret words")]));
+    assert!(text.filled());
+    // Within the timed save's interval: a chat gone is still written out now.
+    text.update(&[chat("b", 1)], &|_| None);
+    let again = ChatText::new(text.path.clone());
+    again.load();
+    assert_eq!(again.held().0, 1, "a's text left the saved copy");
+    text.update(&[], &|_| None);
+    let off = ChatText::new(text.path.clone());
+    off.load();
+    assert_eq!(off.held(), (0, 0), "chats off: nothing saved");
     let _ = std::fs::remove_file(&text.path);
 }
 
@@ -241,11 +259,8 @@ fn search_bench() {
             let started = Instant::now();
             let _titled = crate::chats::window::ranked(typed, titles.clone(), None);
             let found = text.search(&words);
-            let shown: Vec<Value> = found
-                .iter()
-                .take(200)
-                .filter_map(|(key, hit)| text.hit(key, *hit, &words))
-                .collect();
+            let shown: Vec<Value> =
+                found.iter().take(200).filter_map(|(_, hit)| ChatText::hit(hit, &words)).collect();
             took.push(started.elapsed());
             if typed == "zephyrine" {
                 assert_eq!(found.len(), 1, "the old chat is found by its word");

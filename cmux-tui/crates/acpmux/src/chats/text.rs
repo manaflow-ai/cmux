@@ -121,12 +121,12 @@ impl Doc {
     }
 
     /// The newest message that holds every word, and how many messages do.
-    fn find(&self, needle: &Needle, matcher: &Matcher) -> Option<Found> {
-        let mut found: Option<Found> = None;
+    fn find(&self, needle: &Needle, matcher: &Matcher) -> Option<Matched> {
+        let mut found: Option<Matched> = None;
         let mut hit = |i: usize| {
             let message = u32::try_from(i).unwrap_or(u32::MAX);
             let matches = found.map_or(0, |f| f.matches).saturating_add(1);
-            found = Some(Found { message, matches });
+            found = Some(Matched { message, matches });
         };
         let Some((first, rest)) = matcher.ascii.as_deref().and_then(<[_]>::split_first) else {
             (0..self.messages.len())
@@ -177,11 +177,19 @@ impl Matcher {
     }
 }
 
-/// What a query found in one chat: its newest message holding every word, and how many do.
+/// What a query found in one chat's text: its newest message holding every word, and how many do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Found {
+struct Matched {
     message: u32,
-    pub matches: u32,
+    matches: u32,
+}
+
+/// What a query found in one chat: the text it searched (so the row's snippet is cut from the same
+/// text, however the chat changed since) and what it found there.
+#[derive(Clone, Debug)]
+pub struct Found {
+    doc: Arc<Doc>,
+    matched: Matched,
 }
 
 /// Every chat's text, and the last query's answer.
@@ -200,6 +208,8 @@ struct Inner {
     answer: Option<(Vec<String>, u64, Arc<HashMap<String, Found>>)>,
     /// The text changed since it was saved.
     dirty: bool,
+    /// Every chat was read once since the daemon started (a query before then may find more later).
+    filled: bool,
     saved_at: Option<Instant>,
 }
 
@@ -301,10 +311,14 @@ impl ChatText {
         let mut inner = lock(&self.inner);
         let before = inner.docs.len();
         inner.docs.retain(|key, _| kept.contains(key));
-        if read_since_publish > 0 || inner.docs.len() != before {
+        let removed = inner.docs.len() != before;
+        if read_since_publish > 0 || removed || !inner.filled {
+            inner.filled = true;
             self.publish(&mut inner);
         }
-        let due = inner.saved_at.is_none_or(|at| at.elapsed() >= SAVE_EVERY);
+        // A chat gone (deleted, its root removed, chats off) leaves the saved copy at once, not at the
+        // next timed save: its text is not kept on disk past it.
+        let due = removed || inner.saved_at.is_none_or(|at| at.elapsed() >= SAVE_EVERY);
         if !(inner.dirty && due) {
             return;
         }
@@ -334,20 +348,22 @@ impl ChatText {
         let found: HashMap<String, Found> = inner
             .docs
             .iter()
-            .filter_map(|(key, doc)| Some((key.clone(), doc.find(needle, &matcher)?)))
+            .filter_map(|(key, doc)| {
+                let matched = doc.find(needle, &matcher)?;
+                Some((key.clone(), Found { doc: doc.clone(), matched }))
+            })
             .collect();
         let found = Arc::new(found);
         inner.answer = Some((needle.words().to_vec(), inner.generation, found.clone()));
         found
     }
 
-    /// A row's `match` for what `needle` found in the chat `key`: `{turn, role, snippet,
+    /// A row's `match` for what `needle` found in a chat: `{turn, role, snippet,
     /// highlights, matches}`. `turn` indexes `_acpmux/chat_transcript`'s turns, `role` is
     /// `prompt` or `answer`, and `highlights` are the snippet's characters (Unicode scalars) that
     /// are part of a word, as the palette draws a row's matched characters.
-    pub fn hit(&self, key: &str, found: Found, needle: &Needle) -> Option<Value> {
-        let doc = lock(&self.inner).docs.get(key)?.clone();
-        let i = found.message as usize;
+    pub fn hit(found: &Found, needle: &Needle) -> Option<Value> {
+        let (doc, i) = (&found.doc, found.matched.message as usize);
         let message = doc.messages.get(i)?;
         let text = doc.message(i);
         let snippet = snippet_around(text, needle.find(text).unwrap_or(0), ROW_BEFORE, ROW_SNIPPET);
@@ -356,8 +372,14 @@ impl ChatText {
             "role": if message.answer { "answer" } else { "prompt" },
             "highlights": needle.highlights(&snippet),
             "snippet": snippet,
-            "matches": found.matches,
+            "matches": found.matched.matches,
         }))
+    }
+
+    /// Every chat was read once since the daemon started: a query's content matches are complete
+    /// (before then, more may come as the chats are read).
+    pub fn filled(&self) -> bool {
+        lock(&self.inner).filled
     }
 
     /// How many chats and bytes of text are held.

@@ -167,6 +167,9 @@ pub struct WindowRows {
     /// How many chats matched the query (a query window only), so a client can say that more
     /// match than it shows.
     pub total: Option<usize>,
+    /// A query window that searches what was said, before every chat was read once: more chats may
+    /// match as they are read, so a client keeps the query open until this goes false.
+    pub filling: bool,
 }
 
 /// One chat as the palette ranker reads it: what the palette's chats page showed and searched
@@ -247,7 +250,7 @@ pub fn rows(
                 Some((text.clone(), decorated(chat)))
             })
             .collect();
-        return WindowRows { rows, has_more: false, total: None };
+        return WindowRows { rows, has_more: false, total: None, filling: false };
     }
     if let Some(query) = &spec.query {
         return ranked_rows(spec, query, index, activity, text);
@@ -328,7 +331,9 @@ fn ranked_rows(
         .filter_map(|&i| slots.get_mut(i).and_then(Option::take))
         .collect();
     let needle = text.filter(|_| spec.content).zip(Needle::parse(query).ok());
+    let mut filling = false;
     if let Some((text, needle)) = needle {
+        filling = !text.filled();
         let found = text.search(&needle);
         let titled: HashSet<usize> = order.into_iter().collect();
         // The candidates are in the index's order: newest first.
@@ -342,15 +347,14 @@ fn ranked_rows(
                 continue;
             }
             let Some((key, mut value)) = slot.take() else { continue };
-            if let (Some(said), Some(object)) =
-                (text.hit(&key, *hit, &needle), value.as_object_mut())
+            if let (Some(said), Some(object)) = (ChatText::hit(hit, &needle), value.as_object_mut())
             {
                 object.insert("match".into(), said);
             }
             rows.push((key, value));
         }
     }
-    WindowRows { rows, has_more: total > spec.filter.limit, total: Some(total) }
+    WindowRows { rows, has_more: total > spec.filter.limit, total: Some(total), filling }
 }
 
 /// What a window last sent its client, so the next message is a diff against it.
@@ -407,6 +411,9 @@ impl WindowState {
             object.insert("hasMore".into(), json!(next.has_more));
             if let Some(total) = next.total {
                 object.insert("total".into(), json!(total));
+            }
+            if next.filling {
+                object.insert("filling".into(), json!(true));
             }
         }
         self.sent = Some(next);
@@ -490,7 +497,12 @@ mod tests {
     fn a_query_window_reports_how_many_matched() {
         let mut state = WindowState::new(spec(json!({"window": "w", "query": "x"})), 0);
         let full = state
-            .next(WindowRows { rows: vec![row("a:1", "one")], has_more: true, total: Some(250) })
+            .next(WindowRows {
+                rows: vec![row("a:1", "one")],
+                has_more: true,
+                total: Some(250),
+                filling: false,
+            })
             .unwrap();
         assert_eq!(full["total"], 250);
         let mut plain = WindowState::new(spec(json!({"window": "w"})), 0);
@@ -517,6 +529,7 @@ mod tests {
             rows: vec![row("a:1", "one"), row("a:2", "two")],
             has_more: true,
             total: None,
+            filling: false,
         };
         let full = state.next(first.clone()).unwrap();
         assert_eq!(full["full"], true);
@@ -528,6 +541,7 @@ mod tests {
             rows: vec![row("a:2", "two"), row("a:1", "one, renamed")],
             has_more: true,
             total: None,
+            filling: false,
         };
         let diff = state.next(moved).unwrap();
         assert_eq!(diff["full"], false);
@@ -538,6 +552,7 @@ mod tests {
             rows: vec![row("a:2", "two"), row("a:1", "one, renamed")],
             has_more: false,
             total: None,
+            filling: false,
         };
         let diff = state.next(more).unwrap();
         assert_eq!(diff["rows"], json!([]), "only hasMore changed");
@@ -547,11 +562,21 @@ mod tests {
     #[test]
     fn a_replaced_spec_sends_every_row_again_with_a_later_revision() {
         let mut state = WindowState::new(spec(json!({"window": "w"})), 0);
-        state.next(WindowRows { rows: vec![row("a:1", "one")], has_more: false, total: None });
+        state.next(WindowRows {
+            rows: vec![row("a:1", "one")],
+            has_more: false,
+            total: None,
+            filling: false,
+        });
         let mut replaced =
             WindowState::new(spec(json!({"window": "w", "limit": 5})), state.revision());
         let full = replaced
-            .next(WindowRows { rows: vec![row("a:1", "one")], has_more: false, total: None })
+            .next(WindowRows {
+                rows: vec![row("a:1", "one")],
+                has_more: false,
+                total: None,
+                filling: false,
+            })
             .unwrap();
         assert_eq!(full["full"], true);
         assert_eq!(full["revision"], 2);

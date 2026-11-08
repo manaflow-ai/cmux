@@ -226,6 +226,29 @@ import Testing
         #expect(opened.first?.1 == "said:answer:zephyrine", "it opens at the answer that holds the word")
     }
 
+    /// Review of #38431, F2: a query typed while acpmux still reads chats for the first time keeps its
+    /// stream open (each answer shows), so a chat whose words are read later still appears; the stream ends
+    /// with the answer that is no longer `filling`.
+    @Test(.timeLimit(.minutes(1))) func aQueryDuringTheFirstReadStaysOpenUntilItEnds() async throws {
+        let windows = AcpmuxChatWindows()
+        var sent: [[String: any Sendable]] = []
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
+        let stream = AgentChatsPalettePage.answers("zephyrine", windows: windows, open: { _, _ in })
+        let generation = try #require(sent.last?["gen"] as? UInt64)
+        func update(_ revision: UInt64, keys: [String], filling: Bool) throws -> AcpmuxChatWindows.Update {
+            let rows: [[String: Any]] = keys.map { ["key": $0, "sessionId": $0, "harness": "codex", "title": $0, "updatedMs": 1_000] }
+            var message: [String: Any] = ["window": AgentChatsPalettePage.window, "gen": NSNumber(value: generation), "revision": NSNumber(value: revision),
+                                          "full": true, "keys": keys, "rows": rows, "hasMore": false, "total": keys.count]
+            if filling { message["filling"] = true }
+            return try #require(AcpmuxChatWindows.Update(params: message))
+        }
+        windows.apply(try update(1, keys: [], filling: true))
+        windows.apply(try update(2, keys: ["codex:1"], filling: false))
+        var answers: [[String]] = []
+        for await answer in stream { answers.append(answer.map(\.id)) }
+        #expect(answers == [[], ["chat:codex:1"]], "the empty first answer, then the chat read later: \(answers)")
+    }
+
     /// The empty query lists the newest page and says how many more chats there are (R-L5).
     @Test func theEmptyQuerySaysHowManyMoreChatsThereAre() async throws {
         let windows = AcpmuxChatWindows()

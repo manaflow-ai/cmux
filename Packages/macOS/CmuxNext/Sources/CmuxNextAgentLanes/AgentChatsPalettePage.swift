@@ -74,7 +74,9 @@ public struct AgentChatsPalettePage {
     }
 
     /// The window's rows for `query`: acpmux's first answer to its spec, then the stream ends (the
-    /// palette's spinner runs until it ends, and an empty answer shows the empty state). An edit
+    /// palette's spinner runs until it ends, and an empty answer shows the empty state). While acpmux
+    /// still reads chats for the first time (`filling`), each answer shows and the stream stays open,
+    /// so a chat whose words are read later still appears. An edit
     /// opens the next query's spec; the window stays open until the page closes.
     /// - Parameters:
     ///   - history: The person's choice history of chats (`FrecencyStore.rankerHistory`), so acpmux
@@ -120,7 +122,7 @@ public struct AgentChatsPalettePage {
             // How many matching chats this answer leaves past its page, kept with the query (Search's more row).
             counts?.record(query, pastPage: max(0, (windows.window(window).total ?? rows.count) - rows.count))
             continuation.yield(shown)
-            continuation.finish()
+            if !windows.window(window).filling { continuation.finish() }
         }
         windows.window(window).follow(token) { rows in
             if windows.isAnswered(spec) { answer(rows) }
