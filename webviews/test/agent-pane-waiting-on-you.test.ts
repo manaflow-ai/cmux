@@ -5,7 +5,7 @@
 // `answerParams`), never a second one.
 import { expect, test } from "bun:test";
 import { answerAnotherChat, answerParams } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
-import { asksKey, historyPages } from "../src/agent-session/acpmux/queue/historyPages";
+import { historyPages, queueKey } from "../src/agent-session/acpmux/queue/historyPages";
 import {
   auditEntries,
   isOlderDaemon,
@@ -245,15 +245,31 @@ test("the audit export follows its cursor, and stops at its page cap", async () 
   expect(await auditEntries(read, 2)).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }]);
 });
 
-test("the queue reads again exactly when an ask comes or goes", () => {
+test("the queue reads again when an ask or a pull request changes on any machine, and not otherwise", () => {
   const ask = (permissionId: string) => ({
     sessionId: "s1",
     at: 1,
     permission: { permissionId, pending: true, options: [] },
   });
-  expect(asksKey([ask("p1"), ask("p2")])).toBe("p1,p2");
-  expect(asksKey([ask("p1")])).not.toBe(asksKey([ask("p1"), ask("p2")]));
-  expect(asksKey([])).toBe("");
+  expect(queueKey([ask("p1"), ask("p2")])).toBe("p1,p2");
+  expect(queueKey([ask("p1")])).not.toBe(queueKey([ask("p1"), ask("p2")]));
+  expect(queueKey([])).toBe("");
+  // A chat with nothing waiting adds nothing, so its other changes never read the queue again.
+  const quiet = { sessionId: "q", title: "Quiet", status: "idle" };
+  expect(queueKey([], [quiet])).toBe("");
+  expect(queueKey([], [{ ...quiet, title: "Renamed" }])).toBe("");
+  // Another machine's ask: its chat's count and its waiting state.
+  const peer = { sessionId: "studio/s2", peer: "studio" };
+  const asking = queueKey([], [{ ...peer, pendingPermissions: 1, indicator: "input" as const }]);
+  expect(asking).not.toBe(queueKey([], [peer]));
+  expect(queueKey([], [{ ...peer, pendingPermissions: 2, indicator: "input" as const }])).not.toBe(asking);
+  // A pull request that opens, turns ready for review or merges.
+  const open = { number: 7, title: "Fix", state: "open" as const };
+  const withPr = queueKey([], [{ ...peer, pullRequest: open }]);
+  expect(withPr).not.toBe(queueKey([], [peer]));
+  expect(queueKey([], [{ ...peer, pullRequest: { ...open, reviewReady: true } }])).not.toBe(withPr);
+  expect(queueKey([], [{ ...peer, pullRequest: { ...open, state: "merged" as const } }])).not.toBe(withPr);
+  expect(queueKey([], [{ ...peer, pullRequestUrls: ["https://example.com/pull/8"] }])).not.toBe(queueKey([], [peer]));
 });
 
 test("History opens a chat in its own tab (`chat.select`); another machine's pull request is refused and stays", async () => {
@@ -281,9 +297,18 @@ test("History opens a chat in its own tab (`chat.select`); another machine's pul
   pages.ledger.openSession("s9");
   expect(selected).toEqual(["s1", "s9"]);
   expect(natives).toEqual([]);
-  // Another machine's chat is answered there: nothing opens here.
+  // Another machine's chat opens as the sidebar opens it: its listed row, else its qualified id.
   pages.queue.open(item({ host: "studio" }));
-  expect(selected).toEqual(["s1", "s9"]);
+  expect(selected).toEqual(["s1", "s9", "studio/s1"]);
+  const listed = historyPages({
+    client: () => client,
+    callNative: async <T>() => undefined as T,
+    selectSession: (sessionId) => selected.push(sessionId),
+    asks: [],
+    sessions: [{ sessionId: "peer-s1", peer: "studio" }, { sessionId: "s1", peer: "studio" }],
+  });
+  listed.queue.open(item({ host: "studio" }));
+  expect(selected.at(-1)).toBe("s1");
   const pr = item({ kind: "pr", prUrl: "https://example.com/pull/1" });
   await expect(pages.queue.verdict({ ...pr, host: "studio" }, "accept")).rejects.toThrow();
   expect(verdicts).toEqual([]);

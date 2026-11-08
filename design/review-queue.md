@@ -37,7 +37,7 @@ moves through them and answers this Mac's approvals and pull requests without op
 | Key | Does |
 | --- | --- |
 | j / ↓, k / ↑ | move the cursor |
-| Return | open the chat in this tab, as History's own rows do (`chat.select`) |
+| Return | open the chat in this tab, as History's own rows and the sidebar do (`chat.select`; another machine's chat by its listed row) |
 | Allow Once shortcut (⌥⌘1 by default) | allow once (a plan: approve; a pull request: accept) |
 | Deny shortcut (⌥⌘3 by default) | deny once (a pull request: open Request changes) |
 | x | export the audit trail (`_acpmux/audit`, every page) to the clipboard as JSON |
@@ -63,8 +63,8 @@ permission, nor record a peer's verdict). A pull request verdict goes through
 | --- | --- | --- |
 | Arrives after the first read | — | fades and grows in on the house curve |
 | Answered | the row | stays drawn, collapses (`grid-template-rows` 1fr → 0fr) and is hidden from assistive tech; the cursor moves to the next row in the same frame. The next read drops it |
-| Answer refused | collapsing | back in place with "Could not answer it here." |
-| Another machine's ask | — | "Answer on {host}", no answers; the row stays until that machine answers |
+| Answer refused | collapsing | back in place with "Could not answer it here."; a refused Request changes brings its box back with the text typed |
+| Another machine's ask | — | "Answer on {host}", no answers; Return opens its chat; the row stays until that machine answers |
 | Older acpmux (`method not found`, or not on the relay's list) | — | "This Mac's agent service is older and keeps no queue yet. Update cmux to see every ask here." |
 | Empty | — | "Nothing is waiting on you." |
 
@@ -81,9 +81,10 @@ also covers 300 asks, an unreached machine, loading, empty and older.
 
 ## Host and cost
 
-- The page is a tab of the History screen, with no new Swift view. It reads again when an ask
-  comes or goes in the pane's snapshot (debounced 400 ms) and after an answer, never on a
-  timer and never only because the person switched back.
+- The page is a tab of the History screen, with no new Swift view. It reads again when the
+  pane's snapshot changes what the queue lists (debounced 400 ms): an ask on this Mac, a listed
+  chat's ask count or waiting state, or its pull request, on any machine (`queueKey`). It also
+  reads after an answer, never on a timer and never only because the person switched back.
   Stale replies are dropped.
 - The relay allowlist lists these methods, with the params shown:
   - `_acpmux/review_queue`: `localOnly`, `limit`

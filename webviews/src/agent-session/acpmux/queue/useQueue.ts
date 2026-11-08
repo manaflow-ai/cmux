@@ -1,6 +1,7 @@
 // Waiting on you's reads (queueModel.ts): one `_acpmux/review_queue` when the page shows, again
-// when the asks acpmux reports change (`refreshKey`: the pane's pending asks, so a new or answered
-// ask anywhere reads it again), and after an answer. Never on a timer, and never again only because
+// when what it lists changes in the pane's snapshot (`refreshKey`, historyPages.ts `queueKey`: this
+// Mac's pending asks, and every listed chat's ask count, waiting state and pull request, another
+// machine's included), and after an answer. Never on a timer, and never again only because
 // the person switched away and back (shared-projections.md). A read that answers after a newer one
 // started, or after the page unmounted, is dropped.
 import { useCallback, useEffect, useRef, useState } from "react";

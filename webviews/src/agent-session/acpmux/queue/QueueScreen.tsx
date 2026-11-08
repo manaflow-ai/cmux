@@ -105,7 +105,7 @@ export function QueueScreen({
   }, [current]);
 
   const settle = useCallback(
-    (item: QueueItem, run: () => Promise<unknown>, failed: string) => {
+    (item: QueueItem, run: () => Promise<unknown>, failed: string, refused?: () => void) => {
       setAnswered((previous) => new Set(previous).add(item.id));
       setFailures((previous) => without(previous, item.id));
       run().then(
@@ -117,6 +117,7 @@ export function QueueScreen({
         () => {
           setAnswered((previous) => withoutId(previous, item.id));
           setFailures((previous) => new Map(previous).set(item.id, failed));
+          refused?.();
         },
       );
     },
@@ -134,8 +135,15 @@ export function QueueScreen({
 
   const sendVerdict = useCallback(
     (item: QueueItem, kind: "accept" | "changes", text?: string) => {
+      // The box closes with the row; a refused verdict brings both back with what was typed, so
+      // the person never writes the request again.
       setComment(undefined);
-      settle(item, () => verdict(item, kind, text), t("waiting.answerFailed"));
+      settle(
+        item,
+        () => verdict(item, kind, text),
+        t("waiting.answerFailed"),
+        text === undefined ? undefined : () => setComment({ id: item.id, text }),
+      );
       list.current?.focus({ preventScroll: true });
     },
     [settle, verdict, t],

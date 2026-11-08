@@ -9,6 +9,7 @@ import { answerAnotherChat } from "../needsYou/useNeedsYou";
 import type { LedgerScreen } from "../ledger/LedgerScreen";
 import type { QueueScreen } from "./QueueScreen";
 import { auditEntries, needsYouItem, QUEUE_LIMIT, verdictParams, type QueueItem } from "./queueModel";
+import type { AcpmuxSessionEntry } from "../sessionList";
 import type { ComponentProps } from "react";
 
 type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
@@ -25,20 +26,55 @@ export type HistoryPagesClient = {
 export const AUDIT_PAGES = 50;
 const AUDIT_PAGE = 1000;
 
-/// The asks the pane watches as one key: it changes exactly when an ask comes or goes.
-export const asksKey = (asks: readonly WatchedAsk[]) => asks.map((ask) => ask.permission.permissionId).join(",");
+/// What the queue's read depends on, as one key the pane's snapshot gives for free: this Mac's
+/// pending asks (by permission id), and for every listed chat, this Mac's and other machines',
+/// how many asks it holds, whether it waits on the person, and its pull request (state, review
+/// ready, links). It changes when an ask or a pull request the queue lists comes, goes or moves,
+/// on any machine the snapshot lists, so the tab reads again then and never on a timer. One pass
+/// over the snapshot; a chat with none of these adds nothing.
+export function queueKey(asks: readonly WatchedAsk[], sessions: readonly AcpmuxSessionEntry[] = []): string {
+  const parts = asks.map((ask) => ask.permission.permissionId);
+  for (const session of sessions) {
+    const pending = session.pendingPermissions ?? 0;
+    const input = session.indicator === "input";
+    const pr = session.pullRequest;
+    const links = session.pullRequestUrls?.length ?? 0;
+    if (!pending && !input && !pr && !links) continue;
+    parts.push(
+      `${session.sessionId}:${pending}:${input ? "i" : ""}:${pr ? `${pr.number}${pr.state}${pr.reviewReady ? "r" : ""}` : ""}:${links}`,
+    );
+  }
+  return parts.join(",");
+}
+
+/// The listed chat a queue item names: this Mac's by its id, another machine's by that machine's
+/// name and the id its own daemon gave it (the snapshot lists it as `HOST/ID` or with `peer`).
+export function itemSession(item: QueueItem, sessions: readonly AcpmuxSessionEntry[]): string | undefined {
+  if (!item.sessionId) return undefined;
+  if (!item.host) return item.sessionId;
+  const qualified = `${item.host}/${item.sessionId}`;
+  const listed = sessions.find(
+    (session) =>
+      session.sessionId === qualified ||
+      ((session.peer === item.host || session.host === item.host) && session.sessionId === item.sessionId),
+  );
+  return listed?.sessionId ?? qualified;
+}
 
 export function historyPages({
   client,
   callNative,
   selectSession,
   asks,
+  sessions = [],
 }: {
   client: () => HistoryPagesClient | undefined;
   callNative: CallNative;
   /// Shows chat `sessionId` of this Mac's acpmux in this tab (App.tsx `selectSession`).
   selectSession: (sessionId: string) => void;
   asks: readonly WatchedAsk[];
+  /// The chats the pane lists, this Mac's and other machines' (the snapshot's `sessions`).
+  sessions?: readonly AcpmuxSessionEntry[];
 }): { queue: ComponentProps<typeof QueueScreen>; ledger: ComponentProps<typeof LedgerScreen> } {
   const connected = () => {
     const current = client();
@@ -46,13 +82,13 @@ export function historyPages({
     return current;
   };
   const open = (item: QueueItem) => {
-    // Another machine's chat is answered there; this pane has no local chat to show for it.
-    if (item.host || !item.sessionId) return;
-    selectSession(item.sessionId);
+    // Another machine's chat opens as the sidebar and the home's lists open it: its listed row.
+    const session = itemSession(item, sessions);
+    if (session) selectSession(session);
   };
   return {
     queue: {
-      refreshKey: asksKey(asks),
+      refreshKey: queueKey(asks, sessions),
       load: async () => connected().reviewQueue({ limit: QUEUE_LIMIT }),
       answer: (item, choice) =>
         answerAnotherChat(callNative, needsYouItem(item), choice, {

@@ -11272,6 +11272,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     callNative,
                     selectSession,
                     asks: snapshot.asks ?? [],
+                    sessions: snapshot.sessions,
                   })
                 : {})}
             />
