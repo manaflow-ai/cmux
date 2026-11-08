@@ -885,6 +885,10 @@ struct Chat {
     works_below: bool,
     /// A turn runs (acpmux's `turn`): a newer one than `last_turn` once that ended.
     in_turn: bool,
+    /// The ended turn whose work below ended while another turn ran: its finish waits for that
+    /// turn, and posts when it stops without ending a turn of its own (a Cloud trigger's turn,
+    /// which leaves `lastTurn` as it was).
+    deferred: Option<String>,
     /// The ended turn already notified (or passed over), so it notifies once.
     notified_turn: Option<String>,
     last_message: String,
@@ -943,6 +947,7 @@ impl Chat {
             last_error,
             works_below: summary["subagentsWorkingSince"].is_u64(),
             in_turn: summary["turn"].is_object(),
+            deferred: None,
             notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
@@ -1002,13 +1007,21 @@ impl Chat {
         let ended_now = |turn: &String| {
             before.is_some_and(|chat| chat.last_turn.as_ref().map(|(id, _)| id) != Some(turn))
         };
-        // Work it started past its turn ended in this change, and no newer turn runs: one that
-        // does supersedes the old turn's finish, and its own end notifies.
-        let below_ended =
-            before.is_some_and(|chat| chat.works_below) && !self.works_below && !self.in_turn;
+        // Work it started past its turn ended in this change. While another turn runs, the
+        // finish waits for it: a turn that ends supersedes it, one that leaves `lastTurn` does not.
+        let below_ended = before.is_some_and(|chat| chat.works_below) && !self.works_below;
+        let last = self.last_turn.as_ref().map(|(id, _)| id.clone());
+        self.deferred = before.and_then(|chat| chat.deferred.clone());
+        if below_ended && self.in_turn {
+            self.deferred.clone_from(&last);
+        }
+        let deferred_due = !self.in_turn && self.deferred.is_some() && self.deferred == last;
+        if !self.in_turn {
+            self.deferred = None;
+        }
         if let Some((turn, status)) = &self.last_turn
             && !self.works_below
-            && (self.unread || below_ended || ended_now(turn))
+            && (self.unread || (below_ended && !self.in_turn) || deferred_due || ended_now(turn))
             && self.notified_turn.as_ref() != Some(turn)
         {
             self.notified_turn = Some(turn.clone());
@@ -1542,6 +1555,25 @@ mod tests {
         ];
         let keys: Vec<_> = posted(&changes).into_iter().map(|notice| notice.key).collect();
         assert_eq!(keys, ["done-t2"]);
+    }
+
+    #[test]
+    fn work_that_outlives_its_turn_into_a_trigger_turn_posts_the_old_finish_when_it_stops() {
+        // A Cloud trigger's turn runs and stops without ending a turn of its own (`lastTurn` stays
+        // T1): T1's finish, held while it ran, posts once it stops.
+        let trigger_runs = |mut change: Value| {
+            change["turn"] = json!({"turnId": "trigger-1"});
+            change
+        };
+        let changes = [
+            summary("working", 8, true, None, false),
+            summary("done", 9, true, Some(("t1", "completed")), true),
+            trigger_runs(summary("working", 10, true, Some(("t1", "completed")), true)),
+            trigger_runs(summary("working", 11, true, Some(("t1", "completed")), false)),
+            summary("done", 12, true, Some(("t1", "completed")), false),
+        ];
+        let keys: Vec<_> = posted(&changes).into_iter().map(|notice| notice.key).collect();
+        assert_eq!(keys, ["done-t1"]);
     }
 
     #[test]
