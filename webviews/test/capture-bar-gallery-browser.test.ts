@@ -79,7 +79,9 @@ await requireBrowserLane("capture-bar-gallery-browser.test.ts", async () => {
       for (let a = 0; a < boxes.length; a++)
         for (let b = a + 1; b < boxes.length; b++) {
           const [p, q] = [boxes[a], boxes[b]];
-          const overlap = Math.min(p.right, q.right) - Math.max(p.left, q.left) > 0.5 && Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top) > 0.5;
+          const overlap =
+            Math.min(p.right, q.right) - Math.max(p.left, q.left) > 0.5 &&
+            Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top) > 0.5;
           if (overlap && !controls[a].contains(controls[b]) && !controls[b].contains(controls[a]))
             problems.push(`${controls[a].textContent} overlaps ${controls[b].textContent}`);
         }
