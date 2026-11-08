@@ -100,7 +100,8 @@ fn policy_rank(p: PermissionPolicy) -> u8 {
     match p {
         PermissionPolicy::DenyAll => 0,
         PermissionPolicy::Ask => 1,
-        PermissionPolicy::ApproveReads => 2,
+        // Review approves what approve-reads does and denies the rest.
+        PermissionPolicy::ApproveReads | PermissionPolicy::Review => 2,
         PermissionPolicy::ApproveEdits => 3,
         PermissionPolicy::ApproveAll => 4,
     }

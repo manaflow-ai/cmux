@@ -460,6 +460,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "needs an upload id from file_put_begin (invalid params)",
             ),
         ),
+        (method::MUX_UPLOADS_KEEP, Run(json!({"sessionId": "$S", "keep": true}))),
         (method::MUX_WORKFLOWS, Run(json!({}))),
         (
             method::MUX_MEDIA_OPEN,

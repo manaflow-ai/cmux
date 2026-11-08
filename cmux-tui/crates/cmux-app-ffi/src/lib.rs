@@ -11,6 +11,8 @@
 //! `motion` is cmux-motion's C ABI (the spring step and motion tokens);
 //! `hover` is its hover rules' C ABI (the hover card machine, tooltip hover
 //! intent, the safe triangle and the row card's placement).
+//! `terminal_selection` is its terminal selection rule's C ABI (Option-drag
+//! selects text while a program has the mouse, and the first-use hint).
 //! `agent_pane_policy` is the agent pane's relay policy (one check per page
 //! frame, include/cmux_agent_pane_policy.h).
 //! `action_catalog` is cmux NEXT's action catalog as JSON in the app's language
@@ -23,9 +25,12 @@
 //! (include/cmux_daemon_launch.h).
 //! `sdk` is the daemon client the `cmux` CLI uses (the cmux SDK), as a C ABI
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
+//! `terminal_prediction` is predictive local echo for a terminal whose shell runs
+//! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
 
 pub mod hover;
 pub mod motion;
+pub mod terminal_selection;
 
 pub use cmux_action_catalog::ffi as action_catalog;
 pub use cmux_agent_pane_policy::ffi as agent_pane_policy;
@@ -36,3 +41,4 @@ pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_rd_ffi as rd;
 pub use cmux_sdk_ffi as sdk;
+pub use cmux_terminal_prediction::ffi as terminal_prediction;

@@ -280,6 +280,8 @@ mod edit_diff_tests;
 mod elicitation;
 #[cfg(test)]
 mod elicitation_tests;
+#[cfg(test)]
+mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod foreground_work;
 #[cfg(test)]
@@ -595,6 +597,15 @@ pub struct Translator {
     /// The tokens the chat's context last held (its last `message_delta`; a
     /// compaction resets it).
     context_used: AtomicU64,
+    /// The context at the end of the main loop's last call: what it read plus
+    /// what it wrote (a compaction sets it to what the compaction kept). The
+    /// turn's result names it (`_meta.claude.contextTokens`), since Claude
+    /// Code's own `usage` adds every call's reads up (hub/turn_usage.rs).
+    context_end: AtomicU64,
+    /// The main loop's model calls since the last result
+    /// (`_meta.claude.modelCalls`); its subagents' calls are not counted, as
+    /// the result's `usage` leaves them out.
+    turn_calls: AtomicU64,
     /// The cached context count came from an untagged compaction boundary rather
     /// than a model message. The controller can fence its later result resend.
     context_from_compaction: AtomicBool,
@@ -763,6 +774,8 @@ impl Translator {
             task_plan: Mutex::new(Default::default()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
+            context_end: AtomicU64::new(0),
+            turn_calls: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
             cache: Default::default(),
             awaiting_summary: AtomicBool::new(false),
@@ -1086,7 +1099,11 @@ fn tool_title(name: &str, input: &Value) -> String {
     let s = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_owned);
     match name {
         "Bash" => s("command")
-            .map(|c| c.lines().next().unwrap_or("").chars().take(120).collect())
+            .map(|c| {
+                // A subagent's command shows as it was written, without the hook's mark line.
+                let c = crate::bg_hook::without_subagent_mark(&c);
+                c.lines().next().unwrap_or("").chars().take(120).collect()
+            })
             .unwrap_or_else(|| "Bash".into()),
         "Read" | "Write" | "Edit" | "MultiEdit" => format!(
             "{name} {}",
