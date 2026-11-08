@@ -65,6 +65,7 @@ struct Daemon {
     socket: PathBuf,
     exe: PathBuf,
     terminals: Vec<(String, String)>,
+    surfaces: Vec<(String, u64)>,
 }
 
 impl Daemon {
@@ -104,7 +105,7 @@ impl Daemon {
             assert!(Instant::now() < deadline, "{session} never served {}", socket.display());
             std::thread::sleep(Duration::from_millis(25));
         }
-        Self { child, socket, exe: exe.to_path_buf(), terminals: Vec::new() }
+        Self { child, socket, exe: exe.to_path_buf(), terminals: Vec::new(), surfaces: Vec::new() }
     }
 
     fn request(&self, value: serde_json::Value) -> serde_json::Value {
@@ -118,16 +119,38 @@ impl Daemon {
         response["data"].clone()
     }
 
-    /// Runs `script` (sh) in a new terminal and returns its terminal id.
+    /// Runs `script` (sh) in a new terminal named `name`, with `OB_TAG` set
+    /// to `name` for the fake `claude`; returns `name`.
     fn run(&mut self, name: &str, script: &str) -> String {
+        let script = format!("OB_TAG='{name}'; export OB_TAG; {script}");
         let created = self.request(serde_json::json!({
             "id": 1, "cmd": "run", "argv": ["/bin/sh", "-c", script],
             "new_workspace": true, "name": name, "cols": 100, "rows": 20,
         }));
         let terminal = created["terminal_id"].as_str().unwrap().to_owned();
         let incarnation = created["terminal_incarnation"].as_str().unwrap().to_owned();
-        self.terminals.push((terminal.clone(), incarnation));
-        terminal
+        self.terminals.push((terminal, incarnation));
+        if let Some(surface) = created["surface"].as_u64() {
+            self.surfaces.push((name.to_owned(), surface));
+        }
+        name.to_owned()
+    }
+
+    /// The screen of the terminal named `name`, for a failure message.
+    fn screen(&self, name: &str) -> String {
+        let Some(&(_, surface)) = self.surfaces.iter().find(|(tag, _)| tag == name) else {
+            return String::from("(no surface)");
+        };
+        let Ok(stream) = UnixStream::connect(&self.socket) else { return String::new() };
+        let mut writer = stream.try_clone().unwrap();
+        let read = serde_json::json!({"id": 2, "cmd": "read-screen", "surface": surface});
+        let _ = writeln!(writer, "{read}");
+        let mut line = String::new();
+        let _ = BufReader::new(stream).read_line(&mut line);
+        serde_json::from_str::<serde_json::Value>(&line)
+            .ok()
+            .and_then(|response| response["data"]["text"].as_str().map(str::to_owned))
+            .unwrap_or(line)
     }
 }
 
@@ -146,12 +169,12 @@ impl Drop for Daemon {
     }
 }
 
-/// What the fake `claude` recorded for `terminal`, once it ran.
-fn launch_record(root: &Path, terminal: &str) -> (String, serde_json::Value) {
-    let path = root.join(format!("claude-{terminal}.txt"));
+/// What the fake `claude` recorded in the terminal named `tag`, once it ran.
+fn launch_record(root: &Path, daemon: &Daemon, tag: &str) -> (String, serde_json::Value) {
+    let path = root.join(format!("claude-{tag}.txt"));
     let deadline = Instant::now() + Duration::from_secs(30);
     while !path.exists() {
-        assert!(Instant::now() < deadline, "claude never ran in {terminal}");
+        assert!(Instant::now() < deadline, "claude never ran in {tag}: {}", daemon.screen(tag));
         std::thread::sleep(Duration::from_millis(50));
     }
     let text = fs::read_to_string(&path).unwrap();
@@ -203,7 +226,7 @@ fn own_build_wrapper_and_hook_serve_each_daemons_panes() {
         &format!(
             "#!/bin/sh\nsettings=\nwhile [ $# -gt 0 ]; do [ \"$1\" = --settings ] && settings=$2; shift; done\n\
              \"$CMUX_TUI_HOOK\" claude SessionStart < /dev/null\n\
-             out='{}/claude-'\"$CMUX_TUI_TERMINAL_ID\".txt\n\
+             out='{}/claude-'\"$OB_TAG\".txt\n\
              printf 'HOOK=%s\\nSETTINGS=%s\\n' \"$CMUX_TUI_HOOK\" \"$settings\" > \"$out.tmp\"\n\
              mv \"$out.tmp\" \"$out\"\n",
             root.display()
@@ -231,7 +254,7 @@ fn own_build_wrapper_and_hook_serve_each_daemons_panes() {
 
     for (daemon, terminal, own, other) in [(&a, &in_a, &exe_a, &exe_b), (&b, &in_b, &exe_b, &exe_a)]
     {
-        let (hook, settings) = launch_record(&root, terminal);
+        let (hook, settings) = launch_record(&root, daemon, terminal);
         assert_ne!(Path::new(&hook), shared_helper, "{terminal} ran the shared helper");
         let session_start = hook_commands(&settings, "SessionStart").join("\n");
         let own_text = own.display().to_string();
@@ -242,7 +265,7 @@ fn own_build_wrapper_and_hook_serve_each_daemons_panes() {
             daemon.exe.display()
         );
     }
-    let (hook, _) = launch_record(&root, &user_in_a);
+    let (hook, _) = launch_record(&root, &a, &user_in_a);
     assert_eq!(Path::new(&hook), user_helper, "the wrapper replaced the person's CMUX_TUI_HOOK");
 
     let log = fs::read_to_string(&hook_log).unwrap_or_default();
@@ -257,5 +280,63 @@ fn own_build_wrapper_and_hook_serve_each_daemons_panes() {
     assert!(!data.join("cmux-tui/shims/claude").exists(), "a build wrote the shared claude shim");
     drop(a);
     drop(b);
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn own_build_status_says_where_it_looked_for_screen_detection() {
+    let root = unique_root();
+    let home = root.join("home");
+    let data = root.join("data");
+    for dir in [&home, &data] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    // A build without the plugin beside it, as the round 3 bench binary was.
+    let exe = install_build(&root.join("build-s"), "build-s", &root.join("hook.log"));
+    let daemon = Daemon::start(&root, &exe, "ob-s", &home, &data, "/usr/bin:/bin");
+    let status = |cli: &Path| -> serde_json::Value {
+        // The socket accepts before the server finishes starting; status
+        // says so (`server.unavailable`) until it has.
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let output = Command::new(cli)
+                .args(["--json", "server", "status", "--session", "ob-s", "--socket"])
+                .arg(&daemon.socket)
+                .env("HOME", &home)
+                .env("XDG_DATA_HOME", &data)
+                .env("CMUX_TUI_CONFIG", root.join("daemon-ob-s/config.json"))
+                .env("LC_ALL", "C")
+                .env_remove("CMUX_TUI_SOCKET")
+                .env_remove("CMUX_MUX_SOCKET")
+                .output()
+                .unwrap();
+            if output.status.success() {
+                return serde_json::from_slice(&output.stdout).unwrap();
+            }
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("server.unavailable") && Instant::now() < deadline, "{stderr}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    };
+    // Another build's CLI reports the daemon's own folder, not its own.
+    let missing = status(Path::new(env!("CARGO_BIN_EXE_cmux-tui")));
+    let detection = &missing["screen_detection"];
+    assert_eq!(detection["state"], "not-installed", "{missing}");
+    let expected = root.join("build-s/cmux-agent-screen-detection").display().to_string();
+    assert!(
+        detection["looked_in"]
+            .as_array()
+            .is_some_and(|paths| paths.iter().any(|p| p == &*expected)),
+        "{detection}"
+    );
+    let message = detection["message"].as_str().unwrap_or_default();
+    assert!(message.starts_with("screen detection: not installed (looked in "), "{message}");
+    // Once the plugin is there, status says it runs from there.
+    let plugin = root.join("build-s/cmux-agent-screen-detection");
+    write_executable(&plugin, "#!/bin/sh\nexit 0\n");
+    let installed = status(&exe);
+    assert_eq!(installed["screen_detection"]["state"], "installed", "{installed}");
+    assert_eq!(installed["screen_detection"]["path"], plugin.display().to_string());
+    drop(daemon);
     let _ = fs::remove_dir_all(&root);
 }
