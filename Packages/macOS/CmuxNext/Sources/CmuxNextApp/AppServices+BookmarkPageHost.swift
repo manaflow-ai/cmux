@@ -29,9 +29,10 @@ extension AppServices: BookmarksBarHost {
 
     func bookmarkBarRefused(_ message: String) { registry.refuse(message) }
 
-    /// A drop or a move on the bar: the app's bookmark write to the home daemon.
+    /// A drop or a move on the bar: the app's write to the home daemon; a drop makes the bar the last folder.
     func bookmarkBarApply(_ op: BookmarkRoutedClient.Op, profile: String) async throws {
-        do { try await bookmarks.applyFromBar(op, profile: profile) } catch {
+        if op.json["op"]?.stringValue == "create" { bookmarks.lastFolder[profile] = BookmarkRoot.bar.rawValue }
+        do { try await bookmarks.apply([op]) } catch {
             throw PageError(code: "cmux.bookmarks.refused", message: BookmarkAppStrings.failure(error))
         }
     }

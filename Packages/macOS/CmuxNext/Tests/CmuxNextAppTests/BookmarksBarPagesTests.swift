@@ -1,11 +1,9 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBookmarks
-@testable import CmuxNextBrowser
 @testable import CmuxNextDaemon
 @testable import CmuxNextPages
 import CmuxNextSettings
-import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -216,26 +214,17 @@ struct BookmarksBarPagesTests {
         }
     }
 
-    /// The app's side of a drop: the bar becomes the last folder, and a dropped page a tab shows
-    /// turns its star on at once; a refused drop (here: no daemon connection) puts it back.
-    @Test func aDroppedPagesStarTurnsOnAtOnceAndBackOnARefusal() async throws {
+    /// The app's side of a drop: the daemon's write, and the bar becomes the last folder (the
+    /// star's next bookmark goes there); a refused drop (here: no daemon connection) throws.
+    @Test func aDropMakesTheBarTheLastFolder() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let json = #"{"app":"cmux-tui","protocol":1,"session":"bar-write","generation":"g1","capabilities":["v2","bookmarks-v1"]}"#
         services.machines.local.store.noteHandshake(try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8)))
         let bookmarks = services.bookmarks
-        #expect(bookmarks.usesDaemon)
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://dropped.example/")))
-        let entry = BrowserEntry(tab: tab)
-        defer { entry.close() }
-        bookmarks.attach(entry)
-        let profile = bookmarks.profile(of: entry.tab.profileID)
-        let url = try #require(entry.tab.state.url)
-        let drop = BookmarkRoutedClient.Op.create(id: BookmarkID.make(), profile: profile, parent: BookmarkRoot.bar.rawValue,
-                                                  index: 0, folder: false, title: "Dropped", url: url)
-        #expect(entry.state.bookmarkStar == .off)
-        await #expect(throws: (any Error).self) { try await bookmarks.applyFromBar(drop, profile: profile) }
-        #expect(bookmarks.lastFolder[profile] == BookmarkRoot.bar.rawValue)
-        #expect(entry.state.bookmarkStar == .off, "the refused drop's star is off again")
+        let drop = BookmarkRoutedClient.Op.create(id: BookmarkID.make(), profile: "default", parent: BookmarkRoot.bar.rawValue,
+                                                  index: 0, folder: false, title: "Dropped", url: URL(string: "https://dropped.example/"))
+        await #expect(throws: PageError.self) { try await services.bookmarkBarApply(drop, profile: "default") }
+        #expect(bookmarks.lastFolder["default"] == BookmarkRoot.bar.rawValue)
     }
 }
