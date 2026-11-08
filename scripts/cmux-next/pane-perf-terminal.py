@@ -24,7 +24,8 @@ the panes rest:
               right"), then its close (page-close)
 
 The bench app activates and its window is key, as for a person: CMUX_NEXT_NO_ACTIVATE is removed from the bench
-environment, and the bench opens the app's bundle through LaunchServices (`open`, as a Dock click,
+environment, and once the app that the bench started answers, the bench opens its bundle through LaunchServices
+(`open`, which brings that running app to the front and starts no second copy, as a Dock click,
 close-flash-bench.py and the film kits' `capture-host launch --activate` do), because macOS does not let an app
 that a script started take the front from the app in front. Each layout reads whether the window really is key (`debug.window_list`)
 when it starts: a layout measured with a window that is not key is named `<layout>-inactive` (rows
