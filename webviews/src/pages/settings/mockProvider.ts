@@ -1443,16 +1443,53 @@ export class MockSettingsProvider {
     const reason = validate(rowsByKey.get(key)!, value, this.domains ?? undefined);
     if (reason) throw new ProtocolError("cmux.settings.invalid", `${key}: ${reason}`, { details: { key, value } });
     this.values.set(key, value);
+    const linked = this.linkedEdits(key, value);
     // The host keeps the fonts written lately (RecentFonts.swift).
     if (this.domains && rowsByKey.get(key)?.kind === "font_family" && typeof value === "string")
       this.domains = { ...this.domains, recent_fonts: recentAfterPick(this.domains.recent_fonts, value) };
-    return this.commit([key], "user");
+    return this.commit([key, ...linked], "user");
   }
 
   private reset(key: string): MutationResult {
     this.guard(key);
     this.values.delete(key);
-    return this.commit([key], "user");
+    return this.commit([key, ...this.linkedEdits(key, undefined)], "user");
+  }
+
+  /** The host's linked window background edits (`WindowBackgroundSetting.linkedEdits`), applied
+   * after a write of `key` (`value` undefined: a reset), with Ghostty's blur as "none": Opacity
+   * set with Material unset names it, Opacity reset removes Ghostty's Material, Material reset
+   * removes Opacity, and a picture written at Opacity 100% resets Opacity (#29881). */
+  private linkedEdits(key: string, value: unknown): string[] {
+    const [opacity, material] = ["appearance.backgroundOpacity", "appearance.backgroundBlur"];
+    const resetOpacity = (): string[] => {
+      this.values.delete(opacity);
+      if (this.values.get(material) !== "none") return [opacity];
+      this.values.delete(material);
+      return [opacity, material];
+    };
+    if (key === opacity && value !== undefined && !this.values.has(material)) {
+      this.values.set(material, "none");
+      return [material];
+    }
+    if (key === opacity && value === undefined && this.values.get(material) === "none") {
+      this.values.delete(material);
+      return [material];
+    }
+    if (key === material && value === undefined && this.values.has(opacity)) {
+      this.values.delete(opacity);
+      return [opacity];
+    }
+    const level = this.values.get(opacity);
+    if (
+      key === "appearance.background" &&
+      typeof value === "string" &&
+      value !== "none" &&
+      typeof level === "number" &&
+      level >= 1
+    )
+      return resetOpacity();
+    return [];
   }
 
   private resetAll(): MutationResult {

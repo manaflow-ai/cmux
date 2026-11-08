@@ -206,10 +206,14 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     expect(undoButton().getAttribute("aria-label")).toBe("Undo: Opacity → 90 %");
     const resets = ops(page.provider, "cmux.settings.reset").length;
     await click(undoButton());
-    expect(ops(page.provider, "cmux.settings.reset").slice(resets)).toEqual([{ key: "appearance.backgroundOpacity" }]);
+    expect(ops(page.provider, "cmux.settings.reset").slice(resets)).toContainEqual({
+      key: "appearance.backgroundOpacity",
+    });
     const rows = page.store.getSnapshot().rows;
     expect(rows.get("appearance.background")?.value).toBe("aivazovsky-ship-stormy-seas");
     expect(rows.get("appearance.backgroundOpacity")?.customized).toBe(false);
+    // The Material the host named with that Opacity goes back to Ghostty's with it.
+    expect(rows.get("appearance.backgroundBlur")?.customized).toBe(false);
     expect(undoButton().disabled).toBe(true);
   });
 
@@ -288,6 +292,55 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     await run(() => art);
     await run(() => page!.store.restoreAppearanceOpened());
     expect(page.store.getSnapshot().rows.get("appearance.backgroundOpacity")?.value).toBe(0.5);
+  });
+
+  // #29881, against the fake host's copy of the host's linked edits: final states, not write order.
+  test("picking a picture at Opacity 100% shows it; Undo and Redo put back what each side had", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: {
+        values: {
+          "appearance.background": "none",
+          "appearance.backgroundOpacity": 1,
+          "appearance.backgroundBlur": "none",
+        },
+      },
+    });
+    const rows = () => page!.store.getSnapshot().rows;
+    await run(() => page!.store.set("appearance.background", "friedrich-forest-moonlight"));
+    expect(rows().get("appearance.backgroundOpacity")?.customized).toBe(false);
+    expect(rows().get("appearance.backgroundBlur")?.customized).toBe(false);
+    await run(() => page!.store.undoAppearance());
+    expect(rows().get("appearance.background")?.value).toBe("none");
+    expect(rows().get("appearance.backgroundOpacity")?.value).toBe(1);
+    expect(rows().get("appearance.backgroundBlur")?.value).toBe("none");
+    await run(() => page!.store.redoAppearance());
+    expect(rows().get("appearance.background")?.value).toBe("friedrich-forest-moonlight");
+    expect(rows().get("appearance.backgroundOpacity")?.customized).toBe(false);
+  });
+
+  test("Restore How It Was puts a hidden picture back at Opacity 100%, and Undo returns the other one", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: {
+        values: {
+          "appearance.background": "friedrich-forest-moonlight",
+          "appearance.backgroundOpacity": 1,
+          "appearance.backgroundBlur": "none",
+        },
+      },
+    });
+    const rows = () => page!.store.getSnapshot().rows;
+    await run(() => page!.store.set("appearance.background", "daily"));
+    // The person drags Opacity back to 100%: only the picture differs from how Appearance opened.
+    await run(() => page!.store.set("appearance.backgroundOpacity", 1));
+    await run(() => page!.store.restoreAppearanceOpened());
+    expect(rows().get("appearance.background")?.value).toBe("friedrich-forest-moonlight");
+    expect(rows().get("appearance.backgroundOpacity")?.value).toBe(1);
+    expect(page.store.appearanceChangedSinceOpened()).toBe(false);
+    await run(() => page!.store.undoAppearance());
+    expect(rows().get("appearance.background")?.value).toBe("daily");
+    expect(rows().get("appearance.backgroundOpacity")?.value).toBe(1);
   });
 
   test("other parts of Appearance record their own steps through trackAppearance", async () => {

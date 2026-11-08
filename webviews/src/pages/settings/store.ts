@@ -301,9 +301,25 @@ export class SettingsStore {
    * read builds every row on the owner. */
   async refresh(revision?: number): Promise<void> {
     if (this.disposed) return;
-    if (revision !== undefined && revision <= this.covered) return;
+    // Already covered by a read in flight (the write's own change event can start it before the
+    // write's reply settles): wait for that read, so a caller reading after the write sees what the
+    // owner changed with it, such as a linked key (#29881).
+    if (revision !== undefined && revision <= this.covered) return this.reading ?? undefined;
     // Any read that starts now shows at least `revision`: the owner applied it before saying so.
     if (revision !== undefined) this.covered = revision;
+    const reading = this.readScope();
+    this.reading = reading;
+    try {
+      await reading;
+    } finally {
+      if (this.reading === reading) this.reading = null;
+    }
+  }
+
+  /** The scope read in flight, which every revision up to `covered` waits for. */
+  private reading: Promise<void> | null = null;
+
+  private async readScope(): Promise<void> {
     const { queryKey } = this.scopeQuery();
     await this.queryClient.cancelQueries({ queryKey, exact: true });
     const read = await this.queryClient.fetchQuery({ ...this.scopeQuery(), staleTime: 0 }).catch(() => undefined);
@@ -1022,25 +1038,47 @@ export class SettingsStore {
   private async applyAppearanceStep(label: string, targets: readonly TargetState[]): Promise<boolean> {
     const state = this.getSnapshot();
     const current = [...captureAppearance(state)];
-    const changes = diff(current, [...targets]);
-    if (changes.length === 0) return true;
+    const diffed = diff(current, [...targets]);
+    if (diffed.length === 0) return true;
+    // A target the step leaves as it is goes with it when a write of the step would make the host
+    // change it (a picture written at Opacity 100% resets Opacity, #29881): written after that
+    // write, it ends as the step asks, and recorded, Undo puts it back the same way.
+    const wanted = new Map(targets.map((target) => [targetId(target), target]));
+    const written = new Set(diffed.map((change) => targetId(change.after)));
+    const kept = diffed.flatMap((change) =>
+      change.after.kind === "setting"
+        ? linkedWriteKeys(state, change.after).flatMap((key) => {
+            const target = wanted.get(`setting:${key}`);
+            const now = target && currentState(state, target);
+            if (!target || !now || written.has(targetId(target))) return [];
+            written.add(targetId(target));
+            return [{ before: now, after: target }];
+          })
+        : [],
+    );
+    const changes = [...diffed, ...kept];
     const ok = await this.applyAppearance(changes.map((change) => change.after));
     // What landed, not what was asked: a refused write leaves its target as it was, and a step
     // recording it would never be offered (its target never shows the recorded state).
-    const landed = diff(
-      changes.map((change) => change.before),
-      changes.flatMap((change) => {
-        const now = currentState(this.getSnapshot(), change.after);
-        return now && sameState(now, change.after) ? [now] : [];
-      }),
-    );
+    const shows = (change: { after: TargetState }) => {
+      const now = currentState(this.getSnapshot(), change.after);
+      return now !== undefined && sameState(now, change.after);
+    };
+    const landed = [
+      ...diff(
+        diffed.map((change) => change.before),
+        diffed.filter(shows).map((change) => currentState(this.getSnapshot(), change.after)!),
+      ),
+      ...kept.filter(shows),
+    ];
     if (landed.length > 0) this.appearance.record({ label, changes: landed });
     return ok;
   }
 
   /** Writes each state (outside the undo stack): a set, a reset or a theme level. The background
-   * goes first: a picture written at Opacity 100% resets Opacity on the host (#29881), so an Opacity
-   * the same step puts back must land after it. */
+   * goes first, then Material, then Opacity: a picture written at Opacity 100% resets Opacity, and a
+   * Material reset removes Opacity, on the host (`WindowBackgroundSetting.linkedEdits`, #29881), so
+   * the Opacity a step puts back lands after both. */
   private async applyAppearance(states: readonly TargetState[]): Promise<boolean> {
     this.applying += 1;
     try {
@@ -1053,8 +1091,12 @@ export class SettingsStore {
   private async applyAppearanceStates(states: readonly TargetState[]): Promise<boolean> {
     let ok = true;
     let themes = false;
-    const isBackground = (state: TargetState) => state.kind === "setting" && state.key === BACKGROUND;
-    for (const state of [...states.filter(isBackground), ...states.filter((state) => !isBackground(state))]) {
+    const order = [BACKGROUND, "appearance.backgroundBlur", "appearance.backgroundOpacity"];
+    const rank = (state: TargetState) => {
+      const index = state.kind === "setting" ? order.indexOf(state.key) : -1;
+      return index < 0 ? order.length : index;
+    };
+    for (const state of [...states].sort((a, b) => rank(a) - rank(b))) {
       if (state.kind === "theme") {
         themes = true;
         const reply = await this.request("cmux.settings.theme.set", { level: state.level, spec: state.spec });
