@@ -206,7 +206,8 @@ fn cleared(
     sent: usize,
 ) -> (Value, bool) {
     let (deleted, changed) = delete(file, ids, versions);
-    (json!({"sent": sent, "cleared": deleted["ids"]}), changed)
+    let cleared = deleted.get("ids").cloned().unwrap_or_else(|| json!([]));
+    (json!({"sent": sent, "cleared": cleared}), changed)
 }
 
 /// Stamps and stores `comment`: an edit of the comment its `id` names, or a
