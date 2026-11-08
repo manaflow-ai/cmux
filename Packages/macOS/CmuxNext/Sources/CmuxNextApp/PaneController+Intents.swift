@@ -17,9 +17,9 @@ extension PaneController {
         switch intent {
         case .select(let id): select(id)
         case .close(let id, _): CloseUndoToasts.close(in: self, [id])
-        case .closeOthers(let keep): CloseUndoToasts.close(in: self, stripModel.closedByCloseOthers(keeping: keep))
+        case .closeOthers(let keep): CloseUndoToasts.close(in: self, stripModel.closedByCloseOthers(keeping: keep), selecting: stripModel.selectionKeeping(keep))
         // Pinned tabs after `id` stay, as in Chrome.
-        case .closeToRight(let id): CloseUndoToasts.close(in: self, stripModel.closedByCloseToRight(of: id))
+        case .closeToRight(let id): CloseUndoToasts.close(in: self, stripModel.closedByCloseToRight(of: id), selecting: stripModel.selectionKeeping(id))
         case .reorder(let id, _, let to): StripOrder.reorder(id, to: to, in: self)
         case .reorderTabs(let order): StripOrder.reorder(toward: order, in: self)
         case .newTab(_, let opensWorkspace, let sameKind):
