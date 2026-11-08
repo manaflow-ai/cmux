@@ -2187,6 +2187,64 @@ class FastTierStartsWarm(unittest.TestCase):
         self.assertEqual(due([swift("2026-10-19T21:50:00Z", hosted), swift("2026-10-19T21:40:00Z", blacksmith)]), [])
         self.assertEqual(due([swift("2026-10-19T21:00:00Z", hosted), swift("2026-10-19T21:40:00Z", blacksmith)]), ["other"])
 
+    def test_a_manifest_change_seeds_its_own_prefix_at_once(self):
+        """A seed is due when no seed carries this push's package inputs, however fresh another prefix's seed is.
+
+        cmux#38170 (run 42439414440): the 02:28Z merge 9b6dd559c76 changed the package manifests (inputs
+        2d3c58426a71203a). A seed under the earlier inputs was under 30 minutes old, so no seed was due. At 03:01
+        daemon tests restored nothing on Blacksmith 6 vCPU ("miss_or_unavailable"), built for 29 minutes cold,
+        and ran out its 60. The manifests changed 9 times in the 7 hours before."""
+        import hashlib
+        workspace = "/Users/runner/_work/cmux/cmux"
+        place = hashlib.sha256(workspace.encode()).hexdigest()[:12]
+        pools = [{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": workspace}]
+        old, new = "b5d64095f7cfdaef", "2d3c58426a71203a"
+        swift = lambda modified, inputs: {
+            "key": f"v1/macOS-ARM64/objects/cmux-next-fast-v3-swift-macOS-ARM64-18730ed2ae28a2c9-{inputs}-{place}-abc.tar.zst",
+            "last_modified": modified}
+
+        def due(objects: list[dict], *extra: str) -> list[str]:
+            with tempfile.TemporaryDirectory() as tmp:
+                listing = Path(tmp) / "objects.json"
+                listing.write_text(json.dumps(objects))
+                out = subprocess.run([sys.executable, "-I", str(SEED_DUE_SCRIPT), "--minutes", "30", "--now", "2026-11-08T02:30:00Z",
+                                      "--listing", str(listing), "--pools", json.dumps(pools), *extra],
+                                     check=True, capture_output=True, text=True).stdout.strip()
+            return [entry["pool"] for entry in json.loads(out.removeprefix("pools="))]
+
+        fresh_old = [swift("2026-11-08T02:20:00Z", old)]
+        self.assertEqual(due(fresh_old, "--inputs", new), ["blacksmith"], "no seed has this push's inputs: seed now")
+        self.assertEqual(due(fresh_old, "--inputs", old), [], "this push's inputs have a fresh seed")
+        self.assertEqual(due([swift("2026-11-08T01:50:00Z", new)], "--inputs", new), ["blacksmith"], "an old seed is due as before")
+        # No inputs read (the due job could not hash them): any prefix's seed counts, as before.
+        self.assertEqual(due(fresh_old), [])
+        self.assertEqual(due(fresh_old, "--inputs", ""), [])
+
+    def test_the_due_job_hashes_the_inputs_the_seed_keys_hold(self):
+        """The due job reads this push's package inputs with fast-tier-cache-key.sh, the seed's own key script."""
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-fast-tier-seed.yml").read_text(encoding="utf-8"))
+        due = workflow["jobs"]["due"]
+        checkout = due["steps"][0]["with"]["sparse-checkout"]
+        self.assertIn("scripts/cmux-next/fast-tier-cache-key.sh", checkout)
+        run = next(step for step in due["steps"] if step.get("id") == "due")["run"]
+        self.assertIn("scripts/cmux-next/fast-tier-cache-key.sh", run)
+        self.assertIn("--inputs", run)
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            (repo / "Packages/macOS/A").mkdir(parents=True)
+            (repo / "Packages/macOS/A/Package.swift").write_text("// swift-tools-version: 6.2\n")
+            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+            env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(repo / "out"), "GITHUB_SHA": "abc"}
+            script = re.search(r"(?s)inputs=\"\$\((.*?)\)\"", run).group(1)
+            got = subprocess.run(["/bin/bash", "-c", script.replace("scripts/cmux-next/", str(ROOT / "scripts/cmux-next") + "/")],
+                                 cwd=repo, env=env, check=True, capture_output=True, text=True).stdout.strip()
+            keys = dict(line.split("=", 1) for line in subprocess.run(
+                [str(ROOT / "scripts/cmux-next/fast-tier-cache-key.sh")], cwd=repo, check=True, capture_output=True, text=True,
+                env={**env, "CMUX_FAST_CACHE_XCODE_VERSION": "Xcode 26.6"}).stdout.split())
+            self.assertRegex(got, r"^[0-9a-f]{16}$")
+            self.assertIn(f"-{got}-", keys["swift-prefix"], "the same inputs field the seed's key holds")
+
     def test_receipt_names_the_seed_a_prefix_restore_picked(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
