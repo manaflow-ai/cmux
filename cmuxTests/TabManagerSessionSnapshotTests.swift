@@ -2067,6 +2067,34 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.selectedTabId, restored.tabs.last?.id)
     }
 
+    /// The Dock source lookup prefers the workspace whose Dock holds the panel,
+    /// then the first saved copy of a repeated ID, and finds nothing otherwise.
+    func testDockSourceWorkspaceIndexPrefersDockOwnerThenFirstMatch() {
+        let repeated = UUID()
+        let unique = UUID()
+        let unknown = UUID()
+        let originalIds: [UUID?] = [repeated, nil, repeated, unique]
+
+        // The Dock-owning copy wins even when it is not the first copy.
+        XCTAssertEqual(TabManager.dockSourceWorkspaceIndex(
+            originalWorkspaceIds: originalIds, dockOwnerIndex: 2, sourceWorkspaceId: repeated), 2)
+        // A Dock owned by an unrelated workspace falls back to the first copy.
+        XCTAssertEqual(TabManager.dockSourceWorkspaceIndex(
+            originalWorkspaceIds: originalIds, dockOwnerIndex: 3, sourceWorkspaceId: repeated), 0)
+        // The window Dock has no owner and takes the first copy.
+        XCTAssertEqual(TabManager.dockSourceWorkspaceIndex(
+            originalWorkspaceIds: originalIds, dockOwnerIndex: nil, sourceWorkspaceId: repeated), 0)
+        // A unique ID resolves regardless of the owner.
+        XCTAssertEqual(TabManager.dockSourceWorkspaceIndex(
+            originalWorkspaceIds: originalIds, dockOwnerIndex: 1, sourceWorkspaceId: unique), 3)
+        // Nothing matches: the Dock keeps restoring the saved panel locally.
+        XCTAssertNil(TabManager.dockSourceWorkspaceIndex(
+            originalWorkspaceIds: originalIds, dockOwnerIndex: 0, sourceWorkspaceId: unknown))
+        // An out-of-range owner never indexes past the saved workspaces.
+        XCTAssertEqual(TabManager.dockSourceWorkspaceIndex(
+            originalWorkspaceIds: originalIds, dockOwnerIndex: 99, sourceWorkspaceId: unique), 3)
+    }
+
     /// `DisableCloud` (MDM): no Cloud workspace restores through either
     /// transport, the selection follows a surviving local workspace, and the
     /// existing one-machine normalization is untouched without the policy.
