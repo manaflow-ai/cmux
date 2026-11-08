@@ -70,8 +70,32 @@ enum BrowserProfileHandlers {
             guard !record.isDefault else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.defaultCannotBeDeleted) }
             try profiles.delete(record.id)
         }
+        bindDaemonVerbs(into: registry, context: context)
         BrowserProfileOpenHandlers.bind(bind, context: context)
         BrowsingDataClear.bind(bind, context: context)
+    }
+
+    /// `cmux browser profile move|proxy set|proxy clear` from the palette; the daemon checks a proxy as it does the CLI's.
+    private static func bindDaemonVerbs(into registry: ActionRegistry, context: AppActionContext) {
+        let profiles = context.services.browserProfiles
+        func bind(_ id: ActionID, _ edit: @escaping @MainActor (String, ActionInvocation) throws -> Void) {
+            registry.bindEffect(id, effect: { invocation in
+                do { try edit(context.browserProfile(invocation).id, invocation) } catch let error as BrowserProfileBookError {
+                    throw ActionFailure.invalidTarget(BrowserProfileAppStrings.message(error))
+                }
+                return .done
+            })
+        }
+        bind("browserProfile.move") { id, invocation in
+            guard let position = invocation["index"]?.intValue else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.positionRequired) }
+            try profiles.move(id, to: min(position - 1, context.services.machines.local.store.personal.browserProfiles.count - 1))
+        }
+        bind("browserProfile.setProxy") { id, invocation in
+            guard let scheme = invocation["scheme"]?.stringValue, let host = invocation["host"]?.stringValue,
+                  let port = invocation["port"]?.intValue else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.invalidProxy) }
+            try profiles.setProxy(id, BrowserProfileSnapshot.Proxy(scheme: scheme, host: host.trimmingCharacters(in: .whitespaces), port: port))
+        }
+        bind("browserProfile.clearProxy") { id, _ in try profiles.setProxy(id, nil) }
     }
 
     /// A new profile: the given name, color and icon, else "Profile N" and

@@ -45,11 +45,8 @@ extension AppControl {
                 let params = call.params
                 let open = try Self.openRequest(params)
                 let base = await MainActor.run { services.cloud.configuration.apiBaseURL }
-                var components = URLComponents(url: base.appending(path: "dashboard/billing"), resolvingAgainstBaseURL: false)
-                if let team = (params["teamId"] ?? params["team_id"])?.stringValue, !team.isEmpty {
-                    components?.queryItems = [URLQueryItem(name: "team", value: team)]
-                }
-                guard let url = components?.url else { throw ControlError(code: "bad_response", message: BillingStrings.badResponse) }
+                let team = (params["teamId"] ?? params["team_id"])?.stringValue
+                guard let url = BillingPortal.url(base: base, team: team) else { throw ControlError(code: "bad_response", message: BillingStrings.badResponse) }
                 return .object(["url": .string(url.absoluteString)].merging(try await Self.openBillingPage(url, open, services)) { _, opened in opened })
             }.withDeadline(network),
             ControlMethod.async("billing.status") { call in
@@ -99,8 +96,8 @@ extension AppControl {
 
     /// Opens `url` where ``BillingCheckoutOpener`` says and answers `opened_in`,
     /// `link_session` and the cmux browser `profile` it checked.
-    nonisolated private static func openBillingPage(_ url: URL, _ request: BillingOpenRequest,
-                                                    _ services: AppServices) async throws -> [String: JSONValue] {
+    nonisolated static func openBillingPage(_ url: URL, _ request: BillingOpenRequest,
+                                            _ services: AppServices) async throws -> [String: JSONValue] {
         let session = await MainActor.run { BrowserProfileLinkSession(services: services) }
         let profile = await session.profileForNewTab()
         let link = request == .printOnly ? false : await session.hasSession(profile: profile)

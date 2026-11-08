@@ -1707,9 +1707,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // projection of `server.status`. The App supplies the source.
         .target(
             name: "CmuxNextServer",
+            // CmuxNextActions: the joined machines' registered actions (JoinedMachineAction+Registry).
             // CmuxNextWakeups: the joined rows' one-shot heartbeat deadline (JoinedMachineStore aging).
             // CmuxNextPages, CmuxNextSettings: the Machines section's React page host and its provider.
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDesign",

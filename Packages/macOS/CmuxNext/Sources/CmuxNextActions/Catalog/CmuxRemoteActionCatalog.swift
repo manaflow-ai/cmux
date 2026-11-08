@@ -54,6 +54,16 @@ nonisolated enum CmuxRemoteActionCatalog: ActionCatalogGroup {
                 cliName: "remote restart-screen-sharing",
                 surfacePlan: ActionSurfacePlan(contextMenuExemption: .noObject)
             ),
+            // `cmux remote-host stop`: ends the Screen Sharing session cmux Remote is serving (a device stops
+            // seeing this Mac); Share This Mac stays on.
+            ActionDescriptor(
+                id: "remote.stopScreenSession",
+                title: String(localized: "action.remote.stopScreenSession", defaultValue: "cmux Remote: End Screen Sharing Session", bundle: .module),
+                keywords: ["cmux remote", "screen sharing", "mac screen", "stop", "end", "disconnect", "viewer", "session"],
+                category: .remote, symbol: "stop.circle", surfaces: [.palette],
+                cliName: "remote stop-screen-session",
+                surfacePlan: ActionSurfacePlan(contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "macScreen.shareThisMac",
                 title: String(localized: "action.macScreen.shareThisMac", defaultValue: "Share This Mac", bundle: .module),

@@ -225,6 +225,14 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["pro", "billing", "subscription"], category: .settings, symbol: "star.circle",
                 surfaces: [.palette, .menu], cliName: "settings upgrade-to-pro", mainMenu: .app
             ),
+            // The account's billing page on cmux.com (plan, invoices, cards), as `cmux billing portal` opens it.
+            ActionDescriptor(
+                id: "billing.openPortal",
+                title: String(localized: "action.billing.openPortal", defaultValue: "Manage Billing", bundle: .module),
+                keywords: ["billing", "subscription", "invoice", "receipt", "payment", "card", "plan", "pro", "stripe", "portal"],
+                category: .settings, symbol: "creditcard", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "sendFeedback",
                 title: String(localized: "action.sendFeedback", defaultValue: "Send Feedback", bundle: .module),

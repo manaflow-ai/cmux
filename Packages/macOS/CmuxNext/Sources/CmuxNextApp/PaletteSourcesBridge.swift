@@ -4,6 +4,7 @@ import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSidebar
 
@@ -73,7 +74,15 @@ enum PaletteSourcesBridge {
         let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
         let sections = SidebarSectionTargetSource(services: services, next: spaces)
         let groups = TabAndGroupTargetSource(services: services, next: PriorityChatTargetSource(chats: chats, next: sections))
-        return agentChatTargets(AgentChatDestinations(services: services), next: groups)
+        return agentChatTargets(AgentChatDestinations(services: services), next: joinedMachineTargets(services.joinedMachines, next: groups))
+    }
+
+    /// Rotate and Revoke Joined Machine pick a machine joined through the hub, not a connected one: the last rows, then a fresh read.
+    static func joinedMachineTargets(_ store: JoinedMachineStore, next: any PaletteTargetSource) -> any PaletteTargetSource {
+        RefreshingPaletteTargetSource(kind: .machine, actions: JoinedMachineAction.paletteActions,
+                                      initial: MachineSectionHostView.joinedOptions(store.machines), next: next) {
+            await store.refresh(); return MachineSectionHostView.joinedOptions(store.machines)
+        }
     }
 
     static func agentChatTargets(_ destinations: AgentChatDestinations, next: any PaletteTargetSource) -> any PaletteTargetSource {

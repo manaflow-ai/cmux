@@ -20,6 +20,7 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
             String(localized: key, defaultValue: value, table: "BrowserProfileActions", bundle: .module)
         }
         let profile = CatalogArgument.browserProfile
+        let daemonVerb = ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .pointerMenuTrim)
         var deleteDescriptor = descriptor("browserProfile.delete", text("action.browserProfile.delete", "Delete Browser Profile and Its Data…"),
                                           "trash", "delete", extra: ["remove", "data"], destructive: true)
         // Only a person deletes a browser profile (its cookies, sign-ins, passwords and passkeys):
@@ -83,6 +84,20 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
             descriptor("browserProfile.removeImportedData", text("action.browserProfile.removeImportedData", "Remove Imported Browser Data…"),
                        "tray.and.arrow.down", "remove-imported-data", extra: ["import", "imported", "history", "bookmarks", "privacy", "delete"],
                        destructive: true),
+            // `cmux browser profile move|proxy set|proxy clear` are the daemon's verbs (the Rust CLI parses
+            // them); these are their palette form, on the same `move-browser-profile` and `update-browser-profile`.
+            ActionDescriptor(id: "browserProfile.move", title: text("action.browserProfile.move", "Move Browser Profile to Position…"),
+                             keywords: keywords + ["move", "reorder", "order", "position"], category: .browser,
+                             symbol: "arrow.up.arrow.down", surfaces: [.palette, .keyboard],
+                             arguments: [CatalogArgument.positionNumber], targets: [.browserProfile], surfacePlan: daemonVerb),
+            ActionDescriptor(id: "browserProfile.setProxy", title: text("action.browserProfile.setProxy", "Set Browser Profile Proxy…"),
+                             keywords: keywords + ["proxy", "socks", "socks5", "http", "network", "vpn"], category: .browser,
+                             symbol: "network", surfaces: [.palette, .keyboard],
+                             arguments: [CatalogArgument.proxyScheme, CatalogArgument.proxyHost, CatalogArgument.portInt],
+                             targets: [.browserProfile], surfacePlan: daemonVerb),
+            ActionDescriptor(id: "browserProfile.clearProxy", title: text("action.browserProfile.clearProxy", "Remove Browser Profile Proxy"),
+                             keywords: keywords + ["proxy", "direct", "network", "reset", "clear"], category: .browser,
+                             symbol: "network.slash", surfaces: [.palette, .keyboard], targets: [.browserProfile], surfacePlan: daemonVerb),
             descriptor("browserProfile.manageExtensions", text("action.browserProfile.manageExtensions", "Manage Extensions in Browser Profile…"),
                        "puzzlepiece", "manage-extensions", extra: ["extension", "extensions", "addon"], arguments: [profile], targets: []),
         ]
@@ -97,6 +112,21 @@ nonisolated extension CatalogArgument {
         ActionArgument(name: "browserProfile",
                        title: String(localized: "argument.browserProfile", defaultValue: "Browser Profile", table: "BrowserProfileActions", bundle: .module),
                        kind: .target(.browserProfile))
+    }
+
+    /// How the engines talk to a profile's proxy (`--url`'s scheme in `cmux browser profile proxy set`).
+    static var proxyScheme: ActionArgument {
+        ActionArgument(name: "scheme",
+                       title: String(localized: "argument.browserProfile.proxyScheme", defaultValue: "Proxy Type", table: "BrowserProfileActions", bundle: .module),
+                       kind: .enumeration([ActionEnumCase(value: "socks5", title: "SOCKS5"), ActionEnumCase(value: "http", title: "HTTP"),
+                                           ActionEnumCase(value: "https", title: "HTTPS")]))
+    }
+
+    /// The proxy's host name or IP address; a proxy stores no credentials (the daemon refuses them).
+    static var proxyHost: ActionArgument {
+        ActionArgument(name: "host",
+                       title: String(localized: "argument.browserProfile.proxyHost", defaultValue: "Proxy Host", table: "BrowserProfileActions", bundle: .module),
+                       kind: .string)
     }
 
     /// One kind of browsing data Clear Browsing Data clears (default on).

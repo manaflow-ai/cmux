@@ -111,6 +111,15 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
                 keywords: ["banner", "desktop", "system", "macos", "notifications"], category: .notifications, symbol: "rectangle.stack.badge.minus",
                 surfaces: [.palette, .keyboard], cliName: "notification toggle-banners"
             ),
+            // `cmux setup notifications`: macOS's own prompt while it has not asked; once the person said no, the
+            // System Settings pane where only they turn it on.
+            ActionDescriptor(
+                id: "notifications.allowDesktop",
+                title: String(localized: "action.notifications.allowDesktop", defaultValue: "Allow cmux Notifications in macOS", bundle: .module),
+                keywords: ["permission", "allow", "enable", "banner", "desktop", "system", "macos", "notifications", "setup"],
+                category: .notifications, symbol: "bell.badge", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "notifications.dismissal.keystroke",
                 title: String(localized: "action.notifications.dismissal.keystroke", defaultValue: "Clear Notifications When Typing", bundle: .module),

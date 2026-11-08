@@ -221,6 +221,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "notifications.allowDesktop",
+        group: GROUP,
+        title: t("ActionCatalog", "action.notifications.allowDesktop", "Allow cmux Notifications in macOS"),
+        keywords: &["permission", "allow", "enable", "banner", "desktop", "system", "macos", "notifications", "setup"],
+        category: "notifications",
+        symbol: "bell.badge",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action notifications-allow-desktop",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "notifications.dismissal.keystroke",
         group: GROUP,
         title: t("ActionCatalog", "action.notifications.dismissal.keystroke", "Clear Notifications When Typing"),

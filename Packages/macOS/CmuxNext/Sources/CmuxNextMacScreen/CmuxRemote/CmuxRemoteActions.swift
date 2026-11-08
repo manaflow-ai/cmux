@@ -45,6 +45,7 @@ extension CmuxRemoteActionEnvironment {
         host("remote.allowScreenRecording", "request", .object(["permission": .string("screen-recording")]))
         host("remote.restartComputerUse", "restart", .object(["worker": .string("computer-use")]))
         host("remote.restartScreenSharing", "restart", .object(["worker": .string("screen-sharing")]))
+        host("remote.stopScreenSession", "screen.stop_session", .object([:]))
         _ = registry.bindEffect("remote.showStatus", unavailable: { remote.started ? nil : CmuxRemoteStrings.unavailable }, effect: { _ in
             // action-wait-allow: the status comes from the daemon and cmux Remote, other processes; the dialog shows it.
             .waiting(.externalProcess) {

@@ -17,5 +17,12 @@ struct UpgradeToPro {
             // task-owner: one upgrade start; ends when the page opened
             Task { await context.services.paidPlanUpgrade().start(source: source) }
         })
+        // Manage Billing: the page `cmux billing portal` opens, where its `--open auto` opens it.
+        registry.bindEffect("billing.openPortal", effect: { _ in
+            let services = context.services
+            guard let url = BillingPortal.url(base: services.cloud.configuration.apiBaseURL, team: nil) else { return .refused(BillingStrings.badResponse) }
+            // action-wait-allow: where the page opens waits on the browser profile's Stripe Link session read.
+            return .waiting(.network) { (try? await AppControl.openBillingPage(url, .auto, services)) == nil ? ActionWorkFailure(BillingStrings.badResponse) : nil }
+        })
     }
 }

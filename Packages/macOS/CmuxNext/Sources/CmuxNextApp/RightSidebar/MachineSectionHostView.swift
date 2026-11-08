@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextPalette
 import CmuxNextServer
 
 /// Hosts the right sidebar's Machines section (a React page, `MachineSectionPageProvider.makeSection`), made the first
@@ -55,7 +56,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     /// A row's native menu: New Workspace on This Machine (`row`, disabled while the link is down), or a
     /// joined machine's Check, Rotate Credential and Revoke… (`joined`), run on the row it opened on.
     static func menu(_ kind: String, row: MachineSectionRow, registry: ActionRegistry) -> NSMenu? {
-        if kind == "joined", let machine = row.joined { return joinedMenu(machine, rowID: row.id, registry: registry) }
+        if kind == "joined", let machine = row.joined { return JoinedMachineAction.menu(machine, rowID: row.id, registry: registry) }
         guard kind == "row", let item = registry.makeContextMenuItem(for: "workspace.newOnMachine", in: .machineSection,
                                                                      arguments: ["machine": .string(row.id)]) else { return nil }
         item.title = MachineSectionRow.newWorkspaceTitle
@@ -86,56 +87,18 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
         }
     }
 
-    /// The registered action of a joined machine's menu row (`JoinedMachineActionCatalog`).
-    static func actionID(_ action: JoinedMachineAction) -> ActionID { ActionID(rawValue: "machine.joined.\(action.rawValue)") }
-
-    /// A joined machine's "…" menu: the registry's rows for it, run on its id with the row it opened
-    /// on (`row`, where Check records its result).
-    static func joinedMenu(_ machine: JoinedMachine, rowID: String, registry: ActionRegistry) -> NSMenu {
-        registry.makeContextMenu(for: .joinedMachine, target: ActionTargetRef(kind: .machine, id: machine.id),
-                                 arguments: ["row": .string(rowID)])
+    /// The palette's pick for Rotate and Revoke: each joined machine not revoked, by name.
+    static func joinedOptions(_ machines: [JoinedMachine]) -> [PaletteTargetOption] {
+        machines.filter { $0.state != .revoked }.map { PaletteTargetOption(id: $0.id, title: $0.name, subtitle: $0.hostname, symbol: "server.rack") }
     }
 
     static func bindJoinedActions(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        bindJoinedActions(into: registry, store: { [weak services] in services?.joinedMachines },
-                          labsOn: { true },
-                          perform: { [weak services] action, machine, rowID in
-                              guard let services else { return }
-                              Self.perform(action, machine, rowID: rowID, services: services)
-                          })
-    }
-
-    /// Binds Check, Rotate Credential and Revoke… on a joined machine (a `machine:` target that is a
-    /// joined machine's id). They do nothing while `labsOn` says no (the app's is always on). A revoked
-    /// machine's menu leaves out Rotate and Revoke; while a change runs on it they wait.
-    static func bindJoinedActions(into registry: ActionRegistry, store: @escaping @MainActor () -> JoinedMachineStore?,
-                                  labsOn: @escaping @MainActor () -> Bool,
-                                  perform: @escaping @MainActor (JoinedMachineAction, JoinedMachine, String) -> Void) {
-        let joined: @MainActor (ActionInvocation) -> JoinedMachine? = { invocation in
-            guard let id = invocation.target?.id else { return nil }
-            return store()?.machines.first { $0.id == id }
-        }
-        for action in JoinedMachineAction.allCases {
-            let id = actionID(action)
-            // Check opens its checklist and Revoke its question on this turn; Rotate starts at once.
-            // The platform's answers come later, through the store (the row's spinner and caption).
-            registry.bindEffect(id, unavailable: { labsOn() ? nil : JoinedMachineAction.labsOff }, effect: { invocation in
-                guard let machine = joined(invocation) else {
-                    return .refused(RemoteStrings.unknownMachine(invocation.target?.id ?? ""))
-                }
-                perform(action, machine, invocation["row"]?.stringValue ?? JoinedMachine.healthID(machine.id))
-                return .done
-            })
-            ActionTargetVisibility.hide(id, in: registry) { invocation in
-                guard let machine = joined(invocation) else { return true }
-                return !action.isAvailable(for: machine.state)
-            }
-            guard action != .check else { continue }
-            ActionTargetReasons.set(id, in: registry) { invocation in
-                guard let machine = joined(invocation), store()?.busy.contains(machine.id) == true else { return nil }
-                return JoinedMachineAction.busy
-            }
-        }
+        JoinedMachineAction.bind(into: registry, store: { [weak services] in services?.joinedMachines }, labsOn: { true },
+                                 unknown: RemoteStrings.unknownMachine,
+                                 perform: { [weak services] action, machine, rowID in
+                                     guard let services else { return }
+                                     Self.perform(action, machine, rowID: rowID, services: services)
+                                 })
     }
 }

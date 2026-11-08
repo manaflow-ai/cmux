@@ -19,6 +19,15 @@ package nonisolated struct NotificationPermission: Equatable, Sendable {
     package var badge: Bool
     package var bundleID: String?
 
+    /// macOS will not ask again: only the person turns it on, in System Settings > Notifications.
+    package var isDenied: Bool { authorization == "denied" }
+
+    /// System Settings > Notifications at this app's page (`?id=`), the pane `cmux setup notifications`
+    /// hands the person when the permission is denied.
+    package var settingsURL: URL? {
+        URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension" + (bundleID.map { "?id=\($0)" } ?? ""))
+    }
+
     package var json: JSONValue {
         ["authorization": .string(authorization), "alert": .bool(alert), "alert_style": .string(alertStyle),
          "sound": .bool(sound), "badge": .bool(badge), "bundle_id": bundleID.map(JSONValue.string) ?? .null]
@@ -58,8 +67,8 @@ package nonisolated struct SystemNotificationPermission: NotificationPermissionC
     }
 }
 
-struct NotificationPermissionStrings {
-    static var unavailable: String {
+package struct NotificationPermissionStrings {
+    package static var unavailable: String {
         String(localized: "notifications.permission.unavailable",
                defaultValue: "This cmux process does not use macOS notifications (an automation or test host, or not the cmux app bundle)",
                bundle: .module)

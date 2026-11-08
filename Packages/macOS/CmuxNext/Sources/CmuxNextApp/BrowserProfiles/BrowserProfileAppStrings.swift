@@ -38,6 +38,8 @@ nonisolated enum BrowserProfileAppStrings {
     static var invalidName: String { text("browserProfiles.refusal.invalidName", "the name must have 1 to 64 characters") }
     static var invalidIcon: String { text("browserProfiles.refusal.invalidIcon", "the icon must be an SF Symbol name or one emoji") }
     static var urlRequired: String { text("browserProfiles.refusal.urlRequired", "a url argument is required") }
+    static var positionRequired: String { text("browserProfiles.refusal.positionRequired", "an index argument is required") }
+    static var invalidProxy: String { text("browserProfiles.refusal.invalidProxy", "a proxy needs a scheme (http, https or socks5), a host and a port") }
 
     /// The typed reason of a refused edit.
     static func message(_ error: BrowserProfileBookError) -> String {
