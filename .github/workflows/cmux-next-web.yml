@@ -103,6 +103,10 @@ jobs:
     needs: coalesce
     # A yielded coalesce job (a newer push's run checks these commits) runs no checks.
     if: ${{ needs.coalesce.outputs.run != 'false' }}
+    # actions: read: the webview base replay reads the base's flake history artifact (ci-web.yml).
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/ci-web.yml
     with:
       web: ${{ 'true' }}

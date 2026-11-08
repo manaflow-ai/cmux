@@ -11,6 +11,9 @@
         print, one a line, the tests and files that passed and failed on the same inputs: two base
         pushes with the same inputs key gave them different verdicts. With NAMES (a {name: passed} map,
         a head's results), only names among its reds.
+    webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH
+        write to OUT the newest history a push on BRANCH uploaded (the ARTIFACT artifact), or an empty
+        one when there is none or it cannot be read; GITHUB_TOKEN reads it (actions: read)
 
 Why: a pull request fails only on the webview tests its base replay (react-apps-base-check)
 passes, and that replay runs each red file once, alone, on the merge parent. A test that fails
@@ -32,12 +35,28 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+import zipfile
 
 KEEP = 120  # push runs kept: several hours of feat-cmux-next pushes, a few MB
+# The history itself, uploaded by every push's webviews-test-history job and read by the next push and by each pull
+# request's replay. An artifact, not an Actions cache: on 2026-11-08 no push restored the cache the one before it saved
+# (runs 42487089305, 42489479972, 42494348690: "Cache not found", "1 push runs"), because the saves went to the Linux
+# pool's own cache store, which the next push's restore never read. The history held one run, so nothing ever flipped
+# and send-stream-motion was charged to pull requests that touch no agent-session code (#37286, #36911, #38250).
+ARTIFACT = "webviews-test-history"
+ARTIFACT_FILE = "history.json"
+LIST_PAGE = 30  # artifacts listed, newest first: pushes' uploads are a few an hour, kept 3 days
+FETCH_TIMEOUT_S = 30
+MAX_BYTES = 16 * 1024 * 1024  # KEEP runs are a few MB at most
 
 
 def load(path: str | Path) -> list[dict]:
@@ -127,6 +146,76 @@ def flaky(runs: list[dict], names: list[str] | None = None) -> list[str]:
     return sorted(name for name in names if flips(verdicts(runs, name)))
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):  # the download's storage URL is fetched without the token
+        return None
+
+
+def _get(url: str, token: str | None) -> tuple[int, dict, bytes]:
+    """One GET: (status, headers, body). A redirect is returned, not followed."""
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+               "User-Agent": "cmux-webviews-test-history"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    opener = urllib.request.build_opener(_NoRedirect)
+    try:
+        with opener.open(urllib.request.Request(url, headers=headers), timeout=FETCH_TIMEOUT_S) as reply:
+            return reply.status, dict(reply.headers), reply.read(MAX_BYTES + 1)
+    except urllib.error.HTTPError as error:
+        return error.code, dict(error.headers or {}), b""
+
+
+def newest(listing: object, branch: str) -> dict | None:
+    """The newest unexpired ARTIFACT that a run of this repository on BRANCH uploaded. A fork's run is never one: its
+    branch may share the name, and a history it wrote would excuse reds."""
+    best = None
+    items = listing.get("artifacts") if isinstance(listing, dict) else None
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        run = item.get("workflow_run") if isinstance(item.get("workflow_run"), dict) else {}
+        if (item.get("name") != ARTIFACT or item.get("expired") or run.get("head_branch") != branch
+                or not run.get("repository_id") or run.get("head_repository_id") != run.get("repository_id")):
+            continue
+        if best is None or str(item.get("created_at") or "") > str(best.get("created_at") or ""):
+            best = item
+    return best
+
+
+def fetch(repo: str, branch: str, token: str | None, get=_get) -> tuple[list[dict], str]:
+    """(the newest history a push on BRANCH uploaded, what was read): two requests, the list and the download. Any
+    failure is an empty history and says why; a missing history only means no flakes."""
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    query = urllib.parse.urlencode({"name": ARTIFACT, "per_page": LIST_PAGE})
+    try:
+        status, _, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
+        if status != 200:
+            return [], f"listing the {ARTIFACT} artifacts answered {status}"
+        found = newest(json.loads(body), branch)
+        if found is None:
+            return [], f"no {ARTIFACT} artifact from a push on {branch}"
+        status, headers, body = get(str(found.get("archive_download_url") or ""), token)
+        if status in (301, 302, 303, 307, 308):
+            location = headers.get("Location") or headers.get("location") or ""
+            status, _, body = get(location, None) if location.startswith("https://") else (status, {}, b"")
+        if status != 200:
+            return [], f"downloading {ARTIFACT} {found.get('id')} answered {status}"
+        if len(body) > MAX_BYTES:
+            return [], f"{ARTIFACT} {found.get('id')} is over {MAX_BYTES} bytes"
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            info = archive.getinfo(ARTIFACT_FILE)
+            if info.file_size > MAX_BYTES:
+                return [], f"{ARTIFACT} {found.get('id')}'s {ARTIFACT_FILE} is over {MAX_BYTES} bytes"
+            data = json.loads(archive.read(info))
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
+        return [], f"reading the {ARTIFACT} artifact failed: {error}"
+    runs = data.get("runs") if isinstance(data, dict) else None
+    if not isinstance(runs, list):
+        return [], f"{ARTIFACT} {found.get('id')} holds no runs"
+    run = found.get("workflow_run") or {}
+    return runs, f"{ARTIFACT} {found.get('id')} from run {run.get('id')} ({str(run.get('head_sha') or '')[:12]})"
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -143,7 +232,17 @@ def main(argv: list[str]) -> int:
     fl = sub.add_parser("flaky")
     fl.add_argument("history")
     fl.add_argument("--names")
+    fe = sub.add_parser("fetch")
+    fe.add_argument("out")
+    fe.add_argument("--repo", required=True)
+    fe.add_argument("--branch", required=True)
     args = parser.parse_args(argv)
+    if args.command == "fetch":
+        found, said = fetch(args.repo, args.branch, os.environ.get("GITHUB_TOKEN"))
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps({"runs": found}, separators=(",", ":")) + "\n", encoding="utf-8")
+        print(f"webview test history: {len(found)} push runs ({said})")
+        return 0
     if args.command == "inputs":
         print(inputs(args.root))
         return 0
