@@ -181,12 +181,12 @@ fn ancestors_the_query_kept_are_not_matches() {
     let indices = |found: Vec<Value>| -> Vec<u64> {
         found.iter().map(|e| e["element_index"].as_u64().unwrap()).collect()
     };
-    assert_eq!(indices(matching(&projected, Some("save"), None)), vec![7, 9, 10]);
-    assert_eq!(indices(matching(&projected, Some("save"), Some("button"))), vec![7]);
-    assert_eq!(indices(matching(&projected, Some("save"), Some("AXCheckBox"))), vec![10]);
+    assert_eq!(indices(matching(&projected, Some("save"), None, true)), vec![7, 9, 10]);
+    assert_eq!(indices(matching(&projected, Some("save"), Some("button"), true)), vec![7]);
+    assert_eq!(indices(matching(&projected, Some("save"), Some("AXCheckBox"), true)), vec![10]);
     // Without a query the tree is whole: role alone picks.
-    assert_eq!(indices(matching(&projected, None, Some("group"))), vec![3, 9]);
-    assert!(matching(&json!({}), Some("save"), None).is_empty());
+    assert_eq!(indices(matching(&projected, None, Some("group"), true)), vec![3, 9]);
+    assert!(matching(&json!({}), Some("save"), None, true).is_empty());
 }
 
 #[test]
@@ -210,6 +210,7 @@ fn arguments_are_checked_and_bounded() {
         (json!({"pid": 1, "window_id": 2, "query": " "}), "needs query, role or both"),
         (json!({"pid": 1, "window_id": 2, "query": "x", "timeout_ms": -1}), "timeout_ms"),
         (json!({"pid": 1, "window_id": 2, "query": "x", "gone": "yes"}), "gone"),
+        (json!({"pid": 1, "window_id": 2, "query": "x", "actionable": 1}), "actionable"),
         (json!([]), "takes an object"),
     ] {
         let error = Wait::parse(&arguments).unwrap_err();
@@ -248,4 +249,213 @@ fn a_helper_tool_of_the_same_name_is_replaced_by_the_one_that_runs() {
     // Without get_window_state the bridge cannot serve it: nothing of this name is listed.
     let alone = with_definition(json!({"tools": [helper_own, {"name": "click"}]}));
     assert_eq!(alone["tools"], json!([{"name": "click"}]));
+}
+
+/// A `get_window_state` result whose structured side carries these extra fields.
+fn state_with(elements: Value, extra: Value) -> Result<Value, String> {
+    let mut structured = json!({"pid": 123, "window_id": 4, "elements": elements});
+    if let (Some(into), Some(from)) = (structured.as_object_mut(), extra.as_object()) {
+        into.extend(from.clone());
+    }
+    Ok(
+        json!({"content": [{"type": "text", "text": "window_id=4 pid=123"}], "structuredContent": structured}),
+    )
+}
+
+#[tokio::test(start_paused = true)]
+async fn gone_in_a_bounded_tree_reads_the_whole_tree_before_saying_gone() {
+    // max_elements cut the walk before the Save button: the first check sees
+    // no match, but the button is still there in the whole tree.
+    let mut reader =
+        Script::new(vec![state(json!([])), state(json!([save_button()])), state(json!([]))]);
+    let result = run(
+        &wait(json!({"pid": 123, "window_id": 4, "query": "Save", "gone": true,
+            "max_elements": 5, "max_depth": 3})),
+        &mut reader,
+    )
+    .await;
+    let structured = &result["structuredContent"];
+    assert_eq!(result.get("isError"), None, "{result}");
+    assert_eq!(structured["gone"], true);
+    assert_eq!(structured["checks"], 3, "{result}");
+    assert_eq!(structured["widened"], true);
+    assert_eq!(reader.asked[0]["max_elements"], 5);
+    // Every check after the first reads the whole tree.
+    for asked in reader.asked.iter().skip(1) {
+        assert_eq!(
+            asked,
+            &json!({"pid": 123, "window_id": 4, "query": "Save", "include_screenshot": false})
+        );
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn gone_trusts_a_bounded_tree_the_helper_says_is_whole() {
+    let mut reader = Script::new(vec![state_with(json!([]), json!({"truncated": false}))]);
+    let result = run(
+        &wait(
+            json!({"pid": 123, "window_id": 4, "query": "Save", "gone": true, "max_elements": 5}),
+        ),
+        &mut reader,
+    )
+    .await;
+    assert_eq!(result.get("isError"), None, "{result}");
+    assert_eq!(result["structuredContent"]["checks"], 1);
+    assert_eq!(result["structuredContent"]["widened"], false);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_truncated_tree_never_counts_as_gone() {
+    let mut reader = Script::new(vec![state_with(
+        json!([]),
+        json!({"truncated": true, "truncation_reason": "max_elements"}),
+    )]);
+    let result = run(
+        &wait(
+            json!({"pid": 123, "window_id": 4, "query": "Save", "gone": true, "timeout_ms": 400}),
+        ),
+        &mut reader,
+    )
+    .await;
+    let structured = &result["structuredContent"];
+    assert_eq!(result["isError"], true, "{result}");
+    assert_eq!(structured["timed_out"], true);
+    assert_eq!(structured["gone_unconfirmed"], true);
+    assert_eq!(structured["count"], 0);
+    let text = result["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("gone is not confirmed"), "{text}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_wait_to_appear_matches_only_rows_an_agent_can_act_on() {
+    // A role-only wait: a display-only row and a disabled button are not
+    // what the agent is waiting to click.
+    let display_only =
+        json!({"role": "AXButton", "label": "Save", "depth": 2, "display_only": true});
+    let disabled = json!({"element_index": 7, "element_token": "s00000002:7", "role": "AXButton",
+        "label": "Save", "depth": 2, "enabled": false});
+    let mut reader = Script::new(vec![
+        state(json!([display_only.clone()])),
+        state(json!([disabled.clone()])),
+        state(json!([save_button()])),
+    ]);
+    let result =
+        run(&wait(json!({"pid": 123, "window_id": 4, "role": "button"})), &mut reader).await;
+    let structured = &result["structuredContent"];
+    assert_eq!(result.get("isError"), None, "{result}");
+    assert_eq!(structured["checks"], 3, "{result}");
+    assert_eq!(structured["elements"], json!([save_button()]));
+
+    // actionable: false waits for any row of that role.
+    let mut any = Script::new(vec![state(json!([display_only.clone()]))]);
+    let result = run(
+        &wait(json!({"pid": 123, "window_id": 4, "role": "button", "actionable": false})),
+        &mut any,
+    )
+    .await;
+    assert_eq!(result["structuredContent"]["checks"], 1, "{result}");
+
+    // A gone wait counts any row by default: a disabled button is still there.
+    let mut still = Script::new(vec![state(json!([disabled]))]);
+    let result = run(
+        &wait(json!({"pid": 123, "window_id": 4, "role": "button", "gone": true, "timeout_ms": 0})),
+        &mut still,
+    )
+    .await;
+    assert_eq!(result["structuredContent"]["timed_out"], true, "{result}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_tree_as_large_as_the_helpers_cap_never_counts_as_gone() {
+    // The shipped helper cuts its walk at 2000 nodes without saying so.
+    let mut reader = Script::new(vec![state_with(
+        json!([]),
+        json!({"element_count": HELPER_MAX_ELEMENTS, "total_element_count": HELPER_MAX_ELEMENTS}),
+    )]);
+    let result = run(
+        &wait(
+            json!({"pid": 123, "window_id": 4, "query": "Save", "gone": true, "timeout_ms": 400}),
+        ),
+        &mut reader,
+    )
+    .await;
+    assert_eq!(result["structuredContent"]["timed_out"], true, "{result}");
+    assert_eq!(result["structuredContent"]["gone_unconfirmed"], true);
+}
+
+#[tokio::test(start_paused = true)]
+async fn gone_from_a_tree_the_helper_said_nothing_about_says_tree_unknown() {
+    let mut reader = Script::new(vec![state_with(json!([]), json!({"element_count": 12}))]);
+    let result =
+        run(&wait(json!({"pid": 123, "window_id": 4, "query": "Save", "gone": true})), &mut reader)
+            .await;
+    assert_eq!(result.get("isError"), None, "{result}");
+    assert_eq!(result["structuredContent"]["tree"], "unknown");
+    assert!(result["content"][0]["text"].as_str().unwrap().contains("tree: unknown"));
+    let mut whole = Script::new(vec![state_with(json!([]), json!({"elements_complete": true}))]);
+    let result =
+        run(&wait(json!({"pid": 123, "window_id": 4, "query": "Save", "gone": true})), &mut whole)
+            .await;
+    assert_eq!(result["structuredContent"]["tree"], "whole", "{result}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_bounded_gone_check_at_its_deadline_does_not_read_again() {
+    // timeout_ms: 0 is one check: no widened read after the deadline.
+    let mut reader = Script::new(vec![state(json!([]))]);
+    let result = run(
+        &wait(json!({"pid": 123, "window_id": 4, "query": "Save", "gone": true,
+            "max_elements": 5, "timeout_ms": 0})),
+        &mut reader,
+    )
+    .await;
+    assert_eq!(reader.asked.len(), 1, "{result}");
+    assert_eq!(result["structuredContent"]["timed_out"], true);
+    assert_eq!(result["structuredContent"]["gone_unconfirmed"], true);
+}
+
+#[test]
+fn a_whole_tree_exactly_at_the_cap_is_whole() {
+    let at_cap = json!({"element_count": 5, "truncated": false});
+    assert_eq!(tree(&at_cap, &json!({"max_elements": 5})), Tree::Whole);
+    let complete = json!({"element_count": HELPER_MAX_ELEMENTS, "elements_complete": true});
+    assert_eq!(tree(&complete, &json!({})), Tree::Whole);
+    assert_eq!(tree(&json!({"element_count": 5}), &json!({"max_elements": 5})), Tree::Cut);
+    assert_eq!(tree(&json!({"element_count": 4}), &json!({})), Tree::Unknown);
+}
+
+/// Answers the first read, then never answers again.
+struct AnswersOnce {
+    first: Option<Result<Value, String>>,
+    abandoned: bool,
+}
+
+impl TreeReader for AnswersOnce {
+    async fn read(&mut self, _arguments: Value) -> Result<Value, String> {
+        match self.first.take() {
+            Some(answer) => answer,
+            None => std::future::pending().await,
+        }
+    }
+
+    fn abandon(&mut self) {
+        self.abandoned = true;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_widened_read_that_never_answers_leaves_gone_unconfirmed() {
+    let mut reader = AnswersOnce { first: Some(state(json!([]))), abandoned: false };
+    let result = run(
+        &wait(json!({"pid": 123, "window_id": 4, "query": "Save", "gone": true,
+            "max_elements": 5, "timeout_ms": 1000})),
+        &mut reader,
+    )
+    .await;
+    let structured = &result["structuredContent"];
+    assert_eq!(structured["timed_out"], true, "{result}");
+    assert_eq!(structured["last_check_unanswered"], true);
+    assert_eq!(structured["gone_unconfirmed"], true);
+    assert_eq!(structured["widened"], true);
+    assert!(reader.abandoned);
 }
