@@ -1275,6 +1275,7 @@ command  ssh-tmux  aliases=-
   arg  --new-window  kind=flag  completion=-
   arg  --no-focus  kind=flag  completion=-
   arg  --port  kind=option  completion=-
+  arg  --socket-name  kind=option  completion=-
   arg  arguments  kind=argument  completion=-
   arg  destination  kind=argument  completion=-
 command  sudo  aliases=-

@@ -166,7 +166,7 @@ actor RemoteTmuxSSHTransport {
         try host.ensureControlSocketDirectory()
         let remoteCommand: String
         if remoteArgs.first == "tmux" {
-            remoteCommand = RemoteTmuxHost.tmuxRemoteCommand(arguments: Array(remoteArgs.dropFirst()))
+            remoteCommand = host.tmuxRemoteCommand(arguments: Array(remoteArgs.dropFirst()))
         } else {
             remoteCommand = remoteArgs
                 .map { RemoteTmuxHost.shellSingleQuoted($0) }

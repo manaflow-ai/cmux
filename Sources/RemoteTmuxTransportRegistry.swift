@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// The transports cmux can carry a control stream over.
@@ -57,7 +58,8 @@ enum RemoteTmuxTransportKind: String, Sendable, Equatable, CaseIterable {
     func profile(
         port: Int?,
         broker: RemoteTmuxTransportBroker? = nil,
-        transportHelperPath: String? = nil
+        transportHelperPath: String? = nil,
+        socketName: String? = nil
     ) -> RemoteTmuxTransportProfile {
         switch self {
         case .ssh:
@@ -81,7 +83,10 @@ enum RemoteTmuxTransportKind: String, Sendable, Equatable, CaseIterable {
                 // client flag before the destination. Caught by
                 // `brokeredArgvPutsBrokerFlagsFirstAndDropsEndpointFlags`.
                 remoteTerminalPath: transportHelperPath,
-                broker: broker
+                broker: broker,
+                // The et profile types its own `tmux` line rather than going through the host's
+                // resolver wrapper, so it has to carry the socket name itself.
+                socketName: socketName
             )
         }
     }
@@ -733,8 +738,13 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
     /// Derived from the command this profile actually builds rather than guessed, so it cannot
     /// drift away from it. tmux itself accepts names far longer than this — roughly 1000 bytes —
     /// which is why an unbounded name reached et and silently delivered nothing.
-    static func maxSessionNameBytes(mode: RemoteTmuxControlAttachMode = .attach) -> Int {
-        let overhead = controlStreamRemoteCommand(sessionName: "", mode: mode).utf8.count
+    static func maxSessionNameBytes(
+        mode: RemoteTmuxControlAttachMode = .attach,
+        socketName: String? = nil
+    ) -> Int {
+        let overhead = controlStreamRemoteCommand(
+            sessionName: "", mode: mode, socketName: socketName
+        ).utf8.count
         return max(0, deliverableCommandBytes - overhead - 1)
     }
 
@@ -748,17 +758,23 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
     /// `etterminal` using the remote environment; a caller may set this only
     /// when it knows the host's actual path.
     let remoteTerminalPath: String?
+    /// The host's tmux server name (`-L <name>`), or nil for the default server. Spent from
+    /// the same line budget as the session name, so it is part of the profile rather than
+    /// added at the spawn site.
+    let socketName: String?
 
     init(
         port: Int = 2022,
         executable: String? = nil,
         remoteTerminalPath: String? = nil,
-        broker: RemoteTmuxTransportBroker? = nil
+        broker: RemoteTmuxTransportBroker? = nil,
+        socketName: String? = nil
     ) {
         self.broker = broker
         self.port = port
         self.executable = executable ?? Self.resolveClientExecutable()
         self.remoteTerminalPath = remoteTerminalPath
+        self.socketName = socketName
     }
 
     /// The remote command this profile runs, in one place so the length bound above is derived
@@ -770,9 +786,9 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
     /// rather than naming it, so it neither created a missing session nor attached to the named
     /// one.
     static func controlStreamRemoteCommand(
-        sessionName: String, mode: RemoteTmuxControlAttachMode
+        sessionName: String, mode: RemoteTmuxControlAttachMode, socketName: String? = nil
     ) -> String {
-        (["tmux"] + mode.tmuxArguments(sessionName: sessionName))
+        (["tmux"] + RemoteTmuxSocketName.arguments(for: socketName) + mode.tmuxArguments(sessionName: sessionName))
             .map(RemoteTmuxHost.shellSingleQuoted)
             .joined(separator: " ")
     }
@@ -794,7 +810,9 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         // Dropping the resolver is safe precisely because it is a login shell: it has the user's
         // full PATH, so it finds tmux itself. ssh is the opposite case, running a non-login shell
         // with a minimal PATH, which is why that profile still needs the resolver.
-        let remote = Self.controlStreamRemoteCommand(sessionName: sessionName, mode: mode)
+        let remote = Self.controlStreamRemoteCommand(
+            sessionName: sessionName, mode: mode, socketName: socketName
+        )
         // A brokered host takes a different argv shape, not extra flags on this one.
         //
         // The wrapper parses its own flags up to the destination and forwards everything after
@@ -899,7 +917,9 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         sessionName: String,
         mode: RemoteTmuxControlAttachMode
     ) -> (actual: Int, budget: Int)? {
-        let actual = Self.controlStreamRemoteCommand(sessionName: sessionName, mode: mode).utf8.count
+        let actual = Self.controlStreamRemoteCommand(
+            sessionName: sessionName, mode: mode, socketName: socketName
+        ).utf8.count
         let budget = Self.deliverableCommandBytes
         return actual > budget ? (actual: actual, budget: budget) : nil
     }

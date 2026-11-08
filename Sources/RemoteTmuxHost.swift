@@ -76,6 +76,17 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// launch setting; changing it on a live endpoint requires detaching first.
     let transportHelperPath: String?
 
+    /// Optional tmux server name (`tmux -L <name>`). `nil` mirrors the user's default server,
+    /// which is today's behavior.
+    ///
+    /// Part of the endpoint identity, not a launch setting: two servers on one host hold
+    /// different sessions, so `alpha` and `beta` are two endpoints with two connection hashes
+    /// and two ControlMaster sockets. Every tmux command this host runs, the `-CC` control
+    /// stream included, is prefixed with `-L <name>` (see ``tmuxRemoteCommand(arguments:)``).
+    /// Validated at the CLI and socket boundaries against ``RemoteTmuxSocketName/isValid(_:)``
+    /// because the value is interpolated into a remote shell command.
+    let socketName: String?
+
     init(
         destination: String,
         port: Int? = nil,
@@ -83,7 +94,8 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         transport: RemoteTmuxTransportKind = .ssh,
         transportPort: Int? = nil,
         transportBroker: RemoteTmuxTransportBroker? = nil,
-        transportHelperPath: String? = nil
+        transportHelperPath: String? = nil,
+        socketName: String? = nil
     ) {
         self.destination = destination
         self.port = port
@@ -92,6 +104,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         self.transportPort = transportPort
         self.transportBroker = transportBroker
         self.transportHelperPath = transportHelperPath
+        self.socketName = socketName
     }
 
     /// Resolve launch options together so dedicated and shared connections cannot
@@ -100,7 +113,8 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         transport.profile(
             port: transportPort,
             broker: transportBroker,
-            transportHelperPath: transportHelperPath
+            transportHelperPath: transportHelperPath,
+            socketName: socketName
         )
     }
 
@@ -123,7 +137,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
 
     /// A stable, deterministic, collision-resistant hex digest of this host's endpoint identity —
     /// the case-sensitive ``destination`` plus the explicit ``port``, ``identityFile``, transport,
-    /// and resolved transport port — over a unit-separated fingerprint (FNV-1a/64). Launch-only
+    /// resolved transport port, and ``socketName`` — over a unit-separated fingerprint (FNV-1a/64). Launch-only
     /// route settings such as ``transportBroker`` and ``transportHelperPath`` are intentionally
     /// excluded; a live endpoint has one route, and a conflicting launch setting is rejected
     /// instead of creating a second connection.
@@ -154,6 +168,12 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         // host be mirrored twice.
         if transport != .ssh {
             fingerprint += "\u{1f}\(transport.rawValue)\u{1f}\(transport.resolvedTransportPort(transportPort))"
+        }
+        // Only appended when set, for the same reason: a host on the default server keeps the
+        // hash it has today. Two servers on one host are two endpoints, each holding its own
+        // sessions, so they must never share a master or a mirror (#15022).
+        if let socketName {
+            fingerprint += "\u{1f}socket\u{1f}\(socketName)"
         }
         return Self.fnv1a64Hex(fingerprint)
     }
@@ -380,6 +400,14 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         RemoteTmuxCommandBuilder(arguments: arguments).remoteShellCommand
     }
 
+    /// The same wrapper, aimed at this host's tmux server: `-L <socketName>` goes in front of
+    /// `arguments` when the host names one. Every one-shot command and the ssh control stream
+    /// build their remote command here, so a socket-named host cannot reach the default
+    /// server by accident.
+    func tmuxRemoteCommand(arguments: [String]) -> String {
+        RemoteTmuxCommandBuilder(arguments: arguments, socketName: socketName).remoteShellCommand
+    }
+
     /// Stable stderr marker the resolver emits with exit 127 when no tmux binary is usable.
     static let tmuxNotFoundSentinel = RemoteTmuxCommandBuilder.notFoundSentinel
 
@@ -425,7 +453,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
             controlPersistSeconds: controlPersistSeconds,
             batchMode: true
         ))
-        let remoteCommand = Self.tmuxRemoteCommand(
+        let remoteCommand = tmuxRemoteCommand(
             arguments: mode.tmuxArguments(sessionName: sessionName))
         args.append(contentsOf: ["--", destination, remoteCommand])
         return args

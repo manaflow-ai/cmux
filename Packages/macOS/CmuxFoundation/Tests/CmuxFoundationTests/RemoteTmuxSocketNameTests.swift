@@ -12,7 +12,7 @@ struct RemoteTmuxSocketNameTests {
 
     static let accepted: [String] = ["alpha", "proj.v2", "team_a", "a-b-c", "A1", "x", longestAllowed]
     static let rejected: [String] = [
-        "", " ", "a b", "a/b", "a;b", "a'b", "a\"b", "a$b", "a`b", "a\nb", "名前", "é", oneTooLong,
+        "", " ", "-x", "-", "a b", "a/b", "a;b", "a'b", "a\"b", "a$b", "a`b", "a\nb", "名前", "é", oneTooLong,
     ]
 
     @Test(arguments: accepted)

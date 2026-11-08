@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxFoundation
 import Foundation
 import CmuxControlSocket
 import os
@@ -54,7 +55,8 @@ extension TerminalController {
         }
     }
 
-    /// Builds a ``RemoteTmuxHost`` from socket params (`host`, `port`, `identity_file`).
+    /// Builds a ``RemoteTmuxHost`` from socket params (`host`, `port`, `identity_file`,
+    /// `socket_name`, transport fields).
     ///
     /// Rejects a destination (or identity file) beginning with `-`: even with the
     /// `--` end-of-options guard in the argv builders, a dash-prefixed
@@ -92,6 +94,11 @@ extension TerminalController {
         if let transportPort, !(1...65535).contains(transportPort) { return nil }
         guard remoteTmuxHelperPathFailureMessage(from: params) == nil else { return nil }
         let transportHelperPath = params["transport_helper_path"] as? String
+        // A tmux server name reaches the remote shell as `-L <name>`. The CLI already refuses
+        // anything outside the strict set, but the socket is reachable by anything running as
+        // the user, so the same check applies here (``remoteTmuxSocketNameFailureMessage``).
+        guard remoteTmuxSocketNameFailureMessage(from: params) == nil else { return nil }
+        let socketName = params["socket_name"] as? String
         // A broker is chosen BY NAME from what the user declared under `remoteTmux.brokers`, never
         // described inline here. The socket is reachable by anything running as the user, so taking
         // an executable and its arguments from a parameter would be a wider local-execution surface
@@ -124,7 +131,8 @@ extension TerminalController {
             transport: transport,
             transportPort: transportPort,
             transportBroker: broker,
-            transportHelperPath: transportHelperPath
+            transportHelperPath: transportHelperPath,
+            socketName: socketName
         )
     }
 
@@ -155,6 +163,7 @@ extension TerminalController {
             )
         }
         if let failure = remoteTmuxHelperPathFailureMessage(from: params) { return failure }
+        if let failure = remoteTmuxSocketNameFailureMessage(from: params) { return failure }
         switch selectBroker(params["transport_broker"] as? String) {
         case .none:
             return nil
@@ -192,6 +201,21 @@ extension TerminalController {
                 defaultValue: "transport_broker is not a usable name: \(reason)"
             )
         }
+    }
+
+    /// Why a `socket_name` was refused, or nil when none was given or it is usable.
+    ///
+    /// Exact, not trimmed: the value names a tmux server and is interpolated into a remote
+    /// shell command, so only ``RemoteTmuxSocketName/isValid(_:)`` spellings pass.
+    nonisolated static func remoteTmuxSocketNameFailureMessage(from params: [String: Any]) -> String? {
+        guard let raw = params["socket_name"] else { return nil }
+        guard let name = raw as? String, RemoteTmuxSocketName.isValid(name) else {
+            return String(
+                localized: "socket.remoteTmux.socketNameInvalid",
+                defaultValue: "socket_name must be 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-'"
+            )
+        }
+        return nil
     }
 
     /// Validate the transport helper once for every socket entrypoint, preserving
