@@ -171,8 +171,15 @@ def _value(elem, vals):
 def main_thread_samples(xml_path, pid):
     """[(t_ns since the trace start, weight_ns, frames leaf first as (symbol, binary))] of `pid`'s main thread.
     Streams the export: an all-process table holds every thread of every process."""
-    ids, vals, samples = {}, {}, []
-    for event, elem in ET.iterparse(xml_path, events=("start", "end")):
+    ids, vals = {}, {}
+    with open(xml_path, "rb") as source:
+        rows = list(_rows(source, ids, vals, pid))
+    rows.sort(key=lambda s: s[0])
+    return rows
+
+
+def _rows(source, ids, vals, pid):
+    for event, elem in ET.iterparse(source, events=("start", "end")):
         if event == "start":
             if elem.tag == "node":
                 ids.clear()
@@ -184,7 +191,7 @@ def main_thread_samples(xml_path, pid):
             if isinstance(thread, dict) and thread["main"] and thread["pid"] == pid and isinstance(t, int):
                 weight = row.get("weight")
                 stack = row.get("backtrace") or row.get("tagged-backtrace") or row.get("kperf-bt") or ()
-                samples.append((t, weight if isinstance(weight, int) and weight > 0 else 1_000_000, stack))
+                yield (t, weight if isinstance(weight, int) and weight > 0 else 1_000_000, stack)
             vals.clear()
             elem.clear()
             continue
@@ -193,8 +200,6 @@ def main_thread_samples(xml_path, pid):
         if ref is None and elem.get("id") is not None:
             ids[elem.get("id")] = value
         vals[id(elem)] = value
-    samples.sort(key=lambda s: s[0])
-    return samples
 
 
 def is_ours(frame):
