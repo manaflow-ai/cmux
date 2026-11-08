@@ -14,7 +14,7 @@ import Testing
 @Suite(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
        .timeLimit(.minutes(2)), .liveDaemon)
 struct BranchSnapshotKittyImagesTests {
-    /// A 64x64 RGB PNG (the cmux-tui fixture's): 12288 bytes of pixels once decoded.
+    /// A 64x64 RGB PNG (the cmux-tui fixture's). Ghostty decodes a PNG to RGBA: 16384 bytes of pixels.
     private static let png = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAT0lEQVR42u3PQQkAAAgEsItjJhMbywi+hcEKLFP9WgQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQELgs6CKEtxmKJKgAAAABJRU5ErkJggg=="
     /// The GHOSTSNP version the app's linked libghostty reads
     /// (`ghostty_surface_snapshot_version`); this target links no Ghostty.
@@ -56,9 +56,9 @@ struct BranchSnapshotKittyImagesTests {
             #expect(phases.first == .ready && phases.dropFirst().allSatisfy { $0 == .history }, "\(phases)")
             #expect(counts.images == 2, "images in KITTY_IMAGE_STORAGE: \(counts.images)")
             #expect(counts.placements + counts.pagePlacements == 2, "placements: \(counts)")
-            // Each image's pixels once: 64 x 64 x 3 bytes.
+            // Each image's pixels once: 64 x 64 x 4 bytes (RGBA).
             #expect(counts.payloads.map(\.id).sorted() == [11, 12], "pixel records: \(counts.payloads)")
-            #expect(counts.payloads.allSatisfy { $0.bytes == 64 * 64 * 3 }, "pixel bytes: \(counts.payloads)")
+            #expect(counts.payloads.allSatisfy { $0.bytes == 64 * 64 * 4 }, "pixel bytes: \(counts.payloads)")
         }
     }
 }
