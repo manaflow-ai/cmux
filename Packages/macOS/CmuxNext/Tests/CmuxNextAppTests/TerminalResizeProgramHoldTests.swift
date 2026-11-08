@@ -132,7 +132,7 @@ struct TerminalResizeProgramHoldTests {
     }
 
     /// A full-screen program's picture at `cols` x `rows`: the alternate screen, cleared, a ring on its edges.
-    @Sendable static func ring(cols: Int, rows: Int) -> Data {
+    nonisolated static func ring(cols: Int, rows: Int) -> Data {
         guard cols >= 2, rows >= 2 else { return Data() }
         let edge = "+" + String(repeating: "-", count: cols - 2) + "+"
         let middle = "|" + String(repeating: " ", count: cols - 2) + "|"
