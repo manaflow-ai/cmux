@@ -9,8 +9,8 @@ internal import ObjectiveC
 ///
 /// `DebugMouse` registers each press before posting it; the guard asks
 /// `isUserInput` as the press arrives. Matched by type and timestamp (each
-/// posted event has its own `systemUptime`); bounded, so an event that
-/// never arrives is forgotten.
+/// posted event has its own `systemUptime`, kept to the nanosecond in the
+/// queue); bounded, so an event that never arrives is forgotten.
 ///
 /// A synthetic press also holds its button, as the hardware does, from the
 /// dispatch of its mouse-down to that of its mouse-up: `NSEvent.pressedMouseButtons`
@@ -23,6 +23,14 @@ public enum SyntheticInput {
     private struct Key: Hashable {
         var type: UInt
         var timestamp: TimeInterval
+
+        /// The posted event's own stamp: the queue keeps it to the nanosecond, so a dispatched
+        /// event's timestamp can differ from the one it was made with in the last digits (a
+        /// capture's press read as the person's, its button never held). Within a microsecond is
+        /// the same event; the oldest pending one of that type is taken first.
+        func matches(_ other: Key) -> Bool {
+            type == other.type && abs(timestamp - other.timestamp) < 0.000_001
+        }
     }
 
     /// The registered events not dispatched yet, and the buttons synthetic presses hold
@@ -50,7 +58,7 @@ public enum SyntheticInput {
         let key = Key(type: event.type.rawValue, timestamp: event.timestamp)
         let bit = buttonBit(event)
         let user = state.withLock { state in
-            guard let index = state.pending.firstIndex(of: key) else { return true }
+            guard let index = state.pending.firstIndex(where: key.matches) else { return true }
             // Events dispatch in the order they were posted: one registered before this one that never came
             // was taken by a tracking loop (`nextEvent(matching:)`: a native button's or a text selection's),
             // so its release lets go of its button here.
