@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42494294638",
+  "recorded_at": "2026-11-08T15:27:31Z",
+  "reason": "cmux-tui 9ad25054af72 changes the image's cmux-tui (pinned f556ceb0fd34)",
+  "dry_run": false,
+  "cmux_tui": "9ad25054af725dfa4eaa633054dc24366b799b31",
+  "fixes": [
+    {
+      "sha": "9ad25054af725dfa4eaa633054dc24366b799b31",
+      "mergedAt": "2026-11-08T07:03:36-08:00",
+      "subject": "cmux-remote: the acpmux carrier service, bridged to acpmux's carrier socket with the grant's person (#38420)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T15:27:31Z",
+    "snapshot_id": "sh-3d4b604a68524ae29a0f4e6e6f9b84cd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42494294638): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "28373e39c1d3d19558aaa09c457f2f84dd2ad598",
+    "image": "cloud-native-auto-9ad25054-42494294638-1",
+    "revision": "ci-42494294638-1",
+    "at": "2026-11-08T15:27:31Z"
+  },
+  "rolled_back": false
+}
