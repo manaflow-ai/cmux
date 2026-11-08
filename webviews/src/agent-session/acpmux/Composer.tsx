@@ -890,8 +890,8 @@ function ComposerFrame({
   const restoreNow = useRef(restoreDraft);
   restoreNow.current = restoreDraft;
   // Stash (composer/useDraftStash.ts): ⌃S puts the draft aside and empties the prompt; ⌃S on an empty
-  // prompt, or a pick from the Stashed chip, brings the newest (or the picked) one back. A draft
-  // typed meanwhile goes on the stack in its place, so nothing typed is ever replaced.
+  // prompt, or a pick from the Stashed chip, brings the newest (or the picked) one back,
+  // before what was typed meanwhile, so nothing typed is ever replaced.
   const newChatKey = useNewChatStash();
   const stashChat = sessionId ?? newChatKey;
   const {

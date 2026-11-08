@@ -1,6 +1,6 @@
 // The Stashed chip in the composer's quiet row (composer/draftStash.ts): while the chat holds a
 // stashed draft it names how many, and its menu lists them, newest first; a pick brings that one
-// back (a draft typed meanwhile takes its place on the stack). It stands in the row's free middle,
+// back (before a draft typed meanwhile). It stands in the row's free middle,
 // as the machine link does, so the mode, the model and the ring never move when it comes or goes:
 // it is always drawn and opens from no width (`data-shown`), in one frame under the motion gate.
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup } from "../../../ui/Menu";

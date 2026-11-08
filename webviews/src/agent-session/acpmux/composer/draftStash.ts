@@ -77,13 +77,22 @@ export function setStashTransport(next: StashTransport | undefined): void {
   for (const chat of wanted) void refreshStash(chat);
 }
 
-/// Reads `chat`'s stack from acpmux. A failed read keeps what the page had.
+/// Pushes and drops begun or ended, per chat: a list read while one was out may not hold it.
+const changes = new Map<string, number>();
+const changed = (chat: string) => changes.set(chat, (changes.get(chat) ?? 0) + 1);
+
+/// Reads `chat`'s stack from acpmux. A failed read keeps what the page had; an answer read while a
+/// push or drop was out is dropped and the stack read again, so it never takes back a stash the
+/// page already shows.
 export function refreshStash(chat: string): Promise<void> {
   const link = transport;
   if (!link) return Promise.resolve();
+  const at = changes.get(chat) ?? 0;
   return link.list(chat).then(
     (answer) => {
-      if (link === transport) setStack(chat, draftsFrom(answer));
+      if (link !== transport) return;
+      if (at !== (changes.get(chat) ?? 0)) return refreshStash(chat);
+      setStack(chat, draftsFrom(answer));
     },
     () => undefined,
   );
@@ -101,6 +110,7 @@ export async function stashDraft(
 ): Promise<boolean> {
   const link = transport;
   if (!link || (!text.trim() && attachments.length === 0)) return false;
+  changed(chat);
   try {
     const answer = await link.push(chat, text, attachments, replaces);
     const row = draftFrom((answer as { draft?: unknown } | undefined)?.draft);
@@ -116,6 +126,8 @@ export async function stashDraft(
     return true;
   } catch {
     return false;
+  } finally {
+    changed(chat);
   }
 }
 
@@ -139,7 +151,11 @@ export async function dropStashed(chat: string, id: string): Promise<void> {
     chat,
     (stacks.get(chat) ?? NONE).filter((entry) => entry.id !== id),
   );
-  await link.drop(chat, id).catch(() => undefined);
+  changed(chat);
+  await link
+    .drop(chat, id)
+    .catch(() => undefined)
+    .finally(() => changed(chat));
 }
 
 /// A new chat's stack follows it once it has a session. Every draft is read whole first, so a push
@@ -213,6 +229,7 @@ export function resetStashForTests(next?: StashTransport): void {
   paneTab = undefined;
   stacks.clear();
   wanted.clear();
+  changes.clear();
   transport = next;
 }
 

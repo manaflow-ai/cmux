@@ -157,6 +157,19 @@ describe("draft stash", () => {
     expect(texts("session-1")).toEqual(["newer", "older"]);
   });
 
+  test("a list read while a stash was out never takes the stash back; the stack is read again", async () => {
+    const answers: ((value: unknown) => void)[] = [];
+    setStashTransport({ ...fake, list: () => new Promise((resolve) => answers.push(resolve)) });
+    const read = refreshStash("chat");
+    expect(await stashDraft("chat", "fresh", [])).toBe(true);
+    answers.shift()!({ drafts: [] });
+    for (let turn = 0; turn < 5 && !answers.length; turn++) await Promise.resolve();
+    expect(texts("chat")).toEqual(["fresh"]);
+    answers.shift()!(await fake.list("chat"));
+    await read;
+    expect(texts("chat")).toEqual(["fresh"]);
+  });
+
   test("an answer that is not a stack reads as none", () => {
     expect(draftsFrom(undefined)).toEqual([]);
     expect(draftsFrom({ drafts: [{ id: 1 }, "x", null] })).toEqual([]);

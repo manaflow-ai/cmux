@@ -1,7 +1,7 @@
 // ⌃S in a composer (the chat's, the New Tab page's): the draft goes on its chat's stack in acpmux
 // (draftStash.ts) and the prompt empties; on an empty prompt, or a pick from the Stashed chip, the
-// newest (or the picked) one comes back. A draft typed meanwhile goes on the stack in its place, so
-// nothing typed is ever replaced. The composer gives its own draft's reads and writes.
+// newest (or the picked) one comes back, before whatever was typed meanwhile, so nothing typed is
+// ever replaced. The composer gives its own draft's reads and writes.
 import { useEffect, useRef } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { dropStashed, readStashed, stashDraft, useStash } from "./draftStash";
@@ -62,23 +62,10 @@ export function useDraftStash(chat: string, composer: StashedComposer) {
     if (!target || restoring.current) return;
     restoring.current = true;
     void (async () => {
-      // Read whole, and dropped only once this composer holds it again in the same chat.
+      // Read whole, put back before what the prompt holds, and dropped only once this composer has
+      // it again in the same chat: until then acpmux keeps it, so a page that goes loses nothing.
       const entry = await readStashed(on, target);
       if (!entry || !showing(on)) return;
-      const held = io.current.held();
-      if (held.text.trim() || held.attachments.length > 0) {
-        // A draft typed meanwhile goes on the stack in the taken one's place, in one write.
-        if (await stashDraft(on, held.text, held.attachments, entry.id)) {
-          // Left meanwhile: the taken draft goes back on the stack, as it was.
-          if (!showing(on)) return void stashDraft(on, entry.text, entry.attachments);
-          if (stillHeld(held)) io.current.clear();
-          io.current.restore(entry.text, entry.attachments);
-          io.current.focus();
-          return;
-        }
-        // acpmux refused it: the typed draft stays, and the stashed one comes back beside it.
-        if (!showing(on)) return;
-      }
       io.current.restore(entry.text, entry.attachments);
       io.current.focus();
       // Dropped once the composer has drawn it back, and only while it still shows the chat: one
