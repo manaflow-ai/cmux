@@ -246,6 +246,17 @@ import QuartzCore
         layer.add(animation, forKey: "\(batchKey).appear")
     }
 
+    /// Hides `layer` (an unpinned item's pin glyph on the arriving row) to transparent on `token`'s spring from `now`,
+    /// `appear` reversed: its model is transparent at once, so it is gone when the move ends.
+    static func disappear(_ layer: CALayer, _ token: MotionSpring = .move, now: CFTimeInterval) {
+        let shown = layer.opacity
+        Motion.withoutAnimation { layer.opacity = 0 }
+        let animation = Motion.sidebar.springAnimation(token, "opacity", from: NSNumber(value: shown), to: NSNumber(value: 0))
+        animation.beginTime = layer.convertTime(now, from: nil)
+        animation.fillMode = .backwards
+        layer.add(animation, forKey: "\(batchKey).disappear")
+    }
+
     /// The layer position `frame` (in `view`'s superview) gives `view`'s layer: AppKit keeps a view's sublayers in its
     /// own coordinates (it flips their geometry for a flipped view).
     private static func layerPosition(of frame: NSRect, for view: NSView) -> CGPoint {

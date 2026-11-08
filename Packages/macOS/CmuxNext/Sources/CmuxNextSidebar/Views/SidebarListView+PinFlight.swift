@@ -30,6 +30,9 @@ struct SidebarPinFlight {
     let title: (view: NSView, offset: CGPoint)?
     /// A glyph the arriving view draws and the leaving one did not (a pinned item's pin): it fades in on the move.
     var glyph: NSView?
+    /// A glyph the leaving view drew and the arriving one does not (an unpinned item's pin): a copy rides the arriving
+    /// view from the leaving one's place and fades out on the move; the move's end removes it (`landFlights`).
+    var leavingGlyph: NSView?
     /// The view's own ground before the flight gave it an opaque one (`raiseForFlight`), put back when it lands.
     var ground: SidebarFlightGround?
     /// The parts of a block that opens with this pin other than the flying item (its section header): the block itself
@@ -42,6 +45,8 @@ struct SidebarPinFlight {
         if let title { SidebarDragSpring.offset(title.view, by: title.offset, token, now: now) }
         if let glyph { SidebarDragSpring.attach(glyph) }
         if let layer = glyph?.layer { SidebarDragSpring.appear(layer, token, now: now) }
+        if let leavingGlyph { SidebarDragSpring.attach(leavingGlyph) }
+        if let layer = leavingGlyph?.layer { SidebarDragSpring.disappear(layer, token, now: now) }
         revealed.forEach(SidebarDragSpring.attach)
         for layer in revealed.compactMap(\.layer) { SidebarDragSpring.appear(layer, token, now: now) }
     }
@@ -73,6 +78,8 @@ struct SidebarPinFlightSource {
     var size: MotionPath?
     /// The title's pen origin in the view, nil when the view draws none.
     var pen: CGPoint?
+    /// The pin glyph the view draws (a pinned item), its frame in the view (flipped, as both a row and an item are).
+    var glyph: (image: NSImage, frame: NSRect, tint: NSColor?)?
 
     /// The frame drawn at media time `time`.
     func frame(at time: CFTimeInterval) -> NSRect {
@@ -159,6 +166,9 @@ extension SidebarListViewComponents {
     private func source(of view: NSView) -> SidebarPinFlightSource {
         var source = drawnPath(of: view)
         source.pen = (view as? any SidebarRenameTitle)?.titlePenOrigin?.pointValue
+        if let pin = (view as? SidebarItemRowView)?.pinGlyph as? NSImageView, let image = pin.image {
+            source.glyph = (image, view.convert(pin.frame, from: pin.superview), pin.contentTintColor)
+        }
         return source
     }
 
@@ -268,7 +278,19 @@ extension SidebarListViewComponents {
         let start: @MainActor (CFTimeInterval) -> NSRect = { [weak self] time in
             self?.convert(source.frame(at: time), to: view.superview) ?? source.frame(at: time)
         }
-        return SidebarPinFlight(view: view, start: start, title: titleOffset(of: view, from: source), ground: ground)
+        return SidebarPinFlight(view: view, start: start, title: titleOffset(of: view, from: source),
+                                leavingGlyph: leavingGlyph(on: view, from: source), ground: ground)
+    }
+
+    /// The item's pin on the arriving row (both flipped, the row starting on the item's frame): where the item drew it.
+    private func leavingGlyph(on view: NSView, from source: SidebarPinFlightSource) -> NSView? {
+        guard let glyph = source.glyph else { return nil }
+        let copy = DecorativeImageView(frame: glyph.frame)
+        copy.image = glyph.image
+        copy.contentTintColor = glyph.tint
+        copy.wantsLayer = true
+        view.addSubview(copy)
+        return copy
     }
 
     /// How far `view`'s title must start from its own place so it draws on the leaving view's title: `view` starts on
@@ -316,6 +338,7 @@ extension SidebarListViewComponents {
     /// The flights' views draw at their places in the stack again once the move ended, on no ground of their own.
     static func landFlights(_ flights: [SidebarPinFlight]) {
         for flight in flights {
+            flight.leavingGlyph?.removeFromSuperview()
             flight.view.layer?.zPosition = 0
             (flight.view as? SidebarRowView)?.flightGround = nil
             if let block = flight.view.enclosingRow { block.layer?.zPosition = 0 }

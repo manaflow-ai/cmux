@@ -1736,5 +1736,7 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   Then the app pin flies: a flight puts a new view's layer into its superview's layer before it adds the springs
   (`SidebarDragSpring.attach`). AppKit attached a new Pinned item's layer only at its display pass, and Core Animation
   dropped the springs added before that, so the item showed at its slot at once.
+  Then an unpin's pin glyph fades out on the move: a copy rides the arriving row from the item's place on the move's
+  spring and begin (`SidebarPinFlight.leavingGlyph`, `SidebarDragSpring.disappear`); it vanished on the first frame.
   Then a flying list row keeps its opaque ground through its own display pass (`SidebarRowView.flightGround`: the fill is
   painted over the ground, opaque); the p1j films showed the passed titles through a flying selected row.
