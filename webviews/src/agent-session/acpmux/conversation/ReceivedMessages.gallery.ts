@@ -106,7 +106,7 @@ function snapshot() {
 }
 
 const HEAD = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
-const LINE = ".cv-lane-batch__body .cv-received .cv-disclosure__toggle";
+const LINE = ".cv-lane-batch__body .cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)";
 
 /// Opens the "Received N messages" row (level 1).
 const openRow: Play = async (ctx) => {

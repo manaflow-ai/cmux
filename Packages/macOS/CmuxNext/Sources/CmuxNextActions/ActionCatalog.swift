@@ -17,7 +17,6 @@ public nonisolated enum ActionCatalog {
         // Classic cmux shortcut IDs next renamed (hq#1870 parity audit): a binding
         // from classic's Settings or cmux.json keeps working.
         "showWindowHints": "hints.show",
-        "agentInbox": "feed.show",
         "resize-pane-left": "resizePaneLeft",
         "resize-pane-right": "resizePaneRight",
         "resize-pane-up": "resizePaneUp",
