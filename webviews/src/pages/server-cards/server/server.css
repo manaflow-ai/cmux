@@ -332,7 +332,7 @@ button.sv-role:focus-visible {
 
 .sv-pill[data-prominent] {
   background: var(--page-text);
-  color: var(--cmux-surface-background, Canvas);
+  color: var(--page-elevated);
 }
 
 .sv-pill:disabled {
