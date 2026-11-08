@@ -276,6 +276,10 @@ CMUX_SHIM_EXPORT void cmux_shim_set_default_search(const char* template_url_json
 // Call before cmux_shim_initialize; later calls do nothing.
 // plans/cmux-next/chrome-enterprise-policy-DESIGN.md.
 CMUX_SHIM_EXPORT void cmux_shim_set_chrome_policy_id(const char* policy_id);
+// The global request context's cache_path (CefSettings.cache_path): a direct child of
+// root_cache_path, the default cmux profile's directory, so Chromium starts no separate
+// "Default" profile. NULL or "" keeps CEF's default. Call before cmux_shim_initialize.
+CMUX_SHIM_EXPORT void cmux_shim_set_global_cache_path(const char* cache_path);
 // Page background before the first paint and for documents without one
 // (CefSettings.background_color and CefBrowserSettings.background_color),
 // as opaque 0xAARRGGBB; 0 keeps Chromium's default. Browsers created after

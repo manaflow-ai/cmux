@@ -400,6 +400,13 @@ void cmux_shim_set_chrome_policy_id(const char* policy_id) {
   g_chrome_policy_id = policy_id ? policy_id : "";
 }
 
+// Read once by cmux_shim_initialize (CefSettings.cache_path).
+static std::string g_global_cache_path;
+
+void cmux_shim_set_global_cache_path(const char* cache_path) {
+  g_global_cache_path = cache_path ? cache_path : "";
+}
+
 int cmux_shim_fork_api_version(void) {
   return fork_api().version;
 }
@@ -475,6 +482,14 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   CefString(&settings.main_bundle_path) = main_bundle_path ?: "";
   CefString(&settings.browser_subprocess_path) = subprocess_path ?: "";
   CefString(&settings.root_cache_path) = root_cache_path ?: "";
+  // The global context's profile is the default cmux profile's directory, so Chromium starts one
+  // regular profile, not that one and a "Default" no cmux tab uses. Every regular profile loads the
+  // --load-extension extensions and starts their background pages: the unused one held a uBlock
+  // Origin extension process of about 105 MB from launch on. RequestContextFor(the same path) then
+  // shares this profile (CEF reuses the browser context of an equal cache_path).
+  if (!g_global_cache_path.empty()) {
+    CefString(&settings.cache_path) = g_global_cache_path;
+  }
   if (log_file) {
     CefString(&settings.log_file) = log_file;
   }

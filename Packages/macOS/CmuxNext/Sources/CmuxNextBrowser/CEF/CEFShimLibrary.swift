@@ -36,6 +36,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setDefaultSearch: @convention(c) (UnsafePointer<CChar>?) -> Void
     /// The managed preference domain Chromium reads Chrome policies from (`CEFRuntime.chromePolicyIDSetting`).
     let setChromePolicyID: @convention(c) (UnsafePointer<CChar>?) -> Void
+    /// The global request context's profile directory (`CEFRuntime.initialize`): the default cmux profile's.
+    let setGlobalCachePath: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setBackgroundColor: @convention(c) (UInt32) -> Void
     let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
     /// A see-through page (fork API 17, `CEFTab.pageSeeThrough`); 0 when the fork lacks it.
@@ -342,6 +344,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setExtensionDeveloperMode = try r("cmux_shim_set_extension_developer_mode")
         setDefaultSearch = try r("cmux_shim_set_default_search")
         setChromePolicyID = try r("cmux_shim_set_chrome_policy_id")
+        setGlobalCachePath = try r("cmux_shim_set_global_cache_path")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         tabSetTransparentBackground = try r("cmux_shim_tab_set_transparent_background")

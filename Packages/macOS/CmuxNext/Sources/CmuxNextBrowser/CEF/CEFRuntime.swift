@@ -445,6 +445,9 @@ final class CEFRuntime {
             policyID.withCString { shim.setChromePolicyID($0) }
             logger.notice("chrome policy domain: \(policyID, privacy: .public)")
         }
+        // Chromium's global context is the default cmux profile, so it starts one regular profile and
+        // one set of built-in extension processes, not a second set for a "Default" no tab uses.
+        storage.contextKey(for: .default, machineKey: nil, offTheRecord: false).withCString { shim.setGlobalCachePath($0) }
         // Pages use the theme color, never white or Chromium's #292929
         // (PageBackground); theme changes reach live tabs (fork API 12).
         shim.setBackgroundColor(PageBackground.appThemeARGB)
