@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42529193204",
+  "recorded_at": "2026-11-08T22:23:43Z",
+  "reason": "cmux-tui 98ed3c9f2a10 changes the image's cmux-tui (pinned 1f686b340a45)",
+  "dry_run": false,
+  "cmux_tui": "98ed3c9f2a10b5d9e4cc3b919c9a648a8272f6e7",
+  "fixes": [
+    {
+      "sha": "3dfaf0b06b67b54ec888554061b51f488fd9bf8a",
+      "mergedAt": "2026-11-08T21:57:32Z",
+      "subject": "cmux-host updater: a bind's hold and the flip are atomic, rollbacks wait for carrier sessions (#38483)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T22:23:43Z",
+    "snapshot_id": "sh-1cb14bd3641044a89150a2fc28c79e5c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42529193204): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "45d32bd0ab2a29e55fddebdf7e9351e7872826f8",
+    "image": "cloud-native-auto-98ed3c9f-42529193204-1",
+    "revision": "ci-42529193204-1",
+    "at": "2026-11-08T22:23:43Z"
+  },
+  "rolled_back": false
+}
