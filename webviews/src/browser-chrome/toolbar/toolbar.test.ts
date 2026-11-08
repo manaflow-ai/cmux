@@ -593,13 +593,18 @@ describe("drafts move with their tab (two panes, two toolbar pages)", () => {
     });
   });
 
-  test("a press on the field reports the mouse event's click count", () => {
+  test("a double click on the compact URL selects the first click's word (the click count is mousedown's)", () => {
     withDocument((document) => {
       const view = document.defaultView!;
       const scope = globalThis as Record<string, unknown>;
-      const had = "window" in scope;
-      const saved = scope.window;
+      const saved = { window: scope.window, getComputedStyle: scope.getComputedStyle };
       scope.window = view;
+      scope.getComputedStyle = view.getComputedStyle.bind(view);
+      // jsdom draws no text: every character measures 10 px.
+      view.HTMLCanvasElement.prototype.getContext = (() => ({
+        font: "",
+        measureText: (text: string) => ({ width: text.length * 10 }),
+      })) as unknown as HTMLCanvasElement["getContext"];
       try {
         const a = page();
         a.session.applyHostState(
@@ -610,18 +615,26 @@ describe("drafts move with their tab (two panes, two toolbar pages)", () => {
         const input = document.querySelector("input") as HTMLInputElement;
         a.session.attachInput(input);
         input.addEventListener("mousedown", a.session.fieldMouseDown);
+        expect(a.session.state.elided).toBe(true);
+        const shown = a.session.presentation.text;
+        const at = shown.indexOf("example") + 2;
         const press = (detail: number) => {
-          input.dispatchEvent(new view.MouseEvent("mousedown", { bubbles: true, button: 0, detail }));
+          input.dispatchEvent(
+            new view.MouseEvent("mousedown", { bubbles: true, button: 0, detail, clientX: at * 10 + 5 }),
+          );
           view.dispatchEvent(new view.MouseEvent("pointerup"));
         };
         press(1);
-        expect(a.session.state.mouse?.clickCount).toBe(1);
-        // The second press of a double click: `pointerdown.detail` would read 0 here.
+        expect(a.session.state.doubleClickWord).not.toBeNull();
+        // The second press of a double click; `pointerdown.detail` reads 0 and would count it as one.
         press(2);
-        expect(a.session.state.mouse?.clickCount).toBe(2);
+        const { location, length } = a.session.state.edit.selection;
+        expect(a.session.presentation.text.slice(location, location + length)).toBe("example");
       } finally {
-        if (had) scope.window = saved;
-        else delete scope.window;
+        for (const [key, value] of Object.entries(saved)) {
+          if (value === undefined) delete scope[key];
+          else scope[key] = value;
+        }
       }
     });
   });
