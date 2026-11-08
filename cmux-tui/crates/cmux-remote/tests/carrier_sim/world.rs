@@ -374,10 +374,10 @@ async fn app(
                 Some(d) => format!("{:?}", d.connection_snapshots().await),
                 None => "no daemon".into(),
             };
+            let mine = client.snapshot().await;
             lock(&trace).push(format!(
-                "{:?} at the end, client: {:?}; daemon: {held}",
-                start.elapsed(),
-                client.snapshot().await
+                "{:?} at the end, client: {mine:?}; daemon: {held}",
+                start.elapsed()
             ));
         }
         let _ = tokio::time::timeout(Duration::from_secs(3), client.close()).await;
