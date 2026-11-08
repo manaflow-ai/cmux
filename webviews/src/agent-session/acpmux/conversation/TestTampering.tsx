@@ -41,11 +41,12 @@ export function TestTampering({ rows, sessionId, turnId, onRestore }: TestTamper
   const bodyId = useId();
   const allRestored =
     evidence.length > 0 && evidence.every((finding) => state.restored.has(tamperingEvidenceKey(finding)));
+  const canRestore = evidence.every((finding) => finding.new.length > 0);
   if (evidence.length === 0) return null;
 
   const restoreAll = async () => {
     const restore = restoreTestTampering ?? onRestore;
-    if (!restore || readOnly || state.restore === "pending" || allRestored) return;
+    if (!restore || !canRestore || readOnly || state.restore === "pending" || allRestored) return;
     setTestTamperingState(key, { restore: "pending" });
     try {
       await restoreFindings(restore, key, evidence, state.restored);
@@ -94,9 +95,11 @@ export function TestTampering({ rows, sessionId, turnId, onRestore }: TestTamper
             <button
               type="button"
               onClick={() => void restoreAll()}
-              disabled={!(restoreTestTampering ?? onRestore) || readOnly || state.restore === "pending" || allRestored}
+              disabled={
+                !(restoreTestTampering ?? onRestore) || !canRestore || readOnly || state.restore === "pending" || allRestored
+              }
             >
-              {!(restoreTestTampering ?? onRestore) || readOnly
+              {!(restoreTestTampering ?? onRestore) || !canRestore || readOnly
                 ? t("testTampering.restoreUnavailable" as StringKey)
                 : allRestored
                   ? t("testTampering.restored" as StringKey)

@@ -242,12 +242,10 @@ fn detect_edits(edits: Vec<Edit>) -> Vec<FileReport> {
         .map(|(&language, (old, new))| {
             let new_assertions = assertions(language, new);
             let fewer_assertions = assertions(language, old).len() > new_assertions.len();
-            let fewer_tests = test_markers(language, old) > test_markers(language, new);
             let more_skips = skips(language, new) > skips(language, old);
             (
                 language,
                 (
-                    fewer_tests,
                     fewer_assertions,
                     more_skips,
                     new_assertions,
@@ -267,15 +265,14 @@ fn detect_edits(edits: Vec<Edit>) -> Vec<FileReport> {
         }
     }
     for edit in &edits {
-        let (fewer_tests, fewer_assertions, more_skips, all_new_assertions, old_moves, new_moves) =
+        let (fewer_assertions, more_skips, all_new_assertions, old_moves, new_moves) =
             &summaries[&edit.language];
         let mut findings = Vec::new();
         for hunk in &edit.hunks {
             let old_assertions = assertions(edit.language, &hunk.old_code);
             let new_assertions = assertions(edit.language, &hunk.new_code);
-            let reason = if *fewer_tests
-                && test_markers(edit.language, &hunk.old_code)
-                    > test_markers(edit.language, &hunk.new_code)
+            let reason = if test_markers(edit.language, &hunk.old_code)
+                > test_markers(edit.language, &hunk.new_code)
                 && !new_moves.contains(&move_signature(&hunk.old_code))
             {
                 Some(("removed-test", "A test was removed from this edit."))
@@ -940,6 +937,17 @@ mod tests {
         let report = detect_diffs(&mixed).expect("real removal");
         assert_eq!(report["files"].as_array().unwrap().len(), 1);
         assert_eq!(report["files"][0]["path"], "tests/removed.rs");
+    }
+
+    #[test]
+    fn reports_a_removal_even_when_an_unrelated_test_is_added() {
+        let value = json!([
+            {"path": "tests/removed.rs", "oldText": "#[test]\nfn gone() { assert_eq!(y, 2); }", "newText": ""},
+            {"path": "tests/added.rs", "oldText": "", "newText": "#[test]\nfn smoke() { assert_eq!(x, 1); }"}
+        ]);
+        let report = detect_diffs(&value).expect("real removal");
+        assert_eq!(report["files"][0]["path"], "tests/removed.rs");
+        assert_eq!(report["files"][0]["findings"][0]["kind"], "removed-test");
     }
 
     #[test]

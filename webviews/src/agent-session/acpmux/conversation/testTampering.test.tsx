@@ -191,3 +191,28 @@ test("persists disclosure and reports restore and Ask why action states", async 
     "true",
   );
 });
+
+test("does not offer Restore for deletion evidence without replacement context", async () => {
+  const container = await render(
+    <TestTampering
+      rows={[
+        row({
+          count: 1,
+          files: [
+            {
+              path: "tests/auth.rs",
+              findings: [{ kind: "removed-test", line: 4, message: "removed", old: "#[test]", new: "" }],
+            },
+          ],
+        }),
+      ]}
+      onRestore={async () => {
+        throw new Error("must not be called");
+      }}
+    />,
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-tampering-head")!.click());
+  const restore = container.querySelector<HTMLButtonElement>(".acpmux-tampering-actions button")!;
+  expect(restore.disabled).toBe(true);
+  expect(restore.textContent).toMatch(/unavailable/i);
+});
