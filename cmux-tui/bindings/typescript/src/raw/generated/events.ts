@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86. */
+/* cmux-tui mux protocol 12, IR 7c629fa932c09db12f92add5a9a2d43e4cfb300db714e7b82084b7d9bce020a4. */
 
 
 import type * as T from "./types.js";
@@ -290,6 +290,17 @@ export type DetachedEvent = { event: "detached" } & {
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type EmptyEvent = { event: "empty" } & {
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type FeedReportsChangedEvent = { event: "feed-reports-changed" } & {
+  "revision": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type FeedViewChangedEvent = { event: "feed-view-changed" } & {
+  "changed": Array<string>;
+  "revision": bigint;
 };
 
 /** Protocol v6; emission: emitted; streams: attach-browser. */
@@ -775,6 +786,8 @@ export type KnownCmuxEvent =
   | DaemonShutdownEvent
   | DetachedEvent
   | EmptyEvent
+  | FeedReportsChangedEvent
+  | FeedViewChangedEvent
   | FrameEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
@@ -864,6 +877,8 @@ export type KnownSubscribeEvent =
   | ConversationRunChangedEvent
   | ConversationTypingEvent
   | EmptyEvent
+  | FeedReportsChangedEvent
+  | FeedViewChangedEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | HistoryChangedEvent

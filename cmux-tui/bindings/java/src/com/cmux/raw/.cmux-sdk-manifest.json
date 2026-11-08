@@ -1307,8 +1307,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "f8b6f56ca9500b8ea2b52e663cd6cf1f601be2569b1f49e2ccd876a24dd3532d",
-      "size": 19036
+      "sha256": "94754826989a67787bd390b0be473895f1845c76816c20cfd98efb8b4b9da670",
+      "size": 19464
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1349,6 +1349,16 @@
       "path": "FeedLocalReadRequest.java",
       "sha256": "05515d1471829bfc968dc648ffa7dfff0b34c55bd68552e2faf5a7222b043318",
       "size": 2110
+    },
+    {
+      "path": "FeedReportsChangedEvent.java",
+      "sha256": "1b4f1f4c134ee385daf8ecae18a278b98577efc725fc4e5b4a7484bc7be43155",
+      "size": 2406
+    },
+    {
+      "path": "FeedViewChangedEvent.java",
+      "sha256": "0c1275b74d114661067e29ea06d765b98ba819888f664f66574b54903d0892ba",
+      "size": 3163
     },
     {
       "path": "FocusDirectionRequest.java",
@@ -2182,8 +2192,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "04218a0620f2c01ce0d6f95daf9b68f22cd3c1be55ab0dc84911c989573a7e02",
-      "size": 7767
+      "sha256": "ccb4de355bf382bb04288a0623c1e6b4f1d3e8d8abcfffa6e3a724c447f7a4f2",
+      "size": 7929
     },
     {
       "path": "ProtocolEvent.java",
@@ -3577,7 +3587,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86",
+  "ir_sha256": "7c629fa932c09db12f92add5a9a2d43e4cfb300db714e7b82084b7d9bce020a4",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
