@@ -4,7 +4,7 @@ public import Foundation
 /// Who drives a Chief's computer, in this app (Chief computer take-over, DESIGN "Control lease").
 ///
 /// One owner per computer kind. For a user Cloud machine attached to a Chief on this Mac, this store
-/// IS the lease: `cloud computer-control` (the App's `CloudHandlers.computerControlEffect`), the
+/// IS the lease: `cloud computer-control` (``effect(_:knows:)``, bound by the App's `CloudHandlers`), the
 /// profile's Computer tab and the Chief's `cloud_computer` tool all read and change it here, per
 /// machine id, in memory (a relaunch starts every machine at `chief`). For a Cloud Chief's own sandbox
 /// the Worker owns the lease; this store keeps the last answer of its routes

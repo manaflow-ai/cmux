@@ -61,7 +61,7 @@ struct CloudStartSession {
             let start = CloudStartSession(services: services), runs = services.cloud.startSessionRuns
             // An agent's or the CLI's chat on a machine whose computer the person holds waits until they give it back.
             if let held = request.machineID ?? request.name.flatMap({ name in services.machines.cloud.first(where: { $0.machine.title == name })?.machineID }) {
-                try CloudHandlers.refuseWhileComputerHeld(machine: held, invocation, context)
+                if let refusal = services.cloud.computerControl.heldRefusal(invocation, machine: held) { throw ActionFailure(message: refusal) }
             }
             guard !Self.isAgent(invocation) else { return try Self.agentAsk(request, invocation, context) }
             // A person's palette or menu run without a machine means the one they look at.
@@ -458,7 +458,7 @@ extension CloudStartSession {
                 guard !isAgent(invocation) else { throw ActionFailure(message: CloudStartSessionStrings.relayAgentRun) }
                 machineID = try CloudHandlers.machine(invocation, context).machineID
                 // A CLI chat on a machine whose computer the person holds waits until they give it back.
-                try CloudHandlers.refuseWhileComputerHeld(machine: machineID, invocation, context)
+                if let held = cloud.computerControl.heldRefusal(invocation, machine: machineID) { throw ActionFailure(message: held) }
                 // The agent and the folder, checked as `cloud start-session` checks them.
                 started = try request(invocation)
                 prompt = invocation["prompt"]?.stringValue ?? ""

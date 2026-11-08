@@ -117,54 +117,16 @@ extension CloudHandlers {
     static func listedStatus(_ session: CloudMachineSession) -> String { session.effectiveStatus.rawValue }
 }
 
-// `cmux cloud computer-control --machine <id> --action status|take_over|hand_back|request_human`
-// (Chief computer take-over): who drives the Chief's computer on a Cloud machine. The lease and its
-// rules live in ``ChiefComputerControlStore`` (CmuxNextHostedChief), this app's one owner of it; the
-// profile's Computer tab changes the same store (``AppServices/chiefComputerControlSource(agent:machine:)``).
-//
-// Trust: no new policy. `status` answers any local caller (the Chief's `cloud_computer` tool reads it
-// before each input). A change from another client (`remote`: a phone, another Mac) is refused,
-// default deny. Only the person's own gesture takes over or gives back a computer the person took
-// over (`computer.user_origin_required` otherwise), so a Chief cannot take control back from them;
-// a local caller may ask the person (request_human), and an automated hand_back ends only that ask.
+// `cmux cloud computer-control`: its rules and trust are ChiefComputerControlStore+Actions.swift (CmuxNextHostedChief).
 extension CloudHandlers {
     static func bindComputerControl(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services, store = services.cloud.computerControl
         store.onHumanRequested = { [weak services] machine, state in services.map { postComputerAsk($0, machine: machine, reason: state.reason) } }
         store.onAskEnded = { [weak services] machine in services?.notifications.desktop.withdraw(["chief-computer." + machine]) }
         let bound = registry.bindEffect("cloud.computerControl", requires: nil) { invocation in
-            computerControlEffect(invocation, store: store, knows: { services.machines.session($0) != nil })
+            store.effect(invocation, knows: { services.machines.session($0) != nil })
         }
         assert(bound, "cloud.computerControl is not in the action catalog")
-    }
-
-    /// One run: the change on this turn, then `{machine, holder, since_ms, reason?}` as the result.
-    static func computerControlEffect(_ invocation: ActionInvocation, store: ChiefComputerControlStore,
-                                      knows: (String) -> Bool) -> ActionEffect {
-        do throws(ChiefComputerControlStore.Refusal) {
-            let (machine, state) = try store.run(machine: invocation["machine"]?.stringValue, action: invocation["action"]?.stringValue,
-                                                 reason: invocation["reason"]?.stringValue, fromAnotherClient: origin(of: invocation) == .remote,
-                                                 // A nested run inside a CLI or agent run stays automation (the run scope's origin).
-                                                 byPerson: invocation.isPersonsOwnRun && origin(of: invocation) == .user, knows: knows)
-            var fields: [String: ActionResultValue] = ["machine": .string(machine), "holder": .string(state.holder.rawValue), "since_ms": .int(Int(state.sinceMs))]
-            if let reason = state.reason { fields["reason"] = .string(reason) }
-            return .applied(result: { [fields] in .success(fields) })
-        } catch {
-            return .refused(error.message)
-        }
-    }
-
-    /// Refuses an automated run (the Chief's tool, an agent, the CLI, MCP, a script, another client) that
-    /// would act on Cloud machine `machine` while the person holds its computer
-    /// (``ChiefComputerControlStore/checkNotHeld(machine:byPerson:)``): `cloud exec`, file writes and chats
-    /// wait until they give it back, as the Worker refuses a Cloud Chief's exec on its own sandbox then.
-    /// The person's own gesture in this app passes, as for take_over.
-    static func refuseWhileComputerHeld(machine: String, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
-        do throws(ChiefComputerControlStore.Refusal) {
-            try context.services.cloud.computerControl.checkNotHeld(machine: machine, byPerson: invocation.isPersonsOwnRun && origin(of: invocation) == .user)
-        } catch {
-            throw ActionFailure(message: error.message)
-        }
     }
 
     /// The Chief's ask as a banner, by the agent source's notification rules (desktop, quiet hours,

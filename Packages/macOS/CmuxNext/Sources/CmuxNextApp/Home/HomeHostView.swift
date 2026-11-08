@@ -119,20 +119,7 @@ final class HomeHostView: NSView {
             let index = try? await work.run(.userVisible, mayBlock: .files) { CloudMachineSecrets.read(CloudMachineSecrets.indexURL().path) }
             return index.flatMap(CloudMachineSecrets.index(from:)).map(CloudMachineSecrets.names(in:))
         }
-        let connections = services.accounts.chiefConnections
-        settingsView.connections.source = .init(
-            rows: { [connections] in
-                (ChiefConnections.Provider.allCases.map { HomeChiefConnection(connections, $0) }, connections.failed)
-            },
-            refresh: { [connections] in
-                // task-owner: one list read per card open; the model drops an answer for a changed account
-                Task { await connections.refresh() }
-            },
-            act: { [connections] provider, connect in
-                guard let provider = ChiefConnections.Provider(rawValue: provider.rawValue) else { return }
-                // task-owner: one Connect or Disconnect gesture; the model refuses a second while it runs
-                Task { connect ? await connections.connect(provider) : await connections.disconnect(provider) }
-            })
+        settingsView.connections.source = .init(services.accounts.chiefConnections)
         // The live view that pops up in the chat while this Chief uses its computer (cmux issue 31488).
         computerPopup.section.source = ChiefComputerPageService.source(services: services, conversation: conversation)
         computerPopup.isSuppressed = { [weak self] in
