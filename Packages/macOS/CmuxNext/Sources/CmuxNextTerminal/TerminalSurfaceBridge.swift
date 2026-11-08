@@ -10,6 +10,8 @@ import GhosttyNextKit
 /// still be inside `io_write_cb`.
 nonisolated final class SurfaceBridge: @unchecked Sendable {
     let input: TerminalInputSink
+    /// The terminal's predictive echo engine (nil: it does not predict): it sees each write before it goes out.
+    let prediction: TerminalEchoPrediction?
     /// Main-actor only. Weak so a late callback after the view deinitializes
     /// is a no-op.
     @MainActor weak var view: TerminalSurfaceView?
@@ -24,8 +26,9 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
     /// The cached answers to Ghostty's link filter (cx-do47.1).
     let linkFilter = TerminalLinkFilter()
 
-    init(input: TerminalInputSink) {
+    init(input: TerminalInputSink, prediction: TerminalEchoPrediction? = nil) {
         self.input = input
+        self.prediction = prediction
         // An answer that changed shows at once: the pointer goes to Ghostty again.
         linkFilter.onChange { [weak self] in
             MainDelivery().run { self?.sendPointerAgain() }
@@ -96,5 +99,7 @@ nonisolated struct TerminalInputSink: Sendable {
 nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<CChar>, _ length: UInt) {
     guard let bridge = SurfaceBridge.from(userdata), length > 0 else { return }
     TypingLatencyProbe.shared.mark(.ioWrite)
-    bridge.input.send(Data(bytes: bytes, count: Int(length)))
+    let data = Data(bytes: bytes, count: Int(length))
+    bridge.prediction?.sent(data)
+    bridge.input.send(data)
 }

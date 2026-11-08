@@ -121,6 +121,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Find, Copy | Files and Links, selection | partial | |
 | Restart Shell Here | overlay and page menu on a dead terminal | works (round 2) | See Tabs. |
 | Reset Terminal, Keep Running After Close | — | not from a phone | Program lifetime stays the Mac's (`set-terminal-keep` not allowlisted). |
+| Predictive local echo in a remote terminal, and its opt-out Settings > Terminal > Behavior > **Predictive Local Echo** (`terminal.predictiveLocalEcho`, on by default; a change reaches running terminals) | the same shared engine (#38475); Settings > Terminal > **Predictive echo** (on by default) | works | Each device keeps its own switch: the phone's is a phone preference, not the Mac's cmux.json key, since the phone's terminals type over its own link to the Mac. |
 
 ## Browser
 

@@ -211,7 +211,7 @@
           "symbol": "terminal",
           "groups": [
             {"title": {"key": "settings.pageGroup.terminalBehavior", "text": "Behavior"}, "keys": [
-              "newTerminal.opensWorkspace", "app.warnBeforeClosingTab"
+              "newTerminal.opensWorkspace", "app.warnBeforeClosingTab", "terminal.predictiveLocalEcho"
             ]},
             {"group": "settings.group.terminalCompatibility", "note": "The TERM new terminals start with (terminal.term)."}
           ],

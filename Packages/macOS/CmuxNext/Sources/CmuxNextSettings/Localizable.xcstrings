@@ -3254,6 +3254,51 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "新增使用者或組織"}}
       }
     },
+    "settings.group.terminalTyping": {
+      "comment": "Settings group: how typing in a terminal behaves",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Typing"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Tippen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Saisie"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الكتابة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Escritura"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "輸入"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "输入"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "입력"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "入力"}}
+      }
+    },
+    "settings.terminal.predictiveLocalEcho": {
+      "comment": "Settings row title: draw typed characters in a remote terminal before the remote echoes them",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Predictive Local Echo"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Vorausschauendes lokales Echo"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Écho local prédictif"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الصدى المحلي التنبؤي"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Eco local predictivo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "預測性本機回顯"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "预测性本地回显"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "예측 로컬 에코"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "予測ローカルエコー"}}
+      }
+    },
+    "settings.terminal.predictiveLocalEcho.help": {
+      "comment": "Settings row help for Predictive Local Echo",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zeigt Zeichen, die Sie in einem Terminal auf einem anderen Rechner eingeben, bei langsamer Verbindung sofort an, unterstrichen, bis der entfernte Rechner sie bestätigt. Lokale Terminals, Passwortabfragen und Vollbildprogramme werden nie vorhergesagt."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Affiche immédiatement les caractères saisis dans un terminal sur une autre machine lorsque la connexion est lente, soulignés jusqu’à ce que la machine distante les confirme. Les terminaux locaux, les invites de mot de passe et les programmes plein écran ne sont jamais prédits."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يعرض الأحرف التي تكتبها في طرفية على جهاز آخر فورًا عندما يكون الاتصال بطيئًا، مع تسطيرها حتى يؤكدها الجهاز البعيد. لا يتم التنبؤ أبدًا في الطرفيات المحلية ومطالبات كلمة المرور والبرامج بملء الشاشة."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Muestra al instante los caracteres que escribes en una terminal de otra máquina cuando la conexión es lenta, subrayados hasta que el equipo remoto los confirma. Nunca se predicen las terminales locales, las solicitudes de contraseña ni los programas a pantalla completa."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "連線緩慢時，立即顯示你在另一台機器終端機中輸入的字元，並加上底線，直到遠端確認為止。本機終端機、密碼提示和全螢幕程式一律不預測。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "连接较慢时，立即显示你在另一台机器终端中输入的字符，并加下划线，直到远程端确认为止。本地终端、密码提示和全屏程序从不预测。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "연결이 느릴 때 다른 컴퓨터의 터미널에 입력한 문자를 바로 표시하고, 원격에서 확인할 때까지 밑줄을 긋습니다. 로컬 터미널, 암호 프롬프트, 전체 화면 프로그램은 예측하지 않습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "回線が遅いとき、別のマシンのターミナルで入力した文字をすぐに表示し、リモートが確認するまで下線を付けます。ローカルのターミナル、パスワード入力、全画面プログラムでは予測しません。"}}
+      }
+    },
     "settings.group.terminalCompatibility": {
       "extractionState": "manual",
       "localizations": {

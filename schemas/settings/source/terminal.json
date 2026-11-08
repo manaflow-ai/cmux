@@ -212,6 +212,42 @@
           }
         }
       ]
+    },
+    {
+      "name": "terminalTyping",
+      "section": "terminal",
+      "group": {
+        "key": "settings.group.terminalTyping",
+        "text": "Typing"
+      },
+      "note": "terminal.predictiveLocalEcho (TerminalPredictiveEchoSetting): the opt-out classic cmux documents.",
+      "rows": [
+        {
+          "key": "terminal.predictiveLocalEcho",
+          "note": "On: a terminal whose shell runs on another machine draws typed characters before the remote echoes them (the shared prediction engine, which still waits for a slow measured echo and skips password prompts and full-screen programs). Off: nothing is predicted, and glyphs already drawn go at once. Applies to running terminals.",
+          "title": {
+            "key": "settings.terminal.predictiveLocalEcho",
+            "text": "Predictive Local Echo"
+          },
+          "help": {
+            "key": "settings.terminal.predictiveLocalEcho.help",
+            "text": "Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "predictive",
+            "echo",
+            "local echo",
+            "latency",
+            "lag",
+            "ssh",
+            "remote",
+            "typing"
+          ],
+          "swift_owner": "TerminalPredictiveEchoSetting"
+        }
+      ]
     }
   ]
 }

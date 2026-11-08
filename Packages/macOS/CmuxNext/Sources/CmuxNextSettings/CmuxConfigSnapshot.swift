@@ -278,6 +278,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var terminalFontSize: Double?
     /// `terminal.term`: the `TERM` new local terminals start with; `xterm-256color` when unset or invalid.
     public var terminalTerm: TerminalTerm = TerminalTermSetting.fallback
+    /// `terminal.predictiveLocalEcho`: remote terminals draw typed characters before their echo; on when unset or invalid.
+    public var terminalPredictiveLocalEcho: Bool = TerminalPredictiveEchoSetting.fallback
     /// `history.terminalCommands` (opt-in terminal command history).
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// `navigation.historyScope`: what Back and Forward walk (`workspace`, `window`, `surface`).
@@ -369,6 +371,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
         snapshot.take(TerminalLinkOpener.parse(root), \.terminalLinkOpener)
         snapshot.take(TerminalTermSetting.parse(root), \.terminalTerm)
+        snapshot.take(TerminalPredictiveEchoSetting.parse(root), \.terminalPredictiveLocalEcho)
         snapshot.take(TextEditorSetting.parse(root), \.textEditor)
         snapshot.take(RemoteLocalhostSetting.parse(root), \.remoteLocalhost)
         let paneChrome = PaneChromeConfigParser.parse(root)

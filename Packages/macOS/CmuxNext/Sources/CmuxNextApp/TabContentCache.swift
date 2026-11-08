@@ -73,6 +73,7 @@ final class TabContentCache {
     var onSuggestionEngineCreated: ((OmniboxSuggestionEngine, BrowserProfileID) -> Void)? // bookmark feed, settings
     var onRevealTab: ((String) -> Void)? // a Switch to Tab row was chosen
     var omniboxConfiguration = OmniboxConfiguration() // browser.searchEngine, browser.omnibar.*
+    let localEcho = TerminalLocalEchoPreference() // terminal.predictiveLocalEcho, every terminal follows it
     /// History and suggestions of each non-default browser profile.
     var profileHistories: [BrowserProfileID: ProfileHistory] = [:]
     /// A profile's omnibar history was created or dropped (`HistoryService`).
@@ -212,7 +213,7 @@ final class TabContentCache {
         let render = ledger.isRendering(tab.id)
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
-                                  burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
+                                  remoteShell: !daemon.isLocal, burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
                                   endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         session.showsTerminal(identity, carrying: carried)

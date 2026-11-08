@@ -399,6 +399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
+        services.cache.localEcho.follow { [weak settings] in settings?.snapshot.terminalPredictiveLocalEcho ?? true }
         services.notifications.follow(settings)
         services.followMacScreenSettings(settings)
         services.startDeviceHub(settings)
