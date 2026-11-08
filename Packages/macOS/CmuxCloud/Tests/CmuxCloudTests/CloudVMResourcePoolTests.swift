@@ -115,9 +115,10 @@ struct CloudVMResourcePoolTests {
         let pro = try validator.plan(from: ["planId": "pro"])
         let max = try validator.plan(from: ["planId": "max"])
 
-        #expect(go.limits.maxDiskMb == 16 * 1024)
-        #expect(go.limits.maxMemoryMb == 4 * 1024)
-        #expect(go.limits.maxVcpus == 2)
+        // `go` is cmux Plus, which has Pro machine sizes (#26732).
+        #expect(go.limits.maxDiskMb == 128 * 1024)
+        #expect(go.limits.maxMemoryMb == 16 * 1024)
+        #expect(go.limits.maxVcpus == 8)
         #expect(pro.limits.maxDiskMb == 128 * 1024)
         #expect(pro.limits.maxMemoryMb == 16 * 1024)
         #expect(pro.limits.maxVcpus == 8)
@@ -163,7 +164,28 @@ struct CloudVMResourcePoolTests {
             "maxDiskMb": 128 * 1_024,
         ])
         #expect(pro.limits.maxDiskMb == 128 * 1_024)
-        #expect(go.limits.maxDiskMb == 16 * 1_024)
+        #expect(go.limits.maxDiskMb == 128 * 1_024)
+    }
+
+    @Test
+    func validatorKeepsThePlusLimitsTheServerSends() throws {
+        // The `vm.list` limits a Plus account gets: plan id `go`, Pro sizes.
+        let plan = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "go",
+            "maxDiskMb": 131_072,
+            "maxMemoryMb": 16_384,
+            "maxVcpus": 8,
+        ])
+        #expect(plan.limits.maxDiskMb == 128 * 1_024)
+        #expect(plan.limits.maxMemoryMb == 16 * 1_024)
+        #expect(plan.limits.maxVcpus == 8)
+        let target = CloudVMResizeShape(vcpus: nil, memoryMb: nil, diskMb: 64 * 1_024)
+        #expect(CloudVMResizePlanValidator().violation(
+            target: target,
+            current: nil,
+            usesResourcePool: false,
+            limits: plan.limits
+        ) == nil)
     }
 
     @Test

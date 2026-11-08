@@ -1218,6 +1218,56 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(log.methods, ["vm.list"], "a plan-rejected resize must not reach vm.resize")
     }
 
+    func testVMResizePlusPlanAllowsProDiskSizes() throws {
+        // Plus keeps the internal plan id `go` and has Pro machine sizes.
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-plus-plan-allowed",
+            arguments: ["vm", "resize", "brave-otter", "--disk", "64G"]
+        ) { method, _ in
+            switch method {
+            case "vm.list":
+                return [
+                    "vms": [],
+                    "limits": [
+                        "planId": "go",
+                        "maxDiskMb": 128 * 1024,
+                        "maxMemoryMb": 16 * 1024,
+                        "maxVcpus": 8,
+                    ],
+                ]
+            case "vm.resize":
+                return ["disk_total_mb": 64 * 1024]
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(log.methods, ["vm.list", "vm.resize"], log.methods.description)
+        XCTAssertEqual(log.params(ofFirst: "vm.resize")?["storage_mb"] as? Int, 64 * 1024)
+    }
+
+    func testVMResizePlusPlanSuggestsMaxAboveProSizes() throws {
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-plus-plan-gate",
+            arguments: ["vm", "resize", "brave-otter", "--memory", "32G"]
+        ) { method, _ in
+            guard method == "vm.list" else { return nil }
+            return [
+                "vms": [],
+                "limits": [
+                    "planId": "go",
+                    "maxDiskMb": 128 * 1024,
+                    "maxMemoryMb": 16 * 1024,
+                    "maxVcpus": 8,
+                ],
+            ]
+        }
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stderr.contains("maximum is 16 GiB"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("cmux Max"), result.stderr)
+        XCTAssertEqual(log.methods, ["vm.list"], "a plan-rejected resize must not reach vm.resize")
+    }
+
     func testVMResizeSendsEveryAllowedDimensionAfterPlanPreflight() throws {
         let (result, log) = try runVMCommandAgainstMock(
             "vm-resize-plan-allowed",
