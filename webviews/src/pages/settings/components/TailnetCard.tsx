@@ -5,7 +5,7 @@
 // link the person opens. acpmux answers Sign In before its node says where it got to, so the card reads the
 // state again a few times after it (TAILNET_SETTLE_WAITS_MS, about 8 s at most) until it settles; it also
 // reads it when the window comes back while a sign-in waits on the browser or an admin. It never polls
-// beyond that. A step nobody answered says so. Hidden where acpmux has no tailnet.
+// beyond that. A step nobody answered shows acpmux's own state when it has one, or says it got no answer. Hidden where acpmux has no tailnet.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
@@ -170,6 +170,8 @@ export function TailnetCard() {
         await new Promise((resolve) => setTimeout(resolve, wait));
         next = await store.tailnet("state");
       }
+      // A step with no answer: acpmux may still hold the reason (its `error` state), so show that if it has one.
+      if (!next && mounted.current) next = await store.tailnet("state");
       if (next) client.setQueryData(TAILNET_KEY, next);
       else setFailed(true);
     } finally {

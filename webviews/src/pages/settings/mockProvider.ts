@@ -504,7 +504,7 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.settings.devices.state": () => this.devices,
       "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
-      "cmux.settings.tailnet.state": () => this.tailnet,
+      "cmux.settings.tailnet.state": () => (this.tailnetRefuses ? null : this.tailnet),
       "cmux.settings.tailnet.start": () => this.stepTailnet("start"),
       "cmux.settings.tailnet.login": () => this.stepTailnet("login"),
       "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
@@ -714,12 +714,18 @@ export class MockSettingsProvider {
 
   /** Every tailnet step answers null while true (the relay got no answer). */
   tailnetRefuses = false;
+  /** Start and Login fail with this text (acpmux keeps it in its state; the step itself answers null). */
+  tailnetFails: string | null = null;
 
   /** As acpmux does: Start and Login answer `starting` at once and the node publishes its sign-in page
    * on the next read; Logout signs out. */
   private stepTailnet(verb: "start" | "login" | "logout"): TailnetState | null {
     this.tailnetSteps.push(verb);
     if (this.tailnet === null || this.tailnetRefuses) return null;
+    if (this.tailnetFails) {
+      this.tailnet = { state: "error", error: this.tailnetFails };
+      return null;
+    }
     if (verb === "logout") return (this.tailnet = { state: "stopped" });
     this.tailnet = { state: "needs_login", browse_to_url: "https://login.tailscale.com/a/1a2b3c4d5e" };
     return { state: "starting" };

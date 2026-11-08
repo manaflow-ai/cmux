@@ -100,3 +100,17 @@ test("Sign In with no answer keeps the card and says cmux could not reach its ag
   expect(card()!.dataset.tailnetState).toBe("signedOut");
   expect(card()!.textContent).toContain("cmux couldn’t reach its agent service. Try again.");
 });
+
+test("a failed Sign In shows acpmux's own reason and Try Again", async () => {
+  let provider!: MockSettingsProvider;
+  await open((p) => {
+    provider = p;
+  });
+  provider.tailnetFails = "tailnet start was superseded";
+  await click(card()!.querySelector<HTMLElement>('[data-tailnet-action="start"]')!);
+  await settle();
+  expect(card()!.dataset.tailnetState).toBe("error");
+  expect(card()!.textContent).toContain("tailnet start was superseded");
+  expect(card()!.textContent).not.toContain("couldn’t reach");
+  expect(card()!.querySelector('[data-tailnet-action="start"]')).not.toBeNull();
+});
