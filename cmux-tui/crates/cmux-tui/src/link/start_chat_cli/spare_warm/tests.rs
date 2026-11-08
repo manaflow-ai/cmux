@@ -12,10 +12,8 @@ fn flags(request: &str) -> Flags {
 
 /// An install token whose `team` claim is `team` (none: no claim).
 fn install(team: Option<&str>) -> String {
-    let claims = team.map_or_else(
-        || json!({"sub": "user_a"}),
-        |team| json!({"sub": "user_a", "team": team}),
-    );
+    let claims = team
+        .map_or_else(|| json!({"sub": "user_a"}), |team| json!({"sub": "user_a", "team": team}));
     let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string());
     format!("eyJhbGciOiJFUzI1NiJ9.{payload}.sig")
 }
@@ -104,10 +102,7 @@ fn a_personal_warm_is_its_personal_team_and_a_guest_gets_no_copy() {
         .unwrap()
     };
     let first = warm("owner", 1_000_000);
-    assert_eq!(
-        first["copy"],
-        json!({"machine": MACHINE, "account": "user_a", "team": personal})
-    );
+    assert_eq!(first["copy"], json!({"machine": MACHINE, "account": "user_a", "team": personal}));
     let guest = run(
         &flags(r#"{"account":"user_b"}"#),
         dir.path(),
@@ -185,18 +180,14 @@ fn a_lock_that_cannot_be_taken_refuses_before_the_platform_call() {
 #[test]
 fn no_spare_is_no_copy_and_a_refusal_keeps_its_code() {
     let input = stdin(Some(TEAM));
-    let warm = |request: &str,
-                input: &str,
-                transport: &dyn Fn(
-        &Request,
-        &str,
-        &str,
-    ) -> Result<Value, PlatformCallError>| {
-        let dir = tempfile::tempdir().unwrap();
-        run(&flags(request), dir.path(), 1, &mut input.as_bytes(), transport).unwrap()
-    };
-    let none =
-        |_: &Request, _: &str, _: &str| Ok(json!({"machine": null, "reason": "spare.none"}));
+    let warm =
+        |request: &str,
+         input: &str,
+         transport: &dyn Fn(&Request, &str, &str) -> Result<Value, PlatformCallError>| {
+            let dir = tempfile::tempdir().unwrap();
+            run(&flags(request), dir.path(), 1, &mut input.as_bytes(), transport).unwrap()
+        };
+    let none = |_: &Request, _: &str, _: &str| Ok(json!({"machine": null, "reason": "spare.none"}));
     assert_eq!(
         warm(r#"{"account":"u"}"#, &input, &none),
         json!({"ok": true, "machine": null, "fresh": false, "reason": "spare.none"})
@@ -298,8 +289,10 @@ fn a_team_switch_warms_the_active_teams_spare_with_its_own_record() {
         run(&flags(&request), dir.path(), now, &mut stdin(Some(TEAM)).as_bytes(), &transport)
             .unwrap()
     };
-    let (team_a, team_b) =
-        (identity::backend_team_id("proj", "stack_a"), identity::backend_team_id("proj", "stack_b"));
+    let (team_a, team_b) = (
+        identity::backend_team_id("proj", "stack_a"),
+        identity::backend_team_id("proj", "stack_b"),
+    );
     assert_eq!(warm("stack_a", 1_000_000)["copy"]["team"], json!(team_a));
     // A switch to another team warms that team's spare: its own record, not the first team's throttle.
     assert_eq!(warm("stack_b", 1_010_000)["copy"]["team"], json!(team_b));
@@ -361,8 +354,14 @@ fn a_warm_that_copies_nothing_leaves_no_copy_in_flight_and_a_stale_one_expires()
     assert!(!copy_in_flight(dir.path(), MACHINE, 1_000_100));
     // An App that never reports its copy (it quit mid-copy) holds starts only until the copy's budget.
     let dir2 = tempfile::tempdir().unwrap();
-    run(&flags(r#"{"account":"user_a"}"#), dir2.path(), 1_000_000, &mut stdin(Some(TEAM)).as_bytes(), &owner)
-        .unwrap();
+    run(
+        &flags(r#"{"account":"user_a"}"#),
+        dir2.path(),
+        1_000_000,
+        &mut stdin(Some(TEAM)).as_bytes(),
+        &owner,
+    )
+    .unwrap();
     assert!(copy_in_flight(dir2.path(), MACHINE, 1_000_100));
     assert!(!copy_in_flight(dir2.path(), MACHINE, 1_000_000 + COPY_BUDGET_MS));
     let ticks = Cell::new(1_000_100_u64);

@@ -198,7 +198,10 @@ pub(super) fn run(
     }
     let _ = stdin.read_line(&mut install);
     let Some(team) = warm_team(&request, &install) else {
-        return Some(refused(TEAM_UNRESOLVED, "no backend team for the active team or the install token"));
+        return Some(refused(
+            TEAM_UNRESOLVED,
+            "no backend team for the active team or the install token",
+        ));
     };
     let Some(_held) = lock(state) else {
         return Some(refused(
@@ -250,7 +253,12 @@ pub(super) fn run(
             answer.set("copy", copy(&last.machine));
             last.copy_given = true;
             let machine = Some(last.machine.clone());
-            file.copies.push(Copying { account: request.account.clone(), team: team.clone(), machine, at: now_ms });
+            file.copies.push(Copying {
+                account: request.account.clone(),
+                team: team.clone(),
+                machine,
+                at: now_ms,
+            });
             write(&path, &file);
         }
         return Some(answer);
@@ -263,8 +271,14 @@ pub(super) fn run(
         return Some(answer);
     }
     // Registered before the platform call: a start that asks meanwhile waits for this warm's answer.
-    let pending = |copy: &Copying| copy.machine.is_none() && pair(&copy.account, Some(copy.team.as_str()));
-    file.copies.push(Copying { account: request.account.clone(), team: team.clone(), machine: None, at: now_ms });
+    let pending =
+        |copy: &Copying| copy.machine.is_none() && pair(&copy.account, Some(copy.team.as_str()));
+    file.copies.push(Copying {
+        account: request.account.clone(),
+        team: team.clone(),
+        machine: None,
+        at: now_ms,
+    });
     write(&path, &file);
     let body = transport(&request, credential.trim(), &team);
     file.copies.retain(|copy| !pending(copy));
@@ -297,7 +311,12 @@ pub(super) fn run(
     if owner {
         answer.set("copy", copy(&machine));
         let machine = Some(machine.clone());
-        file.copies.push(Copying { account: request.account.clone(), team: team.clone(), machine, at: now_ms });
+        file.copies.push(Copying {
+            account: request.account.clone(),
+            team: team.clone(),
+            machine,
+            at: now_ms,
+        });
     }
     file.warms.retain(|other| !pair(&other.account, other.team.as_deref()));
     file.attempts.retain(|other| !pair(&other.account, Some(other.team.as_str())));
@@ -394,7 +413,6 @@ pub(super) fn wait_copy(
 pub(super) fn wait_request(flags: &Flags) -> Option<WaitCopy> {
     serde_json::from_str::<Request>(flags.one("--request")?).ok()?.wait_copy
 }
-
 
 #[cfg(test)]
 mod tests;
