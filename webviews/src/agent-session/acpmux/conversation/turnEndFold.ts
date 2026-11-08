@@ -50,9 +50,17 @@ export function hasLiveLine(rows: readonly AcpmuxRow[]): boolean {
   return false;
 }
 
-/// Whether the update from `before` to `after` ends the running turn: its line goes.
+/// Whether the update from `before` to `after` ends the running turn: its line goes, and the
+/// turn's prompt stays. A transcript cut and drawn again (Edit forks before a prompt, a refetch
+/// replays the chat under new ids) takes the line away with the prompt: no turn ended there, and
+/// nothing folds (a fold there left copies of the rows that went, the edited prompt's among them,
+/// over the new transcript).
 export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readonly AcpmuxRow[]): boolean {
-  return before !== undefined && before !== after && hasLiveLine(before) && !hasLiveLine(after);
+  if (before === undefined || before === after || !hasLiveLine(before) || hasLiveLine(after)) return false;
+  let prompt: string | undefined;
+  for (let index = before.length - 1; index >= 0 && prompt === undefined; index -= 1)
+    if (before[index]!.kind === "user") prompt = before[index]!.id;
+  return prompt === undefined || after.some((row) => row.id === prompt);
 }
 
 /// A row drawn at the swap: where its top was in the view, and its copy when the swap takes it away.
@@ -167,10 +175,17 @@ export function playTurnEnd(
   const { ms, easing } = settle(thread);
   const look = turnEndLook(thread);
   const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
-  const start = performance.now();
+  // The fold's clock starts with the first frame that paints it. A pass before that frame runs (the
+  // rows measured and placed again in the long frame the swap renders) plays from the start, so the
+  // first painted frame is the fold's first, never most of the way there in one step.
+  const View = thread.ownerDocument.defaultView;
+  const timeline = thread.ownerDocument.timeline;
+  const now = () => (typeof timeline?.currentTime === "number" ? timeline.currentTime : performance.now());
+  let startedAt: number | undefined;
+  const firstFrame = View?.requestAnimationFrame(() => (startedAt = now()));
   const play = (node: HTMLElement, keyframes: Keyframe[], timing: KeyframeAnimationOptions = {}) => {
-    // On the fold's clock: a pass after the first starts each animation part way, in step.
-    const delay = (timing.delay ?? 0) + Math.min(0, start - performance.now());
+    // On the fold's clock: a pass after its first frame starts each animation part way, in step.
+    const delay = (timing.delay ?? 0) - (startedAt === undefined ? 0 : Math.max(0, now() - startedAt));
     const animation = node.animate(keyframes, { duration: ms, easing, ...timing, delay });
     fold.animations.add(animation);
     return animation;
@@ -262,7 +277,6 @@ export function playTurnEnd(
   thread.setAttribute(TURN_END_ATTR, look);
   // Each time the rows are placed again (a row mounts or leaves, a row's offset changes) or the
   // view's offset moves (the bottom kept pinned), the next pass reads them again.
-  const View = thread.ownerDocument.defaultView;
   const observer = View?.MutationObserver
     ? new View.MutationObserver((records) => {
         const placed = (record: MutationRecord) =>
@@ -280,6 +294,7 @@ export function playTurnEnd(
   });
   scroller?.addEventListener("scroll", pass, { passive: true });
   fold.stop = () => {
+    if (firstFrame !== undefined) View?.cancelAnimationFrame(firstFrame);
     observer?.disconnect();
     scroller?.removeEventListener("scroll", pass);
   };

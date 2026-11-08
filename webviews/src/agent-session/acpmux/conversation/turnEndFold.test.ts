@@ -27,6 +27,12 @@ test("an update ends the turn only when it takes the line away", () => {
   );
   expect(endsTurn(ended, [...ended, row("b")])).toBe(false);
   expect(endsTurn(undefined, ended)).toBe(false);
+  // The transcript cut and drawn again under new ids (Edit forks before the running prompt): the
+  // line goes with the prompt, and no turn ended.
+  expect(endsTurn(running, [row("u2", "user"), row("worked-u2", "worked"), row("answer")])).toBe(false);
+  expect(endsTurn([row("u", "user"), row("p", "user"), row(LIVE_THINKING, "thinking")], [row("u", "user")])).toBe(
+    false,
+  );
 });
 
 test("the look comes from the nearest attribute, else the shipped fade", () => {
