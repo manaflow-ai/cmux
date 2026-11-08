@@ -121,3 +121,30 @@ async fn repo_sync_head_lets_only_a_self_gating_start_through() {
     assert!(super::super::repo_sync::gates_its_tools(crate::config::HarnessKind::ClaudeStdio));
     assert!(!super::super::repo_sync::gates_its_tools(crate::config::HarnessKind::Acp));
 }
+
+/// Review F1 (cmux#38084, 4514531c49c): a reload can make the profile Claude's without
+/// replacing a running ACP agent, whose tools never wait on the sync. At the head, a prompt
+/// for that agent waits for the whole checkout, whatever the profile says now.
+#[tokio::test]
+async fn repo_sync_head_holds_a_running_agent_that_does_not_gate_its_tools() {
+    let (_dir, hub, session) = fixture();
+    let cwd = session.meta().cwd;
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let profile: crate::config::HarnessProfile =
+        serde_json::from_value(json!({"argv": ["/usr/bin/env", "python3", fake]})).unwrap();
+    let (inbound, _rx) = tokio::sync::mpsc::channel(16);
+    let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
+    let child = crate::agent::ChildAgent::spawn("acp", &profile, &cwd, inbound, tap).await.unwrap();
+    assert!(!super::super::repo_sync::child_gates_its_tools(&child));
+    *session.child.lock().await = Some(child.clone());
+    let mut sync = Sync::begin(&cwd).unwrap();
+    sync.head_ready();
+    let stops = session.stops.load(Ordering::SeqCst);
+    let prompt = hub.child_for_since(&session, stops);
+    tokio::pin!(prompt);
+    let early = tokio::time::timeout(Duration::from_millis(150), &mut prompt).await;
+    assert!(early.is_err(), "an agent that does not gate its tools waits past the head");
+    sync.complete().unwrap();
+    let handed = tokio::time::timeout(Duration::from_secs(2), &mut prompt).await.unwrap().unwrap();
+    assert!(Arc::ptr_eq(&handed, &child));
+}

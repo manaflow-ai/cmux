@@ -153,18 +153,18 @@ fn wait_lock(file: &File, mode: i32) -> io::Result<()> {
 impl Sync {
     /// `folder` must have its parent canonicalized by the producer's sandbox.
     pub fn begin(folder: &Path) -> io::Result<Self> {
-        // The head lock first: from the moment this sync holds the marker, no reader
-        // may take the head as in place. A reader holds it only for one probe.
-        let head = open(&head_marker(folder)?, true)?;
-        wait_lock(&head, libc::LOCK_EX)?;
-        // Under the head lock, so a reader holding it shared knows any owner it sees is
-        // past its head.
-        let owner = open(&owner_marker(folder)?, true)?;
-        wait_lock(&owner, libc::LOCK_EX)?;
         let mut file = open(&marker(folder)?, true)?;
         if !lock(&file, libc::LOCK_EX)? {
             return Err(io::Error::new(io::ErrorKind::WouldBlock, "repository is in use"));
         }
+        // Then the head lock, then the owner lock: a reader takes the head as in place only
+        // while the owner lock is held and the head lock free, so until both are taken this
+        // sync reads as short of its head. Only the marker's holder takes them, and a reader
+        // holds either only for one probe, so these waits are short.
+        let head = open(&head_marker(folder)?, true)?;
+        wait_lock(&head, libc::LOCK_EX)?;
+        let owner = open(&owner_marker(folder)?, true)?;
+        wait_lock(&owner, libc::LOCK_EX)?;
         // Take the repository lock first: a reader of an existing marker
         // refuses this sync immediately. A reader that preceded the first
         // marker instead holds the creation lease until its write completes.
@@ -278,8 +278,8 @@ enum Syncing {
 /// taken shared first and kept for this call, so no new producer can begin meanwhile
 /// ([`Sync::begin`] takes it first); then the marker is tried again. Free: its producer ended
 /// (a failed one drops every lock), and only the marker's byte may say ready. Still locked:
-/// past its head only if the owner lock is held too. An owner can only hold it after its
-/// head lock, which it has let go of, and it holds the marker until after the owner lock;
+/// past its head only if the owner lock is held too. Only the marker's holder takes it, after
+/// its head lock, which it has let go of, and it lets go of the owner lock before the marker;
 /// a producer from before owner locks never takes it.
 fn syncing_state(folder: &Path, marker: &File) -> io::Result<Syncing> {
     let head = match open(&head_marker(folder)?, false) {

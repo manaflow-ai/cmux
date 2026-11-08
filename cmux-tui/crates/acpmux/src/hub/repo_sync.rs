@@ -44,6 +44,13 @@ pub(super) fn gates_its_tools(kind: crate::config::HarnessKind) -> bool {
     cfg!(unix) && kind == crate::config::HarnessKind::ClaudeStdio
 }
 
+/// [`gates_its_tools`] for a running agent, from what it speaks rather than the profile: a
+/// reload may change the profile's harness without replacing the agent. Only a stream it
+/// translates itself registers the callback; a hosted agent's is not known here, so it waits.
+pub(super) fn child_gates_its_tools(child: &crate::agent::ChildAgent) -> bool {
+    cfg!(unix) && child.translator.is_some()
+}
+
 async fn wait_until(
     session: &Session,
     path: std::path::PathBuf,
