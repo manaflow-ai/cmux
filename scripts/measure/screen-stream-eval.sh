@@ -43,6 +43,11 @@ if [[ -n "$prebuilt" ]]; then
   prebuilt="$(cd "$prebuilt" 2>/dev/null && pwd)" || { echo "screen-stream-eval.sh: prebuilt= is not a directory" >&2; exit 2; }
 fi
 export EVAL_PREBUILT="$prebuilt"
+# The arguments a run inside the launcher app gets: prebuilt= as the absolute path, since the app's cwd is /.
+forward=()
+for arg in "$@"; do
+  case "$arg" in prebuilt=*) forward+=("prebuilt=$prebuilt") ;; *) forward+=("$arg") ;; esac
+done
 [[ "$tools_only" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: tools-only= is 0 or 1" >&2; exit 2; }
 [[ "$repeats" =~ ^[1-9][0-9]*$ ]] || { echo "screen-stream-eval.sh: repeats= is a number from 1" >&2; exit 2; }
 ipv4='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
@@ -71,6 +76,10 @@ fi
 here="$root/scripts/measure/screen-stream-eval"
 out="$root/artifacts/screen-stream-eval"
 work="$root/.build/screen-stream-eval"
+# The run starts by removing $out and $work, so prebuilt tools may not live in either.
+case "$prebuilt/" in
+  "$out"/* | "$work"/*) echo "screen-stream-eval.sh: prebuilt= may not be inside $out or $work (the run removes both)" >&2; exit 2 ;;
+esac
 rm -rf "$out" "$work"
 mkdir -p "$out" "$work/bin"
 chmod 700 "$work"
@@ -220,7 +229,7 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
       follow=$!
       pids+=("$follow")
       open -W -n -g -a "$app" --stdout "$launch/out.log" --stderr "$launch/err.log" ${env_args[@]+"${env_args[@]}"} \
-        --env "CMUX_SCREEN_EVAL_PARENT=$$" --args "$root/scripts/measure/screen-stream-eval.sh" "$launch/status" "$@" || true
+        --env "CMUX_SCREEN_EVAL_PARENT=$$" --args "$root/scripts/measure/screen-stream-eval.sh" "$launch/status" ${forward[@]+"${forward[@]}"} || true
       sleep 1 # the last lines reach the follower
       kill "$follow" 2>/dev/null || true
       tail -n 80 "$launch/err.log" 2>/dev/null >&2
