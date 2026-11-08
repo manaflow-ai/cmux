@@ -2,9 +2,11 @@
 """Check a dedicated NEXT terminal's native viewport during output.
 
 Run on a fleet capture host against an owned, already running tagged app:
-  --tag scroll-integrity --tab TAB --transport local --out REPORT.json
+  --tag scroll-integrity --tab TAB --transport local --expected-host HOST --out REPORT.json
 
 Repeat for a terminal connected through SSH or Cloud, naming that transport.
+Supply the expected hostname from the fixture receipt; the producer reports its
+hostname in each stage title, which must match before the probe can pass.
 The terminal must be at an idle shell with python3 available. Configure enough
 scrollback on this test app and its remote daemon to retain the producer's rows;
 this probe does not change retention settings. Rust's scroll_stress tests check
@@ -29,6 +31,7 @@ def main():
     parser.add_argument("--tag", required=True)
     parser.add_argument("--tab", required=True)
     parser.add_argument("--transport", choices=("local", "ssh", "cloud"), required=True)
+    parser.add_argument("--expected-host", required=True, help="producer hostname from the fixture receipt")
     parser.add_argument("--producer", choices=("numbered", "yes"), default="numbered")
     parser.add_argument("--out", type=pathlib.Path, required=True)
     args = parser.parse_args()
@@ -36,8 +39,11 @@ def main():
         parser.error("--tag must name a dedicated lowercase tagged app")
     endpoint = f"/tmp/cmux-debug-{args.tag}.sock"
     token = "scroll-probe-" + uuid.uuid4().hex
-    report = {"tag": args.tag, "tab": args.tab, "transport": args.transport,
-              "producer": args.producer, "token": token, "samples": [], "passed": False}
+    stage_prefix = token + ":" + args.expected_host + "-"
+    report = {"expected_host": args.expected_host, "tag": args.tag, "tab": args.tab, "transport": args.transport,
+              "producer": args.producer, "token": token, "samples": [], "passed": False,
+              "required_retained_rows": 502003 if args.producer == "yes" else 200003,
+              "snapshot_restores": 0, "frame_holds": 0}
 
     def rpc(method, params):
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
@@ -76,10 +82,10 @@ def main():
     # The pause is a controlled mid-stream observation window. If the app
     # cannot scroll before it ends, fail instead of claiming a flood check.
     producer = f'''
-import signal, subprocess, sys, time
+import signal, socket, subprocess, sys, time
 signal.alarm(60)
 def title(stage):
-    sys.stdout.write("\\x1b]2;{token}-" + stage + "\\x07")
+    sys.stdout.write("\\x1b]2;{token}:" + socket.gethostname() + "-" + stage + "\\x07")
     sys.stdout.flush()
 def rows(start, end):
     for first in range(start, end + 1, 500):
@@ -105,12 +111,12 @@ sys.stdout.flush()
     try:
         report["before"] = pane()
         action("terminal.sendText", args={"text": command + "\r"})
-        ready = wait_for(lambda p: p["terminal_title"] == token + "-ready", "anchor rows", 15)
+        ready = wait_for(lambda p: p["terminal_title"] == stage_prefix + "ready", "anchor rows", 15)
         action("terminal.scrollPageUp")
         held = wait_for(lambda p: p["scrollbar"]["offset_rows"] <
                         p["scrollbar"]["total_rows"] - p["scrollbar"]["visible_rows"],
                         "native scroll up", 3)
-        if held["terminal_title"] != token + "-ready" or "row-" not in held.get("text", ""):
+        if held["terminal_title"] != stage_prefix + "ready" or "row-" not in held.get("text", ""):
             raise RuntimeError("missed the controlled mid-stream scroll window")
         report["ready"] = ready
         report["held"] = held
@@ -119,13 +125,22 @@ sys.stdout.flush()
             sample = pane()
             report["samples"].append({"at": time.monotonic(), "scrollbar": sample["scrollbar"],
                                       "snapshots": sample.get("snapshots"),
+                                      "frame_held": sample.get("frame_held"),
+                                      "last_frame_holds": sample.get("last_frame_holds"),
+                                      "link": sample.get("link"), "attach": sample.get("attach"),
                                       "title": sample["terminal_title"]})
+            report["snapshot_restores"] = sample["snapshots"] - held["snapshots"]
+            report["frame_holds"] = sample["last_frame_holds"] - held["last_frame_holds"]
+            if sample.get("frame_held") or report["frame_holds"] > 0:
+                raise RuntimeError("native viewport entered a held-frame recovery during the flood")
             if sample.get("text") != held.get("text"):
                 report["changed_viewport"] = sample
-                raise RuntimeError("output changed or blanked the held native viewport")
+                raise RuntimeError("output changed or blanked the held native viewport; "
+                                   f"fixture must retain at least {report['required_retained_rows']} rows "
+                                   "on both owner and mirror to exclude configured eviction")
             if sample["scrollbar"]["offset_rows"] != held["scrollbar"]["offset_rows"]:
                 raise RuntimeError("output moved the native scroll offset")
-            if sample["terminal_title"] == token + "-done":
+            if sample["terminal_title"] == stage_prefix + "done":
                 break
             if time.monotonic() >= deadline:
                 raise RuntimeError("producer did not finish within its observation deadline")

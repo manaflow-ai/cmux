@@ -697,8 +697,8 @@ impl PtySurface {
         });
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
-        // A direct PTY's reader publishes the bus event, in order with the
-        // output events it publishes: this caller may hold `Mux::state`.
+        // A direct PTY's reader schedules the frame producer to flush the
+        // recorded position: this caller may hold `Mux::state`.
         #[cfg(unix)]
         if let Some(output) = local_output.as_mut()
             && scroll.take().is_some()

@@ -214,9 +214,9 @@ impl LocalOutput {
         result
     }
 
-    /// Queue the event-bus `scroll-changed` of a viewport move a resize made
-    /// under this parser, for the reader to publish after the output events
-    /// already queued, and wake the reader. The resize sent it to render taps.
+    /// Wake the reader to request a frame after a resize under this parser.
+    /// The resize already recorded the scroll transition under the terminal
+    /// lock; the next publisher flushes it independently of queued metadata.
     #[cfg(unix)]
     pub(super) fn queue_scroll_changed(&mut self, generation: u64) {
         self.pending.push(ParsedOutput {

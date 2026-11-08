@@ -230,7 +230,7 @@ fn hosted_frames_preserve_the_same_scrollback_rows_and_viewport() {
     for chunk_start in (1..=FIRST_BATCH).step_by(500) {
         let mut frame = Frame::new(
             MessageKind::Output,
-            output(chunk_start, (chunk_start + 499).min(TOTAL_LINES)),
+            output(chunk_start, (chunk_start + 499).min(FIRST_BATCH)),
         );
         frame.sequence = sequence;
         sequence += 1;
