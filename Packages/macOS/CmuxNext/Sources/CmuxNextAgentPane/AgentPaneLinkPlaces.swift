@@ -54,8 +54,8 @@ public final class AgentPaneLinkPlaces {
             self.workspace = workspace
         }
 
-        var json: JSONValue {
-            var object: [String: JSONValue] = ["id": .string(id), "kind": .string(kind.rawValue), "title": .string(title)]
+        var json: CmuxNextSettings.JSONValue {
+            var object: [String: CmuxNextSettings.JSONValue] = ["id": .string(id), "kind": .string(kind.rawValue), "title": .string(title)]
             if let host { object["host"] = .string(host) }
             if let workspace { object["workspace"] = .string(workspace) }
             return .object(object)
