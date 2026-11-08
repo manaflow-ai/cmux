@@ -67,15 +67,18 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         originAttributes: String
     ) -> BrowserImportedCookie? {
         guard !name.isEmpty else { return nil }
+        // A partitioned (CHIPS) cookie belongs to one embedding site; importing it
+        // unpartitioned would hand it to the embedded site everywhere.
+        guard !originAttributes.contains("partitionKey=") else { return nil }
         return BrowserImportedCookie(
             domain: host,
             name: name,
             value: value,
             path: path,
-            expiresDate: expiry > 0 ? Date(timeIntervalSince1970: TimeInterval(expiry)) : nil,
+            expiresDate: firefoxExpiryDate(expiry),
             isSecure: isSecure,
-            isHTTPOnly: false,
-            sameSite: .none
+            isHTTPOnly: isHTTPOnly,
+            sameSite: sameSite == 1 ? .lax : (sameSite == 2 ? .strict : .none)
         )
     }
 
@@ -95,6 +98,7 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         topFrameSiteKey: String
     ) -> BrowserImportedCookie? {
         guard !name.isEmpty else { return nil }
+        guard topFrameSiteKey.isEmpty else { return nil }
         return BrowserImportedCookie(
             domain: host,
             name: name,
@@ -102,26 +106,41 @@ public struct BrowserImportedCookie: Sendable, Equatable {
             path: path,
             expiresDate: chromiumDate(fromWebKitMicroseconds: expiresUTC),
             isSecure: isSecure,
-            isHTTPOnly: false,
-            sameSite: .none
+            isHTTPOnly: isHTTPOnly,
+            sameSite: sameSite == 1 ? .lax : (sameSite == 2 ? .strict : .none)
         )
     }
 
     /// Builds the cookie written to the destination profile's WebKit store.
-    public func makeHTTPCookie() -> HTTPCookie? {
-        var properties: [HTTPCookiePropertyKey: Any] = [
-            .domain: domain,
-            .path: path,
-            .name: name,
-            .value: value,
-        ]
-        if isSecure {
-            properties[.secure] = "TRUE"
+    public func makeHTTPCookie(builder: BrowserCookieBuilder = BrowserCookieBuilder()) -> HTTPCookie? {
+        builder.makeCookie(
+            name: name,
+            value: value,
+            originURL: nil,
+            domain: domain,
+            path: path,
+            secure: isSecure,
+            expires: expiresDate,
+            httpOnly: isHTTPOnly,
+            sameSitePolicy: sameSitePolicy
+        )
+    }
+
+    private var sameSitePolicy: HTTPCookieStringPolicy? {
+        switch sameSite {
+        case .none: nil
+        case .lax: .sameSiteLax
+        case .strict: .sameSiteStrict
         }
-        if let expiresDate {
-            properties[.expires] = expiresDate
-        }
-        return HTTPCookie(properties: properties)
+    }
+
+    // Firefox-family cookie databases moved `expiry` from seconds to
+    // milliseconds. No real seconds value reaches 1e11 (the year 5138), so a
+    // larger value is read as milliseconds and older profiles keep working.
+    private static func firefoxExpiryDate(_ expiry: Int64) -> Date? {
+        guard expiry > 0 else { return nil }
+        let seconds = expiry >= 100_000_000_000 ? Double(expiry) / 1_000.0 : Double(expiry)
+        return Date(timeIntervalSince1970: seconds)
     }
 
     private static func chromiumDate(fromWebKitMicroseconds rawValue: Int64) -> Date? {

@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Imported browser cookies")
 struct BrowserImportedCookieTests {
-    // 2027-11-08T15:54:15.176Z, as Firefox 136+ stores it (milliseconds).
+    // 2027-11-08T15:54:15.176Z in milliseconds, as current Firefox-family cookie databases store it.
     private let expiryMilliseconds: Int64 = 1_825_694_055_176
     private let expiryDate = Date(timeIntervalSince1970: 1_825_694_055.176)
 
