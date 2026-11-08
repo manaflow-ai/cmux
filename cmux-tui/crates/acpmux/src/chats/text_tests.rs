@@ -82,7 +82,7 @@ fn a_chat_is_read_again_only_when_it_changed_and_a_gone_chat_is_dropped() {
     };
     text.update(&[chat("a", 2), chat("b", 1)], &read);
     assert_eq!(*reads.borrow(), ["a", "b"]);
-    let mut changed = text.subscribe();
+    let changed = text.subscribe();
     text.update(&[chat("a", 2), chat("b", 1)], &read);
     assert_eq!(reads.borrow().len(), 2, "nothing changed, nothing read");
     assert!(!changed.has_changed().unwrap(), "and windows are not told");
