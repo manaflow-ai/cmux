@@ -163,6 +163,27 @@ nonisolated enum TerminalActionCatalog: ActionCatalogGroup {
                 cliName: "terminal run-last-command-again"
             ),
             ActionDescriptor(
+                id: "terminal.fixLastCommand",
+                title: String(localized: "action.terminal.fixLastCommand", defaultValue: "Fix Last Command with Agent", bundle: .module),
+                keywords: ["fix", "error", "failed", "agent", "chat", "exit", "debug", "ask"], category: .terminal, symbol: "wrench.and.screwdriver",
+                surfaces: [.palette, .contextMenu], requires: [.terminalFocused], targets: [.tab],
+                cliName: "terminal fix-last-command"
+            ),
+            ActionDescriptor(
+                id: "terminal.sendLastOutputToChat",
+                title: String(localized: "action.terminal.sendLastOutputToChat", defaultValue: "Send Last Output to Chat", bundle: .module),
+                keywords: ["output", "command", "agent", "chat", "send", "ask", "result"], category: .terminal, symbol: "text.bubble",
+                surfaces: [.palette, .contextMenu], requires: [.terminalFocused], targets: [.tab],
+                cliName: "terminal send-last-output-to-chat"
+            ),
+            ActionDescriptor(
+                id: "terminal.sendSelectionToChat",
+                title: String(localized: "action.terminal.sendSelectionToChat", defaultValue: "Send Selection to Chat", bundle: .module),
+                keywords: ["selection", "agent", "chat", "send", "ask", "quote"], category: .terminal, symbol: "bubble.left.and.text.bubble.right",
+                surfaces: [.palette, .contextMenu], requires: [.terminalFocused], targets: [.tab],
+                cliName: "terminal send-selection-to-chat"
+            ),
+            ActionDescriptor(
                 id: "palette.terminalOpenDirectory",
                 title: String(localized: "action.palette.terminalOpenDirectory", defaultValue: "Open Current Directory In…", bundle: .module),
                 keywords: ["finder", "editor", "open in"], category: .terminal, symbol: "arrow.up.forward.app",

@@ -28,3 +28,14 @@ terminal."
 - Agent pane: its loading view paints the page's own under-page color and the shared mark.
 
 Variants: `design/in-between-states-gallery.html`.
+
+## Fix on a failed command
+
+A command that ends with a nonzero status (except 130, a Ctrl-C the person typed) shows the Fix chip
+in the bottom-trailing corner, clear of the scroller, above the "Sized for" chip when both show. It
+is the same small raised label as "Sized for": "Exit 101", a small Fix button and a close button.
+It fades in on the overlays motion category (none under Reduce Motion) and never moves the
+terminal's text. Return (the next command), a successful command, Fix or the close button hides it.
+Fix puts the command, its output tail, its status and its folder in the workspace's agent chat
+after its draft, or in a new chat beside the terminal; nothing is sent until the person presses
+Return. Variants: `design/terminal-fix-chip-gallery.html` (A shipped).

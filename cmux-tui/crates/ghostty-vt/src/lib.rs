@@ -55,7 +55,7 @@ pub use snapshot::{
     snapshot_version, tag as snapshot_tag,
 };
 pub use terminal::{
-    Callbacks, ClearHistoryOutcome, ClipboardLocation, ClipboardReadFn, ClipboardReadRequest,
+    Callbacks, ClearHistoryOutcome, CommandOutput, ClipboardLocation, ClipboardReadFn, ClipboardReadRequest,
     HistoryPage, HistoryPages, HistorySnapshot, KittyGraphicsLimits, KittyImageIdCursors,
     KittyReplayState, MAX_CLIPBOARD_READ_BYTES, MarkerError, NotifyFn, ProgramStatusEvent,
     ProgramStatusFn, ProgramStatusKind, ProgramStatusReport, ProgramStatusState, PtyWriteFn, Rgb,

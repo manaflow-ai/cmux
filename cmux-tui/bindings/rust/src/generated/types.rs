@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1768118a3f6c36eca9967eb1114909809bec1c337cc65d95be19e530da94a705.
+// cmux-tui mux protocol 12, IR 38ca7a14500e41fe8cc4622047c22325eee3956ca45db6a7bfa33779d258fe17.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -2431,6 +2431,32 @@ pub struct TerminalColors {
     pub palette: Option<BTreeMap<String, ColorHex>>,
     pub selection_bg: Nullable<ColorHex>,
     pub selection_fg: Nullable<ColorHex>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandContext {
+    pub command: Nullable<String>,
+    pub cwd: Nullable<String>,
+    pub exit_code: Nullable<i32>,
+    pub output: String,
+    pub text: String,
+    pub truncated: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalCommandContextIntent {
+    #[serde(rename = "context")]
+    Context,
+    #[serde(rename = "fix")]
+    Fix,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandContextResult {
+    pub context: Nullable<TerminalCommandContext>,
 }
 
 #[rustfmt::skip]

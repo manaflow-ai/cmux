@@ -1334,6 +1334,11 @@ public abstract class GeneratedCmuxClient {
         return openStream(Commands.TERMINAL_CLIPBOARD_SUBSCRIBE, request.toWire());
     }
 
+    public final TerminalCommandContextResult terminalCommandContext(TerminalCommandContextRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_COMMAND_CONTEXT, request.toWire());
+        return TerminalCommandContextResult.fromWire(result);
+    }
+
     public final TerminalEventsResult terminalEvents(TerminalEventsRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_EVENTS, request.toWire());
         return TerminalEventsResult.fromWire(result);

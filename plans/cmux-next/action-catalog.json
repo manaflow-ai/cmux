@@ -42750,6 +42750,233 @@
     },
     {
       "arguments" : [
+
+      ],
+      "category" : "terminal",
+      "cliName" : "terminal fix-last-command",
+      "computed" : {
+        "canonical_action_id" : "terminal.fixLastCommand",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "TerminalActionCatalog",
+      "hint" : null,
+      "id" : "terminal.fixLastCommand",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "fix",
+        "error",
+        "failed",
+        "agent",
+        "chat",
+        "exit",
+        "debug",
+        "ask"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "terminalFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "terminalSelection",
+            "folder" : null,
+            "group" : "edit",
+            "label" : null,
+            "parent" : null,
+            "rank" : 9,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "wrench.and.screwdriver",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Fix Last Command with Agent",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "terminal",
+      "cliName" : "terminal send-last-output-to-chat",
+      "computed" : {
+        "canonical_action_id" : "terminal.sendLastOutputToChat",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "TerminalActionCatalog",
+      "hint" : null,
+      "id" : "terminal.sendLastOutputToChat",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "output",
+        "command",
+        "agent",
+        "chat",
+        "send",
+        "ask",
+        "result"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "terminalFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "terminalSelection",
+            "folder" : null,
+            "group" : "edit",
+            "label" : null,
+            "parent" : null,
+            "rank" : 8,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "text.bubble",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Send Last Output to Chat",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "terminal",
+      "cliName" : "terminal send-selection-to-chat",
+      "computed" : {
+        "canonical_action_id" : "terminal.sendSelectionToChat",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "TerminalActionCatalog",
+      "hint" : null,
+      "id" : "terminal.sendSelectionToChat",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "selection",
+        "agent",
+        "chat",
+        "send",
+        "ask",
+        "quote"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "terminalFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "liveInput"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "terminalSelection",
+            "folder" : null,
+            "group" : "edit",
+            "label" : null,
+            "parent" : null,
+            "rank" : 7,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "bubble.left.and.text.bubble.right",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Send Selection to Chat",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
         {
           "isRequired" : true,
           "isSuppliedByTarget" : false,

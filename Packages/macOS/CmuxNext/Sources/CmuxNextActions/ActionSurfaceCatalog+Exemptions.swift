@@ -88,7 +88,7 @@ nonisolated extension ActionSurfaceCatalog {
         "screenGroup.save", "screenGroup.unsave", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
         "terminal.keep", "clearScreenKeepScrollback", "resetTerminal", "reconnectPane", "resumeCommandSet",
         "agentPaneZoomIn", "agentPaneZoomOut", "agentPaneZoomReset",
-        "resumeCommandClear", "terminal.runLastCommandAgain", "palette.terminalOpenDirectory", "browserReload",
+        "resumeCommandClear", "terminal.runLastCommandAgain", "terminal.fixLastCommand", "terminal.sendLastOutputToChat", "palette.terminalOpenDirectory", "browserReload",
         "browserHardReload", "browser.openInChromium", "browser.openInWebKit", "browser.resetPinnedTab", "browser.editSource", "file.openAsPage", "splitBrowserRight", "splitBrowserDown",
         "palette.browserOpenDefault", "palette.browserClearHistory", 
         "browserScreenshotPage", "browserTheme", "browserDevice", "browserFitDesktop", "browserFit", "browserFitDesktop1280", 
@@ -220,7 +220,7 @@ nonisolated extension ActionSurfaceCatalog {
             "fileExplorerNewFolder", "fileExplorerRename", "fileExplorerMoveToTrash", "vaultOpenSession",
             "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest",
             "toggleUnread", "notificationCopy", "notificationToggleRead",
-            "notificationDismiss", "terminal.selectAll",
+            "notificationDismiss", "terminal.selectAll", "terminal.sendSelectionToChat",
         ],
         .familyMember: [
             "cycleWorkspaceStatus", "toggleFocusedWorkspaceGroupCollapsed", "workspaceGroup.color.grey",

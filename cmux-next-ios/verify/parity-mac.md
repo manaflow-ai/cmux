@@ -120,6 +120,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Find, Copy | Files and Links, selection | partial | |
 | Restart Shell Here | overlay and page menu on a dead terminal | works (round 2) | See Tabs. |
 | Reset Terminal, Keep Running After Close | — | not from a phone | Program lifetime stays the Mac's (`set-terminal-keep` not allowlisted). |
+| Fix Last Command with Agent (the Fix chip on a failed command), Send Last Output to Chat, Send Selection to Chat (2026-11-08) | — | missing | `terminal-command-context` (terminal-command-context-v1) reads the command, its output, status and folder as chat text; the phone's lane does not carry it yet, and the phone terminal has no failed-command chip. A read-only command that returns screen text, so adding it is a lane change for #13742. |
 
 ## Browser
 
