@@ -523,10 +523,12 @@ fn a_symlinked_harness_folder_takes_the_whole_tree_at_once() {
 
 #[cfg(unix)]
 /// A machine's `cmux` for the barrier: `repo wait DIR 0` exits with `$HOME/wait` (0 when absent),
-/// a longer wait with `$HOME/wait-long` (0 when absent: the earlier fill ended), `repo hold` runs
-/// its fill in the foreground, and `repo hold-run` records its folder and runs it.
+/// a longer wait records `$HOME/waited`, blocks while `$HOME/busy` exists (the earlier fill runs),
+/// then exits with `$HOME/wait-long` (0 when absent: that fill ended), `repo hold` runs its fill in
+/// the foreground, and `repo hold-run` records its folder and runs it.
 const BARRIER_CMUX: &str = "#!/bin/sh\ncase \"$1 $2\" in\n\
     \"repo wait\") [ \"$4\" = 0 ] && exit \"$(cat \"$HOME/wait\" 2>/dev/null || echo 0)\"\n\
+    touch \"$HOME/waited\"; while [ -e \"$HOME/busy\" ]; do sleep 0.05; done\n\
     exit \"$(cat \"$HOME/wait-long\" 2>/dev/null || echo 0)\" ;;\n\
     \"repo hold\") [ \"$3\" = --help ] && exit 0; echo \"$3\" > \"$HOME/held\"; shift 4; exec \"$@\" ;;\n\
     \"repo hold-run\") echo \"$3\" > \"$HOME/held-run\"; shift 4; echo held; exec \"$@\" ;;\n\
@@ -586,6 +588,20 @@ impl Machine {
             return None;
         }
         Some(holder)
+    }
+
+    /// The barrier reads busy until a second from now, when the earlier fill ends and opens it.
+    /// Join the thread before reading what the start did.
+    fn fill_busy_for_a_second(&self) -> std::thread::JoinHandle<()> {
+        let home = self.0.join("home");
+        std::fs::write(home.join("busy"), "").unwrap();
+        let _ = std::fs::remove_file(home.join("waited"));
+        self.barrier_reads(124);
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            std::fs::write(home.join("wait"), "0").unwrap();
+            std::fs::remove_file(home.join("busy")).unwrap();
+        })
     }
 
     fn commit_upstream(&self, file: &str) {
@@ -677,13 +693,22 @@ fn a_start_with_a_ref_or_a_script_waits_for_the_fill() {
     let (code, _) = machine.run();
     assert_eq!(code, 0);
     machine.settle();
-    machine.barrier_reads(124);
+    let fill = machine.fill_busy_for_a_second();
+    let started = std::time::Instant::now();
     let (code, record) = machine.run_with(Some("feature"), crate::machine_bootstrap::NO_SCRIPT);
+    fill.join().unwrap();
     assert_eq!((code, record["status"].as_str()), (0, Some("updated")), "{record}");
+    assert!(machine.0.join("home/waited").exists(), "waited for the fill");
+    assert!(started.elapsed() >= std::time::Duration::from_secs(1), "until it ended");
     assert!(machine.checkout().join("f.txt").is_file(), "switched to feature");
     machine.settle();
+    let fill = machine.fill_busy_for_a_second();
+    let started = std::time::Instant::now();
     let (code, record) = machine.run_with(None, "#!/bin/sh\ntrue\n");
+    fill.join().unwrap();
     assert_eq!((code, record["status"].as_str()), (0, Some("updated")), "{record}");
+    assert!(machine.0.join("home/waited").exists(), "waited for the fill");
+    assert!(started.elapsed() >= std::time::Duration::from_secs(1), "until it ended");
 }
 
 #[cfg(unix)]
