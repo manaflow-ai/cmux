@@ -157,8 +157,7 @@ async fn verdict(
     // any prompt, checked before the verdict is recorded so a refusal records nothing.
     let prompt = comment.as_deref().map(|c| changes_prompt(url, c));
     if let Some(text) = &prompt {
-        let prompt_params =
-            json!({"sessionId": sid, "prompt": [{"type": "text", "text": text}]});
+        let prompt_params = json!({"sessionId": sid, "prompt": [{"type": "text", "text": text}]});
         super::trust_gate::check(
             hub,
             origin,
@@ -241,7 +240,10 @@ mod tests {
         let p = |c: Value| json!({"comment": c});
         assert_eq!(review_comment(&json!({}), false).unwrap(), None);
         assert_eq!(review_comment(&p(json!("  ")), false).unwrap(), None);
-        assert_eq!(review_comment(&p(json!(" Add a test. ")), false).unwrap().as_deref(), Some("Add a test."));
+        assert_eq!(
+            review_comment(&p(json!(" Add a test. ")), false).unwrap().as_deref(),
+            Some("Add a test.")
+        );
         assert!(review_comment(&p(json!("Nice")), true).is_err());
         assert!(review_comment(&p(json!(3)), false).is_err());
         assert!(review_comment(&p(json!("x".repeat(COMMENT_BYTES + 1))), false).is_err());

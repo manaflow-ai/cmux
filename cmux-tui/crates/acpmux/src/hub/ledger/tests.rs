@@ -375,7 +375,15 @@ fn a_torn_or_partial_first_seed_is_rebuilt() {
     assert_eq!(reply.totals.turns, 6);
     assert!((reply.totals.cost_usd - 7.0).abs() < 1e-9);
     // A turn after the seed appends after it, and a restart keeps both.
-    turn(&l, "a", D0 + 100, 0, json!({"model": "claude-opus-5-5", "costUsd": 0.5}), "claude", "claude");
+    turn(
+        &l,
+        "a",
+        D0 + 100,
+        0,
+        json!({"model": "claude-opus-5-5", "costUsd": 0.5}),
+        "claude",
+        "claude",
+    );
     l.flush();
     drop(l);
     let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());

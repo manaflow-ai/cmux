@@ -170,7 +170,8 @@ async fn pull_requests_wait_for_a_verdict_while_their_turn_is_not_running() {
     // The old pull request left the index; the running one stays for later.
     assert_eq!(hub.review_index.sizes().1, 2);
     assert!(
-        hub.record_review_verdict(&idle, "https://github.com/o/r/pull/99", true, None, true).is_err()
+        hub.record_review_verdict(&idle, "https://github.com/o/r/pull/99", true, None, true)
+            .is_err()
     );
     let entry = hub.record_review_verdict(&idle, url, false, None, true).unwrap();
     assert_eq!(entry["decision"], json!({"kind": "changes"}));
@@ -304,7 +305,8 @@ async fn a_group_deny_logs_a_member_it_dismissed_as_a_cancel() {
     let s = hub.insert_test_session(meta("s1", "ready", &[], 2));
     let no_reject = json!({"toolCall": {"toolCallId": "t2", "kind": "execute", "title": "Run pwd"},
                            "options": [{"optionId": "ok", "name": "Allow", "kind": "allow_once"}]});
-    let mut replies = vec![ask(&hub, &s, "p1", tool_request("Run ls")), ask(&hub, &s, "p2", no_reject.clone())];
+    let mut replies =
+        vec![ask(&hub, &s, "p1", tool_request("Run ls")), ask(&hub, &s, "p2", no_reject.clone())];
     let (group, revision) = {
         let mut state = s.permissions.lock().unwrap();
         let now = std::time::Instant::now();
@@ -314,12 +316,18 @@ async fn a_group_deny_logs_a_member_it_dismissed_as_a_cancel() {
         let revision = state.open_group(&group);
         (group, revision)
     };
-    let params = json!({"groupId": group, "decisionKey": "k1", "decision": "deny", "revision": revision});
+    let params =
+        json!({"groupId": group, "decisionKey": "k1", "decision": "deny", "revision": revision});
     hub.respond_permission_group(&s, params, Control::Local, true).await.unwrap();
     // The asking tasks log what each reply said.
     for (id, rx) in [("p1", replies.remove(0)), ("p2", replies.remove(0))] {
         let outcome = rx.await.unwrap();
-        hub.append(&s, "mux", "permission_decision", json!({"permissionId": id, "outcome": outcome}));
+        hub.append(
+            &s,
+            "mux",
+            "permission_decision",
+            json!({"permissionId": id, "outcome": outcome}),
+        );
     }
     let all = hub.audit.all().unwrap();
     let got: Vec<_> =
