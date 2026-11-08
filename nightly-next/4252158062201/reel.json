@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "build": "4252158062201",
+  "notes": "notes/4252158062201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 38855,
+      "title": "acpmux tests: fake Claude matches remote probes after the sender line",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38670,
+      "title": "perf(next pages): a closed overlay anchor serves no new overlay page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38766,
+      "title": "cmux NEXT CLI: --json on a stream names the --jsonl command; identify answers with no app",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38768,
+      "title": "cmux chat / agents chat new: --attach FILE sends files with the first prompt (CLI and MCP)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38788,
+      "title": "Repo step test: a start with a ref or a script really waits for the fill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38826,
+      "title": "cmux-wg: Reed-Solomon parity for ultra mode (rs:K:M)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38835,
+      "title": "split-scale bench: measures every transition, and its settle is what the screen shows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38455,
+      "title": "Agent chat: a reply's time reads \"10 minutes ago\" like a prompt's, the exact time on hover for both",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38690,
+      "title": "Stop All Agents toast: one row, never \"all\" while some refused",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38698,
+      "title": "cmux next: Agent Activity viewer: Full Screen, drag to scrub, and the thumbnail while a frame loads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38845,
+      "title": "acpmux tests: fake WebSocket peers skip non-text frames (session_control_peer_cli red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38577,
+      "title": "Agent pane: a sub-session's grouped approval reaches the chat above it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38810,
+      "title": "acpmux: route a subagent's lane replies to that subagent, not its lead",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38796,
+      "title": "fix(acpmux): a race's verdict cleanup finishes a concurrent cancel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38804,
+      "title": "ci: the webview flake history is an artifact that pushes, replays and web bisect share (lands #38730)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38791,
+      "title": "Agent chat: relayed sender follow-ups (queued text proof, join unverified, cut-header titles, full relay lookups)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37321,
+      "title": "cmux NEXT: server menu bar panel, Health, pairing and Add Server on React",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38821,
+      "title": "generated_outputs: the Rust action catalog is an input of the action exports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38298,
+      "title": "acpmux: a reconnecting peer link sends its watch with initialize and replays its chats at once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38786,
+      "title": "Agent chat: send-stream-motion reads the same on any host, and no streaming frame moves more than a line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38436,
+      "title": "cmux-tui: agent start/resume by name, readiness with startup dialogs, list --agents names and last reply",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38639,
+      "title": "Theme File preview shows the file's terminal font and pane backgrounds",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
