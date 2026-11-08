@@ -54,6 +54,16 @@ class DisplayRefusal(unittest.TestCase):
     def test_one_point_of_rounding_still_runs(self):
         self.assertIsNone(SCOPE["display_refusal"]({**ROOMY, "frame": [160, 100, 1599.5, 1000.5]}))
 
+    def test_a_wrong_size_on_a_display_with_room_is_not_a_display_refusal(self):
+        # The app's own fault (full screen, a debug.window_frame regression): the placement row fails, the run goes on.
+        self.assertIsNone(SCOPE["display_refusal"]({**ROOMY, "frame": [160, 100, 1200, 800]}))
+
+    def test_a_bottom_dock_over_the_window_still_counts_as_room(self):
+        docked = {**ROOMY, "frame": [160, 100, 1600, 900], "visible_frame": [0, 80, 1920, 1095]}
+        self.assertIsNone(SCOPE["display_refusal"](docked))
+        short = {"frame": [0, 0, 1600, 870], "visible_frame": [0, 25, 1680, 845], "screen_frame": [0, 0, 1680, 900]}
+        self.assertTrue(SCOPE["display_refusal"](short).startswith("display too small"))
+
     def test_no_reply_is_not_a_display_refusal(self):
         # A failed debug.window_frame is the placement row's failure, not a display size.
         self.assertIsNone(SCOPE["display_refusal"]({"error": "unavailable"}))
