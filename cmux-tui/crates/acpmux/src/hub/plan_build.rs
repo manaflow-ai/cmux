@@ -564,8 +564,8 @@ impl Hub {
         let made_at = Arc::new(made_at);
         let still: Arc<cmux_worktree_care::procs::Still> = {
             let made_at = Arc::clone(&made_at);
-            Arc::new(move |path: &std::path::Path| match made_at.get(path) {
-                Some(made) => still_made(made).map_err(str::to_owned),
+            Arc::new(move |path: &Path, at: &Path| match made_at.get(path) {
+                Some(made) => still_made_at(made, at).map_err(str::to_owned),
                 None => Err("not a worktree this build made".to_owned()),
             })
         };
@@ -606,7 +606,7 @@ impl Hub {
             left.retain(|(id, root)| {
                 if root.exists() {
                     // Another folder at its path now: it stays, with no more tries.
-                    if let Err(why) = still(root) {
+                    if let Err(why) = still(root, root) {
                         rows.push(json!({"sessionId": id, "removed": false, "error": why}));
                         return false;
                     }
@@ -640,17 +640,25 @@ impl Hub {
 /// inode and creation time, and on the branch it was made on (read from its git files, running nothing). A
 /// folder that fails either is not removed for the run.
 pub(crate) fn still_made(made: &crate::store::MadeWorktree) -> Result<(), &'static str> {
-    let born = || {
-        std::fs::File::open(&made.root).ok().and_then(|f| crate::store::MadeWorktree::born_of(&f))
-    };
+    still_made_at(made, &made.root)
+}
+
+/// [`still_made`] of the folder now at `at`: the worktree moved aside to go
+/// (`cmux_worktree_care::archive`), or at its own path.
+pub(crate) fn still_made_at(
+    made: &crate::store::MadeWorktree,
+    at: &Path,
+) -> Result<(), &'static str> {
+    let born =
+        || std::fs::File::open(at).ok().and_then(|f| crate::store::MadeWorktree::born_of(&f));
     if made.pin.is_none()
-        || crate::cwd_pin::CwdPin::of(&made.root) != made.pin
-        || made.born.is_some_and(|at| born() != Some(at))
+        || crate::cwd_pin::CwdPin::of(at) != made.pin
+        || made.born.is_some_and(|t| born() != Some(t))
     {
         return Err("the folder at its path is no longer the worktree it was made in");
     }
-    let dot_git = std::fs::read_to_string(made.root.join(".git")).unwrap_or_default();
-    let admin = dot_git.trim().strip_prefix("gitdir: ").map(|at| made.root.join(at));
+    let dot_git = std::fs::read_to_string(at.join(".git")).unwrap_or_default();
+    let admin = dot_git.trim().strip_prefix("gitdir: ").map(|dir| at.join(dir));
     let head = admin.and_then(|admin| std::fs::read_to_string(admin.join("HEAD")).ok());
     if head.as_deref().map(str::trim) != Some(&format!("ref: refs/heads/{}", made.branch)) {
         return Err("its worktree is no longer on the branch it was made on");

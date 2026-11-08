@@ -153,19 +153,63 @@ pub fn reclaim(
         discard(&wt, store, &manifest);
         return Err(format!("{why}; it stays"));
     }
-    // The caller's own check of the folder, the very last before it goes.
-    if let Some(Err(why)) = still.map(|still| still(&worktree.path)) {
-        discard(&wt, store, &manifest);
-        return Err(format!("{why}; it stays"));
-    }
     let before = available(&anchor);
     let main = WriteGit { root: &anchor, overrides: &repo.overrides, hooks: &hooks };
-    let path = worktree.path.as_os_str();
-    let args: [&OsStr; 4] = ["worktree".as_ref(), "remove".as_ref(), "--force".as_ref(), path];
-    git::write(&main, None, &args, Bound::Unbounded)?;
+    let remove = |path: &Path| {
+        let args: [&OsStr; 4] =
+            ["worktree".as_ref(), "remove".as_ref(), "--force".as_ref(), path.as_os_str()];
+        git::write(&main, None, &args, Bound::Unbounded).map(|_| ())
+    };
+    match still {
+        None => remove(&worktree.path)?,
+        Some(still) => {
+            if let Err(why) = remove_aside(&worktree.path, &id, still, &main, remove) {
+                // Its archive's ref is the repository's, dropped from the main checkout: the
+                // folder at the worktree's path may not be the worktree now.
+                discard(&main, store, &manifest);
+                return Err(why);
+            }
+        }
+    }
     manifest.freed = available(&anchor).saturating_sub(before);
     store.save(&manifest)?;
     Ok(manifest)
+}
+
+/// Removes the worktree at `path` for a caller with its own record of it (`still`): the folder is
+/// moved aside first, to a name beside it nobody else uses, and checked where it is then, so a
+/// folder put at `path` after any check is never the one that goes. One that fails the check goes
+/// back to `path` when that is free (else it stays aside, and the error says where); git learns
+/// the new place (`worktree repair`) only for the one that goes.
+fn remove_aside(
+    path: &Path,
+    id: &str,
+    still: &procs::Still,
+    main: &WriteGit<'_>,
+    remove: impl Fn(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let aside = path.with_file_name(format!(".{name}.cmux-discard-{id}"));
+    if aside.symlink_metadata().is_ok() {
+        return Err(format!("{} is in the way; it stays", aside.display()));
+    }
+    std::fs::rename(path, &aside)
+        .map_err(|e| format!("could not move it aside ({e}); it stays"))?;
+    let back = |why: String| {
+        if path.symlink_metadata().is_err() && std::fs::rename(&aside, path).is_ok() {
+            format!("{why}; it stays")
+        } else {
+            format!("{why}; it stays at {}", aside.display())
+        }
+    };
+    if let Err(why) = still(path, &aside) {
+        return Err(back(why));
+    }
+    let repair: [&OsStr; 3] = ["worktree".as_ref(), "repair".as_ref(), aside.as_os_str()];
+    if let Err(error) = git::write(main, None, &repair, Bound::Unbounded) {
+        return Err(back(format!("git could not follow it aside ({error})")));
+    }
+    remove(&aside).map_err(|error| format!("{error}; it stays at {}", aside.display()))
 }
 
 /// Whether the worktree is still what was archived: the same status and

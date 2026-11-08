@@ -202,7 +202,7 @@ fn act(
     store: &Store,
 ) -> Result<(u64, Option<String>), String> {
     if let Some(still) = &options.still {
-        still(path)?;
+        still(path, path)?;
     }
     let processes = (options.uses)()?;
     let fresh = inventory::rescan(repo, path)?;

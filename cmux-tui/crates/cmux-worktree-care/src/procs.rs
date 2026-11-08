@@ -110,10 +110,11 @@ pub const OPEN_CHECK: Duration = Duration::from_secs(10);
 /// Whether a program has a folder open, and which: see [`open_inside`].
 pub type Open = dyn Fn(&Path) -> Result<Option<u32>, String> + Send + Sync;
 
-/// Whether `folder` is still the one the caller means to act on (its own record of a worktree it
-/// made, `acpmux` `plan_discard`): checked first and again right before the folder goes; an
-/// error leaves it, with that reason.
-pub type Still = dyn Fn(&Path) -> Result<(), String> + Send + Sync;
+/// Whether the folder now at `at` is still the worktree the caller means by `path` (its own record
+/// of a worktree it made, `acpmux` `plan_discard`): checked before acting on it (`at` is `path`),
+/// and on the folder moved aside to go (`archive::reclaim`), so what is at `path` by then is never
+/// what goes. An error leaves it, with that reason.
+pub type Still = dyn Fn(&Path, &Path) -> Result<(), String> + Send + Sync;
 
 /// A program other than this one that has `folder` open: its working folder,
 /// or a file at the folder's top level (`lsof +d`, not `+D`: no walk of the
