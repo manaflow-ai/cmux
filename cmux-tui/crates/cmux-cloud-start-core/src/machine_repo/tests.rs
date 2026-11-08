@@ -293,3 +293,230 @@ fn git_reads_the_reset_before_the_chosen_helper() {
     };
     assert!(reset < chosen && chosen < clone, "{argv:?}");
 }
+
+#[cfg(unix)]
+/// A scratch folder with a source repository of two commits, and shims for the machine's
+/// `cmux` (`repo hold` runs its command in the foreground), `systemd-run`, `sudo` and `runuser`.
+struct Machine(std::path::PathBuf);
+
+#[cfg(unix)]
+impl Machine {
+    fn new(with_hold: bool) -> Option<Self> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "cmux-repo-step-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let sh = |script: &str| {
+            std::process::Command::new("sh").arg("-c").arg(script).current_dir(&root).status()
+        };
+        std::fs::create_dir_all(root.join("bin")).ok()?;
+        let made = sh(r#"
+            set -e
+            g() { git -c user.email=t@t -c user.name=t "$@"; }
+            git init -q src; mkdir -p src/lib src/.github home boot
+            echo a > src/AGENTS.md; echo x > src/lib/x.rs; echo w > src/.github/w.yml
+            g -C src add -A; g -C src commit -qm one
+            echo y > src/lib/y.rs; g -C src add -A; g -C src commit -qm two
+            g -C src checkout -qb feature; echo f > src/f.txt; g -C src add -A; g -C src commit -qm f
+            g -C src checkout -q -
+            git -C src config uploadpack.allowFilter true
+            printf '#!/bin/sh\nwhile [ "${1#--}" != "$1" ]; do shift; done; exec "$@"\n' > bin/systemd-run
+            printf '#!/bin/sh\nshift 3; exec "$@"\n' > bin/runuser
+            printf '#!/bin/sh\n[ "$1" = -n ] && shift; exec "$@"\n' > bin/sudo
+            chmod +x bin/*
+        "#)
+        .ok()?;
+        if !made.success() {
+            return None;
+        }
+        if with_hold {
+            let cmux = "#!/bin/sh\n[ \"$1 $2\" = \"repo hold\" ] || exit 2\n\
+                        [ \"$3\" = --help ] && exit 0\n\
+                        echo \"$3\" > \"$HOME/held\"; shift 4; \"$@\"\n";
+            let machine = Self(root);
+            machine.cmux(cmux);
+            return Some(machine);
+        }
+        Some(Self(root))
+    }
+
+    /// The machine's `cmux` and `cmux-tui` (the step asks `cmux-tui` first): both run `script`,
+    /// so a real one on the PATH of the host running the test is never reached.
+    fn cmux(&self, script: &str) {
+        use std::os::unix::fs::PermissionsExt as _;
+        for name in ["bin/cmux", "bin/cmux-tui"] {
+            let file = self.0.join(name);
+            std::fs::write(&file, script).unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
+    /// Runs the step for this machine's source repository; its exit code and repo-status.json.
+    fn run(&self) -> (i32, serde_json::Value) {
+        self.run_with(None, crate::machine_bootstrap::NO_SCRIPT)
+    }
+
+    /// [`Machine::run`] for `r#ref`, beside the bootstrap script `script` (the runner's `script`).
+    fn run_with(&self, r#ref: Option<&str>, script: &str) -> (i32, serde_json::Value) {
+        let url = format!("file://{}", self.0.join("src").display());
+        let repo = Repo { r#ref: r#ref.map(str::to_owned), ..Repo::new("o", "r") };
+        let step = repo.step().replace("https://github.com/o/r.git", &url);
+        std::fs::write(self.0.join("boot/script"), script).unwrap();
+        let file = self.0.join("boot/repo");
+        std::fs::write(&file, step).unwrap();
+        // As the bootstrap writes it (0o700): the fill runs the step again by its path.
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let inherited = std::env::var("PATH").unwrap_or_default();
+        let path = format!("{}:{inherited}", self.0.join("bin").display());
+        let status = std::process::Command::new("sh")
+            .arg(&file)
+            .env("HOME", self.0.join("home"))
+            .env("PATH", path)
+            .status()
+            .unwrap();
+        let record =
+            std::fs::read_to_string(self.0.join("boot/repo-status.json")).unwrap_or_default();
+        (status.code().unwrap_or(-1), serde_json::from_str(&record).unwrap_or_default())
+    }
+
+    fn checkout(&self) -> std::path::PathBuf {
+        self.0.join("home/work/r")
+    }
+
+    fn git(&self, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(self.checkout())
+            .args(args)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Machine {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(unix)]
+/// The default branch is cloned head first and filled under `cmux repo hold`: the step ends with
+/// the whole tree there and the barrier's command run (cmuxterm-hq goals/cloud-no-network-wait.md).
+#[test]
+fn a_default_branch_is_cloned_head_first_and_filled_under_the_hold() {
+    let Some(machine) = Machine::new(true) else { return };
+    let (code, record) = machine.run();
+    assert_eq!(code, 0, "{record}");
+    assert_eq!(
+        (record["status"].as_str(), record["fill"].as_str()),
+        (Some("cloned"), Some("background"))
+    );
+    let dir = machine.checkout();
+    let held = std::fs::read_to_string(machine.0.join("home/held")).unwrap();
+    assert_eq!(held.trim(), dir.display().to_string());
+    for file in ["AGENTS.md", ".github/w.yml", "lib/x.rs", "lib/y.rs"] {
+        assert!(dir.join(file).is_file(), "{file} is checked out");
+    }
+    let sparse = std::process::Command::new("git")
+        .args(["-C", &dir.display().to_string(), "config", "--bool", "core.sparseCheckout"])
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&sparse.stdout).trim(), "false");
+}
+
+#[cfg(unix)]
+/// A machine whose cmux has no `repo hold` clones the whole repository, as before.
+#[test]
+fn without_a_hold_the_whole_repository_is_cloned() {
+    let Some(machine) = Machine::new(false) else { return };
+    // No `cmux` shim: the PATH's own may exist on this host, so hide it behind one that refuses.
+    machine.cmux("#!/bin/sh\nexit 2\n");
+    let (code, record) = machine.run();
+    assert_eq!(code, 0, "{record}");
+    assert_eq!(record["fill"].as_str(), Some("none"));
+    let dir = machine.checkout();
+    assert!(dir.join("lib/y.rs").is_file());
+    let shallow = std::process::Command::new("git")
+        .args(["-C", &dir.display().to_string(), "rev-parse", "--is-shallow-repository"])
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&shallow.stdout).trim(), "false");
+}
+
+#[cfg(unix)]
+/// Review F2 (cmux#38099, e473b67ec61): a depth-1 clone tracks only the default branch, so once
+/// the history came in, a later start on another branch found no such branch.
+#[test]
+fn a_head_first_clone_keeps_every_branch_for_a_later_start() {
+    let Some(machine) = Machine::new(true) else { return };
+    let (code, record) = machine.run();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("background")), "{record}");
+    let fetch = machine.git(&["config", "--get-all", "remote.origin.fetch"]);
+    assert_eq!(fetch, "+refs/heads/*:refs/remotes/origin/*");
+    // The history comes in the background (`unshallow`): let it end before the next start.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while machine.git(&["rev-parse", "--is-shallow-repository"]) != "false" {
+        assert!(std::time::Instant::now() < deadline, "the history never came in");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let (code, record) = machine.run_with(Some("feature"), crate::machine_bootstrap::NO_SCRIPT);
+    assert_eq!(code, 0, "{record}");
+    assert!(machine.checkout().join("f.txt").is_file());
+}
+
+#[cfg(unix)]
+/// Review F1 (cmux#38099, e473b67ec61): the runner runs a start's bootstrap script right after the
+/// step, with no barrier, so with a script of its own the whole tree is cloned first.
+#[test]
+fn a_start_with_a_bootstrap_script_clones_the_whole_repository() {
+    let Some(machine) = Machine::new(true) else { return };
+    let (code, record) = machine.run_with(None, "#!/bin/sh\ntest -f work/r/lib/y.rs\n");
+    assert_eq!((code, record["fill"].as_str()), (0, Some("none")), "{record}");
+    assert!(machine.checkout().join("lib/y.rs").is_file());
+    assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "false");
+    assert!(!machine.0.join("home/held").exists(), "no hold");
+}
+
+#[cfg(unix)]
+/// Review F3 (cmux#38099, 782cd5a47ad): a head-first checkout whose fill never ran, filled again
+/// on a machine with no hold, gets its history too, as a whole clone has it.
+#[test]
+fn a_head_first_checkout_filled_without_a_hold_gets_its_history() {
+    let Some(machine) = Machine::new(true) else { return };
+    // A hold that takes the folder and never runs its fill.
+    machine.cmux("#!/bin/sh\n[ \"$3\" = --help ] && exit 0\nexit 0\n");
+    let (code, record) = machine.run();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("background")), "{record}");
+    assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "true");
+    machine.cmux("#!/bin/sh\nexit 2\n");
+    let (code, record) = machine.run();
+    assert_eq!(code, 0, "{record}");
+    assert!(machine.checkout().join("lib/y.rs").is_file());
+    assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "false");
+}
+
+#[cfg(unix)]
+/// Review F2 (cmux#38099, 344dd0d083c): a harness folder that the repository tracks as a symlink
+/// is no sparse folder, so the head-first clone takes the whole tree at once instead of failing.
+#[test]
+fn a_symlinked_harness_folder_takes_the_whole_tree_at_once() {
+    let Some(machine) = Machine::new(true) else { return };
+    let linked = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("cd src && ln -s .github .claude && git add -A && git -c user.email=t@t -c user.name=t commit -qm l")
+        .current_dir(&machine.0)
+        .status()
+        .unwrap();
+    assert!(linked.success());
+    let (code, record) = machine.run();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("done")), "{record}");
+    assert!(machine.checkout().join("lib/y.rs").is_file());
+    assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "false");
+    assert!(!machine.0.join("home/held").exists(), "no hold");
+}
