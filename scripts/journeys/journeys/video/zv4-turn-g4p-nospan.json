@@ -4,7 +4,7 @@
     "title": "ZOOM VARIANTS 4: Z4 K6 key turn on G4P (2x2, Chromium page top right, nvim top left zoomed), 40 real presses, no profiler, no spans",
     "why": "ZOOM VARIANTS 4 item 3: Z4 key turn p95 < 10 ms each direction with spans OFF, n >= 40, on G4P (its films showed 17-28 ms out turns).",
     "source": "zoom-variants profile kit (ext_zvprof.py)",
-    "budget_seconds": 300,
+    "budget_seconds": 255,
     "recordings": [],
     "options": {
         "key_path": "real"
