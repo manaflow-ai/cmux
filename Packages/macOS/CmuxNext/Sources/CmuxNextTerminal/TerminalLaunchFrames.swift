@@ -492,15 +492,20 @@ public final class TerminalLaunchFrames {
     private nonisolated static func write(_ frames: [String: CGImage], keeping: Set<String>, to directory: URL, maximumBytes: Int) {
         let manager = FileManager.default
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        var keeping = keeping
+        for (name, frame) in frames {
+            let url = directory.appending(path: name)
+            // A frame that is not written (it does not encode within the read's cap, or its write fails) keeps every
+            // file its key had, at any scale: the cleanup comes after the writes.
+            guard let data = encoded(frame, maximumBytes: maximumBytes), (try? data.write(to: url, options: [.atomic])) != nil else {
+                owner(of: name).map { _ = keeping.insert($0) }
+                continue
+            }
+            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
             guard !keeping.contains(owner(of: old) ?? old) else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
-        }
-        for (name, frame) in frames {
-            let url = directory.appending(path: name)
-            // A frame that does not encode within the read's cap is not written: its key keeps the file it had.
-            guard let data = encoded(frame, maximumBytes: maximumBytes), (try? data.write(to: url, options: [.atomic])) != nil else { continue }
-            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
     }
 
@@ -522,15 +527,18 @@ public final class TerminalLaunchFrames {
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let name = "\(key)@\(scale)x.jpg"
         let url = directory.appending(path: name)
+        var saved = false
         if let data = encoded(frame, maximumBytes: maximumBytes),
            stillWanted(),
            (try? data.blockingWrite(to: url, options: [.atomic])) != nil {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            saved = true
         }
         guard stillWanted() else { return }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old != name {
-            // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone.
-            guard let tab = owner(of: old), tab == key || keeping.map({ !$0.contains(tab) }) == true else { continue }
+            // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone. The
+            // key's frames at other scales go only once its new one is written.
+            guard let tab = owner(of: old), tab == key ? saved : keeping.map({ !$0.contains(tab) }) == true else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
     }
