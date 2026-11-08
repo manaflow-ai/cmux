@@ -123,6 +123,9 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         public var readsMachine: Bool
         public var guestTakesLogin: Bool
         public var skippedTeamMachine: Bool
+        /// Whether a start would race the spare warm's login copy on its machine (Rust's `warm_copy_conflict`): only
+        /// such a start waits on it. Nil from an app FFI pinned before the field: no start waits then.
+        public var warmCopyConflict: Bool?
         public var summary: String
 
         /// ``provider`` as a transfer provider; nil for a harness with no transfer (pi, opencode).

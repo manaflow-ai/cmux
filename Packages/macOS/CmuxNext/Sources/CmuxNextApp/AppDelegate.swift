@@ -386,7 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 services?.windows.enterRestoredFullScreens()
                 await services?.paidPlanReturned() // an upgrade's payment page sends the person back here
                 await services?.joinConsent.refresh() // a consent refusal acpmux recorded meanwhile; reads nothing with Labs off
-                if let services { await CloudStartChat.warmSpare(services) } // intent: the person's spare takes their login now
+                if let services { CloudStartChat.warmSpare(services) } // intent, never awaited: the next activation runs at once
             }
         }
         services.configActions.start(settings: settings)

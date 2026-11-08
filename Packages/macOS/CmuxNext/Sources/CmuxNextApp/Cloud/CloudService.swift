@@ -112,11 +112,8 @@ final class CloudService {
     let creations = CloudCreations()
     /// Move to Cloud's CLI and machine folders.
     @ObservationIgnored var move = CloudMoveSetup()
-    /// The spare warm in flight per account and team (CloudStartChat+WarmSpare, ``CloudAuth/accountKey``): a second
-    /// intent of the same identity waits on it; another identity starts its own.
-    @ObservationIgnored var spareWarms: [String: Task<Void, Never>] = [:]
-    /// A warm's login copy in flight, by Rust's copy target: only a start copying onto that machine waits on it.
-    @ObservationIgnored var spareWarmCopies: [String: Task<Bool, Never>] = [:]
+    /// The spare warms in flight, one per account and team, and their login copies by machine (CloudStartChat+WarmSpare).
+    @ObservationIgnored let spareWarms = CloudSpareWarms()
     /// What Retry does for each chat whose move stopped.
     @ObservationIgnored let moveRetries = CloudMoveRetries(key: "cmux.cloud.moveRetries")
     /// What Retry does for each machine chat whose Bring Back Local stopped, by its tab there.

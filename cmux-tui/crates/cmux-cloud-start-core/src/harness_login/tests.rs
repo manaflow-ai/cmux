@@ -680,3 +680,18 @@ fn the_login_decision_wire_holds_no_credential() {
         assert!(!wire.to_lowercase().contains(word), "{word} in {wire}");
     }
 }
+
+#[test]
+fn only_a_claude_start_that_copies_conflicts_with_a_warm_copy() {
+    // A Claude start that reads and copies onto its machine would race the warm's Claude copy.
+    let claude = decide(&cached(owner()));
+    assert!(claude.reads_machine && claude.warm_copy_conflict);
+    // Codex reads the machine too (its broker), but the warm copies only Claude: no conflict.
+    let codex = decide(&Inputs { provider: Some(Provider::Codex), ..cached(owner()) });
+    assert!(codex.reads_machine && !codex.warm_copy_conflict);
+    // A start that copies nothing (`--login none`, a machine it does not own) never waits.
+    let none =
+        Inputs { requested: Some(Choice::None), requested_by_person: true, ..cached(owner()) };
+    assert!(!decide(&none).warm_copy_conflict);
+    assert!(!decide(&Inputs { caller_owns: Some(false), ..cached(owner()) }).warm_copy_conflict);
+}

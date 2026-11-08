@@ -62,8 +62,8 @@ extension CloudStartChat {
             if verdict.gate, verdict.transferProvider != nil, let userID {
                 decision.callerOwns = try await target.callerOwns()
                 verdict = decision.verdict
-                // Only a start that will copy onto the machine a warm is copying to waits for it (Rust's verdict and copy target).
-                if verdict.readsMachine, !target.ownerOnly, let warm = cloud.spareWarmCopies[machineID] { _ = await warm.value }
+                // Only a start that would race a warm's copy onto this machine waits for it (Rust's verdict and copy target).
+                if !target.ownerOnly { await cloud.spareWarms.waitForCopy(onto: machineID, conflicts: verdict.warmCopyConflict == true) }
                 if verdict.readsMachine { try await decision.readGuest(exec: { (try? await api.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause) } // again until a new guest binds
                 // A login the provider rejects (a reused machine's expired token) is replaced like a missing one.
                 if verdict.transferProvider == .claude, decision.verdict.guestTakesLogin { decision.take(await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)) }
