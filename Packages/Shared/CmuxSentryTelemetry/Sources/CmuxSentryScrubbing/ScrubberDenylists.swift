@@ -187,6 +187,13 @@ public struct ScrubberDenylists: Sendable {
         // Provider-style keys: sk-..., pk-..., ghp_..., xoxb-..., and similar
         // prefixes. No relay equivalent — cmux-specific add for dev secrets.
         SentryRegexPattern(#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|xox[baprs])[_\-][A-Za-z0-9_\-]{16,}"#),
+        // More provider tokens a developer's machine holds, by their fixed prefix: GitHub fine-grained PATs,
+        // GitLab PATs, npm tokens, Hugging Face tokens and Google API keys. No relay equivalent.
+        // Case-sensitive: the prefixes are fixed-case. `SeededSecretTests` seeds one of each.
+        SentryRegexPattern(
+            #"\b(?:github_pat_[A-Za-z0-9_]{22,}|glpat-[A-Za-z0-9_\-]{20,}|npm_[A-Za-z0-9]{36,}|hf_[A-Za-z0-9]{30,}|AIza[0-9A-Za-z_\-]{35,})"#,
+            options: []
+        ),
         // JSON Web Tokens: three base64url segments separated by dots. No relay
         // equivalent. Case-sensitive (`eyJ` header is fixed-case base64).
         SentryRegexPattern(

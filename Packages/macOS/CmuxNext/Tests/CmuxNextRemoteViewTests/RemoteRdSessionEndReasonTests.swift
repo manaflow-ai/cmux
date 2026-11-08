@@ -27,4 +27,14 @@ import Testing
         #expect(ended.state == .ended(.connectionLost), "the pane's state and behavior are unchanged")
         #expect(ended.endReason == "rd stream did not open: no link to the machine")
     }
+
+    /// Reconnect starts a new session: the pane drops the old session's reason at once instead of
+    /// showing it until the new transport's first status arrives.
+    @Test func reconnectDropsTheEndedSessionsReason() {
+        var state = RemotePaneState(hostName: "vm", requestedMode: .view)
+        state.status = RemoteViewStatus(state: .ended(.connectionLost), endReason: "rd stream did not open: no link to the machine")
+        let reconnected = RemotePaneReducer().reduce(state, .reconnect)
+        #expect(reconnected.sessionState == .connecting)
+        #expect(reconnected.status?.endReason == nil)
+    }
 }
