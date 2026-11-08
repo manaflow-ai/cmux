@@ -375,7 +375,7 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
-import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
+import { headerState, setHeaderState, useHeaderState, type HeaderPullRequest } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
@@ -10259,6 +10259,45 @@ function AcpmuxPane() {
         },
       }
     : undefined;
+  /// The PR chip's actions stay in this chat: the prompt is accepted as soon as the selected
+  /// session takes it, so a slow agent turn does not make the chip look stuck.
+  const sendPullRequestPrompt = (text: string) =>
+    new Promise<void>((resolve, reject) => {
+      callNative("chat.send", { text, accepted: () => resolve() }).then(() => resolve(), reject);
+    });
+  const fixPullRequestChecks = async (pullRequest: HeaderPullRequest) => {
+    const failing = pullRequest.checkList.filter((check) => check.state === "failed");
+    if (failing.length === 0) return;
+    const checks = failing
+      .map((check) => `- ${check.name}${check.url ? ` — ${check.url}` : ""}`)
+      .join("\n");
+    await sendPullRequestPrompt(
+      `Fix the failing checks for PR #${pullRequest.number}. First read the failing check log tail for each run, then diagnose and fix the failures.\n\n${checks}`,
+    );
+  };
+  const addressPullRequestComments = async (pullRequest: HeaderPullRequest) => {
+    const value = (await callNative("git.pullRequest", { action: "threads" })) as { threads?: unknown[] } | null;
+    const threads = (value?.threads ?? []).filter((thread): thread is Record<string, unknown> => {
+      if (!thread || typeof thread !== "object") return false;
+      return thread.resolved !== true && thread.outdated !== true;
+    });
+    if (threads.length === 0) throw new Error(translate("header.prNoUnresolvedComments"));
+    const details = threads
+      .map((thread) => {
+        const comments = Array.isArray(thread.comments) ? thread.comments : [];
+        const text = comments
+          .map((comment) => {
+            if (!comment || typeof comment !== "object") return "";
+            const row = comment as Record<string, unknown>;
+            return `${String(row.author ?? "reviewer")}: ${String(row.body ?? "")}${row.url ? ` (${String(row.url)})` : ""}`;
+          })
+          .filter(Boolean)
+          .join("\n");
+        return `- ${String(thread.path ?? "file")}\n${text}`;
+      })
+      .join("\n");
+    await sendPullRequestPrompt(`Address the unresolved review comments on PR #${pullRequest.number}.\n\n${details}`);
+  };
   if (quick)
     return (
       <ShortcutsContext.Provider value={shortcuts}>
@@ -10640,6 +10679,8 @@ function AcpmuxPane() {
                               })
                           : undefined
                       }
+                      onFixPullRequestChecks={localCwd ? fixPullRequestChecks : undefined}
+                      onAddressPullRequestComments={localCwd ? addressPullRequestComments : undefined}
                       onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
                       onSplitDown={(mode) => runSplitAction(HEADER_ACTIONS.splitDown, localCwd, mode)}
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}

@@ -43,11 +43,14 @@ const MAX_LAST: u64 = 20;
 
 #[path = "acpmux_mcp_bg.rs"]
 mod bg;
+#[path = "acpmux_mcp_pr.rs"]
+mod pr;
 
 fn tools() -> Value {
     let mut all = base_tools();
     if let Some(list) = all.as_array_mut() {
         list.extend(bg::tools());
+        list.push(pr::tool());
     }
     all
 }
@@ -148,6 +151,10 @@ pub async fn run() -> Result<()> {
             if bg::TOOLS.contains(&name) {
                 let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
                 return bg::call(&daemon, &session, name, &args).await;
+            }
+            if name == pr::NAME {
+                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                return pr::call(&daemon, &session, &args).await;
             }
             call(&daemon, &params).await
         },

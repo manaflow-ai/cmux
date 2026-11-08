@@ -106,6 +106,8 @@ export function ChatHeaderTools({
   onExpanded,
   pullRequestChip,
   onMergePullRequest,
+  onFixPullRequestChecks,
+  onAddressPullRequestComments,
   folder,
   readStatus,
   statusKey,
@@ -151,6 +153,10 @@ export function ChatHeaderTools({
   pullRequestChip?: boolean;
   /// Merge on the PR chip (cx-ncc.77.4): merges that pull request; rejects with why not.
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
+  /// PR chip action: send the failing check log-tail prompt to this chat.
+  onFixPullRequestChecks?: (pullRequest: import("./headerState").HeaderPullRequest) => Promise<void>;
+  /// PR chip action: send unresolved review threads to this chat.
+  onAddressPullRequestComments?: (pullRequest: import("./headerState").HeaderPullRequest) => Promise<void>;
   /// The chat's folder on this Mac and its `git.status`: a worktree chat's branch shows (cx-lyqio.3b),
   /// read again when `statusKey` changes.
   folder?: string;
@@ -409,7 +415,12 @@ export function ChatHeaderTools({
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && pullRequestChip !== false && (
-        <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+        <PullRequestChip
+          pullRequest={pullRequest}
+          onMerge={onMergePullRequest}
+          onFixChecks={onFixPullRequestChecks}
+          onAddressComments={onAddressPullRequestComments}
+        />
       )}
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
       {inspector}

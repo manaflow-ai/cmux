@@ -121,6 +121,13 @@
 .acpmux-pr-merge output{color:var(--agent-muted)}
 .acpmux-pr-merge output[role=alert]{color:var(--agent-status-failure)}
 .acpmux-pr-merge[data-step=merged] output{color:var(--agent-status-merged)}
+.acpmux-pr-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 -2px;padding:8px 6px 2px;border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-pr-actions button{height:24px;padding:0 9px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit}
+.acpmux-pr-actions button:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
+.acpmux-pr-actions button:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
+.acpmux-pr-actions button:disabled{opacity:.6}
+.acpmux-pr-actions output{flex-basis:100%;color:var(--agent-muted)}
+.acpmux-pr-actions output[role=alert]{color:var(--agent-status-failure)}
 /* One row on top (header/tabRow.ts, the chrome.tabs.rowTools Debug setting): the App draws the pane's
    tabs over the header's left part, so the header is the tab row's height, takes no clicks there and
    shows only its tools, left of the pane's own "…"; the transcript fades out under the row. */

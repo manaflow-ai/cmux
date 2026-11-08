@@ -11,6 +11,10 @@ export interface HeaderPullRequest {
   readonly url: string;
   readonly number: number;
   readonly title: string;
+  /// GitHub's head commit when the daemon supplies it. The armed merge watch pins this value.
+  readonly headSha?: string;
+  /// Changes when GitHub records a push or review update; used as a fallback watch token.
+  readonly updatedAt?: string;
   /// `open`, `draft`, `merged` or `closed`.
   readonly state: string;
   /// `approved`, `changes_requested`, `review_required`, or empty.
@@ -130,6 +134,8 @@ function pullRequestOf(value: unknown): HeaderPullRequest | undefined {
     url: raw.url,
     number: raw.number,
     title: text(raw.title),
+    ...(typeof raw.headSha === "string" && raw.headSha ? { headSha: raw.headSha } : {}),
+    ...(typeof raw.updatedAt === "string" && raw.updatedAt ? { updatedAt: raw.updatedAt } : {}),
     state: typeof raw.state === "string" ? raw.state : "open",
     review: text(raw.review),
     mergeable: text(raw.mergeable),
