@@ -102,7 +102,7 @@ import { startNewTabTransition } from "./newtab/startTransition";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { setSavedPromptsTransport } from "./savedPrompts";
-import { setStashTransport } from "./composer/draftStash";
+import { setStashTab, setStashTransport } from "./composer/draftStash";
 import {
   composerDraft,
   DRAFT_SETTLE_MS,
@@ -1070,7 +1070,10 @@ registerComposerHost((method, show) => callNative(method, { show }));
 if (typeof window !== "undefined")
   window.addEventListener(PANE_TAB_EVENT, (event) => {
     const tab = (event as CustomEvent<{ tab?: unknown }>).detail?.tab;
-    if (typeof tab === "string" && tab) setSessionInfoTab(tab);
+    if (typeof tab === "string" && tab) {
+      setSessionInfoTab(tab);
+      setStashTab(tab);
+    }
   });
 registerAttachmentViewHost((view) => callNative("pane.setAttachmentView", { view }));
 registerComposerRingHost((ring) => callNative("pane.setComposerRing", { ring }));
@@ -6806,7 +6809,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           .finally(resendToastAvoidance);
         if (cancelled) return;
         // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
-        if (typeof host.tab === "string" && host.tab) setSessionInfoTab(host.tab);
+        if (typeof host.tab === "string" && host.tab) {
+          setSessionInfoTab(host.tab);
+          setStashTab(host.tab);
+        }
         acpmuxPerf.markAgent("handshakeReady");
         acpmuxPerf.markLaunch("handshakeReady");
         setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
@@ -7089,7 +7095,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Stashed drafts live in acpmux too: the page's own storage is gone with it (draftStash.ts).
         setStashTransport({
           list: (chat) => client.listStash(chat),
-          push: (chat, text, attachments) => client.pushStash(chat, text, attachments),
+          push: (chat, text, attachments, replaces) => client.pushStash(chat, text, attachments, replaces),
           get: (chat, id) => client.getStash(chat, id),
           drop: (chat, id) => client.dropStash(chat, id),
         });

@@ -279,7 +279,7 @@ keyed! {
     /// `_acpmux/stash_list`.
     StashListParams: ["chat"];
     /// `_acpmux/stash_push`.
-    StashPushParams: ["chat", "text", "attachments"];
+    StashPushParams: ["chat", "text", "attachments", "replaces"];
     /// `_acpmux/start_mode`.
     StartModeParams: ["harness", "preset", "cwd"];
     /// `_acpmux/status`.

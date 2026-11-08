@@ -1936,6 +1936,7 @@ export interface StashPushParams {
   _meta?: RequestMeta;
   attachments?: unknown;
   chat?: unknown;
+  replaces?: unknown;
   text?: unknown;
 }
 

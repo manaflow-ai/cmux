@@ -61,6 +61,11 @@ describe("saved prompts", () => {
 
   test("a variable the chat cannot fill stays, and a prompt with none has no selection", () => {
     expect(fillPrompt("on {{branch}}", {}).text).toBe("on {{branch}}");
+    // Only its own variables: `{{constructor}}` stays open, as any name it does not know.
+    expect(fillPrompt("{{constructor}} and {{toString}}", {})).toEqual({
+      text: "{{constructor}} and {{toString}}",
+      open: [0, 15],
+    });
     expect(fillPrompt("on {{branch}}", {}).open).toEqual([3, 13]);
     expect(fillPrompt("plain {not a var}", {})).toEqual({ text: "plain {not a var}" });
   });

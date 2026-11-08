@@ -6,7 +6,7 @@
 // it has one (`moveStash`). The page keeps each chat's list as acpmux last answered it; a list row's
 // chips have no contents, and `readStashed` reads one draft whole. A draft leaves acpmux only once
 // the composer holds it again (`dropStashed` after the restore), so nothing is lost in between.
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { withoutInlineTokens, type ComposerAttachment } from "../attachments";
 
 export type StashedDraft = {
@@ -20,7 +20,7 @@ export type StashedDraft = {
 /// How the page reaches acpmux's stash (direct.ts listStash, pushStash, getStash, dropStash).
 export type StashTransport = {
   list(chat: string): Promise<unknown>;
-  push(chat: string, text: string, attachments: readonly ComposerAttachment[]): Promise<unknown>;
+  push(chat: string, text: string, attachments: readonly ComposerAttachment[], replaces?: string): Promise<unknown>;
   get(chat: string, id: string): Promise<unknown>;
   drop(chat: string, id: string): Promise<unknown>;
 };
@@ -78,21 +78,26 @@ export function refreshStash(chat: string): Promise<void> {
   );
 }
 
-/// Puts the draft on top of `chat`'s stack in acpmux. Nothing is stashed for an empty draft, nor
-/// when acpmux does not take it (no connection, a refusal, a draft past the message size): the
-/// composer keeps the draft then. Whether it was stashed.
+/// Puts the draft on top of `chat`'s stack in acpmux, in place of draft `replaces` when given (one
+/// write: a full stack lets no other go). Nothing is stashed for an empty draft, nor when acpmux
+/// does not take it (no connection, a refusal, a draft too large to answer whole): the composer
+/// keeps the draft then. Whether it was stashed.
 export async function stashDraft(
   chat: string,
   text: string,
   attachments: readonly ComposerAttachment[],
+  replaces?: string,
 ): Promise<boolean> {
   const link = transport;
   if (!link || (!text.trim() && attachments.length === 0)) return false;
   try {
-    const answer = await link.push(chat, text, attachments);
+    const answer = await link.push(chat, text, attachments, replaces);
     const row = draftFrom((answer as { draft?: unknown } | undefined)?.draft);
     if (!row) return false;
-    setStack(chat, [row, ...(stacks.get(chat) ?? NONE).filter((entry) => entry.id !== row.id)]);
+    setStack(chat, [
+      row,
+      ...(stacks.get(chat) ?? NONE).filter((entry) => entry.id !== row.id && entry.id !== replaces),
+    ]);
     return true;
   } catch {
     return false;
@@ -149,11 +154,39 @@ export function useStash(chat: string): readonly StashedDraft[] {
   );
 }
 
+/// The tab this page is (the handshake's `tab`, kept by the app across a relaunch), so a new chat's
+/// stack has a key that outlives the page: `new-tab:<tab>`. Before it is known (an older app, the
+/// gallery) a composer has a key of its own, and its stack moves to the tab's once it is known.
+let paneTab: string | undefined;
+const tabListeners = new Set<() => void>();
+export function setStashTab(tab: string | undefined): void {
+  if (tab === paneTab) return;
+  paneTab = tab;
+  for (const listener of tabListeners) listener();
+}
+const subscribeTab = (listener: () => void) => {
+  tabListeners.add(listener);
+  return () => void tabListeners.delete(listener);
+};
+const ownKey = () => `new-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
+
+/// The stash key of a composer's new chat (no session yet).
+export function useNewChatStash(): string {
+  const [own] = useState(ownKey);
+  const tab = useSyncExternalStore(
+    subscribeTab,
+    () => paneTab,
+    () => undefined,
+  );
+  return tab ? `new-tab:${tab}` : own;
+}
+
 /// The stack the page holds for `chat` now.
 export const stashedNow = (chat: string): readonly StashedDraft[] => stacks.get(chat) ?? NONE;
 
 /// Tests: forget the page's stacks and use `next` as acpmux.
 export function resetStashForTests(next?: StashTransport): void {
+  paneTab = undefined;
   stacks.clear();
   wanted.clear();
   transport = next;

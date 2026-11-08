@@ -11,10 +11,14 @@
 //! count. A take is two steps: `stash_get` reads the whole draft, and `stash_drop` removes it once
 //! the composer holds it, so a page that goes away in between loses nothing.
 //!
+//! A push may name the draft it `replaces` (a restore that puts the prompt's own draft on the stack
+//! in its place): one write takes that one out and puts the new one on top, so a full stack lets no
+//! other draft go.
+//!
 //! Bounds: [`STASH_LIMIT`] drafts per chat (a push past it lets the oldest go) and [`STASH_CHATS`]
-//! chats (the file written longest ago goes). One draft is bounded by the message size a request
-//! may have (`rpc::MAX_MESSAGE_BYTES`); a push larger than that never arrives, and the composer
-//! keeps the draft.
+//! chats (the file written longest ago goes). One draft is at most what `stash_get` can answer in
+//! one message (`rpc::MAX_MESSAGE_BYTES` less [`REPLY_SLACK`]): a larger one is refused, and the
+//! composer keeps it, so every stashed draft can come back.
 
 use std::fs;
 use std::io::{self, Write};
@@ -37,6 +41,8 @@ pub const STASH_LIMIT: usize = 5;
 pub const STASH_CHATS: usize = 50;
 /// The longest chat key.
 pub const MAX_CHAT_CHARS: usize = 256;
+/// What a `stash_get` reply holds besides the draft: its framing, id and field names.
+pub const REPLY_SLACK: usize = 64 * 1024;
 
 /// Every read-modify-write holds this, so two pushes at once never lose one.
 static WRITES: Mutex<()> = Mutex::new(());
@@ -105,7 +111,8 @@ pub fn handle(m: &str, params: &Value) -> Result<Value, RpcError> {
                 Some(Value::Array(list)) if list.iter().all(Value::is_object) => list.clone(),
                 Some(_) => return Err(RpcError::invalid_params("attachments must be a list of chips")),
             };
-            let draft = push(&dir, chat, text, attachments, crate::store::now_ms())?;
+            let replaces = params.get("replaces").and_then(Value::as_str);
+            let draft = push(&dir, chat, text, attachments, replaces, crate::store::now_ms())?;
             Ok(json!({"draft": draft.row()}))
         }
         method::MUX_STASH_GET => {
@@ -122,27 +129,40 @@ pub fn handle(m: &str, params: &Value) -> Result<Value, RpcError> {
     }
 }
 
-/// Puts a draft on top of `chat`'s stack, the oldest past [`STASH_LIMIT`] let go.
+/// Puts a draft on top of `chat`'s stack, in place of `replaces` when it is there; the oldest past
+/// [`STASH_LIMIT`] let go.
 pub fn push(
     dir: &Path,
     chat: &str,
     text: &str,
     attachments: Vec<Value>,
+    replaces: Option<&str>,
     now_ms: u64,
 ) -> Result<Draft, RpcError> {
     static SERIAL: AtomicU64 = AtomicU64::new(0);
     if text.trim().is_empty() && attachments.is_empty() {
         return Err(RpcError::invalid_params("the draft is empty"));
     }
-    let _held = WRITES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let path = chat_path(dir, chat);
-    let mut drafts = load(&path).map_err(unreadable)?;
     let draft = Draft {
         id: format!("stash-{now_ms}-{}", SERIAL.fetch_add(1, Ordering::Relaxed)),
         text: text.to_owned(),
         attachments,
         at: now_ms,
     };
+    // Only a draft `stash_get` can answer whole is kept.
+    let whole = serde_json::to_vec(&draft).map_err(|e| RpcError::internal(e.to_string()))?.len();
+    if whole + REPLY_SLACK > crate::rpc::MAX_MESSAGE_BYTES {
+        return Err(RpcError::invalid_params(format!(
+            "the draft is too large to stash (more than {} MiB); it stays in the prompt",
+            (crate::rpc::MAX_MESSAGE_BYTES - REPLY_SLACK) >> 20
+        )));
+    }
+    let _held = WRITES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let path = chat_path(dir, chat);
+    let mut drafts = load(&path).map_err(unreadable)?;
+    if let Some(replaces) = replaces {
+        drafts.retain(|d| d.id != replaces);
+    }
     drafts.insert(0, draft.clone());
     drafts.truncate(STASH_LIMIT);
     write(&path, chat, &drafts).map_err(not_saved)?;
@@ -274,7 +294,7 @@ mod tests {
     fn a_push_then_get_brings_the_draft_back_whole_and_a_drop_removes_it() {
         let home = tempfile::tempdir().unwrap();
         let dir = home.path().join(DIR);
-        let draft = push(&dir, "chat", "first", vec![chip("a")], 1).unwrap();
+        let draft = push(&dir, "chat", "first", vec![chip("a")], None, 1).unwrap();
         let path = chat_path(&dir, "chat");
         let kept = load(&path).unwrap();
         assert_eq!(kept, vec![draft.clone()]);
@@ -291,7 +311,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let dir = home.path().join(DIR);
         for at in 0..(STASH_LIMIT as u64 + 2) {
-            push(&dir, "chat", &format!("draft {at}"), Vec::new(), at).unwrap();
+            push(&dir, "chat", &format!("draft {at}"), Vec::new(), None, at).unwrap();
         }
         let texts: Vec<String> =
             load(&chat_path(&dir, "chat")).unwrap().into_iter().map(|d| d.text).collect();
@@ -303,9 +323,9 @@ mod tests {
     fn an_empty_draft_is_refused_and_chats_are_apart() {
         let home = tempfile::tempdir().unwrap();
         let dir = home.path().join(DIR);
-        assert!(push(&dir, "chat", "  ", Vec::new(), 0).is_err());
-        push(&dir, "one", "a", Vec::new(), 0).unwrap();
-        push(&dir, "two", "b", Vec::new(), 0).unwrap();
+        assert!(push(&dir, "chat", "  ", Vec::new(), None, 0).is_err());
+        push(&dir, "one", "a", Vec::new(), None, 0).unwrap();
+        push(&dir, "two", "b", Vec::new(), None, 0).unwrap();
         assert_eq!(load(&chat_path(&dir, "one")).unwrap()[0].text, "a");
         assert_eq!(load(&chat_path(&dir, "two")).unwrap()[0].text, "b");
     }
@@ -315,7 +335,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let dir = home.path().join(DIR);
         for n in 0..=STASH_CHATS {
-            push(&dir, &format!("chat {n}"), "draft", Vec::new(), n as u64).unwrap();
+            push(&dir, &format!("chat {n}"), "draft", Vec::new(), None, n as u64).unwrap();
         }
         assert_eq!(fs::read_dir(&dir).unwrap().count(), STASH_CHATS);
         assert!(chat_path(&dir, &format!("chat {STASH_CHATS}")).exists());
@@ -328,7 +348,35 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let path = chat_path(&dir, "chat");
         fs::write(&path, "not json").unwrap();
-        assert!(push(&dir, "chat", "draft", Vec::new(), 0).is_err());
+        assert!(push(&dir, "chat", "draft", Vec::new(), None, 0).is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), "not json");
+    }
+
+    #[test]
+    fn a_push_in_place_of_a_draft_lets_no_other_go() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        let mut ids = Vec::new();
+        for at in 0..STASH_LIMIT as u64 {
+            ids.push(push(&dir, "chat", &format!("draft {at}"), Vec::new(), None, at).unwrap().id);
+        }
+        let newest = ids.last().unwrap().clone();
+        push(&dir, "chat", "typed meanwhile", Vec::new(), Some(&newest), 99).unwrap();
+        let texts: Vec<String> =
+            load(&chat_path(&dir, "chat")).unwrap().into_iter().map(|d| d.text).collect();
+        assert_eq!(texts.len(), STASH_LIMIT);
+        assert_eq!(texts[0], "typed meanwhile");
+        assert!(texts.contains(&"draft 0".to_owned()), "{texts:?}");
+        assert!(!texts.contains(&format!("draft {}", STASH_LIMIT - 1)), "{texts:?}");
+    }
+
+    #[test]
+    fn a_draft_too_large_to_answer_whole_is_refused() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        let size = crate::rpc::MAX_MESSAGE_BYTES - REPLY_SLACK;
+        let big = json!({"id": "a", "kind": "image", "name": "a.png", "mimeType": "image/png", "data": "A".repeat(size)});
+        assert!(push(&dir, "chat", "large", vec![big], None, 0).is_err());
+        assert!(!chat_path(&dir, "chat").exists());
     }
 }

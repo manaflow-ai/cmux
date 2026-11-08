@@ -187,7 +187,9 @@ export function fillPrompt(text: string, context: PromptContext): { text: string
   for (const match of text.matchAll(VARIABLE)) {
     out += text.slice(last, match.index);
     last = match.index + match[0].length;
-    const value = known[match[1]!.toLowerCase()];
+    const name = match[1]!.toLowerCase();
+    // Own keys only: `{{constructor}}` is a variable left open, not Object's.
+    const value = Object.hasOwn(known, name) ? known[name as keyof typeof known] : undefined;
     if (value !== undefined) out += value;
     else {
       if (!open) open = [out.length, out.length + match[0].length];

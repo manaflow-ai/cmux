@@ -100,7 +100,7 @@
     "_acpmux/prompts_save": {"params": ["name", "text"], "acpmux": []},
     "_acpmux/prompts_delete": {"params": ["name"], "acpmux": []},
     "_acpmux/stash_list": {"params": ["chat"], "acpmux": []},
-    "_acpmux/stash_push": {"params": ["chat", "text", "attachments"], "acpmux": []},
+    "_acpmux/stash_push": {"params": ["chat", "text", "attachments", "replaces"], "acpmux": []},
     "_acpmux/stash_get": {"params": ["chat", "id"], "acpmux": []},
     "_acpmux/stash_drop": {"params": ["chat", "id"], "acpmux": []},
     "_acpmux/btw": {"params": ["sessionId", "question", "model", "inline"], "acpmux": []},

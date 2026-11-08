@@ -674,7 +674,8 @@ export class MockAcpmuxSocket {
         if (!chat || (!text.trim() && !attachments.length))
           throw Object.assign(new Error("the draft is empty"), { code: -32602 });
         const draft = { id: `stash-${++this.stashSerial}`, text, attachments, at: Date.now() };
-        this.stash.set(chat, [draft, ...(this.stash.get(chat) ?? [])].slice(0, 5));
+        const rest = (this.stash.get(chat) ?? []).filter((entry) => entry.id !== params.replaces);
+        this.stash.set(chat, [draft, ...rest].slice(0, 5));
         return { draft };
       }
       case "_acpmux/stash_get": {

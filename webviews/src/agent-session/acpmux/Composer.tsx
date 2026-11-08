@@ -164,7 +164,7 @@ import {
   type EmojiShortcodes,
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
-import { dropStashed, moveStash, readStashed, stashDraft, useStash } from "./composer/draftStash";
+import { dropStashed, moveStash, readStashed, stashDraft, useNewChatStash, useStash } from "./composer/draftStash";
 import { StashedChip } from "./composer/StashedChip";
 import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts } from "./savedPrompts";
 
@@ -172,9 +172,6 @@ import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts }
 /// How long after a send the Stop button that replaces Send ignores clicks.
 const STOP_GUARD_MS = 600;
 
-/// The stash of a chat that has no session yet, one per composer (the stacks are shared by every
-/// pane); it moves to the session once there is one.
-const newChatStash = () => `new-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
 /// How often at most a new chat's text goes to the host while the person types (`onUnsentDraft`).
 const UNSENT_DRAFT_INTERVAL_MS = 300;
 /// A field change this soon after the person's key, text input or composition is their edit.
@@ -894,7 +891,7 @@ function ComposerFrame({
   // Stash (composer/draftStash.ts): ⌃S puts the draft aside and empties the prompt; ⌃S on an empty
   // prompt, or a pick from the Stashed chip, brings the newest (or the picked) one back. A draft
   // typed meanwhile goes on the stack in its place, so nothing typed is ever replaced.
-  const [newChatKey] = useState(newChatStash);
+  const newChatKey = useNewChatStash();
   const stashChat = sessionId ?? newChatKey;
   const stashed = useStash(stashChat);
   const heldDraft = () => ({
@@ -946,22 +943,31 @@ function ComposerFrame({
       const entry = await readStashed(chat, target);
       if (!entry || !showing(chat)) return;
       const held = heldDraft();
-      const typed = !!held.text.trim() || held.attachments.length > 0;
-      // A draft typed meanwhile goes on the stack in its place; one acpmux refuses stays, and the
-      // stashed one comes back beside it.
-      const put = typed && (await stashDraft(chat, held.text, held.attachments));
-      if (!showing(chat)) return;
-      if (put && stillHeld(held)) clearDraft();
+      if (held.text.trim() || held.attachments.length > 0) {
+        // A draft typed meanwhile goes on the stack in the taken one's place, in one write.
+        if (await stashDraft(chat, held.text, held.attachments, entry.id)) {
+          // Left meanwhile: the taken draft goes back on the stack, as it was.
+          if (!showing(chat)) return void stashDraft(chat, entry.text, entry.attachments);
+          if (stillHeld(held)) clearDraft();
+          restoreDraft(entry.text, entry.attachments);
+          field.current?.focus();
+          return;
+        }
+        // acpmux refused it: the typed draft stays, and the stashed one comes back beside it.
+        if (!showing(chat)) return;
+      }
       restoreDraft(entry.text, entry.attachments);
       field.current?.focus();
       await dropStashed(chat, entry.id);
     })();
   };
-  // A new chat's stack follows it to its session.
-  const stashedFor = useRef(sessionId);
+  // A new chat's stack follows it to its session, and to the tab's key once the tab is known.
+  const stashedFor = useRef({ sessionId, newChatKey });
   useEffect(() => {
-    if (!stashedFor.current && sessionId) void moveStash(newChatKey, sessionId);
-    stashedFor.current = sessionId;
+    const before = stashedFor.current;
+    if (!before.sessionId && sessionId) void moveStash(before.newChatKey, sessionId);
+    else if (!sessionId && before.newChatKey !== newChatKey) void moveStash(before.newChatKey, newChatKey);
+    stashedFor.current = { sessionId, newChatKey };
   }, [sessionId, newChatKey]);
   useImperativeHandle(
     handle,

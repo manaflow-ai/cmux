@@ -1210,7 +1210,8 @@
    "params": {
     "chat": 1,
     "text": 1,
-    "attachments": 1
+    "attachments": 1,
+    "replaces": 1
    }
   },
   "mode_fields": null,

@@ -4849,9 +4849,10 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/stash_list", { chat });
   }
 
-  /// Stashes a draft on top of `chat`'s stack; acpmux answers with its row (`{draft}`).
-  pushStash(chat: string, text: string, attachments: readonly unknown[]): Promise<unknown> {
-    return this.request("_acpmux/stash_push", { chat, text, attachments });
+  /// Stashes a draft on top of `chat`'s stack, in place of draft `replaces` when given; acpmux
+  /// answers with its row (`{draft}`).
+  pushStash(chat: string, text: string, attachments: readonly unknown[], replaces?: string): Promise<unknown> {
+    return this.request("_acpmux/stash_push", { chat, text, attachments, ...(replaces ? { replaces } : {}) });
   }
 
   /// Stashed draft `id` of `chat`, whole (`{draft}`).

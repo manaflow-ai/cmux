@@ -26,10 +26,11 @@ const fake: StashTransport = {
       attachments: row.attachments.map(({ data: _data, ...chip }) => chip),
     })),
   }),
-  push: async (chat, text, attachments) => {
+  push: async (chat, text, attachments, replaces) => {
     if (refuse) throw new Error("refused");
     const row = { id: `stash-${++serial}`, text, attachments: [...attachments], at: serial };
-    daemon.set(chat, [row, ...(daemon.get(chat) ?? [])].slice(0, 5));
+    const rest = (daemon.get(chat) ?? []).filter((entry) => entry.id !== replaces);
+    daemon.set(chat, [row, ...rest].slice(0, 5));
     return { draft: { ...row, attachments: row.attachments.map(({ data: _data, ...chip }) => chip) } };
   },
   get: async (chat, id) => {
@@ -84,6 +85,14 @@ describe("draft stash", () => {
     expect(texts("chat")).toEqual([]);
     expect(daemon.get("chat")).toEqual([]);
     expect(await readStashed("chat", id)).toBeUndefined();
+  });
+
+  test("a push in place of a taken draft lets no other go from a full stack", async () => {
+    for (let index = 0; index < 5; index += 1) await stashDraft("chat", `draft ${index}`, []);
+    const newest = stashedNow("chat")[0]!;
+    expect(await stashDraft("chat", "typed meanwhile", [], newest.id)).toBe(true);
+    expect(texts("chat")).toEqual(["typed meanwhile", "draft 3", "draft 2", "draft 1", "draft 0"]);
+    expect(daemon.get("chat")?.map((row) => row.text)).toEqual(texts("chat"));
   });
 
   test("a draft acpmux does not take is not stashed", async () => {

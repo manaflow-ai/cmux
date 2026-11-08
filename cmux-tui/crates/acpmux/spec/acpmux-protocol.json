@@ -6677,6 +6677,7 @@
         },
         "attachments": true,
         "chat": true,
+        "replaces": true,
         "text": true
       },
       "type": "object"
