@@ -27,38 +27,53 @@ import Testing
         return w
     }
 
-    @Test func anAbsentButtonIsSearchedOnce() {
+    // AppKit asks the window for its buttons itself (window set-up, titlebar rebuilds), so each test counts the
+    // searches after its own first lookup, not from zero.
+
+    @Test func anAbsentButtonIsNotSearchedAgain() {
         let w = window()
         defer { w.close() }
         #expect(w.standardWindowButton(.documentIconButton) == nil)
+        let first = w.searches
         for _ in 0..<10 { _ = w.standardWindowButton(.documentIconButton) }
-        #expect(w.searches == 1, "an absent button was searched \(w.searches) times")
+        #expect(w.searches == first, "an absent button was searched \(w.searches - first) more times")
     }
 
-    @Test func aPresentButtonIsSearchedOnce() {
+    @Test func aPresentButtonIsNotSearchedAgain() {
         let w = window()
         defer { w.close() }
         let close = w.standardWindowButton(.closeButton)
         #expect(close != nil)
+        let first = w.searches
         for _ in 0..<10 { #expect(w.standardWindowButton(.closeButton) === close) }
-        #expect(w.searches == 1)
+        #expect(w.searches == first)
     }
 
     @Test func aStyleChangeAsksAgain() {
+        var buttons = StandardWindowButtons()
         let w = window()
         defer { w.close() }
-        _ = w.standardWindowButton(.documentIconButton)
+        buttons.store(nil, for: .documentIconButton, in: w)
+        guard case .known(nil) = buttons.answer(.documentIconButton, in: w) else {
+            Issue.record("the absent answer was not kept")
+            return
+        }
         w.styleMask.remove(.miniaturizable)
-        _ = w.standardWindowButton(.documentIconButton)
-        #expect(w.searches == 2, "a style change kept the old absent answer")
+        guard case .unknown = buttons.answer(.documentIconButton, in: w) else {
+            Issue.record("a style change kept the old absent answer")
+            return
+        }
     }
 
     @Test func aRepresentedURLAsksAgain() {
+        var buttons = StandardWindowButtons()
         let w = window()
         defer { w.close() }
-        _ = w.standardWindowButton(.documentIconButton)
+        buttons.store(nil, for: .documentIconButton, in: w)
         w.representedURL = URL(fileURLWithPath: NSTemporaryDirectory())
-        _ = w.standardWindowButton(.documentIconButton)
-        #expect(w.searches == 2, "a document window kept the old absent answer")
+        guard case .unknown = buttons.answer(.documentIconButton, in: w) else {
+            Issue.record("a document window kept the old absent answer")
+            return
+        }
     }
 }
