@@ -166,9 +166,17 @@ final class CommandHistory {
 
     /// Deletes the commands that started at or after `since` (nil: all) and at or before `until` (the click) in every daemon,
     /// one that is away once it connects. The rows leave the mirror now and stay out of every read until the daemon applied it.
+    /// An older daemon without the history module (``CommandDeletionRoute/direct(_:)``) has no end to a clear: it goes only on
+    /// the link that was up at the click, once, as before the queue, so commands started after the click are never deleted.
     func delete(since: Date?, until: Date) {
-        for machine in Set(services.machines.daemons.map(\.machineID)).union(mirrors.keys) {
-            send(.started(since: since, until: until), on: machine) { try await $0.clear(since: since, until: until, key: $1) }
+        let machines = services.machines, override = route, logger = logger
+        for machine in Set(machines.daemons.map(\.machineID)).union(mirrors.keys) {
+            let gate = CommandDeletionRoute.DirectClearGate(open: (override?(machine) ?? Self.route(machine, in: machines)) != nil)
+            send(.started(since: since, until: until), on: machine) { route, key in
+                guard try await route.clear(since: since, until: until, key: key, gate: gate) else {
+                    return logger.notice("command history: clear on \(machine, privacy: .public) dropped: no end, and its daemon was away at the click")
+                }
+            }
         }
     }
 

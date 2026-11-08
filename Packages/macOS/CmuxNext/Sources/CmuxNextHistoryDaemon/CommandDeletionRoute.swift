@@ -26,6 +26,28 @@ public enum CommandDeletionRoute: Sendable {
         }
     }
 
+    /// Like ``clear(since:until:key:)``, but the direct path (no end) goes only while `gate` is open: false when it was not
+    /// sent, so a clear never deletes commands started after its click.
+    public func clear(since: Date?, until: Date, key: String, gate: DirectClearGate) async throws -> Bool {
+        if case .direct = self, !gate.take() { return false }
+        try await clear(since: since, until: until, key: key)
+        return true
+    }
+
+    /// Whether a clear may still go as an older daemon's direct delete: only when that daemon was connected at the click, and
+    /// only on the first attempt (a retry after a dropped link may land after newer commands), as before the write queue.
+    public final class DirectClearGate {
+        private var open: Bool
+
+        public init(open: Bool) { self.open = open }
+
+        /// Whether the direct delete may go now; closes the gate.
+        public func take() -> Bool {
+            defer { open = false }
+            return open
+        }
+    }
+
     /// Deletes the command with the daemon's row id `id`.
     public func remove(_ id: UInt64, key: String) async throws {
         switch self {

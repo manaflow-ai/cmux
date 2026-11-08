@@ -403,6 +403,79 @@ import Testing
         #expect(after.commands.isEmpty)
     }
 
+    /// cmux#38186 review (F2): a clear made while a remote with only `terminal-command-history-v1` is away is dropped when
+    /// it connects, not sent late: its direct delete has no end, so it would also delete the commands started after the click.
+    @Test func anOfflineClearOnACommandOnlyRemoteIsDroppedNotSentLate() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let remote = "ssh-box"
+        let row = TerminalCommand(id: 3, machine: remote, terminal: "term_1", command: "ls", cwd: nil, exitCode: 0,
+                                  startedAt: Date().addingTimeInterval(-60), duration: 1)
+        var mirror = TerminalCommandMirror(machine: remote)
+        let applied = mirror.apply([row], version: "v1", truncated: false, after: nil)
+        #expect(applied)
+        services.history.commands.mirrors[remote] = mirror
+        let deletes = DirectDeletes()
+        let link = Link()
+        link.up = false
+        services.history.commands.route = { machine in machine == remote && link.up ? .direct { await deletes.record($0) } : nil }
+        services.history.commands.delete(since: nil, until: Date())
+        link.up = true
+        for _ in 0..<1_000 where services.history.commands.mirrors[remote]?.pending.isEmpty == false { await Task.yield() }
+        let after = try #require(services.history.commands.mirrors[remote])
+        #expect(after.pending.isEmpty, "the deletion never settled")
+        #expect(deletes.selections.isEmpty, "a clear without an end went to the remote after the click")
+    }
+
+    static func location(_ tab: String, incognito: Bool = false) -> HistoryLocation {
+        HistoryLocation(key: .init(machine: "local", tab: tab), window: "w", workspace: "ws", pane: "p", content: .other, title: tab,
+                        isIncognito: incognito)
+    }
+
+    /// cmux#38186 review (F1): a location trail step taken before a Clear History goes on the same queue, so it reaches
+    /// the daemon before the clear (which then removes it) instead of arriving after it and bringing the place back.
+    @Test func aTrailStepQueuedBeforeAClearReachesTheDaemonFirst() async {
+        let daemon = Daemon()
+        let queue = Self.queue(daemon)
+        queue.enqueueTrailStep(Self.location("tab-1"), at: Date(), steps: .workspaces, jump: false, log: HistoryTrailLog()) { client, key in
+            try await client.send(key: key) { $0.append("trail") }
+            return (nil, nil)
+        }
+        queue.enqueue { client, key in try await client.send(key: key) { $0.append("clear") } }
+        daemon.reconnect()
+        await Self.sent(queue) { client, key in try await client.send(key: key) { $0.append("after") } }
+        #expect(daemon.stored == ["trail", "clear", "after"], "the trail step did not reach the daemon before the clear")
+    }
+
+    /// cmux#38186 review (F1): a trail step whose reply never came goes again with the same key (recorded once), never
+    /// only logged and lost.
+    @Test func aFailedTrailStepIsSentAgainWithItsKey() async {
+        let daemon = Daemon()
+        daemon.up = true
+        daemon.lostReplies = 1
+        let queue = Self.queue(daemon)
+        queue.enqueueTrailStep(Self.location("tab-1"), at: Date(), steps: .everything, jump: true, log: HistoryTrailLog()) { client, key in
+            try await client.send(key: key) { $0.append("trail") }
+            return ("entry-1", true)
+        }
+        await Self.sent(queue) { client, _ in try await client.send { $0.append("after") } }
+        #expect(daemon.attempts == 3, "the failed trail step was not sent again")
+        #expect(daemon.keys.count == 2 && Set(daemon.keys).count == 1, "the retry carried a new key")
+        #expect(daemon.stored == ["trail", "after"])
+    }
+
+    /// The app's own wiring: a trail step goes on the history's one write queue while the local daemon is away (no daemon
+    /// in this test), and an incognito step never leaves memory.
+    @Test func trailStepsShareTheAppsQueue() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let queued = services.history.writes.count
+        services.locationTrail.report(Self.location("tab-1"), at: Date(), steps: .workspaces, jump: false)
+        #expect(services.history.writes.count == queued + 1, "the trail step did not go on the write queue")
+        services.locationTrail.report(Self.location("tab-2", incognito: true), at: Date(), steps: .workspaces, jump: false)
+        #expect(services.history.writes.count == queued + 1, "an incognito step went on the write queue")
+    }
+
     /// The app's own wiring: the omnibox seed's read, an omnibox visit and a Clear History wait in the same
     /// queue while the local daemon is away (no daemon in this test).
     @Test func visitsAndClearsShareTheAppsQueue() throws {
