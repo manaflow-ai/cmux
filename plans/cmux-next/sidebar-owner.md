@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-08: the Updated card's remembered height keeps its scale, review F1 and F2 of #38150. The heights
+  `SidebarUpdatedCardHost` remembers across launches are CSS pixels (points over `app.uiScale`) under new `.v3`
+  keys, read back at the scale now, so a 60 pt card remembered at 125% holds 48 at 100%; the `.v2` points at an
+  unrecorded scale are dropped, not guessed. The host also observes `app.uiScale` while a card shows and lays the
+  card out again, so a remembered card follows a scale change before its page's first report.
+  Regression: `UpdatedCardScaleDownTests`.
 - 2026-11-08: the Updated card follows a live interface scale change, review of #38107. The first-frame hold
   (`SidebarUpdatedCardHost.heldHeight`) keeps the scale it was taken at and is read at the scale now, so a scale
   decrease shrinks the card with its page instead of holding its old, larger height; #38107 made the page's
