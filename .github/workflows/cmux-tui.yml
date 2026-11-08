@@ -133,6 +133,10 @@ jobs:
       - name: Install Rust 1.91
         run: rustup toolchain install 1.91.0 --profile minimal
 
+      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
+      - name: Give this runner instance its own CARGO_HOME
+        uses: ./.github/actions/runner-cargo-home
+
       # Keep cargo's registry and the MSRV target dir between runs, as lint and test
       # do: without it every run checked the whole workspace from an empty target.
       # The job's own key, with the toolchain in it, so 1.91 artifacts never mix
@@ -930,6 +934,10 @@ jobs:
         run: |
           toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("cmux-tui/rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
           echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
+
+      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
+      - name: Give this runner instance its own CARGO_HOME
+        uses: ./.github/actions/runner-cargo-home
 
       # Keep cargo's registry and the three target dirs this job builds (the
       # cmux-tui daemon, chief-turn and optchat-chief) between runs, as test and

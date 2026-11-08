@@ -35,6 +35,10 @@ public final class AppMount: AppSceneInteraction, Identifiable {
         client?.dispatch(self, node: node, event: event, payload: payload)
     }
 
+    public func reload() {
+        client?.reload(app: appID)
+    }
+
     /// A fresh `AppSceneHostingView` for AppKit hosts (the sidebar).
     public func makeView() -> AppSceneHostingView { AppSceneHostingView(model: model, bundleDirectory: bundleDirectory) }
 
@@ -102,6 +106,21 @@ extension AppsClient {
             guard case .failed = mount.model.status, app(mount.appID) != nil else { continue }
             send(mount)
         }
+    }
+
+    /// Mounts every view of `app` again and lists again. A mount whose script failed to load has no
+    /// host left, so its new mount starts one that reads the saved files and runs them again; a
+    /// running host renders the mount anew. The error card's Reload and Reload Custom Views use it.
+    public func reload(app: String) {
+        refresh()
+        for mount in mounts.values where mount.appID == app { send(mount) }
+    }
+
+    /// ``reload(app:)`` for every app the person keeps in a local folder (`local/…`: the customize
+    /// folder and the local development apps).
+    public func reloadLocalApps() {
+        refresh()
+        for mount in mounts.values where mount.appID.hasPrefix("local/") { send(mount) }
     }
 
     private func send(_ mount: AppMount) {

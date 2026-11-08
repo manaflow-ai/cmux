@@ -156,7 +156,6 @@
     "terminal-resources-v1",
     "terminal-shell-args-v1",
     "terminal-snapshot-history-v1",
-    "terminal-snapshot-images-v1",
     "terminal-snapshot-local-history-v1",
     "tree-selection-deltas-v1",
     "window-records-v1",

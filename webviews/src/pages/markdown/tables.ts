@@ -28,7 +28,7 @@ import {
 } from "@milkdown/kit/prose/tables";
 import type { EditorView, ViewMutationRecord } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
-import { SIDEWAYS_SCROLLER_ATTRIBUTE } from "../../scrollers";
+import { markSidewaysEdges, SIDEWAYS_SCROLLER_ATTRIBUTE } from "../../scrollers";
 
 /**
  * Column widths, in CSS pixels, for each table of the open file. A table is known by its index in
@@ -252,8 +252,9 @@ export class ResizableTableView extends TableView {
   ) {
     super(node, cellMinWidth);
     // A wide table shows that it scrolls by the thin sideways scrollbar, drawn at rest too
-    // (scrollers.ts), never by fading its edge (user 2026-10-31: "why blur?"). Set before the box
-    // is in the page: WebKit picks a scroller's kind when it makes it.
+    // (scrollers.ts), and by a short fade on each edge with more table past it (styles.css,
+    // user 2026-11-07: "markdown missing fade now"). Set before the box is in the page: WebKit
+    // picks a scroller's kind when it makes it.
     this.dom.setAttribute(SIDEWAYS_SCROLLER_ATTRIBUTE, "");
     this.handle = document.createElement("div");
     this.handle.className = "md-col-resize";
@@ -287,6 +288,7 @@ export class ResizableTableView extends TableView {
    * pointer (shown only if it is on a boundary now), never stays where the pointer no longer is.
    */
   private readonly layoutChanged = (): void => {
+    markSidewaysEdges(this.dom);
     if (!this.dragging) this.refresh();
   };
 
