@@ -86,19 +86,21 @@ async fn a_peer_that_answers_7_to_10_s_late_keeps_its_link_after_the_first_late_
             for gap in [7u64, 10, 8, 9, 10, 7, 10, 9, 8, 10] {
                 tokio::time::sleep(Duration::from_secs(gap)).await;
                 if server.send(Frame::Pong(Vec::new().into())).await.is_err() {
-                    return false;
+                    return None;
                 }
             }
-            true
+            // Kept open: a dropped end would read as a reset on the link.
+            Some(server)
         });
         let serving = peer.serve(client, &mut out_rx);
         tokio::pin!(serving);
         let kept = tokio::select! {
+            biased;
+            done = answering => done.unwrap().is_some(),
             ended = &mut serving => {
                 answered.push(format!("link {link} ended: {ended:?}"));
                 false
             }
-            done = answering => done.unwrap(),
         };
         if link == 1 {
             assert!(kept, "the redialed link to a live but slow peer is kept: {answered:?}");
