@@ -1,8 +1,11 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBookmarks
-import CmuxNextPages
+@testable import CmuxNextBrowser
+@testable import CmuxNextDaemon
+@testable import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -125,5 +128,114 @@ struct BookmarksBarPagesTests {
         #expect(view.alphaValue == 1)
         #expect(provider.drawnProfile == "personal")
         personal.removeFromSuperview()
+    }
+
+    /// A page lent to the next tab's bar keeps no gesture made in the last one's: the bar's
+    /// writes need the person's own click or drop in this tab.
+    @Test func aLentPageCarriesNoGestureFromTheLastTab() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = BookmarksBarHostView(tabKey: "tab-1", pages: pages, profile: { "default" })
+        let second = BookmarksBarHostView(tabKey: "tab-2", pages: pages, profile: { "default" })
+        let window = Self.window()
+        defer { window.close() }
+        let content = try #require(window.contentView)
+
+        content.addSubview(first)
+        let view = try #require(first.pageView)
+        let web = view.webView
+        web.noteNativeMenuSelection(at: ProcessInfo.processInfo.systemUptime)
+        #expect(view.recentUserGestureEvent() != nil, "a click in the first tab's bar")
+
+        first.removeFromSuperview()
+        #expect(view.recentUserGestureEvent() == nil, "given back: the gesture is dropped")
+        web.noteNativeMenuSelection(at: ProcessInfo.processInfo.systemUptime)
+        content.addSubview(second)
+        #expect(second.pageView === view, "the same page, lent to the next tab")
+        #expect(view.recentUserGestureEvent() == nil, "lent again: no gesture from before")
+        second.removeFromSuperview()
+    }
+
+    /// A host that records the bar's writes (the app's own is the daemon's `bookmarks.apply`).
+    @MainActor final class BarHost: BookmarksBarHost {
+        var applied: [BookmarkRoutedClient.Op] = []
+        func bookmarkProfile(ofTab key: String) -> String { "default" }
+        func bookmarkRows(_ ids: [String], profile: String) async throws -> [BookmarkNode] { [] }
+        func bookmarkChildren(of id: String, profile: String) async throws -> [BookmarkNode] { [] }
+        var bookmarkFolderIconsSupported: Bool { false }
+        func bookmarkFavicon(_ node: BookmarkNode, profile: String) -> CGImage? { nil }
+        func bookmarkFolderIcon(_ node: BookmarkNode, side: CGFloat) -> NSImage? { nil }
+        var bookmarkIconRevision: Int { 0 }
+        func openBookmark(_ node: BookmarkNode, profile: String, disposition: BookmarkOpenDisposition, fromTab key: String) {}
+        func bookmarkBarContextMenu(bookmark: String?, profile: String, isFolder: Bool, icon: String?) -> NSMenu? { nil }
+        func bookmarkBarApply(_ op: BookmarkRoutedClient.Op, profile: String) async throws { applied.append(op) }
+        func bookmarkBarRefused(_ message: String) {}
+    }
+
+    /// A drop or a move on the bar goes through the app's bookmark write, as the daemon's op on
+    /// the bar root: one write per gesture, none without one.
+    @Test func aBarWriteGoesThroughTheAppOncePerGesture() async throws {
+        let services = BarHost()
+        let host = BookmarkPageHostProvider(host: services, tabKey: "")
+        host.profileOverride = { "default" }
+        let provider = BookmarksBarProvider(host: services, pageHost: host)
+        let url = "https://dropped.example/"
+        let create = CmuxNextSettings.JSONValue.object(["op": .object([
+            "op": .string("create"), "parent": .string("bar"), "index": .number(0),
+            "title": .string("Dropped"), "url": .string(url),
+        ])])
+        let op = BookmarksBarProvider.prefix + "apply"
+
+        await #expect(throws: PageError.self, "no gesture: refused") {
+            _ = try await provider.call(op, params: create, context: PageCallContext(page: PageDescriptor.bookmarksBar.id))
+        }
+        #expect(services.applied.isEmpty)
+
+        let drop = PageCallContext(page: PageDescriptor.bookmarksBar.id, userGesture: true, gestureEvent: 10)
+        _ = try await provider.call(op, params: create, context: drop)
+        let made = try #require(services.applied.first?.json)
+        #expect(made["op"]?.stringValue == "create" && made["parent"]?.stringValue == "bar" && made["index"]?.intValue == 0)
+        #expect(made["url"]?.stringValue == url && made["browser_profile_id"]?.stringValue == "default")
+        #expect(BookmarkID.isValid(made["id"]?.stringValue ?? ""), "the app mints the id, so the star can name it at once")
+
+        let move = CmuxNextSettings.JSONValue.object(["op": .object([
+            "op": .string("move"), "bookmark": .string("bm_folder"), "parent": .string("bar"), "index": .number(0),
+        ])])
+        await #expect(throws: PageError.self, "the drop's gesture is spent") {
+            _ = try await provider.call(op, params: move, context: drop)
+        }
+        let click = PageCallContext(page: PageDescriptor.bookmarksBar.id, userGesture: true, gestureEvent: 11)
+        _ = try await provider.call(op, params: move, context: click)
+        #expect(services.applied.count == 2)
+        #expect(services.applied.last?.json["op"]?.stringValue == "move")
+        // Anything but a create or a move on the bar root is refused.
+        let other = CmuxNextSettings.JSONValue.object(["op": .object(["op": .string("delete"), "bookmark": .string("bm_folder")])])
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call(op, params: other, context: PageCallContext(page: PageDescriptor.bookmarksBar.id, userGesture: true, gestureEvent: 12))
+        }
+    }
+
+    /// The app's side of a drop: the bar becomes the last folder, and a dropped page a tab shows
+    /// turns its star on at once; a refused drop (here: no daemon connection) puts it back.
+    @Test func aDroppedPagesStarTurnsOnAtOnceAndBackOnARefusal() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let json = #"{"app":"cmux-tui","protocol":1,"session":"bar-write","generation":"g1","capabilities":["v2","bookmarks-v1"]}"#
+        services.machines.local.store.noteHandshake(try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8)))
+        let bookmarks = services.bookmarks
+        #expect(bookmarks.usesDaemon)
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://dropped.example/")))
+        let entry = BrowserEntry(tab: tab)
+        defer { entry.close() }
+        bookmarks.attach(entry)
+        let profile = bookmarks.profile(of: entry.tab.profileID)
+        let url = try #require(entry.tab.state.url)
+        let drop = BookmarkRoutedClient.Op.create(id: BookmarkID.make(), profile: profile, parent: BookmarkRoot.bar.rawValue,
+                                                  index: 0, folder: false, title: "Dropped", url: url)
+        #expect(entry.state.bookmarkStar == .off)
+        await #expect(throws: (any Error).self) { try await bookmarks.applyFromBar(drop, profile: profile) }
+        #expect(bookmarks.lastFolder[profile] == BookmarkRoot.bar.rawValue)
+        #expect(entry.state.bookmarkStar == .off, "the refused drop's star is off again")
     }
 }

@@ -2,8 +2,9 @@
 // it draws: the bar root's own children and whether Other Bookmarks holds anything, with one
 // `cmux.bookmarks.children` each, again on every `cmux.bookmarks.changed` of its profile (and on a
 // relay resync). A folder menu reads the folder's subtree on its click. Every change is one
-// `cmux.bookmarks.apply` from the person's drag or drop. The app serves the profile, the icons and
-// opening (`cmux.bookmarkPage.*`), and the native menus and layout reports (`cmux.bookmarksBar.*`).
+// `cmux.bookmarksBar.apply` from the person's drag or drop, written by the app (its copy of the tree
+// and the last folder follow, as for the star). The app serves the profile, the icons and opening
+// (`cmux.bookmarkPage.*`), and the native menus, layout reports and writes (`cmux.bookmarksBar.*`).
 import { isPageError, type PageClient } from "../../pages/shared/pageClient";
 import { subscribePageStreams } from "../../pages/shared/pageStreams";
 import { iconKey } from "../../pages/bookmarks/model";
@@ -31,6 +32,8 @@ export const BarOps = {
   /** `{visible: [{id, title, x, width}], overflow: [title]}` after each layout: the host's
    * diagnostics, the icon picker's anchor, and the first one shows the bar. */
   layout: "cmux.bookmarksBar.layout",
+  /** `{op}`: one create or move on the bar, written by the app on the person's gesture. */
+  apply: "cmux.bookmarksBar.apply",
   /** `{message}`: the owner refused a drop or a move; the app says why (its refusal toast). */
   refused: "cmux.bookmarksBar.refused",
 } as const;
@@ -100,14 +103,17 @@ export class BookmarksBarStore {
   private readonly listeners = new Set<() => void>();
   private stops: Array<() => void> = [];
   private started = false;
+  /** The live `bookmarks.changed` subscription; null until it is made (again after a reconnect). */
+  private following: (() => void) | null = null;
+  private followingPending = false;
+  /** Bumped by each stop: a subscription that lands after it is dropped. */
+  private session = 0;
   private generation = 0;
   private readonly asking = new Set<string>();
 
   constructor(
     private readonly client: PageClient | null,
     private readonly words: MenuWords,
-    private readonly newKey: () => string = () =>
-      `bar-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
   ) {}
 
   getSnapshot = (): BarSnapshot => this.snapshot;
@@ -125,28 +131,62 @@ export class BookmarksBarStore {
     const client = this.client;
     if (!client || this.started) return;
     this.started = true;
-    try {
-      this.stops.push(
-        await subscribePageStreams(client, { onConnection: (connected) => connected && void this.reload() }),
-        await client.subscribe<ChangedEvent>(BookmarkOps.changed, (event) => {
-          if (event?.resync) return void this.read();
-          const { profile, revision } = this.snapshot;
-          if (event?.browser_profile_id === profile && (event.bookmarks_revision ?? 0) > revision) void this.read();
-        }),
-        await client.subscribe<HostChangedEvent>(HostOps.changed, (event) => {
+    const session = this.session;
+    // The app's streams (connection, profile and icons) are local; the tree's changes come from the
+    // daemon, so that subscription is made again on each reconnect until it holds.
+    const onConnection = (connected: boolean) => {
+      if (!connected) return;
+      void this.follow();
+      void this.reload();
+    };
+    for (const subscribe of [
+      () => subscribePageStreams(client, { onConnection }),
+      () =>
+        client.subscribe<HostChangedEvent>(HostOps.changed, (event) => {
           if (event?.reason === "icons") this.forgetMissingIcons();
           else void this.reload();
         }),
-      );
-    } catch {
-      // No live updates (an older daemon): the bar still reads once.
+    ]) {
+      try {
+        const stop = await subscribe();
+        if (session === this.session) this.stops.push(stop);
+        else stop();
+      } catch {
+        // No live updates from it: the bar still reads.
+      }
     }
+    await this.follow();
     await this.reload();
+  }
+
+  /** Subscribes to the tree's changes unless that is already live or under way. */
+  private async follow(): Promise<void> {
+    const client = this.client;
+    if (!client || !this.started || this.following || this.followingPending) return;
+    const session = this.session;
+    this.followingPending = true;
+    try {
+      const stop = await client.subscribe<ChangedEvent>(BookmarkOps.changed, (event) => {
+        if (event?.resync) return void this.read();
+        const { profile, revision } = this.snapshot;
+        if (event?.browser_profile_id === profile && (event.bookmarks_revision ?? 0) > revision) void this.read();
+      });
+      if (session === this.session) this.following = stop;
+      else stop();
+    } catch {
+      // The daemon is away (or older): the next reconnect tries again.
+    } finally {
+      if (session === this.session) this.followingPending = false;
+    }
   }
 
   stop(): void {
     this.started = false;
+    this.session += 1;
     this.generation += 1;
+    this.followingPending = false;
+    this.following?.();
+    this.following = null;
     for (const stop of this.stops) stop();
     this.stops = [];
   }
@@ -282,18 +322,18 @@ export class BookmarksBarStore {
   /** A bar item dragged to slot `slot` of the bar. */
   async move(id: string, slot: number): Promise<void> {
     const op = moveOnBar(this.snapshot.items, id, slot);
-    if (op) await this.apply([op]);
+    if (op) await this.apply(op);
   }
 
   /** A link dropped on the bar at `slot`. */
   async drop(url: string, title: string, slot: number): Promise<void> {
-    await this.apply([createOnBar(this.snapshot.profile, url, title, slot)]);
+    await this.apply(createOnBar(this.snapshot.profile, url, title, slot));
   }
 
-  private async apply(ops: BookmarkOp[]): Promise<void> {
+  private async apply(op: BookmarkOp): Promise<void> {
     if (!this.client || !this.snapshot.loaded) return;
     try {
-      await this.client.call(BookmarkOps.apply, { ops, idempotency_key: this.newKey() });
+      await this.client.call(BarOps.apply, { op });
     } catch (error) {
       // A refused drop or move says why, as the app's other refusals do; the row is read again.
       const message = isPageError(error) ? error.message : String(error);

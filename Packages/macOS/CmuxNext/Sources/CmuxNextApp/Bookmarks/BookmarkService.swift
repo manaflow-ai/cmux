@@ -121,6 +121,26 @@ final class BookmarkService {
         Unavailable(message: services.machines.local.missingCapabilityMessage(DaemonCapability.bookmarks.rawValue))
     }
 
+    /// A drop on the bookmarks bar or a move along it. A link dropped makes the bar the last
+    /// folder, and a dropped page a tab shows turns its star on at once, as the star's own edit
+    /// does; a refusal puts the star back, and the change event confirms the rest.
+    func applyFromBar(_ op: BookmarkRoutedClient.Op, profile: String) async throws {
+        var undo: (() -> Void)?
+        if op.json["op"]?.stringValue == "create", let id = op.json["id"]?.stringValue {
+            lastFolder[profile] = BookmarkRoot.bar.rawValue
+            if let url = op.json["url"]?.stringValue.flatMap(URL.init(string:)), shownURLs(profile).contains(url.absoluteString) {
+                let before = bookmarkIDs(for: url, profile: profile)
+                noteBookmarks((before ?? []) + [id], url: url, profile: profile, barFilled: true)
+                undo = { [weak self] in self?.noteBookmarks(before ?? [], url: url, profile: profile) }
+            }
+        }
+        do { try await apply([op]) } catch {
+            undo?()
+            refreshStatus(profile)
+            throw error
+        }
+    }
+
     /// ``apply(_:)`` for an edit nothing waits on: a refusal is said in the refusal toast.
     func run(_ ops: [BookmarkRoutedClient.Op], quiet: Bool = false) {
         // task-owner: one routed edit; ends with its reply

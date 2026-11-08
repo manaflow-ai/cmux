@@ -53,9 +53,7 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     "read": [
       "bookmarks.children"
     ],
-    "gesture": [
-      "bookmarks.apply"
-    ],
+    "gesture": [],
     "confirm": []
   },
   "history": {

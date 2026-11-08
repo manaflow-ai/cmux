@@ -29,20 +29,17 @@ extension AppServices: BookmarksBarHost {
 
     func bookmarkBarRefused(_ message: String) { registry.refuse(message) }
 
-    /// One bookmarks bar page: the tree to the daemon relay, `cmux.bookmarkPage.` to its host and
-    /// `cmux.bookmarksBar.` to the bar provider. ``BookmarksBarPages`` lends it to a tab.
+    /// A drop or a move on the bar: the app's bookmark write to the home daemon.
+    func bookmarkBarApply(_ op: BookmarkRoutedClient.Op, profile: String) async throws {
+        do { try await bookmarks.applyFromBar(op, profile: profile) } catch {
+            throw PageError(code: "cmux.bookmarks.refused", message: BookmarkAppStrings.failure(error))
+        }
+    }
+
+    /// One bookmarks bar page, its tree from the daemon relay; ``BookmarksBarPages`` lends it to a tab.
     func bookmarksBarPage() -> BookmarksBarPage? {
-        let host = BookmarkPageHostProvider(host: self, tabKey: "")
-        let bar = BookmarksBarProvider(host: self, pageHost: host)
-        let routes = [PageRoute(prefix: "cmux.bookmarks.", provider: DaemonPageRelay(services: self)),
-                      PageRoute(prefix: BookmarkPageHostProvider.prefix, provider: host),
-                      PageRoute(prefix: BookmarksBarProvider.prefix, provider: bar)]
-        guard let view = PageWebView(descriptor: .bookmarksBar, routes: routes, options: BookmarksBarPage.engineOptions) else { return nil }
-        // The bar never takes the keys from the page or the omnibar (the native bar's items did not).
-        view.refusesKeyFocus = true
-        view.followsUIScale = false
-        bar.page = view
-        PageConnectionWatch(page: view, store: machines.local.store).start()
-        return BookmarksBarPage(view: view, host: host, bar: bar)
+        guard let page = BookmarksBarPage.make(host: self, relay: DaemonPageRelay(services: self)) else { return nil }
+        PageConnectionWatch(page: page.view, store: machines.local.store).start()
+        return page
     }
 }
