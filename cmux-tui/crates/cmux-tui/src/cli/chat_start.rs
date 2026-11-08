@@ -282,18 +282,23 @@ pub(super) fn pick_target(
 
 /// The app's `chat.on` value (`settings.get`, as `cmux settings get chat.on` reads it), or None:
 /// no app, an app that does not answer within [`SETTING_TIMEOUT`], an unset key or a value that
-/// is not a string.
+/// is not a string. The `--socket` kind probe and the read share that one deadline.
 fn setting_target(global: &GlobalArgs) -> Option<String> {
+    let deadline = std::time::Instant::now().checked_add(SETTING_TIMEOUT)?;
+    let left = || {
+        deadline.checked_duration_since(std::time::Instant::now()).filter(|left| !left.is_zero())
+    };
     let mut stream = setting_stream(
-        || super::app::connect_command(global),
+        || super::app::connect_command_within(global, Some(SETTING_TIMEOUT)),
         || super::app::socket_path(global).and_then(|path| super::app::connect(&path)),
     )?;
-    stream.set_write_timeout(Some(SETTING_TIMEOUT)).ok()?;
+    let left = left()?;
+    stream.set_write_timeout(Some(left)).ok()?;
     let answer = super::app::exchange_within(
         &mut stream,
         "settings.get",
         json!({ "path": TARGET_SETTING }),
-        SETTING_TIMEOUT,
+        left,
     )
     .ok()?
     .ok()?;

@@ -11,6 +11,7 @@
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
 import { useSyncExternalStore } from "react";
+import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
 import { isArm } from "../../experiments/experiment";
 import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
@@ -176,7 +177,7 @@ const FONT_STACKS: Record<ChatFontPreset, string> = {
 };
 /// What the estimator's canvas measures each preset as (a canvas can't read CSS variables).
 const MEASURE_STACKS: Record<ChatFontPreset, string> = {
-  system: '"Inter", system-ui, sans-serif',
+  system: "-apple-system, BlinkMacSystemFont, system-ui, sans-serif",
   serif: '"New York", Georgia, serif',
   mono: '"SF Mono", Menlo, monospace',
 };
@@ -267,9 +268,6 @@ export function chatMetrics(display: ChatDisplay): ChatMetrics {
   };
 }
 
-/// Whether the column differs from the default one (then Debug Settings' chat width stops applying).
-export const ownsColumn = (display: ChatDisplay) => display.fullWidth || display.width !== DEFAULT_CHAT_DISPLAY.width;
-
 /// The CSS variables for `display`; a null value removes the variable (the stylesheet's default).
 export function chatDisplayVariables(display: ChatDisplay): Record<string, string | null> {
   const metrics = chatMetrics(display);
@@ -285,10 +283,12 @@ export function chatDisplayVariables(display: ChatDisplay): Record<string, strin
     "--cv-codeblock-line-height":
       isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.codeLineHeight}px`,
     "--cv-mono": codeFont,
-    "--cv-column": !ownsColumn(display)
-      ? null
-      : display.fullWidth
-        ? "100%"
+    // The stylesheet's default is the default width's column, so only another width or Full Width
+    // sets it; chatWidth.ts displayColumn mirrors both for the row estimator.
+    "--cv-column": display.fullWidth
+      ? "100%"
+      : isDefault("width")
+        ? null
         : `clamp(calc(${Math.min(720, display.width)}px / var(--cmux-ui-scale, 1)), 100%, calc(${display.width}px / var(--cmux-ui-scale, 1)))`,
   };
 }
@@ -321,6 +321,7 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   configureStatusVerbs(raw);
+  configureSenderIconLook(raw);
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;

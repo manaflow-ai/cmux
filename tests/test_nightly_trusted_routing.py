@@ -489,9 +489,12 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertIn(
             "github.ref == 'refs/heads/nightly-next' && ((github.event_name == 'push' || "
             "github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && 'push' || "
+            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_sign_stage != '' && 'sign' || "
             "format('run-{0}', github.run_id))",
             group,
         )
+        # A loop run's dispatched tail (nightly_next_post_publish) is run-scoped: it never holds the push group.
+        self.assertNotIn("nightly_next_post_publish", group)
         self.assertIn("github.ref_name == 'main' && 'nightly-shared'", group)
 
     def test_owned_next_and_main_have_independent_pending_slots(self):

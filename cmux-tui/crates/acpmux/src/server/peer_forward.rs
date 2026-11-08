@@ -380,6 +380,10 @@ async fn forward_inner(
             object.remove("peer");
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
+        super::remote_guard::attest_person(
+            &mut forwarded,
+            super::requests::person_admitted(conn, params),
+        );
         let mut result = peer.request(m, forwarded).await?;
         if let Some(object) = result.as_object_mut() {
             object.insert("peer".into(), Value::String(peer.name.clone()));
@@ -400,6 +404,10 @@ async fn forward_inner(
             object.insert("sessionId".into(), Value::String(id));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
+        super::remote_guard::attest_person(
+            &mut forwarded,
+            super::requests::person_admitted(conn, params),
+        );
         let mut result = peer.request(m, forwarded).await?;
         if let Some(object) = result.as_object_mut() {
             object.insert("peer".into(), Value::String(peer.name.clone()));
@@ -454,6 +462,10 @@ async fn forward_inner(
             {
                 let mut header = json!({"sessionId": id});
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut header);
+                super::remote_guard::attest_person(
+                    &mut header,
+                    super::requests::person_admitted(conn, params),
+                );
                 let mut result =
                     crate::hub::file_uploads::forward_put(&peer, header, params).await?;
                 result.set("peer", json!(peer.name));
@@ -573,7 +585,7 @@ async fn forward_inner(
             conn.auth,
             params,
             &mut p,
-            conn.is_person(),
+            super::requests::person_admitted(conn, params),
         );
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
@@ -587,6 +599,7 @@ async fn forward_inner(
             super::requests::person_stop::mark(conn, params, &peer, &mut p);
         }
         bound_page(m, params, &mut p);
+        drop_local_kinds(&mut p);
         // This connection's own reopen hears the chat's messages again; the replay comes over
         // the link every viewer here shares (`MessageNotices`).
         if matches!(m, method::SESSION_LOAD | method::SESSION_RESUME) {
@@ -917,6 +930,14 @@ async fn forward_inner(
         if purge {
             hub.forget_remote((&peer.name, peer.generation), &id, asked);
         }
+        // Qualify race references only for the local viewer, after saving the raw peer page.
+        if conn.origin != Origin::Peer
+            && let Some(events) = result.get_mut("events").and_then(Value::as_array_mut)
+        {
+            for event in events {
+                super::races::peer::qualify_event(&peer.name, event);
+            }
+        }
         if let Some(obj) = result.as_object_mut() {
             obj.insert("peer".into(), Value::String(peer.name.clone()));
         }
@@ -997,6 +1018,15 @@ pub const PEER_HOPS_FIELD: &str = "peerHops";
 /// answer back and forth without end.
 pub const MAX_PEER_HOPS: u64 = 4;
 
+/// The sudo card's record kinds (`hub/elevation.rs`) stay off a forwarded read: a peer chat never
+/// has one (elevation is this daemon's own chats only), and a peer on an older build refuses an
+/// attach or read naming more than 8 kinds, which a phone asking for them would then hit.
+fn drop_local_kinds(forwarded: &mut Value) {
+    if let Some(kinds) = forwarded.get_mut("kinds").and_then(Value::as_array_mut) {
+        kinds.retain(|k| !matches!(k.as_str(), Some("elevation_request" | "elevation_decision")));
+    }
+}
+
 /// A history read (`attach`, `events`) goes to the peer with the byte limit this daemon would
 /// page to: a peer on an older build has no limit of its own and answers in one reply however
 /// large, and one of 32.8 MB reset the link with its 29 chats (2026-10-21).
@@ -1046,6 +1076,29 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A phone's read of a peer chat keeps within the kinds an older peer takes: the sudo card's
+    /// kinds, which a peer chat never has, are dropped (review F1 of cc3c3cf).
+    #[test]
+    fn a_forwarded_read_leaves_the_sudo_card_kinds_here() {
+        let kinds = [
+            "transcript",
+            "queue_updated",
+            "queue_order",
+            "queue_paused",
+            "queue_resumed",
+            "claude.system.api_retry",
+            "bookmarks",
+            "elevation_request",
+            "elevation_decision",
+        ];
+        let mut p = json!({"sessionId": "s", "kinds": kinds});
+        drop_local_kinds(&mut p);
+        assert_eq!(p["kinds"], json!(&kinds[..7]));
+        let mut none = json!({"sessionId": "s"});
+        drop_local_kinds(&mut none);
+        assert_eq!(none, json!({"sessionId": "s"}));
+    }
 
     /// An explicit peer removal must release *every* upload waiting for the
     /// reconnect. The old waiter listened only to completed connection attempts,

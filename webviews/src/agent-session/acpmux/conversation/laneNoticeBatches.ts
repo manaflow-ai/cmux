@@ -1,6 +1,12 @@
 import { isLineRow, LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
 import { inboxText, senderKey, type InboxNotice } from "./inboxNotice";
-import { laneNotice, type LaneNotice, type LaneNoticeKind, type LaneNoticeThread } from "./laneReport";
+import {
+  laneNotice,
+  type LaneNotice,
+  type LaneNoticeDelivery,
+  type LaneNoticeKind,
+  type LaneNoticeThread,
+} from "./laneReport";
 type LaneNoticeVerdict = NonNullable<LaneNotice["verdict"]>;
 
 export type LaneNoticeBatch = NonNullable<AcpmuxRow["laneNoticeBatch"]>;
@@ -14,6 +20,10 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
       ...(message.sender && { lookup: senderKey(message.from, message.sender) }),
       text: message.text,
       ...(message.promptId ? { promptId: message.promptId } : {}),
+      ...(message.unverified ? { unverified: message.unverified } : {}),
+      ...(message.harness ? { harness: message.harness } : {}),
+      ...(message.sender?.session ? { session: message.sender.session } : {}),
+      ...(message.at !== undefined ? { at: message.at } : {}),
     }));
     const sender = messages?.at(-1)?.sender ?? thread.from.at(-1) ?? "inbox";
     const lookup = messages?.length ? messages.at(-1)!.lookup : thread.sender && senderKey(sender, thread.sender);
@@ -22,12 +32,17 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
       id: thread.threadId,
       sender,
       ...(lookup && { lookup }),
+      ...(thread.sender && { senderRecord: thread.sender }),
       ...(preview ? { preview } : {}),
       ...(messages?.length ? { messages } : {}),
       ...(thread.label ? { label: thread.label } : {}),
       ...(thread.promptIds.length ? { promptIds: thread.promptIds } : {}),
-      ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
+      // The thread's session, else its sender record's (acpmux may name it only there).
+      ...((thread.fromSession ?? thread.sender?.session)
+        ? { fromSession: thread.fromSession ?? thread.sender?.session }
+        : {}),
       ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
+      ...(thread.unverified ? { unverified: thread.unverified } : {}),
       count: thread.count,
     };
   });
@@ -111,9 +126,7 @@ function threadList(rows: readonly AcpmuxRow[]): readonly { id: string; sender: 
 
 const bodyKey = (sender: string, text: string): string => `${sender.trim().toLocaleLowerCase()}\u0000${text.trim()}`;
 
-const inboxDeliveries = (
-  thread: LaneNoticeThread,
-): readonly { sender: string; lookup?: string; text: string; promptId?: string }[] =>
+const inboxDeliveries = (thread: LaneNoticeThread): readonly LaneNoticeDelivery[] =>
   thread.messages?.length
     ? thread.messages
     : [
@@ -122,6 +135,7 @@ const inboxDeliveries = (
           ...(thread.lookup && { lookup: thread.lookup }),
           text: thread.preview ?? "",
           ...(thread.promptIds?.length === 1 ? { promptId: thread.promptIds[0] } : {}),
+          ...(thread.unverified ? { unverified: thread.unverified } : {}),
         },
       ];
 
@@ -140,6 +154,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
         text: delivery.text,
         untyped: true,
         inboxDelivery: true,
+        inboxSource: row.id,
         ...(row.steer ? { steer: row.steer } : {}),
         ...(!thread.messages?.length
           ? {
@@ -152,6 +167,8 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
                 promptIds: thread.promptIds ?? [],
                 ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
                 ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
+                ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
+                ...(thread.senderRecord ? { senderRecord: { ...thread.senderRecord } } : {}),
               },
             }
           : {}),
@@ -164,8 +181,18 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
             raw: delivery.text,
             threadId: thread.id,
             ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
-            ...(thread.fromSession && delivery.sender === thread.sender ? { sessionId: thread.fromSession } : {}),
-            ...(thread.fromHarness && delivery.sender === thread.sender ? { harness: thread.fromHarness } : {}),
+            ...(delivery.session
+              ? { sessionId: delivery.session }
+              : thread.fromSession && delivery.sender === thread.sender
+                ? { sessionId: thread.fromSession }
+                : {}),
+            ...(delivery.harness
+              ? { harness: delivery.harness }
+              : thread.fromHarness && delivery.sender === thread.sender
+                ? { harness: thread.fromHarness }
+                : {}),
+            ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
+            ...(delivery.at !== undefined ? { at: delivery.at } : {}),
           },
         },
       });
@@ -322,14 +349,21 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   }
   const seenIds = new Set<string>();
   const seenBodies = new Set<string>();
+  // A delivery is its prompt: its own msgId, else the prompt ids of the preview-only thread it
+  // stands for. Its sender and text identify it only when it names no prompt: a cleaned preview
+  // can be empty, and two threads from one sender would then be one (review of cmux#37653).
   const keepDelivery = (child: AcpmuxRow): boolean => {
     const message = child.incoming?.kind === "message" ? child.incoming.message : undefined;
     if (!message) return false;
-    const id = message.msgId;
+    const ids = message.msgId ? [message.msgId] : (child.inboxThread?.promptIds ?? []);
+    if (ids.length) {
+      if (ids.every((id) => deliveredIds.has(id) || seenIds.has(id))) return false;
+      for (const id of ids) seenIds.add(id);
+      return true;
+    }
     const body = bodyKey(message.name, message.text);
-    if (id ? deliveredIds.has(id) || seenIds.has(id) : deliveredBodies.has(body) || seenBodies.has(body)) return false;
-    if (id) seenIds.add(id);
-    else seenBodies.add(body);
+    if (deliveredBodies.has(body) || seenBodies.has(body)) return false;
+    seenBodies.add(body);
     return true;
   };
   const offsets: number[] = [];

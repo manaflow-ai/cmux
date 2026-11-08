@@ -325,6 +325,29 @@ fn remote_views_reads_the_release_remote_view_state() {
     assert!(parse(&args(&["app", "remote-views", "--mode", "control"])).is_err());
 }
 
+/// `cmux app machines` and `cmux app join-line` call the app's every-build
+/// `machine.list` and `device.join_line`, never `app call` (debug builds only)
+/// and never an `action.run`.
+#[test]
+fn machines_and_join_line_call_the_every_build_methods() {
+    let (method, params) = call(parse(&args(&["app", "machines"])).unwrap().unwrap());
+    assert_eq!(method, MACHINES_METHOD);
+    assert_eq!(params, json!({}));
+    let (_, params) = call(parse(&args(&["app", "machines", "--no-refresh"])).unwrap().unwrap());
+    assert_eq!(params, json!({ "refresh": false }));
+    let (method, params) = call(parse(&args(&["app", "join-line"])).unwrap().unwrap());
+    assert_eq!(method, JOIN_LINE_METHOD);
+    assert_eq!(params, json!({}));
+    let (_, params) = call(
+        parse(&args(&["app", "join-line", "--mint", "--name", "e2e-runner", "--no-open"]))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(params, json!({ "mint": true, "name": "e2e-runner", "open": false }));
+    assert!(parse(&args(&["app", "machines", "list"])).is_err());
+    assert!(parse(&args(&["app", "join-line", "--token", "x"])).is_err());
+}
+
 #[test]
 fn action_describe_accepts_an_unquoted_cli_name() {
     let (_, params) =
@@ -1387,6 +1410,31 @@ fn open_dash_reads_urls_from_stdin_and_passes_the_callers_terminal() {
 }
 
 #[test]
+fn open_dash_from_a_program_in_a_terminal_is_interactive() {
+    // gh's "Press Enter to open https://github.com/login/device in your browser" runs
+    // BROWSER (cmux-open-url) with its own stdout, the person's terminal; the shim runs
+    // `cmux --quiet open --link -` with the URL on stdin. Stdin is the URL, not the person:
+    // stdout alone tells, or the tab opens in the background and Enter seems to do nothing.
+    let link = args(&["--link", "--caller", "gh", "-"]);
+    assert!(open_is_interactive(&link, false, true));
+    assert!(!open_is_interactive(&link, false, false), "an agent's pipe stays in the background");
+    let mut stdin = "https://github.com/login/device\n".as_bytes();
+    let environment = std::collections::HashMap::new();
+    let AppCommand::Open { requests, .. } =
+        parse_open_with(&link, open_is_interactive(&link, false, true), &environment, &mut stdin)
+            .unwrap()
+    else {
+        panic!("expected open command")
+    };
+    assert_eq!(requests[0].method, "browser.open_link");
+    assert_eq!(requests[0].params["focus"], true);
+    // A typed `cmux open URL` still needs both; `-` after `--` is a path, not stdin.
+    assert!(open_is_interactive(&args(&["https://a.example/"]), true, true));
+    assert!(!open_is_interactive(&args(&["https://a.example/"]), false, true));
+    assert!(!open_is_interactive(&args(&["--", "-"]), false, true));
+}
+
+#[test]
 fn open_dash_names_the_bad_line_without_echoing_it() {
     let environment = std::collections::HashMap::new();
     let mut stdin = "https://a.example/\nexample.com/?token=SECRET\n".as_bytes();
@@ -2109,4 +2157,31 @@ fn exchange_within_reads_after_the_daemon_sync() {
     let sent = request.join().unwrap();
     assert_eq!(reply, Ok(Ok(json!({ "value": "cloud" }))));
     assert_eq!(sent.get("params"), Some(&json!({ "path": "chat.on", "after": "sync" })), "{sent}");
+}
+
+/// An optional read's `--socket` kind probe ends at its deadline: a socket that takes the request
+/// and never answers is `socket.wrong_kind` within the deadline, not after the app timeout that
+/// waits out a busy app (#37485's review at 20fdfedd, F1).
+#[test]
+fn a_bounded_socket_probe_ends_at_its_deadline() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("silent.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let silent = std::thread::spawn(move || {
+        let (mut peer, _) = listener.accept().unwrap();
+        let mut request = [0_u8; 256];
+        let _ = peer.read(&mut request);
+        std::thread::sleep(Duration::from_secs(3));
+    });
+    let global =
+        GlobalArgs { socket: Some(path), output: OutputMode::Quiet, ..GlobalArgs::default() };
+    let started = std::time::Instant::now();
+    let connected = connect_command_within(&global, Some(Duration::from_millis(300)));
+    let took = started.elapsed();
+    let code = connected
+        .err()
+        .and_then(|error| error.get("code").and_then(Value::as_str).map(str::to_owned));
+    assert_eq!(code.as_deref(), Some("socket.wrong_kind"));
+    assert!(took < Duration::from_millis(1500), "the probe took {took:?}");
+    silent.join().unwrap();
 }

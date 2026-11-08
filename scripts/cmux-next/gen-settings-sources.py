@@ -9,9 +9,10 @@ script writes the copies the app's Swift modules compile in. Sources so far:
   (Swift: SettingsSchema+RetiredKeys.generated.swift, `SettingsSchema.retiredKeys`).
 - schemas/settings/source/<section>.json: the rows of one settings section. Swift gets the
   descriptors AND the parser constants (paths, defaults, ranges, choice values and enums, legacy
-  aliases), so a value has one definition. SECTIONS below maps each file to its Swift schema type
-  and each list's static var and owner type. schemas/settings/settings-schema.json is still
-  exported from Swift (SettingsSchemaExportTests); moving a section must not change it.
+  aliases), so a value has one definition. schemas/settings/generator/<section>.json maps the file to
+  its Swift schema type and each list's static var and owner type (one file per section).
+  schemas/settings/settings-schema.json is still exported from Swift (SettingsSchemaExportTests);
+  moving a section must not change it.
   scripts/cmux-next/settings-source-from-export.py drafts rows from that export.
 - schemas/settings/source/sections.json: the Settings sections in sidebar order (Swift: the
   SettingsSection enum, SettingsSection.generated.swift). Every row's section must be listed there.
@@ -29,7 +30,9 @@ script writes the copies the app's Swift modules compile in. Sources so far:
 
 A section source is {"$comment", "lists": [list]}. A list is one `static var` of the schema type:
 {name, section, group: text, note?, rows: [row]}; SettingsSchema.all concatenates the lists, so a
-group whose rows are not contiguous in the export is two lists with the same group text. A text is
+group whose rows are not contiguous in the export is two lists with the same group text. A section
+whose rows span several groups may name a `joined` var in its generator file: the generator writes it as the
+concatenation of every list in source order, so its readers keep one var (`descriptors`). A text is
 {key, text}: key is the string catalog key, or null for text that is not translated (a product
 name, a syntax example). A row:
 
@@ -44,7 +47,12 @@ name, a syntax example). A row:
                  (the SettingKind cases; ordered_choices and choice_set export as a string_list with
                  choices and `ordered`)
   choices        [{value, title: text, note?, swift_case?}]: choice, choice_or_number,
-                 choice_or_url, ordered_choices and choice_set rows, and only those
+                 choice_or_url, ordered_choices and choice_set rows, and only those. On a row with a
+                 hand-written swift_enum, "swift_case": null marks a value that is no case of the
+                 enum (the descriptor writes the string; it cannot be the default)
+  choices_from   choice kinds: "Type.member", a Swift [SettingChoice] listed after `choices`, for
+                 choices another source defines (a catalog in Swift, another schemas table);
+                 `choices` may then be empty, and the default may be one of them
   range          {min, max, step, unit, placeholder?}: number, choice_or_number and number_list rows;
                  unit is points | milliseconds | seconds | minutes | days | count | fraction;
                  placeholder (default min) is where the control sits while a null default is unset
@@ -67,7 +75,7 @@ name, a syntax example). A row:
                  generated files `public import` it).
                  Absent: plain string values, plus a `values` constant.
   swift_owner    the type that gets the row's constants. Absent: the list's owner type from
-                 SECTIONS, with prefixed names (<name>Path, <name>Default, <name>Range,
+                 its generator file, with prefixed names (<name>Path, <name>Default, <name>Range,
                  <name>Placeholder, <name>Values). "Type": that type with plain names (configPath,
                  fallback, range, placeholder, values), the hand-written parser's own names.
                  {"type": "Type", "prefixed": true}: that type with prefixed names.
@@ -78,6 +86,9 @@ range kind; the values ([String]) of a choice kind with no swift_enum. The hand-
 reads them, so no default literal is left in Swift. A section's Swift stays one file while it fits
 in MAX_LINES lines; past that it is split into <file>2.generated.swift and on (a list too long for
 one file becomes <var>Part1 + <var>Part2...), so a source of any size keeps the god-file limits.
+The constants are `public` when the owner type is: an owner declared without `public` in
+CmuxNextSettings (a section type, or a hand-written internal parser) gets internal constants, since
+a public constant on an internal type can name a type that is itself internal.
 
 A generated Swift file this script no longer writes (for example a choices file after a section
 lost its choice rows) counts as drift under --check and is deleted when writing.
@@ -85,7 +96,7 @@ lost its choice rows) counts as drift under --check and is deleted when writing.
     python3 scripts/cmux-next/gen-settings-sources.py           # write the copies
     python3 scripts/cmux-next/gen-settings-sources.py --check   # exit 1 when a copy drifted
 """
-import json, os, sys
+import json, os, re, sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 RETIRED_SOURCE = "schemas/settings/retired-keys.json"
@@ -144,158 +155,47 @@ extension SettingsSchema {{
 """.format(header=HEADER.format(c="//", src=RETIRED_SOURCE), rows="\n".join(rows))
 
 
-# Swift names per section source: the schema type, and each list's static var and the type that
-# owns its rows' constants (None: every row of the list names its own `swift_owner`). A choice
-# row's Swift enum is the row's `swift_enum` (see the module docstring).
+# Swift names per section source, one file per source in schemas/settings/generator/<stem>.json (one
+# file each, so two PRs that add sections never edit the same lines): the source, the generated Swift
+# file, the schema type, and each list's static var and the type that owns its rows' constants
+# (null: every row of the list names its own `swift_owner`). `joined` (optional) names a static var
+# that concatenates every list in source order. A choice row's Swift enum is the row's `swift_enum`
+# (see the module docstring). Output does not depend on the order, so the files load sorted by name.
 SCHEMA_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema"
 SECTIONS_SOURCE = "schemas/settings/source/sections.json"
 SECTIONS_SWIFT = SCHEMA_DIR + "/SettingsSection.generated.swift"
-SECTIONS = [
-    {
-        "source": "schemas/settings/source/updates.json",
-        "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
-        "type": "UpdateSettingsSchema",
-        "lists": {"updates": ("descriptors", "UpdatesSettings"),
-                  "announcements": ("announcements", "AnnouncementsSettings")},
-    },
-    {
-        "source": "schemas/settings/source/labs.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Labs.generated.swift",
-        "type": "LabsSettingsSchema",
-        "lists": {"labs": ("descriptors", "CmuxConfigSnapshot")},
-    },
-    {
-        "source": "schemas/settings/source/picker.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Picker.generated.swift",
-        "type": "PickerSettingsSchema",
-        "lists": {"picker": ("descriptors", "PickerPinnedSetting")},
-    },
-    {
-        "source": "schemas/settings/source/shortcut-hints.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+ShortcutHints.generated.swift",
-        "type": "ShortcutHintsSettingsSchema",
-        "lists": {"shortcutHints": ("descriptors", "ModifierHoldHintsSetting")},
-    },
-    {
-        "source": "schemas/settings/source/chats.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Chats.generated.swift",
-        "type": "ChatSettingsSchema",
-        "lists": {"chats": ("descriptors", "ChatSettings")},
-    },
-    {
-        "source": "schemas/settings/source/tasks.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Tasks.generated.swift",
-        "type": "TaskSettingsSchema",
-        "lists": {"tasks": ("descriptors", "TasksLayoutSetting")},
-    },
-    {
-        "source": "schemas/settings/source/screenshots.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Screenshots.generated.swift",
-        "type": "ScreenshotsSettingsSchema",
-        "lists": {"screenshots": ("descriptors", "ScreenshotsSettings")},
-    },
-    {
-        "source": "schemas/settings/source/hover-cards.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+HoverCards.generated.swift",
-        "type": "HoverCardSettingsSchema",
-        "lists": {"hoverCards": ("descriptors", "HoverCardSettings")},
-    },
-    {
-        "source": "schemas/settings/source/now-playing.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+NowPlaying.generated.swift",
-        "type": "NowPlayingSettingsSchema",
-        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings"), "newTab": ("newTabDescriptors", "NowPlayingSettings"),
-                  "pictureInPicture": ("pictureInPictureDescriptors", "NowPlayingSettings")},
-    },
-    {
-        "source": "schemas/settings/source/new-tab-widgets.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+NewTabWidgets.generated.swift",
-        "type": "NewTabWidgetSettingsSchema",
-        "lists": {"newTabWidgets": ("descriptors", "NewTabWidgetSettings")},
-    },
-    {
-        "source": "schemas/settings/source/color-transition.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+ColorTransition.generated.swift",
-        "type": "ColorTransitionSettingsSchema",
-        "lists": {"colorTransition": ("descriptors", "ColorTransitionSetting")},
-    },
-    {
-        "source": "schemas/settings/source/sessions.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Sessions.generated.swift",
-        "type": "SessionSettingsSchema",
-        "lists": {"sessions": ("descriptors", "SessionSettings"), "phone": ("phoneDescriptors", "SessionSettings")},
-    },
-    {
-        "source": "schemas/settings/source/agent-retry.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+AgentRetry.generated.swift",
-        "type": "AgentRetrySettingsSchema",
-        "lists": {"agentRetry": ("descriptors", "AgentRetrySettings")},
-    },
-    {
-        "source": "schemas/settings/source/subsessions.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Subsessions.generated.swift",
-        "type": "SubsessionSettingsSchema",
-        "lists": {"subsessions": ("descriptors", "SubsessionSettings")},
-    },
-    {
-        "source": "schemas/settings/source/agent-guidance.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+AgentGuidance.generated.swift",
-        "type": "AgentGuidanceSettingsSchema",
-        "lists": {"agentGuidance": ("descriptors", "AgentGuidanceSettings")},
-    },
-    {
-        "source": "schemas/settings/source/trust.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Trust.generated.swift",
-        "type": "TrustSettingsSchema",
-        "lists": {"trust": ("descriptors", "TrustSettings")},
-    },
-    {
-        "source": "schemas/settings/source/auto-archive.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+AutoArchive.generated.swift",
-        "type": "AutoArchiveSettingsSchema",
-        "lists": {"autoArchive": ("descriptors", "AutoArchiveSettings")},
-    },
-    {
-        "source": "schemas/settings/source/workspace-hibernation.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+WorkspaceHibernation.generated.swift",
-        "type": "WorkspaceHibernationSettingsSchema",
-        "lists": {"hibernation": ("descriptors", "WorkspaceHibernationSettings")},
-    },
-    {
-        "source": "schemas/settings/source/tabs.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Tabs.generated.swift",
-        "type": "TabSettingsSchema",
-        "lists": {"tabs": ("descriptors", "CmuxConfigSnapshot")},
-    },
-    {
-        "source": "schemas/settings/source/sidebar.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Sidebar.generated.swift",
-        "type": "SidebarSettingsSchema",
-        "lists": {"sidebar": ("sidebar", None), "sidebar2": ("sidebar2", None), "sidebar3": ("sidebar3", None),
-                  "workspaceRows": ("workspaceRows", None), "terminalWorkspaceRows": ("terminalWorkspaceRows", None),
-                  "agentWorkspaceRows": ("agentWorkspaceRows", None), "browserWorkspaceRows": ("browserWorkspaceRows", None),
-                  "mixedWorkspaceRows": ("mixedWorkspaceRows", None)},
-    },
-    {
-        "source": "schemas/settings/source/feed.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
-        "type": "FeedSettingsSchema",
-        "lists": {"feed": ("descriptors", "FeedGitHubSettings")},
-    },
-    {
-        "source": "schemas/settings/source/machines.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Machines.generated.swift",
-        "type": "MachineSettingsSchema",
-        "lists": {"computerUse": ("computerUse", "ComputerUseSettings"), "freeModel": ("freeModel", "FreeModelSettings"),
-                  "sshLinks": ("sshLinks", "SSHLinkHostsSetting"), "cloud": ("cloud", "CloudNewWorkspaceSetting"),
-                  "mobile": ("mobile", "MobileSettings"), "macScreen": ("macScreen", "MacScreenSettings"),
-                  "macScreenDebug": ("macScreenDebug", "MacScreenDebugSettings"), "remote": ("remote", "RemoteSettings"),
-                  "deviceHub": ("deviceHub", "DeviceHubSettings"), "imessage": ("imessage", "CmuxConfigSnapshot")},
-    },
-]
+GENERATOR_DIR = "schemas/settings/generator"
+GENERATOR_FIELDS = {"source", "swift", "type", "lists", "joined"}
+
+
+def load_generator_sections():
+    """SECTIONS, read from GENERATOR_DIR: each file names its own source, Swift file and lists."""
+    sections = []
+    for name in sorted(os.listdir(os.path.join(ROOT, GENERATOR_DIR))):
+        if not name.endswith(".json"):
+            continue
+        src = GENERATOR_DIR + "/" + name
+        with open(os.path.join(ROOT, src), encoding="utf-8") as handle:
+            entry = json.load(handle)
+        if not isinstance(entry, dict) or not {"source", "swift", "type", "lists"} <= set(entry) <= GENERATOR_FIELDS:
+            fail(src, "fields are source, swift, type, lists and an optional joined")
+        if entry["source"] != "schemas/settings/source/" + name or not entry["swift"].startswith(SCHEMA_DIR + "/") \
+                or not entry["swift"].endswith(".generated.swift"):
+            fail(src, "source is schemas/settings/source/%s and swift a .generated.swift file in %s" % (name, SCHEMA_DIR))
+        lists = entry["lists"]
+        if not isinstance(lists, dict) or not lists or not all(
+                isinstance(value, list) and len(value) == 2 and isinstance(value[0], str)
+                and (value[1] is None or isinstance(value[1], str)) for value in lists.values()):
+            fail(src, "lists maps each list name to [static var, owner type or null]")
+        entry["lists"] = {key: tuple(value) for key, value in lists.items()}
+        sections.append(entry)
+    return sections
+
+
 SYMBOL = __import__("re").compile(r"^[a-z0-9]+(\.[a-z0-9]+)*$")
+MEMBER = __import__("re").compile(r"^[A-Z][A-Za-z0-9]*\.[a-z][A-Za-z0-9]*$")
 UNITS = {"points", "milliseconds", "seconds", "minutes", "days", "count", "fraction"}
-ROW_FIELDS = {"key", "name", "note", "title", "help", "summary", "kind", "choices", "range", "url_key", "default",
+ROW_FIELDS = {"key", "name", "note", "title", "help", "summary", "kind", "choices", "choices_from", "range", "url_key", "default",
               "default_label", "placeholder", "aliases", "keywords", "consumers", "palette_hidden", "page_hidden",
               "palette_shown", "swift_enum", "swift_owner"}
 IDENT = __import__("re").compile(r"^[a-z][A-Za-z0-9]*$")
@@ -351,6 +251,11 @@ def camel(value):
     if not IDENT.match(name) or name in DOT_RESERVED:
         raise SystemExit("choice value %r gives no Swift case name: give the choice a swift_case" % value)
     return name
+
+
+def no_case(choice):
+    """Whether a hand-written enum's row lists this value with no case of the enum ("swift_case": null)."""
+    return "swift_case" in choice and choice["swift_case"] is None
 
 
 def case_name(choice):
@@ -467,6 +372,8 @@ def check_default(src, key, kind, row, values):
         return
     in_range = is_number(default) and rng.get("min", default) <= default <= rng.get("max", default)
     strings = isinstance(default, list) and all(isinstance(item, str) and item.strip() for item in default)
+    if row.get("choices_from") and isinstance(default, str):
+        values = values + [default]  # one of the Swift-listed choices: the Swift type checks it
     ok = {
         "toggle": isinstance(default, bool),
         "number": in_range,
@@ -518,7 +425,8 @@ def check_row(src, row, seen_keys, idents):
     values = []
     if kind in CHOICE_KINDS:
         values = [choice.get("value") for choice in row["choices"]]
-        if not values or len(set(values)) != len(values) or not all(isinstance(v, str) and v for v in values):
+        if (not values and not row.get("choices_from")) or len(set(values)) != len(values) \
+                or not all(isinstance(v, str) and v for v in values):
             fail(src, "%s: choices need unique non-empty string values" % key)
         for choice in row["choices"]:
             if set(choice) - {"value", "title", "note", "swift_case"}:
@@ -530,6 +438,9 @@ def check_row(src, row, seen_keys, idents):
         if set(rng) - {"min", "max", "step", "unit", "placeholder"} or not {"min", "max", "step", "unit"} <= set(rng) \
                 or rng["unit"] not in UNITS or not rng["min"] <= rng["max"]:
             fail(src, "%s: range needs min <= max, step, unit (one of %s), optional placeholder" % (key, sorted(UNITS)))
+    if "choices_from" in row and (kind not in CHOICE_KINDS or not isinstance(row["choices_from"], str)
+                                  or not MEMBER.match(row["choices_from"])):
+        fail(src, "%s: choices_from is \"Type.member\" on a choice row" % key)
     check_default(src, key, kind, row, values)
     enum = row.get("swift_enum")
     if enum is not None:
@@ -539,7 +450,14 @@ def check_row(src, row, seen_keys, idents):
                 or ("module" in enum and (enum.get("generated", True) or not TYPE.match(enum["module"]))):
             fail(src, "%s: swift_enum is {name, generated (default true), module (a hand-written enum's module)} on a choice row" % key)
         for choice in row["choices"]:
+            if no_case(choice):
+                if enum.get("generated", True) or choice["value"] == row["default"]:
+                    fail(src, "%s choice %r: swift_case null needs a hand-written enum and a value that is not the default"
+                         % (key, choice["value"]))
+                continue
             case_name(choice)
+    elif any(no_case(choice) for choice in row.get("choices", [])):
+        fail(src, "%s: swift_case null belongs to rows with a hand-written swift_enum" % key)
     if "aliases" in row:
         if kind != "choice" or not enum or not enum.get("generated", True):
             fail(src, "%s: only choice rows with a generated swift_enum have aliases" % key)
@@ -568,7 +486,10 @@ def check_section(section, data, seen_keys, section_ids, src):
         fail(src, "unknown top-level fields %s" % sorted(set(data) - {"$comment", "lists"}))
     names = [entry["name"] for entry in data["lists"]]
     if sorted(names) != sorted(section["lists"]):
-        fail(src, "lists %s do not match the generator's SECTIONS %s" % (names, sorted(section["lists"])))
+        fail(src, "lists %s do not match its generator file's lists %s" % (names, sorted(section["lists"])))
+    list_vars = [var for var, _ in section["lists"].values()]
+    if len(set(list_vars)) != len(list_vars) or section.get("joined") in list_vars:
+        fail(src, "each list has its own var in its generator file, and the joined var is none of them")
     for entry in data["lists"]:
         if entry["section"] not in section_ids:
             fail(src, "unknown section %r" % entry["section"])
@@ -578,7 +499,7 @@ def check_section(section, data, seen_keys, section_ids, src):
         for row in entry["rows"]:
             check_row(src, row, seen_keys, idents)
             if section["lists"][entry["name"]][1] is None and "swift_owner" not in row:
-                fail(src, "%s: list %s has no owner type in SECTIONS, so the row needs a swift_owner" % (row["key"], entry["name"]))
+                fail(src, "%s: list %s has no owner type in its generator file, so the row needs a swift_owner" % (row["key"], entry["name"]))
     return data
 
 
@@ -648,7 +569,8 @@ def default_constant(row):
     if isinstance(default, bool):
         return None, "true" if default else "false", ".bool({c})"
     if enum and isinstance(default, str) and kind in ("choice", "choice_or_number", "choice_or_url"):
-        choice = next(c for c in row["choices"] if c["value"] == default)
+        # A default among the Swift-listed choices (choices_from) is the value's camel-case case.
+        choice = next((c for c in row["choices"] if c["value"] == default), {"value": default})
         return enum["name"], "." + case_name(choice), ".string({c}.rawValue)"
     if is_number(default):
         return "Double", number_literal(default), ".number({c})"
@@ -661,23 +583,49 @@ def default_constant(row):
     return "JSONValue", json_swift(default), "{c}"
 
 
-def constants_swift(row, names):
+SETTINGS_SWIFT_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
+_TYPE_ACCESS = {}
+
+
+def owner_is_public(owner):
+    """True when CmuxNextSettings declares `owner` public (or does not declare it: a public type of
+    an imported module). A section type the generator declares itself is internal."""
+    if owner in {section["type"] for section in SECTIONS if section.get("type")}:
+        return False
+    if not _TYPE_ACCESS:
+        decl = re.compile(r"^\s*((?:public|package|internal|fileprivate|private|open)\s+)?"
+                          r"(?:(?:nonisolated|final|indirect)\s+)*(?:enum|struct|class|actor)\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+        for base, _, files in os.walk(os.path.join(ROOT, SETTINGS_SWIFT_DIR)):
+            for name in sorted(files):
+                if not name.endswith(".swift") or name.endswith(".generated.swift"):
+                    continue
+                with open(os.path.join(base, name)) as handle:
+                    for line in handle:
+                        match = decl.match(line)
+                        if match:
+                            _TYPE_ACCESS.setdefault(match.group(2), (match.group(1) or "").strip() in ("public", "open"))
+        _TYPE_ACCESS.setdefault("", True)
+    return _TYPE_ACCESS.get(owner.split(".")[-1], True)
+
+
+def constants_swift(row, names, public=True):
     """The parser constants of one row, as lines of an extension body."""
     kind, out = row["kind"], []
+    access = "    public " if public else "    "
     out.append("    /// `%s`%s" % (row["key"], (": " + row["note"]) if row.get("note") else "."))
-    out.append("    public nonisolated static let %s = [%s]" % (names["path"], ", ".join(swift_string(p) for p in row["key"].split("."))))
+    out.append(access + "nonisolated static let %s = [%s]" % (names["path"], ", ".join(swift_string(p) for p in row["key"].split("."))))
     constant = default_constant(row)
     if constant:
         swift_type, literal, _ = constant
-        out.append("    public nonisolated static let %s%s = %s" % (names["default"], ": " + swift_type if swift_type else "", literal))
+        out.append(access + "nonisolated static let %s%s = %s" % (names["default"], ": " + swift_type if swift_type else "", literal))
     if kind in RANGE_KINDS:
         rng = row["range"]
-        out.append("    public nonisolated static let %s: ClosedRange<Double> = %s...%s"
+        out.append(access + "nonisolated static let %s: ClosedRange<Double> = %s...%s"
                    % (names["range"], number_literal(rng["min"]), number_literal(rng["max"])))
         if "placeholder" in rng:
-            out.append("    public nonisolated static let %s: Double = %s" % (names["placeholder"], number_literal(rng["placeholder"])))
-    if kind in CHOICE_KINDS and not row.get("swift_enum"):
-        out.append("    public nonisolated static let %s = [%s]" % (names["values"], ", ".join(swift_string(c["value"]) for c in row["choices"])))
+            out.append(access + "nonisolated static let %s: Double = %s" % (names["placeholder"], number_literal(rng["placeholder"])))
+    if kind in CHOICE_KINDS and not row.get("swift_enum") and not row.get("choices_from"):
+        out.append(access + "nonisolated static let %s = [%s]" % (names["values"], ", ".join(swift_string(c["value"]) for c in row["choices"])))
     return out
 
 
@@ -697,8 +645,11 @@ def kind_swift(row, owner, names):
             text = choice["title"]
             return swift_string(text["text"]) if text["key"] is None else keyed(text)
         def value(choice):
-            return "%s.%s.rawValue" % (enum["name"], case_name(choice)) if enum else swift_string(choice["value"])
-        return "[%s\n                ]" % "".join("\n                    SettingChoice(%s, %s)," % (value(c), title(c)) for c in row["choices"])
+            return "%s.%s.rawValue" % (enum["name"], case_name(choice)) if enum and not no_case(choice) else swift_string(choice["value"])
+        listed = "[%s\n                ]" % "".join("\n                    SettingChoice(%s, %s)," % (value(c), title(c)) for c in row["choices"])
+        if row.get("choices_from"):
+            return "%s + %s" % (listed, row["choices_from"]) if row["choices"] else row["choices_from"]
+        return listed
 
     return {
         "number": lambda: ".number(%s)" % number(),
@@ -746,6 +697,17 @@ def list_var_swift(var, entry, rows, list_owner):
     return out + ["        ]", "    }"]
 
 
+def joined_var_swift(section, data):
+    """`static var <joined>`: every list of the section in source order (SECTIONS `joined`)."""
+    names = [section["lists"][entry["name"]][0] for entry in data["lists"]]
+    if section["joined"] in names:
+        raise SystemExit("%s: joined var %s is also a list's var" % (section["source"], section["joined"]))
+    return ["    /// Every list of %s, in order." % section["source"],
+            "    static var %s: [SettingDescriptor] {" % section["joined"],
+            "        [%s].flatMap { $0 }" % ", ".join(names),
+            "    }"]
+
+
 def line_count(lines):
     return sum(line.count("\n") + 1 for line in lines)
 
@@ -765,13 +727,15 @@ def section_swift(section, data):
         blocks = {}
         for row in entry["rows"]:
             owner, names = constant_names(row, list_owner)
-            blocks.setdefault(owner, []).extend(constants_swift(row, names))
+            blocks.setdefault(owner, []).extend(constants_swift(row, names, owner_is_public(owner)))
         for owner, lines in blocks.items():
             constant_blocks.append(["extension %s {" % owner] + lines + ["}", ""])
     lists = []
     for entry in data["lists"]:
         var, list_owner = section["lists"][entry["name"]]
         lists.append((["    /// " + entry["note"]] if entry.get("note") else []) + list_var_swift(var, entry, entry["rows"], list_owner))
+    if section.get("joined"):
+        lists.append(joined_var_swift(section, data))
     intro = ["/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).",
              "nonisolated enum %s {" % section["type"]]
     single = header + [line for block in constant_blocks for line in block] + intro
@@ -801,6 +765,8 @@ def section_swift(section, data):
         pieces.append(("list", note + ["    static var %s: [SettingDescriptor] { %s }" % (var, joined)]))
         for n, rows in enumerate(parts):
             pieces.append(("list", list_var_swift("%sPart%d" % (var, n + 1), entry, rows, list_owner)))
+    if section.get("joined"):
+        pieces.append(("list", joined_var_swift(section, data)))
     files, current, declared = [], list(header), False
     for piece in pieces:
         if isinstance(piece, tuple):
@@ -1219,8 +1185,8 @@ extension SettingsSchema {{
 def load_row_facts():
     src = FACTS_SOURCE
     data = load_json(src)
-    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation"}:
-        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation")
+    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation", "former_defaults"}:
+        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation, former_defaults")
     for field in ("kept_on_reset_all", "shared_with_browser"):
         if len(set(data[field])) != len(data[field]):
             fail(src, "%s lists a key twice" % field)
@@ -1237,6 +1203,12 @@ def load_row_facts():
     for domain in list(validation["keys"].values()) + list(validation["kinds"].values()) + [validation["default"]]:
         if not isinstance(domain, str) or not DOMAIN.match(domain):
             fail(src, "validation %r is portable or domain:<name>" % domain)
+    for key, values in data["former_defaults"].items():
+        check_key(src, key)
+        if not isinstance(values, list) or not values or any(isinstance(v, (dict, list)) or v is None for v in values):
+            fail(src, "former_defaults.%s lists one or more scalar values" % key)
+        if len(set(map(json.dumps, values))) != len(values):
+            fail(src, "former_defaults.%s lists a value twice" % key)
     return data
 
 
@@ -1268,11 +1240,19 @@ extension SettingsSchema {{
 {by_kind}
     ]
     static let defaultValidation = {default}
+
+    /// Each key's earlier defaults that held for a day or more: the one-time launch migration
+    /// (`forgetStoredDefaults`) drops a stored value equal to one, so the key follows its default again.
+    static let formerDefaults: [String: [JSONValue]] = [
+{former}
+    ]
 }}
 """.format(header=HEADER.format(c="//", src=FACTS_SOURCE),
            shared="\n".join(wrap([swift_string(k) for k in data["shared_with_browser"]], "        ")),
            kept="\n".join(wrap(kept, "        ")), by_key=table(data["validation"]["keys"]),
-           by_kind=table(data["validation"]["kinds"]), default=swift_string(data["validation"]["default"]))
+           by_kind=table(data["validation"]["kinds"]), default=swift_string(data["validation"]["default"]),
+           former="\n".join(wrap(["%s: [%s]" % (swift_string(k), ", ".join(json_value_swift(v) for v in values))
+                                  for k, values in data["former_defaults"].items()], "        ")))
 
 
 def check_sample(src, where, value):
@@ -1355,6 +1335,9 @@ def row_fact_outputs():
     outputs = agent_policy_swift(load_agent_policy())
     outputs.update({FACTS_SWIFT: row_facts_swift(facts), SAMPLES_SWIFT: samples_swift(load_samples(facts))})
     return outputs
+
+
+SECTIONS = load_generator_sections()
 
 
 def main():

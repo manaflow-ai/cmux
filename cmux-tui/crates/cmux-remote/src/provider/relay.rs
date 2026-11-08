@@ -41,7 +41,9 @@ use crate::provider::{
     CarrierEvidence, ConnectRequest, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
     SupportedClientAuthModes, TransportProvider, sanitized_route,
 };
-use liveness::{Backoff, CHECK_INTERVAL, Check, Liveness, random_unit};
+use liveness::{
+    CHECK_INTERVAL, CLOCK_JUMP, Check, ClockWatch, Ended, Liveness, Retry, random_unit,
+};
 
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type RelayCircuitSink = SplitSink<RelaySocket, Message>;
@@ -50,6 +52,12 @@ type RelayCircuitStream = SplitStream<RelaySocket>;
 const MAX_RELAY_CREDENTIAL_BYTES: usize = 4 * 1024;
 const MAX_RELAY_CONTROL_MESSAGE_BYTES: usize = 16 * 1024;
 const DEFAULT_CREDENTIAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+/// A daemon's relay ticket command's timeout ([`RelayCredentialSource::daemon_command`]).
+/// A Cloud machine's command (`cmux host cloud carrier-ticket`) waits up to
+/// 30 s for the Cloud agent's answer and then exits with its own error code;
+/// this leaves it 5 s more to start and exit, so a slow answer that still
+/// comes is used, not killed at 10 s and asked for again.
+pub const DAEMON_TICKET_COMMAND_TIMEOUT: Duration = Duration::from_secs(35);
 /// How much of a failed credential command's stderr its error keeps: the
 /// last bytes, where the reason usually is.
 const CREDENTIAL_COMMAND_STDERR_TAIL_BYTES: usize = 2 * 1024;
@@ -127,6 +135,16 @@ impl RelayCredentialSource {
         S: Into<OsString>,
     {
         Self::command_with_timeout(program, args, DEFAULT_CREDENTIAL_COMMAND_TIMEOUT)
+    }
+
+    /// [`RelayCredentialSource::command`] for a daemon's own relay
+    /// registration, with [`DAEMON_TICKET_COMMAND_TIMEOUT`].
+    pub fn daemon_command<I, S>(program: impl Into<OsString>, args: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        Self::command_with_timeout(program, args, DAEMON_TICKET_COMMAND_TIMEOUT)
     }
 
     pub fn command_with_timeout<I, S>(
@@ -395,7 +413,7 @@ fn stderr_summary(tail: &[u8]) -> String {
 /// `cmux host cloud carrier-ticket` prints (cmux-host `cloud/carrier_ticket.rs`)
 /// and the platform codes it passes on. Only these exact words are copied out
 /// of stderr; any other word, however code-shaped (`dead.beef`), is not.
-const KNOWN_ERROR_CODES: [&str; 12] = [
+const KNOWN_ERROR_CODES: [&str; 14] = [
     "auth.forbidden",
     "auth.refused",
     "carrier.bad_answer",
@@ -406,6 +424,8 @@ const KNOWN_ERROR_CODES: [&str; 12] = [
     "cloud.machine.not_found",
     "owner.unreachable",
     "validation.invalid",
+    "vm.agent_bad_answer",
+    "vm.agent_stopping",
     "vm.agent_unreachable",
     "vm.unbound",
 ];
@@ -1218,8 +1238,9 @@ async fn read_until_allocation(
                 return Err(if relay_authentication_error(&code) {
                     AllocationError::Authentication(relay_rejection())
                 } else if retryable {
-                    AllocationError::Reconnect(relay_carrier_error(
+                    AllocationError::Reconnect(relay_unavailable(
                         "relay allocation is temporarily unavailable",
+                        &code,
                     ))
                 } else {
                     AllocationError::Terminal(relay_rejection())
@@ -1414,7 +1435,9 @@ pub async fn register_relay_daemon_with_credentials(
 /// [`RelayDaemonRegistration::shutdown`] or drop. Each failed attempt is
 /// written to stderr once, prefixed by `log_label`, with its reason. The
 /// wait between attempts is jittered and capped: 5 s after a relay failure,
-/// 60 s after a credential source failure. Only an invalid configuration is
+/// 60 s after a credential source failure. A resume (`relay_liveness.rs`)
+/// ends a registration from before the pause or a wait at once and
+/// registers again with no wait. Only an invalid configuration is
 /// an error here. A daemon uses this so that its local services start and
 /// stay up while the relay route is unavailable.
 pub fn spawn_relay_daemon_registration(
@@ -1451,9 +1474,8 @@ async fn run_registration_loop(
     mut first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
     log: Option<String>,
 ) {
-    let mut backoff = Backoff::new();
-    let mut credential_backoff = Backoff::credential();
-    let mut failures = 0_u64;
+    let mut retry = Retry::new();
+    let mut log = RegisterLog::new(log, Instant::now());
     loop {
         if *shutdown.borrow() {
             return;
@@ -1461,7 +1483,7 @@ async fn run_registration_loop(
         if shutdown.has_changed().is_err() {
             return;
         }
-        let mut registered = false;
+        let mut attempt = Attempt::default();
         let result = run_registration_once(
             daemon.clone(),
             &config,
@@ -1469,20 +1491,15 @@ async fn run_registration_loop(
             &credentials,
             &mut shutdown,
             &mut first_ready,
-            &mut registered,
+            &mut attempt,
+            &log,
         )
         .await;
         // A registration that got ready and later died (a pause, a relay
         // restart, an expired ticket) registers again from the first wait.
-        if registered {
-            backoff.reset();
-            credential_backoff.reset();
-            if let Some(label) = &log
-                && failures > 0
-            {
-                eprintln!("{label}: registered after {failures} failed attempts");
-            }
-            failures = 0;
+        if attempt.registered {
+            retry.ready();
+            log.dropped(Instant::now());
         }
         let credential_failure = result.as_ref().is_err_and(is_credential_source_error);
         if first_ready.is_some()
@@ -1496,30 +1513,154 @@ async fn run_registration_loop(
         if *shutdown.borrow() {
             return;
         }
-        let wait = if credential_failure {
-            credential_backoff.next(random_unit())
+        let ended = if attempt.resumed {
+            Ended::Resumed
+        } else if credential_failure {
+            Ended::Credential
         } else {
-            backoff.next(random_unit())
+            Ended::Relay
         };
-        if let (Some(label), Err(error)) = (&log, &result) {
-            failures += 1;
+        let wait = retry.wait(ended, random_unit());
+        if let (Some(label), Err(error)) = (&log.label, &result) {
+            log.failures += 1;
             eprintln!(
-                "{label}: attempt {failures} failed, retrying in {} ms: {error}",
+                "{label}: attempt {} failed, retrying in {} ms: {error}",
+                log.failures,
                 wait.as_millis()
             );
         }
-        tokio::select! {
-            _ = tokio::time::sleep(wait) => {}
-            changed = shutdown.changed() => {
-                if changed.is_err() || *shutdown.borrow() {
-                    return;
+        match back_off(&mut retry, wait, &mut shutdown, std::time::SystemTime::now).await {
+            Waited::Elapsed => {}
+            Waited::Resumed => {
+                if let Some(label) = &log.label {
+                    eprintln!("{label}: resumed during the wait; registering now");
                 }
-                continue;
-            },
+            }
+            Waited::Shutdown => return,
         }
     }
 }
 
+/// What one registration attempt got to.
+#[derive(Debug, Default)]
+struct Attempt {
+    /// It got ready (and may have ended since).
+    registered: bool,
+    /// It ended because the machine resumed from a pause it did not survive.
+    resumed: bool,
+}
+
+/// How [`wait_unless_resumed`] ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Waited {
+    Elapsed,
+    /// The wall clock jumped past the monotonic one: the machine resumed.
+    Resumed,
+    Shutdown,
+}
+
+/// Waits out a failed attempt's `wait`. A resume during it (the pause
+/// outlived the reason for the wait) starts both backoffs over, so the next
+/// failure waits the first backoff again, not the one from before the pause.
+async fn back_off(
+    retry: &mut Retry,
+    wait: Duration,
+    shutdown: &mut watch::Receiver<bool>,
+    wall: fn() -> std::time::SystemTime,
+) -> Waited {
+    let waited = wait_unless_resumed(wait, shutdown, wall).await;
+    if waited == Waited::Resumed {
+        retry.ready();
+    }
+    waited
+}
+
+/// Waits `wait` (monotonic, so a pause does not count), looking at the
+/// clocks every [`CHECK_INTERVAL`]: a resume ends the wait at once. Ends at
+/// the latest when `wait` elapses or at shutdown. `wall` is the wall clock.
+async fn wait_unless_resumed(
+    wait: Duration,
+    shutdown: &mut watch::Receiver<bool>,
+    wall: fn() -> std::time::SystemTime,
+) -> Waited {
+    if wait.is_zero() {
+        return Waited::Elapsed;
+    }
+    let sleep = tokio::time::sleep(wait);
+    tokio::pin!(sleep);
+    let mut clocks = ClockWatch::new(Instant::now(), wall());
+    let mut interval = tokio::time::interval(CHECK_INTERVAL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        // After a pause longer than `wait`, the sleep and the tick are both
+        // ready and `select!` picks either: every wakeup looks at the clocks.
+        let elapsed = tokio::select! {
+            _ = &mut sleep => true,
+            changed = shutdown.changed() => {
+                if changed.is_err() || *shutdown.borrow() {
+                    return Waited::Shutdown;
+                }
+                false
+            }
+            _ = interval.tick() => false,
+        };
+        if clocks.jump(Instant::now(), wall()) > CLOCK_JUMP {
+            return Waited::Resumed;
+        }
+        if elapsed {
+            return Waited::Elapsed;
+        }
+    }
+}
+
+/// What a background registration writes to stderr when the relay answers
+/// its Register: the first one, and each one after a drop, never a
+/// heartbeat. A journey timeline reads the Register time from it.
+struct RegisterLog {
+    /// The registration's stderr prefix; nothing is written without one.
+    label: Option<String>,
+    /// When the registration started.
+    started: Instant,
+    /// Failed attempts since the last Register (or the start).
+    failures: u64,
+    /// When the last registration ended, once one has.
+    dropped_at: Option<Instant>,
+}
+
+impl RegisterLog {
+    fn new(label: Option<String>, started: Instant) -> Self {
+        Self { label, started, failures: 0, dropped_at: None }
+    }
+
+    /// A registration that got ready has ended at `now`.
+    fn dropped(&mut self, now: Instant) {
+        self.failures = 0;
+        self.dropped_at = Some(now);
+    }
+
+    /// The line for a Register answered at `now` on `slot`.
+    fn registered_line(&self, slot: &str, now: Instant) -> Option<String> {
+        let label = self.label.as_ref()?;
+        let elapsed = now.saturating_duration_since(self.started).as_millis();
+        let again = match self.dropped_at {
+            Some(dropped) => {
+                format!(
+                    " again, {} ms after the drop,",
+                    now.saturating_duration_since(dropped).as_millis()
+                )
+            }
+            None => String::new(),
+        };
+        let retried = match self.failures {
+            0 => String::new(),
+            1 => " and 1 failed attempt".to_owned(),
+            failures => format!(" and {failures} failed attempts"),
+        };
+        Some(format!("{label}: registered{again} on slot {slot} after {elapsed} ms{retried}"))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn run_registration_once(
     daemon: Arc<RemoteDaemon>,
     config: &RelayDaemonConfig,
@@ -1527,7 +1668,8 @@ async fn run_registration_once(
     credentials: &RelayCredentialSource,
     shutdown: &mut watch::Receiver<bool>,
     first_ready: &mut Option<oneshot::Sender<Result<(), ProviderError>>>,
-    registered: &mut bool,
+    attempt: &mut Attempt,
+    log: &RegisterLog,
 ) -> Result<(), ProviderError> {
     let authentication = authenticate_daemon_control(config, credentials);
     tokio::pin!(authentication);
@@ -1541,7 +1683,10 @@ async fn run_registration_once(
         }
     };
     let heartbeat = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
-    *registered = true;
+    attempt.registered = true;
+    if let Some(line) = log.registered_line(&config.slot, Instant::now()) {
+        eprintln!("{line}");
+    }
     if let Some(sender) = first_ready.take() {
         let _ = sender.send(Ok(()));
     }
@@ -1572,6 +1717,12 @@ async fn run_registration_once(
                     Check::Dead => {
                         break Err(ProviderError::Transport(
                             "relay registration stopped answering".into(),
+                        ));
+                    }
+                    Check::Resumed => {
+                        attempt.resumed = true;
+                        break Err(ProviderError::Transport(
+                            "relay registration did not survive a pause".into(),
                         ));
                     }
                 }
@@ -1859,7 +2010,7 @@ fn relay_operation_rejection(
     retryable_message: &'static str,
 ) -> ProviderError {
     if retryable && !relay_authentication_error(code) {
-        relay_carrier_error(retryable_message)
+        relay_unavailable(retryable_message, code)
     } else {
         relay_rejection()
     }
@@ -1876,6 +2027,15 @@ fn relay_reconnect_error(
     } else {
         ProviderError::Transport(message)
     }
+}
+
+/// A retryable refusal, naming the relay's error code: a short word the
+/// relay sets (`slot-busy`), kept only when it looks like one.
+fn relay_unavailable(message: &str, code: &str) -> ProviderError {
+    let word = code.len() <= 32
+        && !code.is_empty()
+        && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    relay_carrier_error(format!("{message} (relay code {})", if word { code } else { "other" }))
 }
 
 fn relay_rejection() -> ProviderError {
@@ -1911,7 +2071,13 @@ async fn read_control(socket: &mut RelaySocket) -> Result<RelayControl, Provider
                     .map_err(|_| relay_carrier_error("relay WebSocket write failed"))?;
             }
             Some(Ok(Message::Pong(_))) => {}
-            Some(Ok(Message::Close(_))) | None => {
+            Some(Ok(Message::Close(Some(frame)))) => {
+                return Err(relay_carrier_error(format!(
+                    "relay WebSocket closed (close {})",
+                    u16::from(frame.code)
+                )));
+            }
+            Some(Ok(Message::Close(None))) | None => {
                 return Err(relay_carrier_error("relay WebSocket closed"));
             }
             Some(Ok(Message::Binary(_))) => {
@@ -2030,6 +2196,53 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::frame::coding::{Data, OpCode};
 
     use super::*;
+
+    /// The wall clock of [`a_pause_longer_than_the_backoff_resets_the_counters_whichever_wakeup_fires`]:
+    /// seconds added to a fixed start.
+    static WALL_AHEAD_S: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    fn test_wall() -> std::time::SystemTime {
+        std::time::SystemTime::UNIX_EPOCH
+            + Duration::from_secs(1_800_000_000 + WALL_AHEAD_S.load(AtomicOrdering::SeqCst))
+    }
+
+    /// A pause longer than the backoff: at the wakeup the sleep and the clock
+    /// check are both ready. Whichever `select!` picks, the jump is seen, the
+    /// counters start over and the next failure waits the first backoff (1 s),
+    /// not the 60 s from before the pause.
+    #[tokio::test(start_paused = true)]
+    async fn a_pause_longer_than_the_backoff_resets_the_counters_whichever_wakeup_fires() {
+        use super::liveness::{FIRST_CREDENTIAL_BACKOFF, MAX_CREDENTIAL_BACKOFF};
+        // `select!` picks among ready branches at random: many rounds make
+        // the sleep branch win at least once.
+        for round in 0..32 {
+            let mut retry = Retry::new();
+            let mut wait = Duration::ZERO;
+            while wait < MAX_CREDENTIAL_BACKOFF {
+                wait = retry.wait(Ended::Credential, 1.0);
+            }
+            let (_shutdown_tx, mut shutdown) = watch::channel(false);
+            let task = tokio::spawn(async move {
+                let waited = back_off(&mut retry, wait, &mut shutdown, test_wall).await;
+                (waited, retry)
+            });
+            // The wait starts and takes its first (immediate) clock check.
+            for _ in 0..8 {
+                tokio::task::yield_now().await;
+            }
+            // The machine pauses for ten minutes; its monotonic clock moves
+            // past the whole backoff at once, the wall clock ten minutes.
+            WALL_AHEAD_S.fetch_add(600, AtomicOrdering::SeqCst);
+            tokio::time::advance(wait + CHECK_INTERVAL).await;
+            let (waited, mut retry) = task.await.unwrap();
+            assert_eq!(waited, Waited::Resumed, "round {round}");
+            assert_eq!(
+                retry.wait(Ended::Credential, 1.0),
+                FIRST_CREDENTIAL_BACKOFF,
+                "round {round}: the next failure waits the first backoff"
+            );
+        }
+    }
 
     async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayControl {
         let message = socket.next().await.unwrap().unwrap();
@@ -2503,6 +2716,31 @@ mod tests {
     }
 
     #[test]
+    fn a_register_is_logged_with_its_slot_and_time_first_and_after_a_drop() {
+        let started = Instant::now();
+        let at = |ms| started + Duration::from_millis(ms);
+        let mut log =
+            RegisterLog::new(Some("cmux-tui: relay registration on relay+wss://r".into()), started);
+        assert_eq!(
+            log.registered_line("slot-a", at(812)).as_deref(),
+            Some(
+                "cmux-tui: relay registration on relay+wss://r: registered on slot slot-a after 812 ms"
+            )
+        );
+        log.dropped(at(5_000));
+        log.failures = 2;
+        assert_eq!(
+            log.registered_line("slot-a", at(7_250)).as_deref(),
+            Some(
+                "cmux-tui: relay registration on relay+wss://r: registered again, 2250 ms after \
+                 the drop, on slot slot-a after 7250 ms and 2 failed attempts"
+            )
+        );
+        // A registration with no label (the foreground one) writes nothing.
+        assert_eq!(RegisterLog::new(None, started).registered_line("slot-a", at(1)), None);
+    }
+
+    #[test]
     fn stderr_summary_names_only_known_codes() {
         // #37670 review 4 F1: a code-shaped secret is not a code.
         let stderr = b"carrier.unavailable: no route; dead.beef password.secret v1.abc.def\n";
@@ -2530,6 +2768,9 @@ mod tests {
                 "vm.agent_unreachable",
             ),
             ("carrier.busy: too many asks are waiting; retry", "carrier.busy"),
+            // #37670 review F1 (98b5502a): the agent socket's own refusals.
+            ("vm.agent_stopping: the Cloud agent is stopping", "vm.agent_stopping"),
+            ("vm.agent_bad_answer: the Cloud agent's answer was not JSON", "vm.agent_bad_answer"),
         ] {
             let stderr = format!("cmux host cloud carrier-ticket: {line}\n");
             assert_eq!(

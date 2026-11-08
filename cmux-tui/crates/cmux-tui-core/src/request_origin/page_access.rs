@@ -107,12 +107,17 @@ const fn access(operation: Op) -> Access {
         | Op::GitWorktreeCreate
         | Op::GitWorktreeApply
         | Op::GitWorktreeRemove
+        | Op::GitWorktreeSetup
         | Op::GitCheckpointCreate
         | Op::GitCheckpointDiff
         | Op::GitCheckpointGet
         | Op::GitCheckpointList
         | Op::GitCheckpointPin
         | Op::GitCheckpointUnpin
+        // The diff page's review comments: kept for the app, never a page.
+        | Op::DiffCommentsList
+        | Op::DiffCommentsSave
+        | Op::DiffCommentsDelete
         | Op::SessionJournalHookPut
         // It tells whether a path exists and is a folder (cx-9aps).
         | Op::WorkspaceAgentStartGet
@@ -400,12 +405,6 @@ const fn access(operation: Op) -> Access {
         | Op::ConversationDraft
         | Op::ConversationEvents
         // The person's Cloud API calls, with credentials a page never holds (server/cloud_api.rs).
-        | Op::CloudVmResize
-        | Op::CloudVmSnapshot
-        | Op::CloudVmSnapshots
-        | Op::CloudVmDeleteSnapshot
-        | Op::CloudVmRestore
-        | Op::CloudVmFork
         | Op::CloudVmScpEndpoint
         | Op::CloudVmTunnelEnroll
         | Op::CloudVmTunnelRevoke

@@ -15,12 +15,27 @@ const REPO = join(import.meta.dir, "../..");
 // The Swift file that floats a page over the window -> every stylesheet that page's entry imports
 // (paths under webviews/src). A new transparent overlay host fails the next test until it is here.
 const POPUP_PAGES: Record<string, string[]> = {
-  // The browser chrome's Page Info bubble (pages/page-info) in the native glass card.
+  // The browser chrome's Page Info pages (BrowserChromeWebHost): one document per page, all on native glass.
   "Packages/macOS/CmuxNext/Sources/CmuxNextPages/BrowserChromeWebHost.swift": [
     "pages/page-info/styles.css",
     "browser-chrome/page-info/pageInfo.css",
+    // Its windows (Site settings, On-device site data, the certificate viewer) on the window's backdrop.
+    "pages/site-settings/styles.css",
+    "pages/site-data/styles.css",
+    "pages/certificate/styles.css",
+    "browser-chrome/page-info/pageInfoWindows.css",
+    // The Import Cookies card (pages/cookie-import) in its native glass card.
+    "pages/cookie-import/styles.css",
+    "browser-chrome/cookie-import/cookieImport.css",
   ],
   "Packages/macOS/CmuxNext/Sources/CmuxNextApp/IconPicker/IconPickerService.swift": ["pages/icon-picker/styles.css"],
+  // The dialog route's sheets load with its module (dialog/index.tsx), into the same document.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/OverlayPage.swift": [
+    "ui/ui.css",
+    "pages/shared/pageBase.css",
+    "pages/overlay/overlay.css",
+    "pages/overlay/dialog/dialog.css",
+  ],
   "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift": [
     "pages/group-editor/styles.css",
   ],
@@ -29,6 +44,12 @@ const POPUP_PAGES: Record<string, string[]> = {
     "pages/changelog/styles.css",
     "pages/changelog/updateSurfaces.css",
     "pages/changelog/surface.css",
+  ],
+  // The floating web card host (server cards): the panel's glass is the page's background.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebCard/WebCardPanel.swift": [
+    "pages/shared/pageBase.css",
+    "ui/ui.css",
+    "pages/server-cards/styles.css",
   ],
 };
 

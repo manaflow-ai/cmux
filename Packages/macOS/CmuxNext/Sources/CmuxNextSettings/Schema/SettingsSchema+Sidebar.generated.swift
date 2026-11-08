@@ -3,6 +3,12 @@
 
 public import CmuxNextDesign
 
+extension SidebarSurfaceSetting {
+    /// `appearance.sidebarSurface`.
+    public nonisolated static let configPath = ["appearance", "sidebarSurface"]
+    public nonisolated static let fallback: SidebarSurface = .same
+}
+
 extension SidebarBorderSetting {
     /// `sidebar.border`.
     public nonisolated static let borderPath = ["sidebar", "border"]
@@ -89,9 +95,6 @@ extension SidebarSectionsSetting {
     /// `sidebar.showColors`.
     public nonisolated static let showColorsPath = ["sidebar", "showColors"]
     public nonisolated static let showColorsDefault = true
-}
-
-extension SidebarSectionsSetting {
     /// `sidebar.showLocalMachine`.
     public nonisolated static let showLocalMachinePath = ["sidebar", "showLocalMachine"]
     public nonisolated static let showLocalMachineDefault = false
@@ -104,12 +107,24 @@ extension SidebarSectionsSetting {
     /// `sidebar.groupHeader.background`.
     public nonisolated static let groupHeaderBackgroundPath = ["sidebar", "groupHeader", "background"]
     public nonisolated static let groupHeaderBackgroundDefault: SidebarGroupBackgroundStyle = .auto
+    /// `sidebar.groupPalette`.
+    public nonisolated static let groupPalettePath = ["sidebar", "groupPalette"]
+    public nonisolated static let groupPaletteDefault: GroupPalette = .glass
+    /// `sidebar.groupGradient`.
+    public nonisolated static let groupGradientPath = ["sidebar", "groupGradient"]
+    public nonisolated static let groupGradientDefault: GroupGradient = .sunset
     /// `sidebar.minimalMode`.
     public nonisolated static let minimalModePath = ["sidebar", "minimalMode"]
     public nonisolated static let minimalModeDefault: SidebarMinimalMode = .off
     /// `sidebar.cards.tips`.
     public nonisolated static let tipsPath = ["sidebar", "cards", "tips"]
     public nonisolated static let tipsDefault = true
+}
+
+extension WorkspaceColorsSetting {
+    /// `workspaceColors.indicatorStyle`.
+    public nonisolated static let indicatorStylePath = ["workspaceColors", "indicatorStyle"]
+    public nonisolated static let indicatorStyleDefault: WorkspaceColorIndicatorStyle = .dot
 }
 
 extension SidebarPriorityViewSetting {
@@ -119,6 +134,18 @@ extension SidebarPriorityViewSetting {
     /// `sidebar.priorityView.shown`.
     public nonisolated static let shownPath = ["sidebar", "priorityView", "shown"]
     public nonisolated static let shownDefault = true
+}
+
+extension ChromePlacementSetting {
+    /// `sidebar.side`.
+    public nonisolated static let sidebarSidePath = ["sidebar", "side"]
+    public nonisolated static let sidebarSideDefault: SidebarSide = .left
+    /// `sidebar.spacesPosition`.
+    public nonisolated static let spacesPositionPath = ["sidebar", "spacesPosition"]
+    public nonisolated static let spacesPositionDefault: SpacesPosition = .bottom
+    /// `sidebar.spacesVisibility`.
+    public nonisolated static let spacesVisibilityPath = ["sidebar", "spacesVisibility"]
+    public nonisolated static let spacesVisibilityDefault: SpacesVisibilityMode = .hover
 }
 
 extension CommandDigitsSetting {
@@ -314,4 +341,9 @@ extension WorkspaceRowSetting {
     /// `sidebar.workspaceRow.mixed.secondLineOrder`.
     public nonisolated static let mixedSecondLineOrderPath = ["sidebar", "workspaceRow", "mixed", "secondLineOrder"]
     public nonisolated static let mixedSecondLineOrderValues = ["notification", "directory", "branch", "process", "agentStatus", "ports", "lastActivity"]
+}
+
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum SidebarSettingsSchema {
+    static var sidebar: [SettingDescriptor] { sidebarPart1 + sidebarPart2 }
 }

@@ -21,7 +21,7 @@ import WebKit
 /// authors, answered-by, header faces and typing line, and `"subagents"` the subagent tray's life,
 /// one step per `count`, with `agents` subagents started, 2 by default), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
-/// `fling_stats`, `perf_stats` (`raw` adds every frame), `load_seed` (`turns`, default 5000:
+/// `fling_stats`, `perf_stats` (`raw` adds every frame), `tick_watch` (tickWatch.ts), `load_seed` (`turns`, default 5000:
 /// a mock session of heavy turns opened through the real client; needs `--showcase`'s mock
 /// daemon), `load_run` (`seconds`, `chunk_chars`, `chunk_ms`, `tool_every`, `scroll_speed`,
 /// `scroll_depth`: a full-speed stream into it while the transcript scrolls, with every frame's
@@ -36,7 +36,7 @@ import WebKit
 /// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `compose_send` (`text`: the
 /// composer's own Return, so a new chat with Cloud picked starts on a Cloud machine), `run_mode` (`mode`:
 /// `persistent`, `sandboxed` or `cloud`, the run row's pick; omitted reads it), `answer_permission` (`option`, `allow`,
-/// `decision`), `open_changes` (the latest turn's changes view), `set_files` (`paths`, `selector` default
+/// `decision`), `toast` (`text`: a pane toast), `open_changes` (the latest turn's changes view), `set_files` (`paths`, `selector` default
 /// `.acpmux-attach-input`: the composer's file input gets those files as a pick in Chromium's open panel),
 /// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
 /// `readiness` (page body, transcript and composer metrics), `cloud_auth` (the native
@@ -58,12 +58,12 @@ enum DebugAgentPane {
 
     private static let functions: [String: String] = [
         "seed_rows": "seedRows", "fling": "startFling", "fling_stats": "flingStats",
-        "perf_stats": "perfStats", "typing_stats": "typingStats", "reset_typing": "resetTyping",
+        "perf_stats": "perfStats", "tick_watch": "tickWatch", "typing_stats": "typingStats", "reset_typing": "resetTyping",
         "open_menu": "openMenu", "acp_log": "acpLog", "acp_log_export": "acpLogExport",
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
-        "compose_send": "composeSend", "run_mode": "runMode",
+        "compose_send": "composeSend", "run_mode": "runMode", "toast": "toast",
         "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch", "idle_probe": "idleProbe",
     ]
 
@@ -119,7 +119,7 @@ enum DebugAgentPane {
                 return !!field && document.activeElement === field;
                 """
             let focused = (try? await view.callPageScript(script)) as? Bool ?? false
-            return .object(["pane": .string(pane), "focused": .bool(focused)])
+            return .object(["pane": .string(pane), "focused": .bool(focused), "native": .bool(view.debugHoldsKeyboard)])
         }
         if action == "focus_composer" {
             // The chat's pane takes the app's focus, the chat the keyboard and its composer the caret, in
@@ -226,7 +226,7 @@ enum DebugAgentPane {
             }
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, tick_watch, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, toast, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": AgentPaneDebugAutomationArguments(action: action, parameters: params).values])

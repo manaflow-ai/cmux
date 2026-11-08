@@ -500,22 +500,49 @@ try {
       input: INPUT,
       hold: cdp !== undefined,
     });
-    if (cdp) {
-      // The profile covers the measured input only, not the history paging and mounting before it.
-      await page.waitForFunction(() => (window as unknown as { cmuxTickSettled?: boolean }).cmuxTickSettled, null, {
-        timeout: 180_000,
-      });
+    // The profile covers the measured input only, not the history paging and mounting before it. A run
+    // that ends before it settles (no transcript, no mock daemon) skips the profile and reports its error.
+    const settled = cdp
+      ? page
+          .waitForFunction(() => (window as unknown as { cmuxTickSettled?: boolean }).cmuxTickSettled, null, {
+            timeout: 180_000,
+          })
+          .then(
+            () => true,
+            // The page closed or the wait timed out after the run ended: no profile.
+            () => false,
+          )
+      : Promise.resolve(false);
+    let ended = false;
+    const end = running.then(
+      () => (ended = true),
+      () => (ended = true),
+    );
+    const profiling = cdp !== undefined && (await Promise.race([settled, end.then(() => false)]));
+    if (cdp && profiling) {
       await cdp.send("Profiler.enable");
       await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
       await cdp.send("Profiler.start");
-      await page.evaluate(() => {
-        (window as unknown as { cmuxTickGo?: boolean }).cmuxTickGo = true;
-      });
     }
-    if (INPUT === "precise") {
-      await page.waitForFunction(() => (window as unknown as { cmuxTickReady?: boolean }).cmuxTickReady, null, {
-        timeout: 180_000,
-      });
+    // A held run goes on whether or not it is profiled: a settle that timed out can still come later.
+    if (cdp && !ended)
+      await page
+        .evaluate(() => {
+          (window as unknown as { cmuxTickGo?: boolean }).cmuxTickGo = true;
+        })
+        .catch(() => {});
+    // A run that ended first (an error) gets no input: `await running` below reports it.
+    const ready = async () =>
+      !ended &&
+      (await Promise.race([
+        page
+          .waitForFunction(() => (window as unknown as { cmuxTickReady?: boolean }).cmuxTickReady, null, {
+            timeout: 180_000,
+          })
+          .then(() => true),
+        end.then(() => false),
+      ]));
+    if (INPUT === "precise" && (await ready())) {
       // A tick or a flick as a smoothing tool sends it: `events` pixel deltas 8 ms apart, easing out, `total`
       // px in all. Deltas are fractional, never a legacy 120-unit notch. The pause between is input pacing.
       // Chromium's mouse.wheel sends legacy 120-unit ticks, which the glide takes as a notch; its synthetic
@@ -556,7 +583,7 @@ try {
       });
     }
     const run = await running;
-    if (cdp) await printProfile(vite, turns, (await cdp.send("Profiler.stop")).profile);
+    if (cdp && profiling) await printProfile(vite, turns, (await cdp.send("Profiler.stop")).profile);
     await page.close();
     if ("error" in run) throw new Error(`wheel-tick-scaling: ${turns} turns: ${run.error}`);
     if ((INPUT === "precise" ? run.moved_frames === 0 : run.response_frames.p50 === 0) || run.frames < ROUNDS * 4)

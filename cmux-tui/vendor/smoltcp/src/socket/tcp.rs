@@ -1963,6 +1963,10 @@ impl<'a> Socket<'a> {
             (State::SynReceived, TcpControl::Rst) if self.listen_endpoint.port != 0 => {
                 tcp_trace!("received RST");
                 self.tuple = None;
+                // cmux patch: the next SYN is a new connection: it gets the default
+                // MSS and a fresh controller (initial window), not this peer's.
+                self.remote_mss = DEFAULT_MSS;
+                self.set_congestion_control(self.congestion_control());
                 self.set_state(State::Listen);
                 return None;
             }
@@ -9811,6 +9815,44 @@ mod test {
             }
         );
         assert_eq!(s.congestion_controller.inner().window(), 10 * 1000);
+    }
+
+    // cmux patch: an RST in SYN-RECEIVED returns to LISTEN with no trace of that peer.
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_listen_rst_restarts_congestion_controller() {
+        use super::congestion::Controller as _;
+
+        let mut s = socket_listen();
+        s.set_congestion_control(CongestionControl::Cubic);
+        let fresh = s.congestion_controller.inner().window();
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: None,
+                max_seg_size: Some(1000),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::SynReceived);
+        s.congestion_controller
+            .inner_mut()
+            .on_rto(Instant::from_millis(0), 10 * 1000);
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Rst,
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: None,
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::Listen);
+        assert_eq!(s.remote_mss, DEFAULT_MSS);
+        assert_eq!(s.congestion_control(), CongestionControl::Cubic);
+        assert_eq!(s.congestion_controller.inner().window(), fresh);
     }
 
     // cmux patch: a reused socket's next connection starts from a fresh controller.

@@ -398,6 +398,16 @@ public final class TerminalHostView: NSView {
     /// The followed hold ended: the host's next layout places the surface at its final frame, and a size drawn ahead that
     /// this placement did not take goes (``TerminalSurfaceView/dropAhead()``).
     var dropsAheadAtRest = false
+    /// The size drawn ahead at rest is a key resize's (a key press's first size, or a followed key hold's end), not a
+    /// snapped split's, close's or zoom's: its grid goes to the program with it (``TerminalSurfaceView``
+    /// `followsKeyResize`, RESIZE P0 11). Cleared with ``dropsAheadAtRest``.
+    var aheadOfKeyResize = false
+    /// The host's size when its size was drawn ahead of a follow or a snap (``drawAheadOfFollow(nextHostSize:keyPress:)``):
+    /// a layout at this size is not the placement the size waits for, so it does not drop it (RESIZE P0 14: a layout in
+    /// a Reduce Motion key press's own turn dropped the size drawn ahead and sent the old grid back). The placement at a
+    /// new size takes it or drops it; a snap that showed at this size drops it (``aheadOfFollowShown()``). Nil: the
+    /// next layout is the placement at rest (a followed hold ended).
+    var aheadRestBasis: CGSize?
     /// A person drags a divider or edge of this host's pane (``PaneResizeGestureFollowing``): the surface it shows follows.
     var followsResizeGesture = false
 
@@ -424,8 +434,8 @@ public final class TerminalHostView: NSView {
         // B1 (diag bf2b674a): a size drawn ahead goes only when its hold ended, never on a timer (a spring's next refresh
         // can come 2 display ticks later, and dropping it then made that refresh wait for its frame again). The final
         // placement took it if it is the final size; else Ghostty goes back to the view's size.
-        if dropsAheadAtRest, !surfaceFollowsArea {
-            dropsAheadAtRest = false
+        if dropsAheadAtRest, !surfaceFollowsArea, aheadRestBasis != bounds.size {
+            (dropsAheadAtRest, aheadOfKeyResize, aheadRestBasis) = (false, false, nil)
             current.dropAhead()
         }
     }

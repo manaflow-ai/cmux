@@ -3,11 +3,23 @@
 
 public import CmuxNextDesign
 
-/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
-nonisolated enum SidebarSettingsSchema {
-    static var sidebar: [SettingDescriptor] {
+extension SidebarSettingsSchema {
+    static var sidebarPart1: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
+            SettingDescriptor(
+                SidebarSurfaceSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.surface", "Sidebar Background"),
+                help: SettingsText.keyed("settings.sidebar.surface.help", "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane."),
+                kind: .choice([
+                    SettingChoice(SidebarSurface.same.rawValue, SettingsText.keyed("settings.choice.sidebarSurface.same", "Same as Main Pane")),
+                    SettingChoice(SidebarSurface.separate.rawValue, SettingsText.keyed("settings.choice.sidebarSurface.separate", "Separate")),
+                ]),
+                default: .string(SidebarSurfaceSetting.fallback.rawValue),
+                keywords: ["sidebar", "background", "surface", "shade", "color", "colour", "panel", "separate", "main pane"]
+            ),
             SettingDescriptor(
                 SidebarBorderSetting.borderPath,
                 section: .appearance,
@@ -286,14 +298,20 @@ nonisolated enum SidebarSettingsSchema {
                 default: .bool(SidebarSectionsSetting.showColorsDefault),
                 keywords: ["sidebar", "color", "colors", "colour", "tint", "swatch", "group", "workspace", "hide", "plain"]
             ),
-        ]
-    }
-}
-
-extension SidebarSettingsSchema {
-    static var sidebar2: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
-        return [
+            SettingDescriptor(
+                WorkspaceColorsSetting.indicatorStylePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceColors.indicatorStyle", "Workspace Color Style"),
+                help: SettingsText.keyed("settings.workspaceColors.indicatorStyle.help", "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color."),
+                kind: .choice([
+                    SettingChoice(WorkspaceColorIndicatorStyle.dot.rawValue, SettingsText.keyed("settings.choice.workspaceColorDot", "Dot")),
+                    SettingChoice(WorkspaceColorIndicatorStyle.leftRail.rawValue, SettingsText.keyed("settings.choice.workspaceColorLeftRail", "Left Rail")),
+                    SettingChoice(WorkspaceColorIndicatorStyle.fill.rawValue, SettingsText.keyed("settings.choice.workspaceColorFill", "Fill Row")),
+                ]),
+                default: .string(WorkspaceColorsSetting.indicatorStyleDefault.rawValue),
+                keywords: ["sidebar", "workspace", "color", "colour", "tint", "fill", "row", "background", "rail", "bar", "dot", "highlight", "indicator", "review", "ready"]
+            ),
             SettingDescriptor(
                 SidebarSectionsSetting.showLocalMachinePath,
                 section: .appearance,
@@ -339,51 +357,22 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header"]
             ),
             SettingDescriptor(
-                SidebarSectionsSetting.minimalModePath,
+                SidebarSectionsSetting.groupPalettePath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.sidebar.minimalMode", "Hide Bands Until Hover"),
-                help: SettingsText.keyed("settings.sidebar.minimalMode.help", "Hides the chosen sections until the pointer is over the sidebar."),
+                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
+                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."),
                 kind: .choice([
-                    SettingChoice(SidebarMinimalMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
-                    SettingChoice(SidebarMinimalMode.bottom.rawValue, SettingsText.keyed("settings.choice.minimalBottom", "Settings and Account Row")),
-                    SettingChoice(SidebarMinimalMode.top.rawValue, SettingsText.keyed("settings.choice.minimalTop", "Top Sections")),
-                    SettingChoice(SidebarMinimalMode.both.rawValue, SettingsText.keyed("settings.choice.minimalBoth", "Top and Bottom")),
+                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
+                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
+                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
+                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
+                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
+                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
+                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
                 ]),
-                default: .string(SidebarSectionsSetting.minimalModeDefault.rawValue),
-                keywords: ["sidebar", "minimal", "hide", "hover", "settings", "account"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.tipsPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
-                help: SettingsText.keyed("settings.sidebar.cards.tips.help", "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."),
-                summary: SettingsText.keyed("settings.sidebar.cards.tips.summary", "A daily tip about a feature you haven't used"),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.tipsDefault),
-                keywords: ["sidebar", "tips", "did you know", "cards", "learn", "features"]
-            ),
-            SettingDescriptor(
-                SidebarPriorityViewSetting.enabledPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.priorityView.enabled", "Priority View"),
-                help: SettingsText.keyed("settings.sidebar.priorityView.enabled.help", "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle."),
-                summary: SettingsText.keyed("settings.sidebar.priorityView.enabled.summary", "Agent chats that need you, at the top of the sidebar"),
-                kind: .toggle,
-                default: .bool(SidebarPriorityViewSetting.enabledDefault),
-                keywords: ["sidebar", "priority", "attention", "agents", "chats", "needs you", "activity", "bell", "inbox"]
-            ),
-            SettingDescriptor(
-                SidebarPriorityViewSetting.shownPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.priorityView.shown", "Show Priority View"),
-                help: SettingsText.keyed("settings.sidebar.priorityView.shown.help", "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged."),
-                kind: .toggle,
-                default: .bool(SidebarPriorityViewSetting.shownDefault),
-                keywords: ["sidebar", "priority", "activity", "bell", "show", "hide"]
+                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
             ),
         ]
     }

@@ -326,6 +326,10 @@ pub(super) struct ClientRegistryState {
     /// Shares the registry lock with registration so accepting a handoff and
     /// admitting a new owner cannot pass each other.
     pub(super) daemon_handoff: Option<DaemonHandoffReservation>,
+    /// The handoff requester's `restart` (a replacement follows, or the
+    /// session stops); `None` when it did not say. Cleared with the
+    /// reservation.
+    pub(super) daemon_handoff_restart: Option<bool>,
 }
 
 pub(crate) struct ClientRegistry {
@@ -355,6 +359,8 @@ pub(crate) struct ClientRegistry {
     pub(super) agent_sessions: agent_session_attach::AgentSessions,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     pub(super) apps: crate::apps::AppsSlot,
+    /// The local Tasks owner link of the routed `tasks` namespace (tasks_link.rs).
+    pub(crate) tasks: crate::tasks_link::TasksLink,
     /// Script sessions by connection (`script-*`, crate::scripts).
     pub(crate) scripts: crate::scripts::ScriptsSlot,
     pub(super) origin_clock: crate::request_origin::OriginClock,
@@ -430,6 +436,7 @@ impl ClientRegistry {
             agent_sessions: agent_session_attach::AgentSessions::new(publishing),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
+            tasks: crate::tasks_link::TasksLink::default(),
             scripts: crate::scripts::ScriptsSlot::default(),
             origin_clock: Default::default(),
             browser_host: Default::default(),
@@ -752,6 +759,8 @@ impl ClientRegistry {
                     || capability == crate::state::sidebar_doc_store::CAPABILITY
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
+                    // `restart` on the daemon-shutdown notice (disconnect.rs).
+                    || capability == super::DAEMON_SHUTDOWN_RESTART_CAPABILITY
                     || capability == "cloud-mobile-chat-v1"
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
@@ -1046,6 +1055,8 @@ impl ClientRegistry {
             anyhow::bail!("daemon handoff is already in progress");
         }
         state.daemon_handoff = Some(DaemonHandoffReservation::Pending(requesting_client));
+        // A new reservation starts with no `restart`; only its own request sets one.
+        state.daemon_handoff_restart = None;
         Ok(())
     }
 
@@ -1071,7 +1082,23 @@ impl ClientRegistry {
         let mut state = self.state.lock().recover_poison();
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
             state.daemon_handoff = None;
+            state.daemon_handoff_restart = None;
         }
+    }
+
+    /// Records whether a replacement follows the handoff `requesting_client`
+    /// reserved. Ignored when that client holds no reservation.
+    pub(crate) fn set_daemon_handoff_restart(&self, requesting_client: u64, restart: Option<bool>) {
+        let mut state = self.state.lock().recover_poison();
+        if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
+            state.daemon_handoff_restart = restart;
+        }
+    }
+
+    /// The `restart` of the reserved handoff, for the shutdown notice.
+    pub(crate) fn daemon_handoff_restart(&self) -> Option<bool> {
+        let state = self.state.lock().recover_poison();
+        state.daemon_handoff.and(state.daemon_handoff_restart)
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {

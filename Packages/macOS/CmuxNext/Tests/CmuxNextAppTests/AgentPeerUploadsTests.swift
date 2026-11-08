@@ -33,6 +33,31 @@ import Testing
         #expect(services.agentTabs.localPaths?(tab) == true)
     }
 
+    /// A chat of this Mac's acpmux with a session sends its files to that acpmux, which stores each
+    /// once by its bytes (hq#7211); a new chat with no session, and a peer's chat, do not.
+    @Test func aLocalChatWithASessionUploadsIntoThisMacsAcpmux() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        let tab = "tab-\(UUID().uuidString)", session = "local-\(UUID().uuidString.lowercased())"
+        services.agentTabs.gitLink = { _ in services.agentGit.local }
+        #expect(AgentPeerUploads.localTarget(tab: tab, services: services) == nil, "a chat with no session yet")
+        services.agentTabs.sessions[tab] = session
+        let target = AgentPeerUploads.localTarget(tab: tab, services: services)
+        #expect(target?.session == session)
+        #expect(target?.machine == "")
+        #expect(AgentPeerUploads.target(tab: tab, services: services) == nil)
+        #expect(services.agentTabs.localPaths?(tab) == true)
+        // A peer's chat goes to the peer, not into this Mac's store.
+        AgentLaneStore.shared.lanes[session] = AgentActivityLane(id: session, name: "huge-blue/fix", title: "fix", peer: "huge-blue",
+                                                                 parent: nil, state: .idle, since: nil, error: nil)
+        defer { AgentLaneStore.shared.lanes[session] = nil }
+        #expect(AgentPeerUploads.localTarget(tab: tab, services: services) == nil)
+        // Failures in a local chat say the file was not saved on this Mac.
+        let reply = AgentPeerUploads.reply(.failed, machine: "")
+        #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == AgentChatUploadStrings.failed)
+    }
+
     @Test func eachFileGoesInTurnAndTheReplyNamesItsPathOnThePeer() async throws {
         let files = [AgentPaneUpload(name: "state.sqlite", data: Data([0, 1])), AgentPaneUpload(name: "state.sqlite", data: Data([2]))]
         var sent: [(String, Data)] = []

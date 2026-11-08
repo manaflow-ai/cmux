@@ -6,6 +6,9 @@
 // - `page-load`: this document loaded (`type`: navigate, reload, back_forward).
 // - `visibility`: the document became hidden or visible (WebKit follows the window's occlusion).
 // - `transcript-mount`: the transcript's root mounted; `n` over 1 is a remount on this page.
+// - `transcript-replace`: the chat on screen drew a frame with none of its rows from before (an
+//   empty transcript, or every row built anew), after a reset of it (direct.ts `noteReplace`):
+//   `cause` names the reset, `blank` an empty frame, `n` the chat's count on this page.
 // - `long-frame`: a frame over 100 ms while the page is visible, from a `long-animation-frame`
 //   observer where the engine has one, else from the frame watch below.
 // - `frames`: how smoothly the page drew while it changed, at most once a second: `n` frames that
@@ -38,7 +41,9 @@ export class FlickerLog {
   constructor(
     private readonly send: Send,
     private readonly now: () => number = Date.now,
-    private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = setTimeout,
+    // Called through a closure: Chromium refuses `setTimeout` called as this object's method.
+    private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = (run, ms) =>
+      setTimeout(run, ms),
   ) {}
 
   record(kind: string, fields: Record<string, string | number | boolean> = {}): void {
@@ -185,6 +190,11 @@ let log: FlickerLog | undefined;
 /// The transcript's root mounted (App.tsx VirtualTranscript); nothing before startFlickerLog.
 export function noteTranscriptMount(): void {
   log?.transcriptMounted();
+}
+
+/// The chat on screen was replaced whole (direct.ts `noteReplace`); nothing before startFlickerLog.
+export function noteTranscriptReplace(cause: string, blank: boolean, n: number): void {
+  log?.record("transcript-replace", { cause, blank, n });
 }
 
 /// Long frames from the engine's `long-animation-frame` entries; false when it has none or refuses

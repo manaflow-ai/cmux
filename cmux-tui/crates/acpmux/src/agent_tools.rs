@@ -228,6 +228,8 @@ const SKILL_FILES: &[(&str, &str)] = &[
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
     // How the chat draws a plan, sub-sessions, links and a recap (`agent_guidance.rs`).
     ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
+    // When and how to ask for one root command (`request_elevation`, `hub/elevation.rs`).
+    ("cmux-sudo/SKILL.md", include_str!("../skills/cmux-sudo/SKILL.md")),
 ];
 
 /// One stdio MCP server.

@@ -2,6 +2,7 @@
 import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -401,7 +402,7 @@ private struct TeamStep: View {
                 .foregroundStyle(theme.colors.label2)
             Spacer(minLength: 0)
             if isRetrying {
-                ProgressView().controlSize(.small)
+                CmuxSpinner().controlSize(.small)
             } else {
                 Button("Retry", action: retry)
                     .font(theme.type.rowSubtitle.weight(.semibold))

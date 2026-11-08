@@ -57,6 +57,7 @@ FIRST_PARTY_GPL = {
     "cmux-cloud-start-core",
     "cmux-cloud-config",
     "cmux-cloud-tasks",
+    "cmux-cookie-sync",
     "cmux-daemon-conn-core",
     "cmux-daemon-launch-core",
     "cmux-local-auth",
@@ -64,6 +65,7 @@ FIRST_PARTY_GPL = {
     "cmux-remote-browser",
     "cmux-sdk",
     "cmux-sdk-ffi",
+    "cmux-terminal-prediction",
     "cmux-window-rules",
 }
 

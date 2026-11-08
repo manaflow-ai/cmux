@@ -113,6 +113,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "palette.newCloudChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.palette.newCloudChat", "New Cloud Chat"),
+        keywords: &["agent", "chat", "new", "cloud", "vm", "remote", "machine", "sleep"],
+        category: "agents",
+        symbol: "cloud",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action palette-new-cloud-chat",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "agentPane.toggleSessionInfo",
         group: GROUP,
         title: t("Localizable", "action.agentPane.toggleSessionInfo", "Toggle Session Info"),
@@ -402,6 +413,23 @@ pub static ACTIONS: &[Action] = &[
         requires: &["agentPaneFocused"],
         targets: &["pane"],
         cli_name: "action agent-pane-copy-last-code-block",
+        ..Action::DEFAULT
+    },
+    // The floating mini (the Chief pet) stands for the focused chat; run while it does, it gives the
+    // mini back to the Chief. Person-only: with the mini managed off it opens the mini's reply box.
+    Action {
+        id: "agentPane.showInMini",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPane.showInMini", "Show in Mini"),
+        keywords: &["agent", "chat", "mini", "pet", "chief", "floating", "avatar", "coordinator"],
+        category: "agents",
+        symbol: "pip",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-pane-show-in-mini",
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {

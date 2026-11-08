@@ -673,7 +673,7 @@ args = []                 # for example ["acp"]; "${{model}}" becomes the chosen
 # [defaults]
 # model = "model-id"
 # effort = "medium"
-# policy = "ask"          # ask, approve-reads, approve-edits, approve-all, deny-all
+# policy = "ask"          # ask, approve-reads, approve-edits, approve-all, deny-all, review
 
 # [models]
 # list = [{{ id = "model-id", name = "Model Name", short_name = "Short" }}]

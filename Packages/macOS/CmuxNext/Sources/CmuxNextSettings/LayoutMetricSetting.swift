@@ -4,7 +4,7 @@ import CoreGraphics
 /// The `appearance.metrics.<name>` keys the schema lists besides the interface size (which has its
 /// own `InterfaceSizeSetting`): sizes in points whose default is the density's. cmux-next and
 /// cmux-browser both read them. Each `range` must equal `DesignSettings.allowedRange` and each
-/// default its `MetricTunables` preset, or for `tabFontSize` the density's body size (kept by hand:
+/// default its `MetricTunables` preset, or for `tabFontSize` Chrome's 12 pt at every density (kept by hand:
 /// this module reads no main-actor state).
 public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     /// The `MetricKey` raw value.
@@ -15,11 +15,16 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
 
     public var configPath: [String] { ["appearance", "metrics", name] }
 
-    public static let sidebarWidth = LayoutMetricSetting(name: "sidebarWidth", range: 160...420, compact: 208, comfortable: 240)
-    public static let columnGap = LayoutMetricSetting(name: "columnGap", range: 0...24, compact: 6, comfortable: 8)
-    public static let dividerThickness = LayoutMetricSetting(name: "dividerThickness", range: 0...6, compact: 1, comfortable: 1)
-    public static let dividerHitWidth = LayoutMetricSetting(name: "dividerHitWidth", range: 1...24, compact: 7, comfortable: 7)
-    public static let titlebarHeight = LayoutMetricSetting(name: "titlebarHeight", range: 24...56, compact: 32, comfortable: 40)
+    /// The Appearance rows' ranges and compact values (their Settings placeholders) come from
+    /// schemas/settings/source/appearance.json (SettingsSchema+Appearance.generated.swift).
+    public static let sidebarWidth = LayoutMetricSetting(name: "sidebarWidth", range: sidebarWidthRange, compact: sidebarWidthPlaceholder, comfortable: 240)
+    public static let columnGap = LayoutMetricSetting(name: "columnGap", range: columnGapRange, compact: columnGapPlaceholder, comfortable: 8)
+    public static let dividerThickness = LayoutMetricSetting(name: "dividerThickness", range: dividerThicknessRange, compact: dividerThicknessPlaceholder,
+                                                             comfortable: 1)
+    public static let dividerHitWidth = LayoutMetricSetting(name: "dividerHitWidth", range: dividerHitWidthRange, compact: dividerHitWidthPlaceholder,
+                                                            comfortable: 7)
+    public static let titlebarHeight = LayoutMetricSetting(name: "titlebarHeight", range: titlebarHeightRange, compact: titlebarHeightPlaceholder,
+                                                           comfortable: 40)
 
     /// The tab bar rows' ranges and compact values (their Settings placeholders) come from
     /// schemas/settings/source/tabs.json (SettingsSchema+Tabs.generated.swift).
@@ -38,7 +43,7 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     /// from the interface size (https://github.com/manaflow-ai/cmux/issues/26493). Unset, the title follows
     /// the interface size; the defaults here are the density's body size.
     public static let tabStripHeight = LayoutMetricSetting(name: "tabStripHeight", range: tabStripHeightRange, compact: tabStripHeightPlaceholder, comfortable: 36)
-    public static let tabFontSize = LayoutMetricSetting(name: "tabFontSize", range: tabFontSizeRange, compact: tabFontSizePlaceholder, comfortable: 13)
+    public static let tabFontSize = LayoutMetricSetting(name: "tabFontSize", range: tabFontSizeRange, compact: tabFontSizePlaceholder, comfortable: 12)
     public static let tabBar: [LayoutMetricSetting] = [tabStripHeight, tabFontSize]
 
     public static let all: [LayoutMetricSetting] = [sidebarWidth, columnGap, dividerThickness, dividerHitWidth, titlebarHeight] + tabBar + tabWidths
@@ -52,7 +57,7 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     /// The range of every metric the schema lists, the interface size included, by name.
     public static var ranges: [String: ClosedRange<Double>] {
         var ranges = Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0.range) })
-        ranges[InterfaceSizeSetting().metricName] = InterfaceSizeSetting().range
+        ranges[InterfaceSizeSetting().metricName] = InterfaceSizeSetting.range
         return ranges
     }
 }

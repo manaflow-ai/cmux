@@ -11,26 +11,22 @@
 // ⌥⌘3) unless the home's own chat shows a card that takes them. A refused answer says so on its
 // row, and the row answers again.
 import { useEffect, useRef, useState } from "react";
-import { pressToOpen } from "../../ui/pressToOpen";
+
 import { AgentMark } from "../shared/AgentMark";
-import { age } from "./HomeLists";
+import { age } from "./homeListsModel";
 import { type StringKey, useT } from "./i18n";
-import { NativeError } from "./nativeError";
-import { askText } from "./needsYou/NeedsYou";
+import { askText } from "./needsYou/needsYouModel";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./needsYou/model";
 import { PermissionActionButton } from "./PermissionCard";
 import { type AcpmuxSessionEntry, projectLabel } from "./sessionList";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
+import { type HomeInboxOutcome, inlineAnswers } from "./homeInboxModel";
+import { pressToOpen } from "../../ui/pressToOpen";
 
 /// How the inbox lays its rows out: each ask with its chat under it and its answers (`list`, the
 /// home's), one line per ask with its answers at its end (`compact`), or under its chat's folder
 /// (`grouped`). The gallery shows all three.
 export type HomeInboxLook = "list" | "compact" | "grouped";
-
-/// What became of an answer given here: `answered` (the host answered it; the row hides until
-/// acpmux takes it off) or `opened` (the host can't answer it here and opened its chat, whose card
-/// answers it; the row stays).
-export type HomeInboxOutcome = "answered" | "opened";
 
 export type HomeInboxActions = {
   /// Answers `item` with `choice`; rejects when it was refused.
@@ -38,40 +34,6 @@ export type HomeInboxActions = {
   /// Opens the chat the ask is in.
   open(item: NeedsYouItem): void;
 };
-
-/// Answers another chat's ask from the home's inbox (`chat.asks.answer`, CmuxNextAgentPane
-/// AgentPaneAskAnswer): the host takes it only on the person's own click or key, for an ask still
-/// pending in a chat on this Mac's acpmux, with that ask's allow once or deny once. A host that does
-/// not answer it here opens the chat, whose card answers it: `unsupported` (another computer's chat
-/// or daemon, or the pane's own host before the op), or the shared page host without the op
-/// (`callPageHost` reports its `cmux.protocol.unknown_op` as `native.invalid_request` with the
-/// protocol code in `details`). Any other refusal, a malformed request's `invalid_params` included,
-/// rejects, and the row says so.
-const notAnsweredHere = (error: NativeError) =>
-  error.code === "unsupported" ||
-  (error.code === "native.invalid_request" &&
-    (error.details as { protocol?: unknown } | undefined)?.protocol === "cmux.protocol.unknown_op");
-
-export async function answerFromHome(
-  call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
-  item: NeedsYouItem,
-  choice: NeedsYouAnswer,
-  open: (sessionId: string) => void,
-): Promise<HomeInboxOutcome> {
-  if (!item.permissionId) throw new Error("unanswerable");
-  try {
-    await call("chat.asks.answer", {
-      sessionId: item.sessionId,
-      permissionId: item.permissionId,
-      optionId: choice.id,
-    });
-    return "answered";
-  } catch (error) {
-    if (!(error instanceof NativeError) || !notAnsweredHere(error)) throw error;
-    open(item.sessionId);
-    return "opened";
-  }
-}
 
 const KINDS: Record<NeedsYouKind, StringKey> = {
   approval: "needsYou.kind.approval",
@@ -81,11 +43,6 @@ const KINDS: Record<NeedsYouKind, StringKey> = {
   input: "needsYou.kind.input",
   tab: "needsYou.kind.tab",
 };
-
-/// The answers a row gives in place: an approval's allow and deny. A question's choices, a held
-/// pair and a chat with no ask read here open the chat, where the whole ask shows.
-export const inlineAnswers = (item: NeedsYouItem) =>
-  item.kind === "approval" || item.kind === "verify" ? item.answers.filter((a) => a.tone !== "choice") : [];
 
 export function HomeInbox({
   items,

@@ -244,6 +244,9 @@ fn a_host_that_refuses_full_access_says_so_instead_of_starting_the_chat_asking()
         assert!(message.contains("does not start chats in full access"), "{r}");
         assert!(message.contains("serves this machine as a remote client"), "{r}");
         assert_eq!(r["error"]["data"]["fullAccessRefusedBy"], "b", "{r}");
+        // Its way out starts the same chat there asking.
+        let try_cmd = r["error"]["data"]["try"].as_str().unwrap_or_default();
+        assert!(try_cmd.contains("--machine b") && try_cmd.contains("--policy ask"), "{r}");
         // Asking for less there still starts it.
         agent.ok("session/new", on_b(json!({"policy": "ask"}))).await;
     });
