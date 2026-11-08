@@ -7,7 +7,9 @@ export type PlanScopeDrift = { sessionId: string; path: string; area: string };
 type ScopeState = { scope: Set<string>; reported: Set<string>; drift?: PlanScopeDrift };
 const states = new Map<string, ScopeState>();
 const listeners = new Set<() => void>();
-const notify = () => { for (const listener of listeners) listener(); };
+const notify = () => {
+  for (const listener of listeners) listener();
+};
 
 function pathOf(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -18,8 +20,9 @@ function pathOf(value: unknown): string | undefined {
 function inScope(path: string, scope: string): boolean {
   const normalizedScope = scope.replace(/\/+$/, "");
   if (path === normalizedScope || path.startsWith(`${normalizedScope}/`)) return true;
-  return !normalizedScope.startsWith("/") &&
-    (path.endsWith(`/${normalizedScope}`) || path.includes(`/${normalizedScope}/`));
+  return (
+    !normalizedScope.startsWith("/") && (path.endsWith(`/${normalizedScope}`) || path.includes(`/${normalizedScope}/`))
+  );
 }
 
 function areaOf(path: string): string {
@@ -31,7 +34,8 @@ function areaOf(path: string): string {
 /** Extract likely file and directory paths from a plan while ignoring prose. */
 export function planScopeFromMarkdown(markdown: string): string[] {
   const found = new Set<string>();
-  const token = /(?:^|[\s(`'"*])((?:\.\.?\/)?[A-Za-z0-9_.@-]+(?:\/[A-Za-z0-9_.@*~-]+)+\/?|[A-Za-z0-9_.@-]+\.[A-Za-z0-9_-]+)(?=$|[\s)`'"*,.:;])/g;
+  const token =
+    /(?:^|[\s(`'"*])((?:\.\.?\/)?[A-Za-z0-9_.@-]+(?:\/[A-Za-z0-9_.@*~-]+)+\/?|[A-Za-z0-9_.@-]+\.[A-Za-z0-9_-]+)(?=$|[\s)`'"*,.:;])/g;
   for (const match of markdown.matchAll(token)) {
     const path = pathOf(match[1]);
     if (!path || path.startsWith("http://") || path.startsWith("https://")) continue;
@@ -106,7 +110,10 @@ export function keepPlanScopeArea(sessionId: string, area: string): void {
 
 export function dismissPlanScopeDrift(sessionId: string): void {
   const state = states.get(sessionId);
-  if (state?.drift) { state.drift = undefined; notify(); }
+  if (state?.drift) {
+    state.drift = undefined;
+    notify();
+  }
 }
 
 export function currentPlanScopeDrift(sessionId?: string): PlanScopeDrift | undefined {

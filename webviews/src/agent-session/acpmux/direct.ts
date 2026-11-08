@@ -6923,7 +6923,8 @@ export class AcpmuxDirectClient {
     const update = sessionUpdate(event);
     if (sessionId && update && (event.kind === "tool_call" || event.kind === "tool_call_update")) {
       const tool = String(update._meta?.claude?.tool ?? update.title ?? "").toLowerCase();
-      const editing = update.kind === "edit" ||
+      const editing =
+        update.kind === "edit" ||
         (Array.isArray(update.content) && update.content.some((item: any) => item?.type === "diff")) ||
         /(?:edit|write|patch|replace|notebook)/.test(tool);
       if (editing) observePlanEdit(sessionId, editPaths(update));
