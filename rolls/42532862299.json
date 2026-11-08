@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42532862299",
+  "recorded_at": "2026-11-08T23:08:43Z",
+  "reason": "cmux-tui 345105c46de6 changes the image's cmux-tui (pinned 85d6011e7b75)",
+  "dry_run": false,
+  "cmux_tui": "345105c46de642cf8f589359261ce0ac27c0c07d",
+  "fixes": [
+    {
+      "sha": "345105c46de642cf8f589359261ce0ac27c0c07d",
+      "mergedAt": "2026-11-08T14:43:01-08:00",
+      "subject": "cmux-tui: workspace list --name/--cwd, pane list --name/--cwd, terminal list --cwd (#38767)"
+    },
+    {
+      "sha": "efe1be466552ce2b4b8fc036f1ecfcb07875aaa9",
+      "mergedAt": "2026-11-08T14:39:31-08:00",
+      "subject": "acpmux: split store.rs under 100 KB (tests out, log line reading to store/log_line.rs) (#38907)"
+    },
+    {
+      "sha": "e4eeabd5f2104c9fe470b4f263501bbe883bbf72",
+      "mergedAt": "2026-11-08T14:38:02-08:00",
+      "subject": "acpmux: split daemon.rs's person key and systemd unit connect into child modules (#38905)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T23:08:43Z",
+    "snapshot_id": "sh-2383809515144e0192cc7c0d64bee9fd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42532862299): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a45f24df5c371fafd0c9f8b29614cecb18b9e7d7",
+    "image": "cloud-native-auto-345105c4-42532862299-1",
+    "revision": "ci-42532862299-1",
+    "at": "2026-11-08T23:08:43Z"
+  },
+  "rolled_back": false
+}
