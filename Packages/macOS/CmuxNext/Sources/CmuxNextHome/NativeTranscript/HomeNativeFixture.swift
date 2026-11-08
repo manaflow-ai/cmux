@@ -108,6 +108,9 @@ public final class HomeNativeFixture {
         view.frame = host.bounds
         view.autoresizingMask = [.width, .height]
         host.addSubview(view)
+        // Start now on a queued agent: the mock Chief starts it at once (its session shows, so it says Working).
+        let store = store
+        view.onStartAgent = { peer in store.agentsStarted([peer]); return true }
         self.view = view
         shown = (id, chief)
         await view.binding.opened()
@@ -256,7 +259,8 @@ public final class HomeNativeFixture {
         guard let shown else { return false }
         if let pill {
             guard let view else { return false }
-            view.openAgent(pill)
+            // As a click on it: over its drawn pill when it shows.
+            view.openAgent(pill, at: view.transcript.debugAgentPillFrame(pill).map { view.convert($0, from: nil) })
             return true
         }
         if open {

@@ -13,7 +13,7 @@ use cmux_motion::{
 };
 
 /// Bumped on any change to a type or function in the header.
-const ABI_VERSION: u32 = 4;
+const ABI_VERSION: u32 = 5;
 
 /// `SpringParameters`.
 #[repr(C)]

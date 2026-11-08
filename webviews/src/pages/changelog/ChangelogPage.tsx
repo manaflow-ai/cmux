@@ -8,7 +8,7 @@ import { DigestPage } from "./DigestPage";
 import { JournalPage } from "./JournalPage";
 import { RailPage } from "./RailPage";
 import { SheetPage } from "./SheetPage";
-import type { ChangelogSnapshot, ChangelogStore } from "./store";
+import type { ChangelogFocus, ChangelogSnapshot, ChangelogStore } from "./store";
 import { CompareModeContext } from "./MediaCompare";
 import type { ChangelogDesign, CompareMode, NewsLayout, SheetLayout, SheetLinks } from "./types";
 
@@ -20,6 +20,7 @@ export function ChangelogPage({
   sheet = "inline",
   prs = "hover",
   compare = "slider",
+  focus,
 }: {
   store: ChangelogStore;
   strings: Strings;
@@ -28,6 +29,8 @@ export function ChangelogPage({
   sheet?: SheetLayout;
   prs?: SheetLinks;
   compare?: CompareMode;
+  /** The change to scroll to (the route's `area=` and `entry=`); only the sheet reads it. */
+  focus?: ChangelogFocus;
 }) {
   const s = useSyncExternalStore(store.subscribe, store.getSnapshot);
   if (s.loading)
@@ -37,7 +40,9 @@ export function ChangelogPage({
       </div>
     );
   return (
-    <CompareModeContext value={compare}>{designPage(design, store, strings, s, news, sheet, prs)}</CompareModeContext>
+    <CompareModeContext value={compare}>
+      {designPage(design, store, strings, s, news, sheet, prs, focus)}
+    </CompareModeContext>
   );
 }
 
@@ -49,8 +54,10 @@ function designPage(
   news: NewsLayout | undefined,
   sheet: SheetLayout,
   prs: SheetLinks,
+  focus: ChangelogFocus | undefined,
 ) {
-  if (design === "sheet") return <SheetPage store={store} strings={strings} s={s} layout={sheet} links={prs} />;
+  if (design === "sheet")
+    return <SheetPage store={store} strings={strings} s={s} layout={sheet} links={prs} focus={focus} />;
   if (design === "rail") return <RailPage store={store} strings={strings} s={s} />;
   if (design === "digest") return <DigestPage store={store} strings={strings} s={s} />;
   return <JournalPage store={store} strings={strings} s={s} ledger={design === "ledger"} news={news} />;

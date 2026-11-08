@@ -16,6 +16,7 @@ import {
   parseDesign,
   parseNewsLayout,
   parseSheetLayout,
+  parseFocus,
   parseSheetLinks,
   parseSpan,
 } from "./store";
@@ -45,6 +46,7 @@ export function mountChangelogPage(root: HTMLElement, client: PageClient | null 
           sheet={parseSheetLayout(location.hash)}
           prs={parseSheetLinks(location.hash)}
           compare={parseCompareMode(location.hash)}
+          focus={parseFocus(location.hash)}
         />
       </UiProvider>,
     );
@@ -53,7 +55,7 @@ export function mountChangelogPage(root: HTMLElement, client: PageClient | null 
   // The first frame shown is the final first screen, not "Loading…" (perceived speed).
   void holdFirstPaint(store.firstScreen());
   // The host moves an open page to a new update's span (`PageWebView.open(route:)`), and the
-  // route carries the Debug Settings design.
+  // route carries the Debug Settings design and the change a click asked for (`area=`, `entry=`).
   window.addEventListener("hashchange", () => {
     render();
     void store.setSpan(parseSpan(location.hash));

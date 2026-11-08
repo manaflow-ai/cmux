@@ -55,6 +55,26 @@ export function parseSpan(hash: string): UpdateSpan | undefined {
   return from ? { from, to } : { to };
 }
 
+/** The change a click on the sidebar Updated card's list asks for (Leo 2026-11-08: "maybe just
+    bring them to the section in what's new aka bringing that tab up"): `entry`, its title, and
+    `area`, its app area (areas.ts), from the host's route `#/?…&area=<a>&entry=<t>&n=<nonce>`.
+    `n` differs per click, so the same row clicked again scrolls again. Undefined without either. */
+export interface ChangelogFocus {
+  area?: string;
+  entry?: string;
+  n?: string;
+}
+
+export function parseFocus(hash: string): ChangelogFocus | undefined {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const params = new URLSearchParams(query);
+  const area = params.get("area")?.trim();
+  const entry = params.get("entry")?.trim();
+  if (!area && !entry) return undefined;
+  const n = params.get("n")?.trim();
+  return { ...(area ? { area } : {}), ...(entry ? { entry } : {}), ...(n ? { n } : {}) };
+}
+
 /** The design the route names (`design=ledger|journal|rail|digest`, Debug Settings `whatsNew.design`); the sheet by default. */
 export function parseDesign(hash: string): ChangelogDesign {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");

@@ -825,6 +825,21 @@ html[data-cmux-page="changelog"] {
 .cls-grid .cls-kind { display: none; }
 /* A curated change's before/after pair, under its line, at a reading width. */
 .cls-row-media { max-width: 640px; margin: var(--ds-space-2) 0 var(--ds-space-3); }
+/* The change a click on the sidebar Updated card's list opened the page at (SheetPage
+   useFocusScroll): marked for a moment in the accent at low alpha, then faded back. The fade is
+   the only motion, so the page's motion gate turns it off only when motion is off. */
+.cls-row[data-focus],
+.cls-area[data-focus] {
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 14%, transparent);
+  border-radius: var(--ds-radius-sm, 6px);
+}
+.cls-row[data-focus] { margin-inline: calc(-1 * var(--ds-space-1, 4px)); padding-inline: var(--ds-space-1, 4px); }
+:root:not([data-cmux-motion="off"]) :is(.cls-row, .cls-area) {
+  transition: background-color var(--cmux-motion-large) var(--cmux-ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.cls-row, .cls-area) { transition: none; }
+}
 .cls-row-title { color: var(--page-text); }
 .cls-row-line { color: var(--page-text-2); }
 .cls-row-line { margin-inline-start: 0.6em; }
