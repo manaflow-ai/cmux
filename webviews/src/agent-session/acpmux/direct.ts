@@ -8170,6 +8170,13 @@ export class AcpmuxDirectClient {
           ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
           ...(limits ? { subsessionLimits: limits } : {}),
           status: summary.status,
+          state: summary.state,
+          stuckReason: text(summary.stuckReason),
+          stuckSince: typeof summary.stuckSince === "number" ? summary.stuckSince : undefined,
+          stuckError: text(summary.stuckError),
+          ...(summary.loopEpisode && typeof summary.loopEpisode === "object"
+            ? { loopEpisode: summary.loopEpisode }
+            : {}),
           enforcement: sessionEnforcement(summary.enforcement),
           modes: summary.modes,
           configOptions: summary.configOptions,

@@ -1161,6 +1161,11 @@ export type AcpmuxSnapshot = {
     /// and its `limits` records); unset from an acpmux without the limit.
     subsessionLimits?: SubsessionLimits;
     status?: string;
+    state?: string;
+    stuckReason?: string;
+    stuckSince?: number;
+    stuckError?: string;
+    loopEpisode?: { episodeId: number; since: number; count: number; diagnosis: string; hint: string };
     enforcement?: Enforcement;
     modes?: {
       availableModes: { id: string; name?: string; description?: string }[];

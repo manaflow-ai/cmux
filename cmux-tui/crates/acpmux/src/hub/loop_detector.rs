@@ -12,6 +12,7 @@ const FAILURE_THRESHOLD: u32 = 3;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct LoopEpisode {
     pub episode_id: u64,
+    pub since: u64,
     pub count: u32,
     pub diagnosis: String,
     pub hint: String,
@@ -73,7 +74,20 @@ impl LoopDetector {
                 .attempts
                 .back()
                 .is_some_and(|last| last.failed && last.fingerprint == attempt.fingerprint);
-        self.repeat = if same_failure { self.repeat.saturating_add(1) } else { 1 };
+        // Once an episode is visible, a successful tool or a different failed call is
+        // progress. Clear it once and let the next attempts form a fresh bounded window.
+        if self.episode.is_some() && !same_failure {
+            return self.clear_on_progress();
+        }
+        self.repeat = if attempt.failed {
+            self.attempts
+                .iter()
+                .filter(|last| last.failed && last.fingerprint == attempt.fingerprint)
+                .count()
+                .saturating_add(1) as u32
+        } else {
+            0
+        };
         let edit_reverted = attempt.reverted
             && attempt.edit_path.is_some()
             && self
@@ -99,6 +113,7 @@ impl LoopDetector {
             };
             let episode = LoopEpisode {
                 episode_id: self.next_episode,
+                since: crate::store::now_ms(),
                 count,
                 hint: format!("Try a different approach to {title}."),
                 diagnosis,
@@ -126,23 +141,37 @@ fn failed(update: &Value) -> bool {
 }
 
 fn display_title(update: &Value) -> String {
-    update
+    let title = update
         .get("title")
         .and_then(Value::as_str)
         .map(normalize_text)
         .filter(|title| !title.is_empty())
-        .unwrap_or_else(|| update.get("kind").and_then(Value::as_str).unwrap_or("tool").to_owned())
+        .unwrap_or_else(|| update.get("kind").and_then(Value::as_str).unwrap_or("tool").to_owned());
+    super::session::masked_preview(&title, 160)
 }
 
 fn edit_path(update: &Value) -> Option<String> {
-    if update.get("kind").and_then(Value::as_str) != Some("edit") {
+    let title = update.get("title").and_then(Value::as_str).unwrap_or("").to_ascii_lowercase();
+    if update.get("kind").and_then(Value::as_str) != Some("edit")
+        && !["edit", "apply_patch", "write", "replace"].iter().any(|word| title.contains(word))
+    {
         return None;
     }
-    update
+    let path = update
         .pointer("/rawInput/file_path")
         .or_else(|| update.pointer("/rawInput/path"))
         .and_then(Value::as_str)
         .map(normalize_text)
+        .or_else(|| {
+            update
+                .get("title")
+                .and_then(Value::as_str)
+                .and_then(|value| {
+                    value.split_whitespace().find(|part| part.contains('/') || part.contains('.'))
+                })
+                .map(|value| value.trim_matches(|c: char| ",:()[]{}\"'".contains(c)).to_owned())
+        });
+    path.map(|value| super::session::masked_preview(&value, 160))
 }
 
 fn is_revert(update: &Value) -> bool {
@@ -219,6 +248,18 @@ mod tests {
             detector.observe(&json!({"sessionUpdate":"agent_message_chunk"})),
             Some(LoopEvent::Cleared { episode_id: 1 })
         );
+        assert!(detector.active().is_none());
+    }
+
+    #[test]
+    fn successful_tool_progress_clears_episode() {
+        let mut detector = LoopDetector::default();
+        for id in ["one", "two", "three"] {
+            detector.observe(&failed(id, "cargo test"));
+        }
+        let success = json!({"sessionUpdate":"tool_call_update", "status":"completed",
+                             "kind":"execute", "title":"different command"});
+        assert_eq!(detector.observe(&success), Some(LoopEvent::Cleared { episode_id: 1 }));
         assert!(detector.active().is_none());
     }
 

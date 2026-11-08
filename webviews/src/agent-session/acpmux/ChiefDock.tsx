@@ -60,6 +60,7 @@ export type ChiefDockProps = {
   onSelect(sessionId: string): void;
   onNewChat(): void;
   onMoveToTab(sessionId: string): void;
+  onNudge?(sessionId: string, diagnosis: string): void;
   queueCounts?: ReadonlyMap<string, number>;
   steeringIds?: ReadonlySet<string>;
   mascot?: ChiefMascot;
@@ -118,6 +119,7 @@ export function ChiefDock({
   onSelect,
   onNewChat,
   onMoveToTab,
+  onNudge,
   queueCounts,
   steeringIds,
   mascot = "orb",
@@ -181,6 +183,7 @@ export function ChiefDock({
               const mark = sessionMark(session, selected);
               const cardStatus = status(session, selected);
               const markLabel = mark ? t(MARK_LABELS[mark]) : undefined;
+              const stuck = session.stuck;
               const queueLabel = queued > 0 ? `${queued} ${t("composer.queued")}` : undefined;
               const menuItems: ContextMenuItem[] = [
                 {
@@ -203,6 +206,7 @@ export function ChiefDock({
                     className="acpmux-chief-card"
                     data-selected={selected}
                     data-status={cardStatus}
+                    data-stuck={stuck ? "true" : undefined}
                     data-steering={steering ? "true" : undefined}
                     data-depth={index}
                     style={{ "--chief-depth": index } as CSSProperties}
@@ -235,10 +239,21 @@ export function ChiefDock({
                             />
                           </span>
                         </strong>
-                        <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
+                        <small>{stuck?.diagnosis || session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
                       </span>
                       {queued > 0 && <span className="acpmux-chief-card-queue">{queued}</span>}
                     </button>
+                    {stuck && onNudge && (
+                      <button
+                        type="button"
+                        className="acpmux-chief-card-nudge"
+                        disabled={!expanded}
+                        aria-label="Nudge with hint"
+                        onClick={() => onNudge(session.sessionId, stuck.diagnosis || "The agent appears stuck.")}
+                      >
+                        Nudge
+                      </button>
+                    )}
                     <div className="acpmux-chief-card-actions">
                       <button
                         type="button"

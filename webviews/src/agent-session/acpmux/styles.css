@@ -747,6 +747,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-card[data-steering=true] .acpmux-chief-card-main{background:color-mix(in srgb,var(--chief-selection) 8%,transparent)}
 .acpmux-chief-card[data-selected=true] .acpmux-chief-card-main{background:color-mix(in srgb,var(--chief-selection) 12%,transparent)}
 .acpmux-chief-card[data-selected=true]{border-color:color-mix(in srgb,var(--chief-selection) 60%,transparent)}
+.acpmux-chief-card[data-stuck=true]{border-color:color-mix(in srgb,var(--agent-warning,var(--agent-accent)) 72%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--agent-warning,var(--agent-accent)) 48%,transparent),var(--elevation-1)}
 .acpmux-chief-card-main{display:flex;align-items:center;gap:12px;min-width:0;flex:1;width:100%;height:max(var(--ui-row-height,28px),calc(96px * var(--cmux-interface-scale,1)));box-sizing:border-box;padding:14px 76px 14px 28px;border:0;border-radius:inherit;background:transparent;color:inherit;text-align:left;cursor:default}
 .acpmux-chief-card-main:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
 .acpmux-chief-card-main:active{background:color-mix(in srgb,var(--agent-text) 14%,transparent)}
@@ -766,6 +767,16 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-card-copy strong{font-size:var(--text-heading);line-height:var(--text-heading--line-height);font-weight:650;letter-spacing:var(--text-heading--letter-spacing)}
 .acpmux-chief-card-copy small{color:color-mix(in srgb,var(--agent-text) 68%,var(--agent-muted));font-size:var(--text-control);line-height:var(--text-control--line-height);letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-chief-card-queue{flex:none;min-width:17px;height:17px;padding:0 4px;border-radius:6px;background:color-mix(in srgb,var(--agent-accent) 18%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:17px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-chief-card-nudge{position:absolute;right:18px;bottom:10px;padding:3px 8px;border:1px solid color-mix(in srgb,var(--agent-warning,var(--agent-accent)) 48%,transparent);border-radius:999px;background:color-mix(in srgb,var(--agent-warning,var(--agent-accent)) 12%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-caption);cursor:default}
+.acpmux-chief-card-nudge:hover{background:color-mix(in srgb,var(--agent-warning,var(--agent-accent)) 20%,transparent)}
+.acpmux-stuck-banner{display:flex;align-items:center;gap:10px;min-height:40px;margin:0 var(--ds-space-3) var(--ds-space-2);padding:7px 10px;border:1px solid color-mix(in srgb,var(--agent-warning,var(--agent-accent)) 42%,transparent);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-warning,var(--agent-accent)) 8%,var(--agent-page-bg));color:var(--agent-text)}
+.acpmux-stuck-ring{width:9px;height:9px;flex:none;border:2px solid var(--agent-warning,var(--agent-accent));border-radius:50%;box-shadow:0 0 0 3px color-mix(in srgb,var(--agent-warning,var(--agent-accent)) 16%,transparent)}
+.acpmux-stuck-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:1px;overflow:hidden}
+.acpmux-stuck-copy strong{font-size:var(--text-control);line-height:var(--text-control--line-height)}
+.acpmux-stuck-copy span{overflow:hidden;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);text-overflow:ellipsis;white-space:nowrap}
+.acpmux-stuck-nudge{flex:none;padding:5px 9px;border:1px solid color-mix(in srgb,var(--agent-warning,var(--agent-accent)) 54%,transparent);border-radius:var(--ds-radius-control);background:transparent;color:var(--agent-text);font:inherit;font-size:var(--text-caption);cursor:default}
+.acpmux-stuck-nudge:hover{background:color-mix(in srgb,var(--agent-warning,var(--agent-accent)) 16%,transparent)}
+@media (prefers-reduced-motion:reduce){.acpmux-stuck-ring{box-shadow:none}}
 .acpmux-chief-dock-status{flex:none;display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;color:var(--agent-muted)}
 .acpmux-chief-dock-status[data-status=streaming]{color:var(--agent-accent)}
 .acpmux-chief-dock-status[data-status=attention]{color:var(--acpmux-needs-you-mark)}

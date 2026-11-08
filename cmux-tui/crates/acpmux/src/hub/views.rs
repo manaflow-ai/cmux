@@ -434,8 +434,27 @@ impl Hub {
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
-        let stuck =
-            (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
+        let loop_episode = if m.status == SessionStatus::Closed {
+            None
+        } else {
+            session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).active().cloned()
+        };
+        let stuck = if m.status == SessionStatus::Closed {
+            None
+        } else {
+            m.harness_failures
+                .stuck()
+                .map(|(reason, since, error)| (reason, since, error.to_owned()))
+                .or_else(|| {
+                    loop_episode.as_ref().map(|episode| {
+                        (
+                            crate::session_liveness::StuckReason::Loop,
+                            episode.since,
+                            episode.diagnosis.clone(),
+                        )
+                    })
+                })
+        };
         let stopping = turn.as_ref().is_some_and(|t| {
             session.stopping.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
                 == Some(t.turn_id.as_str())
@@ -456,20 +475,18 @@ impl Hub {
             } else {
                 m.status.to_string()
             },
-            stuck_reason: stuck.map(|s| s.0),
-            stuck_since: stuck.map(|s| s.1),
-            stuck_error: stuck.map(|s| s.2.to_owned()),
-            loop_episode: session
-                .loop_detector
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .active()
-                .map(|episode| crate::protocol::session::LoopEpisodeSummary {
+            stuck_reason: stuck.as_ref().map(|s| s.0),
+            stuck_since: stuck.as_ref().map(|s| s.1),
+            stuck_error: stuck.as_ref().map(|s| s.2.clone()),
+            loop_episode: loop_episode.map(|episode| {
+                crate::protocol::session::LoopEpisodeSummary {
                     episode_id: episode.episode_id,
+                    since: episode.since,
                     count: episode.count,
-                    diagnosis: episode.diagnosis.clone(),
-                    hint: episode.hint.clone(),
-                }),
+                    diagnosis: episode.diagnosis,
+                    hint: episode.hint,
+                }
+            }),
             agent_session_id: m.agent_session_id.clone(),
             retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,

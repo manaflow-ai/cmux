@@ -150,6 +150,7 @@ import { drawsAsIs, setStreamingRowBlocked, streamingRow, streamingRowBlocked, t
 import { liveToolOutput, toolOutputOnly } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
+import { StuckBanner } from "./StuckBanner";
 import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
@@ -10020,6 +10021,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     !reviewing && (
       <>
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
+        {snapshot.summary?.state === "stuck" && (snapshot.summary.loopEpisode?.diagnosis || snapshot.summary.stuckError) && (
+          <StuckBanner
+            diagnosis={snapshot.summary.loopEpisode?.diagnosis || snapshot.summary.stuckError!}
+            onNudge={() =>
+              composerHandle.current?.prefill(
+                `I’m stuck because ${snapshot.summary?.loopEpisode?.hint || snapshot.summary?.stuckError}. Please try a different approach.`,
+              )
+            }
+          />
+        )}
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
         </Notice>
@@ -10804,6 +10815,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // page already read of it, which rememberTail handed over when it was left.
           directClient.current?.handOverCurrentTail();
           void callNative("chat.openTab", { sessionId, placement: "tab" }).catch(() => undefined);
+        },
+        onNudge: (sessionId: string, diagnosis: string) => {
+          if (sessionId !== snapshot.sessionId) {
+            selectSession(sessionId);
+            return;
+          }
+          composerHandle.current?.prefill(`I’m stuck because ${diagnosis}. Please try a different approach.`);
         },
       }
     : undefined;

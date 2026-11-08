@@ -98,6 +98,8 @@ export type AcpmuxSessionEntry = {
   unsent?: boolean;
   /** Its last turn completed: its harness profile runs here (signed in, routed). */
   worked?: boolean;
+  /** One active loop episode detected from the running tool stream. */
+  stuck?: { reason: string; since?: number; diagnosis?: string };
   /** Explicit lifecycle evidence; absent until the protocol producer supplies a validated receipt. */
   lifecycleReceipt?: LifecycleReceipt;
   /** The folder of a sub-session this chat's agent wants to start but cannot until the person trusts
@@ -320,6 +322,23 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
       session.status !== "running" &&
       session.status !== "waiting",
     worked: session.lastTurn?.status === "completed",
+    ...(session.loopEpisode && typeof session.loopEpisode === "object"
+      ? {
+          stuck: {
+            reason: "loop",
+            since: typeof session.loopEpisode.since === "number" ? session.loopEpisode.since : undefined,
+            diagnosis: text(session.loopEpisode.diagnosis),
+          },
+        }
+      : session.state === "stuck" || text(session.stuckReason)
+      ? {
+          stuck: {
+            reason: text(session.stuckReason) ?? "loop",
+            since: typeof session.stuckSince === "number" ? session.stuckSince : undefined,
+            diagnosis: text(session.stuckError),
+          },
+        }
+      : {}),
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
     trustPending: trustPending(session.tags),
     retry: readRetry(session.retry) ?? undefined,

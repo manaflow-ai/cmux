@@ -262,6 +262,7 @@ pub struct SessionSummary {
 #[serde(rename_all = "camelCase")]
 pub struct LoopEpisodeSummary {
     pub episode_id: u64,
+    pub since: u64,
     pub count: u32,
     pub diagnosis: String,
     pub hint: String,

@@ -28,6 +28,8 @@ pub enum StuckReason {
     Capacity,
     Auth,
     SpawnFailed,
+    /// The agent repeated the same failing tool call or an apply/revert edit cycle.
+    Loop,
 }
 
 impl HarnessFailures {

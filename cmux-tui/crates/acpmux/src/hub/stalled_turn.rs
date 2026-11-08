@@ -89,7 +89,7 @@ impl Hub {
                     "loop_cleared",
                     serde_json::json!({"episodeId": episode_id}),
                 ),
-            }
+            };
         }
         let mut open = session.open_tools.lock().unwrap_or_else(|e| e.into_inner());
         let was_open = !open.is_empty();
