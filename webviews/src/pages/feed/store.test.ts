@@ -318,6 +318,27 @@ describe("reports basket", () => {
     expect(ok.store.getSnapshot()).toMatchObject({ reportDraft: "", reportNotSent: undefined });
   });
 
+  test("a draft to a report that leaves the basket is dropped, never sent to the newly selected sender", async () => {
+    const reports = Array.from({ length: 200 }, (_, index) => ({
+      id: `rep_${index}`,
+      sender: `host-${index}:agent`,
+      body: `Report ${index}`,
+      created_at: NOW - index * 1000,
+    }));
+    const { provider, store } = setup({ reports });
+    await store.start();
+    store.selectReport("rep_199");
+    store.setReportDraft("Ship it");
+    provider.report({ id: "rep_new", sender: "mbp:claude", body: "Done", created_at: NOW + 1000 });
+    await settle();
+    const snapshot = store.getSnapshot();
+    expect(snapshot.reports.some((report) => report.id === "rep_199")).toBe(false);
+    expect(snapshot.reportSelection).not.toBe("rep_199");
+    expect(snapshot.reportDraft).toBe("");
+    await store.sendReportReply();
+    expect(provider.calls.some((call) => call.op === FeedOps.reportsReply)).toBe(false);
+  });
+
   test("a new report re-reads the basket", async () => {
     const { provider, store } = setup();
     await store.start();

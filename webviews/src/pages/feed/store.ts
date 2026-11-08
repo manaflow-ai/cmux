@@ -294,10 +294,16 @@ export class FeedStore {
     try {
       const { reports } = await this.client.call<FeedReportsResult>(FeedOps.reportsRead, {});
       if (generation !== this.reportsGeneration) return;
+      const reportSelection = reconcileReportSelection(reports, this.snapshot.reportSelection);
+      // A draft belongs to the report it was written to: when that report left the basket (the
+      // daemon keeps the newest 200) and the selection moved, the draft goes with it, so Reply never
+      // sends it to a different sender.
+      const moved = reportSelection !== this.snapshot.reportSelection;
       this.set({
         reports,
         reportsLoaded: true,
-        reportSelection: reconcileReportSelection(reports, this.snapshot.reportSelection),
+        reportSelection,
+        ...(moved ? { reportDraft: "", reportNotSent: undefined } : {}),
       });
     } catch (error) {
       if (generation !== this.reportsGeneration) return;
