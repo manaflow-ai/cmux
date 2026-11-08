@@ -132,6 +132,14 @@ final class RemoteHoverToolbar: NSView {
         takeOverButton.themedToolTip = help
     }
 
+    /// Whether the pane shows the toolbar. A faded toolbar stays in the view tree, so Accessibility
+    /// still reaches Take over, but takes no clicks: they belong to the host under it.
+    var isRevealed = false
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        isRevealed ? super.hitTest(point) : nil
+    }
+
     /// The take-over button's title (tests).
     var takeOverTitle: String? { takeOverButton.isHidden ? nil : takeOverButton.title }
 
