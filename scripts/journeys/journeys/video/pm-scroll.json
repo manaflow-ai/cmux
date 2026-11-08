@@ -1,0 +1,423 @@
+{
+ "id": "pm-scroll",
+ "priority": "P1",
+ "title": "PIN MOTION scroll-follow: pin to a block out of view, unpin to a slot out of view (30 rows)",
+ "why": "pin-motion-4 step 4: a pin or an unpin whose target is out of view slides out of view (no vanish).",
+ "source": "pin-motion task kit (video-cases/gen_pinmotion.py --scroll)",
+ "budget_seconds": 255,
+ "recordings": [
+  "pm-v-sc-pin",
+  "pm-v-sc-unpin"
+ ],
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "pm-scroll"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 90% x 90% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo pm-ready-${nonce}",
+   "enter": true,
+   "mark": "ready"
+  },
+  {
+   "do": "expect",
+   "title": "set-up check: the app types",
+   "since": "ready",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "pm-ready-${nonce}"
+    },
+    {
+     "app_text_line": "pm-ready-${nonce}"
+    },
+    {
+     "frame_text": "pm-ready-${nonce}"
+    }
+   ]
+  },
+  {
+   "do": "settings_file",
+   "title": "set-up: VIEW pass: the default theme, no close warning, no hover cards",
+   "set": {
+    "sidebar": {
+     "hoverCards": {
+      "enabled": false
+     }
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "appearance": {
+     "appTheme": "followTerminal"
+    }
+   },
+   "unset": [
+    "appearance.theme",
+    "appearance.themeEdits",
+    "appearance.surfaces"
+   ]
+  },
+  {
+   "do": "settings_file",
+   "title": "set-up: bind Pin/Unpin Workspace to Ctrl-Opt-Cmd-P for the film (no default key)",
+   "set": {
+    "shortcuts": {
+     "bindings": {
+      "palette.toggleWorkspacePin": "ctrl+opt+cmd+p"
+     }
+    }
+   }
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "alpha"
+   },
+   "title": "set-up: name p0 alpha"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p0",
+   "title": "set-up: focus p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "palette.toggleWorkspacePin",
+   "args": {
+    "pinned": true
+   },
+   "title": "set-up: pin p0 (the pinned group exists before the films)"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 1 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 2 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 3 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 4 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 5 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 6 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 7 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 8 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 9 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 10 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 11 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 12 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 13 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 14 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 15 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 16 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 17 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 18 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 19 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 20 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 21 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 22 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 23 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 24 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 25 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 26 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 27 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 28 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 29 of 30"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: workspace 30 of 30"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "last"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "zulu"
+   },
+   "title": "set-up: name the last zulu"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "last",
+   "title": "set-up: focus last (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "pm-v-sc-pin",
+   "seconds": 3.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.6,
+   "title": "start the 120 Hz movie pm-v-sc-pin"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.2,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "pm_keys",
+   "film": "pm-v-sc-pin",
+   "i": 0,
+   "keys": [
+    {
+     "key": "p",
+     "modifiers": [
+      "control",
+      "option",
+      "cmd"
+     ]
+    }
+   ],
+   "probe": "sidebar",
+   "rest": 1.1,
+   "title": "pin key(s) (pm-v-sc-pin)"
+  },
+  {
+   "do": "video_stop",
+   "name": "pm-v-sc-pin",
+   "tail": 0.2,
+   "title": "the motion ends; stop the recording (pm-v-sc-pin)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "pm-v-sc-unpin",
+   "seconds": 3.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.6,
+   "title": "start the 120 Hz movie pm-v-sc-unpin"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.2,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "pm_keys",
+   "film": "pm-v-sc-unpin",
+   "i": 1,
+   "keys": [
+    {
+     "key": "p",
+     "modifiers": [
+      "control",
+      "option",
+      "cmd"
+     ]
+    }
+   ],
+   "probe": "sidebar",
+   "rest": 1.1,
+   "title": "pin key(s) (pm-v-sc-unpin)"
+  },
+  {
+   "do": "video_stop",
+   "name": "pm-v-sc-unpin",
+   "tail": 0.2,
+   "title": "the motion ends; stop the recording (pm-v-sc-unpin)"
+  }
+ ],
+ "finally": [
+  {
+   "do": "settings_file",
+   "title": "clean-up: the film's workspace pin key off",
+   "unset": [
+    "shortcuts.bindings"
+   ]
+  },
+  {
+   "do": "settings_file",
+   "title": "clean-up: the fixture colors off (the next journey's theme is its own)",
+   "set": {
+    "appearance": {
+     "appTheme": "followTerminal"
+    }
+   },
+   "unset": [
+    "appearance.themeEdits",
+    "appearance.surfaces",
+    "sidebar.hoverCards"
+   ]
+  }
+ ]
+}

@@ -140,6 +140,29 @@ def prof_journey(jid, runs):
             "recordings": [], "options": {"key_path": "real"}, "steps": steps, "finally": [UNBIND, X.settings_back()]}
 
 
+def scroll_journey(jid, extra):
+    """Step 4 (pin-motion-4): pin a row whose pinned block is out of view, then unpin it back to a slot out of view
+    (the list holds EXTRA more workspaces than the sidebar shows; the pinned workspace is the last one). VIEW pass, K6."""
+    check = [{"do": "type", "text": "echo pm-ready-${nonce}", "enter": True, "mark": "ready"},
+             {"do": "expect", "title": "set-up check: the app types", "since": "ready", "timeout": 10,
+              "all": [{"daemon_line": "pm-ready-${nonce}"}, {"app_text_line": "pm-ready-${nonce}"}, {"frame_text": "pm-ready-${nonce}"}]}]
+    steps = G.first_pane(jid, False) + check + [VIEW_SETTINGS, BIND]
+    steps += [{"do": "try_action", "action": "renameWorkspace", "args": {"name": "alpha"}, "title": "set-up: name p0 alpha"}]
+    steps += pin_now("p0")
+    for n in range(1, extra + 1):
+        steps += [{"do": "action", "action": "workspace.newAtBottom", "title": f"set-up: workspace {n} of {extra}"}]
+    steps += [{"do": "adopt_pane", "as": "last"}, {"do": "neutral_prompt"},
+              {"do": "try_action", "action": "renameWorkspace", "args": {"name": "zulu"}, "title": "set-up: name the last zulu"}]
+    films = film("pm-v-sc-pin", 0, [WS_KEY], "sidebar", focus="last")
+    films += film("pm-v-sc-unpin", 1, [WS_KEY], "sidebar")
+    steps += films
+    return {"id": jid, "priority": "P1", "title": f"PIN MOTION scroll-follow: pin to a block out of view, unpin to a slot out of view ({extra} rows)",
+            "why": "pin-motion-4 step 4: a pin or an unpin whose target is out of view slides out of view (no vanish).",
+            "source": "pin-motion task kit (video-cases/gen_pinmotion.py --scroll)", "budget_seconds": 255,
+            "recordings": ["pm-v-sc-pin", "pm-v-sc-unpin"], "options": {"key_path": "real"}, "steps": steps,
+            "finally": [UNBIND, X.settings_back()]}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prof", type=int, default=0, help="write pm-prof (this many pin keys under xctrace) and stop")
@@ -148,7 +171,14 @@ def main():
     ap.add_argument("--curves", default="V0")
     ap.add_argument("--passes", default="view,meas")
     ap.add_argument("--films-dir", default="/work/wt/close-perf-tools/pin")
+    ap.add_argument("--scroll", type=int, default=0, help="write pm-scroll (this many extra rows) and stop")
     o = ap.parse_args()
+    if o.scroll:
+        with open(os.path.join(o.out, "pm-scroll.json"), "w") as fh:
+            json.dump(scroll_journey("pm-scroll", o.scroll), fh, indent=1)
+            fh.write("\n")
+        print("pm-scroll", o.scroll)
+        return
     if o.prof:
         with open(os.path.join(o.out, "pm-prof.json"), "w") as fh:
             json.dump(prof_journey("pm-prof", o.prof), fh, indent=1)
