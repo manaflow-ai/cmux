@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42512807127",
+  "recorded_at": "2026-11-08T19:08:33Z",
+  "reason": "cmux-tui f09411113207 changes the image's cmux-tui (pinned 6a332344eca4)",
+  "dry_run": false,
+  "cmux_tui": "f09411113207bfa1f97116b885be205c1837e5d4",
+  "fixes": [
+    {
+      "sha": "f09411113207bfa1f97116b885be205c1837e5d4",
+      "mergedAt": "2026-11-08T10:42:48-08:00",
+      "subject": "acpmux race: retry a failed cleanup after a saved verdict or cancel (#38759)"
+    },
+    {
+      "sha": "851da5c03b3b42a301129b7b8a63926f8582636b",
+      "mergedAt": "2026-11-08T10:41:31-08:00",
+      "subject": "Cloud uploads: a dropped file may come from iCloud Drive, a cloud-storage folder or another volume (#38779)"
+    },
+    {
+      "sha": "a895c167fbc9253e2050fd2a6697869db25ef833",
+      "mergedAt": "2026-11-08T10:39:52-08:00",
+      "subject": "Cloud repo pick: retry a failed fill, leave a running one alone, open the barrier on repair (#38582)"
+    },
+    {
+      "sha": "266a09a0d4a68c890b604b552cbfdc53fb8a768a",
+      "mergedAt": "2026-11-08T10:39:38-08:00",
+      "subject": "relay: DO behavior tests for the resumed-Ping hand-over; a replaced registration's late Ping does nothing (#38657)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T19:08:33Z",
+    "snapshot_id": "sh-17cc01a6646c4fe7a9547056488752b2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42512807127): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b61f436c3092061297de6a3edb55b7fb24e2571c",
+    "image": "cloud-native-auto-f0941111-42512807127-1",
+    "revision": "ci-42512807127-1",
+    "at": "2026-11-08T19:08:33Z"
+  },
+  "rolled_back": false
+}
