@@ -11,7 +11,7 @@ import {
   pushedWidth,
   sessionInfoClear,
   sessionInfoStage,
-} from "./SessionInfo";
+} from "./sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "./sessionInfoState";
 
 const column = { min: 720, max: 800 };

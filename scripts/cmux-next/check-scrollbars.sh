@@ -70,7 +70,9 @@ ALLOWED_RULES = {
     # `scroll` keeps the lane, as MINIMAL_SCROLLER_CSS does, and draws nothing at rest.
     "webviews/src/agent-session/acpmux/quickModelColumns.css": {"overflow": "card scroller keeps its lane"},
     "webviews/src/agent-session/acpmux/conversation/EditDiffHunks.tsx": {"overflow-style": "@pierre/diffs option"},
-    "webviews/src/agent-session/acpmux/conversation/HighlightedCode.tsx": {"overflow-style": "@pierre/diffs option"},
+    "webviews/src/agent-session/acpmux/conversation/usePierreCode.ts": {"overflow-style": "@pierre/diffs option"},
+    "webviews/src/agent-session/acpmux/conversation/CodeToolbarButtons.gallery.tsx": {"overflow-style": "@pierre/diffs option"},
+    "webviews/src/pages/github/GitHubFileDiff.tsx": {"overflow-style": "@pierre/diffs option"},
     # The vendored MessagesLab compose box, overlay as SCROLLBARS-THIN asks (as NativeScroll.swift).
     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift": {"style": "Home compose, vendored"},
     # Gallery only (PathPicker parity, #19533): a fixed gutter keeps the field's width the same

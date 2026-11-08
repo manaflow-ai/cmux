@@ -33,6 +33,7 @@ import {
   NO_RETRY_TARGET,
   offersRetry,
   retryPlacement,
+  workedCallsText,
   workedLabel,
   workedMessagesText,
 } from "./turns";
@@ -72,7 +73,7 @@ import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./useTurnWaterfall";
-import { thoughtIds } from "./turnRowsModel";
+import { groupDisclosureKey, runDisclosureKey, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -84,8 +85,9 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   if (row.previous !== undefined || row.durationMs === undefined) label = workedLabel(t, row);
   else {
     const key = row.status === "cancelled" ? "turn.stopped" : "turn.worked";
-    const messages = workedMessagesText(t, row);
-    label = <TimedLabel text={(time) => t(key, { time }) + messages} time={row.durationMs} />;
+    // A line that names its runs' work leaves their count to it.
+    const after = (work ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
+    label = <TimedLabel text={(time) => t(key, { time }) + after} time={row.durationMs} />;
   }
   if (!work) return label;
   return (
@@ -138,6 +140,7 @@ function groupNode(
   live: boolean,
   folded = false,
   thoughts = 0,
+  inherits?: readonly string[],
 ): ReactNode {
   switch (group.type) {
     case "group":
@@ -147,7 +150,8 @@ function groupNode(
           kind={group.kind}
           items={group.items}
           folded={folded}
-          disclosureKey={`group:${group.kind}:${groupId(group.items) || `${rowId}:${index}`}`}
+          disclosureKey={groupDisclosureKey(group, index, rowId)!}
+          inherits={inherits}
           thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
@@ -156,7 +160,7 @@ function groupNode(
         <McpCallRows
           key={group.items[0]!.tool!.id || index}
           items={group.items}
-          disclosureKey={`group:mcp:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
+          disclosureKey={groupDisclosureKey(group, index, rowId)!}
         />
       );
     case "message":
@@ -241,6 +245,10 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   const stretches = useMemo(() => runStretches({ foldRun }, groups), [foldRun, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
   const nodes = stretches.map((stretch) => {
+    // A stretch's line and its groups' lines take each other's place as calls arrive (one group
+    // grows into a run of two kinds; a run loses its line when a call in it runs again): each opens
+    // where the reader opened the other, so a line the reader opened never closes on its own.
+    const key = runDisclosureKey(stretch, row.id);
     // model.ts estimates the stretch from the same start (toolGroups.ts `stretchStart`).
     const start = stretchStart(row, stretch);
     const drawn =
@@ -256,14 +264,15 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
           // A run line open from the start (`runOpen`) opens the groups it holds too.
           start.groupsClosed,
           thoughts[at],
+          [key],
         );
       });
     if (!stretch.fold) return drawn;
-    // The first stretch keeps the run's own key, so a run that grew a card keeps its open state.
-    const first = stretch.items.find((item) => item.tool)?.tool?.id;
-    const key = stretch.from === 0 ? `run:${row.id}` : `run:${row.id}:${first || stretch.from}`;
+    const inherits = stretch.groups.flatMap(
+      (group, offset) => groupDisclosureKey(group, stretch.from + offset, row.id) ?? [],
+    );
     return (
-      <ToolRun key={key} disclosureKey={key} items={stretch.items} defaultOpen={start.lineOpen}>
+      <ToolRun key={key} disclosureKey={key} inherits={inherits} items={stretch.items} defaultOpen={start.lineOpen}>
         <ToolRunSteps items={stretch.items} rowId={row.id} thoughtsBefore={thoughts[stretch.from] ?? 0} />
       </ToolRun>
     );

@@ -67,7 +67,7 @@ import { useMessageLineLook } from "./messageLineLook";
 import type { AgentNotice } from "./agentNotice";
 import { NoticeMark } from "./NoticeMark";
 import { SEVERITY_LABEL } from "./noticeMarkModel";
-import { noticeMarkdown } from "./agentNotice";
+import { noticeMarkdown, titleParts } from "./agentNotice";
 import { useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
 import { useSessionRef } from "./sessionRefModel";
@@ -117,8 +117,28 @@ export function SenderMark({ message }: { message: IncomingMessage }) {
       harness={harness}
       tone={agentTone(sender.sessionId ?? message.sessionId ?? message.name)}
       size={SENDER_LOGO_SIZE}
+      // The sparkle fills more of its grid than the bot: at 14px its ink is the logos' (about 12px).
+      glyphSize={14}
       fallbackNode={<Bot size={16} />}
     />
+  );
+}
+
+/// A notice's title on its line: what it is about, cut first when the line is short, then the outcome
+/// that ends it (`(exit 2)`) and how many more notices went in with it, which the line always shows
+/// whole (Leo, 2026-11-08: "why was there a yellow warning symbol?": the cut hid the exit).
+function NoticeTitle({ notice }: { notice: AgentNotice }) {
+  const { lead, end } = titleParts(notice.title);
+  return (
+    <>
+      <span className="cv-notice__lead">{lead}</span>
+      {end && <span className="cv-notice__end">{` ${end}`}</span>}
+      {notice.more ? (
+        <span className="cv-notice__more" data-find-skip="">
+          +{notice.more}
+        </span>
+      ) : null}
+    </>
   );
 }
 
@@ -419,8 +439,8 @@ export function IncomingMessageLine({
   const body = useMemo(() => (whole ? text : dedupeReferences(text, repository)), [whole, text, repository]);
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
   const preview = useMemo(
-    () => agentNotice?.title ?? notice?.preview ?? messagePreview(body),
-    [agentNotice, body, notice],
+    () => agentNotice?.title ?? notice?.preview ?? message.preview ?? messagePreview(body),
+    [agentNotice, body, notice, message.preview],
   );
   // A sub-session family's sender says who it is to this chat.
   const from = person
@@ -493,13 +513,15 @@ export function IncomingMessageLine({
             className={`cv-received__preview${agentNotice ? " cv-notice__title" : ""}`}
             data-find-skip={agentNotice ? undefined : ""}
             data-find-keep={agentNotice ? "" : undefined}
+            // A notice's title is one Find run: a match may span its command and its exit.
+            data-find-join={agentNotice ? "" : undefined}
           >
             {agentNotice && look === "tag" && agentNotice.severity !== "info" && (
               <span className="cv-notice__tag" data-severity={agentNotice.severity} data-find-skip="">
                 {t(SEVERITY_LABEL[agentNotice.severity])}
               </span>
             )}
-            {preview || t("message.noText")}
+            {agentNotice ? <NoticeTitle notice={agentNotice} /> : preview || t("message.noText")}
           </span>
         ) : null
       }

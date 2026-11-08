@@ -22,7 +22,8 @@ A prompt ending in "settings-probe" replies with the prompt text as Claude
 read it, every `apply_flag_settings` it got, and its argv.
 "slow-stop" runs until the interrupt, then echoes the next prompt line it
 reads before the stopped turn's result (a Stop Claude Code answers late).
-"compact-stop" reports a compaction, ignores its interrupt until the
+"/compact" compacts (with FAKE_CLAUDE_COMPACT_FAIL_IF=<path>, while that file exists, it fails
+on a dropped connection instead). "compact-stop" reports a compaction, ignores its interrupt until the
 compaction finishes, then emits the late result (the Stop path must settle
 before that result arrives).
 "long-step" is one step (a long tool call) that runs until the interrupt, as
@@ -979,6 +980,11 @@ while True:
         # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the
         # boundary, the summary as a synthetic user line, the command's stdout, a result.
         if said.strip() == "/compact":
+            # FAKE_CLAUDE_COMPACT_FAIL_IF=<path>: while it exists, the connection drops mid-compaction.
+            if os.path.exists(os.environ.get("FAKE_CLAUDE_COMPACT_FAIL_IF") or "\0"):
+                send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
+                      "result": "API Error: Connection error.", "duration_api_ms": 5})
+                continue
             send({"type": "system", "subtype": "status", "status": "compacting", "session_id": SESSION})
             send({"type": "system", "subtype": "status", "status": None, "compact_result": "success",
                   "session_id": SESSION})

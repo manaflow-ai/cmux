@@ -24,7 +24,7 @@ use crate::app_identity::AppIdentity;
 use events::stream_events;
 use open::{OpenRequest, parse_open};
 #[cfg(test)]
-use open::{is_web_url, parse_open_with};
+use open::{is_web_url, open_is_interactive, parse_open_with};
 use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot, takes_caller};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry, safe_to_resend};
 
@@ -183,6 +183,12 @@ pub(super) enum AppCommand {
     Nightly(nightly::Command),
     /// `cmux live start|stop|status`: edit cmux's web UI while it runs (app/live.rs).
     Live(live::Command),
+}
+
+/// Whether `args` (after the global options) is the classic `cmux identify`,
+/// which a cmux-tui pane answers from its own session (pane_identify.rs).
+pub(super) fn is_classic_identify(args: &[String]) -> bool {
+    classic::classic_system_method(args) == Some("system.identify")
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.

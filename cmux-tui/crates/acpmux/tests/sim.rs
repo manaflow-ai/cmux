@@ -26,6 +26,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "SIM_SEED_BASE",
     "SIM_FAULTS",
     "SIM_RESEND",
+    "SIM_KNOWN_GAPS",
 ]);
 
 #[path = "sim/agent.rs"]
@@ -124,13 +125,18 @@ fn seeds_hold_the_delivery_invariants() {
     let started = std::time::Instant::now();
     let mut simulated = std::time::Duration::ZERO;
     let mut failures = Vec::new();
+    // A known-gap leg (SIM_KNOWN_GAPS=1, acpmux-sim-sweep.yml) counts the seeds that fail only
+    // by a known gap (they hold once its cause is taken away) instead of failing on them. Every
+    // other run fails on them, whatever SIM_FAULTS and SIM_RESEND pick.
+    let known_gaps = matches!(std::env::var("SIM_KNOWN_GAPS").as_deref(), Ok("1"));
     // Seeds that fail only by a known gap: they hold once its cause is taken away.
     let mut shown: BTreeMap<String, Vec<u64>> = BTreeMap::new();
     for seed in base..base + seeds {
         let run = world::run(seed, &opts);
         simulated += run.simulated;
         if let Err(failure) = invariants::check(&run) {
-            let known = invariants::known_gaps_of(seed, &opts);
+            let known =
+                if known_gaps { invariants::known_gaps_of(seed, &opts) } else { Vec::new() };
             if known.is_empty() {
                 failures.push(format!(
                     "seed {seed}: {failure}\n  replay: {}",

@@ -672,6 +672,9 @@ export type AcpmuxRow = {
   /// The messages between agents a finished turn's "Worked for" folds, which its label names in the
   /// `messages` arm of workedForMessages.experiment.ts (conversation/turns.ts `shapeTurn`).
   workedMessages?: { sent: number; received: number };
+  /// A finished turn's "Worked for" line: every call the turn made, said after its time (turnFoldStyle.ts
+  /// `countsCalls`).
+  workedCalls?: number;
   /// The prompt of other agents' messages a finished turn's "Worked for" folds (conversation/turns.ts
   /// `shapedTurn`): the line stands for that prompt where the closed fold draws none, so the turn
   /// keeps its minimap tick (threadMinimap/model.ts `minimapTurns`).
