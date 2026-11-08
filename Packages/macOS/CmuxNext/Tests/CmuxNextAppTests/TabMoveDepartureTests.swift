@@ -195,4 +195,32 @@ import Testing
         #expect(moved != nil, "the moved tab left the focus topology")
         #expect(moved?.kind == .terminal, "the moved tab lost its kind")
     }
+
+    /// Router review on #37735 at 3763c54d: a move to the workspace the tab is already in moves
+    /// nothing. Its tab is not departing, so its later real close still plays.
+    @Test func aMoveToItsOwnWorkspaceMarksNoDeparture() throws {
+        let shown = try PaneCloseControllerTests.Shown(tree: PaneCloseControllerTests.splitTree(Self.sideBySide))
+        defer { shown.end() }
+        let source = try shown.controller(2)
+        let tab = try #require(source.pane.tabs.first), workspace = try #require(shown.services.daemon.store.workspaces.first)
+        TabMoves.toWorkspace(tab, workspace: workspace, services: shown.services)
+        #expect(!source.stripModel.departures.contains(StripTabID(tab.id)), "a move that stays in its workspace marked a departure")
+    }
+
+    /// The same for a group: a group moved within its own pane stays there; its tabs are not departing.
+    @Test func aGroupMovedWithinItsPaneMarksNoDeparture() throws {
+        var grouped = TabSnapshot(surface: SurfaceID(rawValue: 200), title: "~")
+        grouped.tabGroup = "G"
+        let panes = [PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 100), title: "~")]),
+                     PaneSnapshot(id: 2, tabs: [grouped, TabSnapshot(surface: SurfaceID(rawValue: 201), title: "~")],
+                                  tabGroups: [TabGroupSnapshot(id: "G", surfaces: [SurfaceID(rawValue: 200)], pane: 2)])]
+        let tree = DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [ScreenSnapshot(id: 1, layout: Self.sideBySide, panes: panes)])])
+        let shown = try PaneCloseControllerTests.Shown(tree: tree)
+        defer { shown.end() }
+        let source = try shown.controller(2)
+        let tab = try #require(source.pane.tabs.first)
+        try #require(tab.tabGroup == "G")
+        TabGroupMoves.move("G", to: source.pane, index: 1, services: shown.services, transaction: .generate()) { _ in }
+        #expect(!source.stripModel.departures.contains(StripTabID(tab.id)), "a group that stays in its pane marked a departure")
+    }
 }
