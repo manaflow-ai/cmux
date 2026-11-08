@@ -457,23 +457,77 @@
 @media (prefers-reduced-motion: reduce) {
   .wn-preview { transition: none !important; }
 }
+.wn-preview {
+  position: relative;
+}
 .wn-preview-list {
   flex: none;
   box-sizing: border-box;
-  max-height: var(--wn-preview-max, 264px);
+  max-height: var(--wn-preview-max, 300px);
   margin: 0;
-  padding: var(--grid-base, 4px);
+  padding: 0 var(--grid-base, 4px) var(--grid-base, 4px);
   list-style: none;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* An area: its header, then its rows. The header holds at the list's top while its rows scroll under
+   it, so the list always says which part of the app the rows below it change (Leo 2026-11-08: "the
+   sections should be more obvious what's what"). Its glyph, name and count are What's New's own
+   (SheetPage's cls-area-head), so a click that opens the page lands on a header that reads the same. */
+.wn-preview-section {
+  margin: 0;
+  padding: 0;
+}
+.wn-preview-rows {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--grid-base, 4px) / 2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wn-preview-area {
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-sticky);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--grid-base, 4px) * 1.5);
+  margin: 0;
+  padding: calc(var(--grid-base, 4px) * 2) calc(var(--wn-side) - var(--grid-base, 4px)) var(--grid-base, 4px);
+  /* The card's own tint, so the rows scroll under the header, not through it. */
+  background: var(--composer-material-tint);
+  color: var(--page-text-2);
+  font-size: var(--wn-note);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.wn-preview-area-icon {
+  display: inline-flex;
+  color: var(--cmux-accent, currentColor);
+}
+.wn-preview-area-icon svg { width: 12px; height: 12px; }
+.wn-preview-area-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wn-preview-area-count {
+  font-weight: var(--weight-regular);
+  font-variant-numeric: tabular-nums;
+  color: var(--page-text-3, var(--page-text-2));
+}
+/* One change is one pill: the title and the line under it light together, with a gap between pills,
+   so a row reads as one item (Leo: "distinguishing which row does what is unclear"). */
 .wn-preview-row {
   display: flex;
   flex-direction: column;
   width: 100%;
   min-width: 0;
   margin: 0;
-  padding: var(--grid-base, 4px) calc(var(--wn-side) - var(--grid-base, 4px));
+  padding: calc(var(--grid-base, 4px) * 1.5) calc(var(--wn-side) - var(--grid-base, 4px));
   border: 0;
   border-radius: var(--ds-radius-sm, 4px);
   background: none;
@@ -490,8 +544,39 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.wn-preview-title { font-size: var(--wn-title); }
+/* A step up from the card's own title (Leo: "arguably the text should be a bit bigger?"). */
+.wn-preview-title { font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .wn-preview-detail { color: var(--page-text-2); font-size: var(--wn-note); letter-spacing: var(--text-detail--letter-spacing); }
+/* Resting on a row shows its whole title and description, in place (Leo: "there should be expanded
+   hover previews if somebody wants"). */
+.wn-preview-row[data-peek] .wn-preview-title,
+.wn-preview-row[data-peek] .wn-preview-detail {
+  white-space: normal;
+  overflow: visible;
+}
+.wn-preview-row[data-peek] { background: var(--page-hover); }
+/* Rows divided by hairlines instead of gaps (gallery variant). */
+.wn-preview[data-look="divided"] .wn-preview-rows { gap: 0; }
+.wn-preview[data-look="divided"] .wn-preview-rows > li + li { box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--page-separator); }
+.wn-preview[data-look="flat"] .wn-preview-list { padding-top: var(--grid-base, 4px); }
+.wn-preview[data-look="flat"] .wn-preview-title { font-size: var(--wn-title); }
+/* How many changes are past the list's bottom edge, over its fade: the list scrolls, and here is why. */
+.wn-preview-more {
+  position: absolute;
+  right: calc(var(--wn-side) - var(--grid-base, 4px));
+  bottom: var(--grid-base, 4px);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--grid-base, 4px);
+  padding: calc(var(--grid-base, 4px) / 2) calc(var(--grid-base, 4px) * 1.5);
+  border-radius: 999px;
+  background: var(--composer-material-tint);
+  box-shadow: var(--composer-material-ring);
+  color: var(--page-text-2);
+  font-size: var(--wn-note);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
 .wn-card-link:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 
 /* The card's drag (updatedCardDrag.ts, Leo 2026-11-07: "drag that up to the top if you wanted

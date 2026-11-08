@@ -102,7 +102,8 @@ final class UpdateSurfaceProvider: PageProvider {
             onSize?(CGFloat(height), number("width"), number("overlay"), number("preview"))
             return .null
         case "cmux.changelog.surface.openChangelog":
-            _ = kind == .ready ? services.updater.openStagedChangelog() : services.updater.openWhatsNewForLastUpdate()
+            let focus = ChangelogFocus(area: params["area"]?.stringValue, entry: params["title"]?.stringValue)
+            _ = kind == .ready ? services.updater.openStagedChangelog(focus: focus) : services.updater.openWhatsNewForLastUpdate(focus: focus)
             onAction?()
             return .null
         default:

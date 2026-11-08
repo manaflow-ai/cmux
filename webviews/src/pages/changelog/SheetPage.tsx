@@ -25,17 +25,21 @@
 // ... through the What's New page, you can just get back to a prior version if you wanted to"): its
 // builds, each with its commit, its changes since the build before, and Install, which asks once,
 // then has the app download that build, check its signature and team, and restart into it.
-import { useState, type CSSProperties, type ReactNode } from "react";
+// A click on a row of the sidebar Updated card's list opens this page at that change (Leo
+// 2026-11-08: "maybe just bring them to the section in what's new aka bringing that tab up"):
+// `focus` (the route's `entry=` and `area=`) scrolls to the row with that title, else to the area's
+// section, unfolds the area that hides it, and marks it for a moment (useFocusScroll).
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Button } from "../../ui/Button";
 import type { Strings } from "../shared/i18n";
 import { areaOf, byArea, type AreaKey } from "./areas";
-import { dayLabel, groupByDay, isFiller, mergedView, rowKind, type ReleaseView } from "./model";
+import { dayLabel, groupByDay, isFiller, mergedView, rowKind, titleKey, type ReleaseView } from "./model";
 import { withoutWorkCodes } from "./readableChange";
 import { journalKeys, loadNear } from "./JournalPage";
 import { Maintenance } from "./ReleaseParts";
 import { publicPullNumber, pullURL } from "./ChangePullRequest";
-import type { ChangelogSnapshot, ChangelogStore } from "./store";
+import type { ChangelogFocus, ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry, ReleaseNotes, SheetLayout, SheetLinks, WhatsNewCategory } from "./types";
 
 export function SheetPage({
@@ -44,16 +48,21 @@ export function SheetPage({
   s,
   layout = "inline",
   links = "hover",
+  focus,
 }: {
   store: ChangelogStore;
   strings: Strings;
   s: ChangelogSnapshot;
   layout?: SheetLayout;
   links?: SheetLinks;
+  /** The change to bring into view (the route's `entry=` and `area=`). */
+  focus?: ChangelogFocus;
 }) {
+  const main = useFocusScroll(focus, focusReady(s));
+  const entry = focus?.entry ? titleKey(focus.entry) : undefined;
   return (
     <KeyboardScope className={`cls cls-${layout} cls-prs-${links}`} handleKeyDown={journalKeys}>
-      <main aria-labelledby="cls-title">
+      <main aria-labelledby="cls-title" ref={main}>
         <h1 className="cls-title" id="cls-title">
           {strings.t("changelog.page.title")}
         </h1>
@@ -67,6 +76,7 @@ export function SheetPage({
             s={s}
             store={store}
             strings={strings}
+            entry={entry}
           />
         ))}
       </main>
@@ -80,12 +90,15 @@ function SheetDay({
   s,
   store,
   strings,
+  entry,
 }: {
   day: string;
   builds: IndexEntry[];
   s: ChangelogSnapshot;
   store: ChangelogStore;
   strings: Strings;
+  /** The focused change's title key: its area shows all its rows. */
+  entry?: string;
 }) {
   const loaded = builds.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = builds.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
@@ -128,7 +141,7 @@ function SheetDay({
         <Maintenance strings={strings} />
       ) : (
         byArea(rows).map((group) => (
-          <SheetArea key={group.area ?? ""} area={group.area} rows={group.items} strings={strings} />
+          <SheetArea key={group.area ?? ""} area={group.area} rows={group.items} strings={strings} entry={entry} />
         ))
       )}
     </section>
@@ -200,11 +213,23 @@ export function SheetBuilds({
 /** An area shows this many changes, then "Show more" (and how many it hides) for the rest. */
 export const AREA_ROWS = 6;
 
-function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; strings: Strings }) {
+function SheetArea({
+  area,
+  rows,
+  strings,
+  entry,
+}: {
+  area?: AreaKey;
+  rows: SheetRow[];
+  strings: Strings;
+  entry?: string;
+}) {
   const [open, setOpen] = useState(false);
   const label = area ? strings.t(`updates.area.${area}`) : strings.t("changelog.page.otherArea");
+  // The focused change is never folded away: its area shows every row.
+  const focused = entry !== undefined && rows.some((row) => titleKey(row.title) === entry);
   // A fold that would hide one row hides none: the button would take that row's line.
-  const shown = open || rows.length <= AREA_ROWS + 1 ? rows : rows.slice(0, AREA_ROWS);
+  const shown = open || focused || rows.length <= AREA_ROWS + 1 ? rows : rows.slice(0, AREA_ROWS);
   return (
     <section className="cls-area" aria-label={label} data-area={area ?? "other"}>
       <h3 className="cls-area-head">
@@ -216,7 +241,7 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
       </h3>
       <ul className="cls-rows">
         {shown.map((row) => (
-          <li className="cls-row" key={row.key} data-category={row.category}>
+          <li className="cls-row" key={row.key} data-category={row.category} data-entry={titleKey(row.title)}>
             {KIND_GLYPHS[row.category] && (
               <span className="cls-icon cls-kind" aria-hidden="true">
                 <svg viewBox="0 0 20 20" width="14" height="14">
@@ -248,6 +273,59 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
       )}
     </section>
   );
+}
+
+/** How long the focused row or area stays marked (styles.css .cls-row[data-focus]). */
+export const FOCUS_MARK_MS = 1600;
+
+/** Whether the rows a focus may name are on the page: the update's span builds, else the newest
+    day's first build, loaded (or known unavailable). */
+export function focusReady(s: ChangelogSnapshot): boolean {
+  const needed = s.inSpan.length > 0 ? s.inSpan : s.builds.slice(0, 1).map((b) => b.build);
+  return needed.length > 0 && needed.every((build) => !!s.loaded[build] || !!s.unavailable[build]);
+}
+
+/** Scrolls `focus` into view once per click (its `n`), when `ready`: the first row titled
+    `entry` (centered), else the first `area` section (the newest day's, at the top), and marks
+    it with `data-focus` for FOCUS_MARK_MS. Smooth unless the page's motion gate or the system
+    asks for less motion. Other renders scroll nothing. */
+function useFocusScroll(focus: ChangelogFocus | undefined, ready: boolean) {
+  const main = useRef<HTMLElement>(null);
+  const handled = useRef<string>(undefined);
+  const mark = useRef<{ el: HTMLElement; timer: ReturnType<typeof setTimeout> }>(undefined);
+  const key = focus ? `${focus.area ?? ""}\n${focus.entry ?? ""}\n${focus.n ?? ""}` : undefined;
+  useEffect(() => {
+    const root = main.current;
+    if (!focus || !key || !ready || !root || handled.current === key) return;
+    handled.current = key;
+    const entry = focus.entry ? titleKey(focus.entry) : undefined;
+    const row = entry
+      ? [...root.querySelectorAll<HTMLElement>(".cls-row[data-entry]")].find((el) => el.dataset.entry === entry)
+      : undefined;
+    const area = row
+      ? undefined
+      : [...root.querySelectorAll<HTMLElement>(".cls-area[data-area]")].find((el) => el.dataset.area === focus.area);
+    const target = row ?? area;
+    if (!target) return;
+    target.scrollIntoView?.({ block: row ? "center" : "start", behavior: lessMotion() ? "auto" : "smooth" });
+    if (mark.current) {
+      clearTimeout(mark.current.timer);
+      mark.current.el.removeAttribute("data-focus");
+    }
+    target.setAttribute("data-focus", "");
+    const timer = setTimeout(() => {
+      target.removeAttribute("data-focus");
+      mark.current = undefined;
+    }, FOCUS_MARK_MS);
+    mark.current = { el: target, timer };
+  }, [focus, key, ready]);
+  useEffect(() => () => clearTimeout(mark.current?.timer), []);
+  return main;
+}
+
+function lessMotion(): boolean {
+  const gate = document.documentElement.dataset.cmuxMotion;
+  return gate === "off" || gate === "reduced" || !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 }
 
 /** About how many rows a loading day will have: its highlights as the index counts them, else

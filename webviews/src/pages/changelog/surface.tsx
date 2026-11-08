@@ -67,7 +67,12 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   const actions: UpdateSurfaceActions =
     kind === "updated"
       ? {
-          openChangelog: () => call(SurfaceOps.openChangelog),
+          // Only a row's target goes to the host: a button's click event passed along is not one.
+          openChangelog: (target) =>
+            call(SurfaceOps.openChangelog, {
+              ...(typeof target?.area === "string" ? { area: target.area } : {}),
+              ...(typeof target?.title === "string" ? { title: target.title } : {}),
+            }),
           dismiss: () => call(SurfaceOps.dismiss),
         }
       : { openChangelog: () => call(SurfaceOps.openChangelog) };

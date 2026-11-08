@@ -9,6 +9,8 @@ import nightlySpan from "./fixtures/nightly-3913596493801-span.json";
 import table from "./generated/strings.json";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
+import type { PreviewLook } from "./UpdatedCardPreview";
+import { previewEntries } from "./updatedPreview";
 import {
   UpdatedCard,
   UpdateReadyHighlights,
@@ -75,6 +77,10 @@ type Props = {
   placement?: WhatsNewPlacement;
   /** The card's hover preview held open (the still of a pointer resting on the card). */
   previewOpen?: boolean;
+  /** How the open preview's rows stand (Leo 2026-11-08); `sections` ships. */
+  previewLook?: PreviewLook;
+  /** A preview row shown expanded, by its id. */
+  previewPeek?: string;
   /** A one-line composer box beside the card, its edges lined up, as in the window. */
   besideComposer?: boolean;
   /** Sidebar rows under the card, as its open preview stands over them in the sidebar: frosted by the
@@ -366,6 +372,8 @@ function UpdateSurfacesGallery({
   width,
   placement,
   previewOpen,
+  previewLook,
+  previewPeek,
   besideComposer = false,
   overRows,
 }: Props) {
@@ -409,6 +417,8 @@ function UpdateSurfacesGallery({
               animate={animate}
               placement={placement}
               previewOpen={previewOpen}
+              previewLook={previewLook}
+              previewPeek={previewPeek}
               glass={overRows ? overRows === "glass" : undefined}
             />
           </div>
@@ -523,6 +533,53 @@ export default componentEntry<Props>({
     "card-hover-preview": {
       note: "Shipped: resting on the card for the hover dwell (400 ms) opens a scrollable list of the update's changes in the card's own glass, above its two lines (Leo 2026-11-07: \"a quick access scroll through of what's new. Right in that bottom left of the sidebar area\"). The card stands on its slot, so the glass's top edge rises over the rows and nothing else moves; in the sidebar it opens over the list without moving it. A click on a row or on What's New opens the full page; Escape or leaving the card closes it.",
       props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true },
+    },
+    "card-preview-sections": {
+      note: "Shipped (Leo 2026-11-08: \"the sections should be more obvious what's what ... readability is bad. distinguishing which row does what is unclear\"): the changes stand under their app areas as What's New groups them, each header with the area's glyph, name and count and held at the list's top while its rows scroll under it. Each change is one pill (its title a step larger than the card's, and the line under it), with a gap between pills. \"+N more\" under the list says how many changes are below, so it is plain that it scrolls and why.",
+      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "glass" },
+    },
+    "card-preview-sections-light": {
+      note: "Shipped, in a light theme.",
+      props: { surface: "card", data: spanData, span, theme: "light", previewOpen: true, overRows: "glass" },
+    },
+    "card-preview-row-peek": {
+      note: 'Shipped (Leo: "there should be expanded hover previews if somebody wants"): resting on a row for the hover dwell shows its whole title and description in place, inside the list (the card does not grow); a click opens What\'s New scrolled to that change.',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".wn-preview-row[data-peek]"));
+      },
+      props: {
+        surface: "card",
+        data: spanData,
+        span,
+        theme: "dark",
+        previewOpen: true,
+        overRows: "glass",
+        previewPeek: previewEntries(spanData, span, "en")[1]?.id,
+      },
+    },
+    "card-preview-divided": {
+      note: "Variant: the same areas, with hairlines between rows instead of gaps between pills. Denser, but the hairlines compete with the headers and a row still reads as two lines rather than one item.",
+      props: {
+        surface: "card",
+        data: spanData,
+        span,
+        theme: "dark",
+        previewOpen: true,
+        overRows: "glass",
+        previewLook: "divided",
+      },
+    },
+    "card-preview-flat": {
+      note: 'Before: one flat list with no areas, the rows alike (Leo: "distinguishing which row does what is unclear"), and nothing saying the list scrolls.',
+      props: {
+        surface: "card",
+        data: spanData,
+        span,
+        theme: "dark",
+        previewOpen: true,
+        overRows: "glass",
+        previewLook: "flat",
+      },
     },
     "card-hover-preview-light": {
       note: "The open preview in a light theme, from the host's own items (before the span's notes load).",

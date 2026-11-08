@@ -1724,3 +1724,8 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   `Metrics.dividerThickness` straight, so it stayed under borders none; it now goes through `Metrics.lineWidth`, and
   the glass specular rim (`GlassRimView`) through `Borders.width`. Look change only under borders none: no group
   header edge and no glass rim. Sidebar-Look: Leo 2026-11-07, "the blocky without border kinda vibe".
+- 2026-11-08 (lane/updated-card-sections, ask-e3ef9cc2d3): `SidebarUpdatedCardHost` hovers through `PointerHover`
+  over its glass and a closing preview's frame, refreshed when the glass moves, instead of a tracking area on the
+  whole view: the room handed back under a still pointer sent no exit, and the list reopened over the rows. Look
+  change: the Updated card's list no longer flickers open and closed. Sidebar-Look: Leo 2026-11-08, "flicker upon
+  hovering over what's new". Regression: UpdatedCardHoverPreviewTests.

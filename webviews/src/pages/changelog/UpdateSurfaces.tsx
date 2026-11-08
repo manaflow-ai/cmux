@@ -53,9 +53,9 @@ import type {
   UpdateHighlights,
   UpdateSurfaceActions,
 } from "./updateHighlights";
-import { PreviewIntent, previewEntries } from "./updatedPreview";
+import { PREVIEW_CLOSE_MS, PreviewIntent, previewEntries } from "./updatedPreview";
 import { pressCard, SHIPPED_DRAG_FEEL, type CardDragFeel, type CardDragHost, type CardRow } from "./updatedCardDrag";
-import { PREVIEW_MAX_PX, UpdatedCardPreview } from "./UpdatedCardPreview";
+import { PREVIEW_MAX_PX, UpdatedCardPreview, type PreviewLook, type PreviewTarget } from "./UpdatedCardPreview";
 import { summarizeHighlights, summarizeUpdate, type SummaryRow } from "./updateSummary";
 
 /** "1.0.0-nightly.3845050428001" reads "nightly 3845050", as the native Update Ready card
@@ -205,9 +205,6 @@ export type WhatsNewPlacement = "title" | "top-right" | "button";
 
 /** How long the card waits for the host to make room for the open preview before it opens anyway. */
 const PREVIEW_ROOM_WAIT_MS = 150;
-/** How long the preview's close runs before the card hands its room back (the card's own curve,
-    `--wn-preview-motion` in updateSurfaces.css); with motion reduced or off, no wait. */
-const PREVIEW_CLOSE_MS = 265;
 
 export function UpdatedCard({
   data,
@@ -220,6 +217,8 @@ export function UpdatedCard({
   animate = true,
   placement = "title",
   previewOpen,
+  previewLook,
+  previewPeek,
   hostPointer,
   onPreviewSize,
   onPreviewGlass,
@@ -246,6 +245,10 @@ export function UpdatedCard({
   placement?: WhatsNewPlacement;
   /** Holds the hover preview open or closed (gallery stills); undefined: the pointer decides. */
   previewOpen?: boolean;
+  /** How the preview's rows stand (gallery variants); `sections` ships. */
+  previewLook?: PreviewLook;
+  /** A preview row shown expanded (gallery stills), by its id. */
+  previewPeek?: string;
   /** Whether the sidebar host has the pointer on the card (its native tracking area); undefined
       until the host says, and then the page's own pointer events decide. */
   hostPointer?: boolean;
@@ -281,10 +284,12 @@ export function UpdatedCard({
     onPreviewGlass,
     enabled: !doodle,
   });
-  const openChangelog = () => {
+  // A row of the preview opens What's New at its change; the card's own links open it at the top.
+  const openChangelog = (target?: PreviewTarget) => {
     preview.close();
-    actions.openChangelog();
+    actions.openChangelog(target);
   };
+  const openWhatsNew = () => openChangelog();
   const rest = useRef<HTMLElement | null>(null);
   const dragRef = useCardDrag(rest, drag, dragFeel, preview.closeForDrag);
   const { cardRef } = preview;
@@ -309,7 +314,7 @@ export function UpdatedCard({
     rest.current = element;
   }, []);
   const whatsNew = (
-    <button type="button" className="wn-card-primary" onClick={openChangelog}>
+    <button type="button" className="wn-card-primary" onClick={openWhatsNew}>
       {strings.t("changelog.page.title")}
     </button>
   );
@@ -389,6 +394,8 @@ export function UpdatedCard({
           strings={strings}
           listRef={preview.listRef}
           onOpen={openChangelog}
+          look={previewLook}
+          peek={previewPeek}
         />
       )}
       <div className="wn-card-rest" ref={restRef}>
@@ -401,7 +408,7 @@ export function UpdatedCard({
                   ·
                 </span>
               )}
-              <button type="button" className="wn-card-link" onClick={openChangelog}>
+              <button type="button" className="wn-card-link" onClick={openWhatsNew}>
                 {strings.t("changelog.page.title")}
                 <span aria-hidden="true"> ↗</span>
               </button>
@@ -673,7 +680,7 @@ export function UpdateReadyHighlights({
   if (items.length === 0 && (rest?.length ?? 0) === 0) {
     const from = data.fromVersion && data.fromVersion !== data.version ? data.fromVersion : null;
     const link = (
-      <button type="button" className="wn-pop-all" onClick={actions.openChangelog}>
+      <button type="button" className="wn-pop-all" onClick={() => actions.openChangelog()}>
         {strings.t("updates.popover.seeReleaseNotes")}
         <span aria-hidden="true"> →</span>
       </button>
@@ -733,7 +740,7 @@ export function UpdateReadyHighlights({
         {items.length > 0 && (
           <ul className="wn-pop-list">
             {items.map((item) => (
-              <PopRow key={item.id} item={item} layout={layout} onOpen={actions.openChangelog} />
+              <PopRow key={item.id} item={item} layout={layout} onOpen={() => actions.openChangelog()} />
             ))}
           </ul>
         )}
@@ -745,7 +752,7 @@ export function UpdateReadyHighlights({
                   {label && <h4>{label}</h4>}
                   <ul>
                     {items.map((item) => (
-                      <PopRow key={item.id} item={item} layout={layout} onOpen={actions.openChangelog} />
+                      <PopRow key={item.id} item={item} layout={layout} onOpen={() => actions.openChangelog()} />
                     ))}
                   </ul>
                 </section>
@@ -758,7 +765,7 @@ export function UpdateReadyHighlights({
         {!rest && data.moreCount > 0 && (
           <span className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</span>
         )}
-        <button type="button" className="wn-pop-all" onClick={actions.openChangelog}>
+        <button type="button" className="wn-pop-all" onClick={() => actions.openChangelog()}>
           {strings.t(all.length > 0 ? "updates.popover.seeAll" : "updates.popover.seeReleaseNotes")}
           <span aria-hidden="true"> →</span>
         </button>
