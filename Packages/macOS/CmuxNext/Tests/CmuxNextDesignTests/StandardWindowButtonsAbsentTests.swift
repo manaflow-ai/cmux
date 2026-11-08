@@ -87,4 +87,31 @@ import Testing
             return
         }
     }
+
+    // #38147 review P2 1: AppKit can show the versions button when `isDocumentEdited` changes, with no change of style
+    // or URL, so a document window keeps no absent document button at all.
+    @Test func aDocumentWindowKeepsNoAbsentDocumentButton() {
+        var buttons = StandardWindowButtons()
+        let w = window()
+        defer { w.close() }
+        w.representedURL = URL(fileURLWithPath: NSTemporaryDirectory())
+        buttons.store(nil, for: .documentVersionsButton, in: w)
+        guard case .unknown = buttons.answer(.documentVersionsButton, in: w) else {
+            Issue.record("a document window kept an absent versions button")
+            return
+        }
+    }
+
+    // #38147 review P2 3: a window that gets a toolbar can have a toolbar button.
+    @Test func aToolbarAsksAgain() {
+        var buttons = StandardWindowButtons()
+        let w = window()
+        defer { w.close() }
+        buttons.store(nil, for: .toolbarButton, in: w)
+        w.toolbar = NSToolbar(identifier: "swb-p2")
+        guard case .unknown = buttons.answer(.toolbarButton, in: w) else {
+            Issue.record("a window with a new toolbar kept the old absent toolbar button")
+            return
+        }
+    }
 }
