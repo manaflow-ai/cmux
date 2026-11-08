@@ -434,9 +434,9 @@ async fn a_teammate_never_starts_a_session_spawns_or_changes_rules() {
             "{m} {params}: {reply}"
         );
     }
-    // An allowed verb reaches the dispatcher (no such chat here), not the carrier's refusal.
+    // A granted id that no session here has (stale) is refused before any dispatcher.
     let attach = ask(&send, &mut recv, 99, "_acpmux/attach", json!({"sessionId": "chat"})).await;
-    assert_ne!(attach["error"]["data"]["reason"], "carrier.team_refused", "{attach}");
+    assert_eq!(attach["error"]["data"]["reason"], "carrier.team_refused", "{attach}");
     drop(send);
     tokio::time::timeout(WAIT, server).await.unwrap().unwrap();
 }
@@ -697,15 +697,16 @@ async fn a_teammate_attaches_its_chat_and_hears_nothing_of_another() {
     tokio::time::timeout(WAIT, server).await.unwrap().unwrap();
 }
 
-#[test]
-fn a_teammates_cancel_notification_goes_on_only_for_a_chat_it_was_given() {
-    let hub = test_hub();
+#[tokio::test]
+async fn a_teammates_cancel_notification_goes_on_only_for_a_chat_it_was_given() {
+    let hub = hub_with_chats();
     let who = teammate();
     let cancel = |params: Value| {
         notification_admitted(&hub, Some(&who), method::SESSION_CANCEL, Some(&params))
     };
     assert!(cancel(json!({"sessionId": "chat-a"})));
-    assert!(cancel(json!({"sessionId": "c"})));
+    // `c` is granted, but no session here has that id.
+    assert!(!cancel(json!({"sessionId": "c"})));
     for params in [
         json!({"sessionId": "chat-b"}),
         json!({"sessionId": "chat-"}),
@@ -912,4 +913,54 @@ async fn a_teammate_cancels_a_local_chat_it_was_given_and_no_other() {
     assert!(cancel("local-gemini"));
     assert!(!cancel("other"));
     assert!(!cancel("local-g"), "a prefix in the grant never stops another chat");
+}
+
+/// A granted id is reached only as exactly one session of this daemon with that very id: a
+/// `HOST/NAME`, an id of a chat that no longer lives here, an ambiguous or a unique prefix are
+/// refused by the carrier before any dispatcher, so nothing goes on to a peer, for every
+/// session-addressed verb, request and notification alike.
+#[tokio::test]
+async fn a_teammates_granted_id_reaches_only_that_one_local_chat_and_never_a_peer() {
+    let hub = hub_with_chats();
+    // `peer-mac/chat-a`: another machine's chat by `HOST/NAME`; `gone`: a chat no session here
+    // has (ended, or another machine's id); `chat-`: a prefix of three chats; `chat-xy`: a
+    // unique prefix of `chat-xyz`.
+    let refused = ["peer-mac/chat-a", "gone", "chat-", "chat-xy"];
+    let chats = ["chat-a"].iter().chain(refused.iter()).map(|c| c.to_string()).collect();
+    let who = Attested { chats, ..teammate() };
+    let (send, inbound) = tokio::sync::mpsc::channel(8);
+    let (out, mut recv) = tokio::sync::mpsc::channel(256);
+    let server = tokio::spawn(serve_attested(hub.clone(), inbound, out, who.clone()));
+    ask(&send, &mut recv, 0, "initialize", json!({"protocolVersion": 1})).await;
+    let verbs = [
+        method::MUX_ATTACH,
+        method::MUX_INFO,
+        method::MUX_EVENTS,
+        method::MUX_ATTACHMENT,
+        method::SESSION_PROMPT,
+        method::SESSION_CANCEL,
+        method::MUX_DETACH,
+    ];
+    let mut n = 0;
+    for m in verbs {
+        for chat in refused {
+            n += 1;
+            let params = json!({"sessionId": chat, "prompt": [{"type": "text", "text": "hi"}]});
+            let reply = ask(&send, &mut recv, n, m, params.clone()).await;
+            assert_eq!(
+                reply["error"]["data"]["reason"], "carrier.team_refused",
+                "{m} {chat}: {reply}"
+            );
+            assert!(scoped(&hub, &who, m, params.clone()).is_err(), "{m} {chat}");
+            assert!(!notification_admitted(&hub, Some(&who), m, Some(&params)), "{m} {chat}");
+        }
+    }
+    // The exact local id still works.
+    let attach =
+        ask(&send, &mut recv, 900, method::MUX_ATTACH, json!({"sessionId": "chat-a"})).await;
+    assert!(attach.get("result").is_some(), "{attach}");
+    let cancel = json!({"sessionId": "chat-a"});
+    assert!(notification_admitted(&hub, Some(&who), method::SESSION_CANCEL, Some(&cancel)));
+    drop(send);
+    tokio::time::timeout(WAIT, server).await.unwrap().unwrap();
 }

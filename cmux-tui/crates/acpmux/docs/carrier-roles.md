@@ -130,8 +130,11 @@ also checks its teammates against. acpmux maps each verb to its own methods:
 **Scope.** Every allowed method but `initialize` must name one chat by `sessionId`, and that id
 must be in the grant's `chats`, exactly. A request that names no chat (`_acpmux/info` with no
 session, which would describe the VM's chats), names it by `session`, `name` or `host`, names
-an id outside `chats`, or names an id in `chats` that resolves here to another session (by
-name, prefix or `HOST/NAME`: an id no session has) is refused with `carrier.team_refused`.
+an id outside `chats`, or names an id in `chats` that is not exactly one session of this
+daemon with that very id is refused with `carrier.team_refused`, before any dispatcher: an id
+no session here has (stale, a `HOST/NAME`, a peer's chat), an ambiguous or a unique prefix, or
+a name. Nothing a teammate sends goes on to a peer. This holds for the request and the
+notification forms alike.
 A chat's forks, side chats and subagent children are other chats: the teammate reaches one
 only when the grant names it. The hidden attach subscribes the connection to that chat only,
 so it hears that chat's `session/update` and records and nothing of any other chat on the VM.

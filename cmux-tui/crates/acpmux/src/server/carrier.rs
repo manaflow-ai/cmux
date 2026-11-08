@@ -344,23 +344,26 @@ pub(super) fn gate(hub: &Hub, conn: &Conn, m: &str, params: Value) -> Result<Val
     admitted
 }
 
-/// [`gate`] without the log: [`admit`], then for a teammate the chat it names must be that very
-/// session here, and a prompt runs only in the strictest asking modes.
+/// [`gate`] without the log: [`admit`], then for a teammate the chat it names must be exactly one
+/// session of this daemon with that very id, and a prompt runs only in the strictest asking modes.
 fn scoped(hub: &Hub, carrier: &Attested, m: &str, params: Value) -> Result<Value, RpcError> {
     let params = admit(carrier, m, params)?;
+    // A teammate's chat is one session of this daemon, by its exact id. An id that resolves to
+    // none here (stale, a `HOST/NAME`, a peer's chat) or to more than one, or by a name or a
+    // prefix, is refused before any dispatcher, so nothing goes on to a peer (`peer_forward.rs`).
     if carrier.role == Role::Team
         && let Some(id) = params.get("sessionId").and_then(Value::as_str)
-        && hub.resolve(id).is_ok_and(|s| s.id != id)
+        && !hub.resolve(id).is_ok_and(|s| s.id == id)
     {
-        return Err(team_refused(m, "names a chat this teammate was not given"));
+        return Err(team_refused(m, "names no chat of this machine it was given"));
     }
     strictest_modes(hub, carrier, m, &params)?;
     Ok(params)
 }
 
 /// Whether a carrier connection's notification goes on: a teammate's only when it is a
-/// `session/cancel` that passes [`gate`] (a chat it was given, by the exact id of a session
-/// here), logged like the request form.
+/// `session/cancel` that passes [`gate`] (a chat it was given, by the exact id of a session of
+/// this daemon), logged like the request form.
 pub(super) fn takes_notification(hub: &Hub, conn: &Conn, m: &str, params: Option<&Value>) -> bool {
     match conn.carrier.as_ref() {
         Some(c) if c.role == Role::Team && m == method::SESSION_CANCEL => {
