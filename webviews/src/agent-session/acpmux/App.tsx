@@ -597,6 +597,7 @@ import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged }
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
+import { runResume } from "./resumeCommand";
 import {
   CMUX_PASS_THROUGH,
   CmuxCommandRefused,
@@ -8402,7 +8403,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return true;
     }
     // /resume: the chats search, the same page Show all chats and Cmd-K open, where an earlier chat
-    // opens again where it left off.
+    // opens again where it left off; with a session id, that chat.
     // A harness other than Claude Code that lists its own /resume or /login keeps it, as before. On
     // New Tab the pane's last chat is not the one being started, so cmux's own command runs there.
     if (
@@ -8412,10 +8413,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.commands?.some((own) => own.name.toLowerCase() === command.name)
     )
       return CMUX_PASS_THROUGH;
-    if (command.action === "resume") {
-      showAllChats();
-      return true;
-    }
+    // `/resume <id>`: the chat that session id (its start, its transcript's path or a pasted resume
+    // command) names resumes in a workspace of its own (resumeCommand.ts).
+    if (command.action === "resume") return runResume(args, callNative, showAllChats, t);
     if (command.action === "login") {
       // New Tab picks its own harness and machine, which this pane's sign-in answer is not about;
       // its sign-in card covers it. The default login runs only for a chat acpmux says is here.

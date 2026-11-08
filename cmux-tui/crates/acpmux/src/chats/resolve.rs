@@ -76,12 +76,62 @@ fn looks_like_path(text: &str) -> bool {
 /// The chat `text` names among `chats` (newest first). `exists` says whether a path is a file,
 /// so a transcript the index does not hold yet can be recorded.
 pub fn resolve<'a>(
-    _text: &str,
-    _chats: impl IntoIterator<Item = &'a ChatEntry>,
-    _exists: impl Fn(&Path) -> bool,
+    text: &str,
+    chats: impl IntoIterator<Item = &'a ChatEntry>,
+    exists: impl Fn(&Path) -> bool,
 ) -> Resolved {
-    // Red: nothing resolves a pasted reference yet.
-    Resolved::NotFound
+    let chats: Vec<&ChatEntry> = chats.into_iter().collect();
+    if let Some(key) = super::parse_key(text)
+        && !looks_like_path(text)
+    {
+        return match chats.iter().find(|chat| chat.key() == key) {
+            Some(_) => Resolved::Found(key),
+            None => resolve_id(&key.session_id, &chats),
+        };
+    }
+    if looks_like_path(text) {
+        let path = Path::new(text);
+        if let Some(chat) = chats.iter().find(|chat| same_file(&chat.source_path, path)) {
+            return Resolved::Found(chat.key());
+        }
+        let found = id_of_path(path).map(|id| resolve_id(&id, &chats));
+        return match found {
+            Some(Resolved::Found(key)) => Resolved::Found(key),
+            _ if exists(path) => Resolved::Unindexed(path.to_path_buf()),
+            Some(other) => other,
+            None => Resolved::NotFound,
+        };
+    }
+    resolve_id(text, &chats)
+}
+
+fn same_file(a: &Path, b: &Path) -> bool {
+    a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
+}
+
+/// An id or the start of one, in any case: an exact id wins over the chats it starts.
+fn resolve_id(id: &str, chats: &[&ChatEntry]) -> Resolved {
+    let id = id.trim().to_ascii_lowercase();
+    if id.chars().count() < MIN_PREFIX {
+        return Resolved::TooShort;
+    }
+    if let Some(chat) = chats.iter().find(|chat| chat.session_id.to_ascii_lowercase() == id) {
+        return Resolved::Found(chat.key());
+    }
+    let mut matches: Vec<ChatKey> = Vec::new();
+    for chat in chats {
+        if chat.session_id.to_ascii_lowercase().starts_with(&id) && !matches.contains(&chat.key()) {
+            matches.push(chat.key());
+        }
+    }
+    match matches.len() {
+        0 => Resolved::NotFound,
+        1 => Resolved::Found(matches.remove(0)),
+        _ => {
+            matches.truncate(5);
+            Resolved::Ambiguous(matches)
+        }
+    }
 }
 
 #[cfg(test)]

@@ -15,7 +15,6 @@ mod activity;
 pub(crate) mod brand;
 mod open;
 mod query;
-#[allow(dead_code)] // red: wired in the next commit
 mod resolve;
 pub mod search;
 mod settings;
@@ -39,6 +38,7 @@ pub use brand::brand_for;
 pub(crate) use open::store_dirs;
 pub use open::{StoreProfile, plan_open, store_profiles};
 pub use query::{ChatCursor, ChatQuery};
+pub use resolve::Resolved;
 pub use settings::{ChatSettings, SettingsRefusal, probe};
 pub use sources::{ChatSources, EnvLookup, launch_roots, login_var, lookup, refusal};
 pub use window::{WindowRows, WindowSpec, WindowState};
@@ -285,6 +285,40 @@ impl ChatService {
             self.refresh_roots();
         }
         Ok(new)
+    }
+
+    /// The chat a pasted reference names (`/resume <ref>`, `resolve.rs`): an id, its start, a
+    /// transcript path or a resume command. A transcript file outside every root is recorded
+    /// (`record_transcript`), then resolved again. Blocking.
+    pub fn resolve_ref(self: &Arc<Self>, text: &str) -> Resolved {
+        let home = dirs::home_dir().unwrap_or_default();
+        let text = resolve::normalize(text, &home);
+        let find = || {
+            let state = lock(&self.state);
+            resolve::resolve(
+                &text,
+                state.index.chats().into_iter().map(|chat| &chat.entry),
+                |path| path.is_file(),
+            )
+        };
+        match find() {
+            Resolved::Unindexed(path) => {
+                let codex = path.components().any(|part| part.as_os_str() == ".codex")
+                    || path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with("rollout-"));
+                let harness = if codex { AdapterKind::Codex } else { AdapterKind::ClaudeCode };
+                match self.record_transcript(harness, &path) {
+                    Ok(_) => match find() {
+                        Resolved::Unindexed(_) => Resolved::NotFound,
+                        other => other,
+                    },
+                    Err(_) => Resolved::NotFound,
+                }
+            }
+            other => other,
+        }
     }
 
     fn recorded_roots_path(&self) -> PathBuf {
