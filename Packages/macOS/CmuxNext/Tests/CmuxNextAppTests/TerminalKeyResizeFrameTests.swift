@@ -621,6 +621,8 @@ nonisolated final class AnnouncingTerminalIO: TerminalIO {
     let redraws: (@Sendable (_ cols: Int, _ rows: Int) -> Data)?
     /// A program's output parsed about 3 ms after the send (P0 9, cmux21).
     static let redrawDelay: Duration = .milliseconds(3)
+    /// DIAG (RESIZE P0 14, nomerge): each resize and each ring send, in the order they happen.
+    static let log = Mutex<[String]>([])
 
     init(_ scripted: ScriptedTerminalIO, redraws: (@Sendable (_ cols: Int, _ rows: Int) -> Data)? = nil) {
         self.scripted = scripted
@@ -639,8 +641,11 @@ nonisolated final class AnnouncingTerminalIO: TerminalIO {
         scripted.send(.resize(cols: cols, rows: rows))
         guard let redraws else { return }
         let scripted = scripted
+        let id = ObjectIdentifier(scripted)
+        Self.log.withLock { $0.append("\(ContinuousClock.now) io\(id.hashValue % 1000) resize \(cols)x\(rows)") }
         Task.detached {
             try? await Task.sleep(for: Self.redrawDelay)
+            Self.log.withLock { $0.append("\(ContinuousClock.now) io\(id.hashValue % 1000) ring \(cols)x\(rows)") }
             scripted.send(.output(redraws(cols, rows)))
         }
     }
