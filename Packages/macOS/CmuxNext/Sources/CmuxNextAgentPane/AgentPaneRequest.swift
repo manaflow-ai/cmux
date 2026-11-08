@@ -258,7 +258,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `/btw <question>` asks acpmux for one bounded inline side answer.
     case btwInline(question: String, sessionId: String)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
-    case sideChat(String)
+    /// `splitRight`: `/side`'s side chat, always a new split right of the chat (#38042).
+    case sideChat(String, splitRight: Bool = false)
     /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
     /// a split, a new workspace or a new window (`placement`; none is a tab).
     case chatTab(String, AgentForkDestination)

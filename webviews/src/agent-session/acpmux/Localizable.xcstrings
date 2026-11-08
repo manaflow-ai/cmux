@@ -251627,133 +251627,133 @@
       }
     },
     "composer.cmuxSideUnavailable": {
-      "comment": "Agent pane: side command requires a local forkable chat and no arguments",
+      "comment": "Agent pane: /side opens a side chat only beside a chat that runs on this Mac, in a pane of its own (not New Tab or the floating chat)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "استخدم /side دون وسائط في محادثة محلية جاهزة للتفرع"
+            "state": "needs_review",
+            "value": "استخدم /side في محادثة على هذا الـ Mac"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Koristite /side bez argumenata u lokalnom razgovoru spremnom za grananje"
+            "state": "needs_review",
+            "value": "Koristite /side u razgovoru na ovom Macu"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Brug /side uden argumenter i en lokal samtale, der er klar til at blive forgrenet"
+            "state": "needs_review",
+            "value": "Brug /side i en samtale på denne Mac"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Verwende /side ohne Argumente in einem lokalen Chat, der zum Verzweigen bereit ist"
+            "state": "needs_review",
+            "value": "Verwende /side in einem Chat auf diesem Mac"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use /side without arguments in a local chat that is ready to fork"
+            "value": "Use /side in a chat on this Mac"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Usa /side sin argumentos en un chat local listo para bifurcarse"
+            "state": "needs_review",
+            "value": "Usa /side en un chat de este Mac"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Utilisez /side sans argument dans une conversation locale prête à être bifurquée"
+            "state": "needs_review",
+            "value": "Utilisez /side dans une conversation sur ce Mac"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Usa /side senza argomenti in una chat locale pronta per la biforcazione"
+            "state": "needs_review",
+            "value": "Usa /side in una chat su questo Mac"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "分岐可能なローカルチャットで、引数なしで /side を使用してください"
+            "state": "needs_review",
+            "value": "/side はこの Mac 上のチャットで使用してください"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ប្រើ /side ដោយគ្មានអាគុយម៉ង់ក្នុងការជជែកមូលដ្ឋានដែលរួចរាល់សម្រាប់បំបែក"
+            "state": "needs_review",
+            "value": "ប្រើ /side ក្នុងការជជែកនៅលើ Mac នេះ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "분기할 준비가 된 로컬 채팅에서 인수 없이 /side를 사용하세요"
+            "state": "needs_review",
+            "value": "이 Mac의 채팅에서 /side를 사용하세요"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bruk /side uten argumenter i en lokal samtale som er klar til å forgrenes"
+            "state": "needs_review",
+            "value": "Bruk /side i en samtale på denne Macen"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Użyj /side bez argumentów w lokalnym czacie gotowym do rozgałęzienia"
+            "state": "needs_review",
+            "value": "Użyj /side w czacie na tym Macu"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Use /side sem argumentos em um chat local pronto para bifurcação"
+            "state": "needs_review",
+            "value": "Use /side em um chat neste Mac"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Используйте /side без аргументов в локальном чате, готовом к созданию ответвления"
+            "state": "needs_review",
+            "value": "Используйте /side в чате на этом Mac"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ใช้ /side โดยไม่มีอาร์กิวเมนต์ในแชตภายในเครื่องที่พร้อมแยกสาขา"
+            "state": "needs_review",
+            "value": "ใช้ /side ในแชตบน Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dallanmaya hazır yerel bir sohbette /side komutunu bağımsız değişken olmadan kullanın"
+            "state": "needs_review",
+            "value": "/side komutunu bu Mac'teki bir sohbette kullanın"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Використовуйте /side без аргументів у локальному чаті, готовому до створення відгалуження"
+            "state": "needs_review",
+            "value": "Використовуйте /side у чаті на цьому Mac"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dùng /side không có đối số trong cuộc trò chuyện cục bộ đã sẵn sàng phân nhánh"
+            "state": "needs_review",
+            "value": "Dùng /side trong cuộc trò chuyện trên máy Mac này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "请在可以分叉的本地聊天中使用 /side，不带参数"
+            "state": "needs_review",
+            "value": "请在此 Mac 上的聊天中使用 /side"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "請在可以分支的本機聊天中使用 /side，不帶參數"
+            "state": "needs_review",
+            "value": "請在此 Mac 上的聊天中使用 /side"
           }
         }
       }
