@@ -387,6 +387,7 @@ export function NewTabScreen(props: Props) {
   const [newProject, setNewProject] = useState<{ name?: string }>();
   const [newProjectError, setNewProjectError] = useState<string>();
   const newProjectPending = useRef(false);
+  const newProjectMade = useRef<{ name: string; folder: string }>(undefined);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
   /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
@@ -1700,16 +1701,19 @@ export function NewTabScreen(props: Props) {
   }
   // New Project's chat: acpmux makes the folder and its repository, then the chat starts there as in
   // a picked folder, asked to serve what it builds; its first local page opens beside it (App.tsx
-  // useNewProjectPreview). A refusal shows above the card and the prompt stays in the field.
+  // takeProjectPreview). A refusal shows above the card and the prompt stays in the field. A send
+  // again after a start that failed reuses the folder made for the same name, never a `name-2`.
   function askInNewProject(agent: string, prompt: string, model?: string, sentAttachments?: ComposerAttachment[]) {
     if (newProjectPending.current || !props.onNewProject) return;
     newProjectPending.current = true;
     setNewProjectError(undefined);
     const extra = sentAttachments?.length ? sentAttachments : undefined;
     const name = projectSlug(newProject?.name ?? "") || projectNameFrom(prompt);
-    void props.onNewProject(name).then(
+    const made = newProjectMade.current?.name === name ? newProjectMade.current.folder : undefined;
+    void (made ? Promise.resolve(made) : props.onNewProject(name)).then(
       (folder) => {
         newProjectPending.current = false;
+        newProjectMade.current = { name, folder };
         awaitProjectPreview(folder);
         requestChat(agent, newProjectPrompt(prompt), folder, model, undefined, extra, {});
       },
