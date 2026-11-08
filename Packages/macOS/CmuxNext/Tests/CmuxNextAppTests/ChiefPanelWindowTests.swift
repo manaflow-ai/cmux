@@ -438,4 +438,23 @@ struct ChiefPanelWindowTests {
         }
         #expect(again == RefusalStrings.chiefNotDocked, "Undock Chief with the Chief floating: \(again ?? "ran")")
     }
+
+    /// Undock Chief on a docked Chief the person hid (Cmd-I) floats it and shows it: the action never reports done
+    /// with nothing visible.
+    @Test func undockChiefShowsAHiddenDockedChief() async throws {
+        let (chief, _) = Self.chiefView()
+        let f = try await Self.fixture(chief)
+        defer { f.close() }
+        AppActions.bind(f.services)
+        f.services.windows.show(workspaceID: "k1", in: f.state, from: .thisWindow)
+        f.controller.dockChiefPanel(at: .left)
+        f.controller.hideChiefPanel()
+        f.frame()
+        try #require(f.state.chiefPanel.dockedEdge == .left && !f.controller.frameChiefPanelShown)
+
+        #expect(f.services.registry.perform("home.undockChief", invocation: ActionInvocation(origin: .user)))
+        f.frame()
+        #expect(f.state.chiefPanel.dockedEdge == nil, "Undock Chief left the hidden Chief docked")
+        #expect(f.controller.frameChiefPanelShown, "Undock Chief left the Chief hidden")
+    }
 }
