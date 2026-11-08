@@ -13,8 +13,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const TIMEOUT: Duration = Duration::from_secs(20);
 
-/// A UDP path that drops every `every`-th WireGuard data datagram it sends,
-/// and never a parity or handshake datagram.
+/// A UDP path that drops every `every`-th WireGuard data datagram it sends
+/// (never, for 0), and never a parity or handshake datagram.
 struct Lossy {
     inner: UdpUnderlay,
     every: u64,
@@ -25,7 +25,7 @@ impl Underlay for Lossy {
     fn send(&mut self, datagram: &[u8]) {
         if classify(datagram) == DatagramClass::WireGuardData {
             self.seen += 1;
-            if self.seen % self.every == 0 {
+            if self.every > 0 && self.seen.is_multiple_of(self.every) {
                 return;
             }
         }
@@ -54,15 +54,26 @@ impl Underlay for Lossy {
     }
 }
 
-async fn pair(client_mode: UltraMode, server_mode: UltraMode) -> (WgNet, WgNet, SocketAddr) {
+/// A tunnel whose client and server paths drop every `client_every`-th and
+/// `server_every`-th data datagram they send.
+async fn pair(
+    (client_mode, client_every): (UltraMode, u64),
+    (server_mode, server_every): (UltraMode, u64),
+) -> (WgNet, WgNet, SocketAddr) {
     let LoopbackPair { client, server, client_socket, server_socket, server_v4, .. } =
         loopback_pair().await.unwrap();
     let server_addr = server_socket.local_addr().unwrap();
-    let lossy = |socket, peer| Lossy { inner: UdpUnderlay::new(socket, peer), every: 9, seen: 0 };
-    let server = WgNet::start_with_ultra(server, lossy(server_socket, None), server_mode).unwrap();
-    let client =
-        WgNet::start_with_ultra(client, lossy(client_socket, Some(server_addr)), client_mode)
+    let lossy =
+        |socket, peer, every| Lossy { inner: UdpUnderlay::new(socket, peer), every, seen: 0 };
+    let server =
+        WgNet::start_with_ultra(server, lossy(server_socket, None, server_every), server_mode)
             .unwrap();
+    let client = WgNet::start_with_ultra(
+        client,
+        lossy(client_socket, Some(server_addr), client_every),
+        client_mode,
+    )
+    .unwrap();
     (client, server, SocketAddr::new(server_v4, 7000))
 }
 
@@ -100,7 +111,7 @@ async fn echo(client: &WgNet, server: &WgNet, target: SocketAddr, len: usize) {
 async fn fec_rebuilds_lost_datagrams_and_the_peer_answers_in_kind() {
     let fec = UltraMode::Fec { group: 8, parity: 2 };
     // Only the client has the setting; the server learns it from parity.
-    let (client, server, target) = pair(fec, UltraMode::Off).await;
+    let (client, server, target) = pair((fec, 9), (UltraMode::Off, 9)).await;
     echo(&client, &server, target, 512 * 1024).await;
     let (sent, answered) = (client.ultra_stats(), server.ultra_stats());
     assert!(sent.parity_sent > 0, "client sends parity: {sent:?}");
@@ -111,7 +122,9 @@ async fn fec_rebuilds_lost_datagrams_and_the_peer_answers_in_kind() {
 
 #[tokio::test]
 async fn duplication_needs_nothing_from_the_peer() {
-    let (client, server, target) = pair(UltraMode::Duplicate { copies: 2 }, UltraMode::Off).await;
+    // Only the client's direction loses datagrams: the server sends no copies.
+    let (client, server, target) =
+        pair((UltraMode::Duplicate { copies: 2 }, 9), (UltraMode::Off, 0)).await;
     echo(&client, &server, target, 256 * 1024).await;
     assert!(client.ultra_stats().copies_sent > 0);
     assert_eq!(server.ultra_stats().copies_sent, 0, "duplication is one-sided");

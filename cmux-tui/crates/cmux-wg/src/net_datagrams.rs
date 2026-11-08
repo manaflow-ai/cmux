@@ -10,7 +10,6 @@ use tokio::sync::mpsc::error::TrySendError;
 use super::*;
 use crate::pacing::{DropCounters, Priority};
 use crate::udp;
-use crate::underlay::Underlay as _;
 
 /// Datagrams a bound port holds before new ones are dropped (unreliable by
 /// design: a reader that falls behind loses the newest, never blocks the

@@ -394,7 +394,7 @@ impl UltraUnderlay {
             }
             UltraMode::Fec { group, .. } => match data_id(datagram) {
                 Some((index, counter)) => {
-                    self.add_member(index, counter, datagram, priority, group)
+                    self.add_member(index, counter, datagram, priority, group);
                 }
                 None => {
                     // A lost handshake costs WireGuard a 5 s retry.
