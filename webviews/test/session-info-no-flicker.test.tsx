@@ -81,7 +81,9 @@ afterEach(async () => {
 });
 
 const CWD = "/Users/you/src/atlas-web";
-const PANE_WIDTH = 1200;
+// Session Info lies over the chat here (a push would narrow Chat Text Width's 800px column), as it did
+// at 1200px beside the old 720px column.
+const PANE_WIDTH = 1100;
 const UPDATES = 50;
 
 const edited = (path: string, newText: string) =>
